@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Using Film Tracker</title>
+<meta name="description" content="A complete guide to using Film Tracker and its features">
+<meta name="footer" content="Film Tracker  ·  User guide">
+<style>
+  :root {
+    --ink: #1d1d1f;
+    --muted: #6e6e73;
+    --faint: #86868b;
+    --hair: #d2d2d7;
+    --wash: #f5f5f7;
+    --accent: #0a64d8;
+    --accent-wash: #eaf2fd;
+    --green: #1f8a3b;
+    --green-wash: #e9f6ec;
+    --red: #c4282d;
+    --red-wash: #fcecec;
+    --amber: #a15c00;
+    --amber-wash: #fff4e0;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: var(--ink);
+    margin: 0;
+  }
+  h1, h2, h3, h4 {
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: -0.012em;
+    line-height: 1.2;
+    margin: 0;
+  }
+  h2 {
+    font-size: 21pt;
+    font-weight: 700;
+    margin: 0 0 4pt;
+    padding-top: 6pt;
+    break-after: avoid;
+  }
+  h2 + .lede { margin-top: 0; }
+  h3 {
+    font-size: 13.5pt;
+    font-weight: 650;
+    margin: 20pt 0 6pt;
+    break-after: avoid;
+  }
+  h4 {
+    font-size: 10.5pt;
+    font-weight: 650;
+    margin: 14pt 0 4pt;
+    break-after: avoid;
+  }
+  p { margin: 0 0 8pt; orphans: 3; widows: 3; }
+  .lede { font-size: 12pt; color: var(--muted); line-height: 1.45; margin-bottom: 14pt; }
+  .chapter { break-before: page; }
+  .eyebrow {
+    font-size: 8.5pt; font-weight: 650; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 4pt;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  ul, ol { margin: 0 0 9pt; padding-left: 17pt; }
+  li { margin-bottom: 3pt; }
+
+  /* Cover */
+  .cover {
+    height: 8.6in;
+    display: flex; flex-direction: column; justify-content: center;
+    break-after: page;
+  }
+  .cover .eyebrow { font-size: 10pt; margin-bottom: 10pt; }
+  .cover h1 { font-size: 44pt; font-weight: 750; letter-spacing: -0.03em; line-height: 1.04; margin-bottom: 14pt; }
+  .cover .sub { font-size: 15pt; color: var(--muted); max-width: 5.4in; line-height: 1.4; margin-bottom: 34pt; }
+  .cover .field-demo {
+    border: 1px solid var(--hair); border-radius: 10pt; background: var(--wash);
+    padding: 14pt 16pt; max-width: 5.6in;
+  }
+  .cover .field-demo .cap { font-size: 8.5pt; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8pt; font-weight: 600; }
+
+  /* The search field imitation */
+  .field {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 5pt;
+    background: #fff; border: 1px solid var(--hair); border-radius: 8pt;
+    padding: 6pt 9pt; font-size: 10pt;
+    margin: 4pt 0 10pt;
+  }
+  .field .mag { color: var(--faint); margin-right: 1pt; }
+  .field .typed { color: var(--ink); }
+  .field .ph { color: var(--faint); }
+  .pill {
+    display: inline-block; border-radius: 999px; padding: 1pt 8pt; font-size: 9pt; font-weight: 550;
+    background: #e3e3e8; color: #333; white-space: nowrap;
+  }
+  .pill.or  { background: var(--green-wash); color: var(--green); }
+  .pill.not { background: var(--red-wash); color: var(--red); }
+  .pill.blue { background: var(--accent-wash); color: var(--accent); }
+
+  /* Inline code and query blocks */
+  code, .q {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9.3pt;
+  }
+  code {
+    background: var(--wash); border: 1px solid #e6e6ea; border-radius: 4pt; padding: 0.5pt 4pt;
+    white-space: nowrap;
+  }
+  .ex {
+    margin: 6pt 0 10pt; border: 1px solid var(--hair); border-radius: 8pt; overflow: hidden;
+    break-inside: avoid;
+  }
+  .ex .row { display: flex; gap: 12pt; padding: 6pt 11pt; border-top: 1px solid #ececf0; align-items: baseline; }
+  .ex .row:first-child { border-top: 0; }
+  .ex .row:nth-child(odd) { background: #fbfbfd; }
+  .ex .q { flex: 0 0 2.75in; color: var(--accent); font-weight: 600; }
+  .ex .d { flex: 1; font-size: 9.8pt; color: var(--ink); }
+  .ex .head { background: var(--wash) !important; font-size: 8.5pt; font-weight: 650; text-transform: uppercase;
+              letter-spacing: 0.07em; color: var(--muted); }
+  .ex .head .q, .ex .head .d { font-family: inherit; font-size: 8.5pt; color: var(--muted); font-weight: 650; }
+
+  /* Callouts */
+  .note, .warn, .tip {
+    border-radius: 8pt; padding: 8pt 12pt; margin: 8pt 0 12pt; break-inside: avoid;
+    border-left: 3pt solid; font-size: 10pt;
+  }
+  .note { background: var(--accent-wash); border-color: var(--accent); }
+  .tip  { background: var(--green-wash);  border-color: var(--green); }
+  .warn { background: var(--amber-wash);  border-color: #d98a00; }
+  .note .t, .tip .t, .warn .t {
+    display: block; font-size: 8.5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 2pt;
+  }
+  .note .t { color: var(--accent); } .tip .t { color: var(--green); } .warn .t { color: var(--amber); }
+  .note p:last-child, .tip p:last-child, .warn p:last-child { margin-bottom: 0; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 12pt; font-size: 9.8pt; break-inside: auto; }
+  thead { display: table-header-group; }
+  th {
+    text-align: left; font-size: 8.5pt; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); background: var(--wash); padding: 5pt 8pt; border-bottom: 1px solid var(--hair);
+  }
+  td { padding: 5pt 8pt; border-bottom: 1px solid #ececf0; vertical-align: top; }
+  tr { break-inside: avoid; }
+  td code { white-space: normal; }
+  .nowrap { white-space: nowrap; }
+
+  /* Steps */
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 8pt 0 12pt; }
+  .steps li {
+    counter-increment: s; position: relative; padding: 0 0 0 28pt; margin-bottom: 8pt; min-height: 19pt;
+  }
+  .steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 0; width: 19pt; height: 19pt; border-radius: 50%;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: 9.5pt; text-align: center; line-height: 19pt;
+  }
+
+  .two { display: flex; gap: 14pt; }
+  .two > div { flex: 1; }
+  .card { border: 1px solid var(--hair); border-radius: 9pt; padding: 10pt 12pt; break-inside: avoid; }
+  .card h4 { margin-top: 0; }
+  .toc { margin: 8pt 0 0; }
+  .toc .item { display: flex; align-items: baseline; padding: 6pt 0; border-bottom: 1px solid #ececf0; }
+  .toc .n { width: 28pt; color: var(--accent); font-weight: 700; }
+  .toc .t { font-weight: 600; flex: 0 0 2.4in; }
+  .toc .s { color: var(--muted); font-size: 9.8pt; }
+  .small { font-size: 9pt; color: var(--muted); }
+  .cheat { font-size: 9.2pt; line-height: 1.35; break-inside: avoid; }
+  .cheat h2 { font-size: 19pt; }
+  .cheat .lede { font-size: 10.5pt; margin-bottom: 8pt; }
+  .cheat h4 { margin: 9pt 0 3pt; font-size: 9.6pt; }
+  .cheat p { margin-bottom: 4pt; }
+  .cheat table { margin: 2pt 0 6pt; font-size: 8.8pt; }
+  .cheat td { padding: 2.5pt 6pt; }
+  .cheat code { font-size: 8.2pt; padding: 0 3pt; }
+  .cheat .two { gap: 12pt; }
+  .center { text-align: center; }
+
+  /* Window diagram on the cover */
+  .win { display: flex; gap: 5pt; margin: 2pt 0 10pt; }
+  .win .pane {
+    background: #fff; border: 1px solid var(--hair); border-radius: 6pt; padding: 8pt 9pt;
+    display: flex; flex-direction: column; gap: 3pt; min-height: 1.15in;
+  }
+  .win .pane b { font-size: 9.5pt; color: var(--accent); }
+  .win .pane span { font-size: 8.8pt; color: var(--muted); line-height: 1.35; }
+  .win .side { flex: 0 0 1.25in; }
+  .win .main { flex: 1; }
+
+  /* Keeps a heading on the same page as the block that follows it. */
+  .keep { break-inside: avoid; }
+  .smart td:first-child { white-space: nowrap; }
+
+  /* Shortcut tables: one fixed key column so every table on the sheet lines up */
+  .cheat td:first-child { width: 1.1in; white-space: nowrap; }
+</style>
+
+</head>
+<body>
+
+<!-- ======================= COVER ======================= -->
+<section class="cover">
+  <div class="eyebrow">Film Tracker</div>
+  <h1>Using Film Tracker</h1>
+  <div class="sub">How to build your library, record what you watch, catalog the discs you own and want, and get answers back out of it all.</div>
+  <div class="field-demo">
+    <div class="cap">The main window, left to right</div>
+    <div class="win">
+      <div class="pane side"><b>Sidebar</b><span>Library, Smart Lists, and your own lists</span></div>
+      <div class="pane main"><b>Gallery</b><span>Every film in the view you picked, as posters or as a list</span></div>
+      <div class="pane side"><b>Contextual sidebar</b><span>Details, Releases, and Notes for the selected film</span></div>
+    </div>
+    <div class="small">Pick a view on the left, select a film in the middle, read and act on it on the right.</div>
+  </div>
+</section>
+
+<!-- ======================= CONTENTS ======================= -->
+<section>
+  <div class="eyebrow">Contents</div>
+  <h2>How this guide is organized</h2>
+  <p class="lede">Chapters 1 through 3 are the essentials. The rest can be read in any order when you reach the feature it covers. Searching has its own guide, the <em>Film Tracker Search Guide</em>, in the same folder as this one.</p>
+  <div class="toc">
+    <div class="item"><span class="n">1</span><span class="t">Getting started</span><span class="s">The window, the essential ideas, and a first session</span></div>
+    <div class="item"><span class="n">2</span><span class="t">Browsing the gallery</span><span class="s">Views, grid and list, sorting, filtering, selecting</span></div>
+    <div class="item"><span class="n">3</span><span class="t">Adding and editing films</span><span class="s">The film sheet and each of its five tabs</span></div>
+    <div class="item"><span class="n">4</span><span class="t">The contextual sidebar</span><span class="s">Details, Releases, and Notes for the selected film</span></div>
+    <div class="item"><span class="n">5</span><span class="t">Watching and rotation</span><span class="s">Viewing events, rotation thresholds, and the Queue</span></div>
+    <div class="item"><span class="n">6</span><span class="t">Releases</span><span class="s">Cataloging discs you own and discs you want</span></div>
+    <div class="item"><span class="n">7</span><span class="t">Lists and smart lists</span><span class="s">Your own lists, the built-in ones, and special sorting</span></div>
+    <div class="item"><span class="n">8</span><span class="t">Recents and Reports</span><span class="s">Recent activity, trackers, rankings, and statistics</span></div>
+    <div class="item"><span class="n">9</span><span class="t">Importing</span><span class="s">Films from MP4/M4V files and ratings from Blu-ray.com</span></div>
+    <div class="item"><span class="n">10</span><span class="t">Keeping the library healthy</span><span class="s">Duplicates, backups, restoring, and PDF export</span></div>
+    <div class="item"><span class="n">11</span><span class="t">Settings</span><span class="s">Every preference, tab by tab</span></div>
+    <div class="item"><span class="n">12</span><span class="t">Keyboard shortcuts</span><span class="s">Everything on one page</span></div>
+  </div>
+</section>
+
+<!-- ======================= 1. GETTING STARTED ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 1</div>
+  <h2>Getting started</h2>
+  <p class="lede">Film Tracker keeps a record of the films you own or care about: what they are, when you watched them, which discs you have bought, and which you still want. It manages information about your films, not the video files themselves.</p>
+
+  <div class="keep">
+  <h3>The window</h3>
+  <ul>
+    <li><strong>The sidebar</strong> on the left chooses what the window shows: the whole library, a built-in view such as Recents or Reports, a smart list, or one of your own lists. Hide or show it with <code>&#8997;&#8984;S</code>.</li>
+    <li><strong>The gallery</strong> in the middle shows the films in that view, as a grid of posters or as a list. A title bar above it holds the view&rsquo;s controls.</li>
+    <li><strong>The contextual sidebar</strong> on the right shows the selected film in three tabs: Details, Releases, and Notes (Chapter 4).</li>
+    <li><strong>The toolbar</strong> holds the Add Film, Import, New List, and Scan for Duplicates buttons and the search field.</li>
+    <li><strong>The status bar</strong> along the bottom counts the films in the view and how many are selected. It can be turned off in Settings &gt; General.</li>
+  </ul>
+  </div>
+
+  <h3>Five ideas the rest of the app builds on</h3>
+  <table>
+    <thead><tr><th style="width:1.45in">Idea</th><th>What it means</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Film</strong></td><td>One entry in your library: title, release date, people, genre, your rating, poster, and many optional details.</td></tr>
+      <tr><td><strong>Viewing event</strong></td><td>A dated record that you watched the film, optionally noting which version (Theatrical, Extended, and so on). Together they form the film&rsquo;s Viewing History.</td></tr>
+      <tr><td><strong>Rotation</strong></td><td>How long a film rests after you watch it before it is due again. When that time has passed, the film is <em>up for rotation</em>.</td></tr>
+      <tr><td><strong>Release</strong></td><td>A physical disc edition of a film (4K UHD, Blu-ray, or DVD) that you have purchased or want to.</td></tr>
+      <tr><td><strong>List</strong></td><td>A named group of films. You make your own; smart lists fill themselves; the Queue holds what you plan to watch next.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+  <h3>A first session</h3>
+  <ol class="steps">
+    <li><strong>Add some films.</strong> Click Add Film (<code>&#8997;A</code>) to enter one by hand, or choose File &gt; Import Metadata&hellip; (<code>&#8679;&#8984;I</code>) to add many at once from MP4/M4V files (Chapter 9). A film needs only a name and a release date.</li>
+    <li><strong>Record a viewing.</strong> Select a film, then click <strong>Add Viewing Event</strong> in the contextual sidebar and pick the date you watched it.</li>
+    <li><strong>Rate it.</strong> Press <code>&#8984;E</code> to edit the film and set its User Rating from 0 to 10, where 0 means not rated.</li>
+    <li><strong>Add a disc.</strong> Press <code>&#8984;R</code> to open the film&rsquo;s releases, click Add New Release, and fill in what you know.</li>
+    <li><strong>Turn on automatic backups.</strong> Settings &gt; General &gt; Automatic database backup keeps the three most recent backups for you (Chapter 10).</li>
+  </ol>
+  </div>
+
+  <div class="tip"><span class="t">Tip</span><p>Almost every button has a menu equivalent and a keyboard shortcut. The menus are the quickest way to discover what is possible from wherever you are, and Chapter 12 lists every shortcut.</p></div>
+</section>
+
+<!-- ======================= 2. GALLERY ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 2</div>
+  <h2>Browsing the gallery</h2>
+  <p class="lede">Every view in the sidebar fills the same gallery, and the same tools apply wherever you are: grid or list, sort, filter, select, act.</p>
+
+  <h3>The views in the sidebar</h3>
+  <table>
+    <thead><tr><th style="width:1.45in">View</th><th>Shows</th><th class="nowrap" style="width:0.7in">Shortcut</th></tr></thead>
+    <tbody>
+      <tr><td><strong>All Films</strong></td><td>The entire library.</td><td><code>&#8984;1</code></td></tr>
+      <tr><td><strong>Unwatched</strong></td><td>Two tabs: films not marked as watched, and films with no rating (Not Rated).</td><td><code>&#8984;2</code></td></tr>
+      <tr><td><strong>Recents</strong></td><td>Recent activity in five tabs (Chapter 8).</td><td><code>&#8984;3</code></td></tr>
+      <tr><td><strong>Reports</strong></td><td>Spending, prices, rankings, wishlist, and statistics (Chapter 8).</td><td><code>&#8984;4</code></td></tr>
+      <tr><td><strong>Imports</strong></td><td>Import tools and the history of past imports (Chapter 9).</td><td></td></tr>
+      <tr><td><strong>Queue</strong></td><td>Films you plan to watch, in Up Next, Soon, and Later (Chapter 5).</td><td><code>&#8984;5</code></td></tr>
+      <tr><td><strong>Smart Lists</strong></td><td>Lists that maintain themselves (Chapter 7). The first five have <code>&#8984;6</code> through <code>&#8984;9</code> and <code>&#8984;0</code>.</td><td><code>&#8984;6</code>&ndash;<code>0</code></td></tr>
+      <tr><td><strong>Lists</strong></td><td>The lists you create.</td><td></td></tr>
+    </tbody>
+  </table>
+  <p>Views with tabs (Unwatched, Recents, Reports, Imports, the Queue, and each smart list family) show a picker at the top of the gallery. Switch tabs with <code>&#8997;&#8984;1</code> through <code>&#8997;&#8984;9</code>, or step through them with <code>&#8984;&uarr;</code> and <code>&#8984;&darr;</code>.</p>
+
+  <div class="keep">
+  <h3>Grid and list</h3>
+  <p>Press <code>&#8984;K</code> (View &gt; View as List / View as Grid) to switch between poster grid and list. The list view shows columns of details and is easier to scan for numbers and dates. The <strong>Large poster images</strong> setting makes the grid use fewer, larger posters on big windows.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Sorting</h3>
+  <p>Choose View &gt; Sort By, or the sort button in the gallery&rsquo;s title bar. You can sort by Title, Year, Duration, Date Added, Date Modified, Date Purchased, Last Viewed, Recorded View Count, or Rating, ascending or descending. Options that cannot mean anything in the current view are dimmed; for example, Last Viewed on the Unwatched tab.</p>
+  </div>
+  <ul>
+    <li><strong>Section dividers</strong> split the gallery into labeled bands that follow the sort, such as one band per year, per letter of the title, or per rating. Turn them on or off in the same menu.</li>
+    <li><strong>Jump to Section</strong>, in the same menu, scrolls straight to a band.</li>
+    <li>Title sorting uses a film&rsquo;s <strong>Sort Name</strong> when it has one (Metadata tab), so &ldquo;The Godfather&rdquo; can sort under G.</li>
+  </ul>
+
+  <div class="keep">
+  <h3>Filtering</h3>
+  <p>View &gt; Filter (or the filter button in the title bar) narrows the current view without searching. Filters come in pairs, and you can combine pairs:</p>
+  </div>
+  <table>
+    <thead><tr><th style="width:1.9in">Filter</th><th>Keeps</th></tr></thead>
+    <tbody>
+      <tr><td>Watched / Unwatched</td><td>Films marked, or not marked, as watched.</td></tr>
+      <tr><td>Color / Black and White</td><td>Films by their Color setting.</td></tr>
+      <tr><td>Purchased / Unpurchased</td><td>Films with at least one purchased release, or with none purchased.</td></tr>
+      <tr><td>Complete Data / Incomplete Data</td><td>Films by their Complete Data flag. Shown only when that feature is enabled in Settings &gt; Advanced.</td></tr>
+      <tr><td>Genres</td><td>Action and Adventure, Comedy, Drama, Horror, Kids and Family, Sci-Fi and Fantasy, Thriller. Several genres together keep films in <em>any</em> of them.</td></tr>
+    </tbody>
+  </table>
+  <p>Choose <strong>None</strong> to clear every filter. With <em>Remember the last-selected view options</em> turned on in Settings &gt; General, each view keeps its own sort, filter, and grid or list style. Your own lists always remember theirs.</p>
+
+  <div class="keep">
+  <h3>Selecting and acting on films</h3>
+  <ul>
+    <li>Click to select; <code>&#8984;</code>-click and <code>&#8679;</code>-click to select several. <code>&#8984;A</code> selects everything in the view.</li>
+    <li>Press <strong>Tab</strong> to move keyboard focus into the gallery, then use the arrow keys.</li>
+    <li>Right-click a film (or use the Film menu) to add it to the Queue or a list, see which lists it is in, edit it, remove it from a list, or delete it.</li>
+    <li><code>&#8984;L</code> (View &gt; Scroll to Selection) brings the selected film back into view after scrolling away.</li>
+    <li>Drag films onto a list or the Queue in the sidebar to add them there.</li>
+  </ul>
+  </div>
+
+  <div class="keep">
+  <h3>Searching</h3>
+  <p>The search field in the toolbar (<code>&#8984;F</code>) searches the whole library from any view. Plain text matches titles. Typing <code>#</code> starts a <em>token</em> that asks about any other field, such as <code>#director kubrick</code> or <code>#rating 8+</code>. Clearing the search returns you to the view you came from. The <em>Film Tracker Search Guide</em> explains every token.</p>
+  </div>
+
+  <div class="warn"><span class="t">Removing versus deleting</span><p><strong>Remove from List</strong> (<code>&#8997;&#9003;</code>) takes a film out of the list you are viewing. <strong>Remove from All Lists</strong> (<code>&#8679;&#8997;&#9003;</code>) takes it out of every list and the Queue. <strong>Delete from Library</strong> (<code>&#8984;&#9003;</code>) removes the film, with its viewings and releases, from Film Tracker entirely. By default you are asked to confirm deletions; Settings &gt; General controls those warnings.</p></div>
+</section>
+
+<!-- ======================= 3. FILM SHEET ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 3</div>
+  <h2>Adding and editing films</h2>
+  <p class="lede">Every film is created and changed in the film sheet. Open it with Add Film (<code>&#8997;A</code>) for a new film, or with Edit Metadata&hellip; (<code>&#8984;E</code>) or the Edit button in the contextual sidebar for the selected one.</p>
+
+  <p>The sheet has five tabs: <strong>Details, Metadata, Releases, Notes, Poster</strong>. Switch with <code>&#8997;1</code> through <code>&#8997;5</code>, or step with <code>&#8984;&uarr;</code> and <code>&#8984;&darr;</code>. Nothing is saved until you click <strong>Add</strong> or <strong>Update</strong>; <strong>Cancel</strong> discards every change made in the sheet. Only <strong>Name</strong> and <strong>Release Date</strong> are required.</p>
+
+  <h3>Details</h3>
+  <table>
+    <thead><tr><th style="width:1.55in">Field</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>Name</td><td>The title shown everywhere. Required.</td></tr>
+      <tr><td>Release Date</td><td>Required. Its year is the film&rsquo;s year, and viewing dates cannot be earlier than it (see Settings &gt; Advanced to override that once).</td></tr>
+      <tr><td>User Rating</td><td>Your rating, 0 to 10. 0 means Not Rated.</td></tr>
+      <tr><td>Genre / Rating</td><td>One of the seven genres, and the MPAA content rating.</td></tr>
+      <tr><td>Queue Membership</td><td>Which Queue section the film is in, if any. The option beneath it adds the film to a chosen section automatically when it comes up for rotation (Chapter 5).</td></tr>
+      <tr><td>Duration / Edited</td><td>The runtime. For an edited film, also its edited runtime, which then counts as its length everywhere.</td></tr>
+      <tr><td>Viewing Events</td><td>The film&rsquo;s viewing history. Add (<code>&#8997;A</code>), change, or remove dated viewings and their versions here.</td></tr>
+      <tr><td>List Membership</td><td>The lists the film belongs to.</td></tr>
+      <tr><td>Synopsis</td><td>A plot summary. Searchable with the Synopsis token.</td></tr>
+      <tr><td>Watched</td><td>Marks the film as watched. Adding a viewing event sets this for you; check it by hand for films you saw before you started keeping dates.</td></tr>
+      <tr><td>Edited</td><td>Marks a film you have re-edited yourself. Edited films appear in the Edited smart list and can carry edit notes (Notes tab).</td></tr>
+      <tr><td>Hall of Fame</td><td>Adds the film to your Hall of Fame ranking (Chapter 8). At most 200 films.</td></tr>
+      <tr><td>Complete Data</td><td>A flag you set when a film&rsquo;s information is finished. Shown only when enabled in Settings &gt; Advanced.</td></tr>
+      <tr><td>Special Sorting</td><td>Status tags that keep a film out of rotation and out of the Filtered Library (Chapter 7).</td></tr>
+      <tr><td>Rotation Threshold</td><td><strong>Use Default</strong>, or a period of its own for this film (Chapter 5).</td></tr>
+      <tr><td>External IDs</td><td>The film&rsquo;s IMDb.com and Blu-ray.com numbers, so the Web Query button can open its pages directly.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+  <h3>Metadata</h3>
+  <p>The descriptive and technical record of the film, mostly filled in by imports:</p>
+  </div>
+  <ul>
+    <li><strong>People and companies:</strong> Cast, Director, Producer, Executive Producer, Screenwriter, Composer, Studio. Each holds several names; add or remove rows as needed.</li>
+    <li><strong>Titles:</strong> Sort Name (used for title sorting) and any Alternate Titles (matched by searches and by ratings imports).</li>
+    <li><strong>Your copy:</strong> Digital Source (the disc or download tier it came from, optionally remastered), Version and Subtitles, Included Versions, Aspect Ratio and Frame Rate, Color (including Colorized and Black-and-White), Encoding Tools, and HandBrake RF Value.</li>
+    <li><strong>Text:</strong> Notes, iTunes Comments, and Tags. Tags are free-form labels that you can search for with the Tags token.</li>
+  </ul>
+
+  <div class="keep">
+  <h3>Releases</h3>
+  <p>The film&rsquo;s disc editions. This tab has enough to it that Chapter 6 covers it on its own. <code>&#8984;R</code> opens the sheet directly on this tab.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Notes</h3>
+  <p>A worksheet for films you edit yourself. It records the release your edit was made from, the software tools and HandBrake RF value used, the edit date, any warnings, a description of the process, notes on audio timing and special audio, and general notes.</p>
+  </div>
+  <p>The <strong>HandBrake Frames</strong> table lists the cut points of the edit as frame numbers with matching time codes. Each entry can be marked with an asterisk, a caret, or a number to point to a note, and can note a Final Cut Pro audio fade (Linear, S-curve, +3dB, or &minus;3dB). <strong>Bulk Import</strong> fills both columns at once from comma-separated lists, which is quickest when copying from another tool.</p>
+
+  <div class="keep">
+  <h3>Poster</h3>
+  <p>Click <strong>Select An Image&hellip;</strong> to add or replace the poster, or <strong>Delete Poster</strong> to remove it (<strong>Undo Delete</strong> restores it until you save). Imports add posters automatically from the file&rsquo;s artwork.</p>
+  </div>
+
+  <div class="note"><span class="t">Note</span><p>The Details tab&rsquo;s Release Date and the Metadata tab&rsquo;s Sort Name are the two fields that most change how a film sorts. If a film appears in the wrong place, check those first.</p></div>
+</section>
+
+<!-- ======================= 4. CONTEXTUAL SIDEBAR ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 4</div>
+  <h2>The contextual sidebar</h2>
+  <p class="lede">Everything about the selected film, without opening the sheet. Switch tabs with <code>&#8997;1</code> (Details), <code>&#8997;2</code> (Releases), and <code>&#8997;3</code> (Notes).</p>
+
+  <div class="keep">
+  <h3>The header</h3>
+  <p>The poster, your rating, the year, content rating, and genre, with an <strong>Edit</strong> button that opens the film sheet.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Details tab</h3>
+  <ul>
+    <li><strong>Add Viewing Event</strong> records a viewing (Chapter 5).</li>
+    <li><strong>Web Query</strong>, the globe button beside it, opens the film on IMDb.com or Blu-ray.com in your browser, or searches for it there if its External IDs are not set. It can be hidden in Settings &gt; General.</li>
+    <li><strong>Watch details:</strong> Last Watched, Next Up for Rotation, Recorded View Count, Average Between Viewings, Duration, and Source for Viewing: what you would watch the film from (a disc you own, or its digital source), with a note when a disc in a format you do not own is available to buy.</li>
+    <li><strong>Viewing History</strong> lists every viewing with the time since the one before it. Additional columns, such as the version watched, can be turned on in Settings &gt; General.</li>
+    <li><strong>List Membership</strong> shows the lists, smart lists, and Queue section the film is in. Click a list to open it with the film selected (the same as Film &gt; Show in List).</li>
+    <li><strong>Synopsis</strong> and <strong>Metadata</strong> show the rest of the film&rsquo;s record. In the Cast and Crewmen section, the magnifying glass beside each name searches the library for that person or studio.</li>
+  </ul>
+  </div>
+
+  <div class="keep">
+  <h3>Releases tab</h3>
+  <p>A summary of each release (format, studio, purchase status, price or cost, region, HDR, audio, artwork) and, if you turn it on in Settings, a table comparing all of a film&rsquo;s releases side by side.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Notes tab</h3>
+  <p>The film sheet&rsquo;s Notes tab, read-only: the edit record and the HandBrake Frames table with its legend.</p>
+  </div>
+
+  <div class="tip"><span class="t">Tip</span><p>Settings &gt; General &gt; Contextual sidebar decides whether the sidebar stays on the same tab when you select another film, and whether collapsed tables open automatically.</p></div>
+</section>
+
+<!-- ======================= 5. WATCHING ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 5</div>
+  <h2>Watching and rotation</h2>
+  <p class="lede">Record each viewing as it happens, and Film Tracker works out what is due to be watched again and keeps your plans in the Queue.</p>
+
+  <div class="keep">
+  <h3>Recording a viewing</h3>
+  <ol class="steps">
+    <li>Select the film and click <strong>Add Viewing Event</strong> in the contextual sidebar. (In the film sheet&rsquo;s Details tab, press <code>&#8997;A</code> instead.)</li>
+    <li>Pick the date. By default it cannot be earlier than the film&rsquo;s release date.</li>
+    <li>Optionally pick the <strong>Version</strong> you watched: Theatrical, Extended, Director&rsquo;s Cut, Special Edition, Alternate Ending, Unrated, Television Cut, Workprint, International Cut, &ldquo;The Final Cut&rdquo;, Custom Edit, Colorized, Black-and-white, or Other.</li>
+    <li>Click <strong>Add</strong>. The film is marked as watched, its Last Watched date moves forward if this viewing is the newest, and its rotation date is recalculated.</li>
+  </ol>
+  </div>
+  <p>A film can have one viewing per day. To change or remove a viewing, edit the film and use the Viewing Events table in the Details tab.</p>
+
+  <div class="keep">
+  <h4>Adding the viewing to your calendar</h4>
+  <p>With <strong>System calendar integration</strong> turned on in Settings &gt; General, the same popover can also put the viewing in your Mac&rsquo;s calendar. Check <strong>Add Event to System Calendar</strong>, choose a start time and a calendar, and the event is created with the film&rsquo;s runtime as its length (the popover shows when it will end). macOS asks once for permission to use your calendars. Film Tracker only reads the list of calendars and writes the events you add.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Rotation</h3>
+  <p>A film&rsquo;s <strong>rotation threshold</strong> is how long it rests after your most recent viewing before it is <em>up for rotation</em> (due to be watched again). The choices are 1, 1&frac12;, 2, 3, 4, and 5 years.</p>
+  </div>
+  <ul>
+    <li><strong>The default</strong> threshold for every film is set in Settings &gt; General.</li>
+    <li><strong>An override</strong> gives one film its own threshold: edit the film and change Rotation Threshold from Use Default. <strong>Reset All Overrides</strong> in Settings returns every film to the default.</li>
+    <li><strong>Due dates round up</strong> to the first of the following month. A film last watched on March 14, 2024 with a 1-year threshold comes up for rotation on April 1, 2025.</li>
+  </ul>
+  <p>The contextual sidebar&rsquo;s <strong>Next Up for Rotation</strong> field shows the due date and the time left, or <em>Ready for viewing</em> once it has arrived, or the Queue section the film is waiting in. Two smart lists collect these films: <strong>Up for Rotation</strong> (due under its threshold) and <strong>Viewed Over One Year Ago</strong>.</p>
+
+  <div class="note"><span class="t">What rotation ignores</span><p>Films with no viewing date are never up for rotation, since there is nothing to count from. Films carrying any <strong>Special Sorting</strong> tag (Chapter 7) are left out of both rotation lists, whatever their dates.</p></div>
+
+  <div class="keep">
+  <h3>The Queue</h3>
+  <p>The Queue (<code>&#8984;5</code>) is your viewing plan, in three sections: <strong>Up Next</strong>, <strong>Soon</strong>, and <strong>Later</strong>. A film is in at most one section. The Queue&rsquo;s <strong>All</strong> tab shows the three sections together as bands; the other tabs show one section each.</p>
+  </div>
+  <ul>
+    <li><strong>Adding:</strong> Film &gt; Add to Queue, the right-click menu, the film sheet&rsquo;s Queue Membership picker, or drag films onto Queue in the sidebar. Dragged films go to the section chosen in Settings &gt; General.</li>
+    <li><strong>Moving:</strong> choose a different section from the same menus (which read Manage Queue Membership once a film is queued). The film leaves its old section.</li>
+    <li><strong>Removing:</strong> in the Queue, press <code>&#8997;&#9003;</code> (Remove from List).</li>
+    <li><strong>Automatically:</strong> in the film sheet, check <em>Add to &hellip; Queue when up for rotation</em> and choose a section. The film is queued for you when it comes due.</li>
+  </ul>
+  <p>Settings &gt; General can keep queued films out of the Up for Rotation lists (so those lists show only what you have not yet planned), and can warn before you queue a film that carries a Special Sorting tag.</p>
+
+  <div class="keep">
+  <h3>The Unwatched view</h3>
+  <p>The Unwatched view (<code>&#8984;2</code>) has two tabs: <strong>Unwatched</strong>, films not marked as watched, and <strong>Not Rated</strong>, films whose rating is 0.</p>
+  </div>
+</section>
+
+<!-- ======================= 6. RELEASES ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 6</div>
+  <h2>Releases</h2>
+  <p class="lede">A release is one disc edition of a film. Record the ones you own to track what you paid, and the ones you want to track prices and build a wishlist.</p>
+
+  <div class="keep">
+  <h3>Working with releases</h3>
+  <p>Press <code>&#8984;R</code> (Film &gt; Edit Releases&hellip;) to open the film sheet on its Releases tab. Each release is a card in a carousel; the arrows and the menu at the top move between them.</p>
+  </div>
+  <table>
+    <thead><tr><th style="width:2.2in">To&hellip;</th><th>Do this</th></tr></thead>
+    <tbody>
+      <tr><td>Add a release</td><td>Add New Release, then pick 4K UHD, Blu-ray, or DVD. Or press <code>&#8984;N</code> for a Blu-ray, <code>&#8997;&#8984;N</code> for a 4K UHD.</td></tr>
+      <tr><td>Open a film straight to its 4K release</td><td><code>&#8997;&#8984;R</code> from the gallery.</td></tr>
+      <tr><td>Delete the card on screen</td><td>The Delete button, or <code>&#8984;&#9003;</code>.</td></tr>
+      <tr><td>Save</td><td>Update, as for any change in the sheet.</td></tr>
+    </tbody>
+  </table>
+  <p>A film can hold up to ten cards. A combo pack counts as one card, including its bundled discs.</p>
+
+  <h3>What a release records</h3>
+  <table>
+    <thead><tr><th style="width:1.6in">Row</th><th>Holds</th></tr></thead>
+    <tbody>
+      <tr><td>Type / Versions</td><td>Standalone, Combo-pack, Combo-pack (dual BD), or Multi-pack; and the film versions on the disc.</td></tr>
+      <tr><td>Purchased</td><td>Whether you own it. Purchased releases count toward spending and the Purchased smart lists.</td></tr>
+      <tr><td>Misc. Traits / Art</td><td>Aspect ratio; Recordable (a BD-R or DVD-R), Remastered, Includes Subtitles, Wishlisted; and the artwork (correct, Steelbook, custom, mismatched, or missing).</td></tr>
+      <tr><td>Video</td><td>Codec, HDR format (Dolby Vision, HDR10, HDR10+), whether a 4K disc is upscaled or native, and whether the transfer is interlaced.</td></tr>
+      <tr><td>Audio</td><td>Format (Dolby Atmos, TrueHD, DTS-HD MA, LPCM, and others) and channels.</td></tr>
+      <tr><td>Studio</td><td>The label or distributor of this disc, which can differ from the film&rsquo;s studio.</td></tr>
+      <tr><td>Released / Discs</td><td>The year of this release, an optional base year when it reissues an earlier one with the same transfer, and the number of discs.</td></tr>
+      <tr><td>Country / Region</td><td>National origin (anything but the United States counts as an import) and region lock: A, B, B loosely-locked, Region Free, or DVD regions 1&ndash;5.</td></tr>
+      <tr><td>Cost / Spent</td><td>For owned discs: the price and the amount actually spent, the purchase date, and New or Used condition.</td></tr>
+      <tr><td>Lowest Price</td><td>For discs you want: the lowest price seen, when you last saw it, and market availability (Available, out of print, import only, temporarily unavailable).</td></tr>
+      <tr><td>Notes</td><td>Anything else.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+  <h3>Combo packs</h3>
+  <p>Set a 4K release&rsquo;s Type to <strong>Combo-pack</strong> and a bundled Blu-ray card is created and linked to it (two for <strong>Combo-pack (dual BD)</strong>). The bundled discs share the 4K card&rsquo;s purchase details, which is why those rows are dimmed on them, and they cannot be deleted on their own. Changing the Type back asks before removing bundled discs you have edited.</p>
+  </div>
+
+  <div class="keep">
+  <h3>The wishlist</h3>
+  <p>Turn on <strong>Wishlisted</strong> for a release you want. Wishlisted releases are collected, in an order you choose, on the Release Wishlist report (Chapter 8). A release cannot be both purchased and wishlisted, so marking it purchased takes it off the wishlist.</p>
+  </div>
+
+  <div class="tip"><span class="t">Tip</span><p>Searches can ask about releases too: <code>#release dolby vision</code>, <code>#release region free</code>, <code>#release criterion</code>. See Chapter 7 of the Search Guide.</p></div>
+</section>
+
+<!-- ======================= 7. LISTS ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 7</div>
+  <h2>Lists and smart lists</h2>
+  <p class="lede">Your own lists hold whatever you put in them. Smart lists hold whatever matches their rule, and update themselves as your library changes.</p>
+
+  <div class="keep">
+  <h3>Your own lists</h3>
+  <ul>
+    <li><strong>Create</strong> one with File &gt; Create New List&hellip; (<code>&#8984;N</code>), or make one from the films you have selected with Create New List from Selection&hellip; (<code>&#8679;&#8984;N</code>).</li>
+    <li><strong>Add films</strong> by dragging them onto the list in the sidebar, with Film &gt; Add to List, or in the film sheet&rsquo;s List Membership field.</li>
+    <li><strong>Reorder</strong> lists by dragging them in the sidebar.</li>
+    <li><strong>Manage</strong> a list by right-clicking it: Edit List Name&hellip;, Duplicate List (<code>&#8997;&#8984;N</code>), Clear List Contents, Delete All List Contents from Library, and Remove List.</li>
+  </ul>
+  </div>
+  <div class="warn"><span class="t">Know the difference</span><p><strong>Clear List Contents</strong> empties the list and leaves the films in your library. <strong>Delete All List Contents from Library</strong> deletes every film in the list from Film Tracker. <strong>Remove List</strong> deletes the list itself and leaves its films alone.</p></div>
+  <p>A list cannot share a name with a smart list or with a Queue section.</p>
+
+  <div class="keep">
+  <h3>Smart lists</h3>
+  <p>Smart lists appear in the sidebar in five families. Expand a family with its disclosure arrow, or pick a member from the picker above the gallery.</p>
+  </div>
+  <table class="smart">
+    <thead><tr><th style="width:2.15in">Smart list</th><th>Contains films that&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Up for Rotation</strong></td><td>have reached their rotation date (Chapter 5).</td></tr>
+      <tr><td>&nbsp;&nbsp;Viewed Over One Year Ago</td><td>were last watched more than a year ago, by the same rounding.</td></tr>
+      <tr><td><strong>Purchased</strong></td><td>have at least one purchased release.</td></tr>
+      <tr><td>&nbsp;&nbsp;Purchased 4K / Blu-ray / DVD</td><td>have a purchased release in that format.</td></tr>
+      <tr><td><strong>Unpurchased</strong></td><td>have releases, none of them purchased.</td></tr>
+      <tr><td>&nbsp;&nbsp;Unpurchased 4K / Blu-ray / DVD</td><td>have a release in that format and have purchased none in it.</td></tr>
+      <tr><td><strong>Alternate Versions</strong></td><td>have a purchased release with versions beyond the Theatrical cut.</td></tr>
+      <tr><td>&nbsp;&nbsp;Edited</td><td>are marked as Edited.</td></tr>
+      <tr><td><strong>Filtered Library</strong></td><td>are watched and carry no Special Sorting tag: your library with the exceptions set aside.</td></tr>
+      <tr><td>&nbsp;&nbsp;Five tag lists</td><td>carry that Special Sorting tag: Waiting for Edit, Temporarily On Hold, Indefinitely On Hold, Ignore, Blacklisted.</td></tr>
+    </tbody>
+  </table>
+  <p>Smart lists can be hidden from the sidebar in Settings &gt; General. While they are hidden, they are also unavailable to the List search token.</p>
+
+  <div class="keep">
+  <h3>Special sorting</h3>
+  <p>Special Sorting tags, set in the film sheet&rsquo;s Details tab, mark films that should be set apart from your regular viewing. A tagged film is excluded from the rotation lists and from the Filtered Library, and appears instead in its tag&rsquo;s list.</p>
+  </div>
+  <ul>
+    <li><strong>Waiting for edit</strong> and <strong>Temporarily on hold</strong> can be combined with each other and with one of the three below.</li>
+    <li><strong>Indefinitely on hold</strong>, <strong>Ignore</strong>, and <strong>Blacklisted</strong> exclude one another; choosing one clears the others.</li>
+  </ul>
+
+  <div class="keep">
+  <h3>Finding a film&rsquo;s lists</h3>
+  <p>Film &gt; Show in List names every list a film is in and opens the one you choose with the film selected. The contextual sidebar&rsquo;s List Membership table does the same.</p>
+  </div>
+</section>
+
+<!-- ======================= 8. RECENTS AND REPORTS ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 8</div>
+  <h2>Recents and Reports</h2>
+  <p class="lede">Recents shows what has changed lately. Reports turns the whole library into tables, rankings, and statistics.</p>
+
+  <div class="keep">
+  <h3>Recents</h3>
+  <p>Each tab is ordered newest first and shows up to 200 films.</p>
+  </div>
+  <table>
+    <thead><tr><th style="width:2.3in">Tab</th><th>Shows</th></tr></thead>
+    <tbody>
+      <tr><td>Most Recently Viewed</td><td>Films by their latest viewing date.</td></tr>
+      <tr><td>Recently Come Up for Rotation</td><td>Films whose rotation date arrived within the last 60 days.</td></tr>
+      <tr><td>Recently Added</td><td>Films by the date they entered the library.</td></tr>
+      <tr><td>Recently Updated</td><td>Films by the date they were last changed.</td></tr>
+      <tr><td>Recently Purchased</td><td>Films with a release purchased within the last 90 days.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+  <h3>Reports</h3>
+  <p>The Reports view (<code>&#8984;4</code>) has five tabs. The share button in its title bar opens the PDF export (Chapter 10).</p>
+  </div>
+
+  <div class="keep">
+  <h4>Purchase and Expense Tracker</h4>
+  <p>Every purchased release with its cost, the amount spent, the purchase date, studio, condition, and notes. Click a column heading to sort by it.</p>
+  </div>
+
+  <div class="keep">
+  <h4>Price Tracker</h4>
+  <p>Every unpurchased release with a lowest price recorded, and when that price was seen. Use it to spot a deal against what you have seen before.</p>
+  </div>
+
+  <div class="keep">
+  <h4>Hall of Fame</h4>
+  <p>Your personal ranking of up to 200 films. Add a film with the Hall of Fame checkbox in the film sheet; it joins at the bottom. Drag rows to reorder them. The report also shows the best format you own each film in, and when a better format is available.</p>
+  </div>
+
+  <div class="keep">
+  <h4>Release Wishlist</h4>
+  <p>Every wishlisted release, with its format, studio, year, packaging, and market availability. Drag rows to set the order of priority.</p>
+  </div>
+
+  <div class="keep">
+  <h4>Visualizations and Insights</h4>
+  <p>A long, scrolling page of charts and figures drawn from everything you have entered. The sections include:</p>
+  </div>
+  <div class="two">
+    <div><ul>
+      <li><strong>Library Overview</strong> and <strong>Ownership</strong></li>
+      <li><strong>Needs Attention:</strong> overdue rotations, missing posters, IDs, or artwork, unrated films, and more</li>
+      <li><strong>Collection Growth</strong> and <strong>Ratings Breakdown</strong></li>
+      <li><strong>Viewing History:</strong> viewings per year, rewatches, seasonality, versions watched</li>
+      <li><strong>Rotation:</strong> what is overdue or due soon, and whether your thresholds match your habits</li>
+    </ul></div>
+    <div><ul>
+      <li><strong>Purchases and Spending</strong>, <strong>Spending Trends</strong>, and <strong>Value Realized</strong> (cost per viewing)</li>
+      <li><strong>Wishlist</strong> and <strong>Duplicates and Upgrades</strong></li>
+      <li><strong>Studios and Labels</strong> and <strong>Regions</strong></li>
+      <li><strong>Release Decades, Runtime, and Picture</strong></li>
+      <li><strong>People and Genres</strong>, and <strong>Audio, Sources, and Technical</strong></li>
+    </ul></div>
+  </div>
+  <p>Some sections have their own controls, such as a time span, that apply to that section only. Charts fill in as you record viewing dates, purchase dates, and prices; a section with too little data says so rather than showing an empty chart.</p>
+</section>
+
+<!-- ======================= 9. IMPORTING ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 9</div>
+  <h2>Importing</h2>
+  <p class="lede">Two imports fill the library for you: film information from tagged video files, and your ratings from Blu-ray.com. Both are in File and in the Imports view.</p>
+
+  <div class="keep">
+  <h3>Films from MP4/M4V files</h3>
+  <p>Choose File &gt; Import Metadata&hellip; (<code>&#8679;&#8984;I</code>) and select video files, a folder, or both. Film Tracker reads the iTunes-style metadata in each file. The video itself is never copied or changed.</p>
+  </div>
+  <table>
+    <thead><tr><th style="width:1.9in">From the file&rsquo;s tags</th><th>Fills in</th></tr></thead>
+    <tbody>
+      <tr><td>Title, release date, genre</td><td>Name, Release Date, Genre</td></tr>
+      <tr><td>Content rating</td><td>MPAA rating</td></tr>
+      <tr><td>Movie information</td><td>Cast, directors, producers, screenwriters, studio</td></tr>
+      <tr><td>Composer, executive producer</td><td>Composer, Executive Producer</td></tr>
+      <tr><td>Description, comments</td><td>Synopsis, iTunes Comments</td></tr>
+      <tr><td>Sort name, encoding tool</td><td>Sort Name, Encoding Tools</td></tr>
+      <tr><td>Artwork</td><td>Poster</td></tr>
+      <tr><td>The video itself</td><td>Duration, aspect ratio, and digital source (inferred from the comments or the resolution)</td></tr>
+    </tbody>
+  </table>
+  <p>A file whose title and year match a film already in the library is a <strong>duplicate</strong>. By default duplicates are skipped; with <em>Update existing information for duplicates</em> on (Settings &gt; Import), the existing film takes the file&rsquo;s values wherever they differ.</p>
+
+  <div class="keep">
+  <h3>Ratings from Blu-ray.com</h3>
+  <p>Save your ratings page from Blu-ray.com as an HTML file, then choose File &gt; Import Ratings&hellip; (<code>&#8997;&#8984;I</code>) and select it. Each rating is matched to a film by title and year, then by alternate titles for any left over. Ratings that match no film are listed as Not Found and discarded. A film that already has a rating keeps it, unless <em>Update existing ratings</em> is on.</p>
+  </div>
+
+  <div class="keep">
+  <h3>The Imports view</h3>
+  <p>The Imports view has a Metadata tab and a Ratings tab. Each shows the import in progress, with a Cancel button, and a card for every past import that counts the items added, updated, skipped as duplicates, not found, and failed. Click a count to see the titles involved. <strong>Clear This Item</strong> and <strong>Clear All</strong> tidy the history; they do not undo the imports.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Matching settings</h3>
+  <p>In Settings &gt; Import:</p>
+  </div>
+  <ul>
+    <li><strong>Fuzzy title matching</strong> tolerates small differences in titles when detecting duplicates and pairing ratings, which finds many more matches.</li>
+    <li><strong>Fuzzy year matching for ratings</strong> accepts a year one off in either direction when pairing ratings.</li>
+    <li><strong>Scan subfolders for items</strong> includes files inside subfolders of a folder you select.</li>
+    <li><strong>Always override the &ldquo;Sort Name&rdquo; field</strong> replaces a file&rsquo;s own sort name with one Film Tracker generates consistently.</li>
+  </ul>
+</section>
+
+<!-- ======================= 10. MAINTENANCE ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 10</div>
+  <h2>Keeping the library healthy</h2>
+  <p class="lede">Find and merge duplicates, keep backups you can restore from, and print the library to PDF.</p>
+
+  <div class="keep">
+  <h3>Scanning for duplicates</h3>
+  <p>File &gt; Scan Library for Duplicates&hellip; (<code>&#8679;&#8984;D</code>), then <strong>Start Scan</strong>. Each pair found is shown side by side with its differences (year, rating, genre, studio, date added).</p>
+  </div>
+  <ul>
+    <li><strong>Reconcile:</strong> click the poster of the film to keep, then Reconcile. The other film is deleted.</li>
+    <li><strong>Ignore:</strong> the pair is not a duplicate. Ignored pairs are left out of later scans until you reset them in Settings &gt; Advanced.</li>
+  </ul>
+
+  <div class="keep">
+  <h3>Backups</h3>
+  <p>A backup is a single <code>.ftbackup</code> file that holds your entire library: films, lists, releases, and viewing history, plus your settings and poster images if you include them.</p>
+  </div>
+  <table>
+    <thead><tr><th style="width:1.6in">Kind</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Automatic</strong></td><td>Turn on <em>Automatic database backup</em> in Settings &gt; General. A backup is made in the background shortly after each launch, and only the three most recent are kept. <strong>Reveal Backups in Finder</strong> shows where they are.</td></tr>
+      <tr><td><strong>Manual</strong></td><td>File &gt; Export Database&hellip; (<code>&#8679;&#8984;E</code>). Choose a destination, choose what to include (the library is always included; User Settings and Poster Images are optional), then <strong>Export Backup</strong>.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+  <h3>Restoring</h3>
+  <ol class="steps">
+    <li>File &gt; Restore Database&hellip; (<code>&#8679;&#8984;R</code>) and <strong>Select Backup File&hellip;</strong>.</li>
+    <li>Check the summary: when it was made, by which version of the app, and how many films, lists, releases, and posters it holds.</li>
+    <li>Click <strong>Restore Database</strong> and confirm. When it finishes, click <strong>Quit and Restart</strong>.</li>
+  </ol>
+  </div>
+  <div class="warn"><span class="t">Restoring replaces everything</span><p>A restore permanently replaces the whole library with the backup&rsquo;s contents; nothing is merged. If you might want your current library back, export a backup of it first.</p></div>
+
+  <div class="keep">
+  <h3>Exporting to PDF</h3>
+  <p>In the same Export tab (or from the share button in Reports), choose which sections to include, then <strong>Export PDF</strong>: <strong>Complete Library</strong>, <strong>Viewing History</strong>, <strong>Disc-based Releases</strong>, <strong>Hall of Fame</strong>, and <strong>Visualizations and Insights</strong>. The file is named <em>FilmTracker Library</em> with the date and time.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Complete Data flags</h3>
+  <p>Turn on <em>Show &ldquo;Complete Data&rdquo; components</em> in Settings &gt; Advanced to mark films whose information you have finished, then filter by Complete Data or Incomplete Data to see what is left to do.</p>
+  </div>
+</section>
+
+<!-- ======================= 11. SETTINGS ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 11</div>
+  <h2>Settings</h2>
+  <p class="lede">Film Tracker &gt; Settings&hellip; (<code>&#8984;,</code>). Switch tabs with <code>&#8997;1</code> through <code>&#8997;5</code>.</p>
+
+  <h3>General</h3>
+  <table>
+    <thead><tr><th style="width:2.35in">Setting</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td>System calendar integration</td><td>Lets Add Viewing Event also create an event in your calendar.</td></tr>
+      <tr><td>Default viewing rotation threshold</td><td>The rotation period for every film without an override. <strong>Reset All Overrides</strong> clears every override.</td></tr>
+      <tr><td>Show a warning before&hellip;</td><td>Confirmations before deleting films, deleting releases, changing lists (choose lists and their contents, lists only, or contents only), and queuing films that carry Special Sorting tags.</td></tr>
+      <tr><td>Large poster images</td><td>At most six grid columns instead of eight, for bigger posters on large windows.</td></tr>
+      <tr><td>Show the status bar</td><td>The film count along the bottom of the window.</td></tr>
+      <tr><td>Show the Smart Lists section</td><td>Shows or hides smart lists. Beneath it: keep queued films out of the Up for Rotation lists.</td></tr>
+      <tr><td>When dragging films onto the Queue&hellip;</td><td>Makes the Queue a drop target, and picks the section dropped films join.</td></tr>
+      <tr><td>Contextual sidebar</td><td>Show the Web Query button; keep the same tab when the selection changes; expand collapsed tables automatically; show additional Viewing History details; show a summary table of all releases.</td></tr>
+      <tr><td>Persist selection when exiting search results</td><td>Keeps a film selected when you clear a search, if it is also in the view you return to.</td></tr>
+      <tr><td>Remember prior scroll positions</td><td>Each view reopens where you left it.</td></tr>
+      <tr><td>Remember the last-selected tab</td><td>Recents, Reports, or both reopen on the tab you last used, across launches.</td></tr>
+      <tr><td>Remember the last-selected view options</td><td>Each view keeps its own sort, filter, and grid or list style across launches.</td></tr>
+      <tr><td>Automatic database backup</td><td>A backup after each launch, keeping three. Reveal Backups in Finder; Delete Existing Backups.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+  <h3>Import</h3>
+  <p>Scan subfolders for items; Fuzzy title matching; Fuzzy year matching for ratings; Always override the &ldquo;Sort Name&rdquo; field; Update existing information for duplicates; Update existing ratings. See Chapter 9.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Export and Restore</h3>
+  <p>Backups and PDF export, and restoring from a backup. See Chapter 10.</p>
+  </div>
+
+  <h3>Advanced</h3>
+  <table>
+    <thead><tr><th style="width:2.35in">Setting</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td>Show &ldquo;Complete Data&rdquo; components</td><td>Adds the Complete Data flag and filters. <strong>Reset All Flags</strong> clears every flag.</td></tr>
+      <tr><td>Ignored duplicate pairs</td><td><strong>Reset All Ignored Pairs</strong> lets the next duplicate scan find them again.</td></tr>
+      <tr><td>Show glyphs in contextual sidebar fields</td><td>Small icons beside the fields in the Details tab.</td></tr>
+      <tr><td>Override date clamp for viewing events</td><td>Allows viewing dates earlier than a film&rsquo;s release date. Turns itself off when you quit.</td></tr>
+      <tr><td>Strict input validation for HandBrake frame data</td><td>Checks frame numbers and time codes in the Notes tab more strictly as you enter them.</td></tr>
+      <tr><td>Prune orphaned poster images</td><td>Periodically deletes poster files that no film uses any more.</td></tr>
+      <tr><td>Debug logging</td><td>Writes a diagnostic log, useful when reporting a bug.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ======================= 12. SHORTCUTS ======================= -->
+<section class="chapter cheat">
+  <div class="eyebrow">Chapter 12</div>
+  <h2>Keyboard shortcuts</h2>
+  <p class="lede">Everything on one page.</p>
+
+  <div class="two">
+    <div>
+      <h4>Films</h4>
+      <table><tbody>
+        <tr><td><code>&#8997;A</code></td><td>Add Film</td></tr>
+        <tr><td><code>&#8984;E</code></td><td>Edit Metadata</td></tr>
+        <tr><td><code>&#8984;R</code></td><td>Edit Releases</td></tr>
+        <tr><td><code>&#8997;&#8984;R</code></td><td>Edit Releases, on the 4K release</td></tr>
+        <tr><td><code>&#8997;&#9003;</code></td><td>Remove from List</td></tr>
+        <tr><td><code>&#8679;&#8997;&#9003;</code></td><td>Remove from All Lists</td></tr>
+        <tr><td><code>&#8984;&#9003;</code></td><td>Delete from Library</td></tr>
+      </tbody></table>
+      <h4>Lists</h4>
+      <table><tbody>
+        <tr><td><code>&#8984;N</code></td><td>Create New List</td></tr>
+        <tr><td><code>&#8679;&#8984;N</code></td><td>New List from Selection</td></tr>
+        <tr><td><code>&#8997;&#8984;N</code></td><td>Duplicate List</td></tr>
+      </tbody></table>
+      <h4>Library and files</h4>
+      <table><tbody>
+        <tr><td><code>&#8679;&#8984;I</code></td><td>Import Metadata</td></tr>
+        <tr><td><code>&#8997;&#8984;I</code></td><td>Import Ratings</td></tr>
+        <tr><td><code>&#8679;&#8984;D</code></td><td>Scan for Duplicates</td></tr>
+        <tr><td><code>&#8679;&#8984;E</code></td><td>Export Database</td></tr>
+        <tr><td><code>&#8679;&#8984;R</code></td><td>Restore Database</td></tr>
+        <tr><td><code>&#8984;,</code></td><td>Settings</td></tr>
+      </tbody></table>
+      <h4>In the film sheet</h4>
+      <table><tbody>
+        <tr><td><code>&#8997;1</code>&ndash;<code>5</code></td><td>Details, Metadata, Releases, Notes, Poster</td></tr>
+        <tr><td><code>&#8997;A</code></td><td>Add a viewing event (Details tab)</td></tr>
+        <tr><td><code>&#8984;N</code> &middot; <code>&#8997;&#8984;N</code></td><td>Add a Blu-ray &middot; 4K release (Releases tab)</td></tr>
+        <tr><td><code>&#8984;&#9003;</code></td><td>Delete the release card on screen</td></tr>
+      </tbody></table>
+    </div>
+    <div>
+      <h4>Views</h4>
+      <table><tbody>
+        <tr><td><code>&#8984;1</code></td><td>All Films</td></tr>
+        <tr><td><code>&#8984;2</code></td><td>Unwatched</td></tr>
+        <tr><td><code>&#8984;3</code></td><td>Recents</td></tr>
+        <tr><td><code>&#8984;4</code></td><td>Reports</td></tr>
+        <tr><td><code>&#8984;5</code></td><td>Queue</td></tr>
+        <tr><td><code>&#8984;6</code></td><td>Up for Rotation</td></tr>
+        <tr><td><code>&#8984;7</code></td><td>Purchased</td></tr>
+        <tr><td><code>&#8984;8</code></td><td>Unpurchased</td></tr>
+        <tr><td><code>&#8984;9</code></td><td>Alternate Versions</td></tr>
+        <tr><td><code>&#8984;0</code></td><td>Filtered Library</td></tr>
+        <tr><td><code>&#8997;&#8984;1</code>&ndash;<code>9</code></td><td>Tabs within the current view</td></tr>
+        <tr><td><code>&#8984;&uarr;</code> <code>&#8984;&darr;</code></td><td>Previous / next tab (view or sheet)</td></tr>
+      </tbody></table>
+      <h4>Window and gallery</h4>
+      <table><tbody>
+        <tr><td><code>&#8984;F</code></td><td>Search Film Library</td></tr>
+        <tr><td><code>&#8984;K</code></td><td>View as List / View as Grid</td></tr>
+        <tr><td><code>&#8984;L</code></td><td>Scroll to Selection</td></tr>
+        <tr><td><code>&#8984;A</code></td><td>Select all films in the view</td></tr>
+        <tr><td><code>Tab</code></td><td>Move focus into the gallery</td></tr>
+        <tr><td><code>&#8997;&#8984;S</code></td><td>Toggle Sidebar</td></tr>
+        <tr><td><code>&#8997;1</code>&ndash;<code>3</code></td><td>Details, Releases, Notes (contextual sidebar)</td></tr>
+        <tr><td><code>&#8984;?</code></td><td>About Film Tracker</td></tr>
+      </tbody></table>
+      <h4>Searching</h4>
+      <p class="small">Type <code>#</code>, a field, a space, and a value, then press Return. Prefix with <code>/</code> for OR and <code>!</code> for NOT. The <em>Film Tracker Search Guide</em> covers every token.</p>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

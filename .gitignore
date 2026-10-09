@@ -1,0 +1,10 @@
+Film Tracker.xcodeproj/xcuserdata/
+Film Tracker.xcodeproj/project.xcworkspace/xcuserdata/
+/build/
+.DS_Store
+DerivedData/
+*.dmg
+.claude/
+Film Tracker/DevTools/*/harness
+Film Tracker/DevTools/ImportFixtures/generate
+Film Tracker/DevTools/ImportFixtures/fixtures/

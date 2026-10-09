@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Searching in Film Tracker</title>
+<meta name="description" content="A complete guide to Film Tracker search tokens and queries">
+<meta name="footer" content="Film Tracker  ·  Searching your library">
+<style>
+  :root {
+    --ink: #1d1d1f;
+    --muted: #6e6e73;
+    --faint: #86868b;
+    --hair: #d2d2d7;
+    --wash: #f5f5f7;
+    --accent: #0a64d8;
+    --accent-wash: #eaf2fd;
+    --green: #1f8a3b;
+    --green-wash: #e9f6ec;
+    --red: #c4282d;
+    --red-wash: #fcecec;
+    --amber: #a15c00;
+    --amber-wash: #fff4e0;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: var(--ink);
+    margin: 0;
+  }
+  h1, h2, h3, h4 {
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    letter-spacing: -0.012em;
+    line-height: 1.2;
+    margin: 0;
+  }
+  h2 {
+    font-size: 21pt;
+    font-weight: 700;
+    margin: 0 0 4pt;
+    padding-top: 6pt;
+    break-after: avoid;
+  }
+  h2 + .lede { margin-top: 0; }
+  h3 {
+    font-size: 13.5pt;
+    font-weight: 650;
+    margin: 20pt 0 6pt;
+    break-after: avoid;
+  }
+  h4 {
+    font-size: 10.5pt;
+    font-weight: 650;
+    margin: 14pt 0 4pt;
+    break-after: avoid;
+  }
+  p { margin: 0 0 8pt; orphans: 3; widows: 3; }
+  .lede { font-size: 12pt; color: var(--muted); line-height: 1.45; margin-bottom: 14pt; }
+  .chapter { break-before: page; }
+  .eyebrow {
+    font-size: 8.5pt; font-weight: 650; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 4pt;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  ul, ol { margin: 0 0 9pt; padding-left: 17pt; }
+  li { margin-bottom: 3pt; }
+
+  /* Cover */
+  .cover {
+    height: 8.6in;
+    display: flex; flex-direction: column; justify-content: center;
+    break-after: page;
+  }
+  .cover .eyebrow { font-size: 10pt; margin-bottom: 10pt; }
+  .cover h1 { font-size: 44pt; font-weight: 750; letter-spacing: -0.03em; line-height: 1.04; margin-bottom: 14pt; }
+  .cover .sub { font-size: 15pt; color: var(--muted); max-width: 5.4in; line-height: 1.4; margin-bottom: 34pt; }
+  .cover .field-demo {
+    border: 1px solid var(--hair); border-radius: 10pt; background: var(--wash);
+    padding: 14pt 16pt; max-width: 5.6in;
+  }
+  .cover .field-demo .cap { font-size: 8.5pt; color: var(--faint); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 8pt; font-weight: 600; }
+
+  /* The search field imitation */
+  .field {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 5pt;
+    background: #fff; border: 1px solid var(--hair); border-radius: 8pt;
+    padding: 6pt 9pt; font-size: 10pt;
+    margin: 4pt 0 10pt;
+  }
+  .field .mag { color: var(--faint); margin-right: 1pt; }
+  .field .typed { color: var(--ink); }
+  .field .ph { color: var(--faint); }
+  .pill {
+    display: inline-block; border-radius: 999px; padding: 1pt 8pt; font-size: 9pt; font-weight: 550;
+    background: #e3e3e8; color: #333; white-space: nowrap;
+  }
+  .pill.or  { background: var(--green-wash); color: var(--green); }
+  .pill.not { background: var(--red-wash); color: var(--red); }
+  .pill.blue { background: var(--accent-wash); color: var(--accent); }
+
+  /* Inline code and query blocks */
+  code, .q {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9.3pt;
+  }
+  code {
+    background: var(--wash); border: 1px solid #e6e6ea; border-radius: 4pt; padding: 0.5pt 4pt;
+    white-space: nowrap;
+  }
+  .ex {
+    margin: 6pt 0 10pt; border: 1px solid var(--hair); border-radius: 8pt; overflow: hidden;
+    break-inside: avoid;
+  }
+  .ex .row { display: flex; gap: 12pt; padding: 6pt 11pt; border-top: 1px solid #ececf0; align-items: baseline; }
+  .ex .row:first-child { border-top: 0; }
+  .ex .row:nth-child(odd) { background: #fbfbfd; }
+  .ex .q { flex: 0 0 2.75in; color: var(--accent); font-weight: 600; }
+  .ex .d { flex: 1; font-size: 9.8pt; color: var(--ink); }
+  .ex .head { background: var(--wash) !important; font-size: 8.5pt; font-weight: 650; text-transform: uppercase;
+              letter-spacing: 0.07em; color: var(--muted); }
+  .ex .head .q, .ex .head .d { font-family: inherit; font-size: 8.5pt; color: var(--muted); font-weight: 650; }
+
+  /* Callouts */
+  .note, .warn, .tip {
+    border-radius: 8pt; padding: 8pt 12pt; margin: 8pt 0 12pt; break-inside: avoid;
+    border-left: 3pt solid; font-size: 10pt;
+  }
+  .note { background: var(--accent-wash); border-color: var(--accent); }
+  .tip  { background: var(--green-wash);  border-color: var(--green); }
+  .warn { background: var(--amber-wash);  border-color: #d98a00; }
+  .note .t, .tip .t, .warn .t {
+    display: block; font-size: 8.5pt; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 2pt;
+  }
+  .note .t { color: var(--accent); } .tip .t { color: var(--green); } .warn .t { color: var(--amber); }
+  .note p:last-child, .tip p:last-child, .warn p:last-child { margin-bottom: 0; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 12pt; font-size: 9.8pt; break-inside: auto; }
+  thead { display: table-header-group; }
+  th {
+    text-align: left; font-size: 8.5pt; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); background: var(--wash); padding: 5pt 8pt; border-bottom: 1px solid var(--hair);
+  }
+  td { padding: 5pt 8pt; border-bottom: 1px solid #ececf0; vertical-align: top; }
+  tr { break-inside: avoid; }
+  td code { white-space: normal; }
+  .nowrap { white-space: nowrap; }
+
+  /* Steps */
+  .steps { counter-reset: s; list-style: none; padding: 0; margin: 8pt 0 12pt; }
+  .steps li {
+    counter-increment: s; position: relative; padding: 0 0 0 28pt; margin-bottom: 8pt; min-height: 19pt;
+  }
+  .steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 0; width: 19pt; height: 19pt; border-radius: 50%;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: 9.5pt; text-align: center; line-height: 19pt;
+  }
+
+  .two { display: flex; gap: 14pt; }
+  .two > div { flex: 1; }
+  .card { border: 1px solid var(--hair); border-radius: 9pt; padding: 10pt 12pt; break-inside: avoid; }
+  .card h4 { margin-top: 0; }
+  .toc { margin: 8pt 0 0; }
+  .toc .item { display: flex; align-items: baseline; padding: 6pt 0; border-bottom: 1px solid #ececf0; }
+  .toc .n { width: 28pt; color: var(--accent); font-weight: 700; }
+  .toc .t { font-weight: 600; flex: 0 0 2.4in; }
+  .toc .s { color: var(--muted); font-size: 9.8pt; }
+  .small { font-size: 9pt; color: var(--muted); }
+  .cheat { font-size: 9.2pt; line-height: 1.35; break-inside: avoid; }
+  .cheat h2 { font-size: 19pt; }
+  .cheat .lede { font-size: 10.5pt; margin-bottom: 8pt; }
+  .cheat h4 { margin: 9pt 0 3pt; font-size: 9.6pt; }
+  .cheat p { margin-bottom: 4pt; }
+  .cheat table { margin: 2pt 0 6pt; font-size: 8.8pt; }
+  .cheat td { padding: 2.5pt 6pt; }
+  .cheat code { font-size: 8.2pt; padding: 0 3pt; }
+  .cheat .two { gap: 12pt; }
+  .center { text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ======================= COVER ======================= -->
+<section class="cover">
+  <div class="eyebrow">Film Tracker</div>
+  <h1>Searching your library</h1>
+  <div class="sub">What you can type, what each search token understands, and how to combine them into precise queries across a library of any size.</div>
+  <div class="field-demo">
+    <div class="cap">A query built from three tokens</div>
+    <div class="field">
+      <span class="mag">&#9906;</span>
+      <span class="pill">Dir: kubrick</span>
+      <span class="pill">Rating: 8+</span>
+      <span class="pill not">!Genre: horror</span>
+      <span class="typed">shining</span>
+    </div>
+    <div class="small">Films directed by anyone matching &ldquo;kubrick&rdquo;, rated 8 or higher, not in a genre matching &ldquo;horror&rdquo;, with &ldquo;shining&rdquo; in the title.</div>
+  </div>
+</section>
+
+<!-- ======================= CONTENTS ======================= -->
+<section>
+  <div class="eyebrow">Contents</div>
+  <h2>How this guide is organized</h2>
+  <p class="lede">Start with Chapter 1 if you have never searched before. If you only need to recall the wording a particular token accepts, jump to its chapter, or go straight to the cheat sheet at the end.</p>
+  <div class="toc">
+    <div class="item"><span class="n">1</span><span class="t">The basics</span><span class="s">Plain-text search, the # key, and how a token is made</span></div>
+    <div class="item"><span class="n">2</span><span class="t">Combining tokens</span><span class="s">AND, OR, NOT, and the order in which they apply</span></div>
+    <div class="item"><span class="n">3</span><span class="t">Field names and shortcuts</span><span class="s">Every token, with every alias it answers to</span></div>
+    <div class="item"><span class="n">4</span><span class="t">Text tokens</span><span class="s">Title, people, genre, studio, tags, notes, synopsis, lists</span></div>
+    <div class="item"><span class="n">5</span><span class="t">Number tokens</span><span class="s">Year, duration, rating</span></div>
+    <div class="item"><span class="n">6</span><span class="t">Date tokens</span><span class="s">Last Watched and Date Added</span></div>
+    <div class="item"><span class="n">7</span><span class="t">The Release token</span><span class="s">Formats, ownership, HDR, region, packaging, and more</span></div>
+    <div class="item"><span class="n">8</span><span class="t">The Rotation Threshold token</span><span class="s">Values, units, and the default / override keywords</span></div>
+    <div class="item"><span class="n">9</span><span class="t">Recipes</span><span class="s">Worked examples for common questions</span></div>
+    <div class="item"><span class="n">10</span><span class="t">Troubleshooting</span><span class="s">When a search returns nothing, or too much</span></div>
+    <div class="item"><span class="n">11</span><span class="t">Cheat sheet</span><span class="s">Everything on one page</span></div>
+  </div>
+</section>
+
+<!-- ======================= 1. BASICS ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 1</div>
+  <h2>The basics</h2>
+  <p class="lede">There are two kinds of search: plain text, and tokens. Plain text is the quick way to find a title. Tokens are how you ask precise questions about any other part of a film.</p>
+
+  <h3>Opening the search field</h3>
+  <p>The search field is in the window&rsquo;s toolbar and always searches the <strong>entire film library</strong>, regardless of which sidebar item you were looking at. Press <code>&#8984;F</code> (View &gt; Search Film Library) to jump straight into it from anywhere. When you clear the search, you return to the view you started from.</p>
+
+  <h3>Plain-text search</h3>
+  <p>Type any text; results update as you type. Plain text matches against a film&rsquo;s <strong>title and its alternate titles</strong>. Matching is not case-sensitive, and the text can appear anywhere inside the title, not only at the start.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">You type</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">matrix</span><span class="d">The Matrix, The Matrix Reloaded, and any film with &ldquo;matrix&rdquo; in an alternate title</span></div>
+    <div class="row"><span class="q">ton</span><span class="d">Anything containing those letters anywhere: &ldquo;Clinton&rdquo;, &ldquo;Tonight&rdquo;, &ldquo;Button&rdquo;</span></div>
+    <div class="row"><span class="q">THE GODFATHER</span><span class="d">Same as lowercase; capitalization never matters</span></div>
+  </div>
+
+  <h3>Tokens: asking about something other than the title</h3>
+  <p>A token pairs a <strong>field</strong> (such as Director or Rating) with a <strong>value</strong> (such as &ldquo;kubrick&rdquo; or &ldquo;8+&rdquo;). Tokens appear in the search field as small rounded pills, like the ones on the cover.</p>
+
+  <h4>Creating a token</h4>
+  <ol class="steps">
+    <li><strong>Type <code>#</code>.</strong> The search field switches into token entry and a list of every field appears below it. While you are entering a token, the results hold still; they update once the token is confirmed.</li>
+    <li><strong>Type the field name</strong>, or pick it from the list. You can type any name or shortcut from Chapter 3 (<code>#director</code>, <code>#dir</code>, <code>#rating</code>, <code>#lastwatched</code>) or the full display name with spaces (<code>#last watched</code>, <code>#executive producer</code>). The list narrows as you type.</li>
+    <li><strong>Press Space, then type the value.</strong> Everything after the field name, spaces included, is the value: <code>#cast tom hanks</code> searches for &ldquo;tom hanks&rdquo;.</li>
+    <li><strong>Press Return.</strong> The token becomes a pill and the results update. Nothing happens if there is no value yet, so a bare <code>#director</code> followed by Return does not create a token.</li>
+  </ol>
+  <div class="field">
+    <span class="mag">&#9906;</span>
+    <span class="typed">#director kubrick</span><span class="ph">&nbsp;&nbsp;&#8592; type this, then press Return</span>
+  </div>
+  <div class="field">
+    <span class="mag">&#9906;</span>
+    <span class="pill">Dir: kubrick</span><span class="ph">&nbsp;&nbsp;&#8592; the confirmed token</span>
+  </div>
+
+  <div class="tip"><span class="t">Tip</span>You can keep typing plain text after a token is made, and you can add as many tokens as you like. Typed text always narrows by title, on top of whatever the tokens do.</div>
+
+  <h4>Shortcuts into search from the sidebar</h4>
+  <p>In a film&rsquo;s Details tab, the Studio, Cast, Director, Producer, Executive Producer, Screenwriter, and Composer sections each show a small magnifying-glass button beside every name. Clicking one performs that search immediately, creating the token for you.</p>
+
+  <h4>Removing a token</h4>
+  <p>Delete the pill the same way you would delete any token in a macOS search field: select it and press Delete, or place the cursor after it and press Delete once. The results update immediately.</p>
+
+  <h3>What the pill shows</h3>
+  <p>Pills use short labels so they stay compact. Two optional prefixes mark how a token behaves (Chapter 2). The long field names are abbreviated as follows:</p>
+  <table>
+    <thead><tr><th>Field</th><th>Pill label</th></tr></thead>
+    <tbody>
+      <tr><td>Director</td><td><span class="pill">Dir</span></td></tr>
+      <tr><td>Producer</td><td><span class="pill">Pro</span></td></tr>
+      <tr><td>Executive Producer</td><td><span class="pill">ExPro</span></td></tr>
+      <tr><td>Screenwriter</td><td><span class="pill">ScWtr</span></td></tr>
+      <tr><td>Composer</td><td><span class="pill">Comp</span></td></tr>
+      <tr><td>Duration</td><td><span class="pill">Dur</span></td></tr>
+      <tr><td>Last Watched</td><td><span class="pill">LstWch</span></td></tr>
+      <tr><td>Rotation Threshold</td><td><span class="pill">RoThr</span></td></tr>
+      <tr><td>Everything else</td><td>The full field name, such as <span class="pill">Rating</span> or <span class="pill">Date Added</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="note"><span class="t">How matching works</span>
+  <p>Unless a chapter says otherwise, a text value matches when it appears <em>anywhere</em> inside the stored text, ignoring capitalization. <code>#director nolan</code> finds &ldquo;Christopher Nolan&rdquo;; <code>#genre sci</code> finds &ldquo;Sci-Fi&rdquo;. You never need wildcards, and you never need quotation marks around multi-word values.</p>
+  </div>
+  <div class="warn"><span class="t">One character to avoid</span>
+  <p>Do not use <code>#</code> inside a value (for example in a note you are looking for). The last <code>#</code> in the field always starts a new token.</p>
+  </div>
+</section>
+
+<!-- ======================= 2. COMBINING ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 2</div>
+  <h2>Combining tokens</h2>
+  <p class="lede">Every token can be given one of three behaviors by a prefix typed straight after the <code>#</code>: the default AND, an OR with <code>/</code>, or a NOT with <code>!</code>.</p>
+
+  <table>
+    <thead><tr><th>You type</th><th>Pill</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td><code>#director kubrick</code></td><td><span class="pill">Dir: kubrick</span></td><td><strong>AND.</strong> The film must match this token. With several AND tokens, a film must match all of them.</td></tr>
+      <tr><td><code>#/director kubrick</code></td><td><span class="pill or">/Dir: kubrick</span></td><td><strong>OR.</strong> Films matching this token are added to the results, whether or not they match the other tokens.</td></tr>
+      <tr><td><code>#!genre horror</code></td><td><span class="pill not">!Genre: horror</span></td><td><strong>NOT.</strong> Films matching this token are removed from the results.</td></tr>
+      <tr><td><code>#/!genre horror</code></td><td><span class="pill not">/!Genre: horror</span></td><td>OR and NOT together. The slash comes first. This behaves exactly like NOT: it removes matches.</td></tr>
+    </tbody>
+  </table>
+  <p>Typing the prefix is the only difference. After <code>#</code> you can type <code>/</code>, <code>!</code>, or <code>/!</code>, and the field list shows a green &ldquo;Or&rdquo; or a red &ldquo;Not&rdquo; beside each field to confirm the mode.</p>
+
+  <h3>AND: narrowing down</h3>
+  <p>Each additional AND token trims the results further. This is the most common way to search.</p>
+  <div class="field"><span class="mag">&#9906;</span><span class="pill">Dir: spielberg</span><span class="pill">Year: 1990-1999</span><span class="pill">Rating: 7+</span></div>
+  <p>Result: Spielberg films released in the 1990s <em>and</em> rated 7 or higher.</p>
+  <p>Two tokens of the <em>same</em> field are also ANDed. <code>#cast tom hanks</code> plus <code>#cast meg ryan</code> returns only films listing both actors.</p>
+
+  <h3>OR: widening</h3>
+  <p>An OR token contributes its own matches to the results. To find films by either of two directors, make both tokens OR:</p>
+  <div class="field"><span class="mag">&#9906;</span><span class="pill or">/Dir: kubrick</span><span class="pill or">/Dir: scorsese</span></div>
+  <p>Result: every Kubrick film plus every Scorsese film.</p>
+
+  <div class="warn"><span class="t">OR is not parenthesized</span>
+  <p>OR tokens are checked against the <em>whole library</em>, not against what the AND tokens have already narrowed to. The results are: <strong>(all AND tokens together) plus (anything matching any OR token)</strong>. So <code>Rating: 8+</code> with <code>/Dir: kubrick</code> returns every film rated 8+ <em>and</em> every Kubrick film, rated or not. It does not mean &ldquo;Kubrick films rated 8+&rdquo; (use two plain AND tokens for that).</p>
+  <p>It follows that you cannot express &ldquo;(A or B) and C&rdquo; in one search. When you need that, run the OR search first and sort or scan the result, or find a field that covers both A and B (the Crew token, for example, covers every credited person at once).</p>
+  </div>
+
+  <h3>NOT: excluding</h3>
+  <p>A NOT token removes its matches from everything that survives the positive tokens. Because it is applied last among the tokens, it also removes films that an OR token brought in.</p>
+  <div class="field"><span class="mag">&#9906;</span><span class="pill">Studio: a24</span><span class="pill not">!Genre: horror</span></div>
+  <p>Result: A24 films that are not horror.</p>
+  <p>A NOT token on its own is also fine: <code>#!genre documentary</code> returns every film that is not a documentary.</p>
+
+  <h3>The order of operations</h3>
+  <ol>
+    <li>All AND tokens narrow the library to the films matching every one of them.</li>
+    <li>All OR tokens are matched against the whole library and their matches are added in.</li>
+    <li>If there are only OR tokens, the OR matches are the whole result; if there are only AND tokens, the AND matches are.</li>
+    <li>All NOT tokens remove their matches.</li>
+    <li>Any plain text you typed narrows what is left by title.</li>
+  </ol>
+
+  <div class="note"><span class="t">Reading a NOT as &ldquo;the opposite&rdquo;</span>
+  <p>A NOT token returns every film the plain token would <em>not</em> have returned. That makes it exact for questions of the form &ldquo;everything except&rdquo;, and it also means that a value the app cannot interpret (a misspelled keyword, say) turns into <em>every film</em> when negated, because the plain version matched nothing. See Chapter 10.</p>
+  </div>
+</section>
+
+<!-- ======================= 3. FIELDS ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 3</div>
+  <h2>Field names and shortcuts</h2>
+  <p class="lede">Every token answers to several names. All are accepted in either case, and all work after <code>#</code>, <code>#/</code>, <code>#!</code>, and <code>#/!</code>. The field list also matches the beginning of any name, so typing <code>#exe</code> narrows the list to Executive Producer.</p>
+
+  <table>
+    <thead><tr><th style="width:1.45in">Field</th><th>Accepted names</th><th style="width:1.3in">Kind of value</th><th style="width:0.65in">Chapter</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Title</strong></td><td><code>title</code> <code>name</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Crew</strong></td><td><code>crew</code> <code>crewman</code> <code>crewmen</code> <code>people</code> <code>person</code></td><td>Text, any credited person</td><td>4</td></tr>
+      <tr><td><strong>Cast</strong></td><td><code>cast</code> <code>actor</code> <code>actors</code> <code>actress</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Director</strong></td><td><code>director</code> <code>directors</code> <code>dir</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Producer</strong></td><td><code>producer</code> <code>producers</code> <code>prod</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Executive Producer</strong></td><td><code>executiveproducer</code> <code>executiveproducers</code> <code>execproducer</code> <code>exprod</code> <code>exp</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Screenwriter</strong></td><td><code>screenwriter</code> <code>screenwriters</code> <code>scrwr</code> <code>writer</code> <code>writers</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Composer</strong></td><td><code>composer</code> <code>composers</code> <code>comp</code> <code>music</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Genre</strong></td><td><code>genre</code> <code>genres</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Studio</strong></td><td><code>studio</code> <code>company</code> <code>group</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Tags</strong></td><td><code>tag</code> <code>tags</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Notes</strong></td><td><code>note</code> <code>notes</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Synopsis</strong></td><td><code>synopsis</code> <code>plot</code> <code>description</code></td><td>Words, any order</td><td>4</td></tr>
+      <tr><td><strong>List</strong></td><td><code>list</code> <code>lists</code></td><td>Text, list name</td><td>4</td></tr>
+      <tr><td><strong>Year</strong></td><td><code>year</code> <code>years</code> <code>releaseyear</code> <code>date</code></td><td>Number or range</td><td>5</td></tr>
+      <tr><td><strong>Duration</strong></td><td><code>duration</code> <code>runtime</code> <code>length</code> <code>time</code></td><td>Minutes</td><td>5</td></tr>
+      <tr><td><strong>Rating</strong></td><td><code>rating</code> <code>userrating</code> <code>rate</code> <code>score</code></td><td>0 to 10</td><td>5</td></tr>
+      <tr><td><strong>Last Watched</strong></td><td><code>lastwatched</code> <code>lastviewed</code> <code>watched</code> <code>viewed</code> <code>lv</code></td><td>Date</td><td>6</td></tr>
+      <tr><td><strong>Date Added</strong></td><td><code>dateadded</code> <code>added</code> <code>imported</code></td><td>Date</td><td>6</td></tr>
+      <tr><td><strong>Release</strong></td><td><code>release</code> <code>releases</code> <code>rel</code></td><td>Keywords</td><td>7</td></tr>
+      <tr><td><strong>Rotation Threshold</strong></td><td><code>rotationthreshold</code> <code>rotation</code> <code>threshold</code> <code>roth</code></td><td>Months, years, or keyword</td><td>8</td></tr>
+    </tbody>
+  </table>
+
+  <div class="warn"><span class="t">Two-word field names: a trap</span>
+  <p>The app reads the field name left to right and stops at the <em>first</em> word that is a field name by itself. That is harmless for most names (<code>#last watched 2023</code>, <code>#executive producer spielberg</code>, and <code>#user rating 8+</code> all work), but two fields contain a word that is a complete field name of its own:</p>
+  <ul>
+    <li><code>#date added 2024</code> is read as <strong>Year</strong> (<code>date</code>) with the value &ldquo;added 2024&rdquo;.</li>
+    <li><code>#rotation threshold 24</code> is read as <strong>Rotation Threshold</strong> with the value &ldquo;threshold 24&rdquo;, which matches nothing.</li>
+  </ul>
+  <p>Type these as one word (<code>#dateadded</code>, <code>#rotationthreshold</code>), use a shortcut (<code>#added</code>, <code>#rotation</code>), or pick the field from the suggestion list, which always inserts the correct form.</p>
+  </div>
+  <div class="warn"><span class="t">Easy to mix up</span>
+  <p><code>#date</code> means <strong>release year</strong>, not the date you added or watched a film. For those use <code>#added</code> and <code>#watched</code>. Likewise <code>#studio</code> is the studio credited on the film itself, while the studio or distributor of an individual disc is searched through <code>#release</code> (Chapter 7).</p>
+  </div>
+</section>
+
+<!-- ======================= 4. TEXT TOKENS ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 4</div>
+  <h2>Text tokens</h2>
+  <p class="lede">These tokens match words. The value may be any part of the text you are looking for, in any capitalization, and may contain spaces.</p>
+
+  <h3>Title</h3>
+  <p><code>#title</code> behaves exactly like plain text typed in the field: it checks the title and any alternate titles. Its use is for combining with NOT or OR, for example <code>#!title star</code> to hide every film with &ldquo;star&rdquo; in its title.</p>
+
+  <h3>People</h3>
+  <table>
+    <thead><tr><th>Token</th><th>Searches</th></tr></thead>
+    <tbody>
+      <tr><td><code>#cast</code></td><td>The cast list</td></tr>
+      <tr><td><code>#director</code></td><td>Directors</td></tr>
+      <tr><td><code>#producer</code></td><td>Producers</td></tr>
+      <tr><td><code>#executiveproducer</code></td><td>Executive producers</td></tr>
+      <tr><td><code>#screenwriter</code></td><td>Screenwriters</td></tr>
+      <tr><td><code>#composer</code></td><td>Composers</td></tr>
+      <tr><td><code>#crew</code></td><td>All six of the above at once: a film matches if the name appears in <em>any</em> of them</td></tr>
+    </tbody>
+  </table>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#director nolan</span><span class="d">Films with a director whose name contains &ldquo;nolan&rdquo;</span></div>
+    <div class="row"><span class="q">#cast tom hanks</span><span class="d">Films with Tom Hanks in the cast</span></div>
+    <div class="row"><span class="q">#crew spielberg</span><span class="d">Films where Spielberg appears as a director, producer, executive producer, writer, composer, or cast member</span></div>
+    <div class="row"><span class="q">#composer williams</span><span class="d">Films scored by anyone named Williams</span></div>
+    <div class="row"><span class="q">#director coppola<br>#!director sofia</span><span class="d">Coppola films, minus the ones whose director list also matches &ldquo;sofia&rdquo;</span></div>
+  </div>
+  <div class="tip"><span class="t">Tip</span><p>Searching a surname alone is the safest way to find someone, since spelling of first names and middle initials varies. Use the full name when a surname is common, because the match is on the letters, not on whole words.</p></div>
+
+  <h3>Genre, Studio, Tags</h3>
+  <ul>
+    <li><code>#genre</code> matches the film&rsquo;s genre text. <code>#genre sci</code> finds Sci-Fi; <code>#genre drama</code> finds Drama and Crime Drama.</li>
+    <li><code>#studio</code> matches the studio or studios credited on the film itself.</li>
+    <li><code>#tags</code> matches any of the film&rsquo;s tags. A film matches if <em>any one</em> of its tags contains the text.</li>
+  </ul>
+
+  <h3>Notes</h3>
+  <p><code>#notes</code> searches both of the free-text areas a film carries: your own notes and the film&rsquo;s description notes. A match in either one counts. It does <em>not</em> look at the film&rsquo;s plot summary; that is what <code>#synopsis</code> is for.</p>
+
+  <h3>Synopsis</h3>
+  <p><code>#synopsis</code> (also <code>#plot</code> and <code>#description</code>) searches the film&rsquo;s plot summary. It behaves differently from the other text tokens: it looks for <strong>every word you type, in any order</strong>, rather than for the exact text you typed.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#synopsis detective sins mills</span><span class="d">Seven (1995): its summary mentions a detective, Mills, and the seven deadly sins, though not in that order</span></div>
+    <div class="row"><span class="q">#plot heist vault</span><span class="d">Any film whose summary contains both &ldquo;heist&rdquo; and &ldquo;vault&rdquo;</span></div>
+    <div class="row"><span class="q">#description vampire</span><span class="d">A single word works too</span></div>
+    <div class="row"><span class="q">#!synopsis alien</span><span class="d">Every film whose summary does not mention &ldquo;alien&rdquo;</span></div>
+  </div>
+  <ul>
+    <li><strong>Every word must be present.</strong> Adding a word only ever narrows the results, so if a search finds nothing, drop the least certain word.</li>
+    <li><strong>Words, not phrases.</strong> <code>#synopsis serial killer</code> finds summaries containing &ldquo;serial&rdquo; and &ldquo;killer&rdquo; anywhere, not necessarily next to each other.</li>
+    <li><strong>Each word matches inside longer words</strong>, like every text token: <code>murder</code> finds &ldquo;murders&rdquo; and &ldquo;murderer&rdquo;, but <code>murders</code> does not find &ldquo;murder&rdquo;. Type the shortest stem that is still distinctive.</li>
+    <li><strong>Leave punctuation out.</strong> Type <code>detective</code>, not <code>detective,</code>; a comma becomes part of the word being looked for.</li>
+  </ul>
+
+  <h3>List</h3>
+  <p><code>#list</code> finds films that belong to a list whose name contains your text. It searches your own lists <strong>and</strong> the built-in smart lists, as long as smart lists are enabled in Settings. The internal Film Queue lists are not searchable this way.</p>
+  <p>The built-in smart list names are:</p>
+  <table>
+    <tbody>
+      <tr><td>Up for Rotation</td><td>Viewed Over One Year Ago</td><td>Purchased</td></tr>
+      <tr><td>Purchased 4K</td><td>Purchased Blu-ray</td><td>Purchased DVD</td></tr>
+      <tr><td>Unpurchased</td><td>Unpurchased 4K</td><td>Unpurchased Blu-ray</td></tr>
+      <tr><td>Unpurchased DVD</td><td>Edited</td><td>Alternate Versions</td></tr>
+      <tr><td>Filtered Library</td><td>Waiting for Edit</td><td>Temporarily On Hold</td></tr>
+      <tr><td>Indefinitely On Hold</td><td>Ignore</td><td>Blacklisted</td></tr>
+    </tbody>
+  </table>
+  <div class="warn"><span class="t">Substrings can overlap</span>
+  <p><code>#list purchased</code> also matches &ldquo;Unpurchased&rdquo;, because that word contains &ldquo;purchased&rdquo;. To get only Purchased 4K, type <code>#list purchased 4k</code>; to avoid the unpurchased lists, add <code>#!list unpurchased</code>.</p>
+  </div>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#list favorites</span><span class="d">Films on any list whose name contains &ldquo;favorites&rdquo;</span></div>
+    <div class="row"><span class="q">#list up for rotation</span><span class="d">Films currently in the Up for Rotation smart list</span></div>
+    <div class="row"><span class="q">#list purchased 4k</span><span class="d">Films in the Purchased 4K smart list</span></div>
+  </div>
+</section>
+
+<!-- ======================= 5. NUMBER TOKENS ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 5</div>
+  <h2>Number tokens</h2>
+  <p class="lede">Year, Duration, and Rating understand comparisons and ranges. Type the number on its own for an exact (or at-least) match, put a symbol with it, or give a range with a hyphen between two numbers.</p>
+
+  <h3>Year</h3>
+  <p>The film&rsquo;s release year. Years are plain four-digit numbers.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#year 1999</span><span class="d">Films released in exactly 1999</span></div>
+    <div class="row"><span class="q">#year 1990-1999</span><span class="d">1990 through 1999, both ends included</span></div>
+    <div class="row"><span class="q">#year &gt;2010</span><span class="d">Released after 2010 (2011 and later)</span></div>
+    <div class="row"><span class="q">#year &lt;1960</span><span class="d">Released before 1960 (1959 and earlier)</span></div>
+    <div class="row"><span class="q">#!year 1990-1999</span><span class="d">Everything except the 1990s, including films with no year recorded</span></div>
+  </div>
+  <p>Films with no release year recorded are left out of every range, greater-than, and less-than search.</p>
+
+  <h3>Duration</h3>
+  <p>Runtime in <strong>whole minutes</strong>. Do not type hours or units; <code>#duration 2h</code> means nothing to the search. For a film marked as edited that has an edited runtime, the search uses that edited runtime; every other film uses its regular runtime.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#duration 120</span><span class="d">120 minutes <strong>or longer</strong> (a bare number means &ldquo;at least&rdquo;, not &ldquo;exactly&rdquo;)</span></div>
+    <div class="row"><span class="q">#duration &gt;150</span><span class="d">Strictly longer than 150 minutes</span></div>
+    <div class="row"><span class="q">#duration &lt;90</span><span class="d">Strictly shorter than 90 minutes</span></div>
+    <div class="row"><span class="q">#duration 90-120</span><span class="d">A range: 90 to 120 minutes, both ends included</span></div>
+  </div>
+  <p>Films with no duration recorded are skipped by ranges and by &ldquo;shorter than&rdquo; searches.</p>
+
+  <h3>Rating</h3>
+  <p>Your own rating, from 0 to 10. A rating of <strong>0 means Not Rated</strong>, so the searches below that say &ldquo;at most&rdquo; or &ldquo;less than&rdquo; never include unrated films by accident.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#rating 8</span><span class="d">Rated exactly 8</span></div>
+    <div class="row"><span class="q">#rating 8+</span><span class="d">Rated 8 or higher (at least 8)</span></div>
+    <div class="row"><span class="q">#rating 8-</span><span class="d">Rated 8 or lower, but rated (unrated films are excluded)</span></div>
+    <div class="row"><span class="q">#rating &gt;7</span><span class="d">Rated above 7 (8, 9, 10)</span></div>
+    <div class="row"><span class="q">#rating &lt;5</span><span class="d">Rated below 5 and rated (1 to 4)</span></div>
+    <div class="row"><span class="q">#rating 0</span><span class="d">Films you have not rated</span></div>
+    <div class="row"><span class="q">#rating 7-9</span><span class="d">A range: rated 7, 8, or 9, both ends included</span></div>
+  </div>
+  <div class="note"><span class="t">Ranges and the hyphen</span><p>A range needs a whole number on <em>both</em> sides of the hyphen: <code>7-9</code>. A hyphen with nothing after it keeps its older meaning for ratings (<code>8-</code> is &ldquo;8 or lower&rdquo;). Ranges are read literally, so <code>#rating 0-3</code> includes unrated films, which the &ldquo;or lower&rdquo; and &ldquo;less than&rdquo; forms deliberately leave out. A range written backwards, such as <code>9-7</code>, matches nothing.</p></div>
+  <div class="tip"><span class="t">Tip</span><p>A number that is not a number (<code>#rating good</code>) returns no films, so if a numeric search comes back empty, check the value for stray letters.</p></div>
+</section>
+
+<!-- ======================= 6. DATE TOKENS ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 6</div>
+  <h2>Date tokens</h2>
+  <p class="lede"><strong>Last Watched</strong> is the date you most recently watched a film. <strong>Date Added</strong> is the date it entered the library. Both accept exactly the same forms.</p>
+
+  <h3>Relative dates</h3>
+  <p>Include one of these words anywhere in the value. The word is what counts, so &ldquo;past week&rdquo;, &ldquo;this week&rdquo;, and &ldquo;last week&rdquo; all mean the same thing.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched today</span><span class="d">Watched since the start of today</span></div>
+    <div class="row"><span class="q">#watched week</span><span class="d">Watched in the past seven days</span></div>
+    <div class="row"><span class="q">#watched past month</span><span class="d">Watched in the past month</span></div>
+    <div class="row"><span class="q">#added year</span><span class="d">Added within the past twelve months</span></div>
+  </div>
+  <p>The windows are rolling: &ldquo;week&rdquo; is the last seven days counting back from this moment, not the calendar week.</p>
+
+  <h3>Before and after</h3>
+  <p>Put <code>&gt;</code> (after) or <code>&lt;</code> (before) in front of a year or a full date. Both are exclusive: the date you name is not itself included.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched &gt;2022</span><span class="d">Watched in 2023 or later (after the end of 2022)</span></div>
+    <div class="row"><span class="q">#watched &lt;2020</span><span class="d">Watched in 2019 or earlier (before the start of 2020)</span></div>
+    <div class="row"><span class="q">#added &gt;2024.06.30</span><span class="d">Added after June 30, 2024</span></div>
+    <div class="row"><span class="q">#added &lt;2021-01-01</span><span class="d">Added before January 1, 2021</span></div>
+  </div>
+  <p>A year-range for a date field is built from two tokens: <code>#watched &gt;2018</code> with <code>#watched &lt;2021</code> finds films watched in 2019 or 2020.</p>
+
+  <h3>A particular year, month, or day</h3>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched 2025</span><span class="d">Watched at any time in calendar year 2025, from January 1 through December 31</span></div>
+    <div class="row"><span class="q">#watched december 2020</span><span class="d">Watched at any time in December 2020</span></div>
+    <div class="row"><span class="q">#watched dec 2020</span><span class="d">The same, with the abbreviated month</span></div>
+    <div class="row"><span class="q">#watched dec, 2020</span><span class="d">The same; a comma after the month is accepted</span></div>
+    <div class="row"><span class="q">#watched 2020.12.25</span><span class="d">Watched on exactly that day</span></div>
+  </div>
+  <p>A full day can be written as <code>2020.12.25</code>, <code>2020-12-25</code>, or <code>12/25/2020</code>.</p>
+
+  <h3>No date at all</h3>
+  <p>The keyword <code>none</code> finds films with no date recorded for the field. For Last Watched that means no viewing date.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched none</span><span class="d">Films with no viewing date recorded</span></div>
+    <div class="row"><span class="q">#!watched none</span><span class="d">Films with a viewing date</span></div>
+  </div>
+  <div class="note"><span class="t">A date is not the same as &ldquo;watched&rdquo;</span>
+  <p>Last Watched searches the <em>viewing date</em>. A film you marked as watched without a date (common for viewings that predate the dates you started recording) is found by <code>#watched none</code>, because it has no date. The watched flag itself has no search token yet; the Filter menu offers it.</p>
+  </div>
+
+  <h3>When a date is not understood</h3>
+  <p>A value that is not in any of the forms above, or that names a date that does not exist (<code>#watched &gt;2020.13.45</code>, <code>#watched lately</code>), finds <strong>nothing</strong>, exactly as a misspelled title does. Negated, it finds every film (<code>#!watched lately</code>), because a NOT returns whatever the plain search did not.</p>
+</section>
+
+<!-- ======================= 7. RELEASE ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 7</div>
+  <h2>The Release token</h2>
+  <p class="lede">A film can have several releases (a 4K disc, a Blu-ray, a DVD, a wishlist entry). <code>#release</code> asks whether a film has at least one release with a given property. The value is a keyword from the list below; capitalization does not matter.</p>
+
+  <div class="note"><span class="t">How to read the results</span>
+  <p>A film matches if <em>any</em> of its releases has the property. Two Release tokens are checked independently, so <code>#release 4k</code> with <code>#release purchased</code> finds films that have a 4K release and have a purchased release, which may be two different discs. For &ldquo;a purchased 4K disc&rdquo; use the smart list instead: <code>#list purchased 4k</code>.</p>
+  </div>
+
+  <h3>Ownership</h3>
+  <table>
+    <thead><tr><th style="width:2.3in">Type any of</th><th>Matches films with&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><code>purchased</code> &nbsp; <code>owned</code></td><td>a release you have purchased</td></tr>
+      <tr><td><code>unpurchased</code> &nbsp; <code>wishlist</code> &nbsp; <code>wanted</code></td><td>a release you have not purchased (a wishlist release)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Format</h3>
+  <table>
+    <thead><tr><th style="width:2.3in">Type any of</th><th>Matches films with&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><code>4k</code> &nbsp; <code>uhd</code></td><td>a 4K UHD release</td></tr>
+      <tr><td><code>bluray</code> &nbsp; <code>blu-ray</code> &nbsp; <code>2k</code></td><td>a Blu-ray release</td></tr>
+      <tr><td><code>dvd</code></td><td>a DVD release</td></tr>
+    </tbody>
+  </table>
+  <p>Write <code>bluray</code> or <code>blu-ray</code> as one word; <code>blu ray</code> with a space is not recognized.</p>
+
+  <h3>4K master</h3>
+  <table>
+    <thead><tr><th style="width:2.3in">Type exactly</th><th>Matches films with&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><code>native 4k</code> &nbsp; <code>native</code></td><td>a 4K release mastered from a true 4K source</td></tr>
+      <tr><td><code>upscaled</code> &nbsp; <code>upscale</code></td><td>a 4K release upscaled from a 2K master</td></tr>
+    </tbody>
+  </table>
+  <p>These two must be typed as the whole value. <code>native 4k</code> is read as a master type, not as the 4K format.</p>
+
+  <h3>HDR</h3>
+  <table>
+    <thead><tr><th style="width:2.3in">Type exactly</th><th>Matches films with&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><code>hdr</code></td><td>a release in any HDR format (Dolby Vision, HDR10, or HDR10+)</td></tr>
+      <tr><td><code>dolby vision</code> &nbsp; <code>dv</code></td><td>a Dolby Vision release</td></tr>
+      <tr><td><code>hdr10</code></td><td>an HDR10 <em>or</em> HDR10+ release (HDR10+ discs play back as HDR10)</td></tr>
+      <tr><td><code>hdr10+</code> &nbsp; <code>hdrplus</code> &nbsp; <code>hdr+</code></td><td>an HDR10+ release only</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Region</h3>
+  <p>Periods are ignored, so <code>reg. a</code> works like <code>reg a</code>.</p>
+  <table>
+    <thead><tr><th style="width:2.3in">Type any of</th><th>Matches films with&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><code>region a</code> &nbsp; <code>reg a</code> &nbsp; <code>rega</code></td><td>a Region A release</td></tr>
+      <tr><td><code>region b</code> &nbsp; <code>reg b</code> &nbsp; <code>regb</code></td><td>a Region B release, including loosely locked B</td></tr>
+      <tr><td><code>region free</code> &nbsp; <code>reg free</code> &nbsp; <code>no region</code> &nbsp; <code>no reg</code> &nbsp; <code>no lock</code> &nbsp; <code>unlocked</code></td><td>a region-free release</td></tr>
+      <tr><td><code>region 1</code> to <code>region 5</code><br><code>reg 1</code> to <code>reg 5</code>, <code>reg1</code> to <code>reg5</code></td><td>a DVD of that numbered region</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Origin, remaster, and packaging</h3>
+  <table>
+    <thead><tr><th style="width:2.3in">Type any of</th><th>Matches films with&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><code>imported</code> &nbsp; <code>foreign</code></td><td>a release whose national origin is something other than domestic (releases with no origin set are neither)</td></tr>
+      <tr><td><code>remastered</code> &nbsp; <code>remaster</code> &nbsp; <code>rem</code></td><td>a remastered release</td></tr>
+      <tr><td><code>combo-pack</code> &nbsp; <code>combopack</code> &nbsp; <code>combo</code></td><td>a combo-pack release (both the single-Blu-ray and dual-Blu-ray forms)</td></tr>
+      <tr><td><code>standalone</code></td><td>a standalone release</td></tr>
+      <tr><td><code>multi-pack</code> &nbsp; <code>multipack</code> &nbsp; <code>multi</code></td><td>a multi-pack release</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Anything else: distributor or studio</h3>
+  <p>If the value is none of the keywords above, it is matched against the <strong>studio or distributor of each release</strong>, as text. <code>#release criterion</code> finds films with a Criterion release; <code>#release shout</code> finds Shout! Factory releases. This is the disc&rsquo;s own studio, which is separate from the film&rsquo;s studio searched by <code>#studio</code>.</p>
+
+  <div class="warn"><span class="t">Keywords win over studios</span>
+  <p>Because keywords are checked first, a distributor whose name is also a keyword (or contains one, such as one containing &ldquo;4k&rdquo;) will be read as the keyword. Include more of the name to steer around that.</p>
+  </div>
+</section>
+
+<!-- ======================= 8. ROTATION ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 8</div>
+  <h2>The Rotation Threshold token</h2>
+  <p class="lede">The rotation threshold is how long a film rests before it comes up for rotation again. Each film either follows the global default (set in Settings &gt; General) or carries its own override. The token can search by the threshold value or by whether an override exists.</p>
+
+  <h3>Searching by value</h3>
+  <p>Available thresholds are 12, 18, 24, 36, 48, and 60 months (1, 1&frac12;, 2, 3, 4, and 5 years). Write the value as months or years, with or without a unit.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Reads as</span></div>
+    <div class="row"><span class="q">#rotation 24</span><span class="d">24 months. A bare number is tried as months first.</span></div>
+    <div class="row"><span class="q">#rotation 2</span><span class="d">Not a valid month count, so read as 2 years = 24 months</span></div>
+    <div class="row"><span class="q">#rotation 2 years</span><span class="d">24 months. Also accepted: <code>2 year</code>, <code>2 yr</code>, <code>2 yr.</code></span></div>
+    <div class="row"><span class="q">#rotation 24 months</span><span class="d">24 months. Also accepted: <code>24 month</code>, <code>24 mo</code>, <code>24 mo.</code></span></div>
+    <div class="row"><span class="q">#rotation 1.5</span><span class="d">1&frac12; years = 18 months</span></div>
+  </div>
+  <p>A value search matches a film's <strong>effective</strong> threshold. That is the film&rsquo;s override if it has one, otherwise the current global default. So if the default is 2 years, <code>#rotation 2 years</code> finds <em>both</em> films explicitly set to 2 years <em>and</em> films that simply follow the default.</p>
+  <p>Values the app cannot map to a real threshold return no films: <code>6 months</code>, <code>7</code>, <code>36 years</code>, and <code>2 dingus</code> all return nothing. A unit must be a real one, and a month value must be an exact whole number.</p>
+
+  <h3>Searching by override</h3>
+  <p>Three keywords test whether a film has its own threshold set, regardless of what number it is.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#rotation default</span><span class="d">Films set to <strong>Default</strong>, with no override of their own</span></div>
+    <div class="row"><span class="q">#rotation override</span><span class="d">Films with an override of any value</span></div>
+    <div class="row"><span class="q">#rotation custom</span><span class="d">The same as <code>override</code></span></div>
+    <div class="row"><span class="q">#!rotation default</span><span class="d">The same as <code>override</code>: everything not following the default</span></div>
+  </div>
+  <div class="note"><span class="t">Default means &ldquo;set to Default&rdquo;</span>
+  <p>With a 2-year default, a film whose threshold has been explicitly changed to 2 years has an override (it just happens to match the default today). It does <strong>not</strong> appear under <code>#rotation default</code>, and it <strong>does</strong> appear under <code>#rotation override</code>, <code>#rotation custom</code>, and <code>#rotation 2 years</code>. If you later change the global default, that film keeps its 2 years, while films set to Default follow the new value.</p>
+  </div>
+
+  <h3>Putting them together</h3>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#rotation override<br>#!rotation 5 years</span><span class="d">Films with an override that is not 5 years</span></div>
+    <div class="row"><span class="q">#rotation override<br>#rotation 12</span><span class="d">Films explicitly set to 12 months</span></div>
+    <div class="row"><span class="q">#rotation default<br>#list up for rotation</span><span class="d">Films currently up for rotation that follow the default</span></div>
+  </div>
+</section>
+
+<!-- ======================= 9. RECIPES ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 9</div>
+  <h2>Recipes</h2>
+  <p class="lede">Each recipe lists one token per line. Type each one separately, pressing Return after each, so that every line becomes its own pill.</p>
+
+  <h4>Everything one director made in a decade</h4>
+  <div class="ex"><div class="row"><span class="q">#director scorsese<br>#year 1970-1979</span><span class="d">Scorsese films from the 1970s</span></div></div>
+
+  <h4>Highly rated and long</h4>
+  <div class="ex"><div class="row"><span class="q">#rating 8+<br>#duration &gt;150</span><span class="d">Films rated 8 or higher that run longer than two and a half hours</span></div></div>
+
+  <h4>Everything an actor was in, minus a genre</h4>
+  <div class="ex"><div class="row"><span class="q">#cast nicolas cage<br>#!genre comedy</span><span class="d">Cage films that are not comedies</span></div></div>
+
+  <h4>Two actors together</h4>
+  <div class="ex"><div class="row"><span class="q">#cast al pacino<br>#cast robert de niro</span><span class="d">Films that list both</span></div></div>
+
+  <h4>Either of two filmmakers</h4>
+  <div class="ex"><div class="row"><span class="q">#/director kubrick<br>#/director lynch</span><span class="d">Every Kubrick film and every Lynch film</span></div></div>
+
+
+  <h4>No viewing date recorded</h4>
+  <div class="ex"><div class="row"><span class="q">#watched none</span><span class="d">Films with no viewing date</span></div></div>
+
+  <h4>No viewing date, and added a while ago</h4>
+  <div class="ex"><div class="row"><span class="q">#watched none<br>#added &lt;2024</span><span class="d">No viewing date, added before 2024</span></div></div>
+
+  <h4>Everything I watched in one year</h4>
+  <div class="ex"><div class="row"><span class="q">#watched 2025</span><span class="d">Viewed at any time in 2025</span></div></div>
+
+  <h4>What I watched last month and loved</h4>
+  <div class="ex"><div class="row"><span class="q">#watched month<br>#rating 9+</span><span class="d">Viewed in the past month, rated 9 or 10</span></div></div>
+
+  <h4>Things I want to buy on 4K</h4>
+  <div class="ex"><div class="row"><span class="q">#list unpurchased 4k</span><span class="d">The Unpurchased 4K smart list, as a search</span></div></div>
+
+  <h4>Dolby Vision discs that I own</h4>
+  <div class="ex"><div class="row"><span class="q">#release dolby vision<br>#release purchased</span><span class="d">Films with a Dolby Vision release and a purchased release (these may be different discs; see the note in Chapter 7)</span></div></div>
+
+  <h4>Region-free imports</h4>
+  <div class="ex"><div class="row"><span class="q">#release imported<br>#release region free</span><span class="d">Films with an imported release and a region-free release</span></div></div>
+
+  <h4>Native 4K releases from one label</h4>
+  <div class="ex"><div class="row"><span class="q">#release native 4k<br>#release criterion</span><span class="d">Films with a native 4K release and a Criterion release</span></div></div>
+
+  <h4>Combo packs I should look at again</h4>
+  <div class="ex"><div class="row"><span class="q">#release combo<br>#!release standalone</span><span class="d">Films that have a combo pack but no standalone release</span></div></div>
+
+  <h4>Films with my own rotation schedule</h4>
+  <div class="ex"><div class="row"><span class="q">#rotation override</span><span class="d">Every film with a custom threshold</span></div></div>
+
+  <h4>Films with a long rest period</h4>
+  <div class="ex"><div class="row"><span class="q">#rotation 5 years</span><span class="d">Films whose effective threshold is five years (override or default)</span></div></div>
+
+  <h4>A title fragment, narrowed by token</h4>
+  <div class="ex"><div class="row"><span class="q">star<br>#year &lt;1990</span><span class="d">Type <code>star</code> as plain text, then add the Year token: films with &ldquo;star&rdquo; in the title released before 1990</span></div></div>
+
+  <h4>Everything except one kind of film</h4>
+  <div class="ex"><div class="row"><span class="q">#!genre documentary</span><span class="d">The whole library minus documentaries</span></div></div>
+
+  <h4>A person in any role</h4>
+  <div class="ex"><div class="row"><span class="q">#crew clint eastwood</span><span class="d">Films where he directed, acted, produced, wrote, or scored</span></div></div>
+
+  <h4>Find something you only vaguely remember</h4>
+  <div class="ex"><div class="row"><span class="q">#synopsis heist vault<br>#year 2000-2009<br>#!genre animation</span><span class="d">The summary mentions a heist and a vault, released in the 2000s, not animated</span></div></div>
+
+  <h4>A mid-range runtime from films I rated well</h4>
+  <div class="ex"><div class="row"><span class="q">#duration 90-120<br>#rating 7-9</span><span class="d">Between 90 and 120 minutes, rated 7 to 9</span></div></div>
+</section>
+
+<!-- ======================= 10. TROUBLESHOOTING ======================= -->
+<section class="chapter">
+  <div class="eyebrow">Chapter 10</div>
+  <h2>Troubleshooting</h2>
+  <p class="lede">Almost every surprising result comes from one of the situations below.</p>
+
+  <table>
+    <thead><tr><th style="width:2.2in">What you see</th><th>What is going on</th></tr></thead>
+    <tbody>
+      <tr><td>Results do not change after I type <code>#director kubrick</code></td><td>Press <strong>Return</strong>. Until you do, the search is paused and the results show what the previous tokens found. The token also needs a value after the field name and a space.</td></tr>
+      <tr><td>The &ldquo;Enter Search Token&rdquo; message appears</td><td>You started a token (typed <code>#</code>) but have not confirmed one yet. Finish it with a value and Return, or delete the <code>#</code> text.</td></tr>
+      <tr><td>I pressed Return and nothing happened</td><td>The text after <code>#</code> is not a field name. Check the spelling against Chapter 3 or choose from the suggestion list.</td></tr>
+      <tr><td>A number search returns nothing</td><td>Number tokens take digits and the symbols <code>&gt;</code> <code>&lt;</code> <code>+</code> <code>-</code> only. Letters, units, and words make the search match nothing.</td></tr>
+      <tr><td>A date search returns nothing</td><td>The date was not understood (a misspelled word, a day or month that does not exist, a symbol in the wrong place). Chapter 6 lists every form that is.</td></tr>
+      <tr><td>A NOT search returns the whole library</td><td>The value was not understood, so the matching version found nothing, and the opposite of nothing is everything. Check the value.</td></tr>
+      <tr><td>Rating &ldquo;8-&rdquo; or &ldquo;&lt;5&rdquo; does not show unrated films</td><td>By design: 0 means Not Rated, and &ldquo;at most&rdquo; or &ldquo;less than&rdquo; searches leave those out. Use <code>#rating 0</code> to find them.</td></tr>
+      <tr><td><code>#list purchased</code> also shows unpurchased films</td><td>&ldquo;Unpurchased&rdquo; contains the word &ldquo;purchased&rdquo;. Add <code>#!list unpurchased</code>.</td></tr>
+      <tr><td>My OR token brought in films I did not expect</td><td>OR tokens are not limited by AND tokens. See the warning in Chapter 2.</td></tr>
+      <tr><td><code>#release</code> value finds nothing</td><td>It may match no keyword and fall through to a distributor name. Check Chapter 7 for the exact spelling, including <code>bluray</code> without a space.</td></tr>
+      <tr><td>A smart list name finds nothing</td><td>Smart lists must be enabled in Settings for <code>#list</code> to see them. Film Queue lists are never searchable.</td></tr>
+      <tr><td>A rotation value finds nothing</td><td>Only 12, 18, 24, 36, 48, and 60 months (1, 1.5, 2, 3, 4, 5 years) exist. Anything else, including a number with an unknown unit, matches nothing.</td></tr>
+      <tr><td>A film appears that does not seem to match</td><td>Matching is by letters, anywhere in the text, so a short value matches inside longer words. Lengthen the value.</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ======================= 11. CHEAT SHEET ======================= -->
+<section class="chapter cheat">
+  <div class="eyebrow">Chapter 11</div>
+  <h2>Cheat sheet</h2>
+  <p class="lede">The whole language on one page.</p>
+
+  <div class="two">
+    <div>
+      <h4>Making a token</h4>
+      <p><code>#</code> field, space, value, <strong>Return</strong>. <code>&#8984;F</code> focuses the search field.</p>
+      <h4>Prefixes (after the #)</h4>
+      <table><tbody>
+        <tr><td><code>#</code></td><td>AND: must match</td></tr>
+        <tr><td><code>#/</code></td><td>OR: add matches</td></tr>
+        <tr><td><code>#!</code></td><td>NOT: remove matches</td></tr>
+        <tr><td><code>#/!</code></td><td>NOT (OR is ignored)</td></tr>
+      </tbody></table>
+      <h4>Text fields (match anywhere, any case)</h4>
+      <p><code>title</code> <code>cast</code> <code>director</code> <code>producer</code> <code>exp</code> <code>writer</code> <code>composer</code> <code>crew</code> <code>genre</code> <code>studio</code> <code>tags</code> <code>notes</code> <code>list</code></p>
+      <h4>Synopsis: <code>synopsis</code> <code>plot</code> <code>description</code></h4>
+      <p class="small">Every word must appear, in any order: <code>detective sins mills</code></p>
+      <h4>Number fields (ranges include both ends)</h4>
+      <table><tbody>
+        <tr><td><code>year</code></td><td><code>1999</code> <code>1990-1999</code> <code>&gt;2010</code> <code>&lt;1960</code></td></tr>
+        <tr><td><code>duration</code></td><td>minutes (edited runtime if any): <code>120</code> (at least) <code>90-120</code> <code>&gt;150</code> <code>&lt;90</code></td></tr>
+        <tr><td><code>rating</code></td><td><code>8</code> <code>7-9</code> <code>8+</code> <code>8-</code> <code>&gt;7</code> <code>&lt;5</code> <code>0</code> = unrated</td></tr>
+      </tbody></table>
+      <h4>Order of operations</h4>
+      <p class="small">AND tokens &rarr; add OR matches &rarr; remove NOT matches &rarr; narrow by typed title text.</p>
+    </div>
+    <div>
+      <h4>Date fields: <code>watched</code> and <code>added</code></h4>
+      <table><tbody>
+        <tr><td><code>today</code> <code>week</code> <code>month</code> <code>year</code></td><td>rolling windows</td></tr>
+        <tr><td><code>&gt;2022</code> <code>&lt;2020</code></td><td>after / before a year</td></tr>
+        <tr><td><code>&gt;2024.06.30</code></td><td>after / before a day</td></tr>
+        <tr><td><code>dec 2020</code></td><td>a month</td></tr>
+        <tr><td><code>2025</code></td><td>a calendar year</td></tr>
+        <tr><td><code>2020.12.25</code></td><td>a day</td></tr>
+        <tr><td><code>none</code></td><td>no date recorded</td></tr>
+        <tr><td colspan="2" class="small">Anything else finds nothing.</td></tr>
+      </tbody></table>
+      <h4>Release</h4>
+      <p><code>purchased</code> <code>owned</code> <code>unpurchased</code> <code>wishlist</code> <code>wanted</code> &middot; <code>4k</code> <code>uhd</code> <code>bluray</code> <code>dvd</code> &middot; <code>native 4k</code> <code>upscaled</code> &middot; <code>hdr</code> <code>dolby vision</code> <code>hdr10</code> <code>hdr10+</code> &middot; <code>region a</code> <code>region b</code> <code>region free</code> <code>region 1</code>&ndash;<code>5</code> &middot; <code>imported</code> <code>remastered</code> &middot; <code>combo</code> <code>standalone</code> <code>multi</code> &middot; anything else = distributor name</p>
+      <h4>Rotation Threshold</h4>
+      <table><tbody>
+        <tr><td><code>24</code> <code>2</code> <code>2 years</code> <code>24 months</code></td><td>effective value (override or default)</td></tr>
+        <tr><td><code>default</code></td><td>set to Default (no override)</td></tr>
+        <tr><td><code>override</code> <code>custom</code></td><td>has an override</td></tr>
+        <tr><td colspan="2" class="small">Values: 12, 18, 24, 36, 48, 60 months</td></tr>
+      </tbody></table>
+      <h4>Two-word names to avoid</h4>
+      <p class="small"><code>#date added</code> reads as Year and <code>#rotation threshold</code> matches nothing. Type <code>#added</code> and <code>#rotation</code>.</p>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

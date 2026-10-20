@@ -48,7 +48,7 @@ typealias FilmSheetScrollProxy = AppKitScrollProxy
 /// `isActive` controls whether the underlying NSScrollView participates in
 /// AppKit's hit-test chain. When `false`, the scroll view's `hitTest(_:)` is
 /// short-circuited to return `nil` (see `HitTestGatedScrollView` in
-/// `92_00_AppKitScrollView.swift`), removing it and all of its AppKit subviews
+/// `98.20 UtilityKit.swift`), removing it and all of its AppKit subviews
 /// from AppKit's hit-test traversal — without hiding it. This is a
 /// defense-in-depth companion to the `TabEventShield` overlay applied at the
 /// `tabLayer` level.

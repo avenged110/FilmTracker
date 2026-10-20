@@ -53,6 +53,10 @@ struct AddToQueueMenuBody: View {
     /// mixed selection. Resolved by the host via SelectionMenuModel.unanimousQueueSection.
     let unanimousSection: FilmQueueSection?
     let coordinator: DataCoordinator
+    /// True when adding the selection would overflow "Up Next" (it is full, or has too few
+    /// vacancies). Disables the "Up Next" item so the refusal alert is never reachable
+    /// from a menu; a selection already entirely in "Up Next" never overflows.
+    var upNextBlocked = false
 
     var body: some View {
         // Sorted explicitly rather than trusting `allCases` to be declared in queue order,
@@ -67,6 +71,7 @@ struct AddToQueueMenuBody: View {
                 set: { _ in
                     FilmQueueAssignment.toggle(filmIDs, section: section, coordinator: coordinator)
                 }))
+            .disabled(section == .upNext && upNextBlocked)
         }
     }
 }

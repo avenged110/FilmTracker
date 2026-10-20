@@ -416,7 +416,7 @@ struct FSTabNotesView: View {
             // Edit Date
             HStack(alignment: .center, spacing: colSpacing) {
                 label("Edit Date:")
-                CustomDatePicker(date: $viewModel.editDate, hasValue: $viewModel.hasEditDate) {
+                CustomDateStepper(date: $viewModel.editDate, hasValue: $viewModel.hasEditDate) {
                     viewModel.hasEditDate = false
                 }
             }

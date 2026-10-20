@@ -305,7 +305,14 @@ final class DVParagraph {
                 let rest = CTTypesetterCreateLine(typesetter, CFRange(location: start, length: length - start))
                 let restWidth = CGFloat(CTLineGetTypographicBounds(rest, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(rest))
                 if restWidth > width + 0.01 {
-                    let token = unsafe CTLineCreateWithAttributedString(NSAttributedString(string: "\u{2026}", attributes: attr.attributes(at: start, effectiveRange: nil)))
+                    // The ellipsis in the attributes of the character it replaces: that one
+                    // character's run, with its text swapped out (attributes are kept). Read
+                    // this way rather than through attributes(at:effectiveRange:), whose
+                    // out-pointer is unsafe even when passed nil.
+                    let ellipsis = NSMutableAttributedString(attributedString:
+                        attr.attributedSubstring(from: NSRange(location: start, length: 1)))
+                    ellipsis.mutableString.setString("\u{2026}")
+                    let token = CTLineCreateWithAttributedString(ellipsis)
                     let t = CTLineCreateTruncatedLine(rest, Double(width), .end, token) ?? rest
                     lines.append(t); widths.append(min(width, restWidth))
                 } else {

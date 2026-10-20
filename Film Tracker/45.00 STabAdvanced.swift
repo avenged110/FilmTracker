@@ -22,6 +22,7 @@ struct AdvancedSettingsView: View, Loggable {
     @AppStorage(preference: Preferences.overrideDateClampKey) private var overrideDateClamp: Bool
     @AppStorage(preference: Preferences.strictFramesTableCheckingKey)
         private var strictFramesTableChecking: Bool
+    @AppStorage(preference: Preferences.atvqKey) private var atvq: Bool
 
     @State private var showResetInfoCompleteAlert = false
     @State private var showResetIgnoredPairsAlert = false
@@ -42,16 +43,6 @@ struct AdvancedSettingsView: View, Loggable {
                 SettingsControlStrip {
                     Button("Reset All Flags") { showResetInfoCompleteAlert = true } } }
 
-            Divider()
-
-            SettingsRow("Ignored duplicate pairs",
-                        description: "When scanning for duplicates, film pairs you've previously ignored will be excluded from results.") {
-            } accessory: {
-                SettingsControlStrip {
-                    Button("Reset All Ignored Pairs") { showResetIgnoredPairsAlert = true } } }
-
-            Divider()
-
             // The caveat appears only when there is a caveat to state. With
             // purchasedDiscGlyphVisibilityOverride off, every glyph answers to this
             // checkbox and the row needs no explanation; with it on, one glyph visibly
@@ -62,6 +53,16 @@ struct AdvancedSettingsView: View, Loggable {
                             ? "This does not apply to the glyph used to denote a purchased release in the \"Source for Viewing\" field, which is always present."
                             : nil,
                         leading: .checkbox($showWatchDetailsAnnotationGlyphs))
+
+            Divider()
+
+            SettingsRow("Ignored duplicate pairs",
+                        description: "When scanning for duplicates, film pairs you've previously ignored will be excluded from results.") {
+            } accessory: {
+                SettingsControlStrip {
+                    Button("Reset All Ignored Pairs") { showResetIgnoredPairsAlert = true } } }
+
+            Divider()
 
             SettingsDescribedToggle("Override date clamp for viewing events",
                 description: "The floor of the permissible date range for entering viewing events is automatically clamped to a film's release date. You may temporarily override this guard to add viewing events that occurred prior to a film's release date, but this preference will always be automatically reset upon quit.",
@@ -83,7 +84,25 @@ struct AdvancedSettingsView: View, Loggable {
             SettingsLoggingSection(loggingEnabledKey: Preferences.loggingEnabledKey,
                                    title: "Debug logging") { newValue in
                 Preferences.loggingEnabled = newValue
-                AppEventBus.shared.send(.view(.preferencesChanged)) } }
+                AppEventBus.shared.send(.view(.preferencesChanged)) }
+
+            Divider()
+
+            // Turning this on asks for nothing by itself: the Local Network prompt waits
+            // until the first dispatch (see ATVQIntegration.swift).
+            SettingsRow("ATVQ integration",
+                        description: """
+                            Dispatch the contents of your "Up Next" Queue to the ATVQ application on your Apple TV.
+
+                            Note: This feature requires "Local Network" permission via Apple's TCC system. This is only used to dispatch Queue changes to the ATVQ application and/or its deployment utility-based proxy.
+                            """,
+                        leading: .checkbox($atvq)) {
+            } accessory: {
+                SettingsControlStrip {
+                    ATVQTestRelayButton() } }
+                // @AppStorage bypasses Preferences' setter and its preferencesChanged post.
+                .onChange(of: atvq) { _, _ in
+                    AppEventBus.shared.send(.view(.preferencesChanged)) } }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .alert("Reset All \"Complete Data\" Flags",
             isPresented: $showResetInfoCompleteAlert) {

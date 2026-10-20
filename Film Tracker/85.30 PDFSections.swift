@@ -370,15 +370,17 @@ enum DiscReleasesPDFReport {
         /// The shared index column. See `PDFColumnWidth.index`.
         static let index: CGFloat = PDFColumnWidth.index
         /// The film title on a film row, the indented format on a release row. Truncates.
-        static let title: CGFloat = 109
-        /// "Not purchased" on one line — the widest thing this column holds now that
-        /// Condition has moved out of it. It used to wrap, which on a cell merged down the
-        /// pair is not a fit problem so much as a legibility one.
-        static let status: CGFloat = 48
-        /// Sized by its "Year of Release" HEADER rather than by either field — "2016
-        /// (1977)" and "Like new" are both shorter, and a header that wrapped to two lines
-        /// would overflow the band's fixed height.
-        static let year: CGFloat = 44
+        /// Gave a point to Release Date (see `year`), which a truncating column can spare.
+        static let title: CGFloat = 108
+        /// Exactly "Not purchased" on one line — the widest thing this column holds (36.12pt
+        /// at the 5pt semibold body face) — plus the standard padding on either side. Every
+        /// point past that went to Release Date.
+        static let status: CGFloat = 42.25
+        /// The Release Date column, sized by its widest value: a full date with a base year
+        /// behind it, "2016.03.01 (1977)" (44.28pt), which must not wrap — the cell is a
+        /// single row tall on a purchased release. The width Status gave up was 0.53pt short
+        /// of that, and the last point comes from Title.
+        static let year: CGFloat = 50.75
         /// A country name, under a "Provenance" header.
         static let provenance: CGFloat = 44
         /// "Region B (LL)" — the loosely-locked tag abbreviated. Spelled in full it is more
@@ -457,7 +459,7 @@ enum DiscReleasesPDFReport {
     private static let specificationHeaders: [(title: String,
                                                columns: Range<Int>,
                                                alignment: NSTextAlignment)] =
-        [("Year of Release", 3..<4,             .center),
+        [("Release Date",    3..<4,             .center),
          ("Studio",          Column.studioSpan, .left),
          ("Video",           6..<7,             .left),
          ("Aspect Ratio",    Column.aspectSpan, .left),
@@ -528,10 +530,11 @@ enum DiscReleasesPDFReport {
                     Column.status: groups.isEmpty
                         ? "No releases"
                         : "\(groups.count) release\(groups.count == 1 ? "" : "s")",
-                    // The film's own year, in the column its releases print THEIR years in
-                    // — the base year in a release's "2016 (1977)" is this same figure, so
-                    // the column reads consistently from the band down.
-                    Column.year: film.releaseYear,
+                    // The film's own release date, in the column its releases print THEIR
+                    // dates in, and in the same "2016.03.01" form — the base year in a
+                    // release's "2016.03.01 (1977)" is this film's year, so the column reads
+                    // consistently from the band down.
+                    Column.year: filmReleaseDate(film),
                 ]))
 
             for (groupOffset, group) in groups.enumerated() {
@@ -589,9 +592,9 @@ enum DiscReleasesPDFReport {
     ///   * Studio spans three — the parent's two rows and the child's first — leaving the
     ///     child's last row to carry Provenance and Region Lock. A 4K disc has no region
     ///     coding, so the parent's own provenance row said nothing the child's does not.
-    ///   * The parent's Year of Release spans its two rows, displacing its Condition cell;
+    ///   * The parent's Release Date spans its two rows, displacing its Condition cell;
     ///     a disc's condition is the box's condition, and the child reports it.
-    ///   * The child's Year of Release prints only when it carries a base year of its own.
+    ///   * The child's Release Date prints only when it carries a base year of its own.
     ///     Absent one, it is implicitly the parent's and is left blank rather than repeated.
     ///
     /// A second bundled Blu-ray (a dual-BD pack) is rare and is drawn as an ordinary pair
@@ -693,7 +696,7 @@ enum DiscReleasesPDFReport {
 
     // MARK: The year stack
 
-    /// The Year of Release cell, and how far down it reaches.
+    /// The Release Date cell, and how far down it reaches.
     ///
     /// The column below it holds Condition, and Condition is only ever printed for a disc
     /// the user OWNS — an unpurchased release has no disc to be in any condition. So on an
@@ -969,16 +972,31 @@ enum DiscReleasesPDFReport {
         return PDFPalette.red
     }
 
-    // MARK: Years
+    // MARK: Release dates
 
-    /// "2016 (1977)" — the pressing's year, with the film's original release year behind
-    /// it when the two differ. Both trimmed, as the sidebar trims them, so a stored value
-    /// carrying stray whitespace centers the same way in both.
+    /// "2016.03.01 (1977)" — the pressing's release date, with the base release year behind
+    /// it when it differs from the release's own year. A release known only by its year
+    /// prints the year alone, "2016 (1977)", as it always has. Both trimmed, as the sidebar
+    /// trims them, so a stored value carrying stray whitespace centers the same way in both.
     private static func years(_ release: ReleaseSnapshot) -> String {
-        let year = release.releaseYear.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = release.releaseDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = ReleaseDateValue(trimmed, format: release.format)
+        // The stored "yyyy.MM.dd" or bare year; an unreadable value prints as it is stored.
+        let date = value?.storageString ?? trimmed
+        let year = value.map { Fmt.padded($0.year, 4) } ?? trimmed
         let base = release.baseReleaseYear.trimmingCharacters(in: .whitespacesAndNewlines)
-        if base.isEmpty || base == year { return FilmDetailStyle.orDash(year) }
-        return year.isEmpty ? "(\(base))" : "\(year) (\(base))"
+        if base.isEmpty || base == year { return FilmDetailStyle.orDash(date) }
+        return date.isEmpty ? "(\(base))" : "\(date) (\(base))"
+    }
+
+    /// The film's release date as "2016.03.01", or its year alone when no full date is
+    /// stored. Read with `parseDate(from:)`, the app's one reader of the film's date — it
+    /// is stored "yyyy-MM-dd" by the Details tab and as a timestamp by older imports — and
+    /// printed with the dots every release date in this column uses.
+    private static func filmReleaseDate(_ film: FilmSnapshot) -> String {
+        let stored = film.releaseDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stored.isEmpty, let date = parseDate(from: stored) else { return film.releaseYear }
+        return StorageDateFormatters.dot.string(from: date)
     }
 
     // MARK: Packaging

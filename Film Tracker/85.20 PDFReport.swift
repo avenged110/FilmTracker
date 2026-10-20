@@ -893,7 +893,7 @@ enum LibraryPDFReport {
                 let displayed = useStudios
                     ? studios.map { abbreviated ? ReleaseStudio.abbreviated($0) : $0 }
                     : []
-                let labels = (useStudios ? displayed : copies.map(\.releaseYear))
+                let labels = (useStudios ? displayed : copies.map { ReleaseDateValue.yearText(of: $0.releaseDate, format: $0.format) })
                     .map { $0.isEmpty ? placeholderDash : $0 }
 
                 // Nothing distinguishes the copies — same studio, same year, or no year at

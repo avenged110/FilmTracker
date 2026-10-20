@@ -18,6 +18,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
     case unpurchased4K = "Unpurchased 4K"
     case unpurchasedBluray = "Unpurchased Blu-ray"
     case unpurchasedDVD = "Unpurchased DVD"
+    case upcomingReleases = "Upcoming Releases"
     case edited = "Edited"
     case alternateVersions = "Alternate Versions"
     case filteredLibrary = "Filtered Library"
@@ -69,6 +70,9 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
         case .unpurchasedDVD:
             return ("No Unpurchased Films on DVD",
                     "Add DVD releases to films which you haven't purchased yet to populate this list.")
+        case .upcomingReleases:
+            return ("No Upcoming Releases",
+                    "Add releases with a release date in the future to populate this list.")
         case .edited:
             return ("No Edited Films",
                     "Mark films as edited to populate this list.")
@@ -96,7 +100,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
         }
     }
     
-    /// The five types that get a sidebar row of their own, in declaration order.
+    /// The six types that get a sidebar row of their own, in declaration order.
     /// Computed once and cached: both LeftSidebar's "Smart Lists" section and MenuBar's
     /// smart-list menu enumerate this on every body evaluation, and re-running the
     /// `showsInSidebar` filter across all eighteen cases each time is pure waste.
@@ -105,7 +109,8 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
     /// Returns true if this list type should appear in the sidebar
     var showsInSidebar: Bool {
         switch self {
-        case .upForRotation, .purchased, .unpurchased, .alternateVersions, .filteredLibrary:
+        case .upForRotation, .purchased, .unpurchased, .upcomingReleases, .alternateVersions,
+             .filteredLibrary:
             return true
         case .viewedOverOneYearAgo:
             return false // Accessed via Picker in the Up for Rotation view
@@ -180,6 +185,9 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
             return .purchased
         case .unpurchased, .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD:
             return .unpurchased
+        // A family of one, so far: no variants, no picker, no disclosure triangle.
+        case .upcomingReleases:
+            return .upcomingReleases
         case .alternateVersions, .edited:
             return .alternateVersions
         case .filteredLibrary, .waitingForEdit, .temporarilyOnHold,
@@ -786,15 +794,20 @@ final class SmartLists: Loggable {
         let allFilms = coordinator.getAllFilms()
         var rotationIDs: Set<UUID> = []
         var oneYearIDs: Set<UUID> = []
+        // "Upcoming Releases" is the other date-relative list: a release leaves it on the
+        // day it comes out, so it is refreshed on the same daily pass.
+        var upcomingIDs: Set<UUID> = []
         for film in allFilms {
             let member = Self.membership(of: film, today: today)
             if member.contains(.upForRotation) { rotationIDs.insert(film.id) }
             if member.contains(.viewedOverOneYearAgo) { oneYearIDs.insert(film.id) }
+            if member.contains(.upcomingReleases) { upcomingIDs.insert(film.id) }
         }
         // Applied through the choke point so the daily refresh honors the same
         // cross-launch baseline every other rotation path uses.
         let newlyUpForRotation = applyUpForRotationMembership(rotationIDs)
         sets[.viewedOverOneYearAgo] = oneYearIDs
+        sets[.upcomingReleases] = upcomingIDs
         lastRotationCalculationDate = today
         Self.log("Up for Rotation: \(rotationIDs.count) films | Viewed Over One Year Ago: \(oneYearIDs.count) films")
 
@@ -888,6 +901,16 @@ final class SmartLists: Loggable {
             if !formatReleases.isEmpty, formatReleases.allSatisfy({ !$0.purchased }) {
                 types.insert(type)
             }
+        }
+
+        // --- Upcoming ---
+        // At least one release whose date is still ahead of `today`, purchased (a
+        // preorder) or not — see ReleaseDateValue.isUpcoming. Date-relative, like the
+        // rotation lists, so the midnight refresh recomputes it.
+        if film.releases.contains(where: {
+            ReleaseDateValue($0.releaseDate, format: $0.format)?.isUpcoming(today: today) ?? false
+        }) {
+            types.insert(.upcomingReleases)
         }
 
         // --- Metadata ---
@@ -1051,6 +1074,7 @@ final class SmartLists: Loggable {
     private static let releaseBasedLists: Set<SmartListType> =
         Set(SmartListType.allCases.filter {
             $0.isPurchasedFormat || $0.isUnpurchasedFormat || $0 == .alternateVersions
+                || $0 == .upcomingReleases
         })
 
     /// Re-evaluates every smart list for one film.

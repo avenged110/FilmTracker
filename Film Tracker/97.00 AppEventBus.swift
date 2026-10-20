@@ -120,8 +120,10 @@ enum UICommand: Equatable, Sendable {
     case addFilm
     /// Edit the currently selected film
     case editFilm
+    /// Edit the currently selected film, opening the sheet on its Metadata tab (Opt+Cmd+E)
+    case editFilmMetadata
     /// Edit releases for the currently selected film, opening the carousel on `format`'s
-    /// first card when one is given (Opt+Cmd+R asks for 4K UHD).
+    /// first card when one is given.
     case editFilmReleases(format: String? = nil)
     
     // MARK: Import Operations
@@ -153,6 +155,9 @@ enum UICommand: Equatable, Sendable {
     /// The tab bar and Close button are disabled until the user completes or dismisses
     /// the restore workflow. Handled exclusively by SheetHostView.
     case openSettingsLockedToRestore
+    /// Open the "Up Next" slot picker. Sent by any empty slot in the Queue's "All" tab
+    /// (UpNextSlots.swift); handled by SheetHostView.
+    case openUpNextSlot
     
     // MARK: Sheet Tab Navigation
     /// Change tab in active FilmSheet (1-5)
@@ -276,6 +281,17 @@ enum AlertCommand: Equatable, Sendable {
     /// EventKitManager.createEvent reported failure — the viewing itself has already
     /// been committed at that point, which is what the alert's wording tells the user.
     case calendarEventCreationFailed
+
+    // MARK: Notices
+    /// A plain, informational alert with a single "OK" button — used by the "Up Next"
+    /// capacity guards and the ATVQ dispatch button. `afterDragSession` defers it to the
+    /// end of the current drag session, exactly as confirmFilmQueueAddOnDrop is, for a
+    /// sender running inside performDragOperation.
+    case showNotice(title: String, message: String, afterDragSession: Bool = false)
+    /// A LeftSidebar drop on the "Up Next" row that would overflow it: the "Up Next" Queue
+    /// Full alert, with "Cancel" and an offer to add the films to "Soon" instead. Always
+    /// deferred to the end of the drag session, like showNotice's afterDragSession.
+    case offerSoonForFullUpNextDrop(filmIDs: Set<UUID>, message: String)
 }
 
 // MARK: - App Event Bus

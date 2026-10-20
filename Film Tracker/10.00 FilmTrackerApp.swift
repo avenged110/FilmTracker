@@ -81,7 +81,14 @@ struct FilmTrackerApp: App, Loggable {
     }
 
     var body: some Scene {
-        WindowGroup {
+        // A stable scene id is what makes the window's size and position persist. Without
+        // one, SwiftUI keys the window's frame autosave entry ("NSWindow Frame SwiftUI.…")
+        // by the full type name of the root view, and private types in that name print as
+        // "(unknown context at $<address>)". Those addresses move: SwiftUI's own whenever
+        // the shared cache re-slides at boot, the app's own on every launch. The frame was
+        // saved every time, under a name the next launch never looked up. With an id, the
+        // entry is keyed by the id and AppKit restores it before the window is shown.
+        WindowGroup(id: "main") {
             ZStack {
                 MainView()
                     .modelContainer(modelContainer)
@@ -183,7 +190,7 @@ struct FilmTrackerApp: App, Loggable {
         log("Instance lock: another Film Tracker process already has \(folderPath) open; exiting")
         #if DEBUG
         if DebugSandbox.harnessName != nil {
-            unsafe fputs("[DebugHarness] ERROR: another Film Tracker process already has \(folderPath) open. Refusing to run a second instance on the same container.\n", unsafe stderr)
+            printToStandardError("[DebugHarness] ERROR: another Film Tracker process already has \(folderPath) open. Refusing to run a second instance on the same container.\n")
             exit(2)
         }
         #endif
@@ -399,6 +406,10 @@ struct FilmTrackerApp: App, Loggable {
         // once complete, so smart list counts appear shortly after the sidebar is visible.
         coordinator.deferredSmartListsCalculation()
 
+        // Release-day notifications: reconciles the pending schedule with the library just
+        // loaded. Off the launch path in the same way — its work is a few system calls.
+        coordinator.startReleaseNotifications()
+
         // Warm the Data Visualizations tab's mount cache off the main thread, a little
         // after the launch work above so it does not compete with it (see
         // ReportsState.prefetchVisualizations).
@@ -484,6 +495,8 @@ struct FilmTrackerApp: App, Loggable {
         appState.startDeferredMaintenance(coordinator: coordinator)
     }
 }
+
+// MARK: - Main Window Frame Autosave
 
 // MARK: - App Delegate
 @MainActor
@@ -908,7 +921,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
     
     // Internal (not private) so the `backup-auto` harness scenario drives this very code
     // against the package the automatic backup delivers.
-    static func retainRecentBackups(in folder: URL, limit: Int) async {
+    //
+    // `nonisolated` so the listing and the deletions (whole backup packages, posters
+    // included) run on the global executor rather than on the main actor this class is
+    // bound to.
+    nonisolated static func retainRecentBackups(in folder: URL, limit: Int) async {
         let fm = FileManager.default
         
         do {
@@ -1187,7 +1204,10 @@ final class AppState: Loggable {
         deferredMaintenanceTask = nil
     }
 
-    private func performDeferredMaintenance(coordinator: DataCoordinator) async {
+    /// `nonisolated` so it actually runs on the detached task's background thread. As a
+    /// plain method of this @MainActor class, the detached task's `await` hopped straight
+    /// back to the main actor, and the poster pruner's full folder scan ran there.
+    private nonisolated func performDeferredMaintenance(coordinator: DataCoordinator) async {
         guard !Task.isCancelled else { return }
 
         // Collect posterUIDs from MemoryStore on MainActor (near-instant in-memory read).
@@ -1197,9 +1217,8 @@ final class AppState: Loggable {
         guard !Task.isCancelled else { return }
 
         // PosterPruner is a synchronous, pure file-I/O function that takes only a
-        // Sendable Set<String>. Because this function is already running on a detached
-        // background task (see startDeferredMaintenance), there is no need to spin up
-        // an additional Task.detached wrapper — we call it directly on the current thread.
+        // Sendable Set<String>. This function is nonisolated and runs on the detached
+        // background task (see startDeferredMaintenance), so it is called directly here.
         PosterPruner.pruneOrphanedPosters(validPosterUIDs: posterUIDs,
                                           snapshotTakenAt: snapshotTakenAt)
 

@@ -10,6 +10,9 @@ struct HallOfFameView: View {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
     @State private var films: [HallOfFameFilm] = []
+    /// Bumped by every load and every drag-reorder. The mount path's off-main reconcile
+    /// applies its rows only if neither has happened since it started.
+    @State private var loadGeneration = 0
     @State private var selection: Set<UUID> = []
 
     private static let emptyStateConfig = EmptyStateConfig(
@@ -58,7 +61,7 @@ struct HallOfFameView: View {
                 films = ReportsState.shared.cachedHallOfFameFilms
                 DispatchQueue.main.async {
                     DispatchQueue.main.async {
-                        loadHallOfFameFilms()
+                        reconcileHallOfFameFilms()
                     }
                 }
             } else {
@@ -97,10 +100,40 @@ struct HallOfFameView: View {
         }
     }
 
+    /// The mount path's reconciling load, with the row build off the main actor.
+    /// Event-driven reloads stay synchronous: a drag-reorder's reloads run inside the
+    /// table's own move callback and must land in the same pass.
+    private func reconcileHallOfFameFilms() {
+        loadGeneration += 1
+        let generation = loadGeneration
+        let filmsMap = dataCoordinator.getAllFilmsMap()
+        let ranking = dataCoordinator.hallOfFameFilms
+        Task {
+            let rebuilt = await Task.detached(priority: .userInitiated) {
+                // The members as getHallOfFameFilms() builds them.
+                HallOfFameFilm.rows(films: ranking.compactMap { filmsMap[$0] })
+            }.value
+            guard generation == loadGeneration else { return }
+            // Rows built from a library or ranking that has since changed would be stale,
+            // and the change may not have triggered a reload. Fall back to the synchronous
+            // load, which reads both as they are now.
+            guard dataCoordinator.hallOfFameFilms == ranking,
+                  dataCoordinator.getAllFilmsMap() == filmsMap else {
+                loadHallOfFameFilms()
+                return
+            }
+            applyHallOfFameFilms(rebuilt)
+        }
+    }
+
     private func loadHallOfFameFilms() {
+        loadGeneration += 1
         // Built by HallOfFameFilm.rows, which the whole-library PDF export calls as well,
         // so the ranking, the purchase standing, and the upgrade note are derived once.
-        let rebuilt = HallOfFameFilm.rows(films: dataCoordinator.getHallOfFameFilms())
+        applyHallOfFameFilms(HallOfFameFilm.rows(films: dataCoordinator.getHallOfFameFilms()))
+    }
+
+    private func applyHallOfFameFilms(_ rebuilt: [HallOfFameFilm]) {
 
         // Assign only on an actual change. A single drag-reorder emits one .film(.updated)
         // per shifted member, and the .onFilmEvent handler reloads on each of them. Those
@@ -137,6 +170,7 @@ struct HallOfFameView: View {
     }
 
     private func handleMove(from source: IndexSet, to destination: Int) {
+        loadGeneration += 1
         // Reorder the local array.
         var updatedFilms = films
         updatedFilms.move(fromOffsets: source, toOffset: destination)

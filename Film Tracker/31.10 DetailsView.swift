@@ -35,6 +35,7 @@ struct FSTabDetailsView: View {
     // immediately — see filmQueueSectionBinding below.
     @State private var showFilmQueueConfirmAlert = false
     @State private var pendingFilmQueueSection: FilmQueueSection?
+    @State private var showUpNextFullAlert = false
 
     /// Proxy that drives programmatic scrolling through the AppKit NSScrollView.
     /// FilmSheetTabContent creates one FilmSheetScrollProxy for the Details tab and
@@ -131,6 +132,14 @@ struct FSTabDetailsView: View {
         Binding(
             get: { viewModel.selectedFilmQueueSection },
             set: { newValue in
+                // "Up Next" holds at most eight films. Fallback only: a full "Up Next"
+                // disables its segment before the sheet renders (upNextWasFullAtOpen), so
+                // this alert should never be seen. Kept as a safety net. Deferred for the
+                // same reason as the confirmation below.
+                if newValue == .upNext, viewModel.upNextIsFull {
+                    DispatchQueue.main.async { showUpNextFullAlert = true }
+                    return
+                }
                 if newValue != nil,
                    !viewModel.specialSorting.isEmpty,
                    confirmFilmQueueAdd {
@@ -261,7 +270,7 @@ struct FSTabDetailsView: View {
             // Release Date
             HStack(alignment: .center, spacing: colSpacing) {
                 label("Release Date:")
-                CustomDatePicker(date: $viewModel.releaseDate, hasValue: $viewModel.hasReleaseDate) {
+                CustomDateStepper(date: $viewModel.releaseDate, hasValue: $viewModel.hasReleaseDate) {
                     viewModel.hasReleaseDate = false
                 }
             }
@@ -292,8 +301,22 @@ struct FSTabDetailsView: View {
             // how List Membership below is reconciled when the sheet is saved.
             HStack(alignment: .center, spacing: colSpacing) {
                 label("Queue Membership:")
-                FilmQueuePicker(selection: filmQueueSectionBinding)
+                FilmQueuePicker(selection: filmQueueSectionBinding,
+                                upNextDisabled: viewModel.upNextWasFullAtOpen)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if viewModel.upNextWasFullAtOpen {
+                HStack(alignment: .top, spacing: colSpacing) {
+                    label("")
+                    Text("Your \"Up Next\" Queue contains the maximum of eight films. You must remove one or more films from it before you can add another.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                // 4 pt under the picker, as the tab's other descriptions sit under their
+                // controls, rather than a full row gap.
+                .padding(.top, -(rowSpacing - 4))
             }
             // Auto-Add to Queue on Rotation — mirrors the Toggle + inline Picker composition
             // used for the equivalent "Add dragged films to the … section of the Queue" and
@@ -307,9 +330,12 @@ struct FSTabDetailsView: View {
                 // A checkbox beside its label rather than a Toggle wrapping it, so the box
                 // is a stop in the sheet's Tab traversal (SheetCheckbox, 30_20). The two
                 // text runs still toggle it on click, as a Toggle's label would.
-                HStack(alignment: .top, spacing: 4) {
+                // The checkbox is centered on the "Add to … Queue" line through the
+                // rotationLine guide, rather than placed by a top padding that drifted out of
+                // line with the menu beside it.
+                HStack(alignment: .rotationLine, spacing: 4) {
                     SheetCheckbox(isOn: autoAddToQueueEnabledBinding)
-                        .padding(.top, 4)
+                        .alignmentGuide(.rotationLine) { $0[VerticalAlignment.center] }
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 4) {
                             Text("Add to")
@@ -320,11 +346,12 @@ struct FSTabDetailsView: View {
                             Text("Queue when up for rotation")
                                 .onTapGesture { autoAddToQueueEnabledBinding.wrappedValue.toggle() }
                         }
+                        .alignmentGuide(.rotationLine) { $0[VerticalAlignment.center] }
                         .padding(.top, 4)
                         // Intentionally ommitted the 2 point vertical padding reduction seen
                         // with other checkbox + Picker rows elsewhere in the codebase as this
                         // unexpectedly causes unnaturally thin margins here.
-                        Text("Automatically add this film to the selected Queue section when its rotation threshold is met and it becomes ready for viewing.")
+                        Text("Automatically add this film to the selected Queue section when its rotation threshold is met and it becomes ready for viewing. If you select \"Up Next\" and this section is full at the time adding is triggered, the film will be added to the \"Soon\" Queue instead.")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -338,13 +365,13 @@ struct FSTabDetailsView: View {
                 .padding(.vertical, 6)
 
             // Duration — label and content change based on the "Edited" checkbox state.
-            // When edited == false: single DurationPicker for the canonical duration.
+            // When edited == false: single DurationStepper for the canonical duration.
             // When edited == true: both pickers are shown separated by "/" and the row
             // title widens to "Duration / Edited:" to describe both columns.
             HStack(alignment: .center, spacing: colSpacing) {
                 label(viewModel.edited ? "Duration / Edited:" : "Duration:")
                 HStack(spacing: 6) {
-                    DurationPicker(
+                    DurationStepper(
                         hours: $viewModel.durationHours,
                         minutes: $viewModel.durationMinutes,
                         hasValue: $viewModel.hasDuration
@@ -356,7 +383,7 @@ struct FSTabDetailsView: View {
                     if viewModel.edited {
                         Text("/")
                             .foregroundStyle(.primary)
-                        DurationPicker(
+                        DurationStepper(
                             hours: $viewModel.editedDurationHours,
                             minutes: $viewModel.editedDurationMinutes,
                             hasValue: $viewModel.hasEditedDuration
@@ -593,6 +620,12 @@ struct FSTabDetailsView: View {
         } message: {
             Text(FilmQueue.addConfirmationMessage(flaggedWith: viewModel.specialSorting))
         }
+        .alert(FilmQueue.upNextFullTitle, isPresented: $showUpNextFullAlert) {
+            Button("OK") { }
+                .keyboardShortcut(.defaultAction)
+        } message: {
+            Text(FilmQueue.upNextFullMessage(adding: 1, vacancies: 0))
+        }
     }
 
 }
@@ -604,13 +637,18 @@ struct FSTabDetailsView: View {
 /// pickers are — see SheetSegmentedControl (30_20).
 private struct FilmQueuePicker: View {
     @Binding var selection: FilmQueueSection?
+    /// Dims the "Up Next" segment: the Queue is full and this film isn't in it.
+    var upNextDisabled = false
 
-    private static let segments: [SheetSegmentedControl<FilmQueueSection?>.Segment] =
+    private var segments: [SheetSegmentedControl<FilmQueueSection?>.Segment] {
         [.init(nil, "None")]
-        + FilmQueueSection.allCases.map { .init(.some($0), $0.displayName) }
+            + FilmQueueSection.allCases.map {
+                .init(.some($0), $0.displayName, isEnabled: !(upNextDisabled && $0 == .upNext))
+            }
+    }
 
     var body: some View {
-        SheetSegmentedControl(selection: $selection, segments: Self.segments)
+        SheetSegmentedControl(selection: $selection, segments: segments)
     }
 }
 
@@ -821,4 +859,13 @@ private struct RotationThresholdPicker: View {
         ), items: Self.items(defaultThreshold: Preferences.defaultRotationThreshold),
            width: pickerWidth)
     }
+}
+
+// MARK: - Rotation Row Alignment
+/// Centers the auto-add row's checkbox on its "Add to … Queue" line.
+private extension VerticalAlignment {
+    enum RotationLine: AlignmentID {
+        static func defaultValue(in context: ViewDimensions) -> CGFloat { context[VerticalAlignment.center] }
+    }
+    static let rotationLine = VerticalAlignment(RotationLine.self)
 }

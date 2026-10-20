@@ -27,6 +27,10 @@ struct GeneralSettingsView: View, Loggable {
         private var confirmReleaseDelete: Bool
     @AppStorage(preference: Preferences.confirmFilmQueueAddKey)
         private var confirmFilmQueueAdd: Bool
+    @AppStorage(preference: Preferences.notifyAboutNewReleasesKey)
+        private var notifyAboutNewReleases: Bool
+    @AppStorage(preference: Preferences.onlyNotifyForWishlistedKey)
+        private var onlyNotifyForWishlisted: Bool
     @AppStorage(preference: Preferences.queueIsDropTargetKey)
         private var queueIsDropTarget: Bool
     @AppStorage(preference: Preferences.queueSectionOnDropKey)
@@ -68,6 +72,9 @@ struct GeneralSettingsView: View, Loggable {
 
     @State private var showResetOverridesAlert = false
     @State private var backupFilesExist = false
+    /// True while deleteBackups' background deletion runs, so the button cannot start a
+    /// second one.
+    @State private var isDeletingBackups = false
     @State private var showDeleteBackupsAlert = false
     @State private var backupMonitorTask: TaskHandle?
     // Debounce task for rememberSortFilterSelections toggle to prevent rapid
@@ -152,6 +159,33 @@ struct GeneralSettingsView: View, Loggable {
                 }
             }
             .settingsChildRowInset()
+
+            // Master checkbox + scope Picker, matching the confirmListEdits/ListEditScope
+            // design above: the checkbox turns release-day notifications on and off, and the
+            // Picker, disabled while it is off, narrows them to wishlisted releases.
+            Toggle(isOn: $notifyAboutNewReleases) {
+                HStack(spacing: 4) {
+                    Text("Notify me about")
+                    Picker("", selection: $onlyNotifyForWishlisted) {
+                        Text("all new releases").tag(false)
+                        Text("wishlisted new releases only").tag(true)
+                    }
+                    .labelsHidden()
+                    .frame(width: 215)
+                    .disabled(!notifyAboutNewReleases)
+                }
+                .padding(.vertical, -2)
+            }
+            // @AppStorage writes directly to UserDefaults, bypassing Preferences' setters and
+            // their preferencesChanged post. Mirrored and posted here, as for smartLists
+            // below, because ReleaseNotifications reschedules on that event — turning the
+            // checkbox on is also what asks macOS for permission to notify.
+            .onChange(of: notifyAboutNewReleases) { _, newValue in
+                Preferences.notifyAboutNewReleases = newValue
+                AppEventBus.shared.send(.view(.preferencesChanged)) }
+            .onChange(of: onlyNotifyForWishlisted) { _, newValue in
+                Preferences.onlyNotifyForWishlisted = newValue
+                AppEventBus.shared.send(.view(.preferencesChanged)) }
 
             Divider()
 
@@ -320,7 +354,7 @@ struct GeneralSettingsView: View, Loggable {
                     .disabled(!backupFilesExist)
 
                     Button("Delete Existing Backups") { showDeleteBackupsAlert = true }
-                    .disabled(!backupFilesExist) } }
+                    .disabled(!backupFilesExist || isDeletingBackups) } }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .onAppear {
@@ -379,10 +413,23 @@ struct GeneralSettingsView: View, Loggable {
         guard let url = Preferences.backupFolderURL else { return }
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path(percentEncoded: false)) }
 
+    /// Deletes every backup package off the main actor — each is a directory holding the
+    /// whole poster folder, so removing them can take a while — then refreshes the button
+    /// state here.
     private func deleteBackups() {
         guard let backupURL = Preferences.backupFolderURL else {
             log("ERROR: Backup folder URL is nil"); return }
+        guard !isDeletingBackups else { return }
+        isDeletingBackups = true
 
+        Task {
+            let exist = await Task.detached(priority: .userInitiated) { () -> Bool in
+                Self.deleteBackupFiles(in: backupURL)
+                return Self.backupFilesExist(in: backupURL) }.value
+            backupFilesExist = exist
+            isDeletingBackups = false } }
+
+    private nonisolated static func deleteBackupFiles(in backupURL: URL) {
         do {
             let fileManager = FileManager.default
 
@@ -393,11 +440,18 @@ struct GeneralSettingsView: View, Loggable {
 
             if backupFiles.isEmpty { log("No backup files to delete")
             } else {
-                // Delete each backup file.
-                for file in backupFiles { try fileManager.removeItem(at: file) }
-                log("Deleted \(backupFiles.count) backup file(s)") }
-
-            // Update button state.
-            updateBackupFilesStatus()
+                // Each package on its own: the automatic backup's retention pass also deletes
+                // packages off the main actor and can remove one first. A failure skips that
+                // package rather than abandoning the rest; the button state is re-read after.
+                var deleted = 0
+                for file in backupFiles {
+                    do {
+                        try fileManager.removeItem(at: file)
+                        deleted += 1
+                    } catch CocoaError.fileNoSuchFile {
+                        continue
+                    } catch {
+                        log("ERROR: Failed to delete backup \(file.lastPathComponent): \(error.localizedDescription)") } }
+                log("Deleted \(deleted) backup file(s)") }
         } catch { log("ERROR: Failed to delete backups: \(error.localizedDescription)") } }
 }

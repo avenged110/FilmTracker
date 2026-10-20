@@ -34,7 +34,7 @@ import AppKit
 // allocations on every render of StandardStepper and RatingStepper.
 private let disabledControlTextColor  = Color(NSColor.disabledControlTextColor)
 // The placeholder shade shared by every un-activated stepper in the app — the same
-// color CustomDatePicker's year and full-date placeholders use.
+// color CustomDateStepper's year and full-date placeholders use.
 private let tertiaryLabelColor        = Color(NSColor.tertiaryLabelColor)
 // The Steppers' fill and border are `stepperChrome(filled:)` (90.00 GlobalUtilities.swift),
 // shared with InputUtilities.swift's so the two files' Steppers cannot drift.
@@ -1944,7 +1944,8 @@ struct StandardStepper: View {
                 // text out of content-driven animation, keeping it visually static.
                 .contentTransition(.identity)
         }
-        .padding(4)
+        // 1 pt tighter than the original padding(4), as every Stepper widget in the family is.
+        .padding(3)
         // A windowBackgroundColor fill (slightly darker than the controlBackgroundColor of
         // the surrounding ReleaseCard) so the Stepper reads as an interactive control.
         .stepperChrome(filled: true)
@@ -1955,7 +1956,7 @@ struct StandardStepper: View {
 /// The FilmSheet's "HandBrake RF Value" stepper.
 ///
 /// Carries the same not-activated placeholder behavior the year-based steppers in
-/// CustomDatePicker have: a field the user has never set shows a placeholder in the
+/// CustomDateStepper have: a field the user has never set shows a placeholder in the
 /// tertiary label color rather than a number, the first click activates the field
 /// instead of stepping it, and Delete while the AppKit focus ring is on the control
 /// returns it to the un-activated state.
@@ -1965,7 +1966,7 @@ struct StandardStepper: View {
 /// sentinel persisted for a film whose RF value has never been set, and the
 /// activated range starts at 1. There is therefore no state the view could hold that
 /// the binding does not already express, and no way for the two to disagree — which
-/// is what `shouldActivateInsteadOfIncrement`'s long note in CustomDatePicker is
+/// is what `shouldActivateInsteadOfIncrement`'s long note in CustomDateStepper is
 /// about, where the committed flag and the view-local one are genuinely separate.
 ///
 /// The first click commits `activationValue` (22, HandBrake's own default RF) rather
@@ -1993,7 +1994,7 @@ struct HBRFValueStepper: View {
             Text(isActivated ? "\(value)" : Self.placeholder)
                 .frame(width: 41, alignment: .trailing)
                 // Tertiary, not secondary, for the placeholder — the shade
-                // CustomDatePicker's un-activated year and date fields use.
+                // CustomDateStepper's un-activated year and date fields use.
                 .foregroundStyle(isActivated ? Color.primary : tertiaryLabelColor)
                 // Same rationale as StandardStepper above — prevent an ambient spring
                 // transaction from animating this label's geometry.
@@ -2006,7 +2007,8 @@ struct HBRFValueStepper: View {
                 onDelete: { value = 0 }
             )
         }
-        .padding(4)
+        // 1 pt tighter than the original padding(4), matching StandardStepper.
+        .padding(3)
         .stepperChrome(filled: true)
     }
 
@@ -2059,7 +2061,8 @@ struct RatingStepper: View {
                 onDelete: { value = 0 }
             )
         }
-        .padding(4)
+        // 1 pt tighter than the original padding(4), matching StandardStepper.
+        .padding(3)
         .stepperChrome(filled: true)
     }
 }
@@ -2172,7 +2175,7 @@ struct ViewingDatesTable: View, Loggable {
     }
 
     /// The film's release date, used as both date pickers' lower bound. `nil` when no
-    /// release date is set, in which case CustomDatePicker applies no clamp (per its
+    /// release date is set, in which case CustomDateStepper applies no clamp (per its
     /// documented no-op contract). Also `nil` when Preferences.overrideDateClamp is
     /// true, allowing the user to temporarily add viewing events dated prior to the
     /// film's release date.
@@ -2327,7 +2330,7 @@ struct ViewingDatesTable: View, Loggable {
 
             // Date picker
             ViewingFormRow("Select date:") {
-                CustomDatePicker(date: $addPopoverDate, hasValue: $addPopoverHasValue, minDate: releaseDateMin)
+                CustomDateStepper(date: $addPopoverDate, hasValue: $addPopoverHasValue, minDate: releaseDateMin, maxDate: Date())
             }
             
             // Version picker
@@ -2373,7 +2376,7 @@ struct ViewingDatesTable: View, Loggable {
             
             // Date picker
             ViewingFormRow("Select date:") {
-                CustomDatePicker(date: $editPopoverDate, hasValue: $editPopoverHasValue, minDate: releaseDateMin)
+                CustomDateStepper(date: $editPopoverDate, hasValue: $editPopoverHasValue, minDate: releaseDateMin, maxDate: Date())
                     .onChange(of: editPopoverDate) { _, _ in
                         hasChanges = true
                     }
@@ -2569,6 +2572,31 @@ private struct ViewingDatesTableContent: View {
                         .padding(16)
                 }
         }
+        // The reorderable lists' outer chrome (see `listContainerChrome`): content clipped
+        // inside the border's 1pt ring, the fading outline stroked into that ring, and the
+        // shadow cast by the finished shape. The shadow rides on an opaque backing plate
+        // rather than the table itself, so the collapsed table's "Show All" button and
+        // fade don't cast shadows of their own.
+        .clipShape(RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius,
+                                    style: .continuous)
+            .inset(by: FieldEdgeTreatment.borderWidth))
+        .background(
+            RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius,
+                             style: .continuous)
+                .inset(by: FieldEdgeTreatment.borderWidth)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
+                        radius: FieldEdgeTreatment.shadowRadius,
+                        x: 0,
+                        y: FieldEdgeTreatment.shadowOffsetY)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius,
+                             style: .continuous)
+                .strokeBorder(FieldEdgeTreatment.borderGradient,
+                              lineWidth: FieldEdgeTreatment.borderWidth)
+                .allowsHitTesting(false)
+        )
         // Refresh cached rows only when the underlying dates array changes.
         .onChange(of: dates) { _, newDates in
             cachedRows = ViewingDatesTableContent.buildRows(from: newDates)

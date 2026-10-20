@@ -67,7 +67,9 @@ extension DebugHarness {
         // Lowercase literals made only of letters, digits, spaces and + - are the keywords.
         // Interpolated literals ("region \(n)") are skipped; the guide covers the numbered
         // regions by hand.
-        for function in ["filterByReleases", "regionLockTags", "filterByRotationThreshold", "filterByDateField"] {
+        for function in ["filterByReleases", "regionLockTags", "filterByRotationThreshold", "filterByDateField",
+                         "naturalDateWords", "naturalDateUnit", "naturalDateQuantity", "naturalDateOffset",
+                         "naturalDateMatcher", "naturalDateSpan", "naturalDatePortion"] {
             guard let start = controller.range(of: "func \(function)("),
                   let end = controller.range(of: "\n    }\n", range: start.upperBound..<controller.endIndex) else {
                 r.check("guide-sync/keywords/\(function)", false, "could not find \(function) in the controller source")

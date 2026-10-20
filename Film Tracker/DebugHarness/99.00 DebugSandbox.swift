@@ -150,7 +150,7 @@ enum DebugSandbox {
             // their own write failures with better context than this initializer could,
             // and returning nil here would silently fall the whole app back onto the
             // production paths — the one outcome this file exists to prevent.
-            unsafe fputs("[DebugSandbox] ERROR: could not create container at \(url.path(percentEncoded: false)): \(error.localizedDescription)\n", unsafe stderr)
+            printToStandardError("[DebugSandbox] ERROR: could not create container at \(url.path(percentEncoded: false)): \(error.localizedDescription)\n")
         }
         return url
     }()

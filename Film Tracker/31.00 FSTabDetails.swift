@@ -19,11 +19,11 @@ final class FSTabDetails {
     /// manages directly; releaseYear (below) is derived exclusively from it.
     var releaseDate: Date = Date() { didSet { checkForChanges(); propagateFilmReleaseYear() } }
     /// Whether the film has a recorded release date. false shows the picker's
-    /// grayed-out placeholder state, matching the CustomDatePicker convention
+    /// grayed-out placeholder state, matching the CustomDateStepper convention
     /// used elsewhere (e.g. FSTabNotes.hasEditDate).
     var hasReleaseDate: Bool = false { didSet { checkForChanges(); propagateFilmReleaseYear() } }
 
-    /// Pushes the film's release year onto the Releases tab's cards.
+    /// Pushes the film's release year, and its release day, onto the Releases tab's cards.
     ///
     /// A release's selectable year range is floored at the film's own release year (a
     /// release cannot pre-date the film), and each card captured that floor when it was
@@ -42,7 +42,13 @@ final class FSTabDetails {
     private func propagateFilmReleaseYear() {
         guard !isLoadingData else { return }
         let releasesTab: FSTabReleases? = owner?.releasesTab
-        releasesTab?.updateFilmReleaseYear(releaseYear)
+        releasesTab?.updateFilmRelease(year: releaseYear, day: releaseDay)
+    }
+
+    /// The first moment of the film's release day in the pinned calendar, or nil when the
+    /// film has no release date — the release-date picker's floor on every release card.
+    var releaseDay: Date? {
+        hasReleaseDate ? StorageDateFormatters.calendar.startOfDay(for: releaseDate) : nil
     }
     var userRating: Int = 0 { didSet { checkForChanges() } }
     var calendarTable: [String] = [] { didSet { checkForChanges() } }
@@ -143,6 +149,20 @@ final class FSTabDetails {
     
     // Hall of Fame state
     var hallOfFameIsFull: Bool = false
+
+    /// `upNextIsFull` as the sheet opened. Nothing outside a modal sheet can change while
+    /// it is open, so this is fixed for the sheet's lifetime: it disables the picker's
+    /// "Up Next" segment and shows the "full" note beneath it, both from the first frame.
+    private(set) var upNextWasFullAtOpen = false
+
+    /// True when choosing "Up Next" in the Queue Membership picker would exceed
+    /// FilmQueue.upNextCapacity: "Up Next" is full and this film is not already in it.
+    /// Read live, so a slot freed while the sheet is open is usable at once.
+    var upNextIsFull: Bool {
+        guard let coordinator = owner?.coordinator,
+              !originalInternalListIDs.contains(FilmQueueSection.upNext.listID) else { return false }
+        return FilmQueue.upNextVacancies(coordinator: coordinator) == 0
+    }
 
     // Available lists for the List Membership picker.
     // Populated eagerly in init() from MemoryStore — moves the read off the
@@ -288,6 +308,8 @@ final class FSTabDetails {
             loadExistingDetails(with: owner.filmID)
             captureOriginalValues()
         }
+        // After the load: a film already in "Up Next" never sees it as full.
+        upNextWasFullAtOpen = upNextIsFull
 
         // Seed the cached validation state after all fields are populated.
         // In edit mode this reflects the loaded data; in add mode it reflects
@@ -507,6 +529,15 @@ final class FSTabDetails {
     /// from every other internal list it may have been in, and selecting "None" removes it
     /// from all of them.
     func filmQueueDelta() -> (add: Set<UUID>, remove: Set<UUID>) {
+        // The picker refuses "Up Next" when it is full (see upNextIsFull), but "Up Next" can
+        // still fill while the sheet is open. Then the film keeps the membership it had
+        // rather than overfilling it.
+        let upNextID = FilmQueueSection.upNext.listID
+        if selectedFilmQueueSection == .upNext, !originalInternalListIDs.contains(upNextID),
+           let coordinator = owner?.coordinator,
+           FilmQueue.upNextVacancies(coordinator: coordinator) == 0 {
+            return (add: [], remove: [])
+        }
         var target: Set<UUID> = []
         if let section = selectedFilmQueueSection { target.insert(section.listID) }
         let add = target.subtracting(originalInternalListIDs)
@@ -548,7 +579,7 @@ final class FSTabDetails {
         let editedDurationStr: String
         // Guard on `edited` first: if the film is not marked as edited, the
         // editedDuration field must be blank regardless of what the stepper
-        // fields currently hold. The UI hides the second DurationPicker when
+        // fields currently hold. The UI hides the second DurationStepper when
         // edited == false, so those fields are stale state that must not be
         // persisted to the database.
         if edited && hasEditedDuration {

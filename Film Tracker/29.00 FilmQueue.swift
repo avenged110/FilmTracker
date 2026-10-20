@@ -134,6 +134,85 @@ enum FilmQueue {
     }
 }
 
+// MARK: - Up Next Capacity
+
+/// "Up Next" holds at most eight films — the number of slots ATVQ shows, and the number of
+/// placeholder slots the Queue's "All" tab draws (UpNextSlots.swift). Every path that can
+/// add a film to "Up Next" asks `upNextOverflow` first and, when the add would not fit,
+/// refuses it whole (never a partial add) with `upNextFullNotice`:
+///   • the LeftSidebar Queue row drop (LeftSidebar.RowDragProxyView), whose alert also
+///     offers to add the films to "Soon" instead
+///   • the "Add to Queue" menus (FilmQueueAssignment.toggle) and their special-sorting
+///     confirmation (AlertHostView)
+///   • the FilmSheet's Queue Membership picker (DetailsView, backed by
+///     FSTabDetails.filmQueueDelta)
+///   • the empty slots' drop targets and slot sheet (UpNextSlots.swift)
+/// The rotation auto-enqueue, which has no user to tell, sends what doesn't fit to "Soon"
+/// instead (DataCoordinator.autoEnqueueFilmsNewlyUpForRotation), and
+/// DataCoordinator.addFilmsToList refuses an overflowing add as a last line of defense.
+/// A restored backup is taken as it is.
+extension FilmQueue {
+    static let upNextCapacity = 8
+
+    /// The films in "Up Next" right now.
+    @MainActor
+    static func upNextFilmIDs(coordinator: DataCoordinator) -> Set<UUID> {
+        coordinator.getList(FilmQueueSection.upNext.listID)?.filmIDs ?? []
+    }
+
+    /// How many more films "Up Next" can take.
+    @MainActor
+    static func upNextVacancies(coordinator: DataCoordinator) -> Int {
+        max(0, upNextCapacity - upNextFilmIDs(coordinator: coordinator).count)
+    }
+
+    /// How many of `filmIDs` would not fit if they were added to "Up Next" (films already
+    /// there take no new slot); 0 when the add fits. An add with no newcomers always fits,
+    /// even while a restored backup leaves "Up Next" over capacity — otherwise the menus
+    /// would disable the checked "Up Next" item and the films could not be unchecked.
+    @MainActor
+    static func upNextOverflow(adding filmIDs: Set<UUID>, coordinator: DataCoordinator) -> Int {
+        let current = upNextFilmIDs(coordinator: coordinator)
+        let incoming = filmIDs.subtracting(current).count
+        guard incoming > 0 else { return 0 }
+        return max(0, current.count + incoming - upNextCapacity)
+    }
+
+    static let upNextFullTitle = "\"Up Next\" Queue Full"
+
+    /// The refusal message for adding `adding` new films when `vacancies` slots are open.
+    static func upNextFullMessage(adding: Int, vacancies: Int) -> String {
+        if vacancies == 0 {
+            return "Your \"Up Next\" Queue already contains the maximum of eight films. "
+                + "Remove a film from it before adding another."
+        }
+        return "Your \"Up Next\" Queue can hold a maximum of eight films and only has room for "
+            + "\(vacancies) more, so the \(adding) films you tried to add were not added. "
+            + "Add fewer films, or remove some from \"Up Next\" first."
+    }
+
+    /// `upNextFullMessage` for an add of `filmIDs` given "Up Next" as it stands now.
+    @MainActor
+    static func upNextFullDropMessage(_ filmIDs: Set<UUID>, coordinator: DataCoordinator) -> String {
+        upNextFullMessage(adding: filmIDs.subtracting(upNextFilmIDs(coordinator: coordinator)).count,
+                          vacancies: upNextVacancies(coordinator: coordinator))
+    }
+
+    /// Checks an add of `filmIDs` to "Up Next" and, when it would not fit, posts the
+    /// refusal alert and returns true. `afterDragSession` defers the alert past the end of
+    /// a drag, for callers inside performDragOperation.
+    @MainActor
+    static func refuseUpNextAddIfFull(_ filmIDs: Set<UUID>, coordinator: DataCoordinator,
+                                      afterDragSession: Bool = false) -> Bool {
+        guard upNextOverflow(adding: filmIDs, coordinator: coordinator) > 0 else { return false }
+        AppEventBus.shared.sendAlert(.showNotice(
+            title: upNextFullTitle,
+            message: upNextFullDropMessage(filmIDs, coordinator: coordinator),
+            afterDragSession: afterDragSession))
+        return true
+    }
+}
+
 // MARK: - Film Queue Assignment
 
 /// The single shared entry point behind every "Add to Queue" menu — the gallery
@@ -202,6 +281,13 @@ enum FilmQueueAssignment: Loggable {
                 Task {
                     FilmManager.removeFromFilmQueue(filmIDs, coordinator: coordinator)
                 }
+                return
+            }
+
+            // "Up Next" is capped at eight; an add that would not fit is refused whole.
+            if section == .upNext,
+               FilmQueue.refuseUpNextAddIfFull(filmIDs, coordinator: coordinator) {
+                Self.log("Refused add of \(filmIDs.count) film(s) to 'Up Next' — not enough room")
                 return
             }
 

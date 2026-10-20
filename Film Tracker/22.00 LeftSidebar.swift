@@ -449,11 +449,17 @@ private struct SmartListsSection: View {
     var body: some View {
         Section("Smart Lists") {
             ForEach(SmartListType.sidebarCases) { parent in
-                DisclosureGroup(isExpanded: isExpanded(parent)) {
-                    ForEach(parent.familyVariants.dropFirst()) { variant in
-                        row(variant)
+                // A family with no variants (Upcoming Releases) is a plain row: a disclosure
+                // triangle over nothing would offer an expansion that reveals nothing.
+                if parent.familyVariants.count > 1 {
+                    DisclosureGroup(isExpanded: isExpanded(parent)) {
+                        ForEach(parent.familyVariants.dropFirst()) { variant in
+                            row(variant)
+                        }
+                    } label: {
+                        row(parent)
                     }
-                } label: {
+                } else {
                     row(parent)
                 }
             }
@@ -902,17 +908,15 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             rebuildTrackingArea()
         }
 
-        // Replaces the tracking area with one that covers the current bounds exactly.
-        // Called from layout(); the bounds guard avoids unnecessary teardown/rebuild
-        // on every layout pass when the frame hasn't changed.
+        // Installs the tracking area once. `.inVisibleRect` makes AppKit keep its rect
+        // equal to the visible bounds itself, so it is never torn down and replaced
+        // while the cursor is inside it — a replacement delivers no mouseExited for the
+        // area it removed, which was one way a row's hover state got stuck on.
         private func rebuildTrackingArea() {
-            if let old = hoverTrackingArea, old.rect == bounds { return }
-            if let old = hoverTrackingArea {
-                removeTrackingArea(old)
-            }
+            guard hoverTrackingArea == nil else { return }
             let area = NSTrackingArea(
-                rect: bounds,
-                options: [.mouseEnteredAndExited, .activeInActiveApp],
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
                 owner: self,
                 userInfo: nil
             )
@@ -920,12 +924,85 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             hoverTrackingArea = area
         }
 
+        // MARK: Hover reconciliation
+        //
+        // Enter/exit events alone are not reliable: AppKit sends no mouseExited when the
+        // row scrolls out from under a still cursor, when the app deactivates (the area
+        // is .activeInActiveApp), while a menu opened from the ellipsis button is
+        // tracking the mouse, or when the proxy is removed mid-hover. Each of those left
+        // the ellipsis showing. So hover is owned by one row at a time, and every one of
+        // those moments re-derives it from where the cursor actually is.
+
+        /// The one row currently reporting hover. Entering another row clears it.
+        private static weak var hoveredProxy: RowDragProxyView?
+        private static var observersInstalled = false
+
+        private var isHoverReported = false
+
+        private func setHovered(_ hovering: Bool) {
+            if hovering {
+                if let other = Self.hoveredProxy, other !== self { other.setHovered(false) }
+                Self.hoveredProxy = self
+            } else if Self.hoveredProxy === self {
+                Self.hoveredProxy = nil
+            }
+            guard hovering != isHoverReported else { return }
+            isHoverReported = hovering
+            onHoverChanged?(hovering)
+        }
+
+        /// Re-derives this row's hover state from the live cursor position.
+        fileprivate func reconcileHover() {
+            guard let window = unsafe window, NSApp.isActive, window.isVisible,
+                  (unsafe superview) != nil else {
+                setHovered(false)
+                return
+            }
+            let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            setHovered(visibleRect.contains(point))
+        }
+
+        /// Reconciles the currently hovered row, if any.
+        private static func reconcileCurrent() {
+            hoveredProxy?.reconcileHover()
+        }
+
+        private static func installObserversIfNeeded() {
+            guard !observersInstalled else { return }
+            observersInstalled = true
+            let center = NotificationCenter.default
+            let names: [Notification.Name] = [
+                NSApplication.didResignActiveNotification,
+                NSApplication.didBecomeActiveNotification,
+                NSMenu.didEndTrackingNotification,
+                NSScrollView.didLiveScrollNotification,
+                NSScrollView.didEndLiveScrollNotification,
+                NSWindow.didResignKeyNotification,
+            ]
+            for name in names {
+                center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                    MainActor.assumeIsolated { reconcileCurrent() }
+                }
+            }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            Self.installObserversIfNeeded()
+            if unsafe window == nil { setHovered(false) }
+        }
+
+        override func removeFromSuperview() {
+            setHovered(false)
+            super.removeFromSuperview()
+        }
+
         override func mouseEntered(with event: NSEvent) {
-            onHoverChanged?(true)
+            setHovered(true)
         }
 
         override func mouseExited(with event: NSEvent) {
-            onHoverChanged?(false)
+            setHovered(false)
         }
 
         // MARK: - NSDraggingDestination
@@ -964,6 +1041,19 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
                 return false
             }
             guard let coordinator = dataCoordinator else { return false }
+
+            // "Up Next" is capped at eight. A drop that would not fit is not added there;
+            // its alert (waiting for the drag session to end, as the confirmation below
+            // does) offers "Soon" instead. The drop is accepted, so the drag preview does
+            // not fly back as if it had failed — the alert carries the decision.
+            if listID == FilmQueueSection.upNext.listID,
+               FilmQueue.upNextOverflow(adding: filmIDs, coordinator: coordinator) > 0 {
+                log("Drop of \(filmIDs.count) film(s) on '\(listName)' would overflow it — offering 'Soon'")
+                AppEventBus.shared.sendAlert(.offerSoonForFullUpNextDrop(
+                    filmIDs: filmIDs,
+                    message: FilmQueue.upNextFullDropMessage(filmIDs, coordinator: coordinator)))
+                return true
+            }
 
             // Special-sorting confirmation gate — `FilmQueue.addNeedsConfirmation`, the
             // rule the "Add to Queue" menus and FilmSheet picker also apply. Only applies when the

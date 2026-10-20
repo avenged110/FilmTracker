@@ -15,7 +15,11 @@ private enum WishlistColW {
     // an abbreviation: the row prints `format` verbatim. See WishlistRelease.formatBadge.
     static let format:       CGFloat = 52
     static let studio:       CGFloat = 130 // Col B – Studio name
-    static let releaseYear:  CGFloat = 42  // Col C – Release year
+    // Col C – Release date, "May 30, 2027": the month and day in the 12 pt system face and
+    // the year in the 12 pt monospaced face, right-aligned so every year — with or without
+    // the date before it — ends on one edge. Sized when the whole date was monospaced
+    // (89 pt), which is wider than the mixed run, so it still fits the widest date.
+    static let releaseDate:  CGFloat = 90
     static let independence: CGFloat = 72  // Col D – Independence type
     static let availability: CGFloat = 100 // Col E – Market availability
 
@@ -37,6 +41,9 @@ struct ReleaseWishlistView: View {
     @Environment(SelectionState.self) private var selectionState
     @State private var releases: [WishlistRelease] = []
     @State private var selection: Set<UUID> = []
+    /// Bumped by every load and every drag-reorder. The mount path's off-main reconcile
+    /// applies its rows only if neither has happened since it started.
+    @State private var loadGeneration = 0
 
     private static let emptyStateConfig = EmptyStateConfig(
         glyph: "gift.fill",
@@ -44,24 +51,47 @@ struct ReleaseWishlistView: View {
         noDataMessage: "Add releases of films to your wishlist to see them collated here."
     )
 
-    /// Format badge, studio, release year, independence, availability. Each fixed column's
+    /// Format badge, studio, release date, independence, availability. Each fixed column's
     /// `trailingPad` plus the table's 12 pt intercell spacing reproduces the former row's gap
     /// (12 pt HStack spacing either side of a `columnGap` spacer).
     private static let trailingColumns: [ReportTableColumn<WishlistRelease>] = {
         let pad = WishlistColW.columnGap + 12
         let secondary = NSFont.systemFont(ofSize: 12)
+        let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        let italic = NSFont(descriptor: secondary.fontDescriptor.withSymbolicTraits(.italic), size: 12)
+            ?? secondary
         return [
             ReportTableColumn(id: "format", width: WishlistColW.format + pad, trailingPad: pad,
-                              content: .badge { $0.formatBadge }),
+                              content: .badge { row in
+                                  // The ReleaseCard header's band tint, with near-white
+                                  // lettering on every format's tint, the DVD gray included.
+                                  ReportBadge(text: row.formatBadge,
+                                              fill: ReleaseFormatPalette.tint(for: row.format),
+                                              ink: ReleaseFormatPalette.lightInk)
+                              }),
             ReportTableColumn(id: "studio", width: WishlistColW.studio + pad, font: secondary,
                               isSecondary: true, trailingPad: pad, content: .text { $0.studio }),
-            ReportTableColumn(id: "year", width: WishlistColW.releaseYear + pad,
-                              font: .monospacedSystemFont(ofSize: 12, weight: .regular),
-                              isSecondary: true, trailingPad: pad, content: .text { $0.releaseYear }),
+            ReportTableColumn(id: "year", width: WishlistColW.releaseDate + pad, alignment: .right,
+                              font: secondary, isSecondary: true, trailingPad: pad,
+                              content: .runs { row in
+                                  // "May 30, " in the system face, the year monospaced. A
+                                  // year-only or unreadable value is all "year".
+                                  guard let comma = row.releaseDate.range(of: ", ", options: .backwards) else {
+                                      return [ReportTextRun(text: row.releaseDate, font: mono)]
+                                  }
+                                  return [ReportTextRun(text: String(row.releaseDate[..<comma.upperBound])),
+                                          ReportTextRun(text: String(row.releaseDate[comma.upperBound...]), font: mono)]
+                              }),
             ReportTableColumn(id: "independence", width: WishlistColW.independence + pad, font: secondary,
                               isSecondary: true, trailingPad: pad, content: .text { $0.independence }),
             ReportTableColumn(id: "availability", width: WishlistColW.availability, font: secondary,
-                              isSecondary: true, content: .text { $0.marketAvailability })
+                              isSecondary: true, content: .runs { row in
+                                  // An upcoming release has no availability yet (the card
+                                  // clears it), so the column says why it is empty.
+                                  row.isUpcoming
+                                      ? [ReportTextRun(text: "Upcoming", font: italic)]
+                                      : [ReportTextRun(text: row.marketAvailability)]
+                              })
         ]
     }()
 
@@ -95,12 +125,17 @@ struct ReleaseWishlistView: View {
                 releases = ReportsState.shared.cachedWishlistReleases
                 DispatchQueue.main.async {
                     DispatchQueue.main.async {
-                        loadWishlistReleases()
+                        reconcileWishlistReleases()
                     }
                 }
             } else {
                 loadWishlistReleases()
             }
+        }
+        // A release dated today stops being upcoming at midnight; the reload's change guard
+        // makes this a no-op on any day that flips no row.
+        .onReceive(CurrentDay.shared.dayChanged) { _ in
+            loadWishlistReleases()
         }
         // Listen for film and release changes to keep the list current in real-time.
         .onFilmEvent { event in
@@ -162,11 +197,42 @@ struct ReleaseWishlistView: View {
 
     // MARK: - Data Loading
 
+    /// The mount path's reconciling load, with the library scan and the row build off the
+    /// main actor. Event-driven reloads stay synchronous: a drag-reorder's reloads run
+    /// inside the table's own move callback and must land in the same pass.
+    private func reconcileWishlistReleases() {
+        loadGeneration += 1
+        let generation = loadGeneration
+        let filmsMap = dataCoordinator.getAllFilmsMap()
+        let today = CurrentDay.shared.today
+        Task {
+            let rebuilt = await Task.detached(priority: .userInitiated) {
+                // Array(values) is exactly what getAllFilms() returns for this dictionary.
+                WishlistRelease.rows(pairs: DataCoordinator.wishlistPairs(in: Array(filmsMap.values)),
+                                     today: today)
+            }.value
+            guard generation == loadGeneration else { return }
+            // Rows built from a library (or a day) that has since changed would be stale, and
+            // the change may not have triggered a reload. Fall back to the synchronous load,
+            // which reads both as they are now.
+            guard CurrentDay.shared.today == today,
+                  dataCoordinator.getAllFilmsMap() == filmsMap else {
+                loadWishlistReleases()
+                return
+            }
+            applyWishlistReleases(rebuilt)
+        }
+    }
+
     private func loadWishlistReleases() {
+        loadGeneration += 1
         // Built by WishlistRelease.rows, which owns the ordering rule and which the
         // whole-library PDF export calls as well, so the printed sheet and this list
         // cannot number the wishlist differently.
-        let rebuilt = WishlistRelease.rows(pairs: dataCoordinator.getWishlistReleases())
+        applyWishlistReleases(WishlistRelease.rows(pairs: dataCoordinator.getWishlistReleases()))
+    }
+
+    private func applyWishlistReleases(_ rebuilt: [WishlistRelease]) {
 
         // Assign only on an actual change, for the reason HallOfFameView's equivalent load
         // documents — and more acutely here. A single drag-reorder calls reorderWishlist,
@@ -226,6 +292,7 @@ struct ReleaseWishlistView: View {
     // MARK: - Reorder
 
     private func handleMove(from source: IndexSet, to destination: Int) {
+        loadGeneration += 1
         var updated = releases
         updated.move(fromOffsets: source, toOffset: destination)
 
@@ -288,10 +355,13 @@ struct WishlistRelease: Identifiable, Equatable, RankedItem {
 
     // Display fields
     let studio: String
-    let releaseYear: String
+    /// "Jan 15, 2027", or the year alone for a release known only by its year.
+    let releaseDate: String
     let format: String
     let independence: String
     let marketAvailability: String
+    /// The release date lies after today (`ReleaseDateValue.isUpcoming`).
+    let isUpcoming: Bool
 
     /// The format badge text shown in the row.
     ///
@@ -324,8 +394,17 @@ struct WishlistRelease: Identifiable, Equatable, RankedItem {
     ///
     /// The single definition of what a wishlist row is and what order it sits in:
     /// `ReleaseWishlistView` shows these and `LibraryPDFExporter` prints them.
+    @MainActor
     static func rows(
         pairs: [(film: FilmSnapshot, release: ReleaseSnapshot)]
+    ) -> [WishlistRelease] {
+        rows(pairs: pairs, today: CurrentDay.shared.today)
+    }
+
+    /// `rows(pairs:)` with today's date supplied, so it can run off the main actor.
+    static func rows(
+        pairs: [(film: FilmSnapshot, release: ReleaseSnapshot)],
+        today: Date
     ) -> [WishlistRelease] {
         let sorted = pairs.sorted {
             if $0.release.wishlist != $1.release.wishlist {
@@ -341,14 +420,19 @@ struct WishlistRelease: Identifiable, Equatable, RankedItem {
                 filmName: pair.film.name,
                 releaseID: pair.release.id,
                 studio: pair.release.studio,
-                releaseYear: pair.release.releaseYear,
+                // An unreadable value prints as it is stored, as the year always did.
+                releaseDate: ReleaseDateValue(pair.release.releaseDate, format: pair.release.format)?
+                    .shortDisplayText
+                    ?? ReleaseDateValue.yearText(of: pair.release.releaseDate, format: pair.release.format),
                 format: pair.release.format,
                 // Shortened for the 72 pt Independence column: see
                 // ReleaseIndependence.compactDisplay. Only ever narrows
                 // "Combo-pack (dual BD)", which the column cannot fit; every other value
                 // passes through unchanged.
                 independence: ReleaseIndependence.compactDisplay(pair.release.independence),
-                marketAvailability: pair.release.marketAvailability.first ?? ""
+                marketAvailability: pair.release.marketAvailability.first ?? "",
+                isUpcoming: ReleaseDateValue(pair.release.releaseDate, format: pair.release.format)?
+                    .isUpcoming(today: today) ?? false
             )
         }
     }

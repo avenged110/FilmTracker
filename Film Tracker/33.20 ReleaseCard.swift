@@ -328,15 +328,22 @@ struct ReleaseCardView: View {
     /// What the header's closing `Divider()` and its `.padding(.bottom, 8)` measured.
     private static let formerDividerHeight: CGFloat = 1
     private static let formerDividerBottomPadding: CGFloat = 8
+    /// Taken off the inset above the Purchased row once the disc Stepper moved onto it. The
+    /// inset was sized for a checkbox row and left 9 pt between the band and the Stepper's
+    /// chrome, against the 8 pt between every Stepper on the card and the menus around it
+    /// (measured on a rendered card); this makes the Purchased row match.
+    private static let purchasedRowTrim: CGFloat = 1
 
     /// Format tints. All three are opaque and dark enough for white lettering, so the same
     /// palette reads at home in both appearances the way `Preferences.darkGreen` and
     /// `.darkRed` do on the sidebar. The 4K band is deliberately darker than the card's own
     /// fill in dark mode (`controlBackgroundColor` sits near 0.12 there); the DVD band is the
     /// light end of the set, but still well below the gray that would wash out white text.
-    private static let tint4K     = Color(red: 0.05, green: 0.05, blue: 0.06)
-    private static let tintBluRay = Color(red: 0.10, green: 0.22, blue: 0.42)
-    private static let tintDVD    = Color(white: 0.30)
+    /// The values live in `ReleaseFormatPalette`, which the Release Wishlist's format badges
+    /// read as well, so the two cannot drift apart.
+    private static let tint4K     = Color(nsColor: ReleaseFormatPalette.tint4K)
+    private static let tintBluRay = Color(nsColor: ReleaseFormatPalette.tintBluRay)
+    private static let tintDVD    = Color(nsColor: ReleaseFormatPalette.tintDVD)
     /// A format string this build does not recognize: the sidebar's neutral badge gray.
     private static let tintUnknown = Preferences.darkGray
 
@@ -344,8 +351,8 @@ struct ReleaseCardView: View {
     /// reason as RSBCardChrome's: the badge has to read identically on every band and the
     /// band must never show through the glyphs. `Color.primary` on `windowBackgroundColor`
     /// would vanish in light mode, black on the 4K band's black.
-    private static let badgePlate = Color(white: 0.93)
-    private static let badgeInk   = Color(red: 0.11, green: 0.11, blue: 0.12)
+    private static let badgePlate = Color(nsColor: ReleaseFormatPalette.lightInk)
+    private static let badgeInk   = Color(nsColor: ReleaseFormatPalette.darkInk)
 
     /// Outline shared with the sidebar cards: the reorderable lists' edge treatment with
     /// the strengths RSBCardChrome states, restated here rather than reaching into that
@@ -393,7 +400,9 @@ struct ReleaseCardView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(bandTint)
             VStack(alignment: .leading, spacing: ReleaseCardMetrics.rowSpacing) {
-            purchasedRow
+            // Isolated struct (see _PurchasedRow below): the checkbox, the "Upcoming" badge,
+            // and the disc count.
+            _PurchasedRow(model: model)
             // Isolated struct (see _StudioRow below). It owns the studio picker, the
             // "Other" free-text field, and the two write-through handlers between them —
             // so its subscriptions to studioSelection and studioCustomText, both of which
@@ -434,7 +443,7 @@ struct ReleaseCardView: View {
             // blank inset — less what the band grew by — so the Purchased row sits where it
             // always has.
             .padding(.top, Self.formerDividerHeight + Self.formerDividerBottomPadding
-                     + ReleaseCardMetrics.rowSpacing - Self.bandGrowth)
+                     + ReleaseCardMetrics.rowSpacing - Self.bandGrowth - Self.purchasedRowTrim)
         }
         .frame(maxWidth: .infinity)
         .background(Self.controlBackground)
@@ -537,42 +546,6 @@ struct ReleaseCardView: View {
             // SwiftUI overflows the frame rather than clipping, so the picker still draws in
             // full and the ROW height stays identical across cards either way.
             .frame(height: ReleaseCardMetrics.headerControlHeight)
-        }
-    }
-
-    /// The Purchased checkbox, in the row the header's segmented picker vacated.
-    ///
-    /// A checkbox rather than the former "Purchased / Unpurchased" segmented pair: the field is
-    /// a plain Bool, and a two-segment picker over a Bool spends a full picker's width
-    /// restating what a checkbox says in a glyph. The purchased cascade is unchanged — it hangs
-    /// off `model.purchased` on the card body, not off the control that writes it.
-    private var purchasedRow: some View {
-        CardRow("Purchased:", dimmed: model.isComboChild) {
-            // A plain HStack rather than RowControls: the label sits directly beside the
-            // checkbox at the card's usual control spacing, which RowControls would add to
-            // rather than supply, since it spaces its children itself.
-            HStack(spacing: 0) {
-                SheetCheckbox(isOn: $model.purchased)
-                    // Combo-pack children mirror the parent's purchased state. The
-                    // representable mirrors this onto the NSButton as `isEnabled` plus
-                    // `refusesFirstResponder`, so a disabled checkbox is neither clickable
-                    // nor a Tab stop and never draws a focus ring — see SheetCheckbox (30_20).
-                    .disabled(model.isComboChild)
-                if model.isComboChild {
-                    Spacer().frame(width: ReleaseCardMetrics.controlSpacing)
-                    // Deliberately .primary even though the checkbox beside it is disabled and
-                    // the row label is dimmed. Those two are dimmed because they are inert
-                    // CONTROLS; this is a statement of fact about the release, and it is also
-                    // the only thing on the card explaining why the checkbox cannot be clicked,
-                    // so graying it out would mute the one element carrying the explanation.
-                    //
-                    // Applied to the Text rather than inherited: a disabled ancestor would
-                    // override it.
-                    Text("Included in Combo-pack")
-                        .foregroundStyle(Color.primary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -708,7 +681,7 @@ extension ReleaseCardView: Equatable {
 //
 // Without the isolation (the read was previously inline in headerRow and releaseYearRow), it
 // registers currentIndex as a dependency of the ENTIRE card body — so every carousel navigation
-// would re-evaluate every visible card's full body, rebuilding both CustomDatePickers and all
+// would re-evaluate every visible card's full body, rebuilding both CustomDateSteppers and all
 // pickers exactly when the container's spring needs the main thread. Dismiss-on-navigation
 // behavior is unchanged: the token still changes every navigation.
 //
@@ -735,6 +708,141 @@ private struct CardHelpButton: View {
     }
 }
 
+// MARK: - Purchased Row (Observation Isolation)
+//
+// "Purchased:" — the checkbox (with the "Upcoming" badge centered in the same column) in the
+// first column, and the disc count in the second.
+//
+// The checkbox sits in the row the header's segmented picker vacated. It is a checkbox rather
+// than the former "Purchased / Unpurchased" segmented pair: the field is a plain Bool, and a
+// two-segment picker over a Bool spends a full picker's width restating what a checkbox says
+// in a glyph. The purchased cascade hangs off `model.purchased` in _PurchaseRows, not off the
+// control that writes it.
+//
+// The disc count moved here from the release-date row, which the full release date now fills.
+// Its Stepper is taller than the checkbox, so this row — and the card with it — is a few
+// points taller than before; every row below keeps its spacing, and the card stays one height
+// across formats and purchase states, which the carousel depends on (see
+// ReleaseCardMetrics.headerControlHeight).
+//
+// Each column is its own struct, so a click on the checkbox, a step of the disc count, and a
+// change of the release date each re-evaluate only the control they belong to.
+private struct _PurchasedRow: View {
+    @Bindable var model: ReleaseCardModel
+
+    var body: some View {
+        // The label dims on a combo-pack child, whose purchased state mirrors its parent; the
+        // disc count stays the child's own field and stays enabled.
+        CardRow("Purchased:", dimmed: model.isComboChild) {
+            HStack(spacing: ReleaseCardMetrics.controlSpacing) {
+                HStack(spacing: 0) {
+                    SheetCheckbox(isOn: $model.purchased)
+                        // Combo-pack children mirror the parent's purchased state. The
+                        // representable mirrors this onto the NSButton as `isEnabled` plus
+                        // `refusesFirstResponder`, so a disabled checkbox is neither clickable
+                        // nor a Tab stop and never draws a focus ring — see SheetCheckbox (30_20).
+                        .disabled(model.isComboChild)
+                    if model.isComboChild {
+                        Spacer().frame(width: ReleaseCardMetrics.controlSpacing)
+                        // Deliberately .primary even though the checkbox beside it is disabled
+                        // and the row label is dimmed. Those two are dimmed because they are
+                        // inert CONTROLS; this is a statement of fact about the release, and it
+                        // is also the only thing on the card explaining why the checkbox cannot
+                        // be clicked, so graying it out would mute the one element carrying the
+                        // explanation.
+                        //
+                        // Applied to the Text rather than inherited: a disabled ancestor would
+                        // override it.
+                        Text("Included in Combo-pack")
+                            .foregroundStyle(Color.primary)
+                            // One line at any width: a wrap would make this card taller than
+                            // its neighbors.
+                            .lineLimit(1)
+                            .fixedSize()
+                    } else {
+                        // Not on a combo-pack child, whose column already holds the text
+                        // above; a merged pack shows it on its 4K variant, and the date it
+                        // reads is the one the whole pack shares.
+                        Spacer().frame(width: ReleaseCardMetrics.controlSpacing)
+                        _UpcomingLabel(model: model)
+                    }
+                }
+                .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
+                _DiscCount(model: model)
+            }
+        }
+    }
+}
+
+/// "Upcoming", beside the checkbox while the release date lies after today. Plain text in
+/// the style of the "Included in Combo-pack" label that takes this place on a child.
+///
+/// Reads the release date fields and `CurrentDay.shared.today`, so it follows the date picker
+/// click for click and leaves on its own the day the release comes out, with no reload.
+///
+/// Always in the tree, faded with opacity rather than inserted and removed. An insertion would
+/// take whatever transaction is in effect — on the carousel, its spring — while the explicit
+/// animation below is the only one that applies to a value change of `isUpcoming`.
+private struct _UpcomingLabel: View {
+    let model: ReleaseCardModel
+
+    var body: some View {
+        let isUpcoming = model.isUpcomingRelease(today: CurrentDay.shared.today)
+        Text("Upcoming")
+            .foregroundStyle(Color.primary)
+            .lineLimit(1)
+            .fixedSize()
+            .opacity(isUpcoming ? 1 : 0)
+            .animation(.easeInOut(duration: 0.2), value: isUpcoming)
+            .accessibilityHidden(!isUpcoming)
+    }
+}
+
+/// The disc count and its unit label, centered as one unit in the row's second column.
+private struct _DiscCount: View {
+    @Bindable var model: ReleaseCardModel
+
+    var body: some View {
+        HStack(spacing: ReleaseCardMetrics.controlSpacing) {
+            StandardStepper(value: $model.numberOfDiscs, in: 1...10)
+            // Unit label for the bare number the Stepper shows. Secondary because it
+            // annotates the value rather than being one, and pluralized from the live
+            // binding so it tracks each click.
+            //
+            // Sized to the LONGER of the two forms in both states, via a hidden "discs"
+            // that reserves width with the live text overlaid on its leading edge.
+            // Pluralization otherwise changed the width of the pair, and because the pair
+            // is centered in the column, half that change moved the Stepper — the whole
+            // unit visibly jumped as the user stepped between 1 and 2.
+            //
+            // A hidden sizer rather than a hard-coded width: the string widths are the
+            // font's business and change with the user's text size. `.hidden()` keeps it
+            // out of the accessibility tree too, so the label is announced once.
+            Text("discs")
+                .hidden()
+                .overlay(alignment: .leading) {
+                    Text(model.numberOfDiscs == 1 ? "disc" : "discs")
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+        }
+        // Nudged right so the Stepper's arrows line up with the base-release-year Stepper's
+        // on the "Released:" row above. Leading padding of twice the shift, because the unit
+        // is centered in the column: padding moves the center by half its width.
+        .padding(.leading, 2 * Self.alignmentShift)
+        // Centered as ONE unit: the Stepper and its unit label read as a single value, so
+        // centering them individually would leave the value hanging off one side of an
+        // otherwise empty column.
+        .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .center)
+    }
+
+    /// How far the centered unit sits left of the base-year Stepper: measured with the
+    /// `card-perf` harness scenario and `-FTDebugCardPerfFrames`, which put the disc Stepper
+    /// at x = 426 and the base-year Stepper at x = 432 in card coordinates (with the tighter
+    /// Stepper chrome; re-measure if that padding changes).
+    private static let alignmentShift: CGFloat = 6
+}
+
 // MARK: - Studio Row (Observation Isolation)
 //
 // The studio picker, the "Other" free-text field, and the two write-through handlers that keep
@@ -748,7 +856,7 @@ private struct CardHelpButton: View {
 // is attached to. While this row was a computed property on ReleaseCardView, that read belonged
 // to the card: every keystroke in the "Other" field invalidated all twelve rows, both
 // MultiSelectMenus (thirty Toggles, each with a freshly allocated Binding), both
-// CustomDatePickers, and every Picker — for a change that alters one text field and one
+// CustomDateSteppers, and every Picker — for a change that alters one text field and one
 // opacity.
 //
 // That made it the only remaining per-KEYSTROKE field read on the card body. The other
@@ -839,8 +947,12 @@ private struct _StudioRow: View {
 }
 
 // MARK: - Release Year Row (Observation Isolation + Mutual Range Validation)
-// Subscriptions to the four year fields plus numberOfDiscs, format, and isComboChild are
-// registered against _ReleaseYearRow.body rather than ReleaseCardView.body. Isolation matters
+// The "Released:" row: the release date and the base release year. The release date is a
+// full date, but the ordering rule below compares only its year.
+//
+// Subscriptions to the release date and base year fields, format, isComboChild, and
+// CurrentDay's `today` (which moves the picker's one-year-ahead ceiling) are registered
+// against _ReleaseYearRow.body rather than ReleaseCardView.body. Isolation matters
 // more here than for a presentational row: the ordering rule has to OBSERVE all four year
 // fields to react to them, and registering those on the full card body would re-evaluate every
 // picker on the card on each stepper click.
@@ -869,6 +981,13 @@ private struct _ReleaseYearRow: View {
     // subscribes to FSTabReleases.
     let viewModel: FSTabReleases
 
+    /// Space between the base-year Stepper and the help button, chosen so the button sits
+    /// the distance from that Stepper it did before the release date became a full date —
+    /// 4 pt between the Stepper's chrome and the button's NSButton frame, measured with
+    /// `card-perf -FTDebugCardPerfFrames`. Larger than that 4 pt because the NSButton
+    /// reaches about 5 pt past the leading edge of the SwiftUI frame it is laid out in.
+    private static let helpButtonGap: CGFloat = 9
+
     var body: some View {
         // purchaseYearRange is evaluated once and narrowed per-stepper below, avoiding
         // repeated property reads that would each open an @Observable subscription.
@@ -878,7 +997,7 @@ private struct _ReleaseYearRow: View {
         //
         // Every other field this row displays is read somewhere in the logic below, which is
         // what registers it with @Observable. `baseReleaseYear` was the exception: the row only
-        // passed `$model.baseReleaseYear` to CustomDatePicker, and forming a Binding does NOT
+        // passed `$model.baseReleaseYear` to CustomDateStepper, and forming a Binding does NOT
         // read the property — so nothing in the view tree observed the value itself.
         //
         // That left the base-year Stepper's displayed number dependent on some OTHER field
@@ -939,125 +1058,98 @@ private struct _ReleaseYearRow: View {
 
         // MARK: Row composition
         //
-        // "Released / Discs:" — the two year steppers plus their help button in the first
-        // column, and the disc-count stepper in the second.
-        //
-        // The first column is pinned to the standard picker width and its three controls are
-        // distributed inside it with flexible spacers. Pinning rather than letting the controls
-        // size themselves is what puts the disc stepper on the same vertical line as every
-        // other second-column control on the card. The "/" separator between the year steppers
-        // is gone with it: the gap does that work and the label carries the naming.
+        // "Released:" — the release date, a slash, the base release year, and the help
+        // button, in that order, set out the way the Cost / Spent row sets out its pair. The
+        // disc count that used to fill the second column is on the Purchased row now.
         //
         // A plain HStack rather than RowControls, whose only addition is a `maxWidth: .infinity`
         // frame this row does not need — and CardRow's own note warns that even a sized inner
         // container adds implicit height to rows sensitive to it.
         //
-        // The two halves dim independently: a combo-pack child inherits its release year from
-        // the parent, so "Released" grays out with the Stepper it names, while the disc count
-        // remains the child's own field and "/ Discs:" stays primary.
-        return CardRow(Text("Released").rowLabelSegment(dimmed: model.isComboChild)
-                       + Text(" / Discs:").rowLabelSegment(dimmed: false)) {
+        // The label dims on a combo-pack child, which inherits its release date from the
+        // parent. The base year stays the child's own field (a bundled disc may be a reprint
+        // of an earlier release), so the slash dims only when both fields are locked.
+        let today = CurrentDay.shared.today
+        let latest = ReleaseDateValue.latestSelectableDay(today: today)
+        return CardRow("Released:", dimmed: model.isComboChild) {
             HStack(spacing: ReleaseCardMetrics.controlSpacing) {
-            HStack(spacing: 0) {
-                CustomDatePicker(
-                    year: $model.releaseYear,
+                CustomDateStepper(
+                    date: Binding(get: { model.releaseDatePickerValue },
+                                  set: { model.setReleaseDate($0) }),
                     hasValue: $model.hasReleaseYear,
-                    // The FULL range: the release year is the anchored field and is free to
-                    // reach both bounds. Stepping it down onto the floor is legal and simply
-                    // clears the base year (enforceReleaseYearOrder), which is what the former
-                    // one-year narrowing of this range existed to prevent.
-                    yearRange: fullRange
+                    // Up to a year ahead: a release can be cataloged before it comes out. The
+                    // floor is the film's own release day, or January 1 of the format floor
+                    // when that is later (releaseDateFloor) — the release date is the anchored
+                    // field and is free to reach both bounds; stepping it down onto the floor
+                    // year simply clears the base year (enforceReleaseYearOrder).
+                    //
+                    // The floor is held at or below the ceiling: a film dated more than a year
+                    // out would otherwise put it above, leaving the picker no legal day.
+                    yearRange: model.releaseDateYearRange(today: today),
+                    minDate: min(model.releaseDateFloor, latest),
+                    maxDate: latest,
+                    // A release stored before full dates is known by its year alone, and shows
+                    // dashes for its month and day until a click fills them in.
+                    yearOnlyValue: Binding(get: { model.releaseMonthDay == nil },
+                                           set: { if !$0 { model.endYearOnlyReleaseDate() } })
                 ) {
                     model.hasReleaseYear = false
                 }
-                // Locked for combo-pack children (releaseYear mirrors the parent 4K release).
+                // Locked for combo-pack children (the release date mirrors the parent 4K release).
                 .disabled(model.isComboChild)
-                Spacer(minLength: 0)
-                CustomDatePicker(
-                    year: $model.baseReleaseYear,
-                    hasValue: $model.hasBaseReleaseYear,
-                    yearRange: baseRange,
-                    // The un-activated placeholder shows the range's own ceiling rather than
-                    // the current calendar year, and the activating click commits it.
-                    //
-                    // A year Stepper's placeholder is a statement about what the first click
-                    // will produce, and for this one field that is not the current year: the
-                    // base year can only be activated while a release year exists (see
-                    // baseYearAvailable) and can only hold a year beneath it, so it activates
-                    // at the cap. baseCeiling IS that cap, so passing it here keeps the
-                    // placeholder tracking the release-year Stepper click for click.
-                    //
-                    // nil while no release year is committed — the Stepper is disabled and
-                    // renders dashes there, and there is no cap to name.
-                    placeholderYear: model.hasReleaseYear ? baseCeiling : nil
-                ) {
-                    model.hasBaseReleaseYear = false
-                }
-                // Gated on the release year existing. The base year names the earliest
-                // permutation OF THIS RELEASE, so it is meaningless without the release it
-                // qualifies, and the ordering rule has no anchor to order against. The
-                // dependency is one-way: clearing the release year clears and disables this
-                // field, while clearing the base year leaves the release year untouched.
-                //
-                // Not locked for combo-pack children — the included Blu-ray may be a reprint of
-                // an earlier release — but still gated on a legal year existing beneath the
-                // release year; see baseYearAvailable.
-                .disabled(!baseYearAvailable)
-                Spacer(minLength: 0)
-                // 30-second auto-dismiss: the help text needs more reading time than the
-                // default 10-second window.
-                //
-                // CardHelpButton sources its dismissToken from the carousel's current index, so
-                // the popover closes whenever the user navigates to a different card.
-                // HelpPopoverButton handles vertical-scroll dismissal separately via its own
-                // minY observer; this token covers the horizontal case that minY cannot detect,
-                // since a carousel slide moves the card in x only. The currentCardIndex read is
-                // deliberately inside CardHelpButton's own body so navigation does not
-                // invalidate this row — see CardHelpButton.
-                CardHelpButton(
-                    helpText: "Some releases are reissues of prior ones with slight variations, yet retain the same on-disc film version/mastering. The first field refers to this specific release, while the optional second field pertains to the earliest permutation of this release.",
-                    autoDismissDuration: 30,
-                    viewModel: viewModel
-                )
-                // No trailing Spacer. The three controls span the column's FULL width, so
-                // the help button's right edge lines up with the right edge of every picker
-                // above and below it; the two interior gaps absorb the slack instead. A
-                // trailing spacer took an equal share of that slack and pulled the button
-                // inward, which read as the row being narrower than the rest of the card.
-            }
-            .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
-            // Second column: the disc count, which used to live on its own row alongside the
-            // Subtitles checkbox and the Pressed/Recordable picker — both now traits.
-            //
-            // Centered as ONE unit: the Stepper and its unit label read as a single value, so
-            // centering them individually would leave the value hanging off one side of an
-            // otherwise empty column.
-            HStack(spacing: ReleaseCardMetrics.controlSpacing) {
-                StandardStepper(value: $model.numberOfDiscs, in: 1...10)
-                // Unit label for the bare number the Stepper shows. Secondary because it
-                // annotates the value rather than being one, and pluralized from the live
-                // binding so it tracks each click.
-                //
-                // Sized to the LONGER of the two forms in both states, via a hidden "discs"
-                // that reserves width with the live text overlaid on its leading edge.
-                // Pluralization otherwise changed the width of the pair, and because the pair
-                // is centered in the column, half that change moved the Stepper — the whole
-                // unit visibly jumped as the user stepped between 1 and 2.
-                //
-                // A hidden sizer rather than a hard-coded width: the string widths are the
-                // font's business and change with the user's text size. `.hidden()` keeps it
-                // out of the accessibility tree too, so the label is announced once.
-                Text("discs")
-                    .hidden()
-                    .overlay(alignment: .leading) {
-                        Text(model.numberOfDiscs == 1 ? "disc" : "discs")
-                            .foregroundStyle(.secondary)
-                            .fixedSize()
+                Text("/")
+                    .foregroundStyle(model.isComboChild && !baseYearAvailable ? .secondary : .primary)
+                HStack(spacing: Self.helpButtonGap) {
+                    CustomDateStepper(
+                        year: $model.baseReleaseYear,
+                        hasValue: $model.hasBaseReleaseYear,
+                        yearRange: baseRange,
+                        // The un-activated placeholder shows the range's own ceiling rather than
+                        // the current calendar year, and the activating click commits it.
+                        //
+                        // A year Stepper's placeholder is a statement about what the first click
+                        // will produce, and for this one field that is not the current year: the
+                        // base year can only be activated while a release date exists (see
+                        // baseYearAvailable) and can only hold a year beneath it, so it activates
+                        // at the cap. baseCeiling IS that cap, so passing it here keeps the
+                        // placeholder tracking the release-date picker click for click.
+                        //
+                        // nil while no release date is committed — the Stepper is disabled and
+                        // renders dashes there, and there is no cap to name.
+                        placeholderYear: model.hasReleaseYear ? baseCeiling : nil
+                    ) {
+                        model.hasBaseReleaseYear = false
                     }
+                    // Gated on the release date existing. The base year names the earliest
+                    // permutation OF THIS RELEASE, so it is meaningless without the release it
+                    // qualifies, and the ordering rule has no anchor to order against. The
+                    // dependency is one-way: clearing the release date clears and disables this
+                    // field, while clearing the base year leaves the release date untouched.
+                    //
+                    // Not locked for combo-pack children — the included Blu-ray may be a reprint
+                    // of an earlier release — but still gated on a legal year existing beneath
+                    // the release year; see baseYearAvailable.
+                    .disabled(!baseYearAvailable)
+                    // 30-second auto-dismiss: the help text needs more reading time than the
+                    // default 10-second window.
+                    //
+                    // CardHelpButton sources its dismissToken from the carousel's current index,
+                    // so the popover closes whenever the user navigates to a different card.
+                    // HelpPopoverButton handles vertical-scroll dismissal separately via its own
+                    // minY observer; this token covers the horizontal case that minY cannot
+                    // detect, since a carousel slide moves the card in x only. The
+                    // currentCardIndex read is deliberately inside CardHelpButton's own body so
+                    // navigation does not invalidate this row — see CardHelpButton.
+                    CardHelpButton(
+                        helpText: "Some releases are reissues of prior ones with slight variations, yet retain the same on-disc film version/mastering. The first field refers to this specific release, while the optional second field pertains to the earliest permutation of this release.",
+                        autoDismissDuration: 30,
+                        viewModel: viewModel
+                    )
+                }
             }
-            .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .center)
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+
         // MARK: Value-layer enforcement
         // Each handler names the field the user just moved as the anchor; the model holds that
         // value fixed and walks the other field to the nearest year that restores the ordering.
@@ -1081,17 +1173,19 @@ private struct _ReleaseYearRow: View {
             model.enforceReleaseYearOrder()
         }
         // Activation transitions. The first click on an unset field commits its displayed
-        // value without changing it (CustomDatePicker.shouldActivateInsteadOfIncrement), so no
-        // value onChange fires and a conflict introduced purely by a field coming into
-        // existence would go uncorrected until the next step. Either way the base year is the
+        // value without stepping it (CustomDateStepper.shouldActivateInsteadOfIncrement). That
+        // value is usually the one the model already holds, so no value onChange fires and a
+        // conflict introduced purely by a field coming into existence would go uncorrected
+        // until the next step. Either way the base year is the
         // field that gives way:
         //   • base activated — it commits at whatever year it was displaying, which may sit at
         //     or above the release year; the rule pulls it to releaseYear - 1. This is the path
         //     that lands an activation on 2009 under a 2010 release year. Its Stepper is only
         //     enabled when a legal year exists beneath the release year (see
         //     baseYearAvailable), so the correction always has somewhere to put it.
-        //   • release activated — it commits at the current year, the range ceiling, so any
-        //     base year already committed is already beneath it.
+        //   • release activated — clearing the release date clears the base year with it, so
+        //     no base year is committed when the release date is activated, and there is no
+        //     conflict to resolve.
         .onFieldChange(of: model.hasReleaseYear, on: model) { _, isActive in
             guard isActive else {
                 // Release year cleared: the base year has nothing left to qualify, so it is
@@ -1359,14 +1453,14 @@ private struct _PurchaseRows: View {
 
     @ViewBuilder
     private var datesRow: some View {
-        // Evaluated once here and passed to both CustomDatePicker instances below,
+        // Evaluated once here and passed to both CustomDateStepper instances below,
         // avoiding two separate model.purchaseYearRange reads (each of which opens an
         // @Observable subscription and triggers a Calendar.current.component call).
         let yearRange = model.purchaseYearRange
         if model.purchased {
             CardRow("Purchase Date:", dimmed: model.isComboChild) {
                 HStack(spacing: 12) {
-                    CustomDatePicker(
+                    CustomDateStepper(
                         date: $model.purchaseDate,
                         hasValue: $model.hasPurchaseDate,
                         yearRange: yearRange
@@ -1384,7 +1478,7 @@ private struct _PurchaseRows: View {
             }
         } else {
             CardRow("Date Last Seen:", dimmed: model.isComboChild) {
-                CustomDatePicker(
+                CustomDateStepper(
                     date: $model.lowestPriceDate,
                     hasValue: $model.hasLowestPriceDate,
                     yearRange: yearRange
@@ -1952,6 +2046,11 @@ private struct _MarketAvailabilityPicker: View {
             .map(option)
     private static let comboLockedOptions: [ReleaseOption] =
         [ReleaseOption(ReleaseMarketAvailability.comboPackOnly)]
+    /// The one row the menu shows for an upcoming release. The tag is never stored (see
+    /// "Not-yet-released" below), so it only has to differ from every stored value.
+    private static let unreleasedTag = "\u{0}unreleased"
+    private static let unreleasedOptions: [ReleaseOption] =
+        [ReleaseOption(unreleasedTag, title: "Not-yet-released")]
 
     var body: some View {
         // A non-4K release in either combo-pack form is locked to a single value.
@@ -1974,12 +2073,26 @@ private struct _MarketAvailabilityPicker: View {
             }
         )
 
-        return TaggedPicker(selection: normalizedBinding,
-                            options: comboLocked ? Self.comboLockedOptions
+        // MARK: Unreleased
+        //
+        // A release whose date is still ahead cannot be found on the market at all, so the
+        // menu is locked to "Not-yet-released" until the day it comes out. That is a display
+        // value only. The stored availability is CLEARED when the release becomes upcoming
+        // (ReleaseCardModel.clearAvailabilityIfUpcoming), so nothing else in the app shows an
+        // availability for a release that is not out, and the menu comes back reading
+        // "Select Availability…" once it is. Takes precedence over the combo-pack lock, since
+        // an unreleased pack has no market either.
+        //
+        // Reads CurrentDay's `today`, so the lock lifts on the release day with no reload.
+        let unreleased = model.isUpcomingRelease(today: CurrentDay.shared.today)
+
+        return TaggedPicker(selection: unreleased ? .constant(Self.unreleasedTag) : normalizedBinding,
+                            options: unreleased  ? Self.unreleasedOptions
+                                   : comboLocked ? Self.comboLockedOptions
                                    : usOrigin    ? Self.domesticOptions
                                                  : Self.allOptions,
-                            placeholder: comboLocked ? nil : "Select Availability…")
-        .disabled(comboLocked)
+                            placeholder: unreleased || comboLocked ? nil : "Select Availability…")
+        .disabled(unreleased || comboLocked)
         // The independence half of this cascade is applied by
         // FSTabReleases.commitIndependence, at the write — see _TypeVersionsRow.
         .onFieldChange(of: model.nationalOrigin, on: model) { _, newValue in
@@ -2115,6 +2228,33 @@ private struct MultiSelectMenu: View {
                 .foregroundStyle(selection.isEmpty ? .secondary : .primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(1)
+        }
+    }
+}
+
+// MARK: - Release Format Palette
+
+/// The release card's format band tints and badge inks, as sRGB `NSColor`s so AppKit-drawn
+/// views (the Release Wishlist's format badges, 27.01) can use them directly. The values are
+/// the ones the card has always used: `Color(red:green:blue:)` and `Color(white:)` are sRGB.
+enum ReleaseFormatPalette {
+    static let tint4K     = NSColor(srgbRed: 0.05, green: 0.05, blue: 0.06, alpha: 1)
+    static let tintBluRay = NSColor(srgbRed: 0.10, green: 0.22, blue: 0.42, alpha: 1)
+    static let tintDVD    = NSColor(srgbRed: 0.30, green: 0.30, blue: 0.30, alpha: 1)
+    /// Preferences.darkGray, for a format string this build does not recognize.
+    static let tintUnknown = NSColor(srgbRed: 0.34, green: 0.34, blue: 0.35, alpha: 1)
+    /// Near-white: the card's badge plate, and the lettering on a dark tint.
+    static let lightInk   = NSColor(srgbRed: 0.93, green: 0.93, blue: 0.93, alpha: 1)
+    /// Near-black: the card's badge lettering.
+    static let darkInk    = NSColor(srgbRed: 0.11, green: 0.11, blue: 0.12, alpha: 1)
+
+    /// The band tint for a stored format string.
+    static func tint(for format: String) -> NSColor {
+        switch ReleaseFormat(rawValue: format) {
+        case .uhd4K:  return tint4K
+        case .bluRay: return tintBluRay
+        case .dvd:    return tintDVD
+        case nil:     return tintUnknown
         }
     }
 }

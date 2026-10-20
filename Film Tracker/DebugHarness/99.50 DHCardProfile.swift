@@ -35,6 +35,7 @@ extension DebugHarness {
                                        coordinator: DataCoordinator) async -> HarnessScenarioResult? {
         switch scenario {
         case "card-perf":  return await cardProfileScenario(coordinator: coordinator)
+        case "card-fit":   return await cardFitScenario(coordinator: coordinator)
         case "card-focus": return await cardFocusScenario(coordinator: coordinator)
         case "segmented-equivalence": return await segmentedEquivalenceScenario()
         case "currency-placeholder": return await currencyPlaceholderScenario(coordinator: coordinator)
@@ -172,6 +173,87 @@ extension DebugHarness {
             m.hasLowestPriceDate = true
         }
         return m
+    }
+
+    /// How much room the carousel leaves around a card inside a FilmSheet at its real size:
+    /// the gaps between the card's top edge and the carousel's (below the header), and
+    /// between the card's bottom edge and the carousel's (above the button gutter). A
+    /// measurement, not a verdict, so it is not part of `all`; run it after a change to the
+    /// card's height.
+    ///
+    /// The card's edges are found from two controls at known offsets inside it: the
+    /// Purchased checkbox (its center sits `checkboxCenterFromCardTop` below the card's top)
+    /// and the Notes field (whose bottom sits one card inset above the card's bottom).
+    private static func cardFitScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "card-fit")
+        let size = Preferences.sheetSize
+        let sheet = FilmSheet(coordinator: coordinator)
+        guard let vm = sheet.releasesTab else {
+            r.check("view-model", false, "FilmSheet has no releases tab")
+            return r
+        }
+        let model = makeModel(format: .uhd4K, purchased: false, sortOrder: 0)
+        // `-FTDebugCardFitUpcoming` dates the card a month ahead, to see the "Upcoming"
+        // badge and the Unreleased availability in the PNG.
+        if ProcessInfo.processInfo.arguments.contains("-FTDebugCardFitUpcoming"),
+           let ahead = StorageDateFormatters.calendar.date(byAdding: .month, value: 1, to: Date()) {
+            model.setReleaseDate(ahead)
+        }
+        vm.releases = [model]
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: size, height: size),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: FilmSheetView(owner: sheet).frame(width: size, height: size))
+        host.frame = NSRect(x: 0, y: 0, width: size, height: size)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        for _ in 0..<4 { await oneRunLoopTurn() }
+        sheet.selectedTab = .releases
+        for _ in 0..<12 { await oneRunLoopTurn() }
+        try? await Task.sleep(for: .milliseconds(400))
+        host.layoutSubtreeIfNeeded()
+        await oneRunLoopTurn()
+
+        var carousel: NSRect?
+        var views: [(NSView, NSRect)] = []
+        var stack: [NSView] = [host]
+        while let v = stack.popLast() {
+            let f = host.convert(v.bounds, from: v)
+            if String(describing: type(of: v)).contains("PassthroughView") { carousel = f }
+            if !v.isHiddenOrHasHiddenAncestor { views.append((v, f)) }
+            stack.append(contentsOf: v.subviews)
+        }
+        // Only controls on the card inside the carousel: other tabs may stay mounted.
+        let onCard = views.filter { carousel?.contains(NSPoint(x: $0.1.midX, y: $0.1.midY)) ?? false }
+        let checkbox = onCard.filter { $0.0 is NSButton && $0.1.width == 18 && $0.1.height == 18 }
+            .map(\.1).min { $0.minY < $1.minY }
+        let notes = onCard.filter { $0.0 is NSTextField && $0.1.width > 300 }
+            .map(\.1).max { $0.maxY < $1.maxY }
+        guard let carousel, let checkbox, let notes, host.isFlipped else {
+            r.check("found-controls", false, "carousel \(String(describing: carousel)), checkbox \(String(describing: checkbox)), notes \(String(describing: notes)), flipped \(host.isFlipped)")
+            return r
+        }
+        // From card-perf's frames: the checkbox's center sits 75 pt below the card's top (76
+        // before the Stepper chrome lost 1 pt of padding a side, which shortened its row), and
+        // the card ends 16 pt (its inset) below the Notes field.
+        let checkboxCenterFromCardTop: CGFloat = 75
+        let cardTop = checkbox.midY - checkboxCenterFromCardTop
+        let cardBottom = notes.maxY + 16
+        let topGap = cardTop - carousel.minY
+        let bottomGap = carousel.maxY - cardBottom
+        unsafe log(String(format: "card-fit: carousel %.1f–%.1f, card %.1f–%.1f (%.1f pt), gap above %.1f pt, below %.1f pt",
+                   carousel.minY, carousel.maxY, cardTop, cardBottom, cardBottom - cardTop, topGap, bottomGap))
+        r.metric("card-fit.gap.top", topGap, "pt")
+        r.metric("card-fit.gap.bottom", bottomGap, "pt")
+        // The sheet as drawn, as `card-fit.png` in the sandbox.
+        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+            host.cacheDisplay(in: host.bounds, to: rep)
+            if let data = rep.representation(using: .png, properties: [:]),
+               let dir = DebugSandbox.rootURL {
+                try? data.write(to: dir.appendingPathComponent("card-fit.png"))
+            }
+        }
+        return r
     }
 
     private static func cardProfileScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -655,10 +737,10 @@ extension DebugHarness {
             Probe(name: "standard-stepper") { v in tenUp(v) { i in
                 StandardStepper(value: .constant(i % 10 + 1), in: 1...10) } },
             Probe(name: "datepicker-year") { v in tenUp(v) { i in
-                CustomDatePicker(year: .constant(2000 + i % 20), hasValue: .constant(true),
+                CustomDateStepper(year: .constant(2000 + i % 20), hasValue: .constant(true),
                                  yearRange: 1990...2026) {} } },
             Probe(name: "datepicker-full") { v in tenUp(v) { i in
-                CustomDatePicker(date: .constant(Date(timeIntervalSince1970: Double(i) * 86_400 * 40)),
+                CustomDateStepper(date: .constant(Date(timeIntervalSince1970: Double(i) * 86_400 * 40)),
                                  hasValue: .constant(true), yearRange: 1990...2026) {} } },
             Probe(name: "currency-field") { v in tenUp(v) { i in
                 CurrencyInputField(value: .constant(Double(i) + 0.5)) } },
@@ -2563,14 +2645,23 @@ extension DebugHarness {
 
     /// A combo child whose every user-editable field matches a freshly created one, so
     /// retyping its parent needs no confirmation.
+    ///
+    /// The format-default fields are read from `ReleaseFormat.newReleaseDefaults` — the same
+    /// source `FSTabReleases.makeComboChild` applies — rather than restated. Restated, they
+    /// drifted: Blu-ray gained default video format and included versions, and a "pristine"
+    /// child missing both counted as edited, so the reduction prompted instead of deleting.
     private static func pristineChildSnapshot(id: UUID, parent: UUID, sortOrder: Int) -> ReleaseSnapshot {
-        ReleaseSnapshot(id: id, format: ReleaseFormat.bluRay.rawValue,
+        let defaults = ReleaseFormat.newReleaseDefaults(for: ReleaseFormat.bluRay.rawValue)
+        return ReleaseSnapshot(id: id, format: ReleaseFormat.bluRay.rawValue,
+                        includedVersions: defaults.includedVersions,
                         independence: ReleaseIndependence.comboPack,
-                        scanningMethod: ReleaseScanningMethod.progressive,
-                        audioFormat: "DTS-HD MA", hasSubtitles: true,
-                        nationalOrigin: ReleaseOrigin.domestic,
+                        videoFormat: defaults.videoFormat,
+                        scanningMethod: defaults.scanningMethod,
+                        audioFormat: defaults.audioFormat, audioChannels: defaults.audioChannels,
+                        hasSubtitles: defaults.hasSubtitles,
+                        nationalOrigin: defaults.nationalOrigin,
                         replicationType: ReleaseReplicationType.pressed,
-                        regionLock: ReleaseRegionRules.regionFree,
+                        regionLock: defaults.regionLock,
                         marketAvailability: [ReleaseMarketAvailability.comboPackOnly],
                         condition: ReleaseCondition.new,
                         sortOrder: sortOrder, parentReleaseID: parent)
@@ -2604,9 +2695,9 @@ extension DebugHarness {
                             sortOrder: 0, childReleaseIDs: [repChild]),
             pristineChildSnapshot(id: repChild, parent: rep, sortOrder: 1),
             // Case C: base year after the release year.
-            ReleaseSnapshot(id: inverted, releaseYear: "2010", baseReleaseYear: "2012", format: bd,
+            ReleaseSnapshot(id: inverted, releaseDate: "2010", baseReleaseYear: "2012", format: bd,
                             independence: ReleaseIndependence.standalone, sortOrder: 2),
-            ReleaseSnapshot(id: clean, releaseYear: "2010", format: bd,
+            ReleaseSnapshot(id: clean, releaseDate: "2010", format: bd,
                             independence: ReleaseIndependence.standalone, sortOrder: 3)])
 
         let fixtures = [fDelete, fCombo, fOrphan, fRepair]

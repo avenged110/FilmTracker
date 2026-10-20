@@ -687,10 +687,15 @@ private struct ImportSessionList: View {
                     // VStack reflow slides the cards below up through the vacated
                     // space. Structural removals that carry no animation (e.g.
                     // Clear All) resolve the .opacity removal transition instantly.
-                    .transition(unsafe .asymmetric(
+                    //
+                    // Spelled with the Transition types rather than AnyTransition's
+                    // `.identity`/`.opacity` statics, which the SDK declares
+                    // nonisolated(unsafe); the transitions are the same ones.
+                    .transition(.asymmetric(
                         insertion: presentIDs.contains(session.id)
-                            ? .identity : .move(edge: .top).combined(with: .opacity),
-                        removal: .opacity))
+                            ? AnyTransition(IdentityTransition())
+                            : AnyTransition(MoveTransition(edge: .top).combined(with: OpacityTransition())),
+                        removal: AnyTransition(OpacityTransition())))
             }
             if let column, mounted.upperBound < revealed.count {
                 Color.clear.frame(height: column.extent(of: mounted.upperBound..<revealed.count))

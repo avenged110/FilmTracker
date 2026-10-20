@@ -24,28 +24,19 @@ extension EnvironmentValues {
     }
 }
 
-// Locally-scoped environment key marking whether a given tab-plane slot's content is
-// the one currently allowed to receive clicks. Read by `SidebarScrollView` (below) and
-// forwarded to `AppKitScrollView`'s own `isActive` parameter, which gates the
-// underlying `NSScrollView`'s `hitTest(_:)` to return `nil` whenever `false` (see
-// `HitTestGatedScrollView` in `92_00_AppKitScrollView.swift`) — removing it and all
-// of its native subviews from AppKit's hit-test chain without ever hiding it. See
-// `tabPlane` and `isTabActiveForHitTesting(_:)` in the RightSidebar controller for
-// why this is required: `.clipped()` alone only stops a non-selected slot's content
-// from being *painted*, not from intercepting clicks that land on its real (but
-// invisible) `NSScrollView` frame — which, for a slot offset outside the clipped
-// viewport, can sit directly over the gallery. Defaults to `true` so any view that
-// reads this outside RightSidebar's tab plane (there is currently none, but future
-// consumers of `SidebarScrollView` should not silently become unclickable) behaves
-// exactly as before this key existed.
-private struct IsSidebarTabActiveKey: EnvironmentKey {
-    static let defaultValue: Bool = true
+// Locally-scoped environment key carrying the tab slot's `AppKitScrollActivation`. The
+// object is created once per slot (see `tabActivations` on RightSidebar) and never replaced,
+// so this environment value never changes; only the flag inside it does, which SwiftUI does
+// not see. That is the point: a flag placed in the environment directly would be bridged
+// into each tab's hosted NSHostingView and re-resolve its whole tree on every tab switch.
+private struct SidebarTabActivationKey: EnvironmentKey {
+    static let defaultValue: AppKitScrollActivation? = nil
 }
 
 extension EnvironmentValues {
-    var isSidebarTabActive: Bool {
-        get { self[IsSidebarTabActiveKey.self] }
-        set { self[IsSidebarTabActiveKey.self] = newValue }
+    var sidebarTabActivation: AppKitScrollActivation? {
+        get { self[SidebarTabActivationKey.self] }
+        set { self[SidebarTabActivationKey.self] = newValue }
     }
 }
 
@@ -144,14 +135,12 @@ struct SidebarScrollView<Content: View>: View {
     @Environment(\.sidebarFilm) private var sidebarFilm: FilmSnapshot?
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(\.horizontalScrollZoneRegistrar) private var horizontalScrollZoneRegistrar
-    // Read here (outside the NSHostingView boundary AppKitScrollView will create) and
-    // passed straight through as a plain parameter — unlike sidebarFilm/dataCoordinator/
-    // horizontalScrollZoneRegistrar above, this value is consumed by AppKitScrollView
-    // itself (to gate the underlying NSScrollView's hitTest(_:)), never re-read again
-    // inside the hosted content, so it does not need to be re-injected via
-    // SidebarEnvironmentModifier. See IsSidebarTabActiveKey above and tabPlane's
-    // `.environment(\.isSidebarTabActive, ...)` for where this is set per tab slot.
-    @Environment(\.isSidebarTabActive) private var isSidebarTabActive: Bool
+    // Whether this tab slot is the active one arrives as the slot's stable activation
+    // object, not as a Bool. A Bool here — as a parameter or as an environment value —
+    // changes on every tab switch, and either way re-measured the tab's whole hosted tree.
+    // See SidebarTabActivationKey above and "isActive / hit-test isolation" in
+    // `98.20 UtilityKit.swift`.
+    @Environment(\.sidebarTabActivation) private var tabActivation
 
     var body: some View {
         AppKitScrollView(
@@ -160,7 +149,7 @@ struct SidebarScrollView<Content: View>: View {
                 dataCoordinator: dataCoordinator,
                 horizontalScrollZoneRegistrar: horizontalScrollZoneRegistrar
             ),
-            isActive: isSidebarTabActive,
+            activation: tabActivation,
             onScrollWillStart: {
                 AppEventBus.shared.rightSidebarDidStartLiveScroll()
             },
@@ -185,7 +174,7 @@ struct SidebarScrollView<Content: View>: View {
 /// the sidebar's content area — the same "cursor is over this view" gate that
 /// `scrollWheel(with:)` would have provided for free, without requiring an
 /// `NSScrollView` subclass (and the responsive-scrolling cost that came with one;
-/// see `92_00_AppKitScrollView.swift` for the full history).
+/// see `98.20 UtilityKit.swift` for the full history).
 private struct SidebarSwipeZoneAnchor: NSViewRepresentable {
     @Binding var anchor: NSView?
 
@@ -234,6 +223,12 @@ struct RightSidebar: View, Loggable {
     // sidebar's entire lifetime, exactly like swipeZoneAnchor/swipeMonitor/
     // swipeGestureState immediately below.
     @State private var horizontalScrollZoneRegistrar = HorizontalScrollZoneRegistrar()
+
+    /// One activation object per tab slot, for the sidebar's lifetime: the channel through
+    /// which a slot's scroll view learns it is (or is no longer) the click-active tab without
+    /// any SwiftUI value changing. See SidebarTabActivationKey.
+    @State private var tabActivations: [RightSidebarTab: AppKitScrollActivation] =
+        Dictionary(uniqueKeysWithValues: tabOrder.map { ($0, AppKitScrollActivation()) })
     
     // Selection state (derived from selectionState for cleaner logic)
     @State private var hasSelection: Bool = false
@@ -249,25 +244,16 @@ struct RightSidebar: View, Loggable {
     @State private var releasesSummaryExpanded: Bool = false
     
     // Adaptive debounce state for film resolution during rapid scrolling.
-    // `lastSelectionChangeTime` is retained only as a fallback heuristic for
-    // selection sources that cannot supply an authoritative key-repeat signal
-    // (see handleSelectionChange below).
     @State private var resolutionTask: Task<Void, Never>?
-    @State private var lastSelectionChangeTime: Date = .distantPast
 
-    /// Wall time the most recent sidebar resolution took to reach the end of its
-    /// run-loop turn — i.e. how long that selection step actually occupied the main
-    /// thread, layout and CoreAnimation commit included. Measured rather than assumed,
-    /// because the cost is entirely film-dependent: a film with no releases, no
-    /// viewings and no notes resolves in a couple of milliseconds, while one with a
-    /// long viewing history and a full release table costs an order of magnitude more.
-    ///
-    /// This is what `handleSelectionChange` uses to decide whether a *discrete* press
-    /// needs coalescing (see there). It starts at zero, so the very first resolution of
-    /// a session is always instant.
-    @State private var lastResolutionCost: TimeInterval = 0
+    /// The debounce decision's timing inputs (see `SelectionTiming`). Held in one
+    /// persistent reference rather than as `@State` values: both are written on every
+    /// selection step and read only by `handleSelectionChange`, never by `body`, so as
+    /// state they could only ever schedule a render that has nothing to show.
+    @State private var selectionTiming = SelectionTiming()
 
-    /// Ceiling on the self-tuning coalescing window derived from `lastResolutionCost`.
+    /// Ceiling on the self-tuning coalescing window derived from
+    /// `selectionTiming.lastResolutionCost`.
     /// One pathological resolution (a stall from unrelated main-thread work that
     /// happened to land in the same turn) must not be able to make the *next* press
     /// feel sluggish, so the measurement is clamped before it is ever used as a delay.
@@ -366,7 +352,7 @@ struct RightSidebar: View, Loggable {
     // MARK: - Swipe Recognition State
     //
     // Horizontal-swipe recognition previously lived inside a custom NSScrollView
-    // subclass (HorizontalSwipeScrollView, in 92_00_AppKitScrollView.swift) that
+    // subclass (HorizontalSwipeScrollView, in `98.20 UtilityKit.swift`) that
     // overrode scrollWheel(with:). That override — even once made as cheap as
     // possible — measurably cost this sidebar's scrolling smoothness relative to a
     // plain NSScrollView, and no fix to the override itself closed that gap. The
@@ -474,7 +460,7 @@ struct RightSidebar: View, Loggable {
     ///
     /// Every rendered-but-not-selected slot (the neighbor(s) kept resident so the swipe
     /// window is armed — see `isTabRendered`) is additionally excluded from AppKit's
-    /// hit-test chain via `isSidebarTabActive`/`SidebarScrollView.isActive`. `.clipped()`
+    /// hit-test chain via the slot's `AppKitScrollActivation` (see `tabActivations`). `.clipped()`
     /// only stops those slots from being *painted*; it does nothing to stop AppKit
     /// hit-testing from reaching the real `NSScrollView` (and every native control
     /// inside it) that each tab's content hosts via `SidebarScrollView`/
@@ -490,8 +476,8 @@ struct RightSidebar: View, Loggable {
     /// genuinely visible mid-slide both remain interactive for the duration; every
     /// other resident slot (including a third tab kept merely pre-armed for the next
     /// possible swipe) is excluded throughout, at rest and during swipes alike. See
-    /// `SidebarScrollView`'s `isActive` parameter and `HitTestGatedScrollView` in
-    /// `92_00_AppKitScrollView.swift` for the actual mechanism — a pure `hitTest(_:)`
+    /// `AppKitScrollActivation` and `HitTestGatedScrollView` in
+    /// `98.20 UtilityKit.swift` for the actual mechanism — a pure `hitTest(_:)`
     /// gate, not `isHidden`, so reactivating a tab never triggers AppKit's automatic
     /// scroll-indicator reveal flash. None of this touches the swipe gesture itself:
     /// recognition runs entirely through the local `NSEvent` monitor installed in
@@ -518,7 +504,8 @@ struct RightSidebar: View, Loggable {
                                 tabContent(for: tab)
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                                     .allowsHitTesting(isActiveSlot)
-                                    .environment(\.isSidebarTabActive, isActiveSlot)
+                                    .environment(\.sidebarTabActivation, tabActivations[tab])
+                                    .appKitScrollActivation(tabActivations[tab]!, isActive: isActiveSlot)
                             } else {
                                 Color.clear
                             }
@@ -974,7 +961,7 @@ struct RightSidebar: View, Loggable {
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             let cost = CACurrentMediaTime() - start
-            Task { @MainActor in lastResolutionCost = cost }
+            Task { @MainActor [selectionTiming] in selectionTiming.lastResolutionCost = cost }
         }
         CATransaction.commit()
 
@@ -1068,7 +1055,7 @@ struct RightSidebar: View, Loggable {
     ///   report-driven selection). For these, fall back to the inter-event timing heuristic
     ///   so debounce protection degrades gracefully rather than disappearing entirely.
     ///
-    /// `lastSelectionChangeTime` is updated on every call that actually reaches the debounce
+    /// `selectionTiming.lastChangeTime` is updated on every call that actually reaches the debounce
     /// decision — i.e. every call not already short-circuited by the drag-deferral gate or the
     /// empty-selection branch above it — so the fallback stays accurate for `.unspecified`
     /// sources even on turns where the decision is settled by an authoritative kind. The two
@@ -1139,8 +1126,9 @@ struct RightSidebar: View, Loggable {
         // decides this turn. Changes short-circuited above (deferred, or a clear) do not
         // stamp it — see the note on this function.
         let now = Date()
-        let timeSinceLastChange = now.timeIntervalSince(lastSelectionChangeTime)
-        lastSelectionChangeTime = now
+        let timeSinceLastChange = now.timeIntervalSince(selectionTiming.lastChangeTime)
+        selectionTiming.lastChangeTime = now
+        let lastResolutionCost = selectionTiming.lastResolutionCost
         let isFallbackRapidNavigation = timeSinceLastChange < 0.15
 
         // Decide whether to debounce, preferring the authoritative input kind and using the
@@ -1407,8 +1395,8 @@ struct RightSidebar: View, Loggable {
     /// outside the viewport at all times and must stay excluded, whether at rest or
     /// mid-swipe, since its off-plane `NSScrollView` would otherwise silently
     /// intercept clicks over whatever real content (the gallery) actually occupies
-    /// that screen position. See `tabPlane` and `IsSidebarTabActiveKey` for how this
-    /// feeds into `SidebarScrollView.isActive` / `AppKitScrollView.isActive`.
+    /// that screen position. See `tabPlane` and `tabActivations` for how this
+    /// feeds into `AppKitScrollView`'s hit-test gate.
     private func isTabActiveForHitTesting(_ tab: RightSidebarTab) -> Bool {
         if tab == selectedTab { return true }
         return isSwipeAnimating && tab == departingTab
@@ -1539,6 +1527,31 @@ struct RightSidebar: View, Loggable {
             swipeMonitor = nil
         }
     }
+}
+
+// MARK: - SelectionTiming
+
+/// The timing inputs to RightSidebar's selection debounce. One instance per sidebar, held
+/// in `@State` for its identity only — like `SwipeGestureState` below — so writing these
+/// values never invalidates the view.
+@MainActor
+private final class SelectionTiming {
+    /// When the last selection change reached the debounce decision. Retained only as a
+    /// fallback heuristic for selection sources that cannot supply an authoritative
+    /// key-repeat signal (see `handleSelectionChange`).
+    var lastChangeTime: Date = .distantPast
+
+    /// Wall time the most recent sidebar resolution took to reach the end of its
+    /// run-loop turn — i.e. how long that selection step actually occupied the main
+    /// thread, layout and CoreAnimation commit included. Measured rather than assumed,
+    /// because the cost is entirely film-dependent: a film with no releases, no
+    /// viewings and no notes resolves in a couple of milliseconds, while one with a
+    /// long viewing history and a full release table costs an order of magnitude more.
+    ///
+    /// This is what `handleSelectionChange` uses to decide whether a *discrete* press
+    /// needs coalescing (see there). It starts at zero, so the very first resolution of
+    /// a session is always instant.
+    var lastResolutionCost: TimeInterval = 0
 }
 
 // MARK: - SwipeGestureState

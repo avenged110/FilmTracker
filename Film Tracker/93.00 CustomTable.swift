@@ -145,6 +145,10 @@ struct CustomTable<Data: RandomAccessCollection,
             contentContainer
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                // Applied to the clipped content rather than the outer frame: the visible
+                // plate runs past `tableHeight` (collapsed, 7 rows sit in a 6.5-row frame),
+                // so chrome sized to the frame had its bottom edge covered by the overflow.
+                .sidebarFieldEdgeChrome()
             // Gradient overlay and "Show All" button.
             if shouldShowExpandButton && !isExpanded {
                 ZStack(alignment: .bottom) {

@@ -346,15 +346,15 @@ final class KeyboardManager {
             }
         }
 
-        // Opt+Cmd+R - Edit Film Releases (4K UHD format)
-        if modifiers == [.option, .command] && char == "r" {
-            // Block if text field is focused
+        // Opt+Cmd+E - Edit Film, opening the FilmSheet directly on its Metadata tab.
+        // Same gating as Cmd+I: exactly one film selected and no sheet already open.
+        if modifiers == [.option, .command] && char == "e" {
             if textInputActive {
                 return false
             }
             
             guard !isInSheet else { return false }
-            return handleEditFilmReleases4KUHD()
+            return handleEditFilmMetadata()
         }
         
         // Cmd+N - Create New List (with fallback handling)
@@ -739,6 +739,8 @@ final class KeyboardManager {
             let state = FilmQueueFilterState.shared
             return step([.all, .upNext, .soon, .later], state.selectedFilter) { state.selectFilter($0) }
         case .smartList(let type):
+            // A family of one has no tabs to cycle; the key passes through.
+            guard type.familyVariants.count > 1 else { return false }
             let state = SmartListVariantState.shared(for: type)
             return step(type.familyVariants, state.selected) { state.select($0) }
         default:
@@ -759,7 +761,7 @@ final class KeyboardManager {
     
     /// Handle Opt+Delete — Remove selected film(s) from the current list context.
     ///
-    /// A one-line hand-off to FilmRemoval (GlobalUtilities.swift), which owns the context
+    /// A one-line hand-off to FilmRemoval (LibraryManager.swift), which owns the context
     /// resolution (user list / Film Queue / Hall of Fame), the membership pre-filter, the
     /// confirmation-preference gating, and the alert payloads for every surface offering
     /// this command.
@@ -884,20 +886,20 @@ final class KeyboardManager {
         }
     }
     
-    /// Handle Opt+Cmd+R - Edit Film Releases with 4K UHD format
-    private func handleEditFilmReleases4KUHD() -> Bool {
+    /// Handle Opt+Cmd+E - Edit Film, opened on the Metadata tab
+    private func handleEditFilmMetadata() -> Bool {
         guard let appState = appState,
               appState.sheetCoordinator.activeSheet == nil else {
             return false
         }
         
-        // Requires exactly one film to be selected (matches MenuBar restriction)
+        // Requires exactly one film to be selected (matches the Edit Metadata menu item)
         guard let selectionState = selectionState,
               selectionState.selectedFilmIDs.count == 1 else {
             return false
         }
         
-        AppEventBus.shared.sendCommand(.editFilmReleases(format: ReleaseFormat.uhd4K.rawValue))
+        AppEventBus.shared.sendCommand(.editFilmMetadata)
         return true
     }
     

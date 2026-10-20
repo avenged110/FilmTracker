@@ -58,7 +58,7 @@ final class ListObject: Identifiable {
 extension ListObject: ExportableModel {
     static var entityName: String { "ListObject" }
 
-    static func fetchAll(in context: ModelContext) async throws -> [ListObject] {
+    static func fetchAll(in context: ModelContext) throws -> [ListObject] {
         let desc = FetchDescriptor<ListObject>(sortBy: [SortDescriptor(\.listName)])
         return try context.fetch(desc) }
 

@@ -138,6 +138,16 @@ struct RTabReleases: View {
 /// One release, pre-resolved for display. Every derived string here mirrors the
 /// corresponding column in `DiscReleasesTable.buildTableData` so the two presentations
 /// cannot drift apart in what they report.
+private extension RSBReleaseCard {
+    /// "Released on October 17, 2026" — or "Releases on …" while the date is still ahead,
+    /// since a release cataloged before it comes out has not been released. A year-only
+    /// value reads "Released in 2014" / "Releases in 2027".
+    static func releasePhrase(_ date: ReleaseDateValue, today: Date) -> String {
+        let verb = date.isUpcoming(today: today) ? "Releases" : "Released"
+        return "\(verb) \(date.isYearOnly ? "in" : "on") \(date.displayText)"
+    }
+}
+
 private struct RSBReleaseCard: Identifiable, Equatable {
     let id: UUID
 
@@ -165,6 +175,11 @@ private struct RSBReleaseCard: Identifiable, Equatable {
     // Specification fields
     let releaseYear: String
     let originalReleaseYear: String
+    /// The parsed release date, or nil when the stored value is empty or unreadable (the
+    /// year badge then shows the stored text as it always has). Kept parsed rather than as
+    /// finished text because its wording — "Released on" or "Releases on" — depends on the
+    /// day the card is drawn, and the card model is built once per release, not per day.
+    let releaseDate: ReleaseDateValue?
     /// Codec and master type.
     let video: String
 
@@ -422,7 +437,9 @@ private enum RSBReleaseCardBuilder {
             isWishlisted = release.wishlist >= 1
         }
 
-        let releaseYear = release.releaseYear.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The year of the release date, whichever shape it is stored in. Trimmed, as
+        // ReleaseDateValue.yearText trims every value it passes through.
+        let releaseYear = ReleaseDateValue.yearText(of: release.releaseDate, format: release.format)
         let baseYear = release.baseReleaseYear.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return RSBReleaseCard(
@@ -437,6 +454,7 @@ private enum RSBReleaseCardBuilder {
             releaseYear: releaseYear,
             // Suppressed when identical to the release year, where it would be noise.
             originalReleaseYear: baseYear == releaseYear ? "" : baseYear,
+            releaseDate: ReleaseDateValue(release.releaseDate, format: release.format),
             video: video,
             remastered: release.remastered,
             // HDR is meaningful only for 4K UHD; the table's "N/A" for the other two
@@ -757,6 +775,10 @@ private struct RSBReleaseCardBody: View {
     /// which is the correct outcome in every case, including the one this cannot rule out.
     private var isAttachedChild: Bool { attachedChildBanner != nil }
 
+    /// Today, for the release-date wording. Read through CurrentDay so the card re-renders
+    /// on the day a release comes out and "Releases on" becomes "Released on".
+    private var today: Date { CurrentDay.shared.today }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if isAttachedChild {
@@ -908,7 +930,11 @@ private struct RSBReleaseCardBody: View {
                         if !model.releaseYear.isEmpty {
                             RSBYearBadge(
                                 releaseYear: model.releaseYear,
-                                baseReleaseYear: model.originalReleaseYear)
+                                baseReleaseYear: model.originalReleaseYear,
+                                releaseHelp: model.releaseDate.map {
+                                    RSBReleaseCard.releasePhrase($0, today: today)
+                                } ?? "Release year \(model.releaseYear)",
+                                isUpcoming: model.releaseDate?.isUpcoming(today: today) ?? false)
                         }
                     }
                     columnSlot {
@@ -973,6 +999,14 @@ private struct RSBReleaseCardBody: View {
                 glyphRow(RSBRowItem(
                     symbol: "film.stack.fill", text: model.includedVersions,
                     help: "Versions included"))
+            }
+            // The full release date, last before the acquisition block. Only for a full date:
+            // a year-only value says nothing the year badge does not. Suppressed on an
+            // attached child for the same reason as the artwork note — a child's release
+            // date is its parent's, stated on the parent half directly above.
+            if !isAttachedChild, let releaseDate = model.releaseDate, !releaseDate.isYearOnly {
+                glyphRow(RSBRowItem(symbol: "calendar",
+                                    text: RSBReleaseCard.releasePhrase(releaseDate, today: today)))
             }
 
             // Everything the card says about acquiring the release, below one divider.
@@ -1162,6 +1196,12 @@ private struct RSBReleaseCardBody: View {
 private struct RSBYearBadge: View {
     let releaseYear: String
     let baseReleaseYear: String
+    /// The tooltip's description of the release itself — "Released on October 17, 2026".
+    let releaseHelp: String
+    /// True while the release date is still ahead; the badge is then an outline.
+    let isUpcoming: Bool
+
+    private static let upcomingStroke = StrokeStyle(lineWidth: 1, dash: [3, 2])
 
     /// Floor only. Each compartment takes half of the badge row's leading column, so the
     /// badge mirrors the region/origin pill filling the trailing column. The reserved base
@@ -1190,8 +1230,19 @@ private struct RSBYearBadge: View {
             // The shadow rides on the fill shape rather than the composed view, so it
             // outlines the capsule alone. Applied to the whole badge it would also trace
             // the numerals, which reads as a text shadow in light mode.
-            compartment(releaseYear, isOnFill: true)
-                .background(compartmentShape.fill(RSBCardChrome.badgeFill).rsbBadgeShadow())
+            //
+            // A release not yet out is drawn as an outline instead: dashed, unfilled, in the
+            // tertiary color, so the badge says "not here yet" in the same visual language as
+            // the card's other unset states. Its year then takes the label color, as the bare
+            // base year beside it does.
+            compartment(releaseYear, isOnFill: !isUpcoming)
+                .background {
+                    if isUpcoming {
+                        compartmentShape.strokeBorder(.tertiary, style: Self.upcomingStroke)
+                    } else {
+                        compartmentShape.fill(RSBCardChrome.badgeFill).rsbBadgeShadow()
+                    }
+                }
 
             // Bare text in a reserved slot of the same width. Drawn only when there is a
             // value, but its space is occupied either way, so the badge's footprint never
@@ -1212,15 +1263,31 @@ private struct RSBYearBadge: View {
         // along their shared edge and only the two short stubs where the outline emerges
         // past the fill remain visible — which is what the connection should look like.
         .background {
-            if hasBaseYear {
+            if hasBaseYear && isUpcoming {
+                // Dashed to match the outlined compartment, and masked to the part that lies
+                // beyond the compartment's own straight edges: where the two outlines
+                // coincide, two dash patterns out of phase would read as one solid line. What
+                // remains is the same pair of stubs the filled badge shows past its fill.
+                connectorShape
+                    .strokeBorder(.tertiary, style: Self.upcomingStroke)
+                    .mask {
+                        GeometryReader { g in
+                            let compartmentWidth = (g.size.width - Self.compartmentGap) / 2
+                            let start = max(0, compartmentWidth - g.size.height / 2)
+                            Rectangle()
+                                .frame(width: max(0, g.size.width - start))
+                                .offset(x: start)
+                        }
+                    }
+            } else if hasBaseYear {
                 connectorShape
                     .strokeBorder(RSBCardChrome.badgeFill, lineWidth: 1)
                     .rsbBadgeShadow()
             }
         }
         .help(hasBaseYear
-              ? "Release year \(releaseYear); original release \(baseReleaseYear)"
-              : "Release year \(releaseYear)")
+              ? "\(releaseHelp); original release \(baseReleaseYear)"
+              : releaseHelp)
     }
 
     /// `isOnFill` distinguishes the release year, which sits on the gray capsule and takes

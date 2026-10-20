@@ -403,7 +403,7 @@ final class Film {
 extension Film: ExportableModel {
     static var entityName: String { "Film" }
 
-    static func fetchAll(in context: ModelContext) async throws -> [Film] {
+    static func fetchAll(in context: ModelContext) throws -> [Film] {
         let desc = FetchDescriptor<Film>(sortBy: [SortDescriptor(\.name)])
         return try context.fetch(desc) }
 

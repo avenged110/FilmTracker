@@ -451,7 +451,7 @@ struct MenuBar: Commands {
     // MARK: - Menu Action Handlers
     //
     // The three removal commands above are one-line hand-offs to FilmRemoval
-    // (GlobalUtilities.swift), which owns the context resolution (user list / Film Queue /
+    // (LibraryManager.swift), which owns the context resolution (user list / Film Queue /
     // Hall of Fame), the membership pre-filter, the confirmation-preference gating, and
     // the alert payloads for every surface that offers these commands — this menu, the
     // GalleryTitleBar trash menu, the gallery contextual menu, and KeyboardManager's
@@ -704,7 +704,9 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
     case upForRotation = 6
     case purchased = 7
     case unpurchased = 8
-    case alternateVersions = 9
+    // Cmd+9 belonged to Alternate Versions until Upcoming Releases took it; Alternate
+    // Versions keeps its menu item, without a shortcut.
+    case upcomingReleases = 9
     case filteredLibrary = 0
 
     /// The digit key this shortcut is bound to under Cmd (e.g. "2" for Unwatched).
@@ -733,7 +735,7 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
         case .upForRotation:     return .upForRotation
         case .purchased:         return .purchased
         case .unpurchased:       return .unpurchased
-        case .alternateVersions: return .alternateVersions
+        case .upcomingReleases:  return .upcomingReleases
         case .filteredLibrary:   return .filteredLibrary
         case .allFilms, .unwatched, .recents, .reports, .filmQueue: return nil
         }
@@ -783,7 +785,7 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
         // All five smart lists take the identical three steps and differ only in the type,
         // which `smartListType` already holds — so they share one arm rather than five
         // copies of the same body.
-        case .upForRotation, .purchased, .unpurchased, .alternateVersions, .filteredLibrary:
+        case .upForRotation, .purchased, .unpurchased, .upcomingReleases, .filteredLibrary:
             guard let type = smartListType else { return }
             ViewStateManager.shared.switchToViewSync(.smartList(type))
             appState.navigate(to: .smartList(type))
@@ -1277,6 +1279,8 @@ struct AddToQueueMenuItems: View {
     /// in the body) so the per-film membership lookups run only when the underlying data
     /// actually changes, not on every menu re-evaluation.
     @State private var unanimousSection: FilmQueueSection?
+    /// Adding the selection would overflow "Up Next"; see AddToQueueMenuBody.upNextBlocked.
+    @State private var upNextBlocked = false
 
     var body: some View {
         // Items from the shared definition (23_72_SelectionMenuContent.swift); only the
@@ -1287,7 +1291,8 @@ struct AddToQueueMenuItems: View {
         Group {
             AddToQueueMenuBody(filmIDs: filmIDs,
                                unanimousSection: unanimousSection,
-                               coordinator: dataCoordinator)
+                               coordinator: dataCoordinator,
+                               upNextBlocked: upNextBlocked)
         }
         .onAppear {
             loadUnanimousSection()
@@ -1310,6 +1315,7 @@ struct AddToQueueMenuItems: View {
     private func loadUnanimousSection() {
         unanimousSection = SelectionMenuModel.unanimousQueueSection(filmIDs: filmIDs,
                                                                     coordinator: dataCoordinator)
+        upNextBlocked = FilmQueue.upNextOverflow(adding: filmIDs, coordinator: dataCoordinator) > 0
     }
 }
 

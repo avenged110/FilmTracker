@@ -56,10 +56,13 @@ final class SettingsObject {
     var lastImportsCategory: String?
     var rememberSortFilterSelections: Bool?
     var confirmFilmQueueAdd: Bool?
+    var notifyAboutNewReleases: Bool?
+    var onlyNotifyForWishlisted: Bool?
     var queueIsDropTarget: Bool?
     var queueSectionOnDrop: Int?
     var strictFramesTableChecking: Bool?
     var showWatchDetailsAnnotationGlyphs: Bool?
+    var atvq: Bool?
     
     // MARK: - Advanced Preferences
     var loggingEnabled: Bool?
@@ -141,10 +144,13 @@ extension SettingsObject: ExportableModel {
         if let val = lastImportsCategory { props["lastImportsCategory"] = val }
         if let val = rememberSortFilterSelections { props["rememberSortFilterSelections"] = val }
         if let val = confirmFilmQueueAdd { props["confirmFilmQueueAdd"] = val }
+        if let val = notifyAboutNewReleases { props["notifyAboutNewReleases"] = val }
+        if let val = onlyNotifyForWishlisted { props["onlyNotifyForWishlisted"] = val }
         if let val = queueIsDropTarget { props["queueIsDropTarget"] = val }
         if let val = queueSectionOnDrop { props["queueSectionOnDrop"] = val }
         if let val = strictFramesTableChecking { props["strictFramesTableChecking"] = val }
         if let val = showWatchDetailsAnnotationGlyphs { props["showWatchDetailsAnnotationGlyphs"] = val }
+        if let val = atvq { props["atvq"] = val }
         
         // Advanced Preferences
         if let val = loggingEnabled { props["loggingEnabled"] = val }

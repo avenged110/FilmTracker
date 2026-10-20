@@ -154,6 +154,19 @@ final class DataCoordinator: Loggable {
         return new
     }
 
+    /// Release-day notifications (71.20). Created by `startReleaseNotifications()` once the
+    /// library has loaded, and never before: its first sync reads the library.
+    @ObservationIgnored private var releaseNotifications: ReleaseNotifications?
+
+    /// Starts release-day notifications. Called once by FilmTrackerApp after startup, beside
+    /// the deferred smart-list calculation; a second call does nothing.
+    func startReleaseNotifications() {
+        guard releaseNotifications == nil else { return }
+        let notifications = ReleaseNotifications(coordinator: self)
+        releaseNotifications = notifications
+        notifications.start()
+    }
+
     /// Flushes any smart list state that is persisted on a debounce, for the quit path.
     ///
     /// Reads `_smartLists` directly rather than the computed accessor so that shutting down
@@ -249,7 +262,15 @@ final class DataCoordinator: Loggable {
     /// this filter a single wishlisted combo pack would surface as two separate entries
     /// here, double-counting one purchase.
     func getWishlistReleases() -> [(film: FilmSnapshot, release: ReleaseSnapshot)] {
-        memoryStore.getAllFilms().flatMap { film in
+        Self.wishlistPairs(in: memoryStore.getAllFilms())
+    }
+
+    /// The wishlisted (film, release) pairs among `films`. Nonisolated so the Release
+    /// Wishlist report can run the scan off the main actor.
+    nonisolated static func wishlistPairs(
+        in films: [FilmSnapshot]
+    ) -> [(film: FilmSnapshot, release: ReleaseSnapshot)] {
+        films.flatMap { film in
             film.releases
                 .filter { $0.wishlist > 0 && $0.isTopLevel }
                 .map { (film: film, release: $0) }
@@ -952,6 +973,11 @@ final class DataCoordinator: Loggable {
 
     func getAllFilms() -> [FilmSnapshot] { return memoryStore.getAllFilms() }
 
+    /// The films dictionary itself. The Reports tabs' off-main reconciles capture it and
+    /// compare it again before applying their rows: a dictionary compares equal in O(1)
+    /// when its storage is shared, so "nothing changed meanwhile" costs nothing to confirm.
+    func getAllFilmsMap() -> [UUID: FilmSnapshot] { return memoryStore.getAllFilmsMap() }
+
     /// Returns the names of all lists (user-generated and smart) the given film belongs to.
     /// Used by SearchController.filterFilms for list-field token filtering
     /// without any SwiftData object access.
@@ -1267,11 +1293,15 @@ final class DataCoordinator: Loggable {
 
     /// The default rotation threshold the derived rotation state was last computed with.
     private var lastKnownDefaultRotationThreshold = Preferences.defaultRotationThreshold
+    /// The refresh started by the latest threshold change; a newer change cancels it.
+    @ObservationIgnored private var rotationThresholdRefresh: Task<Void, Never>?
 
     /// Brings every piece of state derived from `Preferences.defaultRotationThreshold`
     /// up to date after it changes: MetadataCache rotation dates (the "Recently Come Up
     /// for Rotation" list and its subtitles) and the "Up for Rotation" smart lists.
     /// Called for every `preferencesChanged` event; a no-op unless the value moved.
+    /// The heavy work (metadata entries, smart-list sets) runs off the main actor; only
+    /// applying the results and the reload come back to it.
     func handleDefaultRotationThresholdChangeIfNeeded() {
         let current = Preferences.defaultRotationThreshold
         guard current != lastKnownDefaultRotationThreshold else { return }
@@ -1279,11 +1309,16 @@ final class DataCoordinator: Loggable {
         // Before initialization the startup rebuild/validation reads the new value itself.
         guard memoryStore.isInitialized else { return }
         Self.log("Default rotation threshold changed to \(current) — refreshing rotation-derived state")
-        memoryStore.refreshRotationDerivedMetadata()
-        smartLists.forceFullRecalculation()
-        // A full reload rather than refreshFilms(): Recents takes its ordering from
-        // loadFilms' recentsOrder, which refreshFilms() does not re-supply.
-        ViewStateManager.shared.forceReload()
+        rotationThresholdRefresh?.cancel()
+        rotationThresholdRefresh = Task { [weak self] in
+            guard let self else { return }
+            await self.memoryStore.refreshRotationDerivedMetadata()
+            guard !Task.isCancelled else { return }
+            self.smartLists.forceFullRecalculation()
+            // A full reload rather than refreshFilms(): Recents takes its ordering from
+            // loadFilms' recentsOrder, which refreshFilms() does not re-supply.
+            ViewStateManager.shared.forceReload()
+        }
     }
 
     /// Resets all rotation threshold overrides to nil (use global default).
@@ -1744,6 +1779,25 @@ final class DataCoordinator: Loggable {
         }
         guard !filmIDsBySection.isEmpty else { return }
 
+        // "Up Next" holds at most FilmQueue.upNextCapacity films. With no user present to
+        // be told, what doesn't fit goes to "Soon" rather than being dropped; the films
+        // that do fit are chosen by title, so the split is the same every time.
+        if let upNext = filmIDsBySection[.upNext] {
+            let vacancies = max(0, FilmQueue.upNextCapacity
+                - (memoryStore.getList(FilmQueueSection.upNext.listID)?.filmIDs.count ?? 0))
+            if upNext.count > vacancies {
+                let ordered = upNext.sorted {
+                    let lhs = memoryStore.getFilm($0)?.name ?? "", rhs = memoryStore.getFilm($1)?.name ?? ""
+                    return lhs == rhs ? $0.uuidString < $1.uuidString
+                        : lhs.localizedStandardCompare(rhs) == .orderedAscending
+                }
+                let fitting = Set(ordered.prefix(vacancies))
+                filmIDsBySection[.upNext] = fitting.isEmpty ? nil : fitting
+                filmIDsBySection[.soon, default: []].formUnion(upNext.subtracting(fitting))
+                Self.log("Auto-enqueue: 'Up Next' had room for \(vacancies) of \(upNext.count) film(s); the rest go to 'Soon'")
+            }
+        }
+
         for (section, filmIDs) in filmIDsBySection {
             addFilmsToList(filmIDs: filmIDs, listID: section.listID)
             Self.log("Auto-enqueued \(filmIDs.count) film(s) newly up for rotation into '\(section.displayName)'")
@@ -1932,7 +1986,18 @@ final class DataCoordinator: Loggable {
     /// - Returns: `true` if the list was found and the mutation was applied.
     @discardableResult
     func addFilmsToList(filmIDs: Set<UUID>, listID: UUID) -> Bool {
-        guard memoryStore.getList(listID) != nil else { return false }
+        guard let targetList = memoryStore.getList(listID) else { return false }
+
+        // Last line of defense for the "Up Next" cap: every user-facing path refuses an
+        // overflowing add with an alert before reaching here (see FilmQueue's Up Next
+        // Capacity section), so this only fires if one of them is bypassed.
+        // An add with no newcomers takes no slot (see FilmQueue.upNextOverflow).
+        if listID == FilmQueueSection.upNext.listID,
+           !filmIDs.isSubset(of: targetList.filmIDs),
+           targetList.filmIDs.count + filmIDs.subtracting(targetList.filmIDs).count > FilmQueue.upNextCapacity {
+            Self.log("ERROR: Refused add of \(filmIDs.count) film(s) to 'Up Next' — it would exceed \(FilmQueue.upNextCapacity) films")
+            return false
+        }
 
         let preExisting = memoryStore.getList(listID)?.filmIDs ?? []
         let newlyAdded = filmIDs.subtracting(preExisting)
@@ -2760,6 +2825,12 @@ final class DataCoordinator: Loggable {
     /// have no public accessor and should not acquire one for production code's sake.
     /// DEBUG-only, and reachable only from a process the sandbox already contains.
     var memoryStoreForTesting: MemoryStore { memoryStore }
+
+    /// Waits for the refresh the latest default-rotation-threshold change started, which
+    /// runs off the main actor (see handleDefaultRotationThresholdChangeIfNeeded).
+    func awaitRotationThresholdRefreshForTesting() async {
+        await rotationThresholdRefresh?.value
+    }
     #endif
 
     // MARK: - Shutdown

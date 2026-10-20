@@ -212,7 +212,7 @@
     <div class="item"><span class="n">4</span><span class="t">Text tokens</span><span class="s">Title, people, genre, studio, tags, notes, synopsis, lists</span></div>
     <div class="item"><span class="n">5</span><span class="t">Number tokens</span><span class="s">Year, duration, rating</span></div>
     <div class="item"><span class="n">6</span><span class="t">Date tokens</span><span class="s">Last Watched and Date Added</span></div>
-    <div class="item"><span class="n">7</span><span class="t">The Release token</span><span class="s">Formats, ownership, HDR, region, packaging, and more</span></div>
+    <div class="item"><span class="n">7</span><span class="t">The Release token</span><span class="s">Formats, ownership, release dates, HDR, region, packaging, and more</span></div>
     <div class="item"><span class="n">8</span><span class="t">The Rotation Threshold token</span><span class="s">Values, units, and the default / override keywords</span></div>
     <div class="item"><span class="n">9</span><span class="t">Recipes</span><span class="s">Worked examples for common questions</span></div>
     <div class="item"><span class="n">10</span><span class="t">Troubleshooting</span><span class="s">When a search returns nothing, or too much</span></div>
@@ -385,7 +385,7 @@
   <p>Type these as one word (<code>#dateadded</code>, <code>#rotationthreshold</code>), use a shortcut (<code>#added</code>, <code>#rotation</code>), or pick the field from the suggestion list, which always inserts the correct form.</p>
   </div>
   <div class="warn"><span class="t">Easy to mix up</span>
-  <p><code>#date</code> means <strong>release year</strong>, not the date you added or watched a film. For those use <code>#added</code> and <code>#watched</code>. Likewise <code>#studio</code> is the studio credited on the film itself, while the studio or distributor of an individual disc is searched through <code>#release</code> (Chapter 7).</p>
+  <p><code>#date</code> means the film&rsquo;s <strong>release year</strong>, not the date you added or watched a film, and not the date of one of its disc releases (that is <code>#release 2027</code>; Chapter 7). For those use <code>#added</code> and <code>#watched</code>. Likewise <code>#studio</code> is the studio credited on the film itself, while the studio or distributor of an individual disc is searched through <code>#release</code> (Chapter 7).</p>
   </div>
 </section>
 
@@ -458,6 +458,7 @@
       <tr><td>Unpurchased DVD</td><td>Edited</td><td>Alternate Versions</td></tr>
       <tr><td>Filtered Library</td><td>Waiting for Edit</td><td>Temporarily On Hold</td></tr>
       <tr><td>Indefinitely On Hold</td><td>Ignore</td><td>Blacklisted</td></tr>
+      <tr><td>Upcoming Releases</td><td></td><td></td></tr>
     </tbody>
   </table>
   <div class="warn"><span class="t">Substrings can overlap</span>
@@ -523,7 +524,7 @@
   <p class="lede"><strong>Last Watched</strong> is the date you most recently watched a film. <strong>Date Added</strong> is the date it entered the library. Both accept exactly the same forms.</p>
 
   <h3>Relative dates</h3>
-  <p>Include one of these words anywhere in the value. The word is what counts, so &ldquo;past week&rdquo;, &ldquo;this week&rdquo;, and &ldquo;last week&rdquo; all mean the same thing.</p>
+  <p>The words <code>today</code>, <code>week</code>, <code>month</code>, and <code>year</code>, on their own or after <code>last</code>, <code>past</code>, <code>previous</code>, or <code>this</code>, are rolling windows, so &ldquo;past week&rdquo;, &ldquo;this week&rdquo;, and &ldquo;last week&rdquo; all mean the same thing. Give a number to widen the window: <code>last 3 months</code>, <code>past 10 days</code>, or just <code>6 weeks</code>.</p>
   <div class="ex">
     <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
     <div class="row"><span class="q">#watched today</span><span class="d">Watched since the start of today</span></div>
@@ -532,6 +533,124 @@
     <div class="row"><span class="q">#added year</span><span class="d">Added within the past twelve months</span></div>
   </div>
   <p>The windows are rolling: &ldquo;week&rdquo; is the last seven days counting back from this moment, not the calendar week.</p>
+
+  <h3>How long ago</h3>
+  <p>Say how long ago, the way you would in conversation. An &ldquo;ago&rdquo; search is deliberately loose, because few people remember the exact day: it also takes in a little time on either side of the date it lands on.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched 2 months ago</span><span class="d">Watched within a week either side of the date two months back</span></div>
+    <div class="row"><span class="q">#watched a year and a half ago</span><span class="d">Within a month either side of eighteen months back</span></div>
+    <div class="row"><span class="q">#watched a couple of weeks ago</span><span class="d">Within three days either side of two weeks back</span></div>
+    <div class="row"><span class="q">#watched a week ago today</span><span class="d">Exactly that day: adding <code>today</code> removes the leeway</span></div>
+    <div class="row"><span class="q">#added about 3 days ago</span><span class="d">That day, give or take one day</span></div>
+  </div>
+  <table>
+    <thead><tr><th>Counted in</th><th>Leeway either side</th></tr></thead>
+    <tbody>
+      <tr><td>Days</td><td>None for one or two days; one day for three or more</td></tr>
+      <tr><td>Weeks, fortnights</td><td>Two days for a single week; three days otherwise</td></tr>
+      <tr><td>Months</td><td>One week</td></tr>
+      <tr><td>Years</td><td>One month</td></tr>
+      <tr><td>Decades</td><td>Six months</td></tr>
+    </tbody>
+  </table>
+  <p><strong>Units</strong>: <code>day</code> <code>days</code>, <code>week</code> <code>weeks</code> <code>wk</code> <code>wks</code>, <code>fortnight</code> <code>fortnights</code>, <code>month</code> <code>months</code> <code>mo</code> <code>mos</code>, <code>year</code> <code>years</code> <code>yr</code> <code>yrs</code>, <code>decade</code> <code>decades</code>.</p>
+  <p><strong>Counts</strong>: digits, including decimals (<code>1.5 years ago</code>), or words: <code>a</code>, <code>an</code>, <code>one</code>, <code>single</code>, <code>a single</code>; <code>half</code>, <code>half a</code>, <code>half an</code>, <code>a half</code>; <code>two</code>, <code>couple</code>, <code>a couple</code>, <code>pair</code>, <code>a pair</code>; <code>three</code>, <code>few</code>, <code>a few</code>; <code>four</code>, <code>several</code>; <code>five</code>; <code>six</code>, <code>half dozen</code>, <code>half a dozen</code>; <code>seven</code>, <code>eight</code>, <code>nine</code>, <code>ten</code>, <code>eleven</code>; <code>twelve</code>, <code>dozen</code>, <code>a dozen</code>; <code>fifteen</code>, <code>eighteen</code>, <code>twenty</code>, <code>thirty</code>. A unit on its own counts one (<code>over a year</code>), and <code>and a half</code> after the unit adds half of one.</p>
+
+  <h3>Older or more recent than</h3>
+  <p>Put a comparison in front of an amount of time to search on one side of it instead of around it. The <code>ago</code> is optional here.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched more than 2 years ago</span><span class="d">Last watched over two years back</span></div>
+    <div class="row"><span class="q">#watched over a year</span><span class="d">The same idea, one year</span></div>
+    <div class="row"><span class="q">#watched less than 3 weeks ago</span><span class="d">Watched in the past three weeks</span></div>
+    <div class="row"><span class="q">#added within 3 weeks</span><span class="d">Added in the past three weeks</span></div>
+  </div>
+  <table>
+    <thead><tr><th>Meaning</th><th>Words</th></tr></thead>
+    <tbody>
+      <tr><td>Older than</td><td><code>more than</code> <code>over</code> <code>at least</code> <code>older than</code> <code>longer than</code></td></tr>
+      <tr><td>More recent than</td><td><code>less than</code> <code>under</code> <code>fewer than</code> <code>newer than</code> <code>no more than</code> <code>at most</code> <code>within</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Named days</h3>
+  <table>
+    <thead><tr><th>Value</th><th>Finds</th></tr></thead>
+    <tbody>
+      <tr><td><code>today</code> <code>tonight</code></td><td>Since the start of today</td></tr>
+      <tr><td><code>yesterday</code> <code>last night</code></td><td>Yesterday</td></tr>
+      <tr><td><code>day before yesterday</code></td><td>The day before that</td></tr>
+      <tr><td><code>recently</code> <code>lately</code> <code>recent</code></td><td>The past 30 days</td></tr>
+      <tr><td><code>friday</code>, <code>this friday</code></td><td>The most recent Friday, today included</td></tr>
+      <tr><td><code>last friday</code>, <code>previous friday</code></td><td>The most recent Friday before today</td></tr>
+      <tr><td><code>weekend</code>, <code>this weekend</code></td><td>The most recent Saturday and Sunday, including one under way</td></tr>
+      <tr><td><code>last weekend</code></td><td>The most recent weekend that is over</td></tr>
+      <tr><td><code>earlier this week</code> <code>earlier this month</code> <code>earlier this year</code></td><td>Since the start of the calendar week, month, or year</td></tr>
+    </tbody>
+  </table>
+  <p>Weekdays can be written in full or short: <code>sunday</code> <code>sun</code>, <code>monday</code> <code>mon</code>, <code>tuesday</code> <code>tue</code> <code>tues</code>, <code>wednesday</code> <code>wed</code>, <code>thursday</code> <code>thu</code> <code>thur</code> <code>thurs</code>, <code>friday</code> <code>fri</code>, <code>saturday</code> <code>sat</code>.</p>
+
+  <h3>Months, seasons, quarters, and holidays</h3>
+  <p>Name a stretch of the calendar, with or without a year. Without one, it means the most recent occurrence that has begun; <code>last</code> means the most recent one that is over; <code>this</code> means the one under way, or else this year&rsquo;s.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched march</span><span class="d">The most recent March</span></div>
+    <div class="row"><span class="q">#watched last december</span><span class="d">The most recent December that has ended</span></div>
+    <div class="row"><span class="q">#watched dec 25</span><span class="d">The most recent December 25; <code>25 december</code> works too</span></div>
+    <div class="row"><span class="q">#watched december 25th, 2020</span><span class="d">That day; ordinals such as <code>1st</code> and <code>25th</code> are fine</span></div>
+    <div class="row"><span class="q">#watched last summer</span><span class="d">June through August of the most recent summer that is over</span></div>
+    <div class="row"><span class="q">#added q3 2024</span><span class="d">July through September 2024</span></div>
+    <div class="row"><span class="q">#watched christmas 2023</span><span class="d">December 24&ndash;26, 2023</span></div>
+    <div class="row"><span class="q">#watched 2020-12</span><span class="d">December 2020; <code>12/2020</code> works too</span></div>
+  </div>
+  <table>
+    <thead><tr><th>Kind</th><th>Words</th></tr></thead>
+    <tbody>
+      <tr><td>Months</td><td><code>january</code> <code>jan</code>, <code>february</code> <code>feb</code>, <code>march</code> <code>mar</code>, <code>april</code> <code>apr</code>, <code>may</code>, <code>june</code> <code>jun</code>, <code>july</code> <code>jul</code>, <code>august</code> <code>aug</code>, <code>september</code> <code>sep</code> <code>sept</code>, <code>october</code> <code>oct</code>, <code>november</code> <code>nov</code>, <code>december</code> <code>dec</code></td></tr>
+      <tr><td>Seasons</td><td><code>spring</code> (March&ndash;May), <code>summer</code> (June&ndash;August), <code>fall</code> (September&ndash;November), <code>winter</code> (December&ndash;February, named for the year its December falls in: <code>winter 2024</code> runs into 2025)</td></tr>
+      <tr><td>Quarters</td><td><code>q1</code> <code>q2</code> <code>q3</code> <code>q4</code></td></tr>
+      <tr><td>Holidays</td><td><code>christmas</code> <code>xmas</code> (December 24&ndash;26), <code>christmas eve</code>, <code>christmas day</code>, <code>new years eve</code> <code>nye</code>, <code>new years</code> <code>new year</code> <code>new years day</code> (December 31&ndash;January 1), <code>halloween</code>, <code>valentines</code> <code>valentines day</code>, <code>independence day</code> or <em>fourth of July</em> (July 4), <code>thanksgiving</code> (the fourth Thursday of November through that Sunday), <code>holidays</code> <code>holiday season</code> (December 20&ndash;January 2)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Early, mid, and late</h3>
+  <p>Narrow any year, month, or decade to a part of it. A year divides into January&ndash;April, May&ndash;August, and September&ndash;December; a month into the 1st&ndash;10th, 11th&ndash;20th, and 21st to the end; halves split at the middle.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched early december 2020</span><span class="d">December 1&ndash;10, 2020</span></div>
+    <div class="row"><span class="q">#watched late 2023</span><span class="d">September through December 2023</span></div>
+    <div class="row"><span class="q">#added first half of 2023</span><span class="d">January through June 2023; <code>second half</code> is July through December</span></div>
+    <div class="row"><span class="q">#watched late last year</span><span class="d">The last third of the previous calendar year; <code>early this year</code> works the same way</span></div>
+  </div>
+  <p><code>early</code>, <code>beginning</code>, and <code>start</code> mean the first part; <code>mid</code> and <code>middle</code> the middle; <code>late</code> and <code>end</code> the last. <code>first half</code> and <code>second half</code> need a year.</p>
+
+  <h3>Decades</h3>
+  <p><code>2010s</code> is 2010 through 2019. Two digits work too, with or without an apostrophe: <code>90s</code> and <code>&rsquo;90s</code> are the 1990s, <code>10s</code> the 2010s. Add early, mid, or late: <code>early 2000s</code>.</p>
+
+  <h3>Spans and open-ended dates</h3>
+  <p>Join any two of the forms in this chapter to search the time between them, both ends included, or lead with one word to search everything on one side.</p>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#watched between 2019 and 2021</span><span class="d">January 1, 2019 through December 31, 2021</span></div>
+    <div class="row"><span class="q">#watched march to june 2025</span><span class="d">March through June 2025; a year on the right applies to both sides</span></div>
+    <div class="row"><span class="q">#watched since march</span><span class="d">From the start of the most recent March on</span></div>
+    <div class="row"><span class="q">#watched after last summer</span><span class="d">From the end of last summer on</span></div>
+    <div class="row"><span class="q">#added before 2020</span><span class="d">Before January 1, 2020; <code>prior to 2020</code> is the same</span></div>
+  </div>
+  <p>Span words: <code>between</code> &hellip; <code>and</code>, or <code>from</code> &hellip; <code>to</code>, <code>through</code>, <code>thru</code>, <code>until</code>, <code>till</code>. One-sided: <code>since</code> and <code>from</code> (from the start of), <code>after</code> (from the end of), <code>before</code> and <code>prior</code> <code>to</code> (before the start of), <code>until</code>, <code>till</code>, <code>through</code>, <code>thru</code> (up to the end of). The <code>&gt;</code> and <code>&lt;</code> operators below accept these phrases too: <code>#watched &gt;last summer</code>.</p>
+
+  <h3>Any date, and this day in history</h3>
+  <table>
+    <thead><tr><th>Value</th><th>Finds</th></tr></thead>
+    <tbody>
+      <tr><td><code>ever</code> <code>anytime</code> <code>any time</code> <code>any date</code></td><td>Every film with a date recorded</td></tr>
+      <tr><td><code>this day</code> <code>this date</code> (or <em>on this day</em>)</td><td>Today&rsquo;s month and day in any year</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Writing a phrase</h3>
+  <p>Capitals, apostrophes, and commas never matter (<code>New Year&rsquo;s Eve</code> is <code>new years eve</code>). Filler words are ignored wherever they appear: <code>about</code>, <code>around</code>, <code>roughly</code>, <code>approximately</code>, <code>circa</code>, <code>the</code>, <code>on</code>, <code>in</code>, <code>of</code>, <code>during</code>, and <code>sometime</code>. So <code>#watched sometime around 2 months ago</code> and <code>#watched in the last 3 months</code> both work.</p>
 
   <h3>Before and after</h3>
   <p>Put <code>&gt;</code> (after) or <code>&lt;</code> (before) in front of a year or a full date. Both are exclusive: the date you name is not itself included.</p>
@@ -556,7 +675,7 @@
   <p>A full day can be written as <code>2020.12.25</code>, <code>2020-12-25</code>, or <code>12/25/2020</code>.</p>
 
   <h3>No date at all</h3>
-  <p>The keyword <code>none</code> finds films with no date recorded for the field. For Last Watched that means no viewing date.</p>
+  <p>The keyword <code>none</code> (or <code>never</code>) finds films with no date recorded for the field. For Last Watched that means no viewing date.</p>
   <div class="ex">
     <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
     <div class="row"><span class="q">#watched none</span><span class="d">Films with no viewing date recorded</span></div>
@@ -567,7 +686,7 @@
   </div>
 
   <h3>When a date is not understood</h3>
-  <p>A value that is not in any of the forms above, or that names a date that does not exist (<code>#watched &gt;2020.13.45</code>, <code>#watched lately</code>), finds <strong>nothing</strong>, exactly as a misspelled title does. Negated, it finds every film (<code>#!watched lately</code>), because a NOT returns whatever the plain search did not.</p>
+  <p>A value that is not in any of the forms above, or that names a date that does not exist (<code>#watched &gt;2020.13.45</code>, <code>#watched soonish</code>), finds <strong>nothing</strong>, exactly as a misspelled title does. Negated, it finds every film (<code>#!watched soonish</code>), because a NOT returns whatever the plain search did not.</p>
 </section>
 
 <!-- ======================= 7. RELEASE ======================= -->
@@ -588,6 +707,22 @@
       <tr><td><code>unpurchased</code> &nbsp; <code>wishlist</code> &nbsp; <code>wanted</code></td><td>a release you have not purchased (a wishlist release)</td></tr>
     </tbody>
   </table>
+
+  <h3>Release date</h3>
+  <p>A release&rsquo;s own date, which can be up to a year ahead. These forms are read as dates only when the whole value is one of them, so a distributor&rsquo;s name is never mistaken for a date.</p>
+  <table>
+    <thead><tr><th style="width:2.3in">Type</th><th>Matches films with&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><code>upcoming</code> &nbsp; <code>unreleased</code> &nbsp; <code>preorder</code> &nbsp; <code>pre-order</code></td><td>a release whose date is still ahead, purchased or not (the same films as the Upcoming Releases smart list)</td></tr>
+      <tr><td><code>2027</code></td><td>a release dated in that year</td></tr>
+      <tr><td><code>2020-2027</code></td><td>a release dated in that span of years, both ends included</td></tr>
+      <tr><td><code>&gt;2026</code> &nbsp; <code>&lt;2020</code></td><td>a release dated after or before that year</td></tr>
+      <tr><td><code>&gt;2026.10.01</code> &nbsp; <code>&lt;2020-06-15</code></td><td>a release dated after or before that day (the day itself excluded)</td></tr>
+      <tr><td><code>March 2027</code> &nbsp; <code>Mar 2027</code></td><td>a release dated in that month</td></tr>
+      <tr><td><code>2027.03.14</code></td><td>a release dated that day</td></tr>
+    </tbody>
+  </table>
+  <p>A release recorded with only its year matches the year forms, and a day form only when the whole year lies on one side of the day: a release known only as &ldquo;2026&rdquo; is neither before nor after <code>2026.06.01</code>. The relative and natural phrases of the date tokens (<code>past week</code>, <code>last summer</code>) are not accepted here; they look back from today, and a release date can lie ahead.</p>
 
   <h3>Format</h3>
   <table>
@@ -649,7 +784,7 @@
   <p>If the value is none of the keywords above, it is matched against the <strong>studio or distributor of each release</strong>, as text. <code>#release criterion</code> finds films with a Criterion release; <code>#release shout</code> finds Shout! Factory releases. This is the disc&rsquo;s own studio, which is separate from the film&rsquo;s studio searched by <code>#studio</code>.</p>
 
   <div class="warn"><span class="t">Keywords win over studios</span>
-  <p>Because keywords are checked first, a distributor whose name is also a keyword (or contains one, such as one containing &ldquo;4k&rdquo;) will be read as the keyword. Include more of the name to steer around that.</p>
+  <p>Because keywords and dates are checked first, a distributor whose name is also a keyword (or contains one, such as one containing &ldquo;4k&rdquo;) will be read as the keyword. Include more of the name to steer around that.</p>
   </div>
 </section>
 
@@ -825,12 +960,16 @@
       <h4>Date fields: <code>watched</code> and <code>added</code></h4>
       <table><tbody>
         <tr><td><code>today</code> <code>week</code> <code>month</code> <code>year</code></td><td>rolling windows</td></tr>
+        <tr><td><code>2 months ago</code></td><td>around then</td></tr>
+        <tr><td><code>more than 2 years ago</code></td><td>older / newer than</td></tr>
+        <tr><td><code>last summer</code> <code>dec 25</code></td><td>a named period</td></tr>
+        <tr><td><code>since march</code> <code>2019 to 2021</code></td><td>open-ended / spans</td></tr>
         <tr><td><code>&gt;2022</code> <code>&lt;2020</code></td><td>after / before a year</td></tr>
         <tr><td><code>&gt;2024.06.30</code></td><td>after / before a day</td></tr>
         <tr><td><code>dec 2020</code></td><td>a month</td></tr>
         <tr><td><code>2025</code></td><td>a calendar year</td></tr>
         <tr><td><code>2020.12.25</code></td><td>a day</td></tr>
-        <tr><td><code>none</code></td><td>no date recorded</td></tr>
+        <tr><td><code>none</code> <code>never</code></td><td>no date recorded</td></tr>
         <tr><td colspan="2" class="small">Anything else finds nothing.</td></tr>
       </tbody></table>
       <h4>Release</h4>

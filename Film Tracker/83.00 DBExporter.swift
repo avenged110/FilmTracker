@@ -2,8 +2,9 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // Produces .ftbackup packages containing an XML export of all SwiftData model types and
-// optionally the posters folder. Runs database reads on MainActor and delegates packaging,
-// poster pruning, and delivery to the destination to background tasks via Task.detached.
+// optionally the posters folder. A manual export reads the database on the MainActor; the
+// automatic background backup reads it on a background model actor. Packaging, poster
+// pruning, and delivery to the destination run in background tasks via Task.detached.
 
 import Foundation
 import SwiftData
@@ -53,6 +54,24 @@ nonisolated enum BackupFilename {
         let timestamp = timestampStyle.format(date)
             .replacingOccurrences(of: ":", with: "-")
         return "FilmTrackerBackup-\(auto ? "Auto-" : "")\(timestamp).ftbackup"
+    }
+}
+
+// MARK: - Package Handoff
+
+/// Moves an `ExportPackage` into the packaging task so it is freed there (see createBackup).
+/// Taken exactly once, by that task; the lock only makes the single hand-over explicit.
+private final class ExportPackageHandoff: @unchecked Sendable {
+    private var package: ExportPackage?
+    private let lock = NSLock()
+
+    init(_ package: consuming ExportPackage) { self.package = package }
+
+    func take() -> ExportPackage {
+        lock.lock(); defer { lock.unlock() }
+        guard let package else { preconditionFailure("export package handed off twice") }
+        self.package = nil
+        return package
     }
 }
 
@@ -144,12 +163,37 @@ public final class DBExporter: Loggable {
         // snapshots for objects that were registered at load time and later edited in
         // the background context. The context is read-only here (never saved) and is
         // discarded when this method returns.
-        let reader = DBReader(context: ModelContext(modelContainer))
-
-        // Pass a progress callback (safe since we're already on MainActor)
-        let exportPackage = try await reader.exportAll(
-            types: types, appVersion: appVersion, isBackgroundExport: isBackgroundExport) { @Sendable p in
-            progress?(p * 0.35)
+        //
+        // The automatic backup reads on a background executor instead (see
+        // BackgroundExportReader), with its own equally fresh context. Before, its read ran
+        // here on the MainActor like the manual one: each entity's fetch materialized the
+        // whole table in one blocking call — seconds on a large library, during which the
+        // UI could not respond — and every object's conversion followed on the main thread
+        // too. Created inside a detached task because SwiftData serves a model actor's
+        // context on the queue it was created on.
+        let exportPackage: ExportPackage
+        if isBackgroundExport {
+            let container = modelContainer
+            let modelTypes = ExportModelTypes(types: types)
+            let read = Task.detached(priority: .low) {
+                try await BackgroundExportReader(modelContainer: container).exportAll(
+                    types: modelTypes, appVersion: appVersion) { @Sendable p in progress?(p * 0.35) }
+            }
+            // A detached task does not inherit cancellation, and quitting cancels the
+            // automatic backup (applicationShouldTerminate). Forwarded explicitly so the read
+            // still stops at its next cancellation check, as it did on the MainActor.
+            exportPackage = try await withTaskCancellationHandler {
+                try await read.value
+            } onCancel: {
+                read.cancel()
+            }
+        } else {
+            let reader = DBReader(context: ModelContext(modelContainer))
+            // Pass a progress callback (safe since we're already on MainActor)
+            exportPackage = try await reader.exportAll(
+                types: types, appVersion: appVersion, isBackgroundExport: false) { @Sendable p in
+                progress?(p * 0.35)
+            }
         }
 
         try Task.checkCancellation()
@@ -188,7 +232,15 @@ public final class DBExporter: Loggable {
         // its URL is returned; the next launch's purge reclaims it.
         // --------------------
         let packager = self.packager
-        let pkg = exportPackage
+        // The package's ownership is handed to the packaging task rather than shared with
+        // it. Freeing an export package — tens of thousands of dictionaries on a large
+        // library — takes tens of milliseconds, and whichever thread drops the last
+        // reference pays it. Kept here, that was the main thread, as this function
+        // returned: the one hitch the automatic backup still caused once its read had moved
+        // off the main thread. Only the two figures verification needs are kept.
+        let expectedObjects = exportPackage.objects.count
+        let expectedManifest = exportPackage.manifest
+        let handoff = ExportPackageHandoff(consume exportPackage)
         let shouldExportPosters = includePostersResolved
         let postersFolderURL = Preferences.posterImagesFolderURL
 
@@ -217,6 +269,7 @@ public final class DBExporter: Loggable {
                 // it and then jumping to 85% — the one stretch where an export looks stalled is
                 // the one stretch that already knows exactly how far along it is.
                 let xmlFilename = "backup.xml"
+                let pkg = handoff.take()
                 _ = try await packager.package( exportPackage: pkg, filename: xmlFilename,
                     folderURL: packagePath, isBackgroundExport: isBackgroundExport,
                     progress: { p in progress?(0.40 + p * 0.45) })
@@ -266,20 +319,23 @@ public final class DBExporter: Loggable {
         // it is the file the user would reach for.
         do {
             let xmlURL = packageURL.appendingPathComponent("backup.xml")
-            let expectedObjects = pkg.objects.count
-            let expectedManifest = pkg.manifest
-            let verified = try await DBImporter().parseBackupFile(at: xmlURL)
+            // Parsed, counted, and freed in a background task, for the same reason as the
+            // handoff above: only the counts come back to this actor.
+            let verified = try await Task.detached(priority: priority) {
+                let parsed = try await DBImporter().parseBackupFile(at: xmlURL)
+                return (objectCount: parsed.objects.count, manifest: parsed.manifest)
+            }.value
 
-            if verified.objects.count != expectedObjects {
+            if verified.objectCount != expectedObjects {
                 throw DBExporterError.verificationMismatch(
-                    "wrote \(expectedObjects) object(s), read back \(verified.objects.count)")
+                    "wrote \(expectedObjects) object(s), read back \(verified.objectCount)")
             }
             if verified.manifest != expectedManifest {
                 throw DBExporterError.verificationMismatch(
                     "manifest written as \(expectedManifest.sorted(by: { $0.key < $1.key })), "
                         + "read back as \(verified.manifest.sorted(by: { $0.key < $1.key }))")
             }
-            Self.log("Verification passed: package re-parsed to \(verified.objects.count) object(s)")
+            Self.log("Verification passed: package re-parsed to \(verified.objectCount) object(s)")
         } catch let error as DBExporterError {
             Self.log("WARNING: Export verification failed — discarding package: \(error.errorDescription ?? "\(error)")")
             ExportStaging.discard(stagingDir)

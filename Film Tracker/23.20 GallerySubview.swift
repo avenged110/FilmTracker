@@ -9,6 +9,21 @@ import Combine
 import UniformTypeIdentifiers
 import QuartzCore
 
+#if DEBUG
+/// Counters for harness measurements of the gallery's per-update refresh work.
+@MainActor
+enum GalleryRefreshProbe {
+    /// Grid updates that forced a collection-view layout to relabel divider bands.
+    static var forcedDividerLayouts = 0
+    /// Grid updates that skipped that forced layout because no band can exist.
+    static var skippedDividerLayouts = 0
+    /// List rows refreshed in place after a same-order film edit.
+    static var listRowsRefreshed = 0
+    /// List row hosting views whose rootView was actually reassigned.
+    static var listRowRootViewAssignments = 0
+}
+#endif
+
 // NOTE: The search-exit scroll to the preserved film is gated by the user preference
 // Preferences.maintainSelectionOnSearchExit alone, at its one producer
 // (MainView.handleSearchContentChange): no film is preserved, so no intent is armed, when
@@ -330,6 +345,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         // produces zero divider rows and this decoration is never instantiated or positioned.
         layout.register(SectionDividerDecorationView.self,
             forDecorationViewOfKind: sectionDividerDecorationKind)
+        // The "Up Next" placeholder slots — instantiated only on the Film Queue's "All" tab,
+        // the one place the layout is given a slot run (see updateSectionDividers).
+        layout.register(UpNextSlotDecorationView.self,
+            forDecorationViewOfKind: upNextSlotDecorationKind)
 
         let coordinator = context.coordinator
         collectionView.delegate = coordinator
@@ -2137,15 +2156,24 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             // selection the instant a control is tapped, so a pass arriving before the
             // deferred reload would draw the incoming selection's bands over the outgoing
             // selection's still-displayed films.
+            let rawBreaks = dataCoordinator.map { dc in
+                GallerySectioning.displayedSectionBreaks(
+                    films: films, coordinator: dc,
+                    showSortingSections: showSortingSections)
+            } ?? []
             let breaks: [SmoothResizingGridLayout.SectionBreak] =
-                dataCoordinator.map { dc in
-                    GallerySectioning.displayedSectionBreaks(
-                        films: films, coordinator: dc,
-                        showSortingSections: showSortingSections)
-                        .map { .init(index: $0.index, section: $0.section) }
-                } ?? []
-            guard breaks != layout.sectionBreaks else { return }
+                rawBreaks.map { .init(index: $0.index, section: $0.section) }
+            // The Queue's "All" tab alone also gets its empty "Up Next" slots.
+            let slotRun = dataCoordinator.flatMap { dc in
+                UpNextSlots.plan(breaks: rawBreaks, filmCount: films.count, coordinator: dc)
+            }.map {
+                SmoothResizingGridLayout.SlotRun(
+                    itemIndex: $0.afterIndex, firstNumber: $0.firstNumber, count: $0.count,
+                    leadingSection: $0.needsOwnBand ? FilmQueueSection.upNext.gallerySection : nil)
+            }
+            guard breaks != layout.sectionBreaks || slotRun != layout.slotRun else { return }
             layout.sectionBreaks = breaks
+            layout.slotRun = slotRun
             layout.invalidateLayout()
         }
 
@@ -2198,7 +2226,25 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// are visited (a handful, regardless of library size), and each one short-circuits
         /// on unchanged text without touching the view.
         func refreshVisibleSectionDividers() {
-            guard let collectionView else { return }
+            guard let collectionView,
+                  let layout = collectionView.collectionViewLayout as? SmoothResizingGridLayout
+            else { return }
+            // No bands to label: no breaks means no divider rows, and the slot run is the
+            // only other thing that places a band (its leading "Up Next" one). That is every
+            // view without section dividers, and there the forced layout below was a pass of
+            // its own on every update — at the old width, when the same update also resizes
+            // the gallery (the right sidebar mounting with a view switch), and so repeated by
+            // AppKit's own layout moments later. Breaks that have just been cleared need no
+            // sweep either: the bands they leave behind are removed, not relabeled.
+            guard !layout.sectionBreaks.isEmpty || layout.slotRun != nil else {
+                #if DEBUG
+                GalleryRefreshProbe.skippedDividerLayouts += 1
+                #endif
+                return
+            }
+            #if DEBUG
+            GalleryRefreshProbe.forcedDividerLayouts += 1
+            #endif
             // The breaks were pushed to the layout earlier in this pass, but prepare() —
             // which turns them into the dividerRows every band resolves against — runs
             // lazily. Forcing the layout first is what makes this sweep read the NEW rows
@@ -2223,14 +2269,17 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         private func dividerAwareVerticalTarget(from currentIndex: Int, step: Int,
                                                 layout: SmoothResizingGridLayout) -> Int? {
             guard let (row, col) = layout.rowColumn(forItemIndex: currentIndex) else { return nil }
-            let candidateRow = row + step
+            var candidateRow = row + step
+            // Rows holding only empty "Up Next" slots are as transparent as divider bands.
+            while layout.isSlotOnlyRow(candidateRow) { candidateRow += step }
             if let idx = layout.itemIndex(atRow: candidateRow, col: col) {
                 // The adjacent row exists and has an item at this exact column — the common case.
                 return idx
             } else if layout.isDividerRow(candidateRow) {
                 // The adjacent row is a divider band (always exactly one row deep), so a single
                 // further step lands on the next content row on the other side of it.
-                let afterDivider = candidateRow + step
+                var afterDivider = candidateRow + step
+                while layout.isSlotOnlyRow(afterDivider) { afterDivider += step }
                 if let idx = layout.itemIndex(atRow: afterDivider, col: col) {
                     return idx
                 } else if let idx = layout.lastItemIndex(inRow: afterDivider) {

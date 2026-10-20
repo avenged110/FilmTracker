@@ -57,6 +57,10 @@ final class RatingsImporter: Loggable {
     private weak var dataCoordinator: DataCoordinator?
     weak var progressDelegate: (any RatingsImporterProgressDelegate)?
     private var isCanceled = false
+    /// True while processFile's off-main parse of the chosen file runs. Nothing marks the
+    /// import as started until the parse returns (didStartRatingsImport needs the count),
+    /// so ImportProgress.beginImport reads this to refuse a second import meanwhile.
+    private(set) var isParsingSelection = false
 
     // Batch updates every 500ms to prevent scroll hitching
     private var pendingUpdates: [(UUID, Int)] = []
@@ -122,7 +126,11 @@ final class RatingsImporter: Loggable {
         // Initialize parser and parse file - keep parser local to this MainActor function
         let parser = RatingsParser()
 
-        guard let parsedRatings = await parser.parseFile(url) else {
+        isParsingSelection = true
+        let parsed = await parser.parseFile(url)
+        isParsingSelection = false
+
+        guard let parsedRatings = parsed else {
             Self.log("ERROR: Failed to read or validate ratings file")
             // Report completion with zero results to clear the UI.
             reportEmptyCompletion()

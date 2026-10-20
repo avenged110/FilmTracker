@@ -7,6 +7,7 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import Synchronization
 
 // MARK: - Gallery Collection View (Marquee + Drag Support)
 final class GalleryCollectionView: NSCollectionView {
@@ -475,22 +476,32 @@ let sectionDividerDecorationKind = "SectionDividerDecoration"
 /// synchronous pass. There is no longer any route by which the text on screen and the
 /// sorting actually applied to the content can disagree.
 final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
-    // nonisolated(unsafe) because NSObject's isEqual/hash — which must read both, and which
-    // AppKit's attribute diffing calls — are themselves nonisolated, while
-    // NSCollectionViewLayoutAttributes is @MainActor in the SDK. Unsafe in name only here:
-    // every write happens in the layout's prepare()/attribute synthesis and every read in
-    // AppKit's own layout pass, all of which are main-thread by construction.
-    nonisolated(unsafe) var section: GallerySection?
-    nonisolated(unsafe) var filmCount: Int = 0
+    // NSObject's isEqual/hash/copy — which must read both, and which AppKit's attribute
+    // diffing calls — are nonisolated, while NSCollectionViewLayoutAttributes is @MainActor in
+    // the SDK. The fields therefore live behind a Mutex, which makes the nonisolated access
+    // checked rather than merely asserted (they were `nonisolated(unsafe)` vars, relying on
+    // every caller being main-thread by construction). Uncontended in practice: every write
+    // happens in the layout's attribute synthesis and every read in AppKit's own layout pass.
+    private struct Fields { var section: GallerySection?; var filmCount = 0 }
+    private nonisolated let fields = Mutex(Fields())
+
+    nonisolated var section: GallerySection? {
+        get { fields.withLock { $0.section } }
+        set { fields.withLock { $0.section = newValue } }
+    }
+    nonisolated var filmCount: Int {
+        get { fields.withLock { $0.filmCount } }
+        set { fields.withLock { $0.filmCount = newValue } }
+    }
 
     // NSCollectionViewLayoutAttributes conforms to NSCopying and AppKit copies attributes
     // freely; a subclass that does not carry its own stored properties across would hand
     // back copies with a nil section, which reads as "no label" at unpredictable moments.
     override func copy(with zone: NSZone? = nil) -> Any {
         let copy = super.copy(with: zone)
-        (copy as? SectionDividerLayoutAttributes).map {
-            unsafe $0.section = unsafe section
-            unsafe $0.filmCount = unsafe filmCount
+        if let copy = copy as? SectionDividerLayoutAttributes {
+            let current = fields.withLock { $0 }
+            copy.fields.withLock { $0 = current }
         }
         return copy
     }
@@ -501,14 +512,14 @@ final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
     // whose frame did not.
     override func isEqual(_ object: Any?) -> Bool {
         guard let other = object as? SectionDividerLayoutAttributes else { return false }
-        return unsafe super.isEqual(object) && other.section == section && other.filmCount == filmCount
+        return super.isEqual(object) && other.section == section && other.filmCount == filmCount
     }
 
     override var hash: Int {
         var hasher = Hasher()
         hasher.combine(super.hash)
-        unsafe hasher.combine(section)
-        unsafe hasher.combine(filmCount)
+        hasher.combine(section)
+        hasher.combine(filmCount)
         return hasher.finalize()
     }
 }
@@ -638,8 +649,8 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
         // the frame-based fallback below, it has no "couldn't resolve" branch that could
         // leave previous text in place.
         guard let attrs = layoutAttributes as? SectionDividerLayoutAttributes,
-              let section = unsafe attrs.section else { return }
-        unsafe setLabels(section: section, filmCount: attrs.filmCount)
+              let section = attrs.section else { return }
+        setLabels(section: section, filmCount: attrs.filmCount)
     }
 
     // NSColor.separatorColor.cgColor snapshots the color at the moment it's read — unlike a
@@ -686,7 +697,7 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
         let text = section.displayName
         if sectionLabel.stringValue != text { sectionLabel.stringValue = text }
 
-        let countText = "\(filmCount) film\(filmCount == 1 ? "" : "s")"
+        let countText = UpNextSlots.sectionCountText(section: section, filmCount: filmCount)
         if filmCountLabel.stringValue != countText { filmCountLabel.stringValue = countText }
     }
 
@@ -753,6 +764,28 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     }
     var sectionBreaks: [SectionBreak] = []
 
+    // MARK: - "Up Next" Slots
+    //
+    // The Film Queue's "All" tab follows the "Up Next" films with empty placeholder slots,
+    // one per vacancy up to FilmQueue.upNextCapacity (UpNextSlots.swift). They are laid
+    // out exactly like cells, continuing the "Up Next" run's rows, but are decoration views
+    // rather than items: the film index space, selection, marquee, drag and Left/Right
+    // navigation never see them. Up/Down navigation steps over a row holding only slots
+    // the same way it steps over a divider band. Nil everywhere else, which leaves every
+    // other gallery's geometry exactly as it was.
+
+    /// Where the slots go. `itemIndex` is the real-item index they follow (the end of the
+    /// "Up Next" run); `firstNumber` is the 1-based slot number of the first one. When
+    /// "Up Next" has no films, `leadingSection` is its band, drawn above the slots (the
+    /// sectioning emits no band for an empty section).
+    struct SlotRun: Equatable {
+        let itemIndex: Int
+        let firstNumber: Int
+        let count: Int
+        let leadingSection: GallerySection?
+    }
+    var slotRun: SlotRun?
+
     /// Fixed height for a section-divider band — deliberately independent of `itemHeight` (the
     /// poster tile height, which tracks window width continuously). The label + line are a
     /// constant size and bottom-anchored within their band; a fixed band height means the label
@@ -802,6 +835,8 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         let rowStart: Int    // abstract row index (navigation only)
         let rowCount: Int    // number of content rows this segment occupies
         let yStart: CGFloat  // on-screen Y where this segment's first row begins
+        var slotCount = 0    // "Up Next" slots laid out after the segment's items
+        var slotFirstNumber = 0
     }
     private struct DividerRow {
         let row: Int             // abstract row index (navigation only)
@@ -1041,6 +1076,32 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         dividerRows.removeAll(keepingCapacity: true)
         dividerRowSet.removeAll(keepingCapacity: true)
 
+        // "Up Next" slots: the segment that ends where the run says gets them appended.
+        var pendingSlots = (columnsPerRow > 0 ? slotRun : nil).flatMap { $0.count > 0 ? $0 : nil }
+        func rows(items: Int, slots: Int) -> Int {
+            let total = items + slots
+            return total > 0 ? (total + columnsPerRow - 1) / columnsPerRow : 0
+        }
+        func takeSlots(endingAt end: Int) -> (count: Int, first: Int) {
+            guard let run = pendingSlots, run.itemIndex == end else { return (0, 0) }
+            pendingSlots = nil
+            return (run.count, run.firstNumber)
+        }
+        // An empty "Up Next" still shows its band and its slots, ahead of everything else.
+        if let run = pendingSlots, let section = run.leadingSection, run.itemIndex == 0 {
+            pendingSlots = nil
+            let divY = advanceForDivider()
+            dividerRows.append(DividerRow(row: currentRow, section: section, y: divY, itemIndex: 0))
+            dividerRowSet.insert(currentRow)
+            currentRow += 1
+            let slotRows = rows(items: 0, slots: run.count)
+            let segY = advanceForRows(slotRows)
+            segments.append(Segment(itemStart: 0, itemEnd: 0, rowStart: currentRow,
+                                    rowCount: slotRows, yStart: segY,
+                                    slotCount: run.count, slotFirstNumber: run.firstNumber))
+            currentRow += slotRows
+        }
+
         // Only walk sectionBreaks when columns are known; with columnsPerRow == 0 the row math
         // is undefined (guarded by the count > 0 check at the top of prepare(), but defensive).
         if columnsPerRow > 0 {
@@ -1059,10 +1120,12 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
                 lastBreakIndex = brk.index
                 if brk.index > currentItemStart {
                     let segLen = brk.index - currentItemStart
-                    let rows = (segLen + columnsPerRow - 1) / columnsPerRow
+                    let slots = takeSlots(endingAt: brk.index)
+                    let rows = rows(items: segLen, slots: slots.count)
                     let segY = advanceForRows(rows)
                     segments.append(Segment(itemStart: currentItemStart, itemEnd: brk.index,
-                                            rowStart: currentRow, rowCount: rows, yStart: segY))
+                                            rowStart: currentRow, rowCount: rows, yStart: segY,
+                                            slotCount: slots.count, slotFirstNumber: slots.first))
                     currentRow += rows
                 }
                 let divY = advanceForDivider()
@@ -1075,11 +1138,12 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         }
 
         let lastLen = count - currentItemStart
-        let lastRows = (columnsPerRow > 0 && lastLen > 0)
-            ? (lastLen + columnsPerRow - 1) / columnsPerRow : 0
+        let lastSlots = lastLen > 0 ? takeSlots(endingAt: count) : (count: 0, first: 0)
+        let lastRows = columnsPerRow > 0 ? rows(items: lastLen, slots: lastSlots.count) : 0
         let lastY = advanceForRows(lastRows)
         segments.append(Segment(itemStart: currentItemStart, itemEnd: count,
-                                rowStart: currentRow, rowCount: lastRows, yStart: lastY))
+                                rowStart: currentRow, rowCount: lastRows, yStart: lastY,
+                                slotCount: lastSlots.count, slotFirstNumber: lastSlots.first))
         // No trailing `currentRow += lastRows`: nothing reads the accumulator after the
         // final segment is appended (it exists only to assign each segment/divider its
         // rowStart as the walk proceeds), so advancing it once more would be a dead store.
@@ -1165,6 +1229,17 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             }
         }
 
+        // "Up Next" slot decorations — a handful at most, in at most one segment.
+        if slotRun != nil {
+            for seg in segments where seg.slotCount > 0 {
+                for slot in 0..<seg.slotCount {
+                    if let attrs = slotAttributes(in: seg, slot: slot), attrs.frame.intersects(rect) {
+                        result.append(attrs)
+                    }
+                }
+            }
+        }
+
         // Item cells, scanned segment by segment. For the no-divider case there is exactly one
         // segment (startSegIdx == 0), so this reduces to the same single contiguous row scan the
         // grid always used — O(visible items), never O(N).
@@ -1196,8 +1271,43 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
 
     override func layoutAttributesForDecorationView(ofKind elementKind: String,
                                                     at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
+        if elementKind == upNextSlotDecorationKind {
+            guard let seg = segments.first(where: { $0.slotCount > 0 }),
+                  indexPath.item >= seg.slotFirstNumber,
+                  indexPath.item < seg.slotFirstNumber + seg.slotCount else { return nil }
+            return slotAttributes(in: seg, slot: indexPath.item - seg.slotFirstNumber)
+        }
         guard elementKind == sectionDividerDecorationKind else { return nil }
         return dividerAttributes(atOrdinal: indexPath.item)
+    }
+
+    /// Attributes for the `slot`th placeholder of `seg`: the cell frame the next item
+    /// after the segment's films would have had. Indexed by slot number, so a slot keeps
+    /// its identity — and its number — as films come and go before it.
+    private func slotAttributes(in seg: Segment, slot: Int) -> NSCollectionViewLayoutAttributes? {
+        guard columnsPerRow > 0, slot >= 0, slot < seg.slotCount else { return nil }
+        let local = (seg.itemEnd - seg.itemStart) + slot
+        let col = local % columnsPerRow
+        let number = seg.slotFirstNumber + slot
+        let attrs = UpNextSlotLayoutAttributes(forDecorationViewOfKind: upNextSlotDecorationKind,
+                                               with: IndexPath(item: number, section: 0))
+        attrs.frame = NSRect(
+            x: CGFloat(gridOffsetPx + colXPx[col]) / layoutScale,
+            y: seg.yStart + CGFloat(local / columnsPerRow) * rowStride,
+            width: CGFloat(colWPx[col]) / layoutScale,
+            height: itemHeight)
+        attrs.slotNumber = number
+        attrs.hasSubtitles = hasSubtitles
+        return attrs
+    }
+
+    /// True when `row` holds only "Up Next" slots — no film to land on — so Up/Down
+    /// navigation steps over it, as it does over a divider band.
+    func isSlotOnlyRow(_ row: Int) -> Bool {
+        guard columnsPerRow > 0,
+              let seg = segments.last(where: { row >= $0.rowStart && $0.slotCount > 0 }),
+              row < seg.rowStart + seg.rowCount else { return false }
+        return seg.itemStart + (row - seg.rowStart) * columnsPerRow >= seg.itemEnd
     }
 
     // MARK: - Section-Divider Lookup & Attribute Synthesis
@@ -1218,8 +1328,8 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             height: dividerHeight)
         // Carried on the attributes rather than left to be looked up from the frame later.
         // See SectionDividerLayoutAttributes for why that distinction is the whole fix.
-        unsafe attrs.section = divider.section
-        unsafe attrs.filmCount = filmCount(atOrdinal: ordinal)
+        attrs.section = divider.section
+        attrs.filmCount = filmCount(atOrdinal: ordinal)
         return attrs
     }
 
@@ -1265,7 +1375,9 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     /// submenu, which addresses a band by the first film in it and needs the BAND's top
     /// edge — not the film's — to place at the top of the viewport.
     func dividerY(forItemIndex itemIndex: Int) -> CGFloat? {
-        dividerRows.first(where: { $0.itemIndex == itemIndex })?.y
+        // Last match: an empty "Up Next" band shares item index 0 with the band after it,
+        // and the film at that index belongs to the later one.
+        dividerRows.last(where: { $0.itemIndex == itemIndex })?.y
     }
 
     /// Binary-search index of the first divider whose band could reach down to `minY` (the first

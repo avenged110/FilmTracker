@@ -221,8 +221,11 @@ struct ReportTableColumn<Row> {
     enum Content {
         /// A single truncating line of text.
         case text((Row) -> String)
-        /// The Wishlist's format badge: text knocked out of a rounded label-colored plate.
-        case badge((Row) -> String)
+        /// A single truncating line built from runs that may each carry their own font; a
+        /// run without one uses the column's.
+        case runs((Row) -> [ReportTextRun])
+        /// The Wishlist's format badge: lettering on a rounded, colored plate.
+        case badge((Row) -> ReportBadge)
         /// The Hall of Fame's rating: a star and the number, or nothing for 0.
         case rating((Row) -> Int)
     }
@@ -240,6 +243,19 @@ struct ReportTableColumn<Row> {
     /// The sort key reported to `ReportTable.onSort`; nil makes the header unsortable.
     var sortKey: String? = nil
     let content: Content
+}
+
+/// One run of a `ReportTableColumn.Content.runs` cell.
+struct ReportTextRun {
+    let text: String
+    var font: NSFont? = nil
+}
+
+/// A `ReportTableColumn.Content.badge` cell: its text and the plate and lettering colors.
+struct ReportBadge {
+    let text: String
+    let fill: NSColor
+    let ink: NSColor
 }
 
 struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row.ID == UUID {
@@ -433,9 +449,10 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
                        row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
             guard parent?.onMove != nil else { return false }
             var source = IndexSet()
-            unsafe info.enumerateDraggingItems(options: [], for: tableView, classes: [NSPasteboardItem.self],
-                                        searchOptions: [:]) { item, _, _ in
-                if let string = (item.item as? NSPasteboardItem)?.string(forType: ReportTable.rowDragType),
+            // The dragged rows' pasteboard items, read straight off the pasteboard: the same
+            // items enumerateDraggingItems visited, without its unsafe stop pointer.
+            for item in info.draggingPasteboard.pasteboardItems ?? [] {
+                if let string = item.string(forType: ReportTable.rowDragType),
                    let index = Int(string) { source.insert(index) }
             }
             return move(source, to: row)
@@ -477,7 +494,7 @@ final class ReportNSTableView: NSTableView {
 /// key-view loop each one joins. Cells never edit or take focus, so nothing is lost; the text
 /// is exposed to accessibility as a static text element.
 final class ReportTableCellView: NSTableCellView {
-    private enum Drawn { case text(String), badge(String), rating(Int) }
+    private enum Drawn { case text(String), runs([ReportTextRun]), badge(ReportBadge), rating(Int) }
     private var drawn: Drawn = .text("")
     private var font: NSFont = .systemFont(ofSize: 12)
     private var alignment: NSTextAlignment = .left
@@ -492,6 +509,20 @@ final class ReportTableCellView: NSTableCellView {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
                 .applying(.init(paletteColors: [color])))
     }
+    /// The badge's outline, drawn outside the plate.
+    private static let badgeOutlineWidth: CGFloat = 1
+    /// Room left of the plate for the outline and the shadow's blur.
+    private static let badgeOutsideAllowance: CGFloat = 3
+    /// The release cards' format-badge shadow (RTabReleases' `rsbBadgeShadow`). NSShadow
+    /// offsets are in the base coordinate space, which is y-up even in this flipped view,
+    /// so a negative height drops the shadow downward.
+    private static let badgeShadow: NSShadow = {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.6)
+        shadow.shadowBlurRadius = 1.5
+        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
+        return shadow
+    }()
     private static let secondaryStar = star(.secondaryLabelColor)
     private static let emphasizedStar = star(.alternateSelectedControlTextColor)
 
@@ -527,10 +558,14 @@ final class ReportTableCellView: NSTableCellView {
             let value = text(row)
             drawn = .text(value)
             setAccessibilityValue(value)
-        case .badge(let text):
-            let value = text(row)
+        case .runs(let runs):
+            let value = runs(row)
+            drawn = .runs(value)
+            setAccessibilityValue(value.map(\.text).joined())
+        case .badge(let badge):
+            let value = badge(row)
             drawn = .badge(value)
-            setAccessibilityValue(value)
+            setAccessibilityValue(value.text)
         case .rating(let value):
             let rating = value(row)
             drawn = .rating(rating)
@@ -556,18 +591,46 @@ final class ReportTableCellView: NSTableCellView {
             (text as NSString).draw(with: NSRect(x: 0, y: floor((bounds.height - height) / 2), width: width, height: height),
                                     options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
                                     attributes: attributes)
-        case .badge(let text):
+        case .runs(let runs):
+            guard !runs.isEmpty else { return }
+            let text = NSMutableAttributedString()
+            var height: CGFloat = 0
+            for run in runs {
+                let runFont = run.font ?? font
+                height = max(height, ceil(runFont.ascender - runFont.descender + runFont.leading))
+                text.append(NSAttributedString(string: run.text, attributes: [.font: runFont]))
+            }
+            let whole = NSRange(location: 0, length: text.length)
+            text.addAttribute(.foregroundColor, value: foreground, range: whole)
+            text.addAttribute(.paragraphStyle, value: Self.paragraphStyles[alignment] ?? NSParagraphStyle.default, range: whole)
+            text.draw(with: NSRect(x: 0, y: floor((bounds.height - height) / 2), width: width, height: height),
+                      options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        case .badge(let badge):
             // 10 pt heavy, centered on a 4 pt-radius continuous-corner plate one point taller than the text above
-            // and below — the SwiftUI row's `.padding(.vertical, 1)` on a label-colored fill.
+            // and below — the SwiftUI row's `.padding(.vertical, 1)`. The plate and lettering
+            // colors are fixed per badge, so they read the same on a selected row.
             let badgeFont = NSFont.systemFont(ofSize: 10, weight: .heavy)
-            let attributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: NSColor.windowBackgroundColor]
-            let size = (text as NSString).size(withAttributes: attributes)
+            let attributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: badge.ink]
+            let text = badge.text as NSString
+            let size = text.size(withAttributes: attributes)
+            //
+            // The plate carries a 1 pt tertiary outline drawn OUTSIDE it, so the outline adds
+            // to the badge rather than eating into the plate, and the release cards' subtle
+            // badge drop shadow (RSBCardChrome.glyphShadow*). The plate starts
+            // `badgeOutsideAllowance` in from the leading edge so neither is clipped by the
+            // cell; the trailing side spills into `trailingPad`, which is far wider.
             let plateHeight = ceil(size.height) + 2
-            let plate = NSRect(x: 0, y: floor((bounds.height - plateHeight) / 2), width: width, height: plateHeight)
-            NSColor.labelColor.setFill()
+            let plate = NSRect(x: Self.badgeOutsideAllowance, y: floor((bounds.height - plateHeight) / 2),
+                               width: width, height: plateHeight)
+            let outline = plate.insetBy(dx: -Self.badgeOutlineWidth, dy: -Self.badgeOutlineWidth)
+            NSGraphicsContext.saveGraphicsState()
+            Self.badgeShadow.set()
+            NSColor.quaternaryLabelColor.setFill()
+            NSBezierPath(cgPath: CGPath.continuousRoundedRect(outline, cornerRadius: 4 + Self.badgeOutlineWidth)).fill()
+            NSGraphicsContext.restoreGraphicsState()
+            badge.fill.setFill()
             NSBezierPath(cgPath: CGPath.continuousRoundedRect(plate, cornerRadius: 4)).fill()
-            (text as NSString).draw(at: NSPoint(x: plate.midX - size.width / 2, y: plate.minY + 1),
-                                    withAttributes: attributes)
+            text.draw(at: NSPoint(x: plate.midX - size.width / 2, y: plate.minY + 1), withAttributes: attributes)
         case .rating(let rating):
             guard rating > 0 else { return }
             let color = backgroundStyle == .emphasized ? NSColor.alternateSelectedControlTextColor : .secondaryLabelColor

@@ -49,7 +49,7 @@ extension DebugHarness {
     /// and rebuilds the sandbox store, orphaning the coordinator's container.
     static var pipelineScenarios: [String] {
         ["rollback-integrity", "export-roundtrip", "export-malformed", "audit-fixes",
-         "film-field-merge", "restore-endtoend"]
+         "film-field-merge", "restore-endtoend", "release-date-rules"]
     }
 
     static func runPipelineScenario(_ scenario: String,
@@ -61,6 +61,7 @@ extension DebugHarness {
         case "audit-fixes":        return await auditFixesScenario(coordinator: coordinator)
         case "film-field-merge":   return await filmFieldMergeScenario(coordinator: coordinator)
         case "restore-endtoend":   return await restoreEndToEndScenario(coordinator: coordinator)
+        case "release-date-rules": return releaseDateRulesScenario()
         default:                   return nil
         }
     }
@@ -1729,7 +1730,7 @@ extension DebugHarness {
 
         // --- A backup carrying an unorderable base release year -------------------------------
         //
-        // `baseReleaseYear` is meaningful only as a value strictly BELOW `releaseYear`, and
+        // `baseReleaseYear` is meaningful only as a value strictly BELOW the release year, and
         // the FilmSheet's Steppers cannot produce anything else. A backup can: hand-edited
         // XML, a record written before the ordering rule existed, or an interrupted export.
         // DBRestorer.createRelease drops the base year in both bad shapes rather than letting
@@ -1738,19 +1739,30 @@ extension DebugHarness {
         //
         // Three releases in one file: the two defects and a well-ordered control, so a guard
         // that simply blanked every base year would fail this scenario rather than pass it.
+        //
+        // Those three carry the pre-rename `releaseYear` key, as every backup written before
+        // full release dates does, so they also prove the legacy key is still read. Two more
+        // carry the current `releaseDate` key with a full date — one well-ordered, one
+        // inverted — proving the guard compares the base year against the date's YEAR. A
+        // sixth is a Blu-ray full date before the 2006 Blu-ray floor: restore drops the date,
+        // and the base year beside it, then orphaned, with it.
         let guardFilmID  = UUID()
         let orphanID     = UUID()
         let invertedID   = UUID()
         let wellOrderedID = UUID()
+        let fullDateOrderedID  = UUID()
+        let fullDateInvertedID = UUID()
+        let belowFloorID       = UUID()
         let guardURL = (DebugSandbox.rootURL ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("base-year-guard.ftbackup", isDirectory: true)
-        func releaseXML(_ id: UUID, _ releaseYear: String, _ baseReleaseYear: String) -> String {
+        func releaseXML(_ id: UUID, _ releaseDate: String, _ baseReleaseYear: String,
+                        key: String = "releaseYear") -> String {
             """
               <Object id="Release-\(id.uuidString)" entity="Release">
                 <Properties>
                   <Property name="id" type="string">\(id.uuidString)</Property>
                   <Property name="format" type="string">Blu-ray</Property>
-                  <Property name="releaseYear" type="string">\(releaseYear)</Property>
+                  <Property name="\(key)" type="string">\(releaseDate)</Property>
                   <Property name="baseReleaseYear" type="string">\(baseReleaseYear)</Property>
                   <!-- A Release names its film through a filmID PROPERTY, not a
                        <Relationship> element — see DBReader's export note. -->
@@ -1763,7 +1775,7 @@ extension DebugHarness {
         let guardXML = """
         <?xml version="1.0" encoding="utf-8"?>
         <FilmTrackerBackup format="FilmTrackerXML" version="1" created="2026-01-01T00:00:00Z" appVersion="1.0">
-          <Manifest><Entity name="Film" count="1" /><Entity name="Release" count="3" /></Manifest>
+          <Manifest><Entity name="Film" count="1" /><Entity name="Release" count="6" /></Manifest>
           <Objects>
             <Object id="Film-\(guardFilmID.uuidString)" entity="Film">
               <Properties>
@@ -1776,6 +1788,9 @@ extension DebugHarness {
         \(releaseXML(orphanID, "", "2009"))
         \(releaseXML(invertedID, "2010", "2012"))
         \(releaseXML(wellOrderedID, "2010", "2009"))
+        \(releaseXML(fullDateOrderedID, "2010.05.04", "2009", key: "releaseDate"))
+        \(releaseXML(fullDateInvertedID, "2010.05.04", "2010", key: "releaseDate"))
+        \(releaseXML(belowFloorID, "2001.05.05", "2000", key: "releaseDate"))
           </Objects>
         </FilmTrackerBackup>
         """
@@ -1796,13 +1811,13 @@ extension DebugHarness {
             let releases = try context.fetch(FetchDescriptor<Release>())
             let byID = Dictionary(releases.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-            r.check("base-year-guard-releases-restored", byID.count >= 3,
-                    "\(byID.count) release(s) restored of 3")
+            r.check("base-year-guard-releases-restored", byID.count >= 6,
+                    "\(byID.count) release(s) restored of 6")
 
             if let orphan = byID[orphanID] {
                 r.check("drops:orphaned-base-year",
-                        orphan.baseReleaseYear.isEmpty && orphan.releaseYear.isEmpty,
-                        "releaseYear \(String(reflecting: orphan.releaseYear)), "
+                        orphan.baseReleaseYear.isEmpty && orphan.releaseDate.isEmpty,
+                        "releaseDate \(String(reflecting: orphan.releaseDate)), "
                             + "baseReleaseYear \(String(reflecting: orphan.baseReleaseYear))")
             } else {
                 r.check("drops:orphaned-base-year", false, "release absent from the restore")
@@ -1810,8 +1825,8 @@ extension DebugHarness {
 
             if let inverted = byID[invertedID] {
                 r.check("drops:inverted-base-year",
-                        inverted.baseReleaseYear.isEmpty && inverted.releaseYear == "2010",
-                        "releaseYear \(String(reflecting: inverted.releaseYear)), "
+                        inverted.baseReleaseYear.isEmpty && inverted.releaseDate == "2010",
+                        "releaseDate \(String(reflecting: inverted.releaseDate)), "
                             + "baseReleaseYear \(String(reflecting: inverted.baseReleaseYear))")
             } else {
                 r.check("drops:inverted-base-year", false, "release absent from the restore")
@@ -1819,11 +1834,38 @@ extension DebugHarness {
 
             if let ordered = byID[wellOrderedID] {
                 r.check("keeps:well-ordered-base-year",
-                        ordered.baseReleaseYear == "2009" && ordered.releaseYear == "2010",
-                        "releaseYear \(String(reflecting: ordered.releaseYear)), "
+                        ordered.baseReleaseYear == "2009" && ordered.releaseDate == "2010",
+                        "releaseDate \(String(reflecting: ordered.releaseDate)), "
                             + "baseReleaseYear \(String(reflecting: ordered.baseReleaseYear))")
             } else {
                 r.check("keeps:well-ordered-base-year", false, "release absent from the restore")
+            }
+
+            if let fullOrdered = byID[fullDateOrderedID] {
+                r.check("keeps:base-year-before-full-date",
+                        fullOrdered.baseReleaseYear == "2009" && fullOrdered.releaseDate == "2010.05.04",
+                        "releaseDate \(String(reflecting: fullOrdered.releaseDate)), "
+                            + "baseReleaseYear \(String(reflecting: fullOrdered.baseReleaseYear))")
+            } else {
+                r.check("keeps:base-year-before-full-date", false, "release absent from the restore")
+            }
+
+            if let fullInverted = byID[fullDateInvertedID] {
+                r.check("drops:base-year-at-full-date-year",
+                        fullInverted.baseReleaseYear.isEmpty && fullInverted.releaseDate == "2010.05.04",
+                        "releaseDate \(String(reflecting: fullInverted.releaseDate)), "
+                            + "baseReleaseYear \(String(reflecting: fullInverted.baseReleaseYear))")
+            } else {
+                r.check("drops:base-year-at-full-date-year", false, "release absent from the restore")
+            }
+
+            if let belowFloor = byID[belowFloorID] {
+                r.check("drops:full-date-below-format-floor",
+                        belowFloor.releaseDate.isEmpty && belowFloor.baseReleaseYear.isEmpty,
+                        "releaseDate \(String(reflecting: belowFloor.releaseDate)), "
+                            + "baseReleaseYear \(String(reflecting: belowFloor.baseReleaseYear))")
+            } else {
+                r.check("drops:full-date-below-format-floor", false, "release absent from the restore")
             }
         } catch {
             r.check("base-year-guard-backup-restores", false, "\(error)")
@@ -2300,6 +2342,270 @@ extension DebugHarness {
                  { "\($0.name) / \($0.comments) / \($0.releaseYear)" })
         }
 
+        return r
+    }
+}
+
+
+// MARK: - release-date-rules
+//
+// The rules the release card, the sidebar and release-day notifications build on the full
+// release date:
+//
+//   • upcoming/*    — ReleaseDateValue.isUpcoming: a full date after today, or a year-only
+//                     value in a later year; today itself is not upcoming.
+//   • latest/*      — the picker's ceiling is one year ahead, less a day.
+//   • text/*        — "Month Day, Year" for the sidebar row and tooltip.
+//   • card/*        — the card model's release-date range, its picker bridges, and the
+//                     ordering rule under a release year past the current year.
+//   • notify/*      — ReleaseNotifications.plan: what is scheduled, for whom, and when.
+extension DebugHarness {
+    @MainActor
+    static func releaseDateRulesScenario() -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "release-date-rules")
+        let cal = StorageDateFormatters.calendar
+        func day(_ y: Int, _ m: Int, _ d: Int) -> Date {
+            cal.date(from: DateComponents(year: y, month: m, day: d))!
+        }
+        func value(_ s: String, _ format: ReleaseFormat = .bluRay) -> ReleaseDateValue? {
+            ReleaseDateValue(s, format: format.rawValue)
+        }
+        func key(_ d: Date) -> String {
+            let c = cal.dateComponents([.year, .month, .day], from: d)
+            return "\(c.year!).\(c.month!).\(c.day!)"
+        }
+
+        // upcoming/*
+        let today = day(2026, 10, 17)
+        r.check("upcoming/tomorrow", value("2026.10.18")?.isUpcoming(today: today) == true)
+        r.check("upcoming/today-is-not", value("2026.10.17")?.isUpcoming(today: today) == false)
+        r.check("upcoming/yesterday-is-not", value("2026.10.16")?.isUpcoming(today: today) == false)
+        r.check("upcoming/next-year-start", value("2027.01.01")?.isUpcoming(today: day(2026, 12, 31)) == true)
+        r.check("upcoming/year-only-later-year", value("2027")?.isUpcoming(today: today) == true)
+        r.check("upcoming/year-only-this-year-is-not", value("2026")?.isUpcoming(today: today) == false)
+        // Any moment of the day reads as that day.
+        r.check("upcoming/late-in-the-day", value("2026.10.18")?.isUpcoming(
+            today: today.addingTimeInterval(23 * 3600 + 59 * 60)) == true)
+
+        // latest/*
+        r.check("latest/spec-example", key(ReleaseDateValue.latestSelectableDay(today: today)) == "2027.10.16",
+                key(ReleaseDateValue.latestSelectableDay(today: today)))
+        r.check("latest/new-years-eve", key(ReleaseDateValue.latestSelectableDay(today: day(2026, 12, 31))) == "2027.12.30")
+        r.check("latest/jan-1", key(ReleaseDateValue.latestSelectableDay(today: day(2027, 1, 1))) == "2027.12.31")
+        r.check("latest/leap-day", key(ReleaseDateValue.latestSelectableDay(today: day(2028, 2, 29))) == "2029.2.27",
+                key(ReleaseDateValue.latestSelectableDay(today: day(2028, 2, 29))))
+        r.check("latest/not-upcoming-past-it", value("2027.10.17").map {
+            $0.sortKey > (value("2027.10.16")?.sortKey ?? 0) } == true)
+
+        // text/*
+        r.check("text/full", value("2026.10.17")?.displayText == "October 17, 2026")
+        r.check("text/single-digit-day", value("2026.03.05")?.displayText == "March 5, 2026")
+        r.check("text/year-only", value("2014")?.displayText == "2014")
+        r.check("text/day", value("2026.10.17")?.day == day(2026, 10, 17))
+        r.check("text/year-only-has-no-day", value("2014")?.day == nil)
+
+        // card/*
+        let realToday = CurrentDay.shared.today
+        let currentYear = cal.component(.year, from: realToday)
+        let latestYear = cal.component(.year, from: ReleaseDateValue.latestSelectableDay(today: realToday))
+        let m = ReleaseCardModel(format: ReleaseFormat.uhd4K.rawValue)
+        r.check("card/range", m.releaseDateYearRange(today: realToday) == 2016...latestYear,
+                "\(m.releaseDateYearRange(today: realToday))")
+        r.check("card/floor", key(m.releaseDateFloor) == "2016.1.1")
+        r.check("card/base-range-unchanged", m.purchaseYearRange == 2016...currentYear)
+
+        m.hasReleaseYear = true
+        m.releaseYear = 2014
+        m.releaseMonthDay = nil
+        let shown = cal.dateComponents([.year, .month, .day], from: m.releaseDatePickerValue)
+        let now = cal.dateComponents([.month, .day], from: Date())
+        r.check("card/year-only-shows-today-in-its-year",
+                shown.year == 2014 && shown.month == now.month
+                    && shown.day == min(now.day!, gregorianDaysInMonth(now.month!, year: 2014)))
+        m.endYearOnlyReleaseDate()
+        r.check("card/end-year-only-fills-today", m.releaseMonthDay?.month == now.month && m.releaseYear == 2014)
+        m.setReleaseDate(day(2027, 1, 5))
+        r.check("card/set", m.releaseYear == 2027 && m.releaseMonthDay == ReleaseMonthDay(month: 1, day: 5))
+        r.check("card/saves-full-date", m.releaseDateStorageString == "2027.01.05", m.releaseDateStorageString)
+        m.releaseYear = 2027
+        m.releaseMonthDay = ReleaseMonthDay(month: 2, day: 29)
+        r.check("card/feb-29-clamped-in-picker", key(m.releaseDatePickerValue) == "2027.2.28")
+        m.hasReleaseYear = false
+        r.check("card/clearing-drops-month-day", m.releaseMonthDay == nil)
+
+        // The ordering rule under a release year past the current year: the base year is
+        // pulled beneath it but never past the current year.
+        let o = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
+        o.hasReleaseYear = true
+        o.releaseYear = currentYear + 1
+        o.hasBaseReleaseYear = true
+        o.baseReleaseYear = currentYear + 1
+        o.enforceReleaseYearOrder()
+        r.check("card/order-future-release", o.hasBaseReleaseYear && o.baseReleaseYear == currentYear,
+                "\(o.hasBaseReleaseYear) \(o.baseReleaseYear)")
+        // A range collapsed to the current year (a film released this year) still leaves the
+        // current year as a legal base year beneath an upcoming release.
+        let c = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue, filmReleaseYear: currentYear)
+        c.hasReleaseYear = true
+        c.releaseYear = currentYear + 1
+        c.hasBaseReleaseYear = true
+        c.baseReleaseYear = currentYear
+        c.enforceReleaseYearOrder()
+        r.check("card/order-collapsed-range-future-release", c.hasBaseReleaseYear && c.baseReleaseYear == currentYear)
+        c.releaseYear = currentYear
+        c.enforceReleaseYearOrder()
+        r.check("card/order-collapsed-range-current-release", !c.hasBaseReleaseYear)
+        // The previous behavior, unchanged: a release year inside the range.
+        let p = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
+        p.hasReleaseYear = true
+        p.releaseYear = 2010
+        p.hasBaseReleaseYear = true
+        p.baseReleaseYear = 2012
+        p.enforceReleaseYearOrder()
+        r.check("card/order-in-range", p.hasBaseReleaseYear && p.baseReleaseYear == 2009)
+        p.releaseYear = 2006
+        p.enforceReleaseYearOrder()
+        r.check("card/order-on-floor-clears", !p.hasBaseReleaseYear)
+
+        let u = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
+        u.hasReleaseYear = true
+        u.setReleaseDate(cal.date(byAdding: .day, value: 1, to: realToday)!)
+        r.check("card/upcoming", u.isUpcomingRelease(today: realToday))
+        u.setReleaseDate(realToday)
+        r.check("card/today-not-upcoming", !u.isUpcomingRelease(today: realToday))
+        u.setReleaseDate(cal.date(byAdding: .day, value: 1, to: realToday)!)
+        u.hasReleaseYear = false
+        r.check("card/no-date-not-upcoming", !u.isUpcomingRelease(today: realToday))
+
+        // notify/*
+        let prefix = ReleaseNotifications.identifierPrefix
+        let parent = UUID()
+        let rTomorrow = ReleaseSnapshot(studio: "Criterion", releaseDate: "2026.10.18", format: "4K UHD")
+        let rWished = ReleaseSnapshot(releaseDate: "2026.10.20", wishlist: 3, format: "Blu-ray")
+        let rChild = ReleaseSnapshot(releaseDate: "2026.10.18", format: "Blu-ray", parentReleaseID: parent)
+        let rTodayNew = ReleaseSnapshot(releaseDate: "2026.10.17", format: "Blu-ray")
+        let rTodayPending = ReleaseSnapshot(releaseDate: "2026.10.17", format: "DVD")
+        let rYearOnly = ReleaseSnapshot(releaseDate: "2027", format: "Blu-ray")
+        let rPast = ReleaseSnapshot(releaseDate: "2026.10.16", format: "Blu-ray")
+        let rNextYear = ReleaseSnapshot(releaseDate: "2027.01.01", format: "Blu-ray")
+        let film = makeSnapshot(name: "Notify Film", releases: [
+            rTomorrow, rWished, rChild, rTodayNew, rTodayPending, rYearOnly, rPast, rNextYear])
+        func id(_ release: ReleaseSnapshot) -> String { prefix + release.id.uuidString }
+        let early = today.addingTimeInterval(3600)   // 01:00 local-ish, before delivery
+        let all = ReleaseNotifications.plan(films: [film], pendingIDs: [id(rTodayPending)],
+                                            today: today, now: early, wishlistedOnly: false)
+        r.check("notify/upcoming-scheduled", all[id(rTomorrow)] != nil)
+        r.check("notify/wishlisted-scheduled", all[id(rWished)] != nil)
+        r.check("notify/child-skipped", all[id(rChild)] == nil)
+        r.check("notify/cataloged-today-skipped", all[id(rTodayNew)] == nil)
+        r.check("notify/pending-today-kept", all[id(rTodayPending)] != nil)
+        r.check("notify/year-only-skipped", all[id(rYearOnly)] == nil)
+        r.check("notify/past-skipped", all[id(rPast)] == nil)
+        r.check("notify/next-year-scheduled", all[id(rNextYear)] != nil)
+        r.check("notify/count", all.count == 4, "\(all.count)")
+        if let planned = all[id(rTomorrow)] {
+            r.check("notify/title", planned.title == "Notify Film")
+            r.check("notify/body", planned.body == "The 4K UHD release from Criterion is out today.", planned.body)
+            r.check("notify/trigger", planned.trigger.year == 2026 && planned.trigger.month == 10
+                    && planned.trigger.day == 18 && planned.trigger.hour == ReleaseNotifications.deliveryHour)
+        }
+        if let planned = all[id(rWished)] {
+            r.check("notify/body-wishlisted", planned.body.hasSuffix("It's on your wishlist."), planned.body)
+        }
+        let wished = ReleaseNotifications.plan(films: [film], pendingIDs: [id(rTodayPending)],
+                                               today: today, now: early, wishlistedOnly: true)
+        r.check("notify/wishlisted-only", Set(wished.keys) == [id(rWished)], "\(wished.keys)")
+        // After the delivery hour on the release day, today's request is no longer wanted.
+        var local = Calendar(identifier: .gregorian)
+        local.timeZone = .current
+        let late = local.date(from: DateComponents(year: 2026, month: 10, day: 17, hour: 23))!
+        let after = ReleaseNotifications.plan(films: [film], pendingIDs: [id(rTodayPending)],
+                                              today: today, now: late, wishlistedOnly: false)
+        r.check("notify/today-after-delivery-dropped", after[id(rTodayPending)] == nil)
+
+        // The cap keeps the soonest.
+        let many = (1...75).map { i in
+            ReleaseSnapshot(releaseDate: StorageDateFormatters.dot.string(
+                from: cal.date(byAdding: .day, value: i, to: today)!), format: "Blu-ray")
+        }
+        let capped = ReleaseNotifications.plan(films: [makeSnapshot(name: "Many", releases: many)],
+                                               pendingIDs: [], today: today, now: early,
+                                               wishlistedOnly: false)
+        r.check("notify/capped", capped.count == ReleaseNotifications.maxScheduled, "\(capped.count)")
+        r.check("notify/soonest-kept", capped[id(many[0])] != nil && capped[id(many[74])] == nil)
+
+        // short/* — the wishlist report's form.
+        r.check("short/full", value("2027.01.15")?.shortDisplayText == "Jan 15, 2027")
+        r.check("short/year-only", value("2014")?.shortDisplayText == "2014")
+
+        // avail/* — an upcoming release's availability is cleared, the combo lock kept.
+        let a = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
+        a.hasReleaseYear = true
+        a.marketAvailability = [ReleaseMarketAvailability.available]
+        a.setReleaseDate(cal.date(byAdding: .month, value: 2, to: realToday)!)
+        r.check("avail/cleared-when-upcoming", a.marketAvailability.isEmpty, "\(a.marketAvailability)")
+        a.marketAvailability = [ReleaseMarketAvailability.available]
+        a.setReleaseDate(cal.date(byAdding: .day, value: -1, to: realToday)!)
+        r.check("avail/kept-when-released", a.marketAvailability == [ReleaseMarketAvailability.available])
+        a.independence = ReleaseIndependence.comboPack
+        a.marketAvailability = [ReleaseMarketAvailability.comboPackOnly]
+        a.setReleaseDate(cal.date(byAdding: .month, value: 2, to: realToday)!)
+        r.check("avail/combo-lock-kept", a.marketAvailability == [ReleaseMarketAvailability.comboPackOnly])
+        let y = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
+        y.hasReleaseYear = true
+        y.releaseYear = currentYear + 1
+        y.marketAvailability = [ReleaseMarketAvailability.available]
+        y.endYearOnlyReleaseDate()
+        r.check("avail/cleared-on-year-only-activation", y.marketAvailability.isEmpty)
+
+        // floor/* — the film's own release day floors the picker.
+        let f = ReleaseCardModel(format: ReleaseFormat.uhd4K.rawValue, filmReleaseYear: 2019,
+                                 filmReleaseDay: day(2019, 5, 3))
+        r.check("floor/film-day", key(f.releaseDateFloor) == "2019.5.3")
+        let g = ReleaseCardModel(format: ReleaseFormat.uhd4K.rawValue, filmReleaseYear: 2010,
+                                 filmReleaseDay: day(2010, 5, 3))
+        r.check("floor/format-floor-wins", key(g.releaseDateFloor) == "2016.1.1")
+        let h = ReleaseCardModel(format: ReleaseFormat.uhd4K.rawValue)
+        r.check("floor/no-film-date", key(h.releaseDateFloor) == "2016.1.1")
+
+        // defaults/* — new-release picker values.
+        let k4 = ReleaseFormat.newReleaseDefaults(for: ReleaseFormat.uhd4K.rawValue)
+        r.check("defaults/4k", k4.audioFormat == ReleaseAudioFormat.dtsHDMA
+                && k4.audioChannels == ReleaseAudioChannels.surround51 && k4.hasHDR == ReleaseHDR.dolbyVision)
+        let bd = ReleaseFormat.newReleaseDefaults(for: ReleaseFormat.bluRay.rawValue)
+        r.check("defaults/bluray", bd.audioChannels == ReleaseAudioChannels.surround51)
+
+        // search/* — the release token's date forms.
+        func matches(_ q: String, _ stored: String) -> Bool? {
+            let monthYear: (String) -> Date? = { text in
+                let fmt = DateFormatter(); fmt.locale = Locale(identifier: "en_US_POSIX"); fmt.dateFormat = "MMMM yyyy"
+                return fmt.date(from: text)
+            }
+            guard let m = SearchController.releaseDateMatcher(q, parseMonthYear: monthYear),
+                  let v = value(stored) else { return nil }
+            return m(v)
+        }
+        r.check("search/year", matches("2027", "2027.03.14") == true && matches("2027", "2027") == true
+                && matches("2027", "2026.12.31") == false)
+        r.check("search/range", matches("2020-2027", "2024.01.01") == true && matches("2020-2027", "2019") == false)
+        r.check("search/after-year", matches(">2026", "2027.01.01") == true && matches(">2026", "2026.12.31") == false)
+        r.check("search/before-day", matches("<2026.06.01", "2026.05.31") == true
+                && matches("<2026.06.01", "2026.06.01") == false && matches("<2026.06.01", "2026") == false
+                && matches("<2026.06.01", "2025") == true)
+        r.check("search/exact-day", matches("2027.03.14", "2027.03.14") == true && matches("2027.03.14", "2027") == false)
+        r.check("search/month", matches("march 2027", "2027.03.01") == true && matches("march 2027", "2027.04.01") == false)
+        r.check("search/studio-not-a-date", SearchController.releaseDateMatcher("criterion", parseMonthYear: { _ in nil }) == nil
+                && SearchController.releaseDateMatcher("88 films", parseMonthYear: { _ in nil }) == nil)
+
+        // smart/* — Upcoming Releases membership.
+        let upFilm = makeSnapshot(name: "Up", releases: [ReleaseSnapshot(releaseDate: "2026.10.18", format: "Blu-ray")])
+        let outFilm = makeSnapshot(name: "Out", releases: [ReleaseSnapshot(releaseDate: "2026.10.17", format: "Blu-ray")])
+        r.check("smart/upcoming", SmartLists.membership(of: upFilm, today: today).contains(.upcomingReleases))
+        r.check("smart/released-not", !SmartLists.membership(of: outFilm, today: today).contains(.upcomingReleases))
+        r.check("smart/sidebar-row", SmartListType.sidebarCases.contains(.upcomingReleases)
+                && SmartListType.upcomingReleases.familyVariants == [.upcomingReleases])
+        r.check("smart/cmd-9", TopLevelSidebarShortcut(smartListType: .upcomingReleases)?.rawValue == 9
+                && TopLevelSidebarShortcut(smartListType: .alternateVersions) == nil)
         return r
     }
 }

@@ -84,7 +84,7 @@ extension DebugHarness {
             film.watched = true
             film.notes = index % 7 == 0 ? "An authored note of ordinary length for this film." : ""
             var releases = [ReleaseSnapshot(
-                studio: "Warner Bros.", releaseYear: "\(2010 + index % 14)", purchased: true,
+                studio: "Warner Bros.", releaseDate: "\(2010 + index % 14)", purchased: true,
                 format: ReleaseFormat.bluRay.rawValue,
                 includedVersions: ["Theatrical"], releaseAspectRatio: ["2.39:1"],
                 audioFormat: ReleaseAudioFormat.dtsHDMA, audioChannels: ReleaseAudioChannels.surround51,
@@ -92,19 +92,19 @@ extension DebugHarness {
                 purchaseDate: "2024.03.02", condition: "new")]
             if index % 2 == 0 {
                 releases.append(ReleaseSnapshot(
-                    studio: "Criterion", releaseYear: "\(2015 + index % 9)", wishlist: 1,
+                    studio: "Criterion", releaseDate: "\(2015 + index % 9)", wishlist: 1,
                     format: ReleaseFormat.uhd4K.rawValue, lowestPrice: 29.99,
                     lowestPriceDate: "2024.11.20"))
             }
             if index % 5 == 0 {
                 let parent = UUID()
                 releases.append(ReleaseSnapshot(
-                    id: parent, studio: "Arrow Video", releaseYear: "2022", purchased: true,
+                    id: parent, studio: "Arrow Video", releaseDate: "2022", purchased: true,
                     format: ReleaseFormat.uhd4K.rawValue, independence: ReleaseIndependence.comboPack,
                     hasHDR: "HDR10", masterType: ReleaseMasterType.nativeFourK,
                     cost: 39.99, amountSpent: 34.99, purchaseDate: "2025.01.15", condition: "new"))
                 releases.append(ReleaseSnapshot(
-                    studio: "Arrow Video", releaseYear: "2022", purchased: true,
+                    studio: "Arrow Video", releaseDate: "2022", purchased: true,
                     format: ReleaseFormat.bluRay.rawValue, independence: ReleaseIndependence.comboPack,
                     regionLock: ReleaseRegionRules.regionA, condition: "new",
                     parentReleaseID: parent))
@@ -653,7 +653,7 @@ extension DebugHarness {
                 "lower header row is \(section.columns.map(\.title))")
         r.check("dr-header-upper-row",
                 section.headerGroups.map(\.title)
-                    == ["Year of Release", "Studio", "Video", "Aspect Ratio", "Notes"],
+                    == ["Release Date", "Studio", "Video", "Aspect Ratio", "Notes"],
                 "upper header row is \(section.headerGroups.map(\.title))")
         // Studio banners the Provenance/Region Lock pair; Aspect Ratio and Notes each
         // banner the columns their own row spans. The region after Studio is four columns
@@ -691,6 +691,36 @@ extension DebugHarness {
         r.check("dr-paired-header",
                 section.columns[11].pairedTitle?.plain == "Cost / Spent",
                 "the money header is not a balanced pair")
+
+        // Full release dates print as "yyyy.MM.dd", the film's own date too; a year-only
+        // release keeps its bare year.
+        let dated = makeSnapshot(name: "PDF Dated Film", releaseYear: "2014", releaseDate: "2014-05-02",
+                                 releases: [
+                                    ReleaseSnapshot(releaseDate: "2016.03.01", baseReleaseYear: "1977",
+                                                    purchased: true, format: "Blu-ray"),
+                                    ReleaseSnapshot(releaseDate: "2018", format: "Blu-ray"),
+                                    ReleaseSnapshot(releaseDate: "2019.11.05", format: "DVD")])
+        let datedSection = DiscReleasesPDFReport.section(films: [dated])
+        let datedRows = datedSection.rows
+        r.check("dr-film-full-date", datedRows.first?[3].text == "2014.05.02",
+                "film band reads '\(datedRows.first?[3].text ?? "")'")
+        // Each release is a specification row then a provenance row; the date is on the first.
+        let specRows = Array(datedRows.dropFirst()).enumerated().filter { $0.offset % 2 == 0 }.map(\.element)
+        let datedYears = Set(specRows.map { $0[3].text })
+        r.check("dr-release-dates", datedYears == ["2016.03.01 (1977)", "2018", "2019.11.05"],
+                "release date cells read \(datedYears)")
+        // The two widths this column pair was resized to: "Not purchased" and the widest
+        // date each on one line inside the standard padding.
+        let geometry = PDFPageGeometry.landscapeLetter
+        let face = PDFFonts.font(size: geometry.fontSize, weight: .semibold)
+        func fits(_ text: String, column: Int) -> Bool {
+            (text as NSString).size(withAttributes: [.font: face]).width
+                <= section.columns[column].width - geometry.cellPaddingX * 2
+        }
+        r.check("dr-status-fits", fits("Not purchased", column: 2), "'Not purchased' wraps")
+        r.check("dr-release-date-fits", fits("2016.03.01 (1977)", column: 3), "the widest date wraps")
+        r.check("dr-widths-sum", abs(section.columns.reduce(0) { $0 + $1.width } - 720) < 0.001,
+                "column widths sum to \(section.columns.reduce(0) { $0 + $1.width })")
 
         r.check("dr-single-pane", section.columnsPerPage == 1,
                 "this section has an elastic Notes column and must stay full width")
@@ -1246,7 +1276,7 @@ extension DebugHarness {
         combo.watched = true
         combo.releases = [
             ReleaseSnapshot(
-                id: parentID, studio: "Twentieth Century Fox", releaseYear: "2016",
+                id: parentID, studio: "Twentieth Century Fox", releaseDate: "2016",
                 baseReleaseYear: "1977", purchased: true,
                 format: ReleaseFormat.uhd4K.rawValue,
                 includedVersions: ["Theatrical", "Extended"],
@@ -1263,7 +1293,7 @@ extension DebugHarness {
                 lowestPrice: 22.49, lowestPriceDate: "2025.07.12",
                 condition: "new", notes: "Slipcover intact."),
             ReleaseSnapshot(
-                studio: "Twentieth Century Fox", releaseYear: "2016",
+                studio: "Twentieth Century Fox", releaseDate: "2016",
                 baseReleaseYear: "1977", purchased: true,
                 format: ReleaseFormat.bluRay.rawValue,
                 includedVersions: ["Theatrical"],
@@ -1291,14 +1321,14 @@ extension DebugHarness {
         var mixed = makeSnapshot(name: "PDF DR Mixed")
         mixed.watched = true
         mixed.releases = [
-            ReleaseSnapshot(studio: "Criterion", releaseYear: "2021", purchased: true,
+            ReleaseSnapshot(studio: "Criterion", releaseDate: "2021", purchased: true,
                             format: ReleaseFormat.uhd4K.rawValue,
                             cost: 49.99, amountSpent: 39.99, purchaseDate: "2025.02.10"),
-            ReleaseSnapshot(studio: "Arrow", releaseYear: "2019", wishlist: 3,
+            ReleaseSnapshot(studio: "Arrow", releaseDate: "2019", wishlist: 3,
                             format: ReleaseFormat.bluRay.rawValue,
                             regionLock: ReleaseRegionRules.regionB,
                             cost: 24.99, lowestPrice: 14.99, lowestPriceDate: "2024.03.02"),
-            ReleaseSnapshot(studio: "Second Sight", releaseYear: "2018",
+            ReleaseSnapshot(studio: "Second Sight", releaseDate: "2018",
                             format: ReleaseFormat.bluRay.rawValue,
                             regionLock: ReleaseRegionRules.looselyLockedTag,
                             lowestPrice: 21.00, lowestPriceDate: "2023.05.04"),
@@ -1310,7 +1340,7 @@ extension DebugHarness {
         var gift = makeSnapshot(name: "PDF DR Gift")
         gift.watched = true
         gift.releases = [
-            ReleaseSnapshot(studio: "Shout Factory", releaseYear: "2022", purchased: true,
+            ReleaseSnapshot(studio: "Shout Factory", releaseDate: "2022", purchased: true,
                             format: ReleaseFormat.bluRay.rawValue,
                             releaseAspectRatio: ["1.85:1 \(AspectRatioVocabulary.openMatteQualifier)"],
                             regionLock: ReleaseRegionRules.regionA,
@@ -1325,12 +1355,12 @@ extension DebugHarness {
         var plain = makeSnapshot(name: "PDF DR Combo Plain")
         plain.watched = true
         plain.releases = [
-            ReleaseSnapshot(id: plainParent, studio: "Arrow Video", releaseYear: "2018",
+            ReleaseSnapshot(id: plainParent, studio: "Arrow Video", releaseDate: "2018",
                             purchased: true, format: ReleaseFormat.uhd4K.rawValue,
                             independence: ReleaseIndependence.comboPack,
                             cost: 29.99, amountSpent: 29.99, purchaseDate: "2024.06.01",
                             condition: "good"),
-            ReleaseSnapshot(studio: "Arrow Video", releaseYear: "2018", purchased: true,
+            ReleaseSnapshot(studio: "Arrow Video", releaseDate: "2018", purchased: true,
                             format: ReleaseFormat.bluRay.rawValue,
                             independence: ReleaseIndependence.comboPack,
                             regionLock: ReleaseRegionRules.regionA, condition: "good",
@@ -1344,10 +1374,10 @@ extension DebugHarness {
         var wanted = makeSnapshot(name: "PDF DR Combo Wanted")
         wanted.watched = true
         wanted.releases = [
-            ReleaseSnapshot(id: wantedParent, studio: "Kino Lorber", releaseYear: "2023",
+            ReleaseSnapshot(id: wantedParent, studio: "Kino Lorber", releaseDate: "2023",
                             wishlist: 2, format: ReleaseFormat.uhd4K.rawValue,
                             independence: ReleaseIndependence.comboPack, lowestPrice: 24.99),
-            ReleaseSnapshot(studio: "Kino Lorber", releaseYear: "2023",
+            ReleaseSnapshot(studio: "Kino Lorber", releaseDate: "2023",
                             format: ReleaseFormat.bluRay.rawValue,
                             independence: ReleaseIndependence.comboPack,
                             regionLock: ReleaseRegionRules.regionA,

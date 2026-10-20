@@ -9,7 +9,7 @@
 //   • Model.enforceReleaseYearOrder()  ← 33.00 FSTabReleases.swift
 //   • the Stepper ranges and the enable/disable gate computed in _ReleaseYearRow
 //     ← 33.20 ReleaseCard.swift
-//   • CustomDatePicker.steppedYear(from:by:) and its activation rule
+//   • CustomDateStepper.steppedYear(from:by:) and its activation rule
 //     ← 91.00 InputUtilities.swift
 //
 // The three sources are transcribed rather than imported, exactly as the
@@ -82,7 +82,7 @@ struct RowState {
     }
 }
 
-// MARK: - Placeholder display (CustomDatePicker.displayYear / yearDisplayText)
+// MARK: - Placeholder display (CustomDateStepper.displayYear / yearDisplayText)
 //
 // What the base-year Stepper renders while un-activated: dashes when it is also disabled,
 // otherwise the placeholder year — which is the value its activating click commits.
@@ -100,7 +100,7 @@ extension Model {
     }
 }
 
-// MARK: - Stepper (CustomDatePicker)
+// MARK: - Stepper (CustomDateStepper)
 
 func steppedYear(from current: Int, by delta: Int, in yearRange: ClosedRange<Int>) -> Int {
     let lower = yearRange.lowerBound
@@ -135,7 +135,7 @@ extension Model {
         guard RowState(self).baseYearAvailable else { return }
         if !hasBaseReleaseYear {
             // Activation commits the placeholder that was on screen, not the value the model
-            // was still carrying behind it — see CustomDatePicker.shouldActivateInsteadOfIncrement.
+            // was still carrying behind it — see CustomDateStepper.shouldActivateInsteadOfIncrement.
             hasBaseReleaseYear = true
             if let placeholder = RowState(self).basePlaceholderYear { baseReleaseYear = placeholder }
             enforceReleaseYearOrder()

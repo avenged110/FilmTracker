@@ -86,6 +86,20 @@ enum ReleasesTableMode {
 }
 
 // MARK: - Table Row Model
+private extension ReleaseRow {
+    /// The release year as the Year cell draws it: in the tertiary color while the release
+    /// date is still ahead, so an unreleased disc reads as not yet in hand at a glance.
+    ///
+    /// Decided when the cell is drawn rather than when the row is built, against
+    /// CurrentDay's `today`, which the reading view observes — so the year darkens on the day
+    /// the release comes out without the table being rebuilt.
+    @MainActor var yearText: Text {
+        let upcoming = ReleaseDateValue(release.releaseDate, format: release.format)?
+            .isUpcoming(today: CurrentDay.shared.today) ?? false
+        return upcoming ? Text(releaseYear).foregroundStyle(.tertiary) : Text(releaseYear)
+    }
+}
+
 private struct ReleaseRow: Identifiable {
     // Stable ID derived from the release's own UUID so that ForEach can correctly
     // diff rows across recomputes rather than treating every render as a full replacement.
@@ -282,7 +296,9 @@ struct DiscReleasesTable: View {
             // a base release year is the one date a child can contribute that the parent
             // does not. With neither, the cell is left blank rather than filled with a
             // duplicate.
-            CustomTableCell(row.isChild ? row.baseReleaseYear : row.releaseYear,
+            //
+            // A release not yet out has its year in the tertiary color; see `yearText`.
+            CustomTableCell(row.isChild ? Text(row.baseReleaseYear) : row.yearText,
                             minWidth: ColW.year, maxWidth: ColW.year, alignment: .center)
 
             // Region (col 4)
@@ -384,8 +400,8 @@ struct DiscReleasesTable: View {
                 .padding(.horizontal, 2)
                 .padding(.vertical, 2)
 
-            // Year (col 3)
-            CustomTableCell(row.releaseYear, minWidth: ColW.year, maxWidth: ColW.year, alignment: .center)
+            // Year (col 3) — tertiary while the release is not yet out; see `yearText`.
+            CustomTableCell(row.yearText, minWidth: ColW.year, maxWidth: ColW.year, alignment: .center)
 
             // Region (col 4)
             RegionCell(value: row.regionLock, format: row.release.format)
@@ -637,7 +653,8 @@ struct DiscReleasesTable: View {
                     // (RSBReleaseCardBuilder.model). Both columns are centered, so a
                     // stored value carrying stray whitespace would center differently
                     // in the table than in the card describing the same release.
-                    releaseYear: release.releaseYear.trimmingCharacters(in: .whitespacesAndNewlines),
+                    // The release date's year — ReleaseDateValue.yearText trims as well.
+                    releaseYear: ReleaseDateValue.yearText(of: release.releaseDate, format: release.format),
                     baseReleaseYear: release.baseReleaseYear.trimmingCharacters(in: .whitespacesAndNewlines),
                     purchased: release.purchased,
                     regionLock: regionLock,

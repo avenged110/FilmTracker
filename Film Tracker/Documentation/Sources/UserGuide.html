@@ -297,7 +297,7 @@
       <tr><td><strong>Reports</strong></td><td>Spending, prices, rankings, wishlist, and statistics (Chapter 8).</td><td><code>&#8984;4</code></td></tr>
       <tr><td><strong>Imports</strong></td><td>Import tools and the history of past imports (Chapter 9).</td><td></td></tr>
       <tr><td><strong>Queue</strong></td><td>Films you plan to watch, in Up Next, Soon, and Later (Chapter 5).</td><td><code>&#8984;5</code></td></tr>
-      <tr><td><strong>Smart Lists</strong></td><td>Lists that maintain themselves (Chapter 7). The first five have <code>&#8984;6</code> through <code>&#8984;9</code> and <code>&#8984;0</code>.</td><td><code>&#8984;6</code>&ndash;<code>0</code></td></tr>
+      <tr><td><strong>Smart Lists</strong></td><td>Lists that maintain themselves (Chapter 7). Up for Rotation, Purchased, Unpurchased, Upcoming Releases, and Filtered Library have <code>&#8984;6</code> through <code>&#8984;9</code> and <code>&#8984;0</code>.</td><td><code>&#8984;6</code>&ndash;<code>0</code></td></tr>
       <tr><td><strong>Lists</strong></td><td>The lists you create.</td><td></td></tr>
     </tbody>
   </table>
@@ -339,7 +339,7 @@
   <ul>
     <li>Click to select; <code>&#8984;</code>-click and <code>&#8679;</code>-click to select several. <code>&#8984;A</code> selects everything in the view.</li>
     <li>Press <strong>Tab</strong> to move keyboard focus into the gallery, then use the arrow keys.</li>
-    <li>Right-click a film (or use the Film menu) to add it to the Queue or a list, see which lists it is in, edit it, remove it from a list, or delete it.</li>
+    <li>Secondary-click a film (or use the Film menu) to add it to the Queue or a list, see which lists it is in, edit it, remove it from a list, or delete it.</li>
     <li><code>&#8984;L</code> (View &gt; Scroll to Selection) brings the selected film back into view after scrolling away.</li>
     <li>Drag films onto a list or the Queue in the sidebar to add them there.</li>
   </ul>
@@ -386,7 +386,7 @@
 
   <div class="keep">
   <h3>Metadata</h3>
-  <p>The descriptive and technical record of the film, mostly filled in by imports:</p>
+  <p>The descriptive and technical record of the film, mostly filled in by imports (with a single film selected, <code>&#8997;&#8984;E</code> opens the sheet directly on this tab):</p>
   </div>
   <ul>
     <li><strong>People and companies:</strong> Cast, Director, Producer, Executive Producer, Screenwriter, Composer, Studio. Each holds several names; add or remove rows as needed.</li>
@@ -439,7 +439,8 @@
 
   <div class="keep">
   <h3>Releases tab</h3>
-  <p>A summary of each release (format, studio, purchase status, price or cost, region, HDR, audio, artwork) and, if you turn it on in Settings, a table comparing all of a film&rsquo;s releases side by side.</p>
+  <p>A summary of each release (format, studio, purchase status, release date, price or cost, region, HDR, audio, artwork) and, if you turn it on in Settings, a compact table summarizing the key details of each release, so you can glance over all of a film&rsquo;s releases in one small place instead of reading every card.</p>
+  <p>A release that has not come out yet is marked as such: its year badge is a dashed outline instead of a filled pill, its date reads <em>Releases on</em> rather than <em>Released on</em>, and its year is grayed in the summary table. All three change on their own on the release day.</p>
   </div>
 
   <div class="keep">
@@ -490,7 +491,7 @@
   <p>The Queue (<code>&#8984;5</code>) is your viewing plan, in three sections: <strong>Up Next</strong>, <strong>Soon</strong>, and <strong>Later</strong>. A film is in at most one section. The Queue&rsquo;s <strong>All</strong> tab shows the three sections together as bands; the other tabs show one section each.</p>
   </div>
   <ul>
-    <li><strong>Adding:</strong> Film &gt; Add to Queue, the right-click menu, the film sheet&rsquo;s Queue Membership picker, or drag films onto Queue in the sidebar. Dragged films go to the section chosen in Settings &gt; General.</li>
+    <li><strong>Adding:</strong> Film &gt; Add to Queue, the secondary-click menu, the film sheet&rsquo;s Queue Membership picker, or drag films onto Queue in the sidebar. Dragged films go to the section chosen in Settings &gt; General.</li>
     <li><strong>Moving:</strong> choose a different section from the same menus (which read Manage Queue Membership once a film is queued). The film leaves its old section.</li>
     <li><strong>Removing:</strong> in the Queue, press <code>&#8997;&#9003;</code> (Remove from List).</li>
     <li><strong>Automatically:</strong> in the film sheet, check <em>Add to &hellip; Queue when up for rotation</em> and choose a section. The film is queued for you when it comes due.</li>
@@ -517,7 +518,6 @@
     <thead><tr><th style="width:2.2in">To&hellip;</th><th>Do this</th></tr></thead>
     <tbody>
       <tr><td>Add a release</td><td>Add New Release, then pick 4K UHD, Blu-ray, or DVD. Or press <code>&#8984;N</code> for a Blu-ray, <code>&#8997;&#8984;N</code> for a 4K UHD.</td></tr>
-      <tr><td>Open a film straight to its 4K release</td><td><code>&#8997;&#8984;R</code> from the gallery.</td></tr>
       <tr><td>Delete the card on screen</td><td>The Delete button, or <code>&#8984;&#9003;</code>.</td></tr>
       <tr><td>Save</td><td>Update, as for any change in the sheet.</td></tr>
     </tbody>
@@ -529,15 +529,15 @@
     <thead><tr><th style="width:1.6in">Row</th><th>Holds</th></tr></thead>
     <tbody>
       <tr><td>Type / Versions</td><td>Standalone, Combo-pack, Combo-pack (dual BD), or Multi-pack; and the film versions on the disc.</td></tr>
-      <tr><td>Purchased</td><td>Whether you own it. Purchased releases count toward spending and the Purchased smart lists.</td></tr>
+      <tr><td>Purchased</td><td>Whether you own it, and the number of discs. Purchased releases count toward spending and the Purchased smart lists. <strong>Upcoming</strong> appears beside the checkbox while the release date is still ahead.</td></tr>
       <tr><td>Misc. Traits / Art</td><td>Aspect ratio; Recordable (a BD-R or DVD-R), Remastered, Includes Subtitles, Wishlisted; and the artwork (correct, Steelbook, custom, mismatched, or missing).</td></tr>
       <tr><td>Video</td><td>Codec, HDR format (Dolby Vision, HDR10, HDR10+), whether a 4K disc is upscaled or native, and whether the transfer is interlaced.</td></tr>
       <tr><td>Audio</td><td>Format (Dolby Atmos, TrueHD, DTS-HD MA, LPCM, and others) and channels.</td></tr>
       <tr><td>Studio</td><td>The label or distributor of this disc, which can differ from the film&rsquo;s studio.</td></tr>
-      <tr><td>Released / Discs</td><td>The year of this release, an optional base year when it reissues an earlier one with the same transfer, and the number of discs.</td></tr>
+      <tr><td>Released</td><td>The date of this release, and an optional base year when it reissues an earlier one with the same transfer. The date can be up to a year ahead, and no earlier than the film&rsquo;s own release date. A release recorded before full dates were kept shows only its year, with dashes for the month and day; click any part of it to fill in the rest.</td></tr>
       <tr><td>Country / Region</td><td>National origin (anything but the United States counts as an import) and region lock: A, B, B loosely-locked, Region Free, or DVD regions 1&ndash;5.</td></tr>
       <tr><td>Cost / Spent</td><td>For owned discs: the price and the amount actually spent, the purchase date, and New or Used condition.</td></tr>
-      <tr><td>Lowest Price</td><td>For discs you want: the lowest price seen, when you last saw it, and market availability (Available, out of print, import only, temporarily unavailable).</td></tr>
+      <tr><td>Lowest Price</td><td>For discs you want: the lowest price seen, when you last saw it, and market availability (Available, out of print, import only, temporarily unavailable). While the release date is still ahead, availability reads <em>Unreleased</em> and cannot be set.</td></tr>
       <tr><td>Notes</td><td>Anything else.</td></tr>
     </tbody>
   </table>
@@ -545,6 +545,11 @@
   <div class="keep">
   <h3>Combo packs</h3>
   <p>Set a 4K release&rsquo;s Type to <strong>Combo-pack</strong> and a bundled Blu-ray card is created and linked to it (two for <strong>Combo-pack (dual BD)</strong>). The bundled discs share the 4K card&rsquo;s purchase details, which is why those rows are dimmed on them, and they cannot be deleted on their own. Changing the Type back asks before removing bundled discs you have edited.</p>
+  </div>
+
+  <div class="keep">
+  <h3>Upcoming releases</h3>
+  <p>A release can be cataloged before it comes out: give it a release date up to a year ahead. Until that day it is <em>upcoming</em>. Its card shows <strong>Upcoming</strong> beside the Purchased checkbox, and its market availability reads <strong>Unreleased</strong>. Any availability it had recorded is cleared, so the Lowest Price row starts fresh once the disc is out. Upcoming releases are collected in the <strong>Upcoming Releases</strong> smart list (Chapter 7). Film Tracker can also notify you on each one&rsquo;s release day (Settings &gt; General, Chapter 11). Nothing needs refreshing: everything about an upcoming release changes on its own on the day it comes out.</p>
   </div>
 
   <div class="keep">
@@ -567,7 +572,7 @@
     <li><strong>Create</strong> one with File &gt; Create New List&hellip; (<code>&#8984;N</code>), or make one from the films you have selected with Create New List from Selection&hellip; (<code>&#8679;&#8984;N</code>).</li>
     <li><strong>Add films</strong> by dragging them onto the list in the sidebar, with Film &gt; Add to List, or in the film sheet&rsquo;s List Membership field.</li>
     <li><strong>Reorder</strong> lists by dragging them in the sidebar.</li>
-    <li><strong>Manage</strong> a list by right-clicking it: Edit List Name&hellip;, Duplicate List (<code>&#8997;&#8984;N</code>), Clear List Contents, Delete All List Contents from Library, and Remove List.</li>
+    <li><strong>Manage</strong> a list by secondary-clicking it: Edit List Name&hellip;, Duplicate List (<code>&#8997;&#8984;N</code>), Clear List Contents, Delete All List Contents from Library, and Remove List.</li>
   </ul>
   </div>
   <div class="warn"><span class="t">Know the difference</span><p><strong>Clear List Contents</strong> empties the list and leaves the films in your library. <strong>Delete All List Contents from Library</strong> deletes every film in the list from Film Tracker. <strong>Remove List</strong> deletes the list itself and leaves its films alone.</p></div>
@@ -575,7 +580,7 @@
 
   <div class="keep">
   <h3>Smart lists</h3>
-  <p>Smart lists appear in the sidebar in five families. Expand a family with its disclosure arrow, or pick a member from the picker above the gallery.</p>
+  <p>Smart lists appear in the sidebar in six families. Expand a family with its disclosure arrow, or pick a member from the picker above the gallery. Upcoming Releases has no other members, so it has no arrow or picker.</p>
   </div>
   <table class="smart">
     <thead><tr><th style="width:2.15in">Smart list</th><th>Contains films that&hellip;</th></tr></thead>
@@ -586,6 +591,7 @@
       <tr><td>&nbsp;&nbsp;Purchased 4K / Blu-ray / DVD</td><td>have a purchased release in that format.</td></tr>
       <tr><td><strong>Unpurchased</strong></td><td>have releases, none of them purchased.</td></tr>
       <tr><td>&nbsp;&nbsp;Unpurchased 4K / Blu-ray / DVD</td><td>have a release in that format and have purchased none in it.</td></tr>
+      <tr><td><strong>Upcoming Releases</strong></td><td>have at least one release whose release date is still ahead, purchased or not.</td></tr>
       <tr><td><strong>Alternate Versions</strong></td><td>have a purchased release with versions beyond the Theatrical cut.</td></tr>
       <tr><td>&nbsp;&nbsp;Edited</td><td>are marked as Edited.</td></tr>
       <tr><td><strong>Filtered Library</strong></td><td>are watched and carry no Special Sorting tag: your library with the exceptions set aside.</td></tr>
@@ -652,7 +658,7 @@
 
   <div class="keep">
   <h4>Release Wishlist</h4>
-  <p>Every wishlisted release, with its format, studio, year, packaging, and market availability. Drag rows to set the order of priority.</p>
+  <p>Every wishlisted release, with its format, studio, release date (or year, when that is all that is recorded), packaging, and market availability. Drag rows to set the order of priority.</p>
   </div>
 
   <div class="keep">
@@ -786,6 +792,7 @@
       <tr><td>System calendar integration</td><td>Lets Add Viewing Event also create an event in your calendar.</td></tr>
       <tr><td>Default viewing rotation threshold</td><td>The rotation period for every film without an override. <strong>Reset All Overrides</strong> clears every override.</td></tr>
       <tr><td>Show a warning before&hellip;</td><td>Confirmations before deleting films, deleting releases, changing lists (choose lists and their contents, lists only, or contents only), and queuing films that carry Special Sorting tags.</td></tr>
+      <tr><td>Notify me about&hellip;</td><td>A notification on the release day of each release cataloged while its date was still ahead, at 9:00&nbsp;AM, whether or not Film Tracker is open. Choose all new releases or wishlisted ones only. Turning it on asks macOS for permission to notify.</td></tr>
       <tr><td>Large poster images</td><td>At most six grid columns instead of eight, for bigger posters on large windows.</td></tr>
       <tr><td>Show the status bar</td><td>The film count along the bottom of the window.</td></tr>
       <tr><td>Show the Smart Lists section</td><td>Shows or hides smart lists. Beneath it: keep queued films out of the Up for Rotation lists.</td></tr>
@@ -837,7 +844,7 @@
         <tr><td><code>&#8997;A</code></td><td>Add Film</td></tr>
         <tr><td><code>&#8984;E</code></td><td>Edit Metadata</td></tr>
         <tr><td><code>&#8984;R</code></td><td>Edit Releases</td></tr>
-        <tr><td><code>&#8997;&#8984;R</code></td><td>Edit Releases, on the 4K release</td></tr>
+        <tr><td><code>&#8997;&#8984;E</code></td><td>Edit Metadata, on the Metadata tab</td></tr>
         <tr><td><code>&#8997;&#9003;</code></td><td>Remove from List</td></tr>
         <tr><td><code>&#8679;&#8997;&#9003;</code></td><td>Remove from All Lists</td></tr>
         <tr><td><code>&#8984;&#9003;</code></td><td>Delete from Library</td></tr>
@@ -876,7 +883,7 @@
         <tr><td><code>&#8984;6</code></td><td>Up for Rotation</td></tr>
         <tr><td><code>&#8984;7</code></td><td>Purchased</td></tr>
         <tr><td><code>&#8984;8</code></td><td>Unpurchased</td></tr>
-        <tr><td><code>&#8984;9</code></td><td>Alternate Versions</td></tr>
+        <tr><td><code>&#8984;9</code></td><td>Upcoming Releases</td></tr>
         <tr><td><code>&#8984;0</code></td><td>Filtered Library</td></tr>
         <tr><td><code>&#8997;&#8984;1</code>&ndash;<code>9</code></td><td>Tabs within the current view</td></tr>
         <tr><td><code>&#8984;&uarr;</code> <code>&#8984;&darr;</code></td><td>Previous / next tab (view or sheet)</td></tr>

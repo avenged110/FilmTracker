@@ -164,6 +164,11 @@ enum DebugHarness: Loggable {
                 log("→ scenario: \(scenario)")
                 report.scenarios.append(await run(scenario, coordinator: coordinator))
             }
+            var summary = HarnessScenarioResult(scenario: "library-orders-audit")
+            let audited = libraryOrderAudits.filter { $0.1 > 0 }
+            summary.check("audited", true, "\(audited.count) of \(libraryOrderAudits.count) scenario(s) ended with current orders: "
+                          + audited.map { "\($0.0) (\($0.1))" }.joined(separator: ", "))
+            report.scenarios.append(summary)
         } else {
             log("Preconditions failed — skipping all scenarios")
         }
@@ -197,13 +202,14 @@ enum DebugHarness: Loggable {
         // `pipelineScenarios` because it does not use the coordinator's container at all —
         // by that point that container addresses an unlinked inode (see DHBackup.swift).
         case "all":
-            let parts: [[String]] = [coreScenarios, viewStateScenarios, cardScenarios, storeScenarios, pdfScenarios, dataVizScenarios, pipelineScenarios, backupScenarios]
+            let parts: [[String]] = [coreScenarios, libraryOrderScenarios, viewStateScenarios, cardScenarios, storeScenarios, pdfScenarios, dataVizScenarios, pipelineScenarios, backupScenarios]
             return parts.flatMap { $0 }
         case "full":
             let measured: [String] = dataVizPerfScenarios + ["sort-perf"]
-            let parts: [[String]] = [coreScenarios, viewStateScenarios, cardScenarios, storeScenarios, pdfScenarios, dataVizScenarios, measured, pipelineScenarios, backupScenarios]
+            let parts: [[String]] = [coreScenarios, libraryOrderScenarios, viewStateScenarios, cardScenarios, storeScenarios, pdfScenarios, dataVizScenarios, measured, pipelineScenarios, backupScenarios]
             return parts.flatMap { $0 }
         case "store":       return storeScenarios
+        case "orders":      return libraryOrderScenarios
         case "viewstate":   return viewStateScenarios
         case "pipelines":   return pipelineScenarios
         case "backup":      return backupScenarios
@@ -219,7 +225,21 @@ enum DebugHarness: Loggable {
         }
     }
 
+    /// Runs one scenario, then audits the shared library orders against a full sort.
     private static func run(_ scenario: String, coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var result = await runScenario(scenario, coordinator: coordinator)
+        let audit = auditSharedLibraryOrders()
+        libraryOrderAudits.append((scenario, audit.current))
+        if !audit.mismatches.isEmpty {
+            result.check("library-orders-audit", false, audit.mismatches.joined(separator: "; "))
+        }
+        return result
+    }
+
+    /// (scenario, current shared orders afterward), for the run's audit summary.
+    static var libraryOrderAudits: [(String, Int)] = []
+
+    private static func runScenario(_ scenario: String, coordinator: DataCoordinator) async -> HarnessScenarioResult {
         let start = ContinuousClock.now
         var result: HarnessScenarioResult
         if let pipelineResult = await runPipelineScenario(scenario, coordinator: coordinator) {
@@ -249,6 +269,11 @@ enum DebugHarness: Loggable {
         }
         if let cardResult = await runCardProfileScenario(scenario, coordinator: coordinator) {
             var value = cardResult
+            value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
+            return value
+        }
+        if let orderResult = await runLibraryOrderScenario(scenario, coordinator: coordinator) {
+            var value = orderResult
             value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
             return value
         }
@@ -285,6 +310,12 @@ enum DebugHarness: Loggable {
         case "sort-perf":         result = await sortPerformanceScenario()
         case "ratings-parse":     result = await ratingsParseScenario()
         case "hero-seed":         result = await heroSeedScenario(coordinator: coordinator)
+        case "atvq-relay":
+            // Not in any suite: it reaches out to the ATVQ Deployer relay on the network.
+            result = HarnessScenarioResult(scenario: scenario)
+            for probe in await ATVQClient.harnessRelayProbe() {
+                result.check(probe.variant, probe.ok, probe.trace)
+            }
         default:
             result = HarnessScenarioResult(scenario: scenario)
             result.check("scenario-exists", false, "unknown scenario '\(scenario)'")
@@ -1788,7 +1819,7 @@ enum DebugHarness: Loggable {
 
         guard let data = try? encoder.encode(report),
               let json = String(data: data, encoding: .utf8) else {
-            unsafe fputs("[DebugHarness] ERROR: could not encode report\n", stderr)
+            printToStandardError("[DebugHarness] ERROR: could not encode report\n")
             return
         }
 
@@ -1806,12 +1837,12 @@ enum DebugHarness: Loggable {
         // so a real failure is never buried in a wall of expected ones.
         for scenario in report.scenarios {
             for check in scenario.checks where check.isRegression {
-                unsafe fputs("[DebugHarness] FAIL \(scenario.scenario)/\(check.name): \(check.detail)\n", unsafe stderr)
+                printToStandardError("[DebugHarness] FAIL \(scenario.scenario)/\(check.name): \(check.detail)\n")
             }
         }
         for scenario in report.scenarios {
             for check in scenario.checks where !check.passed && check.knownIssue != nil {
-                unsafe fputs("[DebugHarness] KNOWN \(scenario.scenario)/\(check.name): \(check.detail)\n", unsafe stderr)
+                printToStandardError("[DebugHarness] KNOWN \(scenario.scenario)/\(check.name): \(check.detail)\n")
             }
         }
 

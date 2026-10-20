@@ -54,6 +54,10 @@ struct GalleryTitleBar: View {
                 .frame(width: 220)
                 .padding(.leading, 12)
 
+        // A family of one (Upcoming Releases) has nothing to pick between.
+        case .smartList(let type) where type.familyVariants.count < 2:
+            EmptyView()
+
         case .smartList(let type):
             HStack(spacing: 6) {
                 if type.isAlternateVersionsVariant {
@@ -98,6 +102,12 @@ struct GalleryTitleBar: View {
         let viewStyleButtonDisabled = viewStyleToggleDisabled
 
         return HStack(spacing: 8) {
+            // "Dispatch to ATVQ" — the Film Queue only, and only while Preferences.atvq is
+            // on. Leads the row so the existing buttons keep their positions when absent.
+            if case .filmQueue = viewIdentifier {
+                ATVQDispatchButton()
+            }
+
             // SIZING/SPACING — DO NOT "TIDY". The frame/fixedSize/menuIndicator chains on
             // the five buttons below are NOT accidentally inconsistent, and they are not a
             // repeated boilerplate chain waiting to be factored into one shared modifier.
@@ -212,7 +222,7 @@ struct GalleryTitleBar: View {
     // MARK: - Removal Commands
     //
     // Each of the three trash-menu commands is a one-line hand-off to FilmRemoval
-    // (GlobalUtilities.swift), which owns the context resolution, the membership
+    // (LibraryManager.swift), which owns the context resolution, the membership
     // pre-filter, the confirmation-preference gating, and the alert payloads for every
     // surface that offers these commands — this toolbar, the gallery contextual menu, the
     // MenuBar's "Film" menu, and KeyboardManager's Opt+Delete.
@@ -415,6 +425,8 @@ private struct SelectionMenuButton: View, Loggable {
     /// at which the "Add to Queue" submenu's items can remove as well as add. Drives that
     /// submenu's own label; see SelectionMenuModel.anyFilmInQueue.
     @State private var anyFilmInQueue = false
+    /// Adding the selection would overflow "Up Next"; see AddToQueueMenuBody.upNextBlocked.
+    @State private var upNextBlocked = false
     /// "Show in List" contents. Both are empty for any selection other than exactly one
     /// film, which is what leaves the placeholder branches below in charge.
     @State private var containingLists: [MemoryList] = []
@@ -439,7 +451,8 @@ private struct SelectionMenuButton: View, Loggable {
             Menu(anyFilmInQueue ? "Manage Queue Membership" : "Add to Queue") {
                 AddToQueueMenuBody(filmIDs: filmIDs,
                                    unanimousSection: unanimousQueueSection,
-                                   coordinator: coordinator)
+                                   coordinator: coordinator,
+                                   upNextBlocked: upNextBlocked)
             }
 
             Menu("Add to List") {
@@ -540,6 +553,7 @@ private struct SelectionMenuButton: View, Loggable {
         unanimousQueueSection = SelectionMenuModel.unanimousQueueSection(filmIDs: ids,
                                                                         coordinator: coordinator)
         anyFilmInQueue = SelectionMenuModel.anyFilmInQueue(filmIDs: ids, coordinator: coordinator)
+        upNextBlocked = FilmQueue.upNextOverflow(adding: ids, coordinator: coordinator) > 0
 
         // "Show in List" is a single-selection command; for any other selection size the
         // placeholder branches take over and these are deliberately left empty.

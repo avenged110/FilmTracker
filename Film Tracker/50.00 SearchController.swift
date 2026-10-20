@@ -816,6 +816,7 @@ final class SearchController: Loggable {
     ///   Operators: ">YYYY", "<YYYY", ">YYYY-MM-DD", "<YYYY-MM-DD"
     ///   Month/year: "December 2020", "Dec 2020", "December, 2020", "Dec, 2020"
     ///   Exact day:  any string parseable by the global parseDate(from:)
+    ///   Natural:    "2 months ago", "last summer", "since march", … (naturalDateMatcher)
     private func filterByDateField(
         _ films: [FilmSnapshot],
         query: String,
@@ -827,7 +828,7 @@ final class SearchController: Loggable {
         
         // "none": films with no date recorded for the field (for Last Watched, no viewing
         // date). Tested first so no other form can claim the word.
-        if q == "none" {
+        if q == "none" || q == "never" {
             return films.filter { fieldValue($0).isEmpty }
         }
         
@@ -838,6 +839,17 @@ final class SearchController: Loggable {
             return films.filter {
                 guard let date = parseDate(from: fieldValue($0)) else { return false }
                 return date >= start && date < end
+            }
+        }
+        
+        // Natural-language phrases (“2 months ago”, “last summer”, “since march”, “between
+        // 2019 and 2021”). Tried ahead of the fixed forms below. It accepts nothing they do
+        // except the rolling words, which it reads exactly as they do, the month-year form,
+        // and spelled-out dates, which name the same span either way.
+        if let matches = naturalDateMatcher(q, now: now) {
+            return films.filter {
+                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                return matches(date)
             }
         }
         
@@ -897,7 +909,9 @@ final class SearchController: Loggable {
                     return date > yearEndDate
                 }
             }
-            guard let compareDate = parseDate(from: dateString) else { return [] }
+            // A natural phrase works too: “>last summer” is after the end of last summer.
+            guard let compareDate = parseDate(from: dateString)
+                    ?? naturalDateAnySpan(naturalDateWords(dateString), now: now)?.end else { return [] }
             return films.filter {
                 guard let date = parseDate(from: fieldValue($0)) else { return false }
                 return date > compareDate
@@ -918,7 +932,8 @@ final class SearchController: Loggable {
                     return date < yearStartDate
                 }
             }
-            guard let compareDate = parseDate(from: dateString) else { return [] }
+            guard let compareDate = parseDate(from: dateString)
+                    ?? naturalDateAnySpan(naturalDateWords(dateString), now: now)?.start else { return [] }
             return films.filter {
                 guard let date = parseDate(from: fieldValue($0)) else { return false }
                 return date < compareDate
@@ -982,6 +997,533 @@ final class SearchController: Loggable {
         return nil
     }
     
+    // MARK: - Natural-Language Dates
+    //
+    // The everyday phrasings a date token accepts on top of the fixed forms in
+    // filterByDateField: "2 months ago", "last summer", "since march", "between 2019 and
+    // 2021", "early december 2020", and so on. Both date fields use them.
+    //
+    // Every lowercase keyword literal in these functions is a word the search guide must
+    // mention: the `guide-sync` harness scenario (99.53) scans their bodies for literals.
+    // Keep backslashes and string interpolation out of them — either derails that scan.
+
+    /// A half-open span of time, `start ..< end`.
+    private struct DateSpan {
+        let start: Date
+        let end: Date
+    }
+
+    /// The units an amount of time can be counted in.
+    private enum DateUnit {
+        case day, week, fortnight, month, year, decade
+    }
+
+    /// Splits a date query into words: lowercased, apostrophes dropped ("new year's",
+    /// "'90s"), commas treated as spaces, ordinal suffixes removed ("25th" → "25"), and
+    /// filler words that never change the meaning left out.
+    private func naturalDateWords(_ query: String) -> [String] {
+        let fillers: Set<String> = ["about", "around", "roughly", "approximately", "circa",
+                                    "the", "on", "in", "of", "during", "sometime"]
+        let cleaned = query.lowercased()
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "’", with: "")
+            .replacingOccurrences(of: ",", with: " ")
+        return cleaned.split(whereSeparator: { $0.isWhitespace }).compactMap { piece in
+            var word = String(piece)
+            // An ordinal: digits followed by exactly two letters (“1st”, “25th”).
+            let digits = word.prefix(while: { $0.isNumber })
+            let suffix = word.dropFirst(digits.count)
+            if !digits.isEmpty, suffix.count == 2, suffix.allSatisfy({ $0.isLetter }) {
+                word = String(digits)
+            }
+            return fillers.contains(word) ? nil : word
+        }
+    }
+
+    /// A unit word, singular, plural, or abbreviated.
+    private func naturalDateUnit(_ word: String) -> DateUnit? {
+        switch word {
+        case "day", "days": return .day
+        case "week", "weeks", "wk", "wks": return .week
+        case "fortnight", "fortnights": return .fortnight
+        case "month", "months", "mo", "mos": return .month
+        case "year", "years", "yr", "yrs": return .year
+        case "decade", "decades": return .decade
+        default: return nil
+        }
+    }
+
+    /// A count written as digits ("3", "1.5") or words ("a", "two", "a couple", "a few").
+    private func naturalDateQuantity(_ words: [String]) -> Double? {
+        guard !words.isEmpty else { return 1 }
+        let phrase = words.joined(separator: " ")
+        switch phrase {
+        case "a", "an", "one", "a single", "single": return 1
+        case "half", "half a", "half an", "a half": return 0.5
+        case "two", "a couple", "couple", "a pair", "pair": return 2
+        case "three", "a few", "few": return 3
+        case "four", "several": return 4
+        case "five": return 5
+        case "six", "half a dozen", "half dozen": return 6
+        case "seven": return 7
+        case "eight": return 8
+        case "nine": return 9
+        case "ten": return 10
+        case "eleven": return 11
+        case "twelve", "a dozen", "dozen": return 12
+        case "fifteen": return 15
+        case "eighteen": return 18
+        case "twenty": return 20
+        case "thirty": return 30
+        default:
+            guard let value = Double(phrase), value > 0, value.isFinite else { return nil }
+            return value
+        }
+    }
+
+    /// An amount of time: "[count] unit [and a half]" — "3 weeks", "a year and a half",
+    /// "half a year", "month" (a bare unit counts one).
+    private func naturalDateOffset(_ words: [String]) -> (amount: Double, unit: DateUnit)? {
+        var words = words
+        var extra = 0.0
+        if words.count >= 3, Array(words.suffix(3)) == ["and", "a", "half"] {
+            extra = 0.5
+            words.removeLast(3)
+        }
+        guard let unitWord = words.last, let unit = naturalDateUnit(unitWord),
+              let count = naturalDateQuantity(Array(words.dropLast())) else { return nil }
+        return (count + extra, unit)
+    }
+
+    /// `date` moved back by an amount of time. Whole months and years use calendar
+    /// arithmetic; fractions of them are converted to days.
+    private func naturalDate(_ date: Date, back amount: Double, _ unit: DateUnit) -> Date? {
+        let cal = Calendar.current
+        let days: Double
+        let months: Double
+        switch unit {
+        case .day: days = amount; months = 0
+        case .week: days = amount * 7; months = 0
+        case .fortnight: days = amount * 14; months = 0
+        case .month: days = 0; months = amount
+        case .year: days = 0; months = amount * 12
+        case .decade: days = 0; months = amount * 120
+        }
+        if months > 0 {
+            if months == months.rounded() {
+                return cal.date(byAdding: .month, value: -Int(months), to: date)
+            }
+            return cal.date(byAdding: .day, value: -Int((months * 30.44).rounded()), to: date)
+        }
+        return cal.date(byAdding: .day, value: -Int(days.rounded()), to: date)
+    }
+
+    /// Days either side of the target an "… ago" search also accepts: none for a day or
+    /// two, a week either side of a number of months, a month either side of years.
+    private func naturalDateTolerance(_ amount: Double, _ unit: DateUnit) -> Int {
+        switch unit {
+        case .day: return amount <= 2 ? 0 : 1
+        case .week: return amount <= 1 ? 2 : 3
+        case .fortnight: return 3
+        case .month: return 7
+        case .year: return 30
+        case .decade: return 182
+        }
+    }
+
+    /// The natural-language date phrases, as a test against a film's date, or nil when
+    /// the query is not one of them.
+    private func naturalDateMatcher(_ query: String, now: Date) -> ((Date) -> Bool)? {
+        let words = naturalDateWords(query)
+        guard !words.isEmpty else { return nil }
+        let cal = Calendar.current
+        let phrase = words.joined(separator: " ")
+
+        // Any recorded date at all.
+        if ["ever", "anytime", "any time", "any date"].contains(phrase) {
+            return { _ in true }
+        }
+
+        // Today's month and day, in any year.
+        if ["this day", "this date"].contains(phrase) {
+            let today = cal.dateComponents([.month, .day], from: now)
+            return { date in
+                let comps = cal.dateComponents([.month, .day], from: date)
+                return comps.month == today.month && comps.day == today.day
+            }
+        }
+
+        // An amount of time ago, compared: “more than 2 years ago” is older than that
+        // moment; “less than 3 weeks ago” and “within 3 weeks” are more recent.
+        let comparators: [(words: [String], older: Bool)] = [
+            (["no", "more", "than"], false), (["more", "than"], true), (["over"], true),
+            (["at", "least"], true), (["older", "than"], true), (["longer", "than"], true),
+            (["less", "than"], false), (["under"], false), (["fewer", "than"], false),
+            (["newer", "than"], false), (["within"], false), (["at", "most"], false)
+        ]
+        for comparator in comparators where words.starts(with: comparator.words) {
+            var rest = Array(words.dropFirst(comparator.words.count))
+            if rest.last == "ago" { rest.removeLast() }
+            guard let offset = naturalDateOffset(rest),
+                  let moment = naturalDate(now, back: offset.amount, offset.unit) else { return nil }
+            return comparator.older ? { $0 < moment } : { $0 >= moment }
+        }
+
+        guard let span = naturalDateSpan(words, now: now) else { return nil }
+        return { $0 >= span.start && $0 < span.end }
+    }
+
+    /// The fixed single-period forms (a year, "dec 2020", a full date) or a natural phrase,
+    /// as a span. Used for each side of a range and for "since"/"before"/"after".
+    private func naturalDateAnySpan(_ words: [String], now: Date) -> DateSpan? {
+        let cal = Calendar.current
+        let text = words.joined(separator: " ")
+        if words.count == 1, text.count == 4, let year = Int(text), year > 1900 && year < 2100,
+           let start = cal.date(from: DateComponents(year: year, month: 1, day: 1)),
+           let end = cal.date(byAdding: .year, value: 1, to: start) {
+            return DateSpan(start: start, end: end)
+        }
+        if let date = parseDate(from: text) {
+            let start = cal.startOfDay(for: date)
+            guard let end = cal.date(byAdding: .day, value: 1, to: start) else { return nil }
+            return DateSpan(start: start, end: end)
+        }
+        return naturalDateSpan(words, now: now)
+    }
+
+    /// The natural phrases that name one stretch of time.
+    private func naturalDateSpan(_ words: [String], now: Date) -> DateSpan? {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        let phrase = words.joined(separator: " ")
+        let forever = Date.distantFuture
+        let dawn = Date.distantPast
+
+        func day(_ year: Int, _ month: Int, _ dayOfMonth: Int) -> Date? {
+            cal.date(from: DateComponents(year: year, month: month, day: dayOfMonth))
+        }
+        func days(from start: Date, count: Int) -> DateSpan? {
+            guard let end = cal.date(byAdding: .day, value: count, to: start) else { return nil }
+            return DateSpan(start: start, end: end)
+        }
+
+        // MARK: Ranges — “between X and Y”, “from X to Y”, “X through Y”
+        // A split that does not leave a date on both sides falls through, so "prior to
+        // 2020" still reaches the open-ended forms below.
+        if words.first == "between", let split = words.firstIndex(of: "and"), split > 1,
+           let from = naturalDateAnySpan(Array(words[1..<split]), now: now),
+           let to = naturalDateAnySpan(Array(words[(split + 1)...]), now: now) {
+            return from.start < to.end ? DateSpan(start: from.start, end: to.end) : nil
+        }
+        let rangeWords: Set<String> = ["to", "through", "thru", "until", "till"]
+        if let split = words.firstIndex(where: { rangeWords.contains($0) }), split > 0 {
+            let leftStart = words.first == "from" ? 1 : 0
+            var left = Array(words[leftStart..<split])
+            let right = Array(words[(split + 1)...])
+            // A year stated only on the right applies to both sides: “march to june 2025”.
+            if let year = right.last, year.count == 4, Int(year) != nil,
+               let leftLast = left.last, !(leftLast.count == 4 && Int(leftLast) != nil) {
+                left.append(year)
+            }
+            if split > leftStart,
+               let from = naturalDateAnySpan(left, now: now),
+               let to = naturalDateAnySpan(right, now: now) {
+                return from.start < to.end ? DateSpan(start: from.start, end: to.end) : nil
+            }
+        }
+
+        // MARK: Open-ended — “since X”, “after X”, “before X”, “until X”
+        if let first = words.first, words.count > 1 {
+            let rest = Array(words.dropFirst())
+            switch first {
+            case "since", "from":
+                guard let span = naturalDateAnySpan(rest, now: now) else { return nil }
+                return DateSpan(start: span.start, end: forever)
+            case "after":
+                guard let span = naturalDateAnySpan(rest, now: now) else { return nil }
+                return DateSpan(start: span.end, end: forever)
+            case "before", "prior":
+                let target = rest.first == "to" ? Array(rest.dropFirst()) : rest
+                guard let span = naturalDateAnySpan(target, now: now) else { return nil }
+                return DateSpan(start: dawn, end: span.start)
+            case "until", "till", "through", "thru":
+                guard let span = naturalDateAnySpan(rest, now: now) else { return nil }
+                return DateSpan(start: dawn, end: span.end)
+            default:
+                break
+            }
+        }
+
+        // MARK: Named days
+        switch phrase {
+        case "today", "tonight":
+            // Matches the rolling “today” form: anything from the start of today on.
+            return DateSpan(start: today, end: forever)
+        case "yesterday", "last night":
+            guard let start = cal.date(byAdding: .day, value: -1, to: today) else { return nil }
+            return days(from: start, count: 1)
+        case "day before yesterday":
+            guard let start = cal.date(byAdding: .day, value: -2, to: today) else { return nil }
+            return days(from: start, count: 1)
+        case "recently", "lately", "recent":
+            guard let start = cal.date(byAdding: .day, value: -30, to: now) else { return nil }
+            return DateSpan(start: start, end: forever)
+        default:
+            break
+        }
+
+        // MARK: “… ago” — “2 months ago”, “a year and a half ago”, “a week ago today”
+        if let agoIndex = words.lastIndex(of: "ago"),
+           agoIndex == words.count - 1 || (agoIndex == words.count - 2 && words.last == "today") {
+            guard let offset = naturalDateOffset(Array(words[..<agoIndex])),
+                  let target = naturalDate(today, back: offset.amount, offset.unit) else { return nil }
+            let tolerance = words.last == "today" ? 0 : naturalDateTolerance(offset.amount, offset.unit)
+            guard let start = cal.date(byAdding: .day, value: -tolerance, to: target) else { return nil }
+            return days(from: start, count: tolerance * 2 + 1)
+        }
+
+        // MARK: “Earlier this …” — the calendar period so far
+        if words.count == 3, words[0] == "earlier", words[1] == "this" {
+            let component: Calendar.Component
+            switch words[2] {
+            case "week": component = .weekOfYear
+            case "month": component = .month
+            case "year": component = .year
+            default: return nil
+            }
+            guard let start = cal.dateInterval(of: component, for: now)?.start else { return nil }
+            return DateSpan(start: start, end: forever)
+        }
+
+        // MARK: Rolling windows — “last 3 months”, “past 10 days”, “this week”, “6 weeks”
+        let rollingWords: Set<String> = ["last", "past", "previous", "this"]
+        let rollingRest = rollingWords.contains(words[0]) ? Array(words.dropFirst()) : words
+        if let offset = naturalDateOffset(rollingRest),
+           let start = naturalDate(now, back: offset.amount, offset.unit) {
+            return DateSpan(start: start, end: forever)
+        }
+
+        // MARK: Weekends and weekdays — “last weekend”, “saturday”, “last friday”
+        var relation: String?
+        var core = words
+        if let first = core.first, ["last", "this", "previous"].contains(first), core.count > 1 {
+            relation = first == "previous" ? "last" : first
+            core.removeFirst()
+        }
+        let weekday = cal.component(.weekday, from: now) // 1 = Sunday … 7 = Saturday
+        if core == ["weekend"] {
+            // The Saturday that begins the most recent weekend (this one, if it is under way).
+            var back = weekday % 7
+            if relation == "last", weekday == 7 || weekday == 1 { back += 7 }
+            guard let saturday = cal.date(byAdding: .day, value: -back, to: today) else { return nil }
+            return days(from: saturday, count: 2)
+        }
+        let weekdayNames: [String: Int] = [
+            "sunday": 1, "sun": 1, "monday": 2, "mon": 2, "tuesday": 3, "tue": 3, "tues": 3,
+            "wednesday": 4, "wed": 4, "thursday": 5, "thu": 5, "thur": 5, "thurs": 5,
+            "friday": 6, "fri": 6, "saturday": 7, "sat": 7
+        ]
+        if core.count == 1, let target = weekdayNames[core[0]] {
+            var back = (weekday - target + 7) % 7
+            if relation == "last", back == 0 { back = 7 }
+            guard let start = cal.date(byAdding: .day, value: -back, to: today) else { return nil }
+            return days(from: start, count: 1)
+        }
+
+        // MARK: Decades — “2010s”, “90s”, “early 2000s”
+        var part: String?
+        let partWords: [String: String] = [
+            "early": "early", "beginning": "early", "start": "early",
+            "mid": "mid", "middle": "mid",
+            "late": "late", "end": "late"
+        ]
+        if let first = core.first, let mapped = partWords[first], core.count > 1 {
+            part = mapped
+            core.removeFirst()
+        } else if core.count > 2, core[1] == "half", core[0] == "first" || core[0] == "second" {
+            part = core[0] == "first" ? "first half" : "second half"
+            core.removeFirst(2)
+        }
+        if core.count == 1, core[0].last?.isLetter == true, let number = Int(core[0].dropLast()) {
+            var decade: Int?
+            if number >= 1900, number < 2100, number % 10 == 0 { decade = number }
+            if core[0].count == 3, number % 10 == 0 {
+                let current = cal.component(.year, from: now) % 100
+                decade = number <= current ? 2000 + number : 1900 + number
+            }
+            guard let decade, let start = day(decade, 1, 1),
+                  let end = day(decade + 10, 1, 1) else { return nil }
+            return naturalDatePortion(DateSpan(start: start, end: end), part: part)
+        }
+
+        // MARK: Calendar periods — months, days, seasons, quarters, holidays
+        var explicitYear: Int?
+        if let last = core.last, last.count == 4, let year = Int(last), year > 1900 && year < 2100 {
+            explicitYear = year
+            core.removeLast()
+        }
+        // “late last year”, “early this year”: the calendar year itself.
+        if core == ["last", "year"] || core == ["this", "year"], explicitYear == nil, part != nil {
+            let year = cal.component(.year, from: now) - (core[0] == "last" ? 1 : 0)
+            guard let start = day(year, 1, 1), let end = day(year + 1, 1, 1) else { return nil }
+            return naturalDatePortion(DateSpan(start: start, end: end), part: part)
+        }
+        // A numeric month: “2020-12”, “12/2020”, “2020.12”.
+        if core.count == 1, explicitYear == nil, relation == nil {
+            let pieces = core[0].split(whereSeparator: { $0 == "-" || $0 == "/" || $0 == "." })
+            if pieces.count == 2 {
+                let first = String(pieces[0])
+                let second = String(pieces[1])
+                let (yearText, monthText) = first.count == 4 ? (first, second) : (second, first)
+                guard yearText.count == 4, let year = Int(yearText), let month = Int(monthText),
+                      (1...12).contains(month), let start = day(year, month, 1),
+                      let end = cal.date(byAdding: .month, value: 1, to: start) else { return nil }
+                return naturalDatePortion(DateSpan(start: start, end: end), part: part)
+            }
+        }
+
+        let monthNames: [String: Int] = [
+            "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+            "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+            "august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9, "october": 10,
+            "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12
+        ]
+
+        // The period `core` names in a given year, or nil when `core` names none.
+        func period(in year: Int) -> DateSpan? {
+            if core.isEmpty, part != nil {
+                guard let start = day(year, 1, 1), let end = day(year + 1, 1, 1) else { return nil }
+                return DateSpan(start: start, end: end)
+            }
+            guard !core.isEmpty else { return nil }
+            // A month, or a month and day in either order (“dec 25”, “25 december”).
+            if let month = monthNames[core[0]] {
+                if core.count == 1 {
+                    guard let start = day(year, month, 1),
+                          let end = cal.date(byAdding: .month, value: 1, to: start) else { return nil }
+                    return DateSpan(start: start, end: end)
+                }
+                if core.count == 2, let dayOfMonth = Int(core[1]), (1...31).contains(dayOfMonth),
+                   let start = day(year, month, dayOfMonth),
+                   cal.component(.day, from: start) == dayOfMonth {
+                    return days(from: start, count: 1)
+                }
+                return nil
+            }
+            if core.count == 2, let dayOfMonth = Int(core[0]), let month = monthNames[core[1]],
+               (1...31).contains(dayOfMonth), let start = day(year, month, dayOfMonth),
+               cal.component(.day, from: start) == dayOfMonth {
+                return days(from: start, count: 1)
+            }
+            // Meteorological seasons. Winter is named for the year its December falls in.
+            let seasonStarts: [String: Int] = ["spring": 3, "summer": 6, "fall": 9, "winter": 12]
+            if core.count == 1, let month = seasonStarts[core[0]] {
+                guard let start = day(year, month, 1),
+                      let end = cal.date(byAdding: .month, value: 3, to: start) else { return nil }
+                return DateSpan(start: start, end: end)
+            }
+            // Quarters.
+            let quarters: [String: Int] = ["q1": 1, "q2": 4, "q3": 7, "q4": 10]
+            if core.count == 1, let month = quarters[core[0]] {
+                guard let start = day(year, month, 1),
+                      let end = cal.date(byAdding: .month, value: 3, to: start) else { return nil }
+                return DateSpan(start: start, end: end)
+            }
+            // Holidays (US). The Fourth of July arrives as two words once the filler is gone.
+            if core == ["fourth", "july"] {
+                return day(year, 7, 4).flatMap { days(from: $0, count: 1) }
+            }
+            switch core.joined(separator: " ") {
+            case "christmas", "xmas":
+                return day(year, 12, 24).flatMap { days(from: $0, count: 3) }
+            case "christmas eve":
+                return day(year, 12, 24).flatMap { days(from: $0, count: 1) }
+            case "christmas day":
+                return day(year, 12, 25).flatMap { days(from: $0, count: 1) }
+            case "new years eve", "nye":
+                return day(year, 12, 31).flatMap { days(from: $0, count: 1) }
+            case "new years", "new years day", "new year":
+                return day(year - 1, 12, 31).flatMap { days(from: $0, count: 2) }
+            case "halloween":
+                return day(year, 10, 31).flatMap { days(from: $0, count: 1) }
+            case "valentines", "valentines day":
+                return day(year, 2, 14).flatMap { days(from: $0, count: 1) }
+            case "independence day":
+                return day(year, 7, 4).flatMap { days(from: $0, count: 1) }
+            case "thanksgiving":
+                // The fourth Thursday of November, through that weekend.
+                guard let first = day(year, 11, 1) else { return nil }
+                let firstWeekday = cal.component(.weekday, from: first)
+                let firstThursday = 1 + (5 - firstWeekday + 7) % 7
+                return day(year, 11, firstThursday + 21).flatMap { days(from: $0, count: 4) }
+            case "holidays", "holiday season":
+                guard let start = day(year, 12, 20), let end = day(year + 1, 1, 3) else { return nil }
+                return DateSpan(start: start, end: end)
+            default:
+                return nil
+            }
+        }
+
+        let currentYear = cal.component(.year, from: now)
+        let span: DateSpan?
+        if let explicitYear {
+            guard relation == nil else { return nil }
+            span = period(in: explicitYear)
+        } else {
+            guard let thisYears = period(in: currentYear) else { return nil }
+            switch relation {
+            case "last":
+                // The most recent occurrence that is already over.
+                span = thisYears.end <= now ? thisYears : period(in: currentYear - 1)
+            case "this":
+                // The occurrence under way, or else this calendar year's.
+                if thisYears.start > now, let previous = period(in: currentYear - 1), previous.end > now {
+                    span = previous
+                } else {
+                    span = thisYears
+                }
+            default:
+                // The most recent occurrence that has begun.
+                span = thisYears.start <= now ? thisYears : period(in: currentYear - 1)
+            }
+        }
+        guard let span else { return nil }
+        return naturalDatePortion(span, part: part)
+    }
+
+    /// The early, middle, or late third — or the first or second half — of a span. Spans
+    /// of three months or more divide by whole months; shorter ones by days.
+    private func naturalDatePortion(_ span: DateSpan, part: String?) -> DateSpan? {
+        guard let part else { return span }
+        let cal = Calendar.current
+        let pieces = part.hasSuffix("half") ? 2 : 3
+        let index: Int
+        switch part {
+        case "early", "first half": index = 0
+        case "mid": index = 1
+        case "late": index = pieces - 1
+        default: index = pieces - 1
+        }
+        let months = cal.dateComponents([.month], from: span.start, to: span.end).month ?? 0
+        if months >= 3 {
+            let size = Double(months) / Double(pieces)
+            let from = Int((Double(index) * size).rounded())
+            let to = Int((Double(index + 1) * size).rounded())
+            guard let start = cal.date(byAdding: .month, value: from, to: span.start),
+                  let end = cal.date(byAdding: .month, value: to, to: span.start) else { return nil }
+            return DateSpan(start: start, end: end)
+        }
+        let length = cal.dateComponents([.day], from: span.start, to: span.end).day ?? 0
+        guard length >= pieces else { return span }
+        // A month splits 1–10 / 11–20 / 21–end, or 1–15 / 16–end.
+        let size = pieces == 3 ? 10 : 15
+        let from = index * size
+        let to = index == pieces - 1 ? length : (index + 1) * size
+        guard let start = cal.date(byAdding: .day, value: from, to: span.start),
+              let end = cal.date(byAdding: .day, value: to, to: span.start) else { return nil }
+        return DateSpan(start: start, end: end)
+    }
+
     /// Filters films by list name using the caller-supplied list name lookup closure.
     /// 'listNames' returns the names of all lists a given film ID belongs to.
     private func filterByList(
@@ -997,6 +1539,29 @@ final class SearchController: Loggable {
     
     private func filterByReleases(_ films: [FilmSnapshot], query: String) -> [FilmSnapshot] {
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)
+
+        // Upcoming: a release whose date is still ahead (ReleaseDateValue.isUpcoming), the
+        // same rule as the "Upcoming Releases" smart list and the release card's badge.
+        if q == "upcoming" || q == "unreleased" || q == "preorder" || q == "pre-order" {
+            let today = StorageDateFormatters.calendar.startOfDay(for: Date())
+            return films.filter { film in
+                film.releases.contains {
+                    ReleaseDateValue($0.releaseDate, format: $0.format)?.isUpcoming(today: today) ?? false
+                }
+            }
+        }
+
+        // A release date: "2027", "2020-2027", ">2026", "<2020.06.01", "March 2027",
+        // "2027.03.14" — see releaseDateMatcher. Tested before the keyword forms below, none
+        // of which starts with a digit or an operator or names a month and year.
+        if let matches = Self.releaseDateMatcher(q, parseMonthYear: parseMonthYear) {
+            return films.filter { film in
+                film.releases.contains {
+                    guard let date = ReleaseDateValue($0.releaseDate, format: $0.format) else { return false }
+                    return matches(date)
+                }
+            }
+        }
 
         // Each branch only needs to know whether a release of a given kind EXISTS, so it
         // uses releases.contains { … } directly. The FilmSnapshot convenience properties
@@ -1090,6 +1655,75 @@ final class SearchController: Loggable {
         return films.filter { film in
             film.releases.contains { fuzzyMatchOptimized($0.studio, query: q) }
         }
+    }
+
+    /// The release-date forms of the releases token, as a test on one release's date, or nil
+    /// when `q` is not one of them.
+    ///
+    ///   Year:       "2027" — any date in that year, or a year-only value of it
+    ///   Range:      "2020-2027" — years, both ends included
+    ///   Operators:  ">2026", "<2020" (years), ">2026.10.01", "<2020-06-01" (days, exclusive)
+    ///   Month/year: "March 2027", "Mar 2027"
+    ///   Exact day:  anything parseDate(from:) reads, e.g. "2027.03.14"
+    ///
+    /// Deliberately narrower than the lastWatched / dateAdded forms: the relative words
+    /// ("week", "month", "today") and natural phrases look BACKWARD from now, which suits a
+    /// viewing date and not a release date that may lie ahead — and, unlike a date token,
+    /// this one also matches studio names, so only forms no studio name can take are read
+    /// as dates.
+    ///
+    /// A release known only by its year matches the year forms, and a day comparison only
+    /// when the whole year falls on one side of the day: "2026" is neither before nor after
+    /// 2026.06.01.
+    static func releaseDateMatcher(
+        _ q: String,
+        parseMonthYear: (String) -> Date?
+    ) -> ((ReleaseDateValue) -> Bool)? {
+        let cal = StorageDateFormatters.calendar
+        func year(_ text: Substring) -> Int? {
+            guard text.count == 4, let y = Int(text), ReleaseDateValue.storableYears.contains(y) else { return nil }
+            return y
+        }
+        func dayKey(_ date: Date) -> (key: Int, year: Int) {
+            let c = cal.dateComponents([.year, .month, .day], from: date)
+            return ((c.year ?? 0) * 10_000 + (c.month ?? 0) * 100 + (c.day ?? 0), c.year ?? 0)
+        }
+
+        if let y = year(Substring(q)) { return { $0.year == y } }
+
+        let parts = q.split(separator: "-", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        if parts.count == 2, let low = year(Substring(parts[0])), let high = year(Substring(parts[1])) {
+            return { $0.year >= low && $0.year <= high }
+        }
+
+        if let op = q.first, op == ">" || op == "<" {
+            let rest = q.dropFirst().trimmingCharacters(in: .whitespaces)
+            let after = op == ">"
+            if let y = year(Substring(rest)) {
+                return after ? { $0.year > y } : { $0.year < y }
+            }
+            guard let date = parseDate(from: rest) else { return nil }
+            let (key, dayYear) = dayKey(date)
+            return { value in
+                if value.isYearOnly { return after ? value.year > dayYear : value.year < dayYear }
+                return after ? value.sortKey > key : value.sortKey < key
+            }
+        }
+
+        if let monthStart = parseMonthYear(q) {
+            let c = Calendar.current.dateComponents([.year, .month], from: monthStart)
+            guard let y = c.year, let m = c.month else { return nil }
+            return { $0.year == y && $0.monthDay?.month == m }
+        }
+
+        // Only strings that start with a digit: parseDate is lenient enough elsewhere that a
+        // studio name should never be offered to it.
+        if q.first?.isNumber == true, let date = parseDate(from: q) {
+            let key = dayKey(date).key
+            return { !$0.isYearOnly && $0.sortKey == key }
+        }
+        return nil
     }
 
     /// Maps a period-stripped, lowercased, trimmed release-token query fragment to the

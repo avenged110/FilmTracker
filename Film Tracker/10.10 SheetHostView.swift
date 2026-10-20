@@ -17,6 +17,8 @@ enum SheetContent {
     case settings(selectedTab: SettingsTab, lockedToRestore: Bool = false, backupURL: URL? = nil)
     case duplicates
     case listManager(mode: ListManagerSheet.Mode, editID: UUID?, filmIDs: Set<UUID>?, prefillName: String? = nil)
+    /// The "Up Next" slot picker, opened by clicking an empty slot (UpNextSlots.swift).
+    case upNextSlot
 }
 
 /// Unified sheet wrapper with stable ID
@@ -35,6 +37,7 @@ struct AppSheet: Identifiable, Equatable {
         case .settings: return "Settings"
         case .duplicates: return "Duplicate Finder"
         case .listManager: return "List Manager"
+        case .upNextSlot: return "Up Next Slot"
         }
     }
     
@@ -63,6 +66,10 @@ struct AppSheet: Identifiable, Equatable {
     
     static func listManager(mode: ListManagerSheet.Mode, editID: UUID?, filmIDs: Set<UUID>? = nil, prefillName: String? = nil) -> AppSheet {
         AppSheet(id: "listManager", content: .listManager(mode: mode, editID: editID, filmIDs: filmIDs, prefillName: prefillName))
+    }
+
+    static var upNextSlot: AppSheet {
+        AppSheet(id: "upNextSlot", content: .upNextSlot)
     }
 }
 
@@ -266,6 +273,11 @@ struct SheetHostView: View, Loggable {
                 .environment(dataCoordinator)
                 .environment(sheetCoordinator)
                 .interactiveDismissDisabled(false)
+
+        case .upNextSlot:
+            UpNextSlotSheet()
+                .environment(dataCoordinator)
+                .environment(sheetCoordinator)
         }
     }
     
@@ -277,6 +289,8 @@ struct SheetHostView: View, Loggable {
             handleAddFilm()
         case .editFilm:
             handleEditFilm()
+        case .editFilmMetadata:
+            handleEditFilm(initialTab: .metadata)
         case .editFilmReleases(let format):
             handleEditFilmReleases(format: format)
         case .findDuplicates:
@@ -298,6 +312,8 @@ struct SheetHostView: View, Loggable {
             // activate the lock immediately, without a secondary broadcast that could
             // cause re-entry.
             present(.settings(selectedTab: .restore, lockedToRestore: true))
+        case .openUpNextSlot:
+            present(.upNextSlot)
         // Other commands handled elsewhere
         default:
             break
@@ -402,15 +418,23 @@ struct SheetHostView: View, Loggable {
         presentFilmSheet(FilmSheet(coordinator: dataCoordinator, filmID: nil), filmID: nil)
     }
 
-    private func handleEditFilm() {
+    private func handleEditFilm(initialTab: FilmTab = .details) {
         guard let selectedID = selectionState.selectedFilmID else {
             log("No film selected for editing")
             return
         }
 
+        // Same reasoning as handleEditFilmReleases: a request for a specific tab on a
+        // film whose sheet is already open is routed into the live instance.
+        if initialTab != .details, let liveSheet = sheetCoordinator.activeFilmSheet(for: selectedID) {
+            liveSheet.selectedTab = initialTab
+            return
+        }
+
         guard canPresentFilmSheet(for: selectedID) else { return }
 
-        presentFilmSheet(FilmSheet(coordinator: dataCoordinator, filmID: selectedID),
+        presentFilmSheet(FilmSheet(coordinator: dataCoordinator, filmID: selectedID,
+                                   initialTab: initialTab),
                          filmID: selectedID)
     }
 

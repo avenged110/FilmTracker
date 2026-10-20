@@ -175,7 +175,7 @@ struct UnifiedViewingPopover: View, Loggable {
             
             // Date picker
             ViewingFormRow("Select date:") {
-                CustomDatePicker(date: $selectedDate, minDate: releaseDateMin)
+                CustomDateStepper(date: $selectedDate, minDate: releaseDateMin, maxDate: Date())
             }
             
             // Version picker
@@ -227,7 +227,7 @@ struct UnifiedViewingPopover: View, Loggable {
             if iCalIntegrationEnabled {
                 ViewingFormRow("Time:") {
                     
-                    TimePicker(hour: $hour, minute: $minute, isAM: $isAM)
+                    TimeStepper(hour: $hour, minute: $minute, isAM: $isAM)
                 }
                 .disabled(!addToSystemCalendar || !hasCalendarAccess)
                 .opacity((addToSystemCalendar && hasCalendarAccess) ? 1.0 : 0.5)
@@ -354,9 +354,9 @@ struct UnifiedViewingPopover: View, Loggable {
         DurationHelpers.storedMinutes(film.effectiveDuration) ?? 0
     }
 
-    /// The film's release date, parsed for use as the CustomDatePicker's lower bound.
+    /// The film's release date, parsed for use as the CustomDateStepper's lower bound.
     /// `nil` when the film's releaseDate field is empty or unparseable, in which case
-    /// CustomDatePicker applies no clamp (per its documented no-op contract). Also `nil`
+    /// CustomDateStepper applies no clamp (per its documented no-op contract). Also `nil`
     /// when Preferences.overrideDateClamp is true, allowing the user to temporarily add
     /// viewing events dated prior to the film's release date.
     private var releaseDateMin: Date? {

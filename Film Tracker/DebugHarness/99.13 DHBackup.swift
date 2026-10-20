@@ -69,7 +69,7 @@ extension DebugHarness {
     static var backupScenarios: [String] {
         ["backup-schema-coverage", "backup-graph-roundtrip", "backup-posters",
          "backup-repeatability", "backup-integrity", "backup-limits", "backup-scale",
-         "backup-delivery", "backup-auto"]
+         "backup-delivery", "backup-auto", "backup-background"]
     }
 
     static func runBackupScenario(_ scenario: String) async -> HarnessScenarioResult? {
@@ -83,6 +83,7 @@ extension DebugHarness {
         case "backup-scale":           return await backupScaleScenario()
         case "backup-delivery":        return await backupDeliveryScenario()
         case "backup-auto":            return await backupAutoScenario()
+        case "backup-background":      return await backupBackgroundScenario()
         default:                       return nil
         }
     }
@@ -425,7 +426,8 @@ extension DebugHarness {
         Release(
             id: id,
             studio: "Criterion & Co. <Special>",
-            releaseYear: "2019",
+            // A full date, so the round trip covers the dot shape, not only a bare year.
+            releaseDate: "2019.04.12",
             baseReleaseYear: "1974",
             purchased: true,
             wishlist: 7,
@@ -501,9 +503,12 @@ extension DebugHarness {
          ("rememberImportsTab", \.rememberImportsTab),
          ("rememberSortFilterSelections", \.rememberSortFilterSelections),
          ("confirmFilmQueueAdd", \.confirmFilmQueueAdd),
+         ("notifyAboutNewReleases", \.notifyAboutNewReleases),
+         ("onlyNotifyForWishlisted", \.onlyNotifyForWishlisted),
          ("queueIsDropTarget", \.queueIsDropTarget),
          ("strictFramesTableChecking", \.strictFramesTableChecking),
          ("showWatchDetailsAnnotationGlyphs", \.showWatchDetailsAnnotationGlyphs),
+         ("atvq", \.atvq),
          ("loggingEnabled", \.loggingEnabled)]
     }
 
@@ -654,13 +659,13 @@ extension DebugHarness {
         // because the one-level guard and the inverse-array repair both behave differently
         // for a second child.
         let parent = Release(id: graph.parentReleaseID, studio: "Parent Studio",
-                             releaseYear: "2021", format: "4K UHD",
+                             releaseDate: "2021", format: "4K UHD",
                              independence: ReleaseIndependence.comboPackDualBD,
                              dateAdded: graph.releaseDateAdded, sortOrder: 0, film: filmA)
         context.insert(parent)
         for index in 0..<2 {
             let child = Release(id: UUID(), studio: "Child Studio \(index)",
-                                releaseYear: "2021", format: "Blu-ray",
+                                releaseDate: "2021", format: "Blu-ray",
                                 independence: ReleaseIndependence.comboPack,
                                 dateAdded: graph.releaseDateAdded.addingTimeInterval(Double(index + 1)),
                                 sortOrder: index + 1, film: filmA, parentRelease: parent)
@@ -908,7 +913,7 @@ extension DebugHarness {
                 if got != want { releaseLosses.append("\(label): wrote \(String(reflecting: want)) → \(String(reflecting: got))") }
             }
             expect("studio", solo.studio, "Criterion & Co. <Special>")
-            expect("releaseYear", solo.releaseYear, "2019")
+            expect("releaseDate", solo.releaseDate, "2019.04.12")
             expect("baseReleaseYear", solo.baseReleaseYear, "1974")
             expect("format", solo.format, "4K UHD")
             expect("independence", solo.independence, ReleaseIndependence.standalone)
@@ -1444,7 +1449,7 @@ extension DebugHarness {
         }
         for release in try context.fetch(FetchDescriptor<Release>()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             lines.append("Release|\(release.id)|\(String(describing: release.film?.id))|\(release.studio)|"
-                + "\(release.releaseYear)|\(release.baseReleaseYear)|\(release.format)|\(release.independence)|"
+                + "\(release.releaseDate)|\(release.baseReleaseYear)|\(release.format)|\(release.independence)|"
                 + "\(release.audioChannels)|\(release.numberOfDiscs)|\(release.cost)|\(release.amountSpent)|"
                 + "\(release.lowestPrice)|\(release.wishlist)|\(release.sortOrder)|\(release.purchased)|"
                 + "\(release.includedVersions)|\(release.discCapacity)|\(release.marketAvailability)|"
@@ -2443,7 +2448,7 @@ extension DebugHarness {
                 expectedRatings[film.id] = film.userRating
                 context.insert(film)
                 context.insert(Release(id: UUID(), studio: "Studio \(index % 40)",
-                                       releaseYear: "\(1950 + index % 70)", format: "Blu-ray",
+                                       releaseDate: "\(1950 + index % 70)", format: "Blu-ray",
                                        independence: ReleaseIndependence.standalone,
                                        numberOfDiscs: 1 + index % 3,
                                        cost: Double(index) / 100.0,
@@ -2800,6 +2805,191 @@ extension DebugHarness {
         for item in (try? fm.contentsOfDirectory(at: backups, includingPropertiesForKeys: nil)) ?? [] {
             try? fm.removeItem(at: item) }
         return r
+    }
+
+    // MARK: - Scenario: Background Export
+
+    /// The automatic backup's user-facing cost, and its output.
+    ///
+    /// Seeds a large library, takes a foreground (manual-path) export as the reference, then
+    /// runs the automatic backup's own path (`isBackgroundExport: true`) while a probe on a
+    /// background queue asks the main queue for a response every 5 ms and records how late
+    /// each one is. Lateness is what the user feels as a hitch: anything over a frame
+    /// (16 ms) is a dropped frame, over 50 ms a visible stall.
+    ///
+    /// Pins the output, not just the timing: the background package must carry the same
+    /// content as the foreground one, its XML must be byte-identical apart from the
+    /// `created` timestamp, and restoring it must reproduce the seeded store exactly.
+    private static func backupBackgroundScenario() async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "backup-background")
+
+        let filmCount = 3000
+        let container: ModelContainer
+        let seededDigest: String
+        do {
+            container = try resetBackupStore()
+            _ = try await seedFullGraph(container: container)
+            let context = ModelContext(container)
+            context.autosaveEnabled = false
+            for film in adversarialBackupCorpus() { context.insert(film) }
+            let list = ListObject(listID: UUID(), listName: "Background List",
+                                  viewStyle: "list", sortFilterOptions: [], displayOrder: 50)
+            context.insert(list)
+            for index in 0..<filmCount {
+                let film = makeSnapshot(name: "Background Film \(index)", sortIndex: index).toFilm()
+                film.id = UUID()
+                film.userRating = index % 11
+                film.notes = "note \(index) & <\(index)>"
+                film.cast = (0..<8).map { "Actor \(index)-\($0)" }
+                film.genre = "Drama"
+                context.insert(film)
+                context.insert(Release(id: UUID(), studio: "Studio \(index % 40)",
+                                       releaseDate: "\(1950 + index % 70)", format: "Blu-ray",
+                                       independence: ReleaseIndependence.standalone,
+                                       numberOfDiscs: 1 + index % 3,
+                                       cost: Double(index) / 100.0,
+                                       dateAdded: Date(timeIntervalSince1970: 1_600_000_000 + Double(index)),
+                                       sortOrder: index, film: film))
+                context.insert(ListMembership(id: UUID(), film: film, list: list,
+                                              dateAdded: Date(timeIntervalSince1970: 1_500_000_000),
+                                              sortOrder: index + 1))
+            }
+            try context.save()
+            seededDigest = try storeContentDigest(container)
+        } catch {
+            r.check("seed", false, "\(error)")
+            return r
+        }
+        r.check("seed", true, "\(filmCount) extra film(s) with a release and a membership each")
+
+        // Reference: the manual export path.
+        let foregroundStart = ContinuousClock.now
+        guard let reference = await exportBackupPackage(container: container, filename: "bg-reference") else {
+            r.check("foreground-export-succeeds", false, "createCompleteBackup threw")
+            return r
+        }
+        r.metric("foreground-export-ms", milliseconds(ContinuousClock.now - foregroundStart), "ms")
+        r.check("foreground-export-succeeds", true, reference.lastPathComponent)
+
+        // The automatic backup's path, probed.
+        let probe = MainThreadLatencyProbe()
+        probe.start()
+        let backgroundStart = ContinuousClock.now
+        let background: URL
+        do {
+            background = try await DBExporter(modelContainer: container).createCompleteBackup(
+                filename: "bg-auto", destinationURL: DebugSandbox.rootURL, isBackgroundExport: true,
+                posterUIDs: [], progress: nil).packageURL
+        } catch {
+            probe.stop()
+            r.check("background-export-succeeds", false, "\(error)")
+            return r
+        }
+        let backgroundDuration = ContinuousClock.now - backgroundStart
+        let stats = probe.stop()
+        r.check("background-export-succeeds", true, background.lastPathComponent)
+        r.metric("background-export-ms", milliseconds(backgroundDuration), "ms")
+        r.metric("main-latency-max-ms", stats.max, "ms")
+        r.metric("main-latency-p99-ms", stats.p99, "ms")
+        r.metric("main-latency-mean-ms", stats.mean, "ms")
+        r.metric("main-hitches-over-16ms", Double(stats.over16), "count")
+        r.metric("main-stalls-over-50ms", Double(stats.over50), "count")
+        r.metric("probe-samples", Double(stats.samples), "count")
+        r.check("hitch-log", true, stats.hitches.joined(separator: ", "))
+
+        // Same content as the manual path.
+        let referenceXML = reference.appendingPathComponent("backup.xml")
+        let backgroundXML = background.appendingPathComponent("backup.xml")
+        do {
+            let parsedReference = try await DBImporter().parseBackupFile(at: referenceXML)
+            let parsedBackground = try await DBImporter().parseBackupFile(at: backgroundXML)
+            let a = backupDigest(parsedReference), b = backupDigest(parsedBackground)
+            r.check("background-content-matches-foreground", a == b,
+                    a == b ? "\(parsedBackground.objects.count) object(s) identical"
+                        : backupFirstDifference(a, b))
+        } catch {
+            r.check("background-content-matches-foreground", false, "\(error)")
+        }
+        // Byte equality is not available: attribute order follows dictionary order, which
+        // differs between any two exports (see `backup-repeatability`). Size is.
+        let referenceSize = (try? referenceXML.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -1
+        let backgroundSize = (try? backgroundXML.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -2
+        r.check("background-xml-same-size-as-foreground", referenceSize == backgroundSize,
+                "\(referenceSize) vs \(backgroundSize) bytes")
+
+        let stagingLeft = ExportStaging.rootURL.flatMap {
+            try? FileManager.default.contentsOfDirectory(atPath: $0.path(percentEncoded: false)) } ?? []
+        r.check("background-staging-empty", stagingLeft.isEmpty, stagingLeft.isEmpty ? "" : "\(stagingLeft)")
+
+        // Restoring it reproduces the store it was taken from.
+        let (restoreError, _) = await restoreBackupPackage(background, container: container)
+        guard restoreError == nil else {
+            r.check("background-restore-completes", false, "\(restoreError!)")
+            return r
+        }
+        r.check("background-restore-completes", true, "")
+        do {
+            let restored = try storeContentDigest(try openBackupStore(allowsSave: false))
+            r.check("background-restore-reproduces-store", restored == seededDigest,
+                    restored == seededDigest ? "restored store matches the seeded one"
+                        : backupFirstDifference(seededDigest, restored))
+        } catch {
+            r.check("background-restore-reproduces-store", false, "\(error)")
+        }
+        return r
+    }
+}
+
+/// Measures how promptly the main queue responds while other work runs. A timer on a
+/// background queue posts a block to the main queue every 5 ms; each block records how long
+/// after posting it ran. Lateness beyond a few milliseconds means the main thread was busy.
+final class MainThreadLatencyProbe: @unchecked Sendable {
+    struct Stats {
+        var samples = 0, over16 = 0, over50 = 0
+        var max = 0.0, mean = 0.0, p99 = 0.0
+        /// "t+<seconds since start>: <ms late>" for every sample over 16 ms.
+        var hitches: [String] = []
+    }
+    private let queue = DispatchQueue(label: "harness.latency-probe", qos: .userInteractive)
+    private var timer: (any DispatchSourceTimer)?
+    private let lock = NSLock()
+    private var latencies: [Double] = []
+    private var offsets: [Double] = []
+    private var startedAt: UInt64 = 0
+
+    func start() {
+        startedAt = DispatchTime.now().uptimeNanoseconds
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(5), leeway: .microseconds(500))
+        timer.setEventHandler { [self] in
+            let posted = DispatchTime.now().uptimeNanoseconds
+            DispatchQueue.main.async { [self] in
+                let late = Double(DispatchTime.now().uptimeNanoseconds - posted) / 1_000_000
+                let offset = Double(posted - startedAt) / 1_000_000_000
+                lock.lock(); latencies.append(late); offsets.append(offset); lock.unlock()
+            }
+        }
+        self.timer = timer
+        timer.resume()
+    }
+
+    @discardableResult
+    func stop() -> Stats {
+        timer?.cancel()
+        timer = nil
+        lock.lock(); let values = latencies; let times = offsets; lock.unlock()
+        var stats = Stats()
+        guard !values.isEmpty else { return stats }
+        let sorted = values.sorted()
+        stats.samples = values.count
+        stats.max = sorted.last ?? 0
+        stats.mean = values.reduce(0, +) / Double(values.count)
+        stats.p99 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.99))]
+        stats.over16 = values.filter { $0 > 16 }.count
+        stats.over50 = values.filter { $0 > 50 }.count
+        stats.hitches = zip(times, values).filter { $0.1 > 16 }.prefix(40)
+            .map { unsafe String(format: "t+%.2fs: %.0fms", $0.0, $0.1) }
+        return stats
     }
 }
 

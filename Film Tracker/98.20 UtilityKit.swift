@@ -1,13 +1,60 @@
-// MARK: - AppKitScrollView.swift
+// MARK: - UtilityKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Unified AppKit-backed NSScrollView utility shared by all scroll view consumers
-// in the project: RightSidebar tabs, FilmSheet tabs, ImportsView, and the Settings tabs.
+//
+// STANDARDIZED SWIFTUI/APPKIT UTILITIES — one file, drop into any project.
+//
+// Two independent pieces, both taken from Film Tracker and kept behaviorally identical to
+// it, with every project-specific constant turned into a defaulted parameter:
+//
+//   1. AppKitScrollView — an NSScrollView-backed replacement for SwiftUI's ScrollView.
+//   2. SharedOpenPanel  — `OpenPanelPresenter`, an async NSOpenPanel-as-a-sheet helper.
+//
+// Neither depends on the other, and nothing here depends on the other shared files.
+//
+// WIRING IT UP
+// ────────────
+// Scroll view — a thin facade per context that re-injects what the hosted tree needs
+// (an NSHostingView does not inherit the enclosing SwiftUI environment):
+//
+//   struct SidebarScrollView<Content: View>: View {
+//       @Environment(DataCoordinator.self) private var coordinator
+//       @ViewBuilder let content: Content
+//       var body: some View {
+//           AppKitScrollView(modifier: SidebarEnvironment(coordinator: coordinator)) { content }
+//       }
+//   }
+//
+//   AppKitScrollView(modifier: EmptyModifier()) { page }    // nothing to re-inject
+//
+// Optional, all off by default: `scrollProxy:` (scroll-to-anchor, viewport tracking,
+// animated-shrink hold), `isActive:` / `activation:` (hit-test gating for tab planes),
+// `onScrollWillStart:`, `contentResetKey:`, `alwaysOverflows:`, and `style:` (the
+// NSScrollView chrome; `.standard` is what Film Tracker uses).
+//
+// Open panel:
+//
+//   let selection = await OpenPanelPresenter.present(
+//       configuration: .init(canChooseDirectories: true, prompt: "Choose"),
+//       attachedTo: window)                                // nil → key, then main window
+//   guard case .urls(let urls) = selection else { return }
+//
+// Project-wide panel defaults (initial folder, size, resizability, movability) live on
+// `OpenPanelPresenter.defaults`; set them once at launch if they differ from Film
+// Tracker's (Desktop, 600 × 400, fixed, immovable):
+//
+//   OpenPanelPresenter.defaults.directory = .applications  // Process Elimination
+//
+// ─────────────────────────────────────────────────────────────────────────────────────
+// 1. APPKITSCROLLVIEW
+// ─────────────────────────────────────────────────────────────────────────────────────
 //
 // Each consumer wraps this view with a thin facade that captures its required
 // environment values and constructs the matching ViewModifier — leaving call sites
-// completely unchanged and keeping context-specific concerns (sidebar event bus
-// broadcasting, environment re-injection) out of the utility layer.
+// completely unchanged and keeping context-specific concerns (event-bus
+// broadcasting, environment re-injection) out of the utility layer. The notes below
+// that name Film Tracker's views (RightSidebar, FilmSheet, Imports, Data
+// Visualizations) describe where each behavior was found necessary and measured.
 //
 // Architecture
 // ────────────
@@ -34,14 +81,14 @@
 // Programmatic scrolling
 // ──────────────────────
 // AppKitScrollProxy is a plain (deliberately non-@Observable) reference-type
-// bridge. Consumers that need scroll-to-anchor (currently the FilmSheet Details
-// tab alone) create one proxy per tab, passed to both the scroll view (which
-// wires the implementation) and the content view (which calls scroll(to:)).
+// bridge. Consumers that need scroll-to-anchor (in Film Tracker, the FilmSheet
+// Details tab alone) create one proxy per scroll view, passed to both the scroll view
+// (which wires the implementation) and the content view (which calls scroll(to:)).
 // Anchor y-offsets are reported upward via ScrollAnchorPreferenceKey, stored in
 // the coordinator, and used by scrollToAnchor(_:) to drive the NSScrollView's
-// clip view directly. That preference reader is installed only when a proxy was
-// supplied (see ScrollAnchorReporter), so the five consumers that pass none do
-// not pay to collect a key nothing in their tree writes or reads.
+// clip view directly. That preference reader is installed only when a proxy that
+// tracks anchors was supplied (see ScrollAnchorReporter), so consumers that pass
+// none do not pay to collect a key nothing in their tree writes or reads.
 // scrollHandler is (re-)wired from syncCoordinatorState
 // whenever the proxy's identity changes, and cleared in dismantleNSView so a
 // proxy outliving its scroll view never keeps a closure aimed at a torn-down
@@ -49,9 +96,9 @@
 //
 // A proxy made with `tracksViewport` also hears the visible rectangle, on every
 // scroll and resize, and when live scrolls begin and end, through the
-// `viewportHandler` and `liveScrollHandler` its consumer sets — the Imports session
-// list mounts only the cards near it, and changes which only when nothing scrolls. Only such a proxy makes the scroll
-// view observe its clip view.
+// `viewportHandler` and `liveScrollHandler` its consumer sets — Film Tracker's Imports
+// session list mounts only the cards near it, and changes which only when nothing
+// scrolls. Only such a proxy makes the scroll view observe its clip view.
 //
 // Content width
 // ─────────────
@@ -70,52 +117,70 @@
 // When isActive == false, the underlying NSScrollView (a HitTestGatedScrollView;
 // see below) has its hitTest(_:) short-circuited to return nil, removing it and
 // its AppKit subviews from AppKit's hit-test chain without ever setting isHidden
-// — defense in depth alongside FilmSheet's TabEventShield overlay.
+// — defense in depth alongside any event-shield overlay the consumer adds (Film
+// Tracker's FilmSheet uses a TabEventShield).
 //
 // isHidden is deliberately avoided, despite also achieving full hit-test exclusion
 // (and being the original implementation). Toggling isHidden from true back to
 // false — which happens on every tab activation, not just once — makes AppKit
 // treat the scroll view as newly appearing, triggering its automatic "flash scroll
 // indicators" behavior regardless of whether content actually scrolled. Consumers
-// that reactivate the same scroll view repeatedly (RightSidebar's tab plane, every
-// tab switch) would flash on every switch instead of only when scrolled content
+// that reactivate the same scroll view repeatedly (a tab plane, on every tab
+// switch) would flash on every switch instead of only when scrolled content
 // hadn't yet faded. A pure hitTest override sidesteps this: the view is never
 // hidden or re-shown, so nothing looks "newly visible" — only its interactivity toggles.
+//
+// The flag can also arrive through an `AppKitScrollActivation` (see below), and the scroll
+// view honors both: it is active only when the parameter AND the activation say so. The
+// activation route exists for cost. A parameter is part of the representable's value, so
+// flipping it rebuilds that value, stamps a new AppKitScrollRevision, and hands the
+// unchanged content to the hosting view again — a full re-measure of the hosted tree on
+// every tab activation. An environment value avoids the revision but is no cheaper: SwiftUI
+// bridges the enclosing environment into a hosted NSHostingView, so a per-tab flag there
+// dirties every environment-reading node of the hosted tree and re-measures it (profiled at
+// about half of a Film Tracker RightSidebar tab switch). The activation is a reference that
+// stays the same object for the scroll view's life, so flipping it changes no SwiftUI value
+// at all: it gates hit-testing directly and flushes anything buffered while inactive.
 //
 // onScrollWillStart callback
 // ──────────────────────────
 // An optional callback fired synchronously at the start of every live-scroll
-// phase. SidebarScrollView uses this to broadcast AppEventBus
-// .rightSidebarDidStartLiveScroll, letting sidebar-local subscribers (e.g.
-// WatchDetails' viewing popover) dismiss themselves before content re-lays out.
-// Kept as a callback, not hard-coded, so the utility stays context-free.
+// phase. Film Tracker's SidebarScrollView uses this to broadcast an event-bus
+// notification, letting sidebar-local subscribers (e.g. a popover) dismiss themselves
+// before content re-lays out. Kept as a callback, not hard-coded, so the utility
+// stays context-free.
 //
-// Horizontal swipe recognition (moved out of this utility)
-// ──────────────────────────────────────────────────────────
+// Scroll view chrome
+// ──────────────────
+// `AppKitScrollStyle` carries the NSScrollView settings applied once, at creation:
+// vertical scroller only, autohiding, no border, no background, vertical elasticity,
+// and no automatic content insets. `.standard` is exactly what Film Tracker configured.
+//
+// Horizontal swipe recognition (deliberately not in this utility)
+// ───────────────────────────────────────────────────────────────
 // This utility previously included a HorizontalSwipeScrollView subclass
-// overriding scrollWheel(with:) to recognize RightSidebar's horizontal
-// two-finger tab-navigation swipe, plus a `class func
-// isCompatibleWithResponsiveScrolling() -> Bool { true }` meant to keep that
-// override eligible for NSScrollView's responsive scrolling path. Neither
-// survived scrutiny: the compatibility method is an *instance* method on
+// overriding scrollWheel(with:) to recognize a horizontal two-finger tab-navigation
+// swipe, plus a `class func isCompatibleWithResponsiveScrolling() -> Bool { true }`
+// meant to keep that override eligible for NSScrollView's responsive scrolling path.
+// Neither survived scrutiny: the compatibility method is an *instance* method on
 // NSClipView, not a class method on NSScrollView, so the declaration never
 // overrode anything and did nothing once `override` was removed to make it
 // compile; and even with that dead code gone, scrolling remained measurably
 // short of a plain NSScrollView's baseline smoothness — the scrollWheel(with:)
 // override itself was the remaining cost.
 //
-// Swipe recognition now lives in a standalone NSEvent local monitor owned by
-// RightSidebar (24_00_RightSidebar.swift) — the same pattern the ReleaseCard
-// carousel (FSTabReleasesView) uses for its own trackpad-swipe navigation. A
-// local monitor intercepts events before AppKit's normal dispatch and can
-// consume (return nil) or pass them through (return the event) unchanged; when
-// passed through, AppKit dispatches to the NSScrollView exactly as with no
-// monitor installed, since the NSScrollView itself is never subclassed. Every
-// consumer of this utility, including RightSidebar, now receives a plain,
-// unmodified NSScrollView from makeNSView.
+// A consumer that needs swipe recognition installs a standalone NSEvent local monitor
+// instead (Film Tracker's RightSidebar does). A local monitor intercepts events before
+// AppKit's normal dispatch and can consume (return nil) or pass them through (return the
+// event) unchanged; when passed through, AppKit dispatches to the NSScrollView exactly as
+// with no monitor installed. Every consumer of this utility receives a plain NSScrollView
+// from makeNSView, differing only in the hit-test gate.
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+// MARK: - ━━━━━━━━━━ 1. AppKitScrollView ━━━━━━━━━━
 
 // MARK: - AppKitScrollProxy
 
@@ -127,7 +192,7 @@ import SwiftUI
 /// once by `AppKitScrollNSView` and read only from event callbacks, never from a
 /// `View.body`. `@Observable` would buy nothing while costing something real:
 /// consumer views hold a proxy as a stored property of a SwiftUI `View` struct
-/// (`FSTabDetailsView.scrollProxy`), and `@Observable`'s fine-grained tracking
+/// (Film Tracker's `FSTabDetailsView.scrollProxy`), and `@Observable`'s fine-grained tracking
 /// opens a subscription for any observable object reachable that way. A plain
 /// `final class` is stored and passed by reference identically, works the same
 /// inside `@State`, and keeps those subtrees out of the observation graph entirely.
@@ -249,6 +314,74 @@ struct ScrollAnchorPreferenceKey: PreferenceKey {
     }
 }
 
+// MARK: - AppKitScrollActivation
+
+/// Out-of-band form of `AppKitScrollView`'s `isActive`, for a consumer that toggles it often
+/// (see "isActive / hit-test isolation" above for why it exists). The consumer keeps one
+/// instance per scroll view for that view's whole life, passes it as `activation`, and sets it
+/// with `.appKitScrollActivation(_:isActive:)` placed outside the scroll view. The scroll view
+/// applies a change directly, so nothing SwiftUI compares ever differs.
+@MainActor
+final class AppKitScrollActivation {
+    private(set) var isActive: Bool
+    /// The coordinator currently applying changes; a replaced scroll view's teardown must
+    /// not unhook its successor's handler.
+    private weak var owner: AnyObject?
+    private var onChange: (() -> Void)?
+
+    init(isActive: Bool = true) {
+        self.isActive = isActive
+    }
+
+    func setActive(_ active: Bool) {
+        guard active != isActive else { return }
+        isActive = active
+        onChange?()
+    }
+
+    fileprivate func attach(_ owner: AnyObject, onChange: @escaping () -> Void) {
+        self.owner = owner
+        self.onChange = onChange
+    }
+
+    fileprivate func detach(_ owner: AnyObject) {
+        guard self.owner === owner else { return }
+        self.owner = nil
+        onChange = nil
+    }
+}
+
+/// Writes a flag into an `AppKitScrollActivation` from inside a SwiftUI update. Its updateNSView
+/// runs in the same update as the change that produced the flag, so a tab that becomes active
+/// is unblocked, and any buffered content applied, before that update is laid out and drawn.
+private struct AppKitScrollActivationRelay: NSViewRepresentable {
+    let activation: AppKitScrollActivation
+    let isActive: Bool
+
+    /// Never a click target: the relay sits behind an inactive scroll view, which may lie
+    /// over other interactive content.
+    final class RelayView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> RelayView {
+        activation.setActive(isActive)
+        return RelayView()
+    }
+
+    func updateNSView(_ nsView: RelayView, context: Context) {
+        activation.setActive(isActive)
+    }
+}
+
+extension View {
+    /// Sets `activation` to `isActive` whenever the latter changes. See `AppKitScrollActivation`.
+    func appKitScrollActivation(_ activation: AppKitScrollActivation, isActive: Bool) -> some View {
+        background(AppKitScrollActivationRelay(activation: activation, isActive: isActive)
+            .frame(width: 0, height: 0))
+    }
+}
+
 // MARK: - AppKitScrollView
 
 /// SwiftUI entry point for the unified AppKit-backed scroll view.
@@ -266,8 +399,16 @@ struct ScrollAnchorPreferenceKey: PreferenceKey {
 ///     short-circuited to return `nil`, removing it from AppKit's hit-test chain
 ///     without hiding it (see the "isActive / hit-test isolation" note above for
 ///     why `isHidden` is deliberately not used). Defaults to `true`.
+///   - activation: Combined with `isActive`, and far cheaper to toggle. See
+///     `AppKitScrollActivation`.
 ///   - onScrollWillStart: Optional callback fired synchronously at the start of each
 ///     live-scroll phase. Called on the main actor.
+///   - contentResetKey: Opaque token naming which subject the content shows. When it
+///     changes, the scroll position returns to the top. `nil` (the default) never
+///     touches the scroll position.
+///   - alwaysOverflows: See the stored property.
+///   - style: The NSScrollView chrome, applied once when the scroll view is made.
+///     Defaults to `.standard`. See `AppKitScrollStyle`.
 ///   - content: The SwiftUI content to host inside the scroll view.
 ///
 /// Concrete consumer facades (`SidebarScrollView`, `FilmSheetScrollView`, etc.) wrap
@@ -280,6 +421,7 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
     let content: Content
     var scrollProxy: AppKitScrollProxy?
     var isActive: Bool
+    var activation: AppKitScrollActivation?
     var onScrollWillStart: (@MainActor () -> Void)?
     var contentResetKey: AnyHashable?
     /// True for content that is always taller than the viewport, so a legacy ("always
@@ -287,16 +429,22 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
     /// of a fresh scroll view use the narrower width instead of correcting to it
     /// afterward. See `AppKitScrollInitialInset`.
     var alwaysOverflows: Bool
+    /// See `AppKitScrollStyle`.
+    var style: AppKitScrollStyle
 
     init(
         modifier: Modifier,
         scrollProxy: AppKitScrollProxy? = nil,
         isActive: Bool = true,
+        activation: AppKitScrollActivation? = nil,
         onScrollWillStart: (@MainActor () -> Void)? = nil,
         contentResetKey: AnyHashable? = nil,
         alwaysOverflows: Bool = false,
+        style: AppKitScrollStyle = .standard,
         @ViewBuilder content: () -> Content
     ) {
+        self.activation = activation
+        self.style = style
         self.alwaysOverflows = alwaysOverflows
         self.modifier = modifier
         self.scrollProxy = scrollProxy
@@ -313,9 +461,11 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
                 modifier: modifier,
                 scrollProxy: scrollProxy,
                 isActive: isActive,
+                activation: activation,
                 onScrollWillStart: onScrollWillStart,
                 contentResetKey: contentResetKey,
                 alwaysOverflows: alwaysOverflows,
+                style: style,
                 revision: AppKitScrollRevision.next(),
                 content: content
             )
@@ -325,6 +475,53 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+}
+
+// MARK: - AppKitScrollStyle
+
+/// The NSScrollView chrome an `AppKitScrollView` is built with. Read once, when the scroll
+/// view is made; changing it on a live view has no effect, as with any creation-time
+/// AppKit configuration.
+///
+/// `.standard` is exactly what Film Tracker configured for every consumer, and is the
+/// default. The rest is fixed, because the utility depends on it: there is never a
+/// horizontal scroller or horizontal elasticity (the document is pinned to the clip view's
+/// width), and the scroll view and hosting view are always layer-backed with
+/// `.onSetNeedsDisplay`.
+struct AppKitScrollStyle: Equatable {
+    /// Hides the vertical scroller while nothing scrolls. An "always show scroll bars"
+    /// system setting still wins, as it does for any NSScrollView.
+    var autohidesScrollers: Bool = true
+    var verticalScrollElasticity: NSScrollView.Elasticity = .allowed
+    var borderType: NSBorderType = .noBorder
+    /// `nil` draws no background, so whatever SwiftUI puts behind the scroll view shows
+    /// through. A color sets `drawsBackground` and `backgroundColor`.
+    var backgroundColor: NSColor? = nil
+    /// `false` (the default) turns automatic safe-area-driven content insets off and zeroes
+    /// `contentInsets`: right for a scroll view that is not the window's direct content view
+    /// under a titlebar, where automatic insets never apply and only their recomputation on
+    /// every layout pass would be paid. Pass `true` for a scroll view that IS, so AppKit
+    /// insets its content below a transparent titlebar or toolbar. (Bottom headroom for a
+    /// SwiftUI overlay is a separate mechanism — `.safeAreaInset` inside the content — and
+    /// works under either setting.)
+    var automaticallyAdjustsContentInsets: Bool = false
+
+    init(
+        autohidesScrollers: Bool = true,
+        verticalScrollElasticity: NSScrollView.Elasticity = .allowed,
+        borderType: NSBorderType = .noBorder,
+        backgroundColor: NSColor? = nil,
+        automaticallyAdjustsContentInsets: Bool = false
+    ) {
+        self.autohidesScrollers = autohidesScrollers
+        self.verticalScrollElasticity = verticalScrollElasticity
+        self.borderType = borderType
+        self.backgroundColor = backgroundColor
+        self.automaticallyAdjustsContentInsets = automaticallyAdjustsContentInsets
+    }
+
+    /// Film Tracker's configuration. Computed, not stored: `NSColor` is not `Sendable`.
+    static var standard: AppKitScrollStyle { AppKitScrollStyle() }
 }
 
 // MARK: - AppKitScrollRevision
@@ -338,8 +535,8 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
 /// outer SwiftUI environment at all (which is why consumers re-inject what they need through
 /// `Modifier`, itself part of the value), so nothing the hosted tree reads has moved. The
 /// hand-off is not free — it invalidates the hosting view's intrinsic size, and the next
-/// constraint pass re-measures the entire hosted tree. Measured by the `dataviz-measure`
-/// harness scenario (99.50): leaving the Data Visualizations tab delivered exactly such an
+/// constraint pass re-measures the entire hosted tree. Measured by Film Tracker's
+/// `dataviz-measure` harness scenario: leaving the Data Visualizations tab delivered exactly such an
 /// update to the outgoing page, whose full re-measure (~100 ms) then ran in the display
 /// cycle's constraint phase, before the layout phase that removed it.
 @MainActor
@@ -348,12 +545,23 @@ enum AppKitScrollRevision {
     static func next() -> Int { counter &+= 1; return counter }
 }
 
+#if DEBUG
+/// Counts content hand-offs across every AppKitScrollView, for harness measurements:
+/// `newRevisions` is how many updates carried a new representable value, `applied` how many
+/// actually reassigned a hosting view's rootView (each one a full re-measure of that tree).
+@MainActor
+enum AppKitScrollHandoffProbe {
+    static var newRevisions = 0
+    static var applied = 0
+}
+#endif
+
 // MARK: - DampedSpring
 
 /// SwiftUI's `.spring(response:dampingFraction:)` as a damped oscillator — unit mass,
 /// stiffness (2π / response)², damping 4π · dampingFraction / response — for the one
 /// thing AppKit needs to know about it: how long it runs. Underdamped fractions only
-/// (0 < ζ < 1), which is every spring this project uses.
+/// (0 < ζ < 1), which is every spring a shrink hold is used with.
 struct DampedSpring {
     let response: Double
     let dampingFraction: Double
@@ -489,10 +697,10 @@ private struct AppKitScrollContentWrapper<Content: View, Modifier: ViewModifier>
 ///
 /// `onPreferenceChange` is not free: it makes SwiftUI collect and propagate that
 /// key through every node of the hosted tree on each layout pass, whether or not
-/// anything in the tree writes it. Exactly one consumer publishes anchors (the
-/// FilmSheet Details tab, for `.openViewingDatesAddPopover`); the other five —
-/// including the two longest trees, the Imports session list and the General
-/// settings tab — publish none, and now install no reader either.
+/// anything in the tree writes it. In Film Tracker exactly one consumer publishes
+/// anchors (the FilmSheet Details tab, for `.openViewingDatesAddPopover`); the other
+/// five — including the two longest trees, the Imports session list and the General
+/// settings tab — publish none, and install no reader either.
 ///
 /// `isEnabled` is derived from the proxy's `tracksAnchors` on the representable, so
 /// it is fixed for the lifetime of any given call site. The `if` therefore never
@@ -585,11 +793,14 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
     let modifier: Modifier
     let scrollProxy: AppKitScrollProxy?
     let isActive: Bool
+    let activation: AppKitScrollActivation?
     let onScrollWillStart: (@MainActor () -> Void)?
     /// Opaque token identifying *which* subject the content is showing. When it
     /// changes, the scroll position is returned to the top — see `updateNSView`.
     let contentResetKey: AnyHashable?
     let alwaysOverflows: Bool
+    /// Applied once, in makeNSView. See `AppKitScrollStyle`.
+    let style: AppKitScrollStyle
     /// See `AppKitScrollRevision`.
     let revision: Int
     let content: Content
@@ -617,6 +828,21 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         /// before the view is shown again, so a reactivated tab is never displayed
         /// with stale content.
         var isActive = true
+
+        /// The representable's `isActive` parameter, and the activation it was given; the
+        /// coordinator is active only when both are. See `AppKitScrollActivation`.
+        var parameterIsActive = true
+        var activation: AppKitScrollActivation?
+        var effectiveIsActive: Bool { parameterIsActive && (activation?.isActive ?? true) }
+
+        /// Applies the current activation: the hit-test gate, the hand-off gate, and anything
+        /// buffered while inactive.
+        func applyActivation() {
+            let active = effectiveIsActive
+            (scrollView as? HitTestGatedScrollView)?.isHitTestActive = active
+            isActive = active
+            flushPendingRootViewIfPossible()
+        }
 
         var pendingRootView: AppKitScrollContentWrapper<Content, Modifier>?
         var willScrollToken: (any NSObjectProtocol)?
@@ -716,6 +942,9 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
         func applyRootView(_ view: AppKitScrollContentWrapper<Content, Modifier>) {
             if canApplyRootView {
+                #if DEBUG
+                AppKitScrollHandoffProbe.applied += 1
+                #endif
                 hostingView?.rootView = view
                 pendingRootView = nil
             } else {
@@ -728,6 +957,9 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         /// buffered or when a gate is still closed.
         func flushPendingRootViewIfPossible() {
             guard canApplyRootView, let pending = pendingRootView else { return }
+            #if DEBUG
+            AppKitScrollHandoffProbe.applied += 1
+            #endif
             hostingView?.rootView = pending
             pendingRootView = nil
         }
@@ -748,11 +980,10 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         /// the visible area, without animation. Matches the disablesAnimations
         /// transaction semantics used in the former ScrollViewReader calls.
         ///
-        /// Centring is unconditional: the sole caller (the
-        /// `.openViewingDatesAddPopover` command, which then opens a popover on
-        /// the row the anchor names) is a deliberate navigation, so it must land
-        /// on a predictable position rather than leaving the row wherever it
-        /// already happened to sit.
+        /// Centering is unconditional: a scroll-to-anchor is a deliberate navigation
+        /// (in Film Tracker, the `.openViewingDatesAddPopover` command, which then opens
+        /// a popover on the row the anchor names), so it must land on a predictable
+        /// position rather than leaving the row wherever it already happened to sit.
         func scrollToAnchor(_ anchorID: String) {
             guard let sv = scrollView,
                   let yOffset = anchorOffsets[anchorID] else { return }
@@ -776,8 +1007,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // reach the current scroll offset (the person is scrolled to, or near, the
         // bottom), NSClipView clamps the offset in that same pass: every row jumps
         // down by the shortfall in a single frame, and a removed row at the bottom is
-        // pushed out of the viewport before its fade is ever seen. (Measured with the
-        // `imports-removal` harness scenario, 99.54: the jump lands on the first frame
+        // pushed out of the viewport before its fade is ever seen. (Measured with Film
+        // Tracker's `imports-removal` harness scenario: the jump lands on the first frame
         // after the removal.)
         //
         // The hold answers it with a single clock — SwiftUI's:
@@ -909,15 +1140,14 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
     func makeNSView(context: Context) -> HitTestGatedScrollView {
         // Every consumer receives a scroll view whose configuration and scrolling
         // behavior are identical to a plain, unmodified NSScrollView — horizontal
-        // swipe recognition (RightSidebar) is handled entirely outside this
-        // utility via a standalone NSEvent local monitor — see the header
-        // comment above and 24_00_RightSidebar.swift — so nothing here can
-        // affect scrolling responsiveness for any consumer. The only difference
+        // swipe recognition, where a consumer needs it, is handled entirely outside
+        // this utility via a standalone NSEvent local monitor (see the header
+        // comment above) — so nothing here can affect scrolling responsiveness for
+        // any consumer. The only difference
         // from a plain NSScrollView is the hitTest(_:) override described in the
         // "isActive / hit-test isolation" note above and on HitTestGatedScrollView
         // itself; it changes only click routing, never rendering or scrolling.
         let scrollView = HitTestGatedScrollView()
-        scrollView.isHitTestActive = isActive
         configureScrollView(scrollView)
 
         let container = AppKitFlippedContainerView()
@@ -975,6 +1205,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         coordinator.hostingView = hostingView
         coordinator.scrollView  = scrollView
         syncCoordinatorState(coordinator)
+        scrollView.isHitTestActive = coordinator.effectiveIsActive
 
         // Fold the real, AppKit-measured content width back into the width this
         // view proposes to its hosted SwiftUI tree. Fires only when the clip
@@ -1065,7 +1296,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // entirely. Deliberately not `isHidden`: see the "isActive / hit-test
         // isolation" note above for why toggling `isHidden` back to `false` on
         // every reactivation would trigger an unwanted scroll-indicator flash.
-        scrollView.isHitTestActive = isActive
+        scrollView.isHitTestActive = coordinator.effectiveIsActive
         // Skip rootView replacement during continuous animation transactions.
         //
         // SwiftUI calls updateNSView on every interpolation frame of a running
@@ -1106,6 +1337,9 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // still buffered from a suppressed hand-off is flushed instead.
         if coordinator.appliedRevision != revision {
             coordinator.appliedRevision = revision
+            #if DEBUG
+            AppKitScrollHandoffProbe.newRevisions += 1
+            #endif
             coordinator.applyRootView(makeWrappedContent(coordinator: coordinator))
         } else {
             coordinator.flushPendingRootViewIfPossible()
@@ -1137,6 +1371,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
     static func dismantleNSView(_ scrollView: HitTestGatedScrollView, coordinator: Coordinator) {
         coordinator.removeObservers()
+        coordinator.activation?.detach(coordinator)
+        coordinator.activation = nil
         // Drop the width-report callback before anything else: it is the one
         // path that could still fire from an AppKit layout pass after teardown.
         (scrollView.documentView as? AppKitFlippedContainerView)?.onWidthChange = nil
@@ -1164,8 +1400,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // does in the display cycle's LAYOUT phase — after the CONSTRAINT phase. In between,
         // the constraint pass still reaches the hosting view, whose graph has been reset by
         // this teardown, and asks it for its intrinsic size: a full rebuild and measurement of
-        // the entire hosted tree for a view about to be discarded. Measured by the
-        // `dataviz-measure` harness scenario (99.50): ~110–125 ms of every exit from the Data
+        // the entire hosted tree for a view about to be discarded. Measured by Film
+        // Tracker's `dataviz-measure` harness scenario: ~110–125 ms of every exit from the Data
         // Visualizations tab. Removing an already-removed view is a no-op, so SwiftUI's own
         // removal of the host afterward is unaffected.
         scrollView.removeFromSuperview()
@@ -1180,9 +1416,15 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
     @MainActor
     private func syncCoordinatorState(_ coordinator: Coordinator) {
         coordinator.onScrollWillStart = onScrollWillStart
+        coordinator.parameterIsActive = isActive
+        if coordinator.activation !== activation {
+            coordinator.activation?.detach(coordinator)
+            coordinator.activation = activation
+            activation?.attach(coordinator) { [weak coordinator] in coordinator?.applyActivation() }
+        }
         // Kept in step with the representable so applyRootView can suppress work for a
         // scroll view that is currently hidden. See Coordinator.isActive.
-        coordinator.isActive = isActive
+        coordinator.isActive = coordinator.effectiveIsActive
 
         // Re-wire only when the proxy identity actually changes. In practice each
         // consumer passes a stable @State proxy, so this is a single reference
@@ -1237,22 +1479,194 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
     private func configureScrollView(_ scrollView: NSScrollView) {
         scrollView.hasVerticalScroller        = true
         scrollView.hasHorizontalScroller      = false
-        scrollView.autohidesScrollers         = true
-        scrollView.borderType                 = .noBorder
-        scrollView.drawsBackground            = false
-        scrollView.verticalScrollElasticity   = .allowed
+        scrollView.autohidesScrollers         = style.autohidesScrollers
+        scrollView.borderType                 = style.borderType
+        if let backgroundColor = style.backgroundColor {
+            scrollView.drawsBackground        = true
+            scrollView.backgroundColor        = backgroundColor
+        } else {
+            scrollView.drawsBackground        = false
+        }
+        scrollView.verticalScrollElasticity   = style.verticalScrollElasticity
         scrollView.horizontalScrollElasticity = .none
         scrollView.wantsLayer                 = true
         scrollView.layerContentsRedrawPolicy  = .onSetNeedsDisplay
-        // None of this project's AppKitScrollView consumers are the window's
-        // direct content view under a titlebar, so automatic safe-area-driven
-        // content insets never apply in practice — only the recomputation on
-        // every layout pass is being skipped here, not any inset the person
-        // would actually see. (Bottom-inset headroom for the StatusBar overlay,
-        // where it's needed, is handled separately by each tab's own SwiftUI
-        // .safeAreaInset — an independent mechanism from NSScrollView's own
-        // contentInsets — so this does not conflict with it.)
-        scrollView.automaticallyAdjustsContentInsets = false
-        scrollView.contentInsets = NSEdgeInsets()
+        // Off by default (see `AppKitScrollStyle.automaticallyAdjustsContentInsets`): a
+        // scroll view that is not the window's direct content view under a titlebar never
+        // receives an automatic inset, so only the recomputation on every layout pass is
+        // being skipped here, not any inset the person would actually see.
+        scrollView.automaticallyAdjustsContentInsets = style.automaticallyAdjustsContentInsets
+        if !style.automaticallyAdjustsContentInsets {
+            scrollView.contentInsets = NSEdgeInsets()
+        }
+    }
+}
+
+// MARK: - ━━━━━━━━━━ 2. SharedOpenPanel ━━━━━━━━━━
+//
+// Generic, reusable NSOpenPanel helper: presents the panel as a sheet on the asking window
+// and returns the person's choice through `async`, so a call site is one `await` instead
+// of a completion handler and a hand-configured panel.
+//
+// Film Tracker's version, with two additions: `treatsFilePackagesAsDirectories` (from
+// Monolingual's copy), and `OpenPanelPresenter.defaults` plus per-call overrides for the
+// four things every copy hard-coded — the initial folder, the size, resizability and
+// movability. Every default is Film Tracker's, so a call site written for any existing
+// copy behaves exactly as it did.
+
+/// Project-wide defaults for every panel `OpenPanelPresenter` shows. Set once, at launch,
+/// through `OpenPanelPresenter.defaults`, only where they differ from Film Tracker's.
+@MainActor
+struct OpenPanelDefaults {
+    /// Where a panel opens when its configuration names no `directoryURL`.
+    enum Directory {
+        /// `~/Desktop`. Film Tracker, PhotoGallery, Spectrum, Monolingual, Compare Folders.
+        case desktop
+        /// `/Applications`. Process Elimination, which browses for app bundles.
+        case applications
+        /// The home folder.
+        case home
+        /// A fixed folder.
+        case url(URL)
+        /// Leaves `directoryURL` unset, so AppKit opens wherever the last panel left off.
+        case system
+
+        var url: URL? {
+            switch self {
+            case .desktop:
+                FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask).first
+            case .applications:
+                URL(fileURLWithPath: "/Applications", isDirectory: true)
+            case .home:
+                FileManager.default.homeDirectoryForCurrentUser
+            case .url(let url):
+                url
+            case .system:
+                nil
+            }
+        }
+    }
+
+    var directory: Directory = .desktop
+    /// Applied with `setContentSize` before the sheet is shown.
+    var contentSize = NSSize(width: 600, height: 400)
+    /// `false` removes `.resizable` from the panel's style mask.
+    var isResizable = false
+    var isMovable = false
+}
+
+@MainActor
+struct OpenPanelConfiguration {
+    var canChooseFiles: Bool = true
+    var canChooseDirectories: Bool = false
+    var allowsMultipleSelection: Bool = false
+    var allowedContentTypes: [UTType] = []
+    /// Lets the person open packages such as app bundles and pick something inside them.
+    var treatsFilePackagesAsDirectories: Bool = false
+
+    var title: String?
+    var message: String?
+    var prompt: String?
+
+    /// Optional initial directory. If `nil`, `OpenPanelPresenter.defaults.directory`
+    /// decides (the Desktop, unless the project changed it).
+    var directoryURL: URL?
+
+    /// Per-panel overrides of `OpenPanelPresenter.defaults`. `nil` takes the default.
+    var contentSize: NSSize?
+    var isResizable: Bool?
+    var isMovable: Bool?
+
+    // Parameter order is every existing copy's, with the additions where their copies put
+    // them (Monolingual's after `allowedContentTypes`) or at the end, so every existing
+    // call site compiles unchanged.
+    init(
+        canChooseFiles: Bool = true,
+        canChooseDirectories: Bool = false,
+        allowsMultipleSelection: Bool = false,
+        allowedContentTypes: [UTType] = [],
+        treatsFilePackagesAsDirectories: Bool = false,
+        title: String? = nil,
+        message: String? = nil,
+        prompt: String? = nil,
+        directoryURL: URL? = nil,
+        contentSize: NSSize? = nil,
+        isResizable: Bool? = nil,
+        isMovable: Bool? = nil) {
+        self.canChooseFiles = canChooseFiles
+        self.canChooseDirectories = canChooseDirectories
+        self.allowsMultipleSelection = allowsMultipleSelection
+        self.allowedContentTypes = allowedContentTypes
+        self.treatsFilePackagesAsDirectories = treatsFilePackagesAsDirectories
+        self.title = title
+        self.message = message
+        self.prompt = prompt
+        self.directoryURL = directoryURL
+        self.contentSize = contentSize
+        self.isResizable = isResizable
+        self.isMovable = isMovable }
+}
+
+@MainActor
+enum OpenPanelSelection { case canceled; case urls([URL]) }
+
+// Centralized helper for presenting NSOpenPanel as a sheet with consistent sizing.
+@MainActor
+enum OpenPanelPresenter {
+    /// Applied to every panel; each value can be overridden per panel on its configuration.
+    static var defaults = OpenPanelDefaults()
+
+    // Presents an NSOpenPanel configured with the provided options.
+    // - Parameters:
+    //   - configuration: Configuration options for the panel.
+    //   - window: The window to attach the sheet to. If nil, uses keyWindow or mainWindow.
+    // - Returns: '.urls([URL])' if the user confirmed, '.canceled' otherwise.
+    static func present(
+        configuration: OpenPanelConfiguration,
+        attachedTo window: NSWindow? = nil
+    ) async -> OpenPanelSelection {
+        let panel = NSOpenPanel()
+
+        // Core configuration.
+        panel.canChooseFiles = configuration.canChooseFiles
+        panel.canChooseDirectories = configuration.canChooseDirectories
+        panel.allowsMultipleSelection = configuration.allowsMultipleSelection
+        panel.treatsFilePackagesAsDirectories = configuration.treatsFilePackagesAsDirectories
+
+        if !configuration.allowedContentTypes.isEmpty {
+            panel.allowedContentTypes = configuration.allowedContentTypes }
+
+        // The configuration's folder, else the project default (~/Desktop unless changed).
+        if let directoryURL = configuration.directoryURL ?? defaults.directory.url {
+            panel.directoryURL = directoryURL }
+
+        if let title = configuration.title { panel.title = title }
+        if let message = configuration.message { panel.message = message }
+        if let prompt = configuration.prompt { panel.prompt = prompt }
+
+        // Fixed size and non-resizable, immovable behavior unless the project or this
+        // panel says otherwise.
+        if !(configuration.isResizable ?? defaults.isResizable) {
+            panel.styleMask.remove(.resizable) }
+        panel.setContentSize(configuration.contentSize ?? defaults.contentSize)
+        panel.isMovable = configuration.isMovable ?? defaults.isMovable
+
+        let targetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow
+
+        return await withCheckedContinuation { continuation in
+            if let targetWindow {
+                // Present as sheet attached to the specified window
+                panel.beginSheetModal(for: targetWindow) { response in
+                    if response == .OK { continuation.resume(returning: .urls(panel.urls))
+                    } else { continuation.resume(returning: .canceled) } }
+            } else {
+                // Fallback: a standalone modeless panel, for when no window is available
+                // to attach a sheet to (should rarely happen). `begin` does not block the
+                // rest of the app.
+                panel.begin { response in
+                    if response == .OK { continuation.resume(returning: .urls(panel.urls))
+                    } else { continuation.resume(returning: .canceled) } }
+            }
+        }
     }
 }

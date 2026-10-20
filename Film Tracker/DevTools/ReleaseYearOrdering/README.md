@@ -52,7 +52,7 @@ alone, the same compromise the ReleaseCardStateEquivalence harness makes:
 
 - `ReleaseCardModel.enforceReleaseYearOrder()` — `33.00 FSTabReleases.swift`
 - `_ReleaseYearRow`'s computed Stepper ranges and `baseYearAvailable` — `33.20 ReleaseCard.swift`
-- `CustomDatePicker.steppedYear(from:by:)`, `displayYear`, and
+- `CustomDateStepper.steppedYear(from:by:)`, `displayYear`, and
   `shouldActivateInsteadOfIncrement()` — `91.00 InputUtilities.swift`
 
 Re-run it, and mirror any edit to those three, whenever the ordering rule or either

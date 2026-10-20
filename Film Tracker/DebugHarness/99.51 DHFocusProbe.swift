@@ -206,7 +206,7 @@ final class DebugFocusProbe {
                 frame.origin.x, frame.origin.y, frame.width, frame.height)
         }
         out += "===FOCUS-REPORT-END===\n"
-        unsafe fputs(out, stderr)
+        printToStandardError(out)
     }
 
     // MARK: - Formatting
@@ -241,7 +241,7 @@ final class DebugFocusProbe {
     }
 
     private static func emit(_ message: String) {
-        unsafe fputs("[DebugFocus] \(message)\n", unsafe stderr)
+        printToStandardError("[DebugFocus] \(message)\n")
     }
 }
 

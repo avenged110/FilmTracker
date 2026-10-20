@@ -56,6 +56,11 @@ enum HostAlert {
     case newLibraryResult(success: Bool, message: String)
     case duplicateViewingDate
     case calendarEventFailure
+    /// A plain informational alert with a single "OK" (AlertCommand.showNotice).
+    case notice(title: String, message: String)
+    /// A LeftSidebar drop on the "Up Next" row that would overflow it. Offers to send the
+    /// films to "Soon" instead (AlertCommand.offerSoonForFullUpNextDrop).
+    case upNextFullDrop(filmIDs: Set<UUID>, message: String)
 
     /// Which alert this is, payload aside — what coalescing and the one-at-a-time rules
     /// compare.
@@ -63,7 +68,8 @@ enum HostAlert {
         case backupRestore, removeList, deleteListContents, clearListContents, removeFromList
         case removeFromAllLists, deleteFromLibrary, removeFromHallOfFame, removeFromFilmQueue
         case filmQueueAdd, persistenceFailure, databaseError, libraryReadFailure
-        case newLibraryResult, duplicateViewingDate, calendarEventFailure
+        case newLibraryResult, duplicateViewingDate, calendarEventFailure, notice
+        case upNextFullDrop
     }
 
     var kind: Kind {
@@ -84,6 +90,8 @@ enum HostAlert {
         case .newLibraryResult: .newLibraryResult
         case .duplicateViewingDate: .duplicateViewingDate
         case .calendarEventFailure: .calendarEventFailure
+        case .notice: .notice
+        case .upNextFullDrop: .upNextFullDrop
         }
     }
 
@@ -106,6 +114,8 @@ enum HostAlert {
         case .newLibraryResult(let success, _): success ? "Library Created" : "Error Creating Library"
         case .duplicateViewingDate: "Event Already Exists"
         case .calendarEventFailure: "Calendar Event Not Created"
+        case .notice(let title, _): title
+        case .upNextFullDrop: FilmQueue.upNextFullTitle
         }
     }
 }
@@ -131,6 +141,9 @@ struct AlertHostView: View, Loggable {
     /// A Film Queue drop waiting for its drag session to end before it is presented (see
     /// the `.dragSessionDidEnd` handler).
     @State private var stashedQueueDrop: HostAlert.QueueAdd?
+    /// A notice sent from inside a drag (AlertCommand.showNotice with afterDragSession),
+    /// held for the same `.dragSessionDidEnd` hand-off as `stashedQueueDrop`.
+    @State private var stashedNotice: HostAlert?
     /// The backup file the restore prompt opens. Kept beside the alert rather than in it:
     /// a second backup-open retargets the prompt already on screen, and an open alert keeps
     /// the payload it was drawn with, so its button reads this at click time instead.
@@ -169,6 +182,14 @@ struct AlertHostView: View, Loggable {
             // of never mutating presentation state synchronously from AppKit delegate
             // contexts (main.async over Task for run-loop ordering and QoS inheritance).
             .onReceive(NotificationCenter.default.publisher(for: .dragSessionDidEnd)) { _ in
+                // A drop-time notice rides the same hand-off as the Queue drop below.
+                if stashedNotice != nil {
+                    DispatchQueue.main.async {
+                        guard let notice = stashedNotice else { return }
+                        stashedNotice = nil
+                        enqueue(notice)
+                    }
+                }
                 guard stashedQueueDrop != nil, !hasAlert(.filmQueueAdd) else { return }
                 DispatchQueue.main.async {
                     guard let add = stashedQueueDrop else { return }
@@ -324,6 +345,22 @@ struct AlertHostView: View, Loggable {
             coalesce(.duplicateViewingDate)
         case .calendarEventCreationFailed:
             coalesce(.calendarEventFailure)
+        case .offerSoonForFullUpNextDrop(let filmIDs, let message):
+            // Sent from inside performDragOperation, so it rides the stashed-notice
+            // hand-off to the drag session's end, as a drop-time notice does.
+            stashedNotice = .upNextFullDrop(filmIDs: filmIDs, message: message)
+        case .showNotice(let title, let message, let afterDragSession):
+            // Same-kind coalescing would let an unrelated notice replace one on screen,
+            // so notices queue; a burst of identical ones is still collapsed.
+            let notice = HostAlert.notice(title: title, message: message)
+            if afterDragSession {
+                stashedNotice = notice
+            } else if case .notice(let shownTitle, let shownMessage)? = presented,
+                      shownTitle == title, shownMessage == message {
+                break
+            } else {
+                enqueue(notice)
+            }
         }
     }
 
@@ -441,6 +478,12 @@ struct AlertHostView: View, Loggable {
             // unconfirmed path does.
             Button("Cancel", role: .cancel) { }
             Button("Add Anyway") {
+                // "Up Next" may have filled while this alert was up; re-checked at the
+                // moment of commitment, as FilmQueueAssignment.toggle does for its menus.
+                if add.listID == FilmQueueSection.upNext.listID,
+                   FilmQueue.refuseUpNextAddIfFull(add.filmIDs, coordinator: dataCoordinator) {
+                    return
+                }
                 FilmManager.addFilmsToList(add.filmIDs, listID: add.listID,
                                            coordinator: dataCoordinator)
                 if add.fromMenu {
@@ -503,6 +546,30 @@ struct AlertHostView: View, Loggable {
             }
             .keyboardShortcut(.defaultAction)
 
+        case .notice:
+            Button("OK") { }
+                .keyboardShortcut(.defaultAction)
+
+        case .upNextFullDrop(let filmIDs, _):
+            // The user's explicit answer overrides their "drop onto Queue adds to Up Next"
+            // preference for this one drop. The special-sorting gate still applies to the
+            // films now headed for "Soon".
+            Button("Cancel", role: .cancel) {
+                log("Full 'Up Next' drop canceled — \(filmIDs.count) film(s) not added")
+            }
+            Button("Add to \"Soon\" Queue Instead") {
+                let soon = FilmQueueSection.soon.listID
+                if FilmQueue.addNeedsConfirmation(filmIDs, coordinator: dataCoordinator) {
+                    enqueue(.filmQueueAdd(HostAlert.QueueAdd(
+                        filmIDs: filmIDs, listID: soon,
+                        message: filmQueueAddMessage(filmIDs), fromMenu: false)))
+                    return
+                }
+                log("Adding \(filmIDs.count) film(s) to 'Soon' in place of a full 'Up Next'")
+                FilmManager.addFilmsToList(filmIDs, listID: soon, coordinator: dataCoordinator)
+            }
+            .keyboardShortcut(.defaultAction)
+
         case .calendarEventFailure:
             // Deliberately does NOT reopen the popover: unlike the duplicate-date case, the
             // viewing HAS been committed by the time this alert appears, so reopening it
@@ -561,6 +628,8 @@ struct AlertHostView: View, Loggable {
             Text(message)
         case .duplicateViewingDate:
             Text("There is already a viewing event for the selected date. Please choose a different date.")
+        case .notice(_, let message), .upNextFullDrop(_, let message):
+            Text(message)
         case .calendarEventFailure:
             Text("The viewing was recorded in Film Tracker, but the event could not be added to your system calendar. Check that the selected calendar is still available and writable.")
         }

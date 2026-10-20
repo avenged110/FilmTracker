@@ -110,7 +110,10 @@ struct WatchDetails: View, Loggable {
     /// four come from a single RSBHelpers.sourceDisplay(for:) call so they cannot
     /// disagree about which release the field is describing.
     private var cachedSourceDisplay: RSBHelpers.SourceDisplay {
-        film.map { RSBHelpers.sourceDisplay(for: $0) } ?? RSBHelpers.SourceDisplay()
+        // Read through CurrentDay so an upcoming release's purchase note turns into
+        // "Available for purchase" on its release day without anything else changing.
+        let today = CurrentDay.shared.today
+        return film.map { RSBHelpers.sourceDisplay(for: $0, today: today) } ?? RSBHelpers.SourceDisplay()
     }
 
     private var cachedAverageBetweenViewings: String {
@@ -994,8 +997,19 @@ struct WatchDetails: View, Loggable {
             if !regionBNote.isEmpty {
                 RSBHelpers.annotationRow(regionBNote, color: .primary)
             }
+            // Built as a fitting row rather than a plain annotationRow so an upcoming
+            // release's date can drop to its abbreviated month ("Oct. 2, 2026") instead
+            // of wrapping, exactly as the module's other date rows do. Styled to match
+            // annotationRow: .secondary text and glyph, always selectable.
             if !purchaseNote.isEmpty {
-                RSBHelpers.annotationRow(purchaseNote, glyph: gatedGlyph(Self.purchaseNoteGlyph))
+                RSBHelpers.fittingValueRow(
+                    full: Text(purchaseNote).foregroundStyle(.secondary),
+                    abbreviations: source.availableForPurchaseNoteAbbreviated
+                        .map { [Text($0).foregroundStyle(.secondary)] } ?? [],
+                    isPlaceholder: false,
+                    glyph: gatedGlyph(Self.purchaseNoteGlyph),
+                    glyphColor: .secondary
+                )
             }
         }
     }

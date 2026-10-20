@@ -6,12 +6,13 @@
 import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
+import Combine
 
 // MARK: - Stepper Enabled Fill
 
 /// The background fill for every enabled Stepper chrome widget in the app: the custom
-/// Stepper family in `91.00 InputUtilities.swift` (TimePicker, DurationPicker,
-/// CustomDatePicker) and `30.20 FSControlHelpers.swift` (StandardStepper,
+/// Stepper family in `91.00 InputUtilities.swift` (TimeStepper, DurationStepper,
+/// CustomDateStepper) and `30.20 FSControlHelpers.swift` (StandardStepper,
 /// HBRFValueStepper, RatingStepper). Differentiates an enabled Stepper's fill from the
 /// surrounding CalendarPopover/FilmSheet/ReleaseCard background — and, when a Stepper
 /// disables, from a disabled one, which reverts to `Color.clear` so the surrounding
@@ -176,13 +177,13 @@ enum ViewingVersion: String, CaseIterable, Hashable {
 //
 // `Calendar.current.component(.year, from: Date())` is not a field read — it resolves the
 // user's current calendar and performs a full date decomposition, and it was being spelled
-// out independently by two types (FSTabReleases and CustomDatePicker) whose accessors are
+// out independently by two types (FSTabReleases and CustomDateStepper) whose accessors are
 // read on genuinely hot paths: the release card's purchase-year range is read per row
-// evaluation and again inside every ordering-rule enforcement pass, and CustomDatePicker's
+// evaluation and again inside every ordering-rule enforcement pass, and CustomDateStepper's
 // `@State private var year` default expression is evaluated on EVERY construction of that
 // view — SwiftUI re-runs a View's init on each parent body pass, and Swift evaluates a
 // stored property's default expression even in an initializer that immediately overwrites
-// it (verified, and true at -O). Three CustomDatePickers are constructed per release card.
+// it (verified, and true at -O). Three CustomDateSteppers are constructed per release card.
 //
 // MARK: Why a time window rather than a launch-time constant
 //
@@ -208,9 +209,89 @@ enum CurrentYear {
             let age = now.timeIntervalSince(cached.derivedAt)
             if age >= 0 && age < maxAge { return cached.year }
         }
-        let year = Calendar.current.component(.year, from: now)
+        // The pinned Gregorian calendar, not Calendar.current: every consumer bounds or seeds
+        // a stored Gregorian year (see CustomDateStepper.calendar).
+        let year = StorageDateFormatters.calendar.component(.year, from: now)
         cached = (year, now)
         return year
+    }
+}
+
+// MARK: - Current Day
+//
+// The current calendar day as an observable value, for content that has to change when the
+// day does — the release card's "Upcoming" badge and Unreleased availability, the sidebar's
+// "Released on" / "Releases on" wording, and the new-release notification schedule.
+//
+// A view reading `today` re-renders on the day change and at no other time, so content that
+// depends on the date stays current in a session left running for days without anything
+// polling the clock. The value is the start of the day in the pinned Gregorian calendar the
+// stored dates are written in (StorageDateFormatters.calendar).
+//
+// MARK: Why four signals
+//
+// `NSCalendarDayChanged` is the system's own day-change notice, and is also posted when the
+// clock or time zone moves the day. The midnight task is the same check on this app's own
+// timer, as SmartLists keeps one, in case a notice is missed. A Mac asleep at midnight wakes
+// with the timer already overdue and the notice possibly not yet posted, so a wake re-checks
+// too. Every signal runs the same idempotent `refresh()`, which publishes only an actual
+// change, so a duplicate costs one date comparison.
+@MainActor
+@Observable
+final class CurrentDay {
+    static let shared = CurrentDay()
+
+    /// The start of today. Changes only when the calendar day does.
+    private(set) var today: Date
+
+    /// Fires with the new `today` after each change, for non-view observers.
+    @ObservationIgnored let dayChanged = PassthroughSubject<Date, Never>()
+
+    @ObservationIgnored private var midnightTask: Task<Void, Never>?
+    @ObservationIgnored private var observers: [any NSObjectProtocol] = []
+
+    private init() {
+        today = Self.startOfToday()
+        let center = NotificationCenter.default
+        for name in [Notification.Name.NSCalendarDayChanged, .NSSystemClockDidChange,
+                     .NSSystemTimeZoneDidChange] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { CurrentDay.shared.refresh() }
+            })
+        }
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { CurrentDay.shared.refresh() }
+        })
+        scheduleMidnightRefresh()
+    }
+
+    private static func startOfToday() -> Date {
+        StorageDateFormatters.calendar.startOfDay(for: Date())
+    }
+
+    /// Re-reads the day and publishes it if it changed. Safe to call at any time.
+    func refresh() {
+        let day = Self.startOfToday()
+        if day != today {
+            today = day
+            dayChanged.send(day)
+        }
+        scheduleMidnightRefresh()
+    }
+
+    /// Arms one task for the next midnight (a second past it, so the day has turned when it
+    /// runs), replacing any earlier one.
+    private func scheduleMidnightRefresh() {
+        midnightTask?.cancel()
+        let cal = StorageDateFormatters.calendar
+        guard let tomorrow = cal.date(byAdding: .day, value: 1, to: Self.startOfToday()) else { return }
+        let interval = max(1, tomorrow.timeIntervalSinceNow + 1)
+        midnightTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else { return }
+            CurrentDay.shared.refresh()
+        }
     }
 }
 
@@ -360,7 +441,7 @@ private func daysSinceEpoch(year: Int, month: Int, day: Int) -> Int {
     return era * 146_097 + dayOfEra - 719_468
 }
 
-private func gregorianDaysInMonth(_ month: Int, year: Int) -> Int {
+func gregorianDaysInMonth(_ month: Int, year: Int) -> Int {
     switch month {
     case 2: return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 29 : 28
     case 4, 6, 9, 11: return 30
@@ -1213,102 +1294,6 @@ struct PathBarView: View {
                 .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)) }
 }
 
-// MARK: - SharedOpenPanel
-// Generic, reusable NSOpenPanel() helper.
-@MainActor
-struct OpenPanelConfiguration {
-    var canChooseFiles: Bool = true
-    var canChooseDirectories: Bool = false
-    var allowsMultipleSelection: Bool = false
-    var allowedContentTypes: [UTType] = []
-
-    var title: String?
-    var message: String?
-    var prompt: String?
-
-    // Optional initial directory. If 'nil', defaults to ~/Desktop.
-    var directoryURL: URL?
-
-    init(
-        canChooseFiles: Bool = true,
-        canChooseDirectories: Bool = false,
-        allowsMultipleSelection: Bool = false,
-        allowedContentTypes: [UTType] = [],
-        title: String? = nil,
-        message: String? = nil,
-        prompt: String? = nil,
-        directoryURL: URL? = nil) {
-        self.canChooseFiles = canChooseFiles
-        self.canChooseDirectories = canChooseDirectories
-        self.allowsMultipleSelection = allowsMultipleSelection
-        self.allowedContentTypes = allowedContentTypes
-        self.title = title
-        self.message = message
-        self.prompt = prompt
-        self.directoryURL = directoryURL }
-}
-
-@MainActor
-enum OpenPanelSelection { case canceled; case urls([URL]) }
-
-// Centralized helper for presenting NSOpenPanel as a sheet with consistent sizing.
-@MainActor
-enum OpenPanelPresenter {
-    // Presents an NSOpenPanel configured with the provided options.
-    // - Parameters:
-    //   - configuration: Configuration options for the panel.
-    //   - window: The window to attach the sheet to. If nil, uses keyWindow or mainWindow.
-    // - Returns: '.urls([URL])' if the user confirmed, '.canceled' otherwise.
-    static func present(
-        configuration: OpenPanelConfiguration,
-        attachedTo window: NSWindow? = nil
-    ) async -> OpenPanelSelection {
-        let panel = NSOpenPanel()
-
-        // Core configuration.
-        panel.canChooseFiles = configuration.canChooseFiles
-        panel.canChooseDirectories = configuration.canChooseDirectories
-        panel.allowsMultipleSelection = configuration.allowsMultipleSelection
-
-        if !configuration.allowedContentTypes.isEmpty {
-            panel.allowedContentTypes = configuration.allowedContentTypes }
-
-        // Default to ~/Desktop if not specified.
-        if let directoryURL = configuration.directoryURL {
-            panel.directoryURL = directoryURL
-        } else if let desktop = FileManager.default.urls(
-            for: .desktopDirectory, in: .userDomainMask).first {
-            panel.directoryURL = desktop }
-
-        if let title = configuration.title { panel.title = title }
-        if let message = configuration.message { panel.message = message }
-        if let prompt = configuration.prompt { panel.prompt = prompt }
-
-        // Enforce fixed size and non-resizable behavior.
-        panel.styleMask.remove(.resizable)
-        panel.setContentSize(NSSize(width: 600, height: 400))
-        panel.isMovable = false
-
-        let targetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow
-
-        return await withCheckedContinuation { continuation in
-            if let targetWindow {
-                // Present as sheet attached to the specified window
-                panel.beginSheetModal(for: targetWindow) { response in
-                    if response == .OK { continuation.resume(returning: .urls(panel.urls))
-                    } else { continuation.resume(returning: .canceled) } }
-            } else {
-                // Fallback: a standalone modeless panel, for when no window is available
-                // to attach a sheet to (should rarely happen). `begin` does not block the
-                // rest of the app.
-                panel.begin { response in
-                    if response == .OK { continuation.resume(returning: .urls(panel.urls))
-                    } else { continuation.resume(returning: .canceled) } }
-            }
-        }
-    }
-}
-
 // MARK: - Export Staging
 
 /// Where every export is built before it is handed to the user.
@@ -1680,6 +1665,16 @@ extension UUID {
     }
 }
 
+// MARK: - Standard Error
+
+/// Writes `message` to standard error as-is (no newline added). The same unbuffered write as
+/// `fputs(message, stderr)`, without touching the C `stderr` global, which Strict Memory
+/// Safety flags as unsafe; a closed stderr is ignored, as `fputs` ignored it. Mirrors
+/// DebugLogKit's private helper of the same purpose.
+nonisolated func printToStandardError(_ message: String) {
+    try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
+}
+
 // MARK: - TaskHandle
 /// A lightweight RAII wrapper that cancels its wrapped Task when deallocated.
 ///
@@ -1801,246 +1796,6 @@ enum SubcategoryNavigation {
                 ViewStateManager.shared.switchToViewSync(viewID)
             }
         }
-    }
-}
-
-// MARK: - Film Removal Commands
-
-/// The shared implementation behind every "Remove from List" / "Remove from All Lists" /
-/// "Delete from Library" command in the app — the MenuBar's "Film" menu, the
-/// GalleryTitleBar's TrashMenuButton, the gallery contextual menu (GalleryContextMenu),
-/// and KeyboardManager's Opt+Delete fallback.
-///
-/// Before this existed the same three operations were written out four times, each with
-/// its own copy of the context if-chain, the membership pre-filter, the
-/// `Preferences.shouldConfirmListContents` / `Preferences.confirmGalleryDelete` gate, and
-/// the alert payload. Keeping four copies in agreement was entirely manual: the
-/// enablement test (`canRemoveFromCurrentList`) existed in two of them and inline in a
-/// third, the Film Queue branch pre-filtered its selection in all four but the
-/// user-list branch pre-filtered in none, and adding a new removable context meant
-/// finding and editing every copy by hand. All of that now lives here once.
-///
-/// The one genuine behavioral difference between the hosts is preserved as an explicit
-/// parameter rather than being flattened away: the two gallery surfaces clear the
-/// selection after an unconfirmed removal, while the MenuBar and keyboard paths leave it
-/// standing. See `clearingSelection` below.
-@MainActor
-enum FilmRemoval: Loggable {
-    nonisolated static let logTag = "[FilmRemoval]"
-
-    // MARK: - Context
-
-    /// The list a "Remove from List" command would remove from, given the view on
-    /// screen. Deliberately narrower than SidebarItem: these are the only three places
-    /// where "remove from THIS list" is a distinct operation from "remove from every
-    /// list," and naming them explicitly keeps each caller from having to re-derive the
-    /// same if-chain from `selectedSidebarItem` plus a category singleton.
-    enum ListContext: Equatable {
-        case hallOfFame
-        case filmQueue
-        case userList(UUID)
-    }
-
-    /// Resolves the active removal context, or nil where "Remove from List" is
-    /// meaningless (All Films, Search, Recents, Unwatched, the smart lists, Imports, and
-    /// the Reports tabs other than Hall of Fame).
-    ///
-    /// The gallery hosts can never observe `.hallOfFame` — Reports is not a gallery
-    /// view, and GalleryContextMenu additionally gates the whole item on
-    /// `ViewCapabilities.showsRemoveFromListInTrashMenu`, which is false there — so
-    /// resolving all three contexts in one place is a superset that costs those callers
-    /// nothing and removes a divergence point.
-    static func currentListContext(appState: AppState) -> ListContext? {
-        if appState.selectedSidebarItem == .libraryItem(.reports) {
-            return ReportsState.shared.selectedCategory == .hallOfFame ? .hallOfFame : nil
-        }
-        if appState.selectedSidebarItem == .libraryItem(.filmQueue) {
-            return .filmQueue
-        }
-        if case .list(let listID) = appState.selectedSidebarItem {
-            return .userList(listID)
-        }
-        return nil
-    }
-
-    /// The subset of `filmIDs` that is actually resident in `context` and would
-    /// therefore genuinely be affected by a removal.
-    ///
-    /// Every removal path filters through this before acting or alerting, so a
-    /// confirmation alert's film count is always exact and a selection that is only
-    /// partially resident does the right (partial) thing rather than the wrong (whole)
-    /// one. The underlying operations already skip non-members, so this changes what the
-    /// user is *told*, not what is done to the database.
-    static func removableFilmIDs(from filmIDs: Set<UUID>,
-                                 in context: ListContext,
-                                 coordinator: DataCoordinator) -> Set<UUID> {
-        switch context {
-        case .hallOfFame:
-            // hallOfFameFilms is an Array; hoisting it into a Set once keeps this linear
-            // rather than quadratic in the size of the selection.
-            let hofIDs = Set(coordinator.hallOfFameFilms)
-            return filmIDs.filter { hofIDs.contains($0) }
-        case .filmQueue:
-            return filmIDs.filter { coordinator.filmQueueSection(forFilm: $0) != nil }
-        case .userList(let listID):
-            return filmIDs.filter { coordinator.filmExists(filmID: $0, inList: listID) }
-        }
-    }
-
-    /// True when a "Remove from List" command should be enabled for `filmIDs`.
-    ///
-    /// `contains`-style semantics — at least one selected film resident in the context,
-    /// not all of them — because `removableFilmIDs` narrows the set before acting, so a
-    /// partially-resident selection still has real work to do.
-    static func canRemoveFromCurrentList(filmIDs: Set<UUID>,
-                                         appState: AppState,
-                                         coordinator: DataCoordinator) -> Bool {
-        guard !filmIDs.isEmpty,
-              let context = currentListContext(appState: appState) else { return false }
-        return !removableFilmIDs(from: filmIDs, in: context, coordinator: coordinator).isEmpty
-    }
-
-    // MARK: - Commands
-
-    /// Removes `filmIDs` from the active list context, honoring
-    /// `Preferences.shouldConfirmListContents`.
-    ///
-    /// - Parameter clearingSelection: Whether to clear the selection once an unconfirmed
-    ///   removal completes. True for the two gallery surfaces (the trash menu and the
-    ///   contextual menu), whose films visibly leave the view under the user's cursor;
-    ///   false for the MenuBar and Opt+Delete, which have always left the selection
-    ///   standing. A confirmed removal carries the flag on its alert payload, and
-    ///   AlertHostView's completion path honors it the same way.
-    static func removeFromCurrentList(filmIDs: Set<UUID>,
-                                      appState: AppState,
-                                      coordinator: DataCoordinator,
-                                      clearingSelection: Bool) {
-        guard let context = currentListContext(appState: appState) else { return }
-        let targets = removableFilmIDs(from: filmIDs, in: context, coordinator: coordinator)
-        guard !targets.isEmpty else { return }
-
-        let confirm = Preferences.shouldConfirmListContents
-
-        // Logged as a request, not as the removal itself, whenever confirmation is on:
-        // this method then only raises an alert — the removal happens later, from the
-        // alert's completion path, and may never happen at all. Announcing the outcome
-        // here made the log assert a removal that a cancel silently contradicted.
-        if confirm {
-            Self.log("Remove from \(context) requested for \(targets.count) film(s) — awaiting confirmation")
-        } else {
-            Self.log("Removing \(targets.count) film(s) from \(context)")
-        }
-
-        switch context {
-        case .hallOfFame:
-            if confirm {
-                AppEventBus.shared.sendAlert(.confirmRemoveFromHallOfFame(filmIDs: targets,
-                                                                          clearingSelection: clearingSelection))
-            } else {
-                // Single batched call: one compaction, one atomic database transaction,
-                // and one coherent rollback baseline for the whole selection. Synchronous,
-                // so the selection clear follows it directly.
-                coordinator.removeFromHallOfFame(targets)
-                clearSelectionIfRequested(clearingSelection)
-            }
-
-        case .filmQueue:
-            if confirm {
-                AppEventBus.shared.sendAlert(.confirmRemoveFromFilmQueue(filmIDs: targets,
-                                                                         clearingSelection: clearingSelection))
-            } else {
-                Task {
-                    FilmManager.removeFromFilmQueue(targets, coordinator: coordinator)
-                    clearSelectionIfRequested(clearingSelection)
-                }
-            }
-
-        case .userList(let listID):
-            if confirm {
-                // The list record is needed only for the alert's title, so the lookup is
-                // scoped to this branch — requiring it up front would silently swallow the
-                // unconfirmed removal in the one case where it can be missing (the list
-                // deleted out from under an open menu).
-                guard let list = coordinator.getList(listID) else {
-                    Self.log("Remove from list aborted: list \(listID) no longer exists")
-                    return
-                }
-                AppEventBus.shared.sendAlert(.confirmRemoveFromList(filmIDs: targets,
-                                                                    listID: listID,
-                                                                    listName: list.listName,
-                                                                    clearingSelection: clearingSelection))
-            } else {
-                Task {
-                    FilmManager.removeFilmsFromList(targets, listID: listID,
-                                                          coordinator: coordinator)
-                    clearSelectionIfRequested(clearingSelection)
-                }
-            }
-        }
-    }
-
-    /// Removes `filmIDs` from every list they belong to, honoring
-    /// `Preferences.shouldConfirmListContents`. Unlike `removeFromCurrentList` this is
-    /// available in every view, so there is no context to resolve and nothing to
-    /// pre-filter — a film in no lists is simply a no-op inside ListManager.
-    static func removeFromAllLists(filmIDs: Set<UUID>,
-                                   coordinator: DataCoordinator,
-                                   clearingSelection: Bool) {
-        guard !filmIDs.isEmpty else { return }
-
-        if Preferences.shouldConfirmListContents {
-            // See removeFromCurrentList: request, not outcome.
-            Self.log("Remove from all lists requested for \(filmIDs.count) film(s) — awaiting confirmation")
-            AppEventBus.shared.sendAlert(.confirmRemoveFromAllLists(filmIDs: filmIDs,
-                                                                    clearingSelection: clearingSelection))
-        } else {
-            Self.log("Removing \(filmIDs.count) film(s) from all lists")
-            Task {
-                ListManager.removeFilmsFromAllLists(filmIDs, coordinator: coordinator)
-                clearSelectionIfRequested(clearingSelection)
-            }
-        }
-    }
-
-    /// Deletes `filmIDs` from the library, honoring `Preferences.confirmGalleryDelete`.
-    ///
-    /// Always deletes from the library regardless of the active view — "Remove from
-    /// List" is the separate, dedicated operation for list membership.
-    ///
-    /// The selection handling here differs in shape from the two methods above because
-    /// `FilmManager.deleteFilms` takes the SelectionState directly (it must reconcile the
-    /// selection as rows disappear, not merely clear it afterwards), so `clearingSelection`
-    /// chooses whether to hand it over rather than driving a trailing clear.
-    static func deleteFromLibrary(filmIDs: Set<UUID>,
-                                  coordinator: DataCoordinator,
-                                  clearingSelection: Bool) {
-        guard !filmIDs.isEmpty else { return }
-
-        if Preferences.confirmGalleryDelete {
-            // Deliberately NOT "Deleting N film(s) from library". With confirmation on,
-            // this method deletes nothing — it raises an alert and returns. The previous
-            // wording was emitted the instant the command was invoked, so a canceled
-            // deletion left the log claiming films had been removed, with nothing after
-            // it to say otherwise. FilmManager.deleteFilms logs the deletion proper when
-            // the alert's completion path actually calls it.
-            Self.log("Delete from library requested for \(filmIDs.count) film(s) — awaiting confirmation")
-            AppEventBus.shared.sendAlert(.confirmDeleteFromLibrary(filmIDs: filmIDs,
-                                                                   clearingSelection: clearingSelection))
-        } else {
-            Self.log("Deleting \(filmIDs.count) film(s) from library (confirmation disabled)")
-            Task {
-                await FilmManager.deleteFilms(filmIDs, coordinator: coordinator,
-                                              selectionState: clearingSelection
-                                                  ? SelectionState.shared : nil)
-            }
-        }
-    }
-
-    // MARK: - Helpers
-
-    private static func clearSelectionIfRequested(_ shouldClear: Bool) {
-        guard shouldClear else { return }
-        SelectionState.shared.clearImmediate()
     }
 }
 
@@ -2299,7 +2054,14 @@ nonisolated enum Fmt {
     }
 
     /// `%0<width>d` — an integer left-padded with zeros to `width` characters.
+    ///
+    /// Built from `String(_:)` rather than `String(format:)`, with printf's exact rules: the
+    /// sign counts toward `width` and the zeros go between it and the digits ("-0012" for
+    /// `padded(-12, 5)`), and a value already `width` long or longer is never truncated.
     static func padded(_ value: Int, _ width: Int) -> String {
-        unsafe String(format: "%0\(width)ld", value)
+        let digits = String(value.magnitude)
+        let sign = value < 0 ? "-" : ""
+        let zeros = max(0, width - sign.count - digits.count)
+        return sign + String(repeating: "0", count: zeros) + digits
     }
 }

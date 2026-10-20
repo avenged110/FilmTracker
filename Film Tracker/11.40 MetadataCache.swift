@@ -287,6 +287,51 @@ struct FilmMetadata: Codable {
     }
 }
 
+// MARK: - Sort Projection
+
+extension FilmMetadata {
+    /// The stored fields `MetadataCache.compare(_:_:by:purchaseFormat:)` reads, directly or
+    /// through `mostRecentPurchaseDate(in:)` / `hasPurchasedReleases(in:)`.
+    static let sortFieldNames: Set<String> = [
+        "id", "titleKey", "titleStartsWithNumber", "year", "releaseDateParsed",
+        "effectiveDuration", "dateAddedParsed", "lastWatchedParsed", "lastModifiedParsed",
+        "rating", "viewCount", "mostRecentPurchaseDate", "hasPurchasedReleases",
+        "mostRecentPurchaseDateByFormat", "purchasedFormats",
+    ]
+
+    /// Every other stored field: display strings, raw inputs and dates no comparator reads.
+    /// The harness checks that the two sets together name every stored property exactly
+    /// once, so a field added to the struct must be classified before that check passes.
+    static let nonSortFieldNames: Set<String> = [
+        "duration", "dateAddedRaw", "lastWatchedRaw", "lastModifiedRaw", "rotationDate",
+        "dateAddedFormatted", "lastWatchedFormatted", "lastModifiedFormatted",
+        "rotationDateFormatted", "purchaseDateFormatted", "nameLowercase",
+        "alternateTitleLowercase",
+    ]
+
+    /// True when every field in `sortFieldNames` is equal, so this entry and `other`
+    /// compare identically against any third entry under every sort option. A change
+    /// between two such entries cannot move the film in any library order (see
+    /// `MetadataCache.reconcileLibraryOrders`).
+    func sortsIdentically(to other: FilmMetadata) -> Bool {
+        id == other.id
+            && titleKey == other.titleKey
+            && titleStartsWithNumber == other.titleStartsWithNumber
+            && year == other.year
+            && releaseDateParsed == other.releaseDateParsed
+            && effectiveDuration == other.effectiveDuration
+            && dateAddedParsed == other.dateAddedParsed
+            && lastWatchedParsed == other.lastWatchedParsed
+            && lastModifiedParsed == other.lastModifiedParsed
+            && rating == other.rating
+            && viewCount == other.viewCount
+            && mostRecentPurchaseDate == other.mostRecentPurchaseDate
+            && hasPurchasedReleases == other.hasPurchasedReleases
+            && mostRecentPurchaseDateByFormat == other.mostRecentPurchaseDateByFormat
+            && purchasedFormats == other.purchasedFormats
+    }
+}
+
 // MARK: - Cache File Envelope
 /// The on-disk representation of the metadata cache.
 ///
@@ -344,8 +389,70 @@ final class MetadataCache: Loggable {
     
     // MARK: - Properties
     
-    private(set) var metadata: [UUID: FilmMetadata] = [:]
+    private(set) var metadata: [UUID: FilmMetadata] = [:] {
+        didSet { metadataGeneration &+= 1 }
+    }
     private let cacheURL: URL
+
+    // MARK: - Library Orders
+    //
+    // Every comparator ends in a title tiebreak that ends in the film ID, so each sort
+    // option is a strict TOTAL order over metadata entries. Under a total order, sorting
+    // any subset of the library yields exactly the subsequence of the sorted library, and
+    // the descending result is exactly the ascending one reversed. So each option's
+    // ascending order over the whole library is built once, off the main actor, and every
+    // later sort() of a view's films is a filter of it: O(N) instead of an
+    // O(N log N) sort whose title comparisons (localizedStandardCompare) cost ~33 ms per
+    // 1,400 films on the main thread, after every edit.
+    //
+    // Correctness rests on one rule: an order is used only while it describes the
+    // CURRENT metadata. `metadataGeneration` moves on every mutation of `metadata` (the
+    // didSet above, so no mutation path can miss it), and the orders are usable only when
+    // `libraryOrdersGeneration` equals it. The single-film mutation paths repair the orders
+    // in place (reconcileLibraryOrders) and bring the generation forward; any other
+    // mutation leaves them stale, which sends sort() back to the full sort until a
+    // background rebuild lands. A stale order is never read.
+
+    /// One library order: a sort option, plus the purchase format for Date Purchased (the
+    /// only option that reads it; nil for every other option, so they share one order).
+    struct LibraryOrderKey: Hashable, Sendable {
+        let option: SortOption
+        let purchaseFormat: ReleaseFormat?
+
+        init(_ option: SortOption, purchaseFormat: ReleaseFormat? = nil) {
+            self.option = option
+            self.purchaseFormat = option == .datePurchased ? purchaseFormat : nil
+        }
+    }
+
+    /// Bumped by every mutation of `metadata`.
+    private var metadataGeneration: UInt64 = 0
+    /// The `metadataGeneration` every order in `libraryOrders` describes.
+    private var libraryOrdersGeneration: UInt64 = .max
+    /// Ascending orders over every film in `metadata`, by key.
+    private var libraryOrders: [LibraryOrderKey: [UUID]] = [:]
+    private var libraryOrderBuild: Task<Void, Never>?
+    private var localeObserver: (any NSObjectProtocol)?
+
+    /// Off for harness-isolated instances, whose sort scenarios exist to exercise the
+    /// comparators directly (a permutation-invariance check served from a cached order
+    /// would pass vacuously). Scenarios that test the orders turn it on.
+    var usesLibraryOrders: Bool
+
+    /// Below this many films the full sort is already cheap, and filtering a library-sized
+    /// order would cost more than it saves. Either path yields the same array.
+    private static let minimumIDsForLibraryOrder = 48
+    /// The most sort-relevant film changes repaired in place between two builds, whether
+    /// in one batch or across many mutations (an import adds films one at a time). Past it
+    /// the orders are dropped and rebuilt in the background, which bounds the main-thread
+    /// cost of a burst at a few milliseconds.
+    private static let maximumReconciledChanges = 64
+    /// Sort-relevant film changes repaired in place since the orders were last built.
+    private var reconciledChangesSinceBuild = 0
+    /// How long a rebuild waits for a burst of mutations to settle before starting.
+    private static let libraryOrderBuildDelay: Duration = .milliseconds(400)
+
+    private var libraryOrdersAreCurrent: Bool { libraryOrdersGeneration == metadataGeneration }
     
     private let maxFilmsPerSection = 200
     private let purchaseWindowDays = 90
@@ -379,9 +486,32 @@ final class MetadataCache: Loggable {
                 in: .userDomainMask
             ).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
             self.cacheURL = appSupport.appendingPathComponent("metadata-cache.bin")
+            self.usesLibraryOrders = Self.libraryOrdersEnabledAtLaunch
+            observeLocaleChanges()
             return
         }
         self.cacheURL = dataFolder.appendingPathComponent("metadata-cache.bin")
+        self.usesLibraryOrders = Self.libraryOrdersEnabledAtLaunch
+        observeLocaleChanges()
+    }
+
+    /// DEBUG builds honor `-FTDisableLibraryOrders`, so a harness run can be repeated with
+    /// every sort taking the full sort, for A/B comparison against the same suite.
+    private static var libraryOrdersEnabledAtLaunch: Bool {
+        #if DEBUG
+        return !ProcessInfo.processInfo.arguments.contains("-FTDisableLibraryOrders")
+        #else
+        return true
+        #endif
+    }
+
+    /// Title comparisons are locale-dependent (localizedStandardCompare), so orders built
+    /// under the previous locale are dropped and rebuilt.
+    private func observeLocaleChanges() {
+        localeObserver = NotificationCenter.default.addObserver(
+            forName: NSLocale.currentLocaleDidChangeNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { MetadataCache.shared.dropLibraryOrders(reason: "locale changed") }
+        }
     }
 
     #if DEBUG
@@ -398,6 +528,7 @@ final class MetadataCache: Loggable {
     /// points at a file this instance will never open.
     init(isolatedForTesting cacheURL: URL) {
         self.cacheURL = cacheURL
+        self.usesLibraryOrders = false
     }
     #endif
     
@@ -489,6 +620,7 @@ final class MetadataCache: Loggable {
             // self-healing backstop that makes the cache correct by construction for any
             // caller, present or future, rather than by the discipline of its callers.
             invalidateRecentsCache()
+            dropLibraryOrders(reason: "cache loaded")
             let duration = Date().timeIntervalSince(start)
             Self.log("Loaded cache with \(loaded.count) entries in \(Fmt.fixed(duration * 1000, 1))ms")
         } else {
@@ -570,6 +702,7 @@ final class MetadataCache: Loggable {
 
         self.metadata = newCache
         invalidateRecentsCache()
+        dropLibraryOrders(reason: "cache rebuilt")
 
         let duration = Date().timeIntervalSince(start)
         Self.log("Rebuilt cache with \(newCache.count) entries in \(Fmt.fixed(duration * 1000, 1))ms")
@@ -627,6 +760,7 @@ final class MetadataCache: Loggable {
 
         if !toRemove.isEmpty || !toAddIDs.isEmpty {
             invalidateRecentsCache()
+            dropLibraryOrders(reason: "incremental update")
         }
 
         let duration = Date().timeIntervalSince(start)
@@ -655,31 +789,289 @@ final class MetadataCache: Loggable {
     // MARK: - Update Operations
     
     func addFilm(_ snapshot: FilmSnapshot) {
-        metadata[snapshot.id] = FilmMetadata(from: snapshot)
-        invalidateRecentsCache()
+        store([FilmMetadata(from: snapshot)])
     }
     
     func updateFilm(_ snapshot: FilmSnapshot) {
-        metadata[snapshot.id] = FilmMetadata(from: snapshot)
-        invalidateRecentsCache()
+        store([FilmMetadata(from: snapshot)])
     }
     
-    /// Recomputes the entries for `snapshots` in place, synchronously. For rare batch
-    /// refreshes whose inputs live outside the snapshot (a changed global preference), where
-    /// the async `rebuild(from:)` would risk overwriting edits that land while it runs.
-    func updateFilms<S: Sequence>(_ snapshots: S) where S.Element == FilmSnapshot {
-        for snapshot in snapshots {
-            metadata[snapshot.id] = FilmMetadata(from: snapshot)
-        }
-        invalidateRecentsCache()
+    /// Stores entries built elsewhere, for rare batch refreshes whose inputs live outside
+    /// the snapshot (a changed global preference). The caller builds them off the main
+    /// actor and drops any whose film changed meanwhile, which `rebuild(from:)` cannot do.
+    func setEntries(_ entries: [FilmMetadata]) {
+        store(entries)
     }
 
     func removeFilms(_ ids: Set<UUID>) {
+        let ordersWereCurrent = libraryOrdersAreCurrent
+        var changes: [LibraryOrderChange] = []
         for id in ids {
-            metadata.removeValue(forKey: id)
+            if let old = metadata.removeValue(forKey: id) {
+                changes.append(LibraryOrderChange(id: id, old: old, new: nil))
+            }
         }
         invalidateRecentsCache()
+        reconcileLibraryOrders(changes, ordersWereCurrent: ordersWereCurrent)
     }
+
+    /// Writes `entries` and repairs the library orders for them.
+    private func store(_ entries: [FilmMetadata]) {
+        let ordersWereCurrent = libraryOrdersAreCurrent
+        var changes: [LibraryOrderChange] = []
+        changes.reserveCapacity(entries.count)
+        for entry in entries {
+            let old = metadata.updateValue(entry, forKey: entry.id)
+            changes.append(LibraryOrderChange(id: entry.id, old: old, new: entry))
+        }
+        invalidateRecentsCache()
+        reconcileLibraryOrders(changes, ordersWereCurrent: ordersWereCurrent)
+    }
+
+    // MARK: - Library Order Maintenance
+
+    /// One film's entry before and after a mutation; nil where the film was absent.
+    struct LibraryOrderChange {
+        let id: UUID
+        let old: FilmMetadata?
+        let new: FilmMetadata?
+
+        var movesFilm: Bool {
+            guard let old, let new else { return true }
+            return !old.sortsIdentically(to: new)
+        }
+    }
+
+    /// Brings every library order forward across `changes`, which have already been
+    /// applied to `metadata`. Called by every single-film mutation path.
+    ///
+    /// Each changed film is removed and re-inserted by binary search. Every other film's
+    /// entry is unchanged, so the rest of the order is still sorted under the current
+    /// comparator, and under a total order there is exactly one position the film can
+    /// occupy: the result is the array a full sort would produce. A change that leaves
+    /// every sort field equal (`sortsIdentically`) cannot move the film, and is skipped.
+    ///
+    /// Orders that were already stale before the mutation, or a batch too large to repair
+    /// cheaply, are dropped and rebuilt in the background instead.
+    private func reconcileLibraryOrders(_ changes: [LibraryOrderChange], ordersWereCurrent: Bool) {
+        guard usesLibraryOrders else { return }
+        guard ordersWereCurrent, !libraryOrders.isEmpty else {
+            dropLibraryOrders(reason: nil)
+            return
+        }
+        let moving = Set(changes.filter(\.movesFilm).map(\.id))
+        guard reconciledChangesSinceBuild + moving.count <= Self.maximumReconciledChanges else {
+            dropLibraryOrders(reason: "\(reconciledChangesSinceBuild + moving.count) film changes since the last build")
+            return
+        }
+        if !moving.isEmpty {
+            guard let repaired = Self.repositioning(moving, in: libraryOrders, using: metadata) else {
+                dropLibraryOrders(reason: "order missing an entry")
+                return
+            }
+            libraryOrders = repaired
+            reconciledChangesSinceBuild += moving.count
+        }
+        libraryOrdersGeneration = metadataGeneration
+    }
+
+    /// `orders` with every film in `changedIDs` moved to where `metadata` now sorts it:
+    /// all of them removed first (a changed film left at its old position would break the
+    /// sortedness the binary search relies on), then each one still in `metadata`
+    /// inserted at its one sorted position under its CURRENT entry. Nil when an order holds
+    /// an ID `metadata` has no entry for, which would mean it no longer describes `metadata`.
+    nonisolated private static func repositioning(_ changedIDs: Set<UUID>,
+                                                  in orders: [LibraryOrderKey: [UUID]],
+                                                  using metadata: [UUID: FilmMetadata]) -> [LibraryOrderKey: [UUID]]? {
+        var result: [LibraryOrderKey: [UUID]] = [:]
+        for (key, order) in orders {
+            var updated: [UUID]
+            if changedIDs.count == 1, let id = changedIDs.first {
+                updated = order
+                if let index = updated.firstIndex(of: id) { updated.remove(at: index) }
+            } else {
+                updated = order.filter { !changedIDs.contains($0) }
+            }
+            for id in changedIDs {
+                guard let entry = metadata[id] else { continue }
+                // First position whose film does not sort before the new entry.
+                var low = 0, high = updated.count
+                while low < high {
+                    let mid = (low + high) / 2
+                    guard let other = metadata[updated[mid]] else { return nil }
+                    if compare(other, entry, by: key.option, purchaseFormat: key.purchaseFormat) {
+                        low = mid + 1
+                    } else {
+                        high = mid
+                    }
+                }
+                updated.insert(entry.id, at: low)
+            }
+            result[key] = updated
+        }
+        return result
+    }
+
+    /// Discards every order and schedules a rebuild. Safe to call at any time: until the
+    /// rebuild lands, sort() takes the full sort.
+    func dropLibraryOrders(reason: String?) {
+        guard usesLibraryOrders else { return }
+        if !libraryOrders.isEmpty, let reason {
+            Self.log("Library orders dropped (\(reason)) — rebuilding in the background")
+        }
+        libraryOrders.removeAll()
+        libraryOrdersGeneration = .max
+        reconciledChangesSinceBuild = 0
+        scheduleLibraryOrderBuild()
+    }
+
+    /// Starts a background build of every wanted order not already current, unless one is
+    /// already pending. Coalesces bursts: the build waits `libraryOrderBuildDelay` first.
+    private func scheduleLibraryOrderBuild() {
+        guard usesLibraryOrders, libraryOrderBuild == nil else { return }
+        libraryOrderBuild = Task(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: Self.libraryOrderBuildDelay)
+            guard let self, !Task.isCancelled else { return }
+            let again = await self.buildLibraryOrders()
+            self.libraryOrderBuild = nil
+            if again { self.scheduleLibraryOrderBuild() }
+        }
+    }
+
+    /// The keys a build covers: every option over all formats, and Date Purchased scoped
+    /// to each format (the "Purchased 4K / Blu-ray / DVD" lists).
+    private static let wantedLibraryOrderKeys: Set<LibraryOrderKey> =
+        Set(SortOption.allCases.map { LibraryOrderKey($0) })
+            .union(ReleaseFormat.allCases.map { LibraryOrderKey(.datePurchased, purchaseFormat: $0) })
+
+    /// Builds the missing orders off the main actor and installs them. Returns true when
+    /// another pass is needed (the library changed too much while this one ran).
+    private func buildLibraryOrders() async -> Bool {
+        let installed = libraryOrdersAreCurrent ? Set(libraryOrders.keys) : []
+        let missing = Self.wantedLibraryOrderKeys.subtracting(installed)
+        guard !missing.isEmpty, !metadata.isEmpty else { return false }
+
+        let snapshot = metadata
+        let builtGeneration = metadataGeneration
+        let start = Date()
+        let built: [LibraryOrderKey: [UUID]] = await Task.detached(priority: .utility) {
+            var result: [LibraryOrderKey: [UUID]] = [:]
+            for key in missing {
+                result[key] = snapshot.keys.sorted {
+                    Self.compare(snapshot[$0]!, snapshot[$1]!, by: key.option, purchaseFormat: key.purchaseFormat)
+                }
+            }
+            return result
+        }.value
+
+        #if DEBUG
+        libraryOrderBuildDidFinishForTesting?()
+        #endif
+        guard usesLibraryOrders else { return false }
+        var orders = built
+        if builtGeneration != metadataGeneration {
+            // The library changed while the build ran. Bring the new orders forward by
+            // the difference between the snapshot they were built from and `metadata` now,
+            // exactly as a mutation would have.
+            var changed: Set<UUID> = []
+            for (id, entry) in metadata {
+                if let old = snapshot[id], old.sortsIdentically(to: entry) { continue }
+                changed.insert(id)
+            }
+            for id in snapshot.keys where metadata[id] == nil { changed.insert(id) }
+            guard changed.count <= Self.maximumReconciledChanges,
+                  let repaired = Self.repositioning(changed, in: built, using: metadata) else {
+                return true
+            }
+            orders = repaired
+        }
+        // Orders that are current stay (they agree with these: one total order, one
+        // array); stale ones are discarded.
+        if !libraryOrdersAreCurrent { libraryOrders.removeAll() }
+        libraryOrders.merge(orders) { _, new in new }
+        libraryOrdersGeneration = metadataGeneration
+        reconciledChangesSinceBuild = 0
+        Self.log("Built \(orders.count) library order(s) over \(snapshot.count) films in \(Fmt.fixed(Date().timeIntervalSince(start) * 1000, 1))ms")
+        return false
+    }
+
+    /// `filmIDs` in the order `key` sorts them, read from the library order, or nil when
+    /// that order cannot answer: none is current, `filmIDs` is too short to gain from it,
+    /// holds a duplicate, or holds an ID with no metadata entry (the full sort orders
+    /// those by a degenerate rule an order does not encode).
+    private func sortFromLibraryOrder(_ filmIDs: [UUID], key: LibraryOrderKey,
+                                      direction: SortDirection) -> [UUID]? {
+        guard usesLibraryOrders, filmIDs.count >= Self.minimumIDsForLibraryOrder,
+              libraryOrdersAreCurrent, let order = libraryOrders[key] else { return nil }
+        let ascending: [UUID]
+        if filmIDs.count == order.count {
+            // Possibly the whole library: then the order is the answer as it stands.
+            let members = Set(filmIDs)
+            guard members.count == filmIDs.count,
+                  filmIDs.allSatisfy({ metadata[$0] != nil }) else { return nil }
+            ascending = order
+        } else {
+            let members = Set(filmIDs)
+            guard members.count == filmIDs.count else { return nil }
+            let filtered = order.filter { members.contains($0) }
+            // Shorter only when some ID has no entry (the order holds every entry).
+            guard filtered.count == filmIDs.count else { return nil }
+            ascending = filtered
+        }
+        #if DEBUG
+        libraryOrderHitsForTesting += 1
+        #endif
+        return direction == .ascending ? ascending : ascending.reversed()
+    }
+
+    /// After a full sort: keeps its result as the library order when it sorted the whole
+    /// library, and otherwise makes sure a background build is on its way.
+    private func adoptLibraryOrder(_ sorted: [UUID], from filmIDs: [UUID],
+                                   key: LibraryOrderKey, direction: SortDirection) {
+        guard usesLibraryOrders else { return }
+        if filmIDs.count == metadata.count, Set(filmIDs).count == filmIDs.count,
+           filmIDs.allSatisfy({ metadata[$0] != nil }) {
+            if !libraryOrdersAreCurrent {
+                libraryOrders.removeAll()
+                libraryOrdersGeneration = metadataGeneration
+                reconciledChangesSinceBuild = 0
+            }
+            libraryOrders[key] = direction == .ascending ? sorted : sorted.reversed()
+        }
+        // Small sorts (a Film Queue section, Up Next) land here on every refresh; only an
+        // order actually missing is worth a build.
+        if !libraryOrdersAreCurrent || libraryOrders.count < Self.wantedLibraryOrderKeys.count {
+            scheduleLibraryOrderBuild()
+        }
+    }
+
+    #if DEBUG
+    /// Harness hook: runs after a build's detached sort returns and before its result is
+    /// installed, so a scenario can mutate the library in exactly that window.
+    var libraryOrderBuildDidFinishForTesting: (() -> Void)?
+
+    /// Harness access: how many sort() calls a library order answered.
+    var libraryOrderHitsForTesting = 0
+
+    /// Harness access: the current order for `key`, or nil when there is none or it is stale.
+    func libraryOrderForTesting(_ key: LibraryOrderKey) -> [UUID]? {
+        libraryOrdersAreCurrent ? libraryOrders[key] : nil
+    }
+
+    /// Harness access: builds every wanted order now, as the background rebuild would.
+    func buildLibraryOrdersForTesting() async {
+        libraryOrderBuild?.cancel()
+        libraryOrderBuild = nil
+        while await buildLibraryOrders() {}
+    }
+
+    /// Harness access: the comparator itself, for reference sorts.
+    nonisolated static func referenceSort(_ ids: [UUID], by option: SortOption, direction: SortDirection,
+                                          purchaseFormat: ReleaseFormat?,
+                                          using metadata: [UUID: FilmMetadata]) -> [UUID] {
+        _performSort(ids, by: option, direction: direction, purchaseFormat: purchaseFormat, using: metadata)
+    }
+    #endif
     
     // MARK: - Sorting Operations
     
@@ -805,14 +1197,25 @@ final class MetadataCache: Loggable {
 
     /// Synchronous sort — used for interactive reloads and cache-hit paths.
     ///
+    /// Answered from the library order for `option` when one is current (a filter of it,
+    /// identical to the full sort; see Library Orders above), and by the full sort
+    /// otherwise.
+    ///
     /// `purchaseFormat` scopes the Date Purchased option to one release format (the view's
     /// `ViewIdentifier.purchaseFormatScope`); every other option ignores it.
     func sort(_ filmIDs: [UUID], by option: SortOption, direction: SortDirection,
               purchaseFormat: ReleaseFormat? = nil) -> [UUID] {
         guard !filmIDs.isEmpty else { return [] }
         let start = Date()
-        let sorted = Self._performSort(filmIDs, by: option, direction: direction,
+        let key = LibraryOrderKey(option, purchaseFormat: purchaseFormat)
+        let sorted: [UUID]
+        if let ordered = sortFromLibraryOrder(filmIDs, key: key, direction: direction) {
+            sorted = ordered
+        } else {
+            sorted = Self._performSort(filmIDs, by: option, direction: direction,
                                        purchaseFormat: purchaseFormat, using: metadata)
+            adoptLibraryOrder(sorted, from: filmIDs, key: key, direction: direction)
+        }
         let duration = Date().timeIntervalSince(start)
         if duration > 0.01 {
             Self.log("Sorted \(filmIDs.count) IDs in \(Fmt.fixed(duration * 1000, 1))ms")
@@ -830,11 +1233,16 @@ final class MetadataCache: Loggable {
         // The actual element data is shared until the detached task modifies it,
         // which it never does — it only reads, so no copy-on-write is triggered.
         let metadataSnapshot = metadata
+        let generation = metadataGeneration
         let start = Date()
         let sorted = await Task.detached(priority: .userInitiated) {
             Self._performSort(filmIDs, by: option, direction: direction,
                               purchaseFormat: nil, using: metadataSnapshot)
         }.value
+        // Sorted against the metadata as it was; only that metadata may adopt it.
+        if generation == metadataGeneration {
+            adoptLibraryOrder(sorted, from: filmIDs, key: LibraryOrderKey(option), direction: direction)
+        }
         let duration = Date().timeIntervalSince(start)
         if duration > 0.01 {
             Self.log("Async-sorted \(filmIDs.count) IDs in \(Fmt.fixed(duration * 1000, 1))ms")
@@ -1088,7 +1496,7 @@ final class MetadataCache: Loggable {
     // `rotationDate` depends on Preferences.defaultRotationThreshold for every film
     // without an override, so a change to that default makes those entries stale.
     // DataCoordinator.handleDefaultRotationThresholdChangeIfNeeded() refreshes them
-    // through MemoryStore.refreshRotationDerivedMetadata() → updateFilms(_:).
+    // through MemoryStore.refreshRotationDerivedMetadata() → setEntries(_:).
     
     // MARK: - Search Cache Access
     

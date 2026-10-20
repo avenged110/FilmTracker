@@ -227,7 +227,7 @@ enum GalleryContextMenu: Loggable {
         // about when the item is meaningful.
         //
         // Enablement, the confirmation-preference gating, the membership pre-filter, and
-        // the alert payloads all live in FilmRemoval (GlobalUtilities.swift), shared with
+        // the alert payloads all live in FilmRemoval (LibraryManager.swift), shared with
         // the MenuBar's "Film" menu, the GalleryTitleBar's TrashMenuButton, and
         // KeyboardManager's Opt+Delete, so no two of those four can disagree about what
         // these three commands do. `clearingSelection: true` is this surface's one local
@@ -312,7 +312,12 @@ enum GalleryContextMenu: Loggable {
         // allCases is declared in queue order (Up Next → Soon → Later); sorted explicitly
         // so the menu cannot silently reorder if a case is ever inserted out of order.
         for section in FilmQueueSection.allCases.sorted(by: { $0.queueOrder < $1.queueOrder }) {
+            // "Up Next" is unavailable when the selection would not fit; evaluated as the
+            // menu is built, so it is always current when the menu opens.
+            let blocked = section == .upNext
+                && FilmQueue.upNextOverflow(adding: filmIDs, coordinator: coordinator) > 0
             submenu.addItem(actionItem(titled: section.displayName,
+                                       isEnabled: !blocked,
                                        state: section == currentSection ? .on : .off) {
                 FilmQueueAssignment.toggle(filmIDs, section: section, coordinator: coordinator)
             })

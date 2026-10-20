@@ -548,6 +548,9 @@ enum ReleaseAudioFormat {
     static let dtsHDMA      = "DTS-HD MA"
     static let dtsHDHR      = "DTS-HD HR"
     static let dtsX         = "DTS:X"
+    /// DTS Extended Surround: lossy DTS with a matrixed or discrete rear-center channel.
+    /// Found on DVD as well as Blu-ray, so it is in both option lists.
+    static let dtsES        = "DTS-ES"
     static let dts          = "DTS"
 
     // MARK: Per-format option lists
@@ -557,12 +560,12 @@ enum ReleaseAudioFormat {
     /// load-bearing rather than merely defensive: a value perfectly ordinary on Blu-ray is
     /// out-of-vocabulary on DVD, and a DVD restored holding `dtsHDMA` would render blank
     /// on a bare Picker.
-    static let dvdOptions = [dolbyDigital, dts]
+    static let dvdOptions = [dolbyDigital, dtsES, dts]
 
     /// The 4K UHD and Blu-ray vocabulary, in menu order. Matches the Data Visualizations
     /// tab's Audio card codec bar order (27.40 RPTabDataViz.swift).
     static let hdOptions = [dolbyAtmos, dolbyTrueHD, dolbyDigital, lpcm,
-                            dtsX, dtsHDMA, dtsHDHR, dts]
+                            dtsX, dtsHDMA, dtsHDHR, dtsES, dts]
 
     // MARK: Quality questions
 
@@ -937,6 +940,8 @@ enum ReleaseFormat: String, CaseIterable, Sendable {
         var nationalOrigin:  String = ""
         var videoFormat:     String = ""
         var audioFormat:     String = ""
+        var audioChannels:   String = ""
+        var hasHDR:          String = ""
         var scanningMethod:  String = ""
         var regionLock:      String = ""
         var masterType:      String = ""
@@ -956,13 +961,17 @@ enum ReleaseFormat: String, CaseIterable, Sendable {
         case .uhd4K:
             return NewReleaseDefaults(nationalOrigin: ReleaseOrigin.domestic,
                                       videoFormat:    ReleaseVideoFormat.hevc,
+                                      audioFormat:    ReleaseAudioFormat.dtsHDMA,
+                                      audioChannels:  ReleaseAudioChannels.surround51,
+                                      hasHDR:         ReleaseHDR.dolbyVision,
                                       regionLock:     ReleaseRegionRules.regionFree,
                                       masterType:     ReleaseMasterType.nativeFourK,
                                       hasSubtitles:   true)
         case .bluRay:
             return NewReleaseDefaults(nationalOrigin: ReleaseOrigin.domestic,
                                       videoFormat:    ReleaseVideoFormat.avc,
-                                      audioFormat:    "DTS-HD MA",
+                                      audioFormat:    ReleaseAudioFormat.dtsHDMA,
+                                      audioChannels:  ReleaseAudioChannels.surround51,
                                       scanningMethod: ReleaseScanningMethod.progressive,
                                       // The overwhelmingly common case for the format,
                                       // and always a legal tag on the Blu-ray region
@@ -1009,6 +1018,212 @@ enum ReleaseLabel {
     }
 }
 
+// MARK: - Release Date Value
+/// A month and day within a release date. Not validated on its own: ReleaseDateValue checks
+/// or clamps one against its month and year before anything is read or saved.
+struct ReleaseMonthDay: Hashable, Sendable {
+    let month: Int
+    let day: Int
+}
+
+/// The parsed form of `Release.releaseDate`, and the single place its two stored shapes are
+/// read and written:
+///
+///   • `"yyyy.MM.dd"` — a full release date, in the same dot form as every other stored
+///     calendar day (`StorageDateFormatters.dot`).
+///   • `"yyyy"` — a release known only by its year. Every value stored before the field
+///     held full dates has this shape, so it is a permanent, legal state rather than a
+///     transitional one, and is never rewritten on its own.
+///
+/// Callers do not take the string apart themselves. A site that wants the year asks
+/// `year(of:format:)`, which reads both shapes; `Int(release.releaseDate)` would return nil
+/// for every full date and quietly treat it as "no year".
+///
+/// MARK: Validity is per format
+///
+/// A full date is valid only on or after January 1 of its format's floor year
+/// (`ReleaseFormat.yearFloor(for:)`: 4K UHD 2016, Blu-ray 2006, DVD 1997, an unrecognized
+/// format the DVD floor). Reading therefore always takes the release's format. A full date
+/// that fails — like one naming a day its month lacks — reads as no value at all, wherever
+/// it is read. The restore pipeline refuses one outright (`isFullDateBelowFloor`), so one
+/// can reach the library only from a store written outside the app.
+///
+/// The floor is deliberately NOT applied to the year-only shape. Every existing value has
+/// that shape, and the release card has always tolerated a stored year below its floor
+/// (its year Stepper enters the range at the next step), so applying it would change how
+/// existing data reads.
+struct ReleaseDateValue: Hashable, Sendable {
+    let year: Int
+    /// nil for a year-only value.
+    let monthDay: ReleaseMonthDay?
+
+    var isYearOnly: Bool { monthDay == nil }
+
+    /// The years either shape may carry. The full-date shape writes four digits, and the
+    /// bound keeps every year-derived computation — `sortKey`'s scaling, the release card's
+    /// `releaseYear - 1` — far from integer overflow. A year-only string outside it (only a
+    /// hand-edited store could hold one) reads as no value, as any other unreadable string
+    /// always has.
+    static let storableYears = 0...9999
+
+    private init(validatedYear year: Int, monthDay: ReleaseMonthDay?) {
+        self.year = year
+        self.monthDay = monthDay
+    }
+
+    /// A value from its parts, guaranteed to read back as itself for `format`. A day past
+    /// the end of its month is clamped to the month's last day (February 29 in a year
+    /// without one becomes the 28th). The month and day are dropped — leaving the year —
+    /// when the month is outside 1...12 or the full date would fail its format's floor or
+    /// `storableYears`; a full date must never be saved in a shape that reads back as
+    /// nothing. Returns nil only for a year outside `storableYears`.
+    init?(year: Int, monthDay: ReleaseMonthDay?, format: String) {
+        guard Self.storableYears.contains(year) else { return nil }
+        guard let monthDay, (1...12).contains(monthDay.month),
+              year >= ReleaseFormat.yearFloor(for: format) else {
+            self.init(validatedYear: year, monthDay: nil)
+            return
+        }
+        let day = min(max(monthDay.day, 1), gregorianDaysInMonth(monthDay.month, year: year))
+        self.init(validatedYear: year, monthDay: ReleaseMonthDay(month: monthDay.month, day: day))
+    }
+
+    /// Parses a stored value for a release of `format`, or nil for "" and for anything that
+    /// is not a valid value of either shape (see "Validity is per format").
+    init?(_ stored: String, format: String) {
+        guard let value = Self.parseShape(stored) else { return nil }
+        if !value.isYearOnly, value.year < ReleaseFormat.yearFloor(for: format) { return nil }
+        self = value
+    }
+
+    /// Either shape, with no floor applied.
+    ///
+    /// Surrounding whitespace is trimmed first, so every reader agrees on a value such as
+    /// " 2014" — before, the display sites trimmed while sorting and the release card did
+    /// not, showing a year that sorted as undated and loaded as the current year.
+    ///
+    /// The year-only shape is read with `Int(_:)`, as the field always was, within
+    /// `storableYears`. The full-date shape is accepted only exactly: ten ASCII characters,
+    /// dots at 4 and 7, and a day the month has. Its four-digit year is also held to at
+    /// least 1000, matching `canonicalStoredDay`; every format floor is far above that.
+    private static func parseShape(_ raw: String) -> ReleaseDateValue? {
+        let stored = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let year = Int(stored) {
+            guard storableYears.contains(year) else { return nil }
+            return ReleaseDateValue(validatedYear: year, monthDay: nil)
+        }
+        let u = Array(stored.utf8)
+        guard u.count == 10, u[4] == UInt8(ascii: "."), u[7] == UInt8(ascii: ".") else { return nil }
+        var digits: [Int] = []
+        for (i, byte) in u.enumerated() where i != 4 && i != 7 {
+            guard byte >= UInt8(ascii: "0"), byte <= UInt8(ascii: "9") else { return nil }
+            digits.append(Int(byte - UInt8(ascii: "0")))
+        }
+        let year  = digits[0] * 1000 + digits[1] * 100 + digits[2] * 10 + digits[3]
+        let month = digits[4] * 10 + digits[5]
+        let day   = digits[6] * 10 + digits[7]
+        guard year >= 1000, (1...12).contains(month),
+              day >= 1, day <= gregorianDaysInMonth(month, year: year) else { return nil }
+        return ReleaseDateValue(validatedYear: year, monthDay: ReleaseMonthDay(month: month, day: day))
+    }
+
+    /// True for a well-formed full date that falls before `format`'s floor — the value the
+    /// restore pipeline refuses. False for everything else, including year-only values and
+    /// strings of neither shape, which restore preserves verbatim as it always has.
+    static func isFullDateBelowFloor(_ stored: String, format: String) -> Bool {
+        guard let value = parseShape(stored), !value.isYearOnly else { return false }
+        return value.year < ReleaseFormat.yearFloor(for: format)
+    }
+
+    /// The stored form: `"yyyy.MM.dd"`, or the bare year.
+    var storageString: String {
+        guard let monthDay else { return String(year) }
+        return "\(Fmt.padded(year, 4)).\(Fmt.padded(monthDay.month, 2)).\(Fmt.padded(monthDay.day, 2))"
+    }
+
+    /// Orders values chronologically. A year-only value sorts before every full date in
+    /// its year, as if it were day zero of that year. At most 99,991,231, since every year
+    /// is inside `storableYears`.
+    var sortKey: Int {
+        year * 10_000 + (monthDay.map { $0.month * 100 + $0.day } ?? 0)
+    }
+
+    // MARK: Upcoming releases
+
+    /// True when the release has not happened yet on `today`, a moment of the day in
+    /// question (the start of it, as `CurrentDay` supplies). A full date is upcoming when
+    /// it falls after that day. A year-only value names no day, so only a whole later
+    /// year is certainly still to come.
+    ///
+    /// Compared as calendar-day keys in the pinned Gregorian calendar the stored dates are
+    /// written in, so no time of day or daylight-saving shift can move a release across
+    /// the boundary.
+    func isUpcoming(today: Date) -> Bool {
+        let comps = StorageDateFormatters.calendar.dateComponents([.year, .month, .day], from: today)
+        let todayYear = comps.year ?? 0
+        guard monthDay != nil else { return year > todayYear }
+        return sortKey > todayYear * 10_000 + (comps.month ?? 0) * 100 + (comps.day ?? 0)
+    }
+
+    /// The release day's first moment in the pinned calendar, or nil for a year-only value.
+    var day: Date? {
+        guard let monthDay else { return nil }
+        return StorageDateFormatters.calendar.date(
+            from: DateComponents(year: year, month: monthDay.month, day: monthDay.day))
+    }
+
+    /// The last release date the release card offers on `today`: one year ahead, less a
+    /// day, so on 2026.10.17 the latest is 2027.10.16.
+    static func latestSelectableDay(today: Date) -> Date {
+        let cal = StorageDateFormatters.calendar
+        let start = cal.startOfDay(for: today)
+        guard let yearAhead = cal.date(byAdding: .year, value: 1, to: start),
+              let latest = cal.date(byAdding: .day, value: -1, to: yearAhead) else { return start }
+        return latest
+    }
+
+    /// "October 17, 2026" for a full date, "2026" for a year-only value. Built from the
+    /// stored parts rather than through a DateFormatter, so it reads the same under every
+    /// locale and calendar the Mac may be set to, as the stored value does.
+    var displayText: String {
+        guard let monthDay else { return Fmt.padded(year, 4) }
+        return "\(Self.monthNames[monthDay.month - 1]) \(monthDay.day), \(Fmt.padded(year, 4))"
+    }
+
+    /// "Oct 17, 2026" for a full date, "2026" for a year-only value — `displayText` with
+    /// the month abbreviated, for columns too narrow for the full name.
+    var shortDisplayText: String {
+        guard let monthDay else { return Fmt.padded(year, 4) }
+        let month = Self.monthNames[monthDay.month - 1].prefix(3)
+        return "\(month) \(monthDay.day), \(Fmt.padded(year, 4))"
+    }
+
+    private static let monthNames = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ]
+
+    // MARK: Reading a stored string
+
+    /// The year of a stored value for a release of `format`, or nil when it holds no valid
+    /// value. For a year-only value this is `Int(_:)` of the trimmed string.
+    static func year(of stored: String, format: String) -> Int? {
+        ReleaseDateValue(stored, format: format)?.year
+    }
+
+    /// The year as display text: a valid full date's year, or — for every other value —
+    /// the stored string itself, trimmed, as the year-only field has always been displayed
+    /// (an unreadable value included, so an invalid date is shown as it is stored rather
+    /// than hidden). "" stays "".
+    static func yearText(of stored: String, format: String) -> String {
+        let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value = ReleaseDateValue(trimmed, format: format), !value.isYearOnly {
+            return Fmt.padded(value.year, 4)
+        }
+        return trimmed
+    }
+}
+
 // MARK: - Release Model Object Definition
 @Model
 final class Release {
@@ -1017,7 +1232,12 @@ final class Release {
 
     // MARK: - Basic Information
     var studio: String
-    var releaseYear: String
+    /// "yyyy.MM.dd", "yyyy" for a release known only by its year, or "" — see
+    /// ReleaseDateValue, which every reader goes through. Stored as `releaseYear` until full
+    /// dates were introduced; `originalName` lets SwiftData's lightweight migration carry
+    /// every existing value across the rename unchanged (each is a valid year-only value).
+    @Attribute(originalName: "releaseYear") var releaseDate: String
+    /// A year only, "" when unset. Kept strictly before releaseDate's year.
     var baseReleaseYear: String
     var purchased: Bool
     /// Wishlist position (0 = not on wishlist, ≥1 = wishlist display order).
@@ -1100,7 +1320,7 @@ final class Release {
     init(
         id: UUID = UUID(),
         studio: String = "",
-        releaseYear: String = "",
+        releaseDate: String = "",
         baseReleaseYear: String = "",
         purchased: Bool = false,
         wishlist: Int = 0,
@@ -1139,7 +1359,7 @@ final class Release {
         parentRelease: Release? = nil) {
         self.id = id
         self.studio = studio
-        self.releaseYear = releaseYear
+        self.releaseDate = releaseDate
         self.baseReleaseYear = baseReleaseYear
         self.purchased = purchased
         self.wishlist = wishlist
@@ -1182,7 +1402,7 @@ final class Release {
 extension Release: ExportableModel {
     static var entityName: String { "Release" }
 
-    static func fetchAll(in context: ModelContext) async throws -> [Release] {
+    static func fetchAll(in context: ModelContext) throws -> [Release] {
         let desc = FetchDescriptor<Release>(sortBy: [SortDescriptor(\.dateAdded)])
         return try context.fetch(desc) }
 
@@ -1190,7 +1410,7 @@ extension Release: ExportableModel {
         var props: [String: Any] = [:]
         props["id"] = self.id
         props["studio"] = self.studio
-        props["releaseYear"] = self.releaseYear
+        props["releaseDate"] = self.releaseDate
         props["baseReleaseYear"] = self.baseReleaseYear
         props["purchased"] = self.purchased
         props["wishlist"] = self.wishlist

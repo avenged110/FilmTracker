@@ -38,7 +38,7 @@ final class ListMembership {
 extension ListMembership: ExportableModel {
     static var entityName: String { "ListMembership" }
 
-    static func fetchAll(in context: ModelContext) async throws -> [ListMembership] {
+    static func fetchAll(in context: ModelContext) throws -> [ListMembership] {
         let desc = FetchDescriptor<ListMembership>(sortBy: [SortDescriptor(\.dateAdded)])
         return try context.fetch(desc) }
 

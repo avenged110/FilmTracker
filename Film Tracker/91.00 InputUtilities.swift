@@ -7,7 +7,7 @@ import SwiftUI
 
 // MARK: - Shared Color Constants
 // Constructed once at process launch — avoids repeated bridging allocations on every
-// render of TimePicker, DurationPicker and CustomDatePicker.
+// render of TimeStepper, DurationStepper and CustomDateStepper.
 private let tertiaryLabelColor   = Color(NSColor.tertiaryLabelColor)
 // The Steppers' fill and border are `stepperChrome(filled:)` (90.00 GlobalUtilities.swift),
 // shared with FSControlHelpers.swift's so the two files' Steppers cannot drift.
@@ -102,7 +102,7 @@ final class ClearableNSStepper: NSStepper {
 // MARK: ClearableStepperView
 /// NSViewRepresentable wrapping ClearableNSStepper. Exposes the same increment /
 /// decrement callbacks and value/range binding as the portions of SwiftUI's Stepper
-/// that DurationPicker and CustomDatePicker use internally. The label content
+/// that DurationStepper and CustomDateStepper use internally. The label content
 /// (Text views) is kept as SwiftUI views in the parent HStack; only the stepper
 /// control (the +/− button pair) is bridged here.
 struct ClearableStepperView: NSViewRepresentable {
@@ -252,8 +252,8 @@ struct ClearableStepperView: NSViewRepresentable {
     }
 }
 
-// MARK: - Time Picker Component
-struct TimePicker: View {
+// MARK: - Time Stepper Component
+struct TimeStepper: View {
     @Binding var hour: Int
     @Binding var minute: Int
     @Binding var isAM: Bool
@@ -262,7 +262,7 @@ struct TimePicker: View {
     //
     // WHY NOT @Environment(\.isEnabled) directly in the background modifier:
     // Reading @Environment(\.isEnabled) in a view body modifier registers isEnabled
-    // as a live SwiftUI dependency of the view. If TimePicker is ever placed inside
+    // as a live SwiftUI dependency of the view. If TimeStepper is ever placed inside
     // an animated context where .disabled() flips mid-animation (e.g. a carousel
     // applying .disabled(index != idx) per card), that flip triggers a body
     // re-evaluation inside the active animation transaction, causing the background
@@ -271,7 +271,7 @@ struct TimePicker: View {
     // modifier reads isEnabledState (@State), whose transitions are explicitly
     // instant via withAnimation(nil), and isEnabledEnv (@Environment) is only
     // read in onAppear and onChange — neither of which participates in animation
-    // dependency tracking. Matches the identical pattern in CustomDatePicker.
+    // dependency tracking. Matches the identical pattern in CustomDateStepper.
     @Environment(\.isEnabled) private var isEnabledEnv
     @State private var isEnabledState: Bool = true
 
@@ -311,9 +311,10 @@ struct TimePicker: View {
                         .frame(width: 18, alignment: .trailing)
                 }
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 4)
-            .padding(.vertical, 4)
+            // 1 pt tighter a side than the original 8 / 4 / 4, matching CustomDateStepper.
+            .padding(.leading, 7)
+            .padding(.trailing, 3)
+            .padding(.vertical, 3)
             // isEnabledState is the @State mirror of isEnabledEnv (see declaration
             // above). Using it here — rather than the live @Environment value —
             // prevents the background fill from being registered as an animation
@@ -344,8 +345,8 @@ struct TimePicker: View {
     }
 }
 
-// MARK: - Duration Picker Component
-struct DurationPicker: View {
+// MARK: - Duration Stepper Component
+struct DurationStepper: View {
     @Binding var hours: Int
     @Binding var minutes: Int
     @Binding var hasValue: Bool
@@ -355,8 +356,8 @@ struct DurationPicker: View {
     /// at the NSStepper level before it reaches the responder chain.
     var onDelete: (() -> Void)? = nil
 
-    // @State mirror of the SwiftUI isEnabled environment value — see TimePicker
-    // and CustomDatePicker for the full rationale. Reading @Environment(\.isEnabled)
+    // @State mirror of the SwiftUI isEnabled environment value — see TimeStepper
+    // and CustomDateStepper for the full rationale. Reading @Environment(\.isEnabled)
     // directly in the background modifier registers isEnabled as a live animation
     // dependency, which causes fill changes to be swept into any ambient transaction
     // active in the parent (e.g. a card carousel spring). The mirror pattern breaks
@@ -514,9 +515,10 @@ struct DurationPicker: View {
                 }
             }
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 4)
-        .padding(.vertical, 4)
+        // 1 pt tighter a side than the original 8 / 4 / 4, matching CustomDateStepper.
+        .padding(.leading, 7)
+        .padding(.trailing, 3)
+        .padding(.vertical, 3)
         // isEnabledState is the @State mirror of isEnabledEnv (see declaration
         // above). Using it here — rather than the live @Environment value —
         // prevents the background fill from being registered as an animation
@@ -649,8 +651,8 @@ struct DurationPicker: View {
     }
 }
 
-// MARK: - Custom Date Picker Component
-struct CustomDatePicker: View {
+// MARK: - Custom Date Stepper Component
+struct CustomDateStepper: View {
     private enum Mode {
         case fullDate
         case yearOnly
@@ -668,6 +670,12 @@ struct CustomDatePicker: View {
     /// how yearRange only constrains stepper wrap-around rather than rewriting the
     /// initial display value.
     private let minDate: Date?
+    /// Optional upper bound (full-date mode only). When set, the range loops: each field
+    /// steps independently through its own values, skipping any that would carry the date
+    /// past this ceiling or the floor — minDate, or January 1 of yearRange's lower bound when
+    /// there is none — and wrapping from one end to the other. See loopStep.
+    /// `nil` — the default — applies no ceiling and leaves minDate's hard clamp unchanged.
+    private let maxDate: Date?
     /// Optional closure called when the Delete key is pressed while any sub-stepper
     /// holds the AppKit focus ring. When provided, steppers are bridged through
     /// ClearableStepperView so the key event is intercepted at the NSStepper level.
@@ -694,6 +702,20 @@ struct CustomDatePicker: View {
     /// Ignored in full-date mode, which has no single-value placeholder to speak of.
     private let placeholderYear: Int?
 
+    /// Full-date mode only: true while the bound value is a date known only by its YEAR — a
+    /// compatibility state for values stored before the field held full dates. `date`
+    /// carries the year; its month and day are ignored and drawn as dashes.
+    ///
+    /// The user cannot produce this state, only display it. The first click on ANY of the
+    /// three steppers activates the field the way a blank field's first click does — it
+    /// steps nothing — filling the month and day from today and keeping the year, and
+    /// writes false here. Delete clears the field whole (`onDelete`), from this state as
+    /// from any other.
+    ///
+    /// `nil` — the default, and every year-only-mode instance — means the value is never
+    /// year-only.
+    private let yearOnlyValue: Binding<Bool>?
+
     // In full-date mode the live date value is decomposed into these three @State
     // fields on first onAppear rather than in init. SwiftUI calls init on every
     // parent body pass even when the node is already in the hierarchy (discarding
@@ -706,7 +728,7 @@ struct CustomDatePicker: View {
     // are replaced before the first user-visible frame by the onAppear sync.
     @State private var month: Int = 1
     @State private var day:   Int = 1
-    @State private var year:  Int = CustomDatePicker.currentYear
+    @State private var year:  Int = CustomDateStepper.currentYear
     @State private var isInteracting: Bool = false
 
     // Set to true after the first onAppear sync so a rapid re-appear (e.g. tab
@@ -747,6 +769,18 @@ struct CustomDatePicker: View {
     // EVERY construction of this view, including the year-only init that overwrites it.
     private static var currentYear: Int { CurrentYear.value }
 
+    /// Every month/day/year decomposition and composition in this view goes through the
+    /// app's pinned Gregorian calendar — the one the stored-date formatters use — never
+    /// `Calendar.current`.
+    ///
+    /// The fields are Gregorian by construction: `monthNames`, `daysInMonth`'s leap rule,
+    /// `yearRange`, and every value the callers persist through `StorageDateFormatters`.
+    /// `Calendar.current` is whatever the Mac is set to, so under a Japanese or Buddhist
+    /// system calendar it decomposed a 2014 date as year 26 or 2557, and composed a stepped
+    /// year back into the wrong era. Pinning also makes the time zone the formatters'
+    /// (fixed at first use) rather than one that can change under a running session.
+    private static var calendar: Calendar { StorageDateFormatters.calendar }
+
     // Maximum days per month for non-leap years.
     // February (index 1) is handled separately with leap-year logic.
     private static let maxDaysInMonth: [Int] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -760,14 +794,20 @@ struct CustomDatePicker: View {
     ///   - yearRange: Optional range for year values (defaults to 1910...current year)
     ///   - minDate: Optional lower-bound clamp applied when the user steps a field to a
     ///     date earlier than this value. `nil` (the default) applies no clamp.
+    ///   - maxDate: Optional ceiling; stepping past it loops to the floor (see `maxDate`).
+    ///   - yearOnlyValue: Optional binding that is true while the value is known only by
+    ///     its year, drawn with dashed month and day (see `yearOnlyValue`).
     ///   - onDelete: Optional closure called when Delete is pressed with focus on any sub-stepper
     init(date: Binding<Date>, hasValue: Binding<Bool>? = nil, yearRange: ClosedRange<Int>? = nil,
-         minDate: Date? = nil, onDelete: (() -> Void)? = nil) {
+         minDate: Date? = nil, maxDate: Date? = nil, yearOnlyValue: Binding<Bool>? = nil,
+         onDelete: (() -> Void)? = nil) {
         self.mode = .fullDate
         self._date = date
         self._hasValue = hasValue ?? .constant(true)
+        self.yearOnlyValue = yearOnlyValue
         self.yearRange = yearRange ?? 1910...Self.currentYear
         self.minDate = minDate
+        self.maxDate = maxDate
         self.onDelete = onDelete
         // Full-date mode has no single-value placeholder — see placeholderYear.
         self.placeholderYear = nil
@@ -800,6 +840,8 @@ struct CustomDatePicker: View {
         // Year-only mode has no full-date minDate concept — the year stepper's own
         // yearRange already governs its bounds.
         self.minDate = nil
+        self.maxDate = nil
+        self.yearOnlyValue = nil
         self.onDelete = onDelete
         
         // Create a date binding that only uses/updates the year
@@ -809,10 +851,10 @@ struct CustomDatePicker: View {
                 components.year = year.wrappedValue
                 components.month = 1
                 components.day = 1
-                return Calendar.current.date(from: components) ?? Date()
+                return Self.calendar.date(from: components) ?? Date()
             },
             set: { newDate in
-                year.wrappedValue = Calendar.current.component(.year, from: newDate)
+                year.wrappedValue = Self.calendar.component(.year, from: newDate)
             }
         )
         
@@ -844,22 +886,15 @@ struct CustomDatePicker: View {
                         // and the NSStepper buttons. Without it, the raw NSStepper
                         // control sits flush against the label text with no gap.
                         HStack(spacing: 8) {
-                            Text(Self.monthNames[month - 1])
-                                .font(.system(size: 14))
-                                .foregroundStyle(textColor)
-                                .frame(minWidth: 72, alignment: .center)
+                            monthLabel
                             ClearableStepperView(
                                 value: $month,
                                 range: 1...12,
                                 onIncrement: {
-                                    if shouldActivateInsteadOfIncrement() { return }
-                                    month = month >= 12 ? 1 : month + 1
-                                    validateAndUpdateDate()
+                                    step(.month, by: 1)
                                 },
                                 onDecrement: {
-                                    if shouldActivateInsteadOfIncrement() { return }
-                                    month = month <= 1 ? 12 : month - 1
-                                    validateAndUpdateDate()
+                                    step(.month, by: -1)
                                 },
                                 onDelete: onDelete
                             )
@@ -867,44 +902,28 @@ struct CustomDatePicker: View {
                     } else {
                         Stepper(
                             onIncrement: {
-                                if shouldActivateInsteadOfIncrement() { return }
-                                month = month >= 12 ? 1 : month + 1
-                                validateAndUpdateDate()
+                                step(.month, by: 1)
                             },
                             onDecrement: {
-                                if shouldActivateInsteadOfIncrement() { return }
-                                month = month <= 1 ? 12 : month - 1
-                                validateAndUpdateDate()
+                                step(.month, by: -1)
                             }
                         ) {
-                            Text(Self.monthNames[month - 1])
-                                .font(.system(size: 14))
-                                .foregroundStyle(textColor)
-                                .frame(minWidth: 72, alignment: .center)
+                            monthLabel
                         }
                     }
                     
                     // Day stepper — clearable variant when onDelete is provided.
                     if let onDelete {
                         HStack(spacing: 8) {
-                            Text(Fmt.padded(day, 2))
-                                .font(.system(size: 14))
-                                .foregroundStyle(textColor)
-                                .frame(width: 20, alignment: .trailing)
+                            dayLabel
                             ClearableStepperView(
                                 value: $day,
                                 range: 1...31,
                                 onIncrement: {
-                                    if shouldActivateInsteadOfIncrement() { return }
-                                    let maxDay = daysInMonth(month: month, year: year)
-                                    day = day >= maxDay ? 1 : day + 1
-                                    validateAndUpdateDate()
+                                    step(.day, by: 1)
                                 },
                                 onDecrement: {
-                                    if shouldActivateInsteadOfIncrement() { return }
-                                    let maxDay = daysInMonth(month: month, year: year)
-                                    day = day <= 1 ? maxDay : day - 1
-                                    validateAndUpdateDate()
+                                    step(.day, by: -1)
                                 },
                                 onDelete: onDelete
                             )
@@ -912,22 +931,13 @@ struct CustomDatePicker: View {
                     } else {
                         Stepper(
                             onIncrement: {
-                                if shouldActivateInsteadOfIncrement() { return }
-                                let maxDay = daysInMonth(month: month, year: year)
-                                day = day >= maxDay ? 1 : day + 1
-                                validateAndUpdateDate()
+                                step(.day, by: 1)
                             },
                             onDecrement: {
-                                if shouldActivateInsteadOfIncrement() { return }
-                                let maxDay = daysInMonth(month: month, year: year)
-                                day = day <= 1 ? maxDay : day - 1
-                                validateAndUpdateDate()
+                                step(.day, by: -1)
                             }
                         ) {
-                            Text(Fmt.padded(day, 2))
-                                .font(.system(size: 14))
-                                .foregroundStyle(textColor)
-                                .frame(width: 20, alignment: .trailing)
+                            dayLabel
                         }
                     }
                 }
@@ -945,14 +955,10 @@ struct CustomDatePicker: View {
                             value: $year,
                             range: yearRange,
                             onIncrement: {
-                                if shouldActivateInsteadOfIncrement() { return }
-                                year = steppedYear(from: year, by: 1)
-                                validateAndUpdateDate()
+                                step(.year, by: 1)
                             },
                             onDecrement: {
-                                if shouldActivateInsteadOfIncrement() { return }
-                                year = steppedYear(from: year, by: -1)
-                                validateAndUpdateDate()
+                                step(.year, by: -1)
                             },
                             onDelete: onDelete
                         )
@@ -960,14 +966,10 @@ struct CustomDatePicker: View {
                 } else {
                     Stepper(
                         onIncrement: {
-                            if shouldActivateInsteadOfIncrement() { return }
-                            year = steppedYear(from: year, by: 1)
-                            validateAndUpdateDate()
+                            step(.year, by: 1)
                         },
                         onDecrement: {
-                            if shouldActivateInsteadOfIncrement() { return }
-                            year = steppedYear(from: year, by: -1)
-                            validateAndUpdateDate()
+                            step(.year, by: -1)
                         }
                     ) {
                         Text(yearDisplayText)
@@ -979,9 +981,12 @@ struct CustomDatePicker: View {
                     }
                 }
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 4)
-            .padding(.vertical, 4)
+            // 1 pt inside the chrome's outline on every side less than the Stepper family's
+            // usual 8 / 4 / 4, for an outline that sits a little tighter on the fields and
+            // the arrows (StandardStepper takes the same 1 pt).
+            .padding(.leading, 7)
+            .padding(.trailing, 3)
+            .padding(.vertical, 3)
             // isEnabledState is the @State mirror of the SwiftUI isEnabled environment
             // value (see its declaration above). Using it here — rather than the live
             // @Environment(\.isEnabled) — avoids registering isEnabled as a dependency
@@ -1032,7 +1037,7 @@ struct CustomDatePicker: View {
             // on screen whenever another field's validation rule corrects this one —
             // e.g. the mutual release-year / base-release-year ordering rule on a
             // release card, where stepping one field must visibly move the other.
-            let cal = Calendar.current
+            let cal = Self.calendar
             switch mode {
             case .yearOnly:
                 let newYear = cal.component(.year, from: newDate)
@@ -1054,7 +1059,7 @@ struct CustomDatePicker: View {
             // When hasValue changes from false to true externally (data loaded),
             // update the year display if needed
             if !oldValue && newValue && mode == .yearOnly {
-                let components = Calendar.current.dateComponents([.year], from: date)
+                let components = Self.calendar.dateComponents([.year], from: date)
                 if let loadedYear = components.year {
                     year = loadedYear
                 }
@@ -1069,7 +1074,7 @@ struct CustomDatePicker: View {
                 case .yearOnly:
                     year = placeholderYear ?? Self.currentYear
                 case .fullDate:
-                    let comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+                    let comps = Self.calendar.dateComponents([.year, .month, .day], from: Date())
                     month = comps.month ?? 1
                     day   = comps.day   ?? 1
                     year  = comps.year  ?? Self.currentYear
@@ -1090,6 +1095,44 @@ struct CustomDatePicker: View {
         guard isEnabledState else { return tertiaryLabelColor }
         return (hasValue || isInteracting) ? .primary : tertiaryLabelColor
     }
+
+    // MARK: Year-only display
+
+    /// True while the field shows a year-only value: dashed month and day beside a real
+    /// year. Requires `hasValue`, so a blank field never shows it, whatever `yearOnlyValue` holds.
+    private var showsYearOnly: Bool {
+        mode == .fullDate && hasValue && (yearOnlyValue?.wrappedValue ?? false)
+    }
+
+    /// The month label: the month's name, or seven dashes for a year-only value.
+    ///
+    /// The dashes are drawn as the base-release-year Stepper draws its blank state — en
+    /// dashes, spread by `placeholderTracking`, with the trailing gap `.tracking` leaves
+    /// after the last glyph taken back by a negative inset — so the two dashed states read
+    /// as one style. The inset is applied inside the frame, which centers what is left.
+    private var monthLabel: some View {
+        Text(showsYearOnly ? Self.monthPlaceholderDashes : Self.monthNames[month - 1])
+            .font(.system(size: Self.labelFontSize))
+            .tracking(showsYearOnly ? Self.placeholderTracking : 0)
+            .foregroundStyle(textColor)
+            .padding(.trailing, showsYearOnly ? -Self.placeholderTracking : 0)
+            .frame(minWidth: 72, alignment: .center)
+    }
+
+    /// The day label: the two-digit day, or two dashes for a year-only value. Styled as
+    /// `monthLabel` describes.
+    private var dayLabel: some View {
+        Text(showsYearOnly ? Self.dayPlaceholderDashes : Fmt.padded(day, 2))
+            .font(.system(size: Self.labelFontSize))
+            .tracking(showsYearOnly ? Self.placeholderTracking : 0)
+            .foregroundStyle(textColor)
+            .padding(.trailing, showsYearOnly ? -Self.placeholderTracking : 0)
+            .frame(width: 20, alignment: .trailing)
+    }
+
+    /// Seven and two en dashes — the year-only month and day. See `placeholderDashes`.
+    private static let monthPlaceholderDashes = String(repeating: "\u{2013}", count: 7)
+    private static let dayPlaceholderDashes = String(repeating: "\u{2013}", count: 2)
 
     /// The year stepper's label text.
     ///
@@ -1205,6 +1248,17 @@ struct CustomDatePicker: View {
     /// Checks if this is the first interaction and should only activate (not change value)
     /// Returns true if the click should be "thrown away" (only activates field)
     ///
+    /// MARK: Activation commits what is on screen
+    ///
+    /// The click steps nothing, but it does write the DISPLAYED value into the binding. The
+    /// two are the same on a field mounted blank — its display is synced from the binding —
+    /// but they part the moment the field is cleared: the Delete key's closure only lowers
+    /// `hasValue`, and the `hasValue` observer below resets the display (to today, or to the
+    /// current or placeholder year) without touching the binding, which keeps the value the
+    /// field held before. Activating then showed today while committing that old value, and
+    /// every caller saved what it had not shown. Committing the display here keeps the
+    /// promise the placeholder makes, whatever the caller's Delete closure does.
+    ///
     /// MARK: Gated on `hasValue` alone
     ///
     /// `isInteracting` is view-local @State and `hasValue` is the committed model flag, so
@@ -1227,21 +1281,189 @@ struct CustomDatePicker: View {
     /// field is activated `hasValue` is true, so this returns false and clicks step the
     /// value exactly as before.
     private func shouldActivateInsteadOfIncrement() -> Bool {
+        // A year-only value activates like a blank field: the click fills in the month and
+        // day rather than stepping anything. See `yearOnlyValue`.
+        if showsYearOnly {
+            activateFromYearOnly()
+            return true
+        }
         if !hasValue {
+            // Read before the flags change: it is the year the placeholder was showing.
+            let shownYear = displayYear
             // First click - activate the field but don't change the value
             isInteracting = true
             hasValue = true
-            // ...unless a placeholder year was supplied, in which case the placeholder IS the
-            // value the click promised, and the bound value may be something else entirely
-            // (a year the field held before it was last cleared — clearing resets the display
-            // but never writes the model). Commit what was on screen. See placeholderYear.
-            if mode == .yearOnly, let placeholderYear, year != placeholderYear {
-                year = placeholderYear
-                validateAndUpdateDate()
+            // A blank field activates as a full date. A stale flag left behind by a caller
+            // that cleared the field without resetting it must not dash the fresh value.
+            if yearOnlyValue?.wrappedValue == true { yearOnlyValue?.wrappedValue = false }
+            // Commit what was on screen (see "Activation commits what is on screen" above).
+            switch mode {
+            case .yearOnly:
+                // The placeholder year when one was supplied (see placeholderYear), else the
+                // year on display. Compared against the BINDING, which is what may be stale.
+                if year != shownYear || Self.calendar.component(.year, from: date) != shownYear {
+                    year = shownYear
+                    validateAndUpdateDate(direction: 0)
+                }
+            case .fullDate:
+                commitActivatedDay()
             }
             return true
         }
         return false
+    }
+
+    /// Turns a year-only value into a full date: the stored year with today's month and
+    /// day, the day pulled back into a shorter month (February 29 in a year without one
+    /// becomes the 28th).
+    ///
+    /// The year is read from the binding, not the `year` @State: the external-sync
+    /// observer is suspended once the field has been interacted with, so the @State may
+    /// trail a year the caller has since written.
+    ///
+    /// Bounds clamp rather than loop — see `commitActivatedDay`.
+    private func activateFromYearOnly() {
+        isInteracting = true
+        let cal = Self.calendar
+        let today = cal.dateComponents([.month, .day], from: Date())
+        year  = cal.component(.year, from: date)
+        month = today.month ?? 1
+        day   = min(today.day ?? 1, daysInMonth(month: month, year: year))
+        yearOnlyValue?.wrappedValue = false
+        commitActivatedDay()
+    }
+
+    /// Writes the day the month, day and year fields show into the binding, as part of an
+    /// activation (a blank field's first click, or a year-only value's).
+    ///
+    /// Bounds clamp rather than loop. A step in a looping range skips past the limits
+    /// (see `loopStep`), but an activation is not a step: the user asked for nothing but
+    /// "fill this in", and the nearest legal day is the honest answer.
+    ///
+    /// The binding is left alone when it already holds the shown day. That is the ordinary
+    /// first activation of a field mounted blank, whose display was synced from the binding;
+    /// keeping its instant (callers seed it with `Date()`, time of day included) rather
+    /// than replacing it with that day's midnight means the activation writes nothing it
+    /// did not have to.
+    private func commitActivatedDay() {
+        let cal = Self.calendar
+        guard let candidate = cal.date(from: DateComponents(year: year, month: month, day: day)) else { return }
+        // The same floor loopBounds uses: minDate, or — in a looping range — January 1 of
+        // the year range's floor.
+        let floor = minDate ?? (maxDate == nil ? nil
+            : cal.date(from: DateComponents(year: yearRange.lowerBound, month: 1, day: 1)))
+        let target: Date
+        if let maxDate, candidate > cal.startOfDay(for: maxDate) {
+            target = cal.startOfDay(for: maxDate)
+        } else if let floor, candidate < floor {
+            target = floor
+        } else {
+            target = candidate
+        }
+        if target != candidate {
+            apply(target)
+        } else if !cal.isDate(date, inSameDayAs: target) {
+            date = target
+        }
+    }
+
+    /// The three fields a stepper can move.
+    private enum DateField { case month, day, year }
+
+    /// One click of a field's stepper: `delta` is +1 for an increment, -1 for a decrement.
+    ///
+    /// Outside a looping range each field wraps within its own domain — month 12 → 1, the
+    /// last day → 1, the year within `yearRange` (`steppedYear`) — and validateAndUpdateDate
+    /// applies minDate's hard floor. In a looping range (`maxDate` set) see `loopStep`.
+    private func step(_ field: DateField, by delta: Int) {
+        if shouldActivateInsteadOfIncrement() { return }
+        guard maxDate == nil else {
+            loopStep(field, by: delta)
+            return
+        }
+        switch field {
+        case .month:
+            month = delta > 0 ? (month >= 12 ? 1 : month + 1) : (month <= 1 ? 12 : month - 1)
+        case .day:
+            let maxDay = daysInMonth(month: month, year: year)
+            day = delta > 0 ? (day >= maxDay ? 1 : day + 1) : (day <= 1 ? maxDay : day - 1)
+        case .year:
+            year = steppedYear(from: year, by: delta)
+        }
+        validateAndUpdateDate(direction: delta)
+    }
+
+    /// One step of a field in a looping range (`maxDate` set).
+    ///
+    /// Each field loops through its own domain independently — months 1–12, the days of the
+    /// shown month, the years from the floor's to the ceiling's — skipping every value that
+    /// would put the date outside the floor…ceiling range, and wrapping from one end of the
+    /// domain to the other. The other two fields are left as they are; a day the new month
+    /// or year lacks is pulled back to its last day (January 31 → February 28), as
+    /// everywhere else in this picker.
+    ///
+    /// With today 2026.10.19, so a 2027.10.18 ceiling and a 2006.01.01 floor: year up from
+    /// 2026.10.02 lands on 2027.10.02, and up again loops to 2006.10.02 — the first year in
+    /// which October 2 is in range. It never stops on a limit along the way: a date is only
+    /// ever moved to the floor or the ceiling when no value of the stepped field puts it in
+    /// range, which can only happen to a value that was already out of range before the step.
+    private func loopStep(_ field: DateField, by delta: Int) {
+        let (floor, ceiling) = loopBounds()
+        let cal = Self.calendar
+
+        let current: Int
+        let domain: [Int]
+        switch field {
+        case .month:
+            current = month
+            domain = Array(1...12)
+        case .day:
+            current = day
+            domain = Array(1...daysInMonth(month: month, year: year))
+        case .year:
+            current = year
+            let low = cal.component(.year, from: floor)
+            let high = max(low, cal.component(.year, from: ceiling))
+            domain = Array(low...high)
+        }
+        // The domain in step order, starting just past `current` and wrapping, with
+        // `current` itself last — the answer when no other value is in range.
+        let ordered: [Int] = delta > 0
+            ? domain.filter { $0 > current } + domain.filter { $0 <= current }
+            : Array(domain.filter { $0 < current }.reversed()) + Array(domain.filter { $0 >= current }.reversed())
+
+        func composed(_ value: Int) -> Date? {
+            var (y, m, d) = (year, month, day)
+            switch field {
+            case .month: m = value
+            case .day:   d = value
+            case .year:  y = value
+            }
+            return cal.date(from: DateComponents(year: y, month: m,
+                                                 day: min(d, daysInMonth(month: m, year: y))))
+        }
+
+        for value in ordered {
+            if let candidate = composed(value), candidate >= floor, candidate <= ceiling {
+                apply(candidate)
+                return
+            }
+        }
+        // Nothing in range: the value was out of range before the step (e.g. a stored date
+        // below a floor that has since risen). The nearest limit is the honest answer.
+        guard let fallback = composed(current) else { return }
+        apply(fallback > ceiling ? ceiling : floor)
+    }
+
+    /// A looping range's limits as calendar days: minDate, or January 1 of yearRange's lower
+    /// bound when there is none, up to maxDate. Only meaningful while `maxDate` is set.
+    private func loopBounds() -> (floor: Date, ceiling: Date) {
+        let cal = Self.calendar
+        let ceiling = cal.startOfDay(for: maxDate ?? Date())
+        let floor = minDate.map { cal.startOfDay(for: $0) }
+            ?? cal.date(from: DateComponents(year: yearRange.lowerBound, month: 1, day: 1))
+            ?? ceiling
+        return (floor, ceiling)
     }
 
     /// One step of the year Stepper, wrapping at both ends of `yearRange`.
@@ -1280,7 +1502,7 @@ struct CustomDatePicker: View {
     /// Only called in full-date mode — year-only mode seeds its year @State
     /// directly in init and sets didSync = true to bypass this path entirely.
     private func syncFromBinding() {
-        let cal = Calendar.current
+        let cal = Self.calendar
         let comps = cal.dateComponents([.year, .month, .day], from: date)
         month = comps.month ?? 1
         day   = comps.day   ?? 1
@@ -1307,7 +1529,10 @@ struct CustomDatePicker: View {
     /// are clamped to minDate's own components instead — a hard floor rather than a
     /// wrap-around, since "earlier than the film's release date" is never a valid viewing
     /// date regardless of which stepper produced the out-of-range value.
-    private func validateAndUpdateDate() {
+    ///
+    /// `direction` is the step that produced the fields: +1 for an increment, -1 for a
+    /// decrement, 0 for anything else.
+    private func validateAndUpdateDate(direction: Int) {
         // Ensure day is valid for the selected month/year
         let maxDay = daysInMonth(month: month, year: year)
         if day > maxDay {
@@ -1320,10 +1545,24 @@ struct CustomDatePicker: View {
         components.month = month
         components.day = day
         
-        guard let candidateDate = Calendar.current.date(from: components) else { return }
+        guard let candidateDate = Self.calendar.date(from: components) else { return }
+
+        if maxDate != nil {
+            // A looping range's steps go through loopStep and never reach here; what does
+            // is a non-step update (`direction` 0), which clamps to the nearest limit.
+            let (floor, ceiling) = loopBounds()
+            if candidateDate > ceiling {
+                apply(ceiling)
+            } else if candidateDate < floor {
+                apply(floor)
+            } else {
+                date = candidateDate
+            }
+            return
+        }
 
         if let minDate, candidateDate < minDate {
-            let minComponents = Calendar.current.dateComponents([.year, .month, .day], from: minDate)
+            let minComponents = Self.calendar.dateComponents([.year, .month, .day], from: minDate)
             year  = minComponents.year  ?? year
             month = minComponents.month ?? month
             day   = minComponents.day   ?? day
@@ -1331,6 +1570,15 @@ struct CustomDatePicker: View {
         } else {
             date = candidateDate
         }
+    }
+
+    /// Moves the stepper fields and the bound date to `target` (a looping-range bound).
+    private func apply(_ target: Date) {
+        let comps = Self.calendar.dateComponents([.year, .month, .day], from: target)
+        year  = comps.year  ?? year
+        month = comps.month ?? month
+        day   = comps.day   ?? day
+        date = target
     }
 }
 
@@ -1546,7 +1794,7 @@ final class DigitField: NSTextField, Loggable {
     /// field editor's frame, its clip view, its text container and the laid-out text.
     private var editorGeometry: String {
         let b = bounds
-        var s = unsafe String(format: "'%@' bounds=%.0fx%.0f", placeholderString ?? "-", b.width, b.height)
+        var s = "'\(placeholderString ?? "-")' bounds=\(Fmt.fixed(b.width, 0))x\(Fmt.fixed(b.height, 0))"
         if let cell = cell as? NSTextFieldCell {
             let d = cell.drawingRect(forBounds: b)
             s += " drawing x=\(Fmt.fixed(d.minX, 1)) w=\(Fmt.fixed(d.width, 1))"
@@ -1557,12 +1805,16 @@ final class DigitField: NSTextField, Loggable {
         let ef = ed.convert(ed.bounds, to: self)
         let cf = unsafe ed.superview.map { $0.convert($0.bounds, to: self) } ?? .zero
         let used = unsafe ed.layoutManager.map { unsafe $0.usedRect(for: ed.textContainer!) } ?? .zero
-        unsafe s += String(format: " | editor x=%.1f w=%.1f clip x=%.1f w=%.1f container w=%.0f used x=%.1f w=%.1f origin x=%.1f pad=%.1f hres=%d align=%ld min=%.0f max=%.0f text='%@'",
-                    ef.minX, ef.width, cf.minX, cf.width,
-                    ed.textContainer?.containerSize.width ?? -1, used.minX, used.width,
-                    ed.textContainerOrigin.x, ed.textContainer?.lineFragmentPadding ?? -1,
-                    ed.isHorizontallyResizable ? 1 : 0, ed.alignment.rawValue,
-                    ed.minSize.width, ed.maxSize.width, ed.string)
+        let container = unsafe ed.textContainer
+        s += " | editor x=\(Fmt.fixed(ef.minX, 1)) w=\(Fmt.fixed(ef.width, 1))"
+        s += " clip x=\(Fmt.fixed(cf.minX, 1)) w=\(Fmt.fixed(cf.width, 1))"
+        s += " container w=\(Fmt.fixed(Double(container?.containerSize.width ?? -1), 0))"
+        s += " used x=\(Fmt.fixed(used.minX, 1)) w=\(Fmt.fixed(used.width, 1))"
+        s += " origin x=\(Fmt.fixed(ed.textContainerOrigin.x, 1))"
+        s += " pad=\(Fmt.fixed(Double(container?.lineFragmentPadding ?? -1), 1))"
+        s += " hres=\(ed.isHorizontallyResizable ? 1 : 0) align=\(ed.alignment.rawValue)"
+        s += " min=\(Fmt.fixed(ed.minSize.width, 0)) max=\(Fmt.fixed(ed.maxSize.width, 0))"
+        s += " text='\(ed.string)'"
         return s
     }
     #endif

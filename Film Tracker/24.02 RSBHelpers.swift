@@ -79,9 +79,7 @@ extension View {
             .padding(.vertical, RSBHelpers.rowFontBackgroundVerticalPadding)
             .padding(.leading, RSBHelpers.rowHorizontalPadding)
             .padding(.trailing, trailingInset)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(NSColor.controlBackgroundColor)))
+            .sidebarFieldEdgeChrome()
             .overlay(alignment: .topLeading) {
                 if let glyph {
                     RSBHelpers.glyphImage(glyph)
@@ -98,6 +96,30 @@ extension View {
                         .padding(.leading, RSBHelpers.glyphLeadingPadding)
                 }
             }
+    }
+
+    /// The plate fill, outline, and drop shadow the sheet's reorderable tables wear
+    /// (`listContainerChrome`), drawn from the same `FieldEdgeTreatment` constants.
+    ///
+    /// The shadow is cast by the background SHAPE alone, not by the composited view. A
+    /// `.shadow` on the whole view makes SwiftUI render the row's text into an offscreen
+    /// layer and blur it every draw; a shadow on a solid rounded rect is a single-shape
+    /// blur Core Animation handles cheaply, and the text on top is untouched. Because the
+    /// fill is opaque the visible result is identical.
+    nonisolated func sidebarFieldEdgeChrome(fill: Color = Color(NSColor.controlBackgroundColor)) -> some View {
+        let shape = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
+        return self
+            .background(
+                shape
+                    .fill(fill)
+                    .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
+                            radius: FieldEdgeTreatment.shadowRadius,
+                            x: 0,
+                            y: FieldEdgeTreatment.shadowOffsetY))
+            .overlay(
+                shape.strokeBorder(FieldEdgeTreatment.borderGradient,
+                                   lineWidth: FieldEdgeTreatment.borderWidth)
+                    .allowsHitTesting(false))
     }
 }
 
@@ -917,7 +939,17 @@ struct RSBHelpers {
         /// A complete, sentence-capitalized phrase rather than a fragment: it renders as
         /// its own annotation row beneath the value row, not as an inline continuation
         /// of the value. See `WatchDetails.sourceSection`.
+        ///
+        /// When the release backing the note has not come out yet on `today`, the note
+        /// reads "Upcoming <format> release on <date>" instead (or "… release in <year>"
+        /// for a year-only date), since it cannot be bought yet.
         var availableForPurchaseNote: String = ""
+        /// `availableForPurchaseNote` with the release date's month abbreviated, or nil
+        /// when the two would be identical — every note but the upcoming form, and an
+        /// upcoming release in May or with a year-only date. Offered to `fittingValueRow`
+        /// as the one step of the note's ladder, the same overflow-only contract as the
+        /// module's other date rows.
+        var availableForPurchaseNoteAbbreviated: String? = nil
         /// "Region B locked" — empty unless the displayed value is a purchased Blu-ray
         /// reached via the non-edited path AND that release's regionLock is exactly
         /// "Region B". "Region B (Loosely-locked)" is excluded: it plays back like
@@ -926,7 +958,12 @@ struct RSBHelpers {
         var regionBLockNote: String = ""
     }
 
-    static func sourceDisplay(for film: FilmSnapshot) -> SourceDisplay {
+    /// `today` decides whether the release behind the purchase note is upcoming; views
+    /// pass `CurrentDay.shared.today` so the note changes wording on the release day.
+    static func sourceDisplay(
+        for film: FilmSnapshot,
+        today: Date = StorageDateFormatters.calendar.startOfDay(for: Date())
+    ) -> SourceDisplay {
         let isEdited = film.edited
 
         // All releases per format — used for prefix disambiguation rules.
@@ -1082,11 +1119,21 @@ struct RSBHelpers {
         let hasDVDToBuy = allDVD.contains { !$0.purchased }
 
         // The release backing the claim is the best unpurchased one of that format; a foreign
-        // origin makes it an import ("Available for purchase on imported Blu-ray").
+        // origin makes it foreign ("Available for purchase on foreign Blu-ray"). When that
+        // release is still to come it cannot be bought yet, so the note names its date
+        // instead: "Upcoming Blu-ray release on November 3, 2026".
         func buyPhrase(_ format: String, _ pool: [ReleaseSnapshot]) -> String {
-            let toBuy = pool.filter { !$0.purchased }
-            let imported = ReleaseSnapshot.best(from: toBuy).map { ReleaseOrigin.isImport($0.nationalOrigin) } ?? false
-            return "Available for purchase on \(imported ? "imported " : "")\(format)"
+            let backing = ReleaseSnapshot.best(from: pool.filter { !$0.purchased })
+            let foreign = backing.map { ReleaseOrigin.isImport($0.nationalOrigin) } ?? false
+            let label = "\(foreign ? "foreign " : "")\(format)"
+            if let backing,
+               let date = ReleaseDateValue(backing.releaseDate, format: backing.format),
+               date.isUpcoming(today: today) {
+                return date.isYearOnly
+                    ? "Upcoming \(label) release in \(date.displayText)"
+                    : "Upcoming \(label) release on \(date.displayText)"
+            }
+            return "Available for purchase on \(label)"
         }
 
         var availableForPurchase = ""
@@ -1109,6 +1156,7 @@ struct RSBHelpers {
             originAndStudioAbbreviatedValue: alternate(raw.originAndStudioAbbreviated),
             isPurchasedDiscSource: isPurchasedDisc,
             availableForPurchaseNote: availableForPurchase,
+            availableForPurchaseNoteAbbreviated: SidebarTextAbbreviation.abbreviatingMonthNames(in: availableForPurchase),
             regionBLockNote: regionBLock
         )
     }
@@ -1300,13 +1348,18 @@ struct RSBHelpers {
 
         // The "effective base year" identifies which original release a given disc is a
         // variant of: when baseReleaseYear is populated (the release is a re-issue/repack
-        // of an earlier release), that value is used; otherwise the release's own
-        // releaseYear stands in as its own base. Two releases sharing the same effective
+        // of an earlier release), that value is used; otherwise the year of the release's
+        // own releaseDate stands in as its own base. Two releases sharing the same effective
         // base year are variants of the same underlying release (e.g. a 2014 Blu-ray and
         // its 2016 repackaging, baseReleaseYear == "2014"), so distinguishing them by year
         // would be misleading rather than helpful.
+        //
+        // Years throughout, never the full release date: the base year has no month or
+        // day, and the token built from this is a year.
         func effectiveBaseYear(_ release: ReleaseSnapshot) -> String {
-            release.baseReleaseYear.isEmpty ? release.releaseYear : release.baseReleaseYear
+            release.baseReleaseYear.isEmpty
+                ? ReleaseDateValue.yearText(of: release.releaseDate, format: release.format)
+                : release.baseReleaseYear
         }
         let bestEffectiveBaseYear = effectiveBaseYear(best)
 
@@ -1559,7 +1612,7 @@ func releaseVideoDisplay(for release: ReleaseSnapshot) -> String {
 
 /// The four visible sort keys — format group (4K UHD → Blu-ray → DVD, read from
 /// `ReleaseFormat` so this list, the releases table and the FilmSheet carousel cannot drift
-/// into different orders), then descending release year, then descending
+/// into different orders), then descending release date, then descending
 /// purchase date, then studio — expressed once so every ordering uses exactly the same
 /// rules. Returns `nil` when all four tie, letting each caller decide the tiebreak: the
 /// table's flat `.standard` sort keeps its historical `false` (no further ordering), while
@@ -1570,10 +1623,11 @@ func releaseSortKeysPrecede(_ lhs: ReleaseSnapshot, _ rhs: ReleaseSnapshot) -> B
     let rhsOrder = ReleaseFormat.displayRank(for: rhs.format)
     if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
 
-    // Secondary: release year (descending)
-    let lhsYear = Int(lhs.releaseYear) ?? 0
-    let rhsYear = Int(rhs.releaseYear) ?? 0
-    if lhsYear != rhsYear { return lhsYear > rhsYear }
+    // Secondary: release date (descending). A year-only date sorts after the full dates
+    // in its year (ReleaseDateValue.sortKey); no date at all sorts last, as 0 always has.
+    let lhsReleased = ReleaseDateValue(lhs.releaseDate, format: lhs.format)?.sortKey ?? 0
+    let rhsReleased = ReleaseDateValue(rhs.releaseDate, format: rhs.format)?.sortKey ?? 0
+    if lhsReleased != rhsReleased { return lhsReleased > rhsReleased }
 
     // Tertiary: purchase date (descending)
     let lhsDate = parseDate(from: lhs.purchaseDate)
@@ -1642,15 +1696,15 @@ func releasesGroupedByHierarchy(_ source: [ReleaseSnapshot]) -> [[ReleaseSnapsho
 
     return grouped.values
         .map { members in
-            // Parent first, then children in format order, then descending year.
+            // Parent first, then children in format order, then descending release date.
             members.sorted { lhs, rhs in
                 if lhs.isTopLevel != rhs.isTopLevel { return lhs.isTopLevel }
                 let lhsOrder = ReleaseFormat.displayRank(for: lhs.format)
                 let rhsOrder = ReleaseFormat.displayRank(for: rhs.format)
                 if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
-                let lhsYear = Int(lhs.releaseYear) ?? 0
-                let rhsYear = Int(rhs.releaseYear) ?? 0
-                if lhsYear != rhsYear { return lhsYear > rhsYear }
+                let lhsReleased = ReleaseDateValue(lhs.releaseDate, format: lhs.format)?.sortKey ?? 0
+                let rhsReleased = ReleaseDateValue(rhs.releaseDate, format: rhs.format)?.sortKey ?? 0
+                if lhsReleased != rhsReleased { return lhsReleased > rhsReleased }
                 if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
                 return lhs.id.uuidString < rhs.id.uuidString
             }

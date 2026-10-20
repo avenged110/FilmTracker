@@ -69,8 +69,19 @@ final class ReleaseCardModel {
         }
     }
 
+    /// The year of the release date (Release.releaseDate). `hasReleaseYear` says whether the
+    /// release has a date at all; while it is false this holds the Stepper's placeholder.
     var releaseYear: Int
-    var hasReleaseYear: Bool
+    /// Whether the release has a release date. Clearing it also clears `releaseMonthDay`, so
+    /// a date the user deletes cannot reappear under a year activated afterward — the field
+    /// is cleared whole, as the Delete key promises.
+    var hasReleaseYear: Bool {
+        didSet { if !hasReleaseYear, releaseMonthDay != nil { releaseMonthDay = nil } }
+    }
+    /// The month and day of the release date; nil while the date is known only by its year,
+    /// which every release stored before full dates is. Carried through load, combo-pack
+    /// mirroring and save, so a full date survives an edit to any other field.
+    var releaseMonthDay: ReleaseMonthDay?
     var baseReleaseYear: Int
     var hasBaseReleaseYear: Bool
     var purchased: Bool
@@ -171,7 +182,7 @@ final class ReleaseCardModel {
     // bound: a release cannot pre-date the film's own theatrical release year. Stored as 0 when
     // unset, which leaves the format-derived floor in effect.
     //
-    // Seeded at card creation/load and maintained by FSTabReleases.updateFilmReleaseYear(_:).
+    // Seeded at card creation/load and maintained by FSTabReleases.updateFilmRelease(year:day:).
     // It was previously a `let`, on the reasoning that it could not change — but the Details
     // tab owns that date and the user can edit it in the same session, which left every
     // already-built card holding the old floor while a newly added one got the new one. A `var`
@@ -182,7 +193,14 @@ final class ReleaseCardModel {
     // releaseYear/baseReleaseYear, which ARE hashed.
     var filmReleaseYear: Int
 
-    // Convenience helper used by CustomDatePicker instances.
+    /// The first moment of the film's own release day (pinned calendar), or nil when the film
+    /// has no release date. The release-date picker's floor: a disc cannot come out before
+    /// the film does. Kept beside `filmReleaseYear` and maintained with it — seeded at
+    /// creation and load, updated by FSTabReleases.updateFilmRelease(year:day:) — and, like
+    /// it, not persisted or hashed.
+    var filmReleaseDay: Date?
+
+    // Convenience helper used by CustomDateStepper instances.
     // Lower bound is the tighter of the format's inherent floor and the film's own
     // release year. For example, a 4K UHD release for a film from 2020 floors at
     // 2020 rather than 2016, since no such release could physically predate the film.
@@ -200,6 +218,98 @@ final class ReleaseCardModel {
         let rawLowerBound = filmReleaseYear > formatFloor ? filmReleaseYear : formatFloor
         let lowerBound    = rawLowerBound > currentYear ? currentYear : rawLowerBound
         return lowerBound...currentYear
+    }
+
+    // MARK: - Release Date Picker
+    //
+    // The release date is the one date on the card that may lie ahead: a release can be
+    // cataloged up to a year before it comes out (ReleaseDateValue.latestSelectableDay). Its
+    // range is purchaseYearRange with the ceiling raised to the year of that latest day. Every
+    // other year on the card, the base release year included, keeps the current-year ceiling.
+
+    /// Years the release-date picker steps through on `today`.
+    func releaseDateYearRange(today: Date) -> ClosedRange<Int> {
+        let range = purchaseYearRange
+        let latestYear = StorageDateFormatters.calendar.component(
+            .year, from: ReleaseDateValue.latestSelectableDay(today: today))
+        return range.lowerBound...max(range.upperBound, latestYear)
+    }
+
+    /// The earliest release date the picker offers: the film's own release day when it has
+    /// one and it is later than January 1 of the range's floor year, else that January 1.
+    /// Given to the picker as its minimum, so no interaction can build a date before the
+    /// film came out, or a full date below the format floor (which would save as its year
+    /// alone; ReleaseDateValue.init(year:monthDay:format:)).
+    var releaseDateFloor: Date {
+        let yearFloor = StorageDateFormatters.calendar.date(
+            from: DateComponents(year: purchaseYearRange.lowerBound, month: 1, day: 1)) ?? Date()
+        guard let filmReleaseDay else { return yearFloor }
+        return max(yearFloor, filmReleaseDay)
+    }
+
+    /// The release date as the picker's Date. While the card has no month and day — a
+    /// year-only value, or no date at all — it carries today's month and day in the stored
+    /// year: what the picker shows once it is activated, and so what activating it commits.
+    /// February 29 in a year without one becomes the 28th.
+    var releaseDatePickerValue: Date {
+        let cal = StorageDateFormatters.calendar
+        let monthDay = releaseMonthDay ?? Self.todayMonthDay(in: releaseYear)
+        let day = min(monthDay.day, gregorianDaysInMonth(monthDay.month, year: releaseYear))
+        return cal.date(from: DateComponents(year: releaseYear, month: monthDay.month, day: day))
+            ?? Date()
+    }
+
+    /// Writes a date the picker produced. Each field is written only when it changed, so an
+    /// unchanged year does not re-run the ordering rule observing it.
+    func setReleaseDate(_ date: Date) {
+        let comps = StorageDateFormatters.calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = comps.year, let month = comps.month, let day = comps.day else { return }
+        if releaseYear != year { releaseYear = year }
+        let monthDay = ReleaseMonthDay(month: month, day: day)
+        if releaseMonthDay != monthDay { releaseMonthDay = monthDay }
+        clearAvailabilityIfUpcoming(today: CurrentDay.shared.today)
+    }
+
+    /// The picker's `yearOnlyValue` writes false when its first click turns a year-only value
+    /// into a full date. The month and day become today's, matching what the picker shows; it
+    /// then writes the full date itself whenever that differs (a clamp to its bounds, or a
+    /// year it displayed differently).
+    func endYearOnlyReleaseDate() {
+        guard releaseMonthDay == nil else { return }
+        let today = Self.todayMonthDay(in: releaseYear)
+        releaseMonthDay = ReleaseMonthDay(
+            month: today.month,
+            day: min(today.day, gregorianDaysInMonth(today.month, year: releaseYear)))
+        // A year-only value in a later year becomes a full date that is still ahead.
+        clearAvailabilityIfUpcoming(today: CurrentDay.shared.today)
+    }
+
+    private static func todayMonthDay(in year: Int) -> ReleaseMonthDay {
+        let comps = StorageDateFormatters.calendar.dateComponents([.month, .day], from: Date())
+        return ReleaseMonthDay(month: comps.month ?? 1, day: comps.day ?? 1)
+    }
+
+    /// True while the card's release date lies after `today` (see ReleaseDateValue.isUpcoming).
+    func isUpcomingRelease(today: Date) -> Bool {
+        releaseDateValue?.isUpcoming(today: today) ?? false
+    }
+
+    /// Empties the market availability of a release whose date is still ahead: an
+    /// unreleased disc has no market, and the card's menu shows "Not-yet-released" (a display
+    /// value) while the date is ahead. Run wherever the release date is written — the
+    /// picker's writes and load — so the stored field is empty everywhere it is read, and
+    /// the menu comes back reading "Select Availability…" once the release is out.
+    ///
+    /// The combo-pack lock is left alone: "Combo-pack only" on a non-4K disc in a pack
+    /// states how the disc is sold, not whether it can be bought yet, and nothing would put
+    /// it back. Returns true when it cleared something.
+    @discardableResult
+    func clearAvailabilityIfUpcoming(today: Date) -> Bool {
+        guard !marketAvailability.isEmpty, isUpcomingRelease(today: today) else { return false }
+        let comboLocked = ReleaseIndependence.isComboPack(independence) && !is4K
+        if comboLocked && marketAvailability == [ReleaseMarketAvailability.comboPackOnly] { return false }
+        marketAvailability = []
+        return true
     }
 
     // MARK: - Release Year Ordering Rule
@@ -240,20 +350,12 @@ final class ReleaseCardModel {
         let lower = range.lowerBound
         let upper = range.upperBound
 
-        // Degenerate range: the format floor and the film's own release year can collapse the
-        // selectable range to a single year. No pair inside a one-year range can satisfy a
-        // strict inequality, so the base year — the optional field — is cleared rather than
-        // left holding an impossible value.
-        guard upper > lower else {
-            hasBaseReleaseYear = false
-            return
-        }
-
         // MARK: Release year on the range floor
-        // The same "no legal pair exists" condition as the degenerate range above, in its
-        // non-degenerate form: the range has room, but the release year sits on its lowest
-        // year, so nothing is left beneath it. Resolved identically — the optional field is
-        // cleared, the required one kept.
+        // No legal pair exists: the release year sits on the lowest year in range, so nothing
+        // is left beneath it. The optional field is cleared, the required one kept. This also
+        // covers a range collapsed to a single year by the format floor and the film's own
+        // release year, where the release year can only sit on that year — unless it is
+        // upcoming, in which case the range's one year is a legal base year beneath it.
         //
         // This is the path a user takes by stepping the release year down onto the floor while
         // a base year is committed: the base year is dropped back to its blank, unactivated
@@ -273,21 +375,22 @@ final class ReleaseCardModel {
         // Lower the base year beneath the release year. The floor guard above has already
         // established releaseYear > lower, so a legal year exists unconditionally.
         //
-        // min() is defensive only — it bounds the result to the range ceiling should a
-        // release year ever arrive from outside purchaseYearRange. Both terms are >= lower
-        // by the two guards above, so the result is always inside the range.
-        baseReleaseYear = min(releaseYear - 1, upper - 1)
+        // Capped at `upper`, the current year: a base year names an earlier release that has
+        // already happened, so it never lies ahead even when the release year does (the
+        // release-date picker reaches a year past `upper`; see releaseDateYearRange).
+        baseReleaseYear = min(releaseYear - 1, upper)
     }
 
     // MARK: - Init
     // Used both for new releases (all defaults) and for loading existing records. The
     // dateAdded parameter preserves the original creation timestamp when loading. Callers that
     // load from the store overwrite the other mutable fields directly after init.
-    init(id: UUID = UUID(), format: String = ReleaseFormat.bluRay.rawValue, sortOrder: Int = 0, dateAdded: Date = Date(), filmReleaseYear: Int = 0) {
+    init(id: UUID = UUID(), format: String = ReleaseFormat.bluRay.rawValue, sortOrder: Int = 0, dateAdded: Date = Date(), filmReleaseYear: Int = 0, filmReleaseDay: Date? = nil) {
         self.id                = id
         self.studio            = ""
         self.releaseYear       = FSTabReleases.currentYear
         self.hasReleaseYear    = false
+        self.releaseMonthDay   = nil
         self.baseReleaseYear   = FSTabReleases.currentYear
         self.hasBaseReleaseYear = false
         self.purchased         = false
@@ -326,6 +429,7 @@ final class ReleaseCardModel {
         self.sortOrder         = sortOrder
         self.dateAdded         = dateAdded
         self.filmReleaseYear   = filmReleaseYear
+        self.filmReleaseDay    = filmReleaseDay
         // Derive initial picker/text-field state from the default studio value ("").
         // For new cards this always resolves to studioSelection = "" (Select Studio…).
         initializeStudioUI()
@@ -335,8 +439,9 @@ final class ReleaseCardModel {
     /// Applies a format's starting technical vocabulary to a newly created card.
     ///
     /// Every field in `NewReleaseDefaults` is written unconditionally, including the ones a
-    /// given format leaves empty — safe because init() sets all six to "" as well, so writing
-    /// an empty default leaves the field exactly as init built it. The alternative, a
+    /// given format leaves empty — safe because init() gives every one of them the same
+    /// neutral value ("" or false), so writing an empty default leaves the field exactly as
+    /// init built it. The alternative, a
     /// per-format list of which fields to touch, is the duplication this replaced.
     ///
     /// Used by both creation paths, `addRelease` and `createComboChildren`, which previously
@@ -347,6 +452,8 @@ final class ReleaseCardModel {
         nationalOrigin = defaults.nationalOrigin
         videoFormat    = defaults.videoFormat
         audioFormat    = defaults.audioFormat
+        audioChannels  = defaults.audioChannels
+        hasHDR         = defaults.hasHDR
         scanningMethod = defaults.scanningMethod
         regionLock     = defaults.regionLock
         masterType     = defaults.masterType
@@ -392,6 +499,9 @@ final class ReleaseCardModel {
             studio:             studio,
             releaseYear:        hasReleaseYear ? releaseYear : ReleaseCardState.unsetYear,
             hasReleaseYear:     hasReleaseYear,
+            // Normalized as it is saved (releaseDateValue), so a day the year has since
+            // lost — February 29 under a non-leap year — compares as the day it saves as.
+            releaseMonthDay:    releaseDateValue?.monthDay,
             baseReleaseYear:    hasBaseReleaseYear ? baseReleaseYear : ReleaseCardState.unsetYear,
             hasBaseReleaseYear: hasBaseReleaseYear,
             purchased:          purchased,
@@ -449,8 +559,8 @@ final class ReleaseCardModel {
     // added — and exist to preserve this property's exact sensitivity, which is deliberately
     // broader than the snapshot's:
     //
-    //   • The two years and two dates are normalized away by `snapshot()` while their
-    //     has-flag is false. Reading them unconditionally here keeps the observer subscribed
+    //   • The two years, the release month/day, and two dates are normalized away by
+    //     `snapshot()` while their has-flag is false. Reading them unconditionally here keeps the observer subscribed
     //     to the placeholder values, so the Stepper's grayed-out year still signals. (A
     //     ternary would not even register the read, let alone the value.)
     //   • The three Doubles are hashed by bit pattern, as this property always has, so a
@@ -459,10 +569,30 @@ final class ReleaseCardModel {
     // Both were verified as no-change against the previous implementation by an
     // equivalence harness: per-field sensitivity identical across all 39 fields, and the
     // hash-equality relation identical over 100,000 random pairs.
+    /// The release date as it is saved, or nil while the card has none. Built by
+    /// ReleaseDateValue.init(year:monthDay:format:), so what is saved always reads back: a
+    /// stored day the current year lacks is clamped, and a full date that would fail this
+    /// card's format floor keeps only its year.
+    ///
+    /// A year outside ReleaseDateValue.storableYears cannot be stored in either shape and
+    /// saves as its bare number, exactly as the year field always saved — such a year only
+    /// reaches a card from a store edited outside the app, and loads as the current year.
+    var releaseDateValue: ReleaseDateValue? {
+        guard hasReleaseYear else { return nil }
+        return ReleaseDateValue(year: releaseYear, monthDay: releaseMonthDay, format: format)
+    }
+
+    /// The string the card saves for its release date.
+    var releaseDateStorageString: String {
+        guard hasReleaseYear else { return "" }
+        return releaseDateValue?.storageString ?? String(releaseYear)
+    }
+
     var contentHash: Int {
         var h = Hasher()
         h.combine(snapshot())
         h.combine(releaseYear)
+        h.combine(releaseMonthDay)
         h.combine(baseReleaseYear)
         h.combine(purchaseDate)
         h.combine(lowestPriceDate)
@@ -906,6 +1036,9 @@ final class FSTabReleases {
         // Parse the film's release year once for all release models in this load.
         // ReleaseCardModel treats 0 as "no constraint" in purchaseYearRange.
         let parsedFilmYear = Int(film.releaseYear) ?? 0
+        // And its day, for the release-date picker's floor (filmReleaseDay).
+        let parsedFilmDay = parseDate(from: film.releaseDate)
+            .map { StorageDateFormatters.calendar.startOfDay(for: $0) }
 
         releases = sortedReleases.map { release in
             let model = ReleaseCardModel(
@@ -913,7 +1046,8 @@ final class FSTabReleases {
                 format:         release.format,
                 sortOrder:      release.sortOrder,
                 dateAdded:      release.dateAdded,
-                filmReleaseYear: parsedFilmYear
+                filmReleaseYear: parsedFilmYear,
+                filmReleaseDay: parsedFilmDay
             )
 
             model.studio           = release.studio
@@ -958,11 +1092,17 @@ final class FSTabReleases {
             model.includedVersions = ReleaseOptionVocabulary.includedVersions
                 .canonicalized(release.includedVersions)
 
-            let hasReleaseYearValue = !release.releaseYear.isEmpty
+            // Either stored shape (ReleaseDateValue). An unreadable non-empty value — malformed,
+            // or a full date before this format's floor — loads as a dated release in the
+            // current year, as an unreadable year always has.
+            // releaseMonthDay is assigned AFTER hasReleaseYear, whose didSet clears it.
+            let releaseDateValue = ReleaseDateValue(release.releaseDate, format: release.format)
+            let hasReleaseYearValue = !release.releaseDate.isEmpty
             model.hasReleaseYear = hasReleaseYearValue
             model.releaseYear = hasReleaseYearValue
-                ? (Int(release.releaseYear) ?? FSTabReleases.currentYear)
+                ? (releaseDateValue?.year ?? FSTabReleases.currentYear)
                 : FSTabReleases.currentYear
+            model.releaseMonthDay = hasReleaseYearValue ? releaseDateValue?.monthDay : nil
 
             let hasBaseReleaseYearValue = !release.baseReleaseYear.isEmpty
             model.hasBaseReleaseYear = hasBaseReleaseYearValue
@@ -1095,6 +1235,14 @@ final class FSTabReleases {
         }
 
         for model in releases {
+            // An upcoming release holding a market availability — written by a build that
+            // kept the field while the card showed "Not-yet-released", or restored. Cleared as the
+            // picker's own writes clear it (clearAvailabilityIfUpcoming).
+            if model.clearAvailabilityIfUpcoming(today: CurrentDay.shared.today) {
+                owner.log("WARNING: Release \(model.id) loaded upcoming with a market availability — cleared.")
+                loadRepairedIDs.insert(model.id)
+            }
+
             // Case C: base release year not strictly earlier than the release year. The two
             // Steppers cannot produce this, but a record predating the ordering rule (or one
             // written by the restore pipeline) could. Repairing inside loadExistingReleases,
@@ -2157,7 +2305,8 @@ final class FSTabReleases {
         // which is the "unconstrained" value the stepper expects, so no separate check is needed.
         let filmYear = owner?.detailsTab.releaseYear ?? 0
         let newModel = ReleaseCardModel(format: format, sortOrder: nextSortOrder,
-                                        filmReleaseYear: filmYear)
+                                        filmReleaseYear: filmYear,
+                                        filmReleaseDay: owner?.detailsTab.releaseDay)
 
         newModel.applyNewReleaseDefaults(for: format)
 
@@ -2583,8 +2732,13 @@ final class FSTabReleases {
     ///
     /// The equality guard keeps this free on the common path — a date change that does not
     /// cross a year boundary writes nothing.
-    func updateFilmReleaseYear(_ year: Int) {
-        for model in releases where model.filmReleaseYear != year {
+    ///
+    /// The film's DAY rides along for the release-date picker's floor; it moves no stored
+    /// value, so it needs no enforcement pass.
+    func updateFilmRelease(year: Int, day: Date?) {
+        for model in releases {
+            if model.filmReleaseDay != day { model.filmReleaseDay = day }
+            guard model.filmReleaseYear != year else { continue }
             model.filmReleaseYear = year
             model.enforceReleaseYearOrder()
         }
@@ -3057,7 +3211,7 @@ final class FSTabReleases {
 
     /// The per-child half of `syncComboChildFields`.
     private func syncComboChild(_ child: ReleaseCardModel, from parent: ReleaseCardModel) {
-        // Locked fields: purchased, wishlist, studio, releaseYear/hasReleaseYear,
+        // Locked fields: purchased, wishlist, studio, releaseYear/hasReleaseYear/releaseMonthDay,
         // independence, nationalOrigin, cost, amountSpent, lowestPrice,
         // lowestPriceDate/hasLowestPriceDate, marketAvailability,
         // purchaseDate/hasPurchaseDate, condition, hasArtwork.
@@ -3077,6 +3231,8 @@ final class FSTabReleases {
         if child.studioCustomText   != parent.studioCustomText   { child.studioCustomText   = parent.studioCustomText }
         if child.releaseYear        != parent.releaseYear        { child.releaseYear        = parent.releaseYear }
         if child.hasReleaseYear     != parent.hasReleaseYear     { child.hasReleaseYear     = parent.hasReleaseYear }
+        // After hasReleaseYear, whose didSet clears the month and day when it goes false.
+        if child.releaseMonthDay    != parent.releaseMonthDay    { child.releaseMonthDay    = parent.releaseMonthDay }
         // releaseYear is locked to the parent but baseReleaseYear is not, so a change to the
         // parent's release year can push the child into a state its own Steppers never
         // produced. Both are re-asserted here against the just-synced release year, so the
@@ -3155,6 +3311,7 @@ final class FSTabReleases {
 
         let baseSortOrder = nextSortOrder
         let filmYear      = parent.filmReleaseYear
+        let filmDay       = parent.filmReleaseDay
 
         var newChildren: [ReleaseCardModel] = []
         newChildren.reserveCapacity(count)
@@ -3164,6 +3321,7 @@ final class FSTabReleases {
             // against, so the two cannot disagree about what a fresh child looks like.
             let child = Self.makeComboChild(sortOrder: baseSortOrder + offset,
                                             filmReleaseYear: filmYear)
+            child.filmReleaseDay = filmDay
             // Wire the hierarchy.
             child.parentReleaseID = parent.id
             newChildren.append(child)
@@ -3284,7 +3442,7 @@ final class FSTabReleases {
         ReleaseSnapshot(
             id: model.id,
             studio: model.studio,
-            releaseYear: model.hasReleaseYear ? "\(model.releaseYear)" : "",
+            releaseDate: model.releaseDateStorageString,
             baseReleaseYear: model.hasBaseReleaseYear ? "\(model.baseReleaseYear)" : "",
             purchased: model.purchased,
             wishlist: model.wishlist,
@@ -3368,6 +3526,7 @@ struct ReleaseCardState: Equatable, Hashable {
     var studio: String
     var releaseYear: Int
     var hasReleaseYear: Bool
+    var releaseMonthDay: ReleaseMonthDay?
     var baseReleaseYear: Int
     var hasBaseReleaseYear: Bool
     var purchased: Bool

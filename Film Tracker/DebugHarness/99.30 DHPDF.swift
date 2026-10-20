@@ -962,11 +962,11 @@ extension DebugHarness {
                 // The plain Blu-ray is listed first and is the newer pressing, so only the
                 // tier ranking can put the remastered one in the cell.
                 $0.releases = [
-                    ReleaseSnapshot(releaseYear: "2020", purchased: true,
+                    ReleaseSnapshot(releaseDate: "2020", purchased: true,
                                     format: ReleaseFormat.bluRay.rawValue,
                                     audioFormat: ReleaseAudioFormat.dolbyDigital,
                                     audioChannels: ReleaseAudioChannels.stereo20),
-                    ReleaseSnapshot(releaseYear: "2008", purchased: true,
+                    ReleaseSnapshot(releaseDate: "2008", purchased: true,
                                     format: ReleaseFormat.bluRay.rawValue,
                                     audioFormat: ReleaseAudioFormat.dolbyAtmos,
                                     audioChannels: ReleaseAudioChannels.surround71,
@@ -1065,11 +1065,11 @@ extension DebugHarness {
         out.append(PDFExpectation(
             film: film("PDF 4K Native Over Upscaled") {
                 $0.releases = [
-                    ReleaseSnapshot(releaseYear: "2023", purchased: true,
+                    ReleaseSnapshot(releaseDate: "2023", purchased: true,
                                     format: ReleaseFormat.uhd4K.rawValue,
                                     audioChannels: ReleaseAudioChannels.stereo20,
                                     masterType: ReleaseMasterType.upscaled),
-                    ReleaseSnapshot(releaseYear: "2017", purchased: true,
+                    ReleaseSnapshot(releaseDate: "2017", purchased: true,
                                     format: ReleaseFormat.uhd4K.rawValue,
                                     audioChannels: ReleaseAudioChannels.surround51,
                                     masterType: ReleaseMasterType.nativeFourK),
@@ -1266,9 +1266,9 @@ extension DebugHarness {
         out.append(PDFExpectation(
             film: film("PDF Notes Double Dip Studios") {
                 $0.releases = [
-                    ReleaseSnapshot(studio: "Lionsgate Films", releaseYear: "2011",
+                    ReleaseSnapshot(studio: "Lionsgate Films", releaseDate: "2011",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue),
-                    ReleaseSnapshot(studio: "Shout Factory", releaseYear: "2018",
+                    ReleaseSnapshot(studio: "Shout Factory", releaseDate: "2018",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue),
                 ]
             },
@@ -1278,9 +1278,9 @@ extension DebugHarness {
         out.append(PDFExpectation(
             film: film("PDF Notes Double Dip Years") {
                 $0.releases = [
-                    ReleaseSnapshot(studio: "Arrow Video", releaseYear: "2011",
+                    ReleaseSnapshot(studio: "Arrow Video", releaseDate: "2011",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue),
-                    ReleaseSnapshot(studio: "Arrow Video", releaseYear: "2018",
+                    ReleaseSnapshot(studio: "Arrow Video", releaseDate: "2018",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue),
                 ]
             },
@@ -1290,9 +1290,9 @@ extension DebugHarness {
         out.append(PDFExpectation(
             film: film("PDF Notes Double Dip Same Year") {
                 $0.releases = [
-                    ReleaseSnapshot(studio: "Arrow Video", releaseYear: "2017",
+                    ReleaseSnapshot(studio: "Arrow Video", releaseDate: "2017",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue),
-                    ReleaseSnapshot(studio: "Arrow Video", releaseYear: "2017",
+                    ReleaseSnapshot(studio: "Arrow Video", releaseDate: "2017",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue),
                 ]
             },
@@ -1320,10 +1320,10 @@ extension DebugHarness {
         out.append(PDFExpectation(
             film: film("PDF Notes Region B Mixed") {
                 $0.releases = [
-                    ReleaseSnapshot(studio: "Arrow Video", releaseYear: "2011",
+                    ReleaseSnapshot(studio: "Arrow Video", releaseDate: "2011",
                                     purchased: true, format: ReleaseFormat.uhd4K.rawValue,
                                     regionLock: ReleaseRegionRules.regionB),
-                    ReleaseSnapshot(studio: "Criterion", releaseYear: "2018",
+                    ReleaseSnapshot(studio: "Criterion", releaseDate: "2018",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue,
                                     regionLock: ReleaseRegionRules.regionA),
                 ]
@@ -1423,9 +1423,9 @@ extension DebugHarness {
                     + "this cell past the width of the Notes column so the studio names "
                     + "have to fall back to their abbreviated forms."
                 $0.releases = [
-                    ReleaseSnapshot(studio: "Lionsgate Films", releaseYear: "2011",
+                    ReleaseSnapshot(studio: "Lionsgate Films", releaseDate: "2011",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue),
-                    ReleaseSnapshot(studio: "Shout Factory", releaseYear: "2018",
+                    ReleaseSnapshot(studio: "Shout Factory", releaseDate: "2018",
                                     purchased: true, format: ReleaseFormat.bluRay.rawValue),
                 ]
             },

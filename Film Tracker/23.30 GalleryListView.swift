@@ -147,6 +147,14 @@ enum ListRowItem: Equatable {
     case divider(section: GallerySection, filmCount: Int)
     /// A real film row, carrying its index into the Coordinator's `films` array.
     case film(index: Int)
+    /// An empty "Up Next" placeholder slot (1-based number), shown only on the Film
+    /// Queue's "All" tab after the "Up Next" films. Never selectable; see UpNextSlots.swift.
+    case slot(number: Int)
+
+    var isFilm: Bool {
+        if case .film = self { return true }
+        return false
+    }
 
     var isDivider: Bool {
         if case .divider = self { return true }
@@ -838,29 +846,40 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 tableView.reloadData()
             }
         } else if filmsChanged {
-            // Refresh only visible rows for metadata/poster updates, preserving
+            // Refresh the existing rows in place for metadata/poster updates, preserving
             // scroll position and selection (avoids full reloadData bounce).
             //
             // Reachable only for a SAME-view refresh in which every film kept its row:
             // a view switch is forced down the full-reload path above, and so now is any
             // reorder, interior ones included. What remains here is the in-place metadata
             // edit this branch exists for — a renamed film, a new rating, a release marked
-            // purchased — where reloading the visible rows is both sufficient and the
-            // cheapest correct response. Rows outside the viewport need nothing: NSTableView
-            // asks the delegate for a view when a row scrolls in, and it reads the films
-            // array the assignment above has already refreshed.
+            // purchased.
+            //
+            // Every row view the table currently holds is updated, not just the visible
+            // ones: NSTableView keeps rows prepared just outside the viewport and does not
+            // ask for them again when they scroll in, so a film edited there would otherwise
+            // show its old values. (The grid reconfigures its prepared cells for the same
+            // reason.) Rows the table holds no view for need nothing — it asks the delegate
+            // when one is needed, and that reads the films array assigned above.
+            //
+            // In place rather than through reloadData(forRowIndexes:), which swapped each
+            // row's cell view through the reuse queue: the swap relaid the row out, and the
+            // cell it got back could be one last configured for another film, which
+            // reassigned that cell's rootView even when the row's own film had not changed.
+            // `update` compares what the row displays, so a row whose film is unchanged
+            // costs a few comparisons and no hosting-view work.
             //
             // Gated on filmsChanged: on every other pass (a selection change, a status-bar
             // toggle, a banding-only rebuild that kept the row model) the rows already show
-            // the current films, and re-requesting them was pure waste. A banding change
-            // that alters rows is caught by rowModelChanged above.
-            let visible = tableView.rows(in: tableView.visibleRect)
-            if visible.length > 0 {
-                let reloadSet = IndexSet(integersIn: visible.location..<(visible.location + visible.length))
-                coordinator.withSuppressedCallbacks {
-                    tableView.reloadData(forRowIndexes: reloadSet,
-                                        columnIndexes: IndexSet(integer: 0))
-                }
+            // the current films, and refreshing them was pure waste. A banding change that
+            // alters rows is caught by rowModelChanged above.
+            tableView.enumerateAvailableRowViews { rowView, row in
+                guard let cell = rowView.view(atColumn: 0) as? ListRowHostCell,
+                      let film = coordinator.film(forRow: row) else { return }
+                #if DEBUG
+                GalleryRefreshProbe.listRowsRefreshed += 1
+                #endif
+                cell.update(film: film, subtitle: coordinator.subtitleProvider?.subtitle(film.id))
             }
         }
 
@@ -1123,7 +1142,24 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             items.reserveCapacity(films.count + breaks.count)
             map.reserveCapacity(films.count)
 
+            // The Queue's "All" tab follows its "Up Next" films with empty slot rows (and,
+            // when "Up Next" has no films, its own band first). Nil everywhere else.
+            var slotPlan = dataCoordinator.flatMap {
+                UpNextSlots.plan(breaks: breaks, filmCount: films.count, coordinator: $0)
+            }
+            func appendSlots(at index: Int) {
+                guard let plan = slotPlan, plan.afterIndex == index else { return }
+                slotPlan = nil
+                if plan.needsOwnBand {
+                    items.append(.divider(section: FilmQueueSection.upNext.gallerySection, filmCount: 0))
+                }
+                for number in plan.firstNumber..<(plan.firstNumber + plan.count) {
+                    items.append(.slot(number: number))
+                }
+            }
+
             for (index, film) in films.enumerated() {
+                appendSlots(at: index)
                 if nextBreak < breaks.count, breaks[nextBreak].index == index {
                     // Section film count is the span from this break to the next one (or to
                     // the end of the film set for the final section) — the same real-item
@@ -1147,6 +1183,7 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 map[film.id] = items.count
                 items.append(.film(index: index))
             }
+            appendSlots(at: films.count)
 
             rowItems = items
             filmRowMap = map
@@ -1774,6 +1811,13 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 cell.identifier = id
                 cell.update(film: film, subtitle: subtitle)
                 return cell
+
+            case .slot(let number):
+                let id = NSUserInterfaceItemIdentifier("ListUpNextSlot")
+                let cell = tableView.makeView(withIdentifier: id, owner: nil) as? UpNextSlotListCell
+                    ?? { let fresh = UpNextSlotListCell(); fresh.identifier = id; return fresh }()
+                cell.update(slotNumber: number)
+                return cell
             }
         }
 
@@ -1790,7 +1834,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         /// to navigation" behavior GallerySubview implements by hand for the grid.
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
             guard row >= 0, row < rowItems.count else { return false }
-            return !rowItems[row].isDivider
+            // Empty "Up Next" slots are no more selectable than divider bands.
+            return rowItems[row].isFilm
         }
 
         /// Supplies a background- and selection-free row view for section-divider rows, so
@@ -1799,7 +1844,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         /// return nil and therefore keep NSTableView's stock row view, leaving the existing
         /// alternating-stripe and `.inset` selection appearance completely untouched.
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-            guard row >= 0, row < rowItems.count, rowItems[row].isDivider else { return nil }
+            // Empty "Up Next" slots draw their own outline, so they take the plain row too.
+            guard row >= 0, row < rowItems.count, !rowItems[row].isFilm else { return nil }
             let id = NSUserInterfaceItemIdentifier("ListSectionDividerRowView")
             if let existing = tableView.makeView(withIdentifier: id, owner: nil) as? ListDividerRowView {
                 return existing
@@ -1834,6 +1880,23 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 /// never see them — regardless of whether a pasteboardWriter is available. The
 /// native pipeline below (pasteboardWriterForRow / willBeginAt / dragImageForRows)
 /// is therefore the only viable hook point for this view.
+#if DEBUG
+extension DraggableListTableView {
+    /// Row → the rating each film row the table currently holds a view for is displaying,
+    /// prepared off-screen rows included. For harness checks of in-place row refresh.
+    func debugDisplayedRatings() -> [Int: Int] {
+        var ratings: [Int: Int] = [:]
+        enumerateAvailableRowViews { rowView, row in
+            if let cell = rowView.view(atColumn: 0) as? ListRowHostCell,
+               let rating = cell.currentUserRating {
+                ratings[row] = rating
+            }
+        }
+        return ratings
+    }
+}
+#endif
+
 final class DraggableListTableView: NSTableView {
 
     /// Set by DraggableListView.makeNSView immediately after construction.
@@ -2012,7 +2075,7 @@ private final class ListRowHostCell: NSView {
     private var currentName: String?
     private var currentHasPurchased: Bool?
     private var currentDurationParts: DurationParts?
-    private var currentUserRating: Int?
+    private(set) var currentUserRating: Int?
     private var currentReleaseYear: String?
     // Double-optional on purpose: nil means "never configured", .some(nil) means
     // "configured with no subtitle", so a first configuration can never be mistaken
@@ -2063,6 +2126,9 @@ private final class ListRowHostCell: NSView {
             // SwiftUI still diffs on assignment even when the value is identical,
             // so avoiding the assignment is the only way to guarantee zero CPU cost.
             if needsUpdate {
+                #if DEBUG
+                GalleryRefreshProbe.listRowRootViewAssignments += 1
+                #endif
                 host.rootView = rootView
             }
         } else {
@@ -2193,7 +2259,7 @@ private struct GalleryListSectionDivider: View {
 
                 Spacer(minLength: 0)
 
-                Text("\(filmCount) film\(filmCount == 1 ? "" : "s")")
+                Text(UpNextSlots.sectionCountText(section: section, filmCount: filmCount))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -2521,5 +2587,142 @@ private struct PosterThumbnailView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
             }
+    }
+}
+
+// MARK: - UpNextResultsTable
+
+/// The "Up Next" slot sheet's result list (UpNextSlots.swift). It cannot be the gallery's
+/// own GalleryListView: that view is wired to the library's film set, the shared selection,
+/// the scroll-position handoffs and the drag engine. It is instead the same table — the
+/// same `.inset` style, alternating stripes, row height, stock row views and ListRowHostCell
+/// rows — with none of that wiring, so colors, stripes and the selection highlight come
+/// from the same AppKit drawing. No drag source, no contextual menu.
+///
+/// Selection commits on mouse-down, as NSTableView does natively. The table refuses first
+/// responder so the sheet's search field keeps the keyboard, and its rows always draw the
+/// emphasized (accent) selection, which a table that is not first responder would otherwise
+/// show gray.
+struct UpNextResultsTable: NSViewRepresentable {
+    let films: [FilmSnapshot]
+    let selectedID: UUID?
+    let onSelect: (UUID?) -> Void
+    let onActivate: (UUID) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.scrollerStyle = .overlay
+
+        let tableView = NSTableView()
+        tableView.style = .inset
+        tableView.usesAlternatingRowBackgroundColors = true
+        tableView.backgroundColor = NSColor.alternatingContentBackgroundColors[0]
+        tableView.allowsMultipleSelection = false
+        tableView.allowsEmptySelection = true
+        tableView.headerView = nil
+        tableView.rowHeight = kListRowHeight
+        tableView.intercellSpacing = NSSize(width: 0, height: 0)
+        tableView.gridStyleMask = []
+        tableView.rowSizeStyle = .custom
+        tableView.refusesFirstResponder = true
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("main"))
+        column.isEditable = false
+        column.resizingMask = .autoresizingMask
+        tableView.addTableColumn(column)
+
+        let coordinator = context.coordinator
+        coordinator.tableView = tableView
+        tableView.delegate = coordinator
+        tableView.dataSource = coordinator
+        tableView.target = coordinator
+        tableView.doubleAction = #selector(Coordinator.doubleClicked(_:))
+        scrollView.documentView = tableView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        let coordinator = context.coordinator
+        guard let tableView = coordinator.tableView else { return }
+        coordinator.onSelect = onSelect
+        coordinator.onActivate = onActivate
+
+        coordinator.isSyncing = true
+        defer { coordinator.isSyncing = false }
+
+        if coordinator.films.map(\.id) != films.map(\.id) {
+            coordinator.films = films
+            tableView.reloadData()
+            tableView.scrollRowToVisible(0)
+        }
+        let wanted = selectedID.flatMap { id in films.firstIndex { $0.id == id } } ?? -1
+        if tableView.selectedRow != wanted {
+            if wanted >= 0 {
+                tableView.selectRowIndexes(IndexSet(integer: wanted), byExtendingSelection: false)
+                tableView.scrollRowToVisible(wanted)
+            } else {
+                tableView.deselectAll(nil)
+            }
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTableViewDelegate, NSTableViewDataSource {
+        weak var tableView: NSTableView?
+        var films: [FilmSnapshot] = []
+        var onSelect: (UUID?) -> Void = { _ in }
+        var onActivate: (UUID) -> Void = { _ in }
+        /// True while updateNSView drives the table, so its own selection changes are not
+        /// echoed back as user selections.
+        var isSyncing = false
+
+        func numberOfRows(in tableView: NSTableView) -> Int { films.count }
+
+        func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?,
+                       row: Int) -> NSView? {
+            guard row >= 0, row < films.count else { return nil }
+            let id = NSUserInterfaceItemIdentifier("ListRow")
+            let cell = tableView.makeView(withIdentifier: id, owner: nil) as? ListRowHostCell
+                ?? { let fresh = ListRowHostCell(); fresh.identifier = id; return fresh }()
+            cell.update(film: films[row], subtitle: nil)
+            return cell
+        }
+
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            let id = NSUserInterfaceItemIdentifier("UpNextResultRowView")
+            if let existing = tableView.makeView(withIdentifier: id, owner: nil) as? UpNextResultRowView {
+                return existing
+            }
+            let rowView = UpNextResultRowView()
+            rowView.identifier = id
+            return rowView
+        }
+
+        func tableViewSelectionDidChange(_ notification: Notification) {
+            guard !isSyncing, let tableView else { return }
+            let row = tableView.selectedRow
+            onSelect(row >= 0 && row < films.count ? films[row].id : nil)
+        }
+
+        @objc func doubleClicked(_ sender: NSTableView) {
+            let row = sender.clickedRow
+            guard row >= 0, row < films.count else { return }
+            onActivate(films[row].id)
+        }
+    }
+}
+
+/// Stock row drawing (stripe, `.inset` selection), but always in the active window's
+/// emphasized state, since the table never holds first responder.
+private final class UpNextResultRowView: NSTableRowView {
+    override var isEmphasized: Bool {
+        get { true }
+        set { }
     }
 }

@@ -356,7 +356,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     // MARK: - Properties (must match Release model)
     let id: UUID
     let studio: String
-    let releaseYear: String
+    let releaseDate: String
     let baseReleaseYear: String
     let purchased: Bool
     /// Wishlist position (0 = not on wishlist, ≥1 = wishlist display order). Mirrors Release.wishlist.
@@ -469,7 +469,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         }
 
         // Year as tiebreaker — each year of recency adds 1 point.
-        if let year = Int(releaseYear) { score += year }
+        if let year = ReleaseDateValue.year(of: releaseDate, format: format) { score += year }
 
         return score
     }
@@ -580,7 +580,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     init(from release: Release) {
         self.id = release.id
         self.studio = release.studio
-        self.releaseYear = release.releaseYear
+        self.releaseDate = release.releaseDate
         self.baseReleaseYear = release.baseReleaseYear
         self.purchased = release.purchased
         self.wishlist = release.wishlist
@@ -624,7 +624,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     init(
         id: UUID = UUID(),
         studio: String = "",
-        releaseYear: String = "",
+        releaseDate: String = "",
         baseReleaseYear: String = "",
         purchased: Bool = false,
         wishlist: Int = 0,
@@ -664,7 +664,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     ) {
         self.id = id
         self.studio = studio
-        self.releaseYear = releaseYear
+        self.releaseDate = releaseDate
         self.baseReleaseYear = baseReleaseYear
         self.purchased = purchased
         self.wishlist = wishlist
@@ -708,7 +708,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// Called within DataManager's actor context after fetching the release by ID.
     func apply(to release: Release) {
         release.studio = studio
-        release.releaseYear = releaseYear
+        release.releaseDate = releaseDate
         release.baseReleaseYear = baseReleaseYear
         release.purchased = purchased
         release.wishlist = wishlist
@@ -757,7 +757,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         return Release(
             id: id,
             studio: studio,
-            releaseYear: releaseYear,
+            releaseDate: releaseDate,
             baseReleaseYear: baseReleaseYear,
             purchased: purchased,
             wishlist: wishlist,
@@ -1152,10 +1152,13 @@ struct SettingsSnapshot: Sendable, Equatable {
     let lastImportsCategory: String?
     let rememberSortFilterSelections: Bool?
     let confirmFilmQueueAdd: Bool?
+    let notifyAboutNewReleases: Bool?
+    let onlyNotifyForWishlisted: Bool?
     let queueIsDropTarget: Bool?
     let queueSectionOnDrop: Int?
     let strictFramesTableChecking: Bool?
     let showWatchDetailsAnnotationGlyphs: Bool?
+    let atvq: Bool?
 
     // MARK: - Advanced Preferences
     let loggingEnabled: Bool?
@@ -1204,10 +1207,13 @@ struct SettingsSnapshot: Sendable, Equatable {
          lastImportsCategory: String? = nil,
          rememberSortFilterSelections: Bool? = nil,
          confirmFilmQueueAdd: Bool? = nil,
+         notifyAboutNewReleases: Bool? = nil,
+         onlyNotifyForWishlisted: Bool? = nil,
          queueIsDropTarget: Bool? = nil,
          queueSectionOnDrop: Int? = nil,
          strictFramesTableChecking: Bool? = nil,
          showWatchDetailsAnnotationGlyphs: Bool? = nil,
+         atvq: Bool? = nil,
          loggingEnabled: Bool? = nil,
          selectedSortOptionsJSON: String? = nil,
          ignoredDuplicatePairsJSON: String? = nil) {
@@ -1250,10 +1256,13 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.lastImportsCategory = lastImportsCategory
         self.rememberSortFilterSelections = rememberSortFilterSelections
         self.confirmFilmQueueAdd = confirmFilmQueueAdd
+        self.notifyAboutNewReleases = notifyAboutNewReleases
+        self.onlyNotifyForWishlisted = onlyNotifyForWishlisted
         self.queueIsDropTarget = queueIsDropTarget
         self.queueSectionOnDrop = queueSectionOnDrop
         self.strictFramesTableChecking = strictFramesTableChecking
         self.showWatchDetailsAnnotationGlyphs = showWatchDetailsAnnotationGlyphs
+        self.atvq = atvq
         self.loggingEnabled = loggingEnabled
         self.selectedSortOptionsJSON = selectedSortOptionsJSON
         self.ignoredDuplicatePairsJSON = ignoredDuplicatePairsJSON
@@ -1301,10 +1310,13 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.lastImportsCategory = object.lastImportsCategory
         self.rememberSortFilterSelections = object.rememberSortFilterSelections
         self.confirmFilmQueueAdd = object.confirmFilmQueueAdd
+        self.notifyAboutNewReleases = object.notifyAboutNewReleases
+        self.onlyNotifyForWishlisted = object.onlyNotifyForWishlisted
         self.queueIsDropTarget = object.queueIsDropTarget
         self.queueSectionOnDrop = object.queueSectionOnDrop
         self.strictFramesTableChecking = object.strictFramesTableChecking
         self.showWatchDetailsAnnotationGlyphs = object.showWatchDetailsAnnotationGlyphs
+        self.atvq = object.atvq
         self.loggingEnabled = object.loggingEnabled
         self.selectedSortOptionsJSON = object.selectedSortOptionsJSON
         self.ignoredDuplicatePairsJSON = object.ignoredDuplicatePairsJSON
@@ -1352,10 +1364,13 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.lastImportsCategory = lastImportsCategory
         object.rememberSortFilterSelections = rememberSortFilterSelections
         object.confirmFilmQueueAdd = confirmFilmQueueAdd
+        object.notifyAboutNewReleases = notifyAboutNewReleases
+        object.onlyNotifyForWishlisted = onlyNotifyForWishlisted
         object.queueIsDropTarget = queueIsDropTarget
         object.queueSectionOnDrop = queueSectionOnDrop
         object.strictFramesTableChecking = strictFramesTableChecking
         object.showWatchDetailsAnnotationGlyphs = showWatchDetailsAnnotationGlyphs
+        object.atvq = atvq
         object.loggingEnabled = loggingEnabled
         object.selectedSortOptionsJSON = selectedSortOptionsJSON
         object.ignoredDuplicatePairsJSON = ignoredDuplicatePairsJSON

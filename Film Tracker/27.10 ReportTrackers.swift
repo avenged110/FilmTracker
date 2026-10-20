@@ -10,6 +10,9 @@ import SwiftUI
 struct CostTrackerView: View {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @State private var releases: [ReleaseData] = []
+    /// Bumped by every load. The mount path's off-main reconcile applies its rows only if
+    /// nothing has loaded since it started, so it can never overwrite newer data.
+    @State private var loadGeneration = 0
     
     var body: some View {
         ReportsReleaseTableView(
@@ -57,7 +60,7 @@ struct CostTrackerView: View {
             releases = ReportsState.shared.cachedReleases(for: .costTracker)
             DispatchQueue.main.async {
                 DispatchQueue.main.async {
-                    loadPurchasedReleases()
+                    reconcilePurchasedReleases()
                 }
             }
         } else {
@@ -65,13 +68,39 @@ struct CostTrackerView: View {
         }
     }
 
+    /// The mount path's reconciling load, with the row build and the sort off the main
+    /// actor (see ReleaseData.reconciledRows). Event-driven reloads stay synchronous.
+    private func reconcilePurchasedReleases() {
+        loadGeneration += 1
+        let generation = loadGeneration
+        let filmsMap = dataCoordinator.getAllFilmsMap()
+        Task {
+            let loaded = await ReleaseData.reconciledRows(
+                for: .costTracker, filmsMap: filmsMap, defaultSortOrder: ReleaseData.costTrackerDefaultSort,
+                build: ReleaseData.costTrackerRows)
+            guard generation == loadGeneration else { return }
+            // Rows built from a library that has since changed would be stale, and the change
+            // may not have triggered a reload (a film absent from the seeded rows is not
+            // reloaded for). Fall back to the synchronous load, which reads it as it is now.
+            guard dataCoordinator.getAllFilmsMap() == filmsMap else {
+                loadPurchasedReleases()
+                return
+            }
+            loaded.primeSortCache()
+            applyPurchasedReleases(loaded.rows)
+        }
+    }
+
     private func loadPurchasedReleases() {
+        loadGeneration += 1
         // The row set comes from ReleaseData.costTrackerRows, which the whole-library PDF
         // export calls as well. The predicate and the field mapping live in exactly one
         // place, so the table and the printed sheet cannot come to disagree about which
         // releases qualify or what a row says.
-        let loadedReleases = ReleaseData.costTrackerRows(films: dataCoordinator.getAllFilms())
+        applyPurchasedReleases(ReleaseData.costTrackerRows(films: dataCoordinator.getAllFilms()))
+    }
 
+    private func applyPurchasedReleases(_ loadedReleases: [ReleaseData]) {
         releases = loadedReleases
         // Push the result to ReportsState directly rather than relying solely on
         // ReportsReleaseTableView's onChange(of: releases) — that handler never
@@ -89,6 +118,8 @@ struct CostTrackerView: View {
 struct PriceTrackerView: View {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @State private var releases: [ReleaseData] = []
+    /// See CostTrackerView.loadGeneration.
+    @State private var loadGeneration = 0
     
     var body: some View {
         ReportsReleaseTableView(
@@ -127,7 +158,7 @@ struct PriceTrackerView: View {
             releases = ReportsState.shared.cachedReleases(for: .priceTracker)
             DispatchQueue.main.async {
                 DispatchQueue.main.async {
-                    loadPriceTrackerData()
+                    reconcilePriceTrackerData()
                 }
             }
         } else {
@@ -135,10 +166,33 @@ struct PriceTrackerView: View {
         }
     }
 
-    private func loadPriceTrackerData() {
-        // Shared with the PDF export — see CostTrackerView.loadPurchasedReleases.
-        let loadedReleases = ReleaseData.priceTrackerRows(films: dataCoordinator.getAllFilms())
+    /// See CostTrackerView.reconcilePurchasedReleases.
+    private func reconcilePriceTrackerData() {
+        loadGeneration += 1
+        let generation = loadGeneration
+        let filmsMap = dataCoordinator.getAllFilmsMap()
+        Task {
+            let loaded = await ReleaseData.reconciledRows(
+                for: .priceTracker, filmsMap: filmsMap, defaultSortOrder: ReleaseData.priceTrackerDefaultSort,
+                build: ReleaseData.priceTrackerRows)
+            guard generation == loadGeneration else { return }
+            // See CostTrackerView.reconcilePurchasedReleases.
+            guard dataCoordinator.getAllFilmsMap() == filmsMap else {
+                loadPriceTrackerData()
+                return
+            }
+            loaded.primeSortCache()
+            applyPriceTrackerData(loaded.rows)
+        }
+    }
 
+    private func loadPriceTrackerData() {
+        loadGeneration += 1
+        // Shared with the PDF export — see CostTrackerView.loadPurchasedReleases.
+        applyPriceTrackerData(ReleaseData.priceTrackerRows(films: dataCoordinator.getAllFilms()))
+    }
+
+    private func applyPriceTrackerData(_ loadedReleases: [ReleaseData]) {
         releases = loadedReleases
         // See CostTrackerView.loadPurchasedReleases for why this direct push exists.
         ReportsState.shared.updateData(loadedReleases, for: .priceTracker)
@@ -528,6 +582,42 @@ extension ReleaseData {
             }
         }
         return rows
+    }
+
+    /// A tracker tab's rows, built and sorted off the main actor for the mount path's
+    /// reconciling load.
+    struct Reconciled {
+        let category: ReportsCategory
+        let rows: [ReleaseData]
+        let sorted: [ReleaseData]
+        let sortOrder: [KeyPathComparator<ReleaseData>]
+
+        /// Records the sort in ReportsState's sorted cache, so the table's recomputeSort
+        /// finds it there instead of sorting on the main actor. Called only when the rows
+        /// are applied, so a dropped result never displaces a newer entry.
+        @MainActor
+        func primeSortCache() {
+            ReportsState.shared.updateSortedReleases(sorted, for: category, data: rows, sortOrder: sortOrder)
+        }
+    }
+
+    /// The sort is done under the order the table will use — the saved one, else the
+    /// default, as ReportsReleaseTableView.onAppear picks. If the order changes before the
+    /// rows land, the cache simply misses and the table sorts as it always has.
+    @MainActor
+    static func reconciledRows(
+        for category: ReportsCategory,
+        filmsMap: [UUID: FilmSnapshot],
+        defaultSortOrder: [KeyPathComparator<ReleaseData>],
+        build: @escaping @Sendable ([FilmSnapshot]) -> [ReleaseData]
+    ) async -> Reconciled {
+        let order = ReportsState.shared.savedSortOrder(for: category) ?? defaultSortOrder
+        let (rows, sorted) = await Task.detached(priority: .userInitiated) {
+            // Array(values) is exactly what getAllFilms() returns for this dictionary.
+            let rows = build(Array(filmsMap.values))
+            return (rows, ReleaseData.sorted(rows, using: order))
+        }.value
+        return Reconciled(category: category, rows: rows, sorted: sorted, sortOrder: order)
     }
 
     /// The Purchase and Expense Tracker's opening order: newest purchase first.

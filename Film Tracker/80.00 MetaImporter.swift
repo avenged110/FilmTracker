@@ -40,6 +40,9 @@ protocol MetaImporterProgressDelegate: ImportSessionReporting {
 final class MetaImporter: Loggable {
     nonisolated static let logTag = "[MetaImporter]"
 
+    /// True while processSelection's off-main folder scan runs. See ImportProgress.beginImport.
+    private(set) var isScanningSelection = false
+
     private var parser: MetaParser?
     private weak var dataCoordinator: DataCoordinator?
     private weak var progressDelegate: (any MetaImporterProgressDelegate)?
@@ -85,12 +88,18 @@ final class MetaImporter: Loggable {
         guard let coordinator = dataCoordinator else { return }
         isCanceled = false
 
-        // Collect all valid video files
-        var videoFiles: [URL] = []
-        for url in urls {
-            guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { continue }
-            if url.isExistingDirectory { videoFiles.append(contentsOf: scanDirectory(url))
-            } else if isValidVideoFile(url) { videoFiles.append(url) } }
+        // Collect all valid video files. Off the main actor: a chosen folder is walked
+        // recursively (when subfolder scanning is on), which on a large or network volume
+        // can take a noticeable time.
+        // While it runs, nothing marks the import as started yet (didStartImporting needs
+        // the file count), so ImportProgress.beginImport reads isScanningSelection to refuse
+        // a second import — the window the scan used to close by blocking the main thread.
+        let scanSubfolders = Preferences.importScanSubfolders
+        isScanningSelection = true
+        let videoFiles = await Task.detached(priority: .userInitiated) {
+            Self.collectVideoFiles(in: urls, scanSubfolders: scanSubfolders)
+        }.value
+        isScanningSelection = false
         // The session is created only now, once the selection is known to contain at
         // least one importable file. Creating it earlier (before this scan) left a
         // permanently unfinished, all-zero session card behind whenever the user
@@ -273,10 +282,18 @@ final class MetaImporter: Loggable {
 
         return fieldsUpdated }
 
-    private func scanDirectory(_ url: URL) -> [URL] {
+    private nonisolated static func collectVideoFiles(in urls: [URL], scanSubfolders: Bool) -> [URL] {
+        var videoFiles: [URL] = []
+        for url in urls {
+            guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { continue }
+            if url.isExistingDirectory {
+                videoFiles.append(contentsOf: scanDirectory(url, scanSubfolders: scanSubfolders))
+            } else if isValidVideoFile(url) { videoFiles.append(url) } }
+        return videoFiles }
+
+    private nonisolated static func scanDirectory(_ url: URL, scanSubfolders: Bool) -> [URL] {
         var files: [URL] = []
         let fileManager = FileManager.default
-        let scanSubfolders = Preferences.importScanSubfolders
 
         guard let enumerator = fileManager.enumerator(at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -286,7 +303,7 @@ final class MetaImporter: Loggable {
             if isValidVideoFile(fileURL) { files.append(fileURL) } }
         return files }
 
-    private func isValidVideoFile(_ url: URL) -> Bool {
+    private nonisolated static func isValidVideoFile(_ url: URL) -> Bool {
         let ext = url.pathExtension.lowercased()
         return ext == "mp4" || ext == "m4v" }
 

@@ -126,8 +126,12 @@ extension ExportPackage: @unchecked Sendable {}
 public protocol ExportableModel: AnyObject {
     static var entityName: String { get }
     /// Fetch all objects of this type from the supplied ModelContext.
-    /// CRITICAL: Must be MainActor-isolated since ModelContext is not Sendable
-    @MainActor static func fetchAll(in context: ModelContext) async throws -> [Self]
+    ///
+    /// Nonisolated and synchronous, so it runs wherever the context lives: on the
+    /// MainActor for a manual export, on `BackgroundExportReader`'s own executor for the
+    /// automatic one. ModelContext is not Sendable, so the caller must be the context's
+    /// own isolation — which a synchronous call from that isolation always is.
+    static func fetchAll(in context: ModelContext) throws -> [Self]
     /// Extract properties (scalars) and relationships (names -> [related objects]) for an instance.
     /// Conforming types can implement a custom extractor; a Mirror-based default extractor is provided.
     func extractExportValues() -> (properties: [String: Any], relationships: [String: [Any]])
@@ -146,7 +150,7 @@ public extension ExportableModel where Self: PersistentModel {
     /// A naive default fetch implementation. It will compile only for concrete SwiftData model classes
     /// that conform to `@Model` and for which `ModelContext`'s fetch(_:predicate:limit:sortDescriptors:) works.
     /// Because ModelContext.fetch requires a typed request, we provide a default using `context.fetch(Self.fetchRequest())`
-    @MainActor static func fetchAll(in context: ModelContext) async throws -> [Self] {
+    static func fetchAll(in context: ModelContext) throws -> [Self] {
         // Use FetchDescriptor for the model type. ModelContext.fetch is synchronous; it's fine to call from async context.
         let descriptor = FetchDescriptor<Self>()
         return try context.fetch(descriptor)
@@ -272,7 +276,12 @@ extension Optional: OptionalProtocol {
 // MARK: - DBReader
 
 /// DBReader is responsible for exporting model objects into an `ExportPackage`.
-@MainActor
+///
+/// Not bound to any actor: `exportAll` runs in whatever isolation calls it (its `isolation`
+/// parameter), which must be the isolation that owns `context`. A manual export calls it
+/// from the MainActor with a main-thread context; the automatic backup calls it from
+/// `BackgroundExportReader`, a `@ModelActor` with its own context, so the whole read —
+/// the fetches and every object's conversion — stays off the main thread.
 public final class DBReader {
     private let context: ModelContext
 
@@ -286,7 +295,8 @@ public final class DBReader {
     public func exportAll(types: [any ExportableModel.Type],
                           appVersion: String? = nil,
                           isBackgroundExport: Bool = false,
-                          progress: ((Double) -> Void)? = nil) async throws -> ExportPackage
+                          progress: ((Double) -> Void)? = nil,
+                          isolation: isolated (any Actor)? = #isolation) async throws -> ExportPackage
     {
         let created = sharedISO8601Style.format(Date())
         var manifest: [String: Int] = [:]
@@ -315,7 +325,7 @@ public final class DBReader {
             // entire library out of the store before noticing at the phase boundary.
             try Task.checkCancellation()
             do {
-                let fetched = try await t.fetchAll(in: context)
+                let fetched = try t.fetchAll(in: context)
                 cachedFetches[t.entityName] = fetched
                 totalObjectsToExport += fetched.count
             } catch {
@@ -332,9 +342,15 @@ public final class DBReader {
 
         var exportedSoFar = 0
         
-        // For background exports, process one item at a time with generous yielding
-        // For foreground exports, use normal batch processing
-        let chunkSize = isBackgroundExport ? 1 : 100
+        // Foreground exports convert in chunks of 100 with a yield between them. Background
+        // exports run off the main thread (BackgroundExportReader), so they no longer need
+        // one-object chunks to keep the UI responsive; they instead work in short time
+        // slices with a pause between, which keeps their CPU and store I/O footprint small
+        // at low priority. Completion time is deliberately not a concern for them.
+        let chunkSize = isBackgroundExport ? 25 : 100
+        let backgroundSliceBudget: Duration = .milliseconds(2)
+        let backgroundPause: Duration = .milliseconds(5)
+        var sliceStart = ContinuousClock.now
 
         // Export from cached results (no second database fetch)
         for t in types {
@@ -457,12 +473,14 @@ public final class DBReader {
                 // Report progress after each chunk
                 progress?(Double(exportedSoFar) / Double(totalObjectsToExport))
                 
-                // Yield after each chunk
-                // In background mode: process 1 item at a time with 5ms sleep - extremely polite
-                // In foreground mode: process 100 items then yield briefly
+                // Foreground: yield briefly after every chunk. Background: once a slice has
+                // used its budget, pause before the next. Task.sleep throws on cancellation,
+                // which stops a canceled export here rather than at the next chunk.
                 if isBackgroundExport {
-                    try? await Task.sleep(for: .milliseconds(5))
-                    await Task.yield()
+                    if ContinuousClock.now - sliceStart >= backgroundSliceBudget {
+                        try await Task.sleep(for: backgroundPause)
+                        sliceStart = ContinuousClock.now
+                    }
                 } else {
                     await Task.yield()
                 }
@@ -479,6 +497,38 @@ public final class DBReader {
         progress?(1.0)
         return pkg
     }
+}
+
+// MARK: - BackgroundExportReader
+
+/// Runs `DBReader.exportAll` for the automatic backup on a background executor with its own
+/// ModelContext.
+///
+/// The context is created by `@ModelActor`'s initializer, fresh and empty, so every fetch
+/// materializes from the persistent store — the same guarantee the manual export gets from
+/// the fresh MainActor context DBExporter creates for it.
+///
+/// Must be INITIALIZED off the main thread. SwiftData's default model executor serves its
+/// context on the queue it was created on, so an instance created on the main thread would
+/// run its whole read there and undo the point of it. DBExporter constructs it inside a
+/// detached task for that reason.
+@ModelActor
+actor BackgroundExportReader {
+    func exportAll(types: ExportModelTypes,
+                   appVersion: String?,
+                   progress: (@Sendable (Double) -> Void)?) async throws -> ExportPackage {
+        try await DBReader(context: modelContext).exportAll(
+            types: types.types, appVersion: appVersion, isBackgroundExport: true, progress: progress)
+    }
+}
+
+/// The model types to export, carried across to `BackgroundExportReader`.
+///
+/// `any ExportableModel.Type` is not Sendable because the protocol is not, but a metatype is
+/// an immutable reference to a type: it has no state for two threads to race on. Only the
+/// static requirements are ever used through it.
+struct ExportModelTypes: @unchecked Sendable {
+    let types: [any ExportableModel.Type]
 }
 
 // MARK: - XML 1.0 Character Set

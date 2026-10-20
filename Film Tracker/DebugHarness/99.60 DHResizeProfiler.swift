@@ -116,7 +116,7 @@ final class DebugLiveResizeProfiler {
             forName: NSWindow.didEndLiveResizeNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { self.report() }
             }
-        unsafe fputs("[DebugLiveResize] armed — drag a window edge to profile\n", stderr)
+        printToStandardError("[DebugLiveResize] armed — drag a window edge to profile\n")
     }
 
     private func begin() {
@@ -150,7 +150,7 @@ final class DebugLiveResizeProfiler {
     private func report() {
         recording = false
         guard passes.count > 3 else {
-            unsafe fputs("[DebugLiveResize] drag too short to report\n", stderr)
+            printToStandardError("[DebugLiveResize] drag too short to report\n")
             return
         }
 
@@ -200,7 +200,7 @@ final class DebugLiveResizeProfiler {
         out += "main-thread CPU per real geometry update (ms):\n"
         out += "  " + Self.distribution(perUpdateCPU) + "\n"
         out += "===LIVE-RESIZE-REPORT-END===\n"
-        unsafe fputs(out, stderr)
+        printToStandardError(out)
     }
 
     /// Percentiles rather than a mean alone: resize smoothness is a tail property, and a mean

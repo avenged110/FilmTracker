@@ -136,6 +136,14 @@ final class ImportProgress: Loggable {
     // MARK: - Begin Import
     func beginImport(of type: ImportsCategory) {
         guard let coordinator = dataCoordinator else { return }
+        // A metadata import still scanning its selection, or a ratings import still parsing
+        // its file, has not reported a start, so the import button is not locked yet.
+        // Starting another here would reset this object under it and run two imports into
+        // one session.
+        if metaImporter?.isScanningSelection == true || ratingsImporter?.isParsingSelection == true {
+            log("Import request ignored: the previous selection is still being read")
+            return
+        }
         reset()
         self.activeImportType = type
 

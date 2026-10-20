@@ -284,6 +284,10 @@ struct Preferences: Loggable {
             "preferences.rememberSortFilterSelections"
         static let confirmFilmQueueAdd =
             "preferences.confirmFilmQueueAdd"
+        static let notifyAboutNewReleases =
+            "preferences.notifyAboutNewReleases"
+        static let onlyNotifyForWishlisted =
+            "preferences.onlyNotifyForWishlisted"
         static let queueIsDropTarget =
             "preferences.queueIsDropTarget"
         static let queueSectionOnDrop =
@@ -292,6 +296,8 @@ struct Preferences: Loggable {
             "preferences.strictFramesTableChecking"
         static let showWatchDetailsAnnotationGlyphs =
             "preferences.showWatchDetailsAnnotationGlyphs"
+        static let atvq =
+            "preferences.atvq"
         static let overrideDateClamp =
             "preferences.overrideDateClamp"
         // Internal state, not a user-facing preference. See the accessor below.
@@ -338,6 +344,8 @@ struct Preferences: Loggable {
     static let defaultRotationThresholdKey           = Keys.defaultRotationThreshold
     static let rememberSortFilterSelectionsKey       = Keys.rememberSortFilterSelections
     static let confirmFilmQueueAddKey                = Keys.confirmFilmQueueAdd
+    static let notifyAboutNewReleasesKey             = Keys.notifyAboutNewReleases
+    static let onlyNotifyForWishlistedKey            = Keys.onlyNotifyForWishlisted
     static let queueIsDropTargetKey                  = Keys.queueIsDropTarget
     static let queueSectionOnDropKey                 = Keys.queueSectionOnDrop
     // Unlike overrideDateClampKey below, this one IS a durable preference: it
@@ -346,6 +354,7 @@ struct Preferences: Loggable {
     // in SettingsObject's persisted schema exactly like every key above it.
     static let strictFramesTableCheckingKey          = Keys.strictFramesTableChecking
     static let showWatchDetailsAnnotationGlyphsKey   = Keys.showWatchDetailsAnnotationGlyphs
+    static let atvqKey                               = Keys.atvq
     // NOTE: overrideDateClampKey is intentionally NOT included in SettingsManager's
     // export/restore pipeline or SettingsObject's persisted schema. See the
     // overrideDateClamp property below for the full rationale — this preference
@@ -395,10 +404,13 @@ struct Preferences: Loggable {
             Keys.ignoredDuplicatePairs: [],
             Keys.rememberSortFilterSelections: true,
             Keys.confirmFilmQueueAdd: true,
+            Keys.notifyAboutNewReleases: false,
+            Keys.onlyNotifyForWishlisted: false,
             Keys.queueIsDropTarget: true,
             Keys.queueSectionOnDrop: QueueDropSection.upNext.rawValue,
             Keys.strictFramesTableChecking: true,
             Keys.showWatchDetailsAnnotationGlyphs: false,
+            Keys.atvq: false,
             Keys.overrideDateClamp: false ] }
 
     /// Forces the `defaults` static — and with it the registration — to initialize.
@@ -489,6 +501,22 @@ struct Preferences: Loggable {
         set {
             setIfChanged(newValue, forKey: Keys.confirmFilmQueueAdd,
                 logMessage: "confirmFilmQueueAdd set to \(newValue)") } }
+
+    // MARK: - New-Release Notifications
+    // Whether Film Tracker posts a notification on the release date of each release that was
+    // cataloged with a date still ahead (see ReleaseNotifications), and whether that is
+    // limited to wishlisted releases. The scope has no effect when notifications are off.
+    static var notifyAboutNewReleases: Bool {
+        get { return defaults.bool(forKey: Keys.notifyAboutNewReleases) }
+        set {
+            setIfChanged(newValue, forKey: Keys.notifyAboutNewReleases,
+                logMessage: "notifyAboutNewReleases set to \(newValue)") } }
+
+    static var onlyNotifyForWishlisted: Bool {
+        get { return defaults.bool(forKey: Keys.onlyNotifyForWishlisted) }
+        set {
+            setIfChanged(newValue, forKey: Keys.onlyNotifyForWishlisted,
+                logMessage: "onlyNotifyForWishlisted set to \(newValue)") } }
 
     // Governs whether the "Film Queue" sidebar item accepts film drops. When true,
     // dragging a selection of films onto the sidebar's "Film Queue" row adds them to
@@ -1023,9 +1051,19 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.showWatchDetailsAnnotationGlyphs,
                 logMessage: "showWatchDetailsAnnotationGlyphs set to \(newValue)") } }
 
+    // MARK: - ATVQ Integration
+    // Dispatches the "Up Next" Queue to the ATVQ app on an Apple TV (or its Deployer
+    // relay). Off, nothing ATVQ-related runs — no Bonjour browsing, no connections, and so
+    // no Local Network prompt. See ATVQIntegration.swift.
+    static var atvq: Bool {
+        get { return defaults.bool(forKey: Keys.atvq) }
+        set {
+            setIfChanged(newValue, forKey: Keys.atvq,
+                logMessage: "atvq set to \(newValue)") } }
+
     // MARK: - Override Date Clamp
     // Temporarily allows a user to enter a past viewing event dated prior to a film's
-    // release date. The CustomDatePicker instances in CalendarPopover and
+    // release date. The CustomDateStepper instances in CalendarPopover and
     // ViewingDatesTable's add/edit popovers normally clamp their lower bound to the
     // film's release date; when this preference is true, that clamp is skipped.
     //

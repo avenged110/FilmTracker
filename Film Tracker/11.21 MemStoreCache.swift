@@ -19,7 +19,10 @@ import SwiftData
 /// outcome (it already happens every time a film is added), so no migration code is needed.
 /// The cost of a format change is exactly one slow launch, after which the cache is rewritten
 /// in the new layout.
-private let currentCacheFormatVersion = 2
+///
+/// Version 3: `ReleaseSnapshot.releaseYear` became `releaseDate` (full release dates). A v2
+/// file would also fail to decode for the missing key; the bump states it outright.
+private let currentCacheFormatVersion = 3
 
 /// The complete serializable representation of MemoryStore's data.
 /// Stored as a binary plist alongside a fingerprint for validation.

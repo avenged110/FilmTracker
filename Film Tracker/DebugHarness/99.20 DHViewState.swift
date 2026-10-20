@@ -40,6 +40,9 @@ extension DebugHarness {
         case "coast-stop":          return await coastStopScenario(coordinator: coordinator)
         case "scroll-memory":       return await scrollMemoryScenario(coordinator: coordinator)
         case "queue-mixed-style":   return await queueMixedStyleScenario(coordinator: coordinator)
+        case "upnext-slots":        return await upNextSlotsScenario(coordinator: coordinator)
+        case "sidebar-tab-switch":  return await sidebarTabSwitchScenario(coordinator: coordinator)
+        case "gallery-edit-refresh": return await galleryEditRefreshScenario(coordinator: coordinator)
         default:                    return nil
         }
     }
@@ -334,10 +337,10 @@ extension DebugHarness {
         // Two purchased Blu-rays from different studios force the studio prefix; the
         // Universal one scores best by being remastered. The Australian origin forces the
         // origin token, so every ladder step has something to do.
-        let uni = ReleaseSnapshot(studio: "Universal Studios", releaseYear: "2015", purchased: true,
+        let uni = ReleaseSnapshot(studio: "Universal Studios", releaseDate: "2015", purchased: true,
                                   format: ReleaseFormat.bluRay.rawValue, remastered: true,
                                   nationalOrigin: "Australia")
-        let wb  = ReleaseSnapshot(studio: "Warner Bros.", releaseYear: "2010", purchased: true,
+        let wb  = ReleaseSnapshot(studio: "Warner Bros.", releaseDate: "2010", purchased: true,
                                   format: ReleaseFormat.bluRay.rawValue)
         let film = makeSnapshot(name: "Ladder", releases: [uni, wb])
         let display = RSBHelpers.sourceDisplay(for: film)
@@ -396,7 +399,7 @@ extension DebugHarness {
 
         // A studio with no abbreviation contributes no studio step: the studio alternate is
         // nil and the ladder collapses to the origin/remastered combinations.
-        let sonyA = ReleaseSnapshot(studio: "Sony Pictures", releaseYear: "2015", purchased: true,
+        let sonyA = ReleaseSnapshot(studio: "Sony Pictures", releaseDate: "2015", purchased: true,
                                     format: ReleaseFormat.bluRay.rawValue)
         let sonyFilm = makeSnapshot(name: "Sony", releases: [sonyA, wb])
         let sonyDisplay = RSBHelpers.sourceDisplay(for: sonyFilm)
@@ -1581,9 +1584,13 @@ extension DebugHarness {
                 "at top after keys \(keyedTop), after round trip \(y())")
 
         // ---- T1: Film Queue tab restore, grid and list
+        // "Up Next" holds at most FilmQueue.upNextCapacity films, so it gets one fewer than
+        // that — leaving the vacancy T7's move into it needs — and "Soon" is the long,
+        // scrollable section T1 restores.
         let all = coordinator.films.map(\.id)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[0..<300]), listID: FilmQueueSection.upNext.listID)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[300..<600]), listID: FilmQueueSection.soon.listID)
+        let upNextSeed = FilmQueue.upNextCapacity - 1
+        _ = coordinator.addFilmsToList(filmIDs: Set(all[0..<upNextSeed]), listID: FilmQueueSection.upNext.listID)
+        _ = coordinator.addFilmsToList(filmIDs: Set(all[upNextSeed..<600]), listID: FilmQueueSection.soon.listID)
         appState.navigate(to: .libraryItem(.filmQueue)); await settle(1000)
         let fq = FilmQueueFilterState.shared
 
@@ -1603,20 +1610,20 @@ extension DebugHarness {
             let wantList = style == "list"
             fq.selectFilter(.all); await settle(700)
             manager.updateListViewStyle(wantList); await settle(700)
-            fq.selectFilter(.upNext); await settle(700)
+            fq.selectFilter(.soon); await settle(700)
             manager.updateListViewStyle(wantList); await settle(700)
             setY(2000); await settle(300)
-            let upY = y()
+            let soonY = y()
             fq.selectFilter(.all); await settle(800)
             setY(5000); await settle(300)
             let allY = y()
             guard let sv = anySV() else { r.check("T1-\(style)-sv", false, ""); continue }
             let trail = OriginTrail(sv)
-            fq.selectFilter(.upNext); await settle(900)
+            fq.selectFilter(.soon); await settle(900)
             trail.detach()
-            let restoredUp = y()
-            r.check("T1-\(style)-queue-tab-restore", abs(restoredUp - upY) < 1,
-                    "upNext saved \(upY) restored \(restoredUp); trail \(trail.ys)")
+            let restoredSoon = y()
+            r.check("T1-\(style)-queue-tab-restore", abs(restoredSoon - soonY) < 1,
+                    "soon saved \(soonY) restored \(restoredSoon); trail \(trail.ys)")
             fq.selectFilter(.all); await settle(900)
             r.check("T1-\(style)-queue-tab-restore-back", abs(y() - allY) < 1, "all saved \(allY) restored \(y())")
         }
@@ -1672,7 +1679,7 @@ extension DebugHarness {
 // DIFFERENT grid/list styles. Samples every committed frame (a run-loop observer after Core
 // Animation's commit) for the mounted style and its film count. Before the fix (2026-10-04)
 // the incoming style was built around the outgoing tab's films and committed that way — the
-// grid holding Up Next's 300 films under "All", the list holding All's 900 under "Up Next" —
+// grid holding Up Next's 8 films under "All", the list holding All's 900 under "Up Next" —
 // then reloaded; and the outgoing style's last pass could commit the incoming films in the
 // outgoing style. GalleryView now presents ViewStateManager.displayedGalleryState, and both
 // styles skip a Queue pass whose presented style is not theirs.
@@ -1686,8 +1693,10 @@ extension DebugHarness {
         let manager = ViewStateManager.shared
         appState.navigate(to: .libraryItem(.allFilms)); await settle(800)
         let all = coordinator.films.map(\.id)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[0..<300]), listID: FilmQueueSection.upNext.listID)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[300..<600]), listID: FilmQueueSection.soon.listID)
+        // "Up Next" is capped at FilmQueue.upNextCapacity (8); "Soon" takes the rest.
+        let upNextSeed = FilmQueue.upNextCapacity
+        _ = coordinator.addFilmsToList(filmIDs: Set(all[0..<upNextSeed]), listID: FilmQueueSection.upNext.listID)
+        _ = coordinator.addFilmsToList(filmIDs: Set(all[upNextSeed..<600]), listID: FilmQueueSection.soon.listID)
         _ = coordinator.addFilmsToList(filmIDs: Set(all[600..<900]), listID: FilmQueueSection.later.listID)
         appState.navigate(to: .libraryItem(.filmQueue)); await settle(1000)
         let fq = FilmQueueFilterState.shared
@@ -1723,12 +1732,12 @@ extension DebugHarness {
             let events = ViewSwitchProbe.events
             ViewSwitchProbe.isEnabled = false
             // Every committed frame must pair a style with ITS tab's films, judged by what the
-            // view displays: All (grid) holds 900 films, Up Next (list) 300 rows. The outgoing
+            // view displays: All (grid) holds 900 films, Up Next (list) 8 rows. The outgoing
             // tab may stay on screen in its own style while the deferred reload is pending;
             // never both styles at once, never a style around the other tab's films.
             let targetStyle = target == .upNext ? "list" : "grid"
             let wrong = frames.filter { f in
-                f.contains("+") || f.hasPrefix("grid:300") || f.hasPrefix("list:9")
+                f.contains("+") || f.hasPrefix("grid:\(upNextSeed)/") || f.hasPrefix("list:9")
             }
             r.check("\(label)-no-wrong-content-frame", wrong.isEmpty && frames.count >= 2,
                     "frames \(frames)")
@@ -1745,6 +1754,347 @@ extension DebugHarness {
         }
         fq.selectFilter(.all); await settle(500)
         appState.navigate(to: .libraryItem(.allFilms)); await settle(500)
+        return r
+    }
+}
+
+// MARK: - Up Next Slots
+//
+// `upnext-slots` (opt-in, real main window): the "Up Next" cap and its empty slots
+// (UpNextSlots.swift). The Queue's "All" tab draws one slot per vacancy after the "Up Next"
+// films, in both gallery styles, numbered from the first vacancy; a row of nothing but slots
+// is skipped by Up/Down; a full "Up Next" draws none; an empty one draws its own band and
+// all eight. Adds past the cap are refused with an alert. The slot sheet searches with its
+// own SearchController and leaves the gallery's search alone. Window snapshots go to the
+// sandbox's `upnext-slots/` folder for a visual check.
+extension DebugHarness {
+    static func upNextSlotsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "upnext-slots")
+        coordinator.importFilms(reportsCorpus())
+        guard let appState = AppDelegate.appState,
+              let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) })
+        else { r.check("window", false, ""); return r }
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        func allViews(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(allViews) }
+        let manager = ViewStateManager.shared
+        let upNextID = FilmQueueSection.upNext.listID
+        let snapshots = Preferences.posterImagesFolderURL?.deletingLastPathComponent()
+            .appendingPathComponent("upnext-slots", isDirectory: true)
+        if let snapshots { try? FileManager.default.createDirectory(at: snapshots, withIntermediateDirectories: true) }
+        func snapshot(_ name: String, _ w: NSWindow = window) {
+            guard let snapshots, let view = w.contentView,
+                  let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?
+                .write(to: snapshots.appendingPathComponent("\(name).png"))
+        }
+        func slotViews() -> [UpNextSlotDecorationView] {
+            allViews(window.contentView!).compactMap { $0 as? UpNextSlotDecorationView }
+                .filter { unsafe !$0.isHidden && $0.superview != nil }
+                .sorted { $0.slotNumber < $1.slotNumber }
+        }
+
+        appState.navigate(to: .libraryItem(.allFilms)); await settle(800)
+        let all = coordinator.films.map(\.id)
+        let upNext = Set(all[0..<3])
+        _ = coordinator.addFilmsToList(filmIDs: upNext, listID: upNextID)
+        _ = coordinator.addFilmsToList(filmIDs: Set(all[3..<23]), listID: FilmQueueSection.soon.listID)
+        _ = coordinator.addFilmsToList(filmIDs: Set(all[23..<33]), listID: FilmQueueSection.later.listID)
+        appState.navigate(to: .libraryItem(.filmQueue)); await settle(1000)
+        FilmQueueFilterState.shared.selectFilter(.all); await settle(800)
+        manager.updateListViewStyle(false); await settle(900)
+
+        // ---- Grid: three films, five slots numbered 4–8, laid out as the next cells.
+        guard let grid = allViews(window.contentView!).compactMap({ $0 as? GalleryCollectionView }).first,
+              let layout = grid.collectionViewLayout as? SmoothResizingGridLayout else {
+            r.check("grid", false, "no grid"); return r
+        }
+        var slots = slotViews()
+        r.check("grid/slot-count", slots.map(\.slotNumber) == [4, 5, 6, 7, 8], "slots \(slots.map(\.slotNumber))")
+        let cell0 = layout.layoutAttributesForItem(at: IndexPath(item: 0, section: 0))?.frame ?? .zero
+        let firstSoon = layout.layoutAttributesForItem(at: IndexPath(item: 3, section: 0))?.frame ?? .zero
+        if let slot4 = slots.first {
+            r.check("grid/slot-is-cell-sized", abs(slot4.frame.width - cell0.width) < 1 && abs(slot4.frame.height - cell0.height) < 1,
+                    "slot \(slot4.frame) cell \(cell0)")
+            r.check("grid/slot-follows-films", layout.columnsPerRow < 4 || abs(slot4.frame.minY - cell0.minY) < 1,
+                    "slot 4 at \(slot4.frame.minY), first row at \(cell0.minY), \(layout.columnsPerRow) columns")
+        }
+        r.check("grid/soon-below-slots", slots.allSatisfy { $0.frame.maxY < firstSoon.minY },
+                "first Soon film at \(firstSoon.minY), last slot ends \(slots.map(\.frame.maxY).max() ?? 0)")
+        r.check("grid/items-are-films-only", grid.numberOfItems(inSection: 0) == 33, "\(grid.numberOfItems(inSection: 0)) items")
+        // Up/Down skip a row of nothing but slots. With 3 films in a row of ≥ 6 columns the
+        // slots spill into a second, slot-only row (8 > columns); a narrower grid has none.
+        let slotOnlyRows = (0..<12).filter { layout.isSlotOnlyRow($0) }
+        let expectSlotOnly = layout.columnsPerRow < 8 && (3 + 5) > layout.columnsPerRow
+            && ((3 + 5 + layout.columnsPerRow - 1) / layout.columnsPerRow) > ((3 + layout.columnsPerRow - 1) / layout.columnsPerRow)
+        r.check("grid/slot-only-rows", expectSlotOnly == !slotOnlyRows.isEmpty,
+                "slot-only rows \(slotOnlyRows), columns \(layout.columnsPerRow)")
+        snapshot("grid-3-films")
+
+        // ---- List: the same slots as rows, after the "Up Next" films, before "Soon".
+        manager.updateListViewStyle(true); await settle(1000)
+        if let table = allViews(window.contentView!).compactMap({ $0 as? DraggableListTableView }).first {
+            // 3 bands + 33 films + 5 slots.
+            r.check("list/row-count", table.numberOfRows == 41, "\(table.numberOfRows) rows")
+            let cells = (0..<table.numberOfRows).compactMap { table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? UpNextSlotListCell }
+            r.check("list/slot-rows", cells.map(\.slotNumber) == [4, 5, 6, 7, 8], "\(cells.map(\.slotNumber))")
+            let firstSlotRow = (0..<table.numberOfRows).first { table.view(atColumn: 0, row: $0, makeIfNecessary: true) is UpNextSlotListCell }
+            r.check("list/slots-after-up-next", firstSlotRow == 4, "first slot row \(firstSlotRow ?? -1)")
+            r.check("list/slots-unselectable",
+                    table.delegate?.tableView?(table, shouldSelectRow: firstSlotRow ?? 0) == false, "")
+        } else { r.check("list/table", false, "no table") }
+        snapshot("list-3-films")
+        manager.updateListViewStyle(false); await settle(900)
+
+        // ---- The cap: an add past eight is refused whole, with an alert.
+        let five = Set(all[3..<8]), six = Set(all[3..<9])
+        r.check("cap/overflow-math", FilmQueue.upNextOverflow(adding: five, coordinator: coordinator) == 0
+                && FilmQueue.upNextOverflow(adding: six, coordinator: coordinator) == 1, "")
+        r.check("cap/backstop", !coordinator.addFilmsToList(filmIDs: six, listID: upNextID)
+                && FilmQueue.upNextFilmIDs(coordinator: coordinator) == upNext, "")
+        FilmQueueAssignment.toggle(six, section: .upNext, coordinator: coordinator)
+        await settle(900)
+        r.check("cap/menu-refused", FilmQueue.upNextFilmIDs(coordinator: coordinator) == upNext, "")
+        let alert = window.attachedSheet
+        let ok = alert.flatMap { s in allViews(s.contentView!).compactMap { $0 as? NSButton }.first { $0.title == "OK" } }
+        r.check("cap/alert", ok != nil, "attached sheet \(alert != nil)")
+        if alert != nil { snapshot("cap-alert", alert!) }
+        ok?.performClick(nil); await settle(700)
+
+        // ---- Full: no slots. Empty: its own band and all eight.
+        FilmQueueAssignment.toggle(five, section: .upNext, coordinator: coordinator); await settle(1200)
+        slots = slotViews()
+        r.check("full/no-slots", FilmQueue.upNextFilmIDs(coordinator: coordinator).count == 8 && slots.isEmpty,
+                "\(FilmQueue.upNextFilmIDs(coordinator: coordinator).count) in Up Next, \(slots.count) slot(s)")
+        FilmManager.removeFromFilmQueue(upNext.union(five), coordinator: coordinator); await settle(1200)
+        slots = slotViews()
+        r.check("empty/all-eight", slots.map(\.slotNumber) == Array(1...8), "\(slots.map(\.slotNumber))")
+        let bands = allViews(window.contentView!).compactMap { $0 as? SectionDividerDecorationView }
+        r.check("empty/own-band", bands.count >= 2, "\(bands.count) bands")
+        snapshot("grid-empty-up-next")
+        _ = coordinator.addFilmsToList(filmIDs: upNext, listID: upNextID); await settle(900)
+
+        // ---- The slot sheet: its own search, leaving the gallery's alone.
+        AppEventBus.shared.sendCommand(.openUpNextSlot); await settle(1200)
+        if let sheet = window.attachedSheet,
+           let field = allViews(sheet.contentView!).compactMap({ $0 as? NSSearchField }).first {
+            snapshot("sheet-open", sheet)
+            let target = coordinator.getFilm(all[30])?.name ?? ""
+            field.stringValue = target
+            field.delegate?.controlTextDidChange?(
+                Notification(name: NSControl.textDidChangeNotification, object: field))
+            await settle(900)
+            snapshot("sheet-results", sheet)
+            r.check("sheet/gallery-search-untouched", SearchController.shared.searchText.isEmpty
+                    && manager.activeState.searchQuery.isEmpty, "")
+            field.stringValue = "zzzzzzzz"
+            field.delegate?.controlTextDidChange?(
+                Notification(name: NSControl.textDidChangeNotification, object: field))
+            await settle(700)
+            snapshot("sheet-no-results", sheet)
+            appState.sheetCoordinator.dismissSheet(); await settle(900)
+            r.check("sheet/dismissed", window.attachedSheet == nil, "")
+        } else { r.check("sheet/presented", false, "no slot sheet") }
+
+        FilmManager.removeFromFilmQueue(Set(all[0..<33]), coordinator: coordinator); await settle(600)
+        appState.navigate(to: .libraryItem(.allFilms)); await settle(500)
+        return r
+    }
+}
+#endif
+
+// MARK: - Sidebar Tab Switch
+//
+// `sidebar-tab-switch` (opt-in, a measurement): what a RightSidebar tab change costs once
+// the selected film's neighbor tabs are resident — the common "select a film, then look at
+// its Releases" path. Each step reads AppKitScrollHandoffProbe (how many hosting views had
+// their rootView reassigned, each a full re-measure of that tab's tree) and the run-loop
+// busy time. Switches by button (instant) and by swipe (animated) are measured separately.
+// Uses the sandbox's own library when it has one, so a real-data copy gives real tab weight.
+#if DEBUG
+extension DebugHarness {
+    /// The RightSidebar's tab scroll views (AppKitScrollView's gated scroll views at exactly
+    /// the sidebar's width), and how many of them currently answer a hit-test.
+    private static func sidebarTabHitTestGates() -> (total: Int, open: Int) {
+        let window = NSApp.windows.first { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) }
+        var total = 0, open = 0
+        func visit(_ view: NSView) {
+            if let sv = view as? NSScrollView,
+               String(describing: type(of: sv)).contains("HitTestGatedScrollView"),
+               abs(sv.frame.width - RightSidebar.sidebarWidth) < 1 {
+                total += 1
+                if sv.hitTest(NSPoint(x: sv.frame.midX, y: sv.frame.midY)) != nil { open += 1 }
+            }
+            view.subviews.forEach(visit)
+        }
+        if let root = window?.contentView { visit(root) }
+        return (total, open)
+    }
+
+    static func sidebarTabSwitchScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "sidebar-tab-switch")
+        guard let appState = AppDelegate.appState else {
+            r.check("app-state", false, "no AppDelegate.appState")
+            return r
+        }
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        if !coordinator.hasDatabaseFilms { coordinator.importFilms(reportsCorpus()) }
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(2000)
+        let films = coordinator.films
+        guard films.count > 10 else { r.check("films", false, "\(films.count)"); return r }
+        // The heaviest Releases tab available, so the measurement is not of an empty tree.
+        let film = films.max { $0.releases.count < $1.releases.count } ?? films[0]
+        let manager = ViewStateManager.shared
+        manager.setRightSidebarTab(.details)
+        SelectionState.shared.selectImmediate(film.id)
+        // Past the 180 ms neighbor-arming quiet window, with margin.
+        await settle(1500)
+
+        let recorder = RunLoopBusyRecorder()
+        recorder.start()
+        defer { recorder.stop() }
+        func measure(_ label: String, _ action: () -> Void) async {
+            AppKitScrollHandoffProbe.applied = 0
+            AppKitScrollHandoffProbe.newRevisions = 0
+            recorder.reset()
+            let t0 = CACurrentMediaTime() * 1000
+            action()
+            await settle(900)
+            let reading = recorder.reading(from: t0, window: 900)
+            // Exactly one of the resident tab scroll views may take clicks at rest; the
+            // others sit off the plane and must be gated (hitTest returns nil).
+            let gates = sidebarTabHitTestGates()
+            r.check("\(label)-hit-test", gates.total >= 2 && gates.open == 1,
+                    "\(Fmt.int(gates.open)) of \(Fmt.int(gates.total)) tab scroll views hit-testable")
+            r.check(label, true,
+                    "handoffs \(Fmt.int(AppKitScrollHandoffProbe.applied)), revisions \(Fmt.int(AppKitScrollHandoffProbe.newRevisions)), busy \(Fmt.fixed(reading.busy, 1)) ms, longest \(Fmt.fixed(reading.longest, 1)) ms")
+        }
+        for i in 0..<4 {
+            await measure("button-\(Fmt.int(i))-releases") { manager.setRightSidebarTab(.releases) }
+            await measure("button-\(Fmt.int(i))-details") { manager.setRightSidebarTab(.details) }
+        }
+        for i in 0..<3 {
+            await measure("swipe-\(Fmt.int(i))-forward") { AppEventBus.shared.rightSidebarSwipe(.forward) }
+            await measure("swipe-\(Fmt.int(i))-backward") { AppEventBus.shared.rightSidebarSwipe(.backward) }
+        }
+        r.check("film", true, "\(film.name), \(Fmt.int(film.releases.count)) releases")
+        SelectionState.shared.selectImmediate(nil as UUID?)
+        return r
+    }
+}
+#endif
+
+// MARK: - Gallery Edit Refresh
+//
+// `gallery-edit-refresh` (opt-in, a measurement plus correctness checks): what a same-order
+// film edit and a gallery view switch cost in each style, read from GalleryRefreshProbe and
+// the run-loop busy time. In the grid, with no section dividers, it counts the forced
+// divider-relabel layouts each update pays (or skips). In the list, it counts the rows
+// refreshed and the row hosting views actually re-rendered, and checks that an edited film's
+// row shows the new rating both in the viewport and in a row prepared just below it.
+#if DEBUG
+extension DebugHarness {
+    static func galleryEditRefreshScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "gallery-edit-refresh")
+        guard let appState = AppDelegate.appState else {
+            r.check("app-state", false, "no AppDelegate.appState")
+            return r
+        }
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        if !coordinator.hasDatabaseFilms { coordinator.importFilms(reportsCorpus()) }
+        let manager = ViewStateManager.shared
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(1500)
+        let saved = manager.activeState
+        manager.updateSortOption(.title)
+        manager.updateSortDirection(.ascending)
+        manager.updateShowSectionDividers(false)
+        manager.updateListViewStyle(false)
+        await settle(1200)
+        guard coordinator.films.count > 60 else { r.check("films", false, "\(coordinator.films.count)"); return r }
+
+        let recorder = RunLoopBusyRecorder()
+        recorder.start()
+        defer { recorder.stop() }
+        func resetProbes() {
+            GalleryRefreshProbe.forcedDividerLayouts = 0
+            GalleryRefreshProbe.skippedDividerLayouts = 0
+            GalleryRefreshProbe.listRowsRefreshed = 0
+            GalleryRefreshProbe.listRowRootViewAssignments = 0
+            recorder.reset()
+        }
+        var originals: [UUID: FilmSnapshot] = [:]
+        /// Changes one film's rating (not a sort key under the title sort, so the order holds)
+        /// and returns the new value.
+        func editRating(_ film: FilmSnapshot) async -> Int {
+            if originals[film.id] == nil { originals[film.id] = film }
+            var edited = film
+            edited.userRating = film.userRating == 7 ? 8 : 7
+            await coordinator.updateFilm(edited)
+            return edited.userRating
+        }
+
+        // Grid: edits and view switches.
+        for i in 0..<4 {
+            resetProbes()
+            let t0 = CACurrentMediaTime() * 1000
+            _ = await editRating(coordinator.films[10 + i])
+            await settle(700)
+            let reading = recorder.reading(from: t0, window: 700)
+            r.check("grid-edit-\(Fmt.int(i))", true,
+                    "forced layouts \(Fmt.int(GalleryRefreshProbe.forcedDividerLayouts)), skipped \(Fmt.int(GalleryRefreshProbe.skippedDividerLayouts)), busy \(Fmt.fixed(reading.busy, 1)) ms")
+        }
+        for i in 0..<3 {
+            for item in [SidebarItem.libraryItem(.unwatched), .libraryItem(.allFilms)] {
+                resetProbes()
+                let t0 = CACurrentMediaTime() * 1000
+                appState.navigate(to: item)
+                await settle(900)
+                let reading = recorder.reading(from: t0, window: 900)
+                r.check("grid-switch-\(Fmt.int(i))-\(item == .libraryItem(.allFilms) ? "all" : "unwatched")", true,
+                        "forced layouts \(Fmt.int(GalleryRefreshProbe.forcedDividerLayouts)), skipped \(Fmt.int(GalleryRefreshProbe.skippedDividerLayouts)), busy \(Fmt.fixed(reading.busy, 1)) ms, longest \(Fmt.fixed(reading.longest, 1)) ms")
+            }
+        }
+
+        // List: edits of a visible row and of a prepared, off-screen row.
+        manager.updateListViewStyle(true)
+        await settle(1500)
+        let window = NSApp.windows.first { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) }
+        guard let table = findView(DraggableListTableView.self, in: window?.contentView) else {
+            r.check("list-table", false, "no list table found")
+            return r
+        }
+        table.scroll(.zero)
+        await settle(600)
+        let visibleRows = table.rows(in: table.visibleRect)
+        let visible = Set(visibleRows.location..<(visibleRows.location + visibleRows.length))
+        let available = Set(table.debugDisplayedRatings().keys)
+        let prepared = available.subtracting(visible).filter { $0 > (visible.max() ?? 0) }.sorted()
+        r.check("list-rows", !visible.isEmpty,
+                "visible \(Fmt.int(visible.count)), prepared below \(Fmt.int(prepared.count))")
+        var targets: [(String, Int)] = [("visible", visible.sorted()[min(3, visible.count - 1)])]
+        if let row = prepared.first { targets.append(("prepared", row)) }
+        for (kind, row) in targets {
+            for i in 0..<2 {
+                resetProbes()
+                let t0 = CACurrentMediaTime() * 1000
+                let newRating = await editRating(coordinator.films[row])
+                await settle(700)
+                let reading = recorder.reading(from: t0, window: 700)
+                let shown = table.debugDisplayedRatings()[row]
+                r.check("list-edit-\(kind)-\(Fmt.int(i))", shown == nil || shown == newRating,
+                        "row \(Fmt.int(row)) shows \(shown.map { Fmt.int($0) } ?? "no view") (want \(Fmt.int(newRating))), rows refreshed \(Fmt.int(GalleryRefreshProbe.listRowsRefreshed)), re-rendered \(Fmt.int(GalleryRefreshProbe.listRowRootViewAssignments)), busy \(Fmt.fixed(reading.busy, 1)) ms")
+            }
+        }
+
+        // Restore what this run changed.
+        for film in originals.values { await coordinator.updateFilm(film) }
+        manager.updateListViewStyle(saved.isListView)
+        manager.updateShowSectionDividers(saved.showSectionDividers)
+        manager.updateSortOption(saved.sortOption)
+        manager.updateSortDirection(saved.sortDirection)
+        await settle(500)
         return r
     }
 }

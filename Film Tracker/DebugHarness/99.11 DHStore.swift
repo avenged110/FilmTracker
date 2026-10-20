@@ -851,8 +851,10 @@ extension DebugHarness {
 
         Preferences.defaultRotationThreshold = probeThreshold
         // postPreferenceChangedEvent hops through a Task, and the Combine sink that arms
-        // the debounce runs on the turn after that, so give both a moment to land.
+        // the debounce runs on the turn after that, so give both a moment to land. The
+        // refresh they start builds its entries off the main actor; wait for it to finish.
         try? await Task.sleep(for: .milliseconds(120))
+        await coordinator.awaitRotationThresholdRefreshForTesting()
         let after = cachedRotationMatches(probeThreshold)
         r.check("rotation-cache-follows-default:changed", after.0, after.1)
         await coordinator.flushPendingSettingsSync()
@@ -867,6 +869,7 @@ extension DebugHarness {
         // later scenario to trip over.
         Preferences.defaultRotationThreshold = originalThreshold
         try? await Task.sleep(for: .milliseconds(120))
+        await coordinator.awaitRotationThresholdRefreshForTesting()
         let reverted = cachedRotationMatches(originalThreshold)
         r.check("rotation-cache-follows-default:reverted", reverted.0, reverted.1)
         _ = store.deleteFilms(ids: [rotationProbe.id])

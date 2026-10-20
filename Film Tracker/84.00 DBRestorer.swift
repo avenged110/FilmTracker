@@ -603,6 +603,19 @@ final class DBRestorer: Loggable {
             return
         }
 
+        // The enumeration and every copy run off the main actor: a full library is
+        // thousands of files, and on the main actor the restore sheet's spinner froze for
+        // the whole pass. Nothing here touches actor state; `progress` is @Sendable.
+        try await Task.detached(priority: .userInitiated) {
+            try Self.copyPosterImages(from: sourceURL, to: destinationURL, progress: progress)
+        }.value
+    }
+
+    private nonisolated static func copyPosterImages(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        progress: (@Sendable (Double, String) -> Void)?
+    ) throws {
         let fm = FileManager.default
 
         // Ensure destination exists
@@ -984,10 +997,13 @@ final class DBRestorer: Loggable {
         settings.lastImportsCategory = parser.parseOptionalString("lastImportsCategory")
         settings.rememberSortFilterSelections = parser.parseOptionalBool("rememberSortFilterSelections")
         settings.confirmFilmQueueAdd = parser.parseOptionalBool("confirmFilmQueueAdd")
+        settings.notifyAboutNewReleases = parser.parseOptionalBool("notifyAboutNewReleases")
+        settings.onlyNotifyForWishlisted = parser.parseOptionalBool("onlyNotifyForWishlisted")
         settings.queueIsDropTarget = parser.parseOptionalBool("queueIsDropTarget")
         settings.queueSectionOnDrop = parser.parseOptionalInt("queueSectionOnDrop")
         settings.strictFramesTableChecking = parser.parseOptionalBool("strictFramesTableChecking")
         settings.showWatchDetailsAnnotationGlyphs = parser.parseOptionalBool("showWatchDetailsAnnotationGlyphs")
+        settings.atvq = parser.parseOptionalBool("atvq")
         // Note: "rememberWindowDimensions" is intentionally not restored — the preference
         // was never implemented and has been removed. Backups containing this key are
         // silently forward-compatible; the key is simply ignored during restore.
@@ -1085,7 +1101,7 @@ final class DBRestorer: Loggable {
         // MARK: Base release year — dropped unless it can be ordered
         //
         // `baseReleaseYear` names the earliest permutation the release reissues, so it is
-        // meaningful only as a value strictly BELOW `releaseYear`. Two shapes a backup can
+        // meaningful only as a value strictly BELOW the release date's year. Two shapes a backup can
         // carry are not: a base year with no release year to qualify (orphaned), and a base
         // year at or after its release year (inverted). Neither is producible by the Steppers
         // — see _ReleaseYearRow — but a hand-edited XML, a record written before the ordering
@@ -1100,15 +1116,41 @@ final class DBRestorer: Loggable {
         // the restore lands. The card-layer repair stays as the backstop for records already
         // in a library.
         //
-        // Only the optional field is dropped; `releaseYear` is preserved verbatim, exactly as
+        // Only the optional field is dropped; `releaseDate` is preserved verbatim, exactly as
         // the ordering rule treats the pair everywhere else. Non-numeric or empty values fall
         // through untouched — `parseString` has already normalized those to "", and a
         // malformed year is not this guard's business.
-        let parsedReleaseYear     = parser.parseString("releaseYear")
+        //
+        // `releaseDate` was `releaseYear` until full release dates were introduced. A backup
+        // written before then carries the old key, whose every value is a valid year-only
+        // release date, so it is taken as-is. Like every other string field, the value is
+        // otherwise preserved verbatim; ReleaseDateValue decides how each reader interprets it.
+        //
+        // The one exception: a well-formed full date before its format's floor (a Blu-ray
+        // dated 2001.05.05) is dropped here, so the library never holds a date the app itself
+        // calls impossible — the same reasoning as the base-year guard below. Year-only values
+        // are exempt; see ReleaseDateValue, "Validity is per format". Dropped BEFORE the
+        // base-year guard, so a base year left with nothing to qualify is dropped with it.
+        let parsedFormat          = parser.parseString("format")
+        let rawReleaseDate        = parser.parseString("releaseDate", legacyName: "releaseYear")
+        let parsedReleaseDate: String = {
+            guard ReleaseDateValue.isFullDateBelowFloor(rawReleaseDate, format: parsedFormat) else {
+                return rawReleaseDate
+            }
+            logMalformed(
+                "Release \(parsed.exportID) has release date \(rawReleaseDate), before the " +
+                "\(ReleaseFormat.yearFloor(for: parsedFormat)) floor for its format " +
+                "'\(parsedFormat)' — release date dropped."
+            )
+            return ""
+        }()
         let parsedBaseReleaseYear = parser.parseString("baseReleaseYear")
         let baseReleaseYear: String = {
             guard let base = Int(parsedBaseReleaseYear) else { return parsedBaseReleaseYear }
-            guard let year = Int(parsedReleaseYear) else {
+            // The ordering is between YEARS: the base year against the release date's year,
+            // whichever shape the date takes. (`Int(_:)` on a full date is nil, and would
+            // drop every base year beside one as orphaned.)
+            guard let year = ReleaseDateValue.year(of: parsedReleaseDate, format: parsedFormat) else {
                 logMalformed(
                     "Release \(parsed.exportID) has base release year \(base) but no release " +
                     "year — base year dropped."
@@ -1126,11 +1168,11 @@ final class DBRestorer: Loggable {
         let release = Release(
             id: try parser.parseRequiredUUID("id"),
             studio: parser.parseString("studio"),
-            releaseYear: parsedReleaseYear,
+            releaseDate: parsedReleaseDate,
             baseReleaseYear: baseReleaseYear,
             purchased: parser.parseBool("purchased"),
             wishlist: parser.parseInt("wishlist", default: 0),
-            format: parser.parseString("format"),
+            format: parsedFormat,
             includedVersions: parser.parseStringArray("includedVersions"),
             independence: parser.parseString("independence"),
             videoFormat: parser.parseString("videoFormat"),
@@ -1272,6 +1314,18 @@ final class DBRestorer: Loggable {
             )
         }
         
+        /// Parses a field that was renamed: `fieldName` when the backup carries it, else the
+        /// pre-rename `legacyName`, else `fieldName`'s default (recorded as missing under the
+        /// current name). Whichever key is read is marked accessed, so an older backup's
+        /// legacy key is not reported as an unrecognized field — and neither name is recorded
+        /// as missing when the other is present, which a renamed field is not.
+        mutating func parseString(_ fieldName: String, legacyName: String) -> String {
+            if !checkExists(fieldName), checkExists(legacyName) {
+                return parseString(legacyName)
+            }
+            return parseString(fieldName)
+        }
+
         /// Parse string with fallback to default
         mutating func parseString(_ fieldName: String, default defaultValue: String = "") -> String {
             guard let value = presentValue(fieldName) else { return defaultValue }

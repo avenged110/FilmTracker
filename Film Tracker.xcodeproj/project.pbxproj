@@ -7,12 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		83D7EC01B3C36BA5CE592EE9 /* 29.10 UpNextSlots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */; };
 		8DEE0C7CB2A20E44A3DF7CBF /* COPYING in Resources */ = {isa = PBXBuildFile; fileRef = 2317EABA733A9F7CD5E801C9 /* COPYING */; };
+		A71200000000000000000002 /* 70.10 ReleaseNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */; };
 		CE0EAE952ED44979005C6F4D /* 23.71 SortFilterMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE942ED44979005C6F4D /* 23.71 SortFilterMenu.swift */; };
 		CE0EAE972ED44979005C6F4D /* 23.72 SelectionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE962ED44979005C6F4D /* 23.72 SelectionMenu.swift */; };
 		CE0EAE972ED5103C005C6F4D /* 23.60 ViewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE962ED5103C005C6F4D /* 23.60 ViewState.swift */; };
 		CE0EAE9D2ED66B11005C6F4D /* 11.20 MemoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE9C2ED66B11005C6F4D /* 11.20 MemoryStore.swift */; };
-		CE0EAE9F2ED85F37005C6F4D /* 70.00 FilmManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE9E2ED85F37005C6F4D /* 70.00 FilmManager.swift */; };
+		CE0EAE9F2ED85F37005C6F4D /* 70.00 LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE9E2ED85F37005C6F4D /* 70.00 LibraryManager.swift */; };
 		CE0EAEA52EDDA206005C6F4D /* 51.00 DuplicateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */; };
 		CE0EAEA92EDFB31D005C6F4D /* 10.20 AlertHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAEA82EDFB31D005C6F4D /* 10.20 AlertHostView.swift */; };
 		CE2A1F392E96277600EB1C02 /* 61.00 FilmObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2A1F382E96277600EB1C02 /* 61.00 FilmObj.swift */; };
@@ -78,15 +80,16 @@
 		CE42AD8C2F071E310096D62D /* 23.10 GalleryViewUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD8B2F071E310096D62D /* 23.10 GalleryViewUI.swift */; };
 		CE42AD8E2F0B1E0F0096D62D /* 93.00 CustomTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD8D2F0B1E0F0096D62D /* 93.00 CustomTable.swift */; };
 		CE42AD902F0DBB960096D62D /* 27.50 ReportExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD8F2F0DBB960096D62D /* 27.50 ReportExporter.swift */; };
-		CE42AD922F1090430096D62D /* 71.10 SmartLists.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD912F1090430096D62D /* 71.10 SmartLists.swift */; };
+		CE42AD922F1090430096D62D /* 71.00 SmartLists.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD912F1090430096D62D /* 71.00 SmartLists.swift */; };
 		CE42AD962F1648D10096D62D /* 27.10 ReportTrackers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD952F1648D10096D62D /* 27.10 ReportTrackers.swift */; };
 		CE42AD9A2F1CF34C0096D62D /* 66.00 SettingsObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD992F1CF34C0096D62D /* 66.00 SettingsObj.swift */; };
 		CE42AD9C2F1CF3990096D62D /* 72.00 SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD9B2F1CF3990096D62D /* 72.00 SettingsManager.swift */; };
 		CE4E6B172F493B8D00D71DE7 /* 60.00 Snapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */; };
-		CE4E9AC92FDA0B7A000805F7 /* 92.00 AppKitScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4E9AC82FDA0B7A000805F7 /* 92.00 AppKitScrollView.swift */; };
+		CE4E9AC92FDA0B7A000805F7 /* 98.20 UtilityKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4E9AC82FDA0B7A000805F7 /* 98.20 UtilityKit.swift */; };
 		CE4EE4622EA0EE8000732997 /* 20.10 SelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4EE4612EA0EE8000732997 /* 20.10 SelectionState.swift */; };
 		CE55EE0000000000000055AA /* 23.55 PosterEdgeSheen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE0000000000000055AB /* 23.55 PosterEdgeSheen.swift */; };
 		CE55EE0000000000000055AC /* 99.61 DHResizeSweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */; };
+		CE55EE00000000000000A7B1 /* 99.14 DHLibraryOrders.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE00000000000000A7B2 /* 99.14 DHLibraryOrders.swift */; };
 		CE6054DC2F6A95B9009382C0 /* 33.20 ReleaseCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6054DB2F6A95B9009382C0 /* 33.20 ReleaseCard.swift */; };
 		CE6054DE2F6CA0BB009382C0 /* 33.10 ReleasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6054DD2F6CA0BB009382C0 /* 33.10 ReleasesView.swift */; };
 		CE60CD8D2EC092DD00D20774 /* 63.00 ReleaseObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE60CD8C2EC092DD00D20774 /* 63.00 ReleaseObj.swift */; };
@@ -118,7 +121,6 @@
 		CECF3DCB2EB0C49A00D7897A /* 81.00 RatingsImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECF3DCA2EB0C49A00D7897A /* 81.00 RatingsImporter.swift */; };
 		CECF3DCD2EB0C4AC00D7897A /* 81.10 RatingsParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECF3DCC2EB0C4AC00D7897A /* 81.10 RatingsParser.swift */; };
 		CECF3DD72EB3325400D7897A /* 82.00 FilmComparison.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECF3DD62EB3325400D7897A /* 82.00 FilmComparison.swift */; };
-		CECF3DD92EB5403C00D7897A /* 71.00 ListManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECF3DD82EB5403C00D7897A /* 71.00 ListManager.swift */; };
 		CECF3DDB2EB5408C00D7897A /* 23.70 GalleryTitleBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECF3DDA2EB5408C00D7897A /* 23.70 GalleryTitleBar.swift */; };
 		CECF3DDD2EB5437800D7897A /* 62.00 ListObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECF3DDC2EB5437800D7897A /* 62.00 ListObj.swift */; };
 		CECF3DE32EB746A200D7897A /* 12.00 MenuBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = CECF3DE22EB746A200D7897A /* 12.00 MenuBar.swift */; };
@@ -150,15 +152,19 @@
 		CEFE00000000000000000B41 /* 99.54 DHImportsRemoval.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */; };
 		CEFE00000000000000000B51 /* 99.55 DHImportsSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */; };
 		CEFE00000000000000000B61 /* 28.20 ImportHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE00000000000000000B60 /* 28.20 ImportHistory.swift */; };
+		EEBB2437EE8B6B1B98669D7F /* 29.20 ATVQIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCF2D4EABC0E20861B227B83 /* 29.20 ATVQIntegration.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		2317EABA733A9F7CD5E801C9 /* COPYING */ = {isa = PBXFileReference; lastKnownFileType = text; path = COPYING; sourceTree = "<group>"; };
+		83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.10 UpNextSlots.swift"; sourceTree = "<group>"; };
+		A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "70.10 ReleaseNotifications.swift"; sourceTree = "<group>"; };
+		CCF2D4EABC0E20861B227B83 /* 29.20 ATVQIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.20 ATVQIntegration.swift"; sourceTree = "<group>"; };
 		CE0EAE942ED44979005C6F4D /* 23.71 SortFilterMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.71 SortFilterMenu.swift"; sourceTree = "<group>"; };
 		CE0EAE962ED44979005C6F4D /* 23.72 SelectionMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.72 SelectionMenu.swift"; sourceTree = "<group>"; };
 		CE0EAE962ED5103C005C6F4D /* 23.60 ViewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.60 ViewState.swift"; sourceTree = "<group>"; };
 		CE0EAE9C2ED66B11005C6F4D /* 11.20 MemoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.20 MemoryStore.swift"; sourceTree = "<group>"; };
-		CE0EAE9E2ED85F37005C6F4D /* 70.00 FilmManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "70.00 FilmManager.swift"; sourceTree = "<group>"; };
+		CE0EAE9E2ED85F37005C6F4D /* 70.00 LibraryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "70.00 LibraryManager.swift"; sourceTree = "<group>"; };
 		CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.00 DuplicateSheet.swift"; sourceTree = "<group>"; };
 		CE0EAEA82EDFB31D005C6F4D /* 10.20 AlertHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "10.20 AlertHostView.swift"; sourceTree = "<group>"; };
 		CE2A1F312E96277600EB1C02 /* Film Tracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Film Tracker.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -227,15 +233,16 @@
 		CE42AD8B2F071E310096D62D /* 23.10 GalleryViewUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.10 GalleryViewUI.swift"; sourceTree = "<group>"; };
 		CE42AD8D2F0B1E0F0096D62D /* 93.00 CustomTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "93.00 CustomTable.swift"; sourceTree = "<group>"; };
 		CE42AD8F2F0DBB960096D62D /* 27.50 ReportExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.50 ReportExporter.swift"; sourceTree = "<group>"; };
-		CE42AD912F1090430096D62D /* 71.10 SmartLists.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "71.10 SmartLists.swift"; sourceTree = "<group>"; };
+		CE42AD912F1090430096D62D /* 71.00 SmartLists.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "71.00 SmartLists.swift"; sourceTree = "<group>"; };
 		CE42AD952F1648D10096D62D /* 27.10 ReportTrackers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.10 ReportTrackers.swift"; sourceTree = "<group>"; };
 		CE42AD992F1CF34C0096D62D /* 66.00 SettingsObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "66.00 SettingsObj.swift"; sourceTree = "<group>"; };
 		CE42AD9B2F1CF3990096D62D /* 72.00 SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "72.00 SettingsManager.swift"; sourceTree = "<group>"; };
 		CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "60.00 Snapshots.swift"; sourceTree = "<group>"; };
-		CE4E9AC82FDA0B7A000805F7 /* 92.00 AppKitScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "92.00 AppKitScrollView.swift"; sourceTree = "<group>"; };
+		CE4E9AC82FDA0B7A000805F7 /* 98.20 UtilityKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "98.20 UtilityKit.swift"; sourceTree = "<group>"; };
 		CE4EE4612EA0EE8000732997 /* 20.10 SelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "20.10 SelectionState.swift"; sourceTree = "<group>"; };
 		CE55EE0000000000000055AB /* 23.55 PosterEdgeSheen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.55 PosterEdgeSheen.swift"; sourceTree = "<group>"; };
 		CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.61 DHResizeSweep.swift"; sourceTree = "<group>"; };
+		CE55EE00000000000000A7B2 /* 99.14 DHLibraryOrders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.14 DHLibraryOrders.swift"; sourceTree = "<group>"; };
 		CE6054DB2F6A95B9009382C0 /* 33.20 ReleaseCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "33.20 ReleaseCard.swift"; sourceTree = "<group>"; };
 		CE6054DD2F6CA0BB009382C0 /* 33.10 ReleasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "33.10 ReleasesView.swift"; sourceTree = "<group>"; };
 		CE60CD8C2EC092DD00D20774 /* 63.00 ReleaseObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "63.00 ReleaseObj.swift"; sourceTree = "<group>"; };
@@ -267,7 +274,6 @@
 		CECF3DCA2EB0C49A00D7897A /* 81.00 RatingsImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "81.00 RatingsImporter.swift"; sourceTree = "<group>"; };
 		CECF3DCC2EB0C4AC00D7897A /* 81.10 RatingsParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "81.10 RatingsParser.swift"; sourceTree = "<group>"; };
 		CECF3DD62EB3325400D7897A /* 82.00 FilmComparison.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "82.00 FilmComparison.swift"; sourceTree = "<group>"; };
-		CECF3DD82EB5403C00D7897A /* 71.00 ListManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "71.00 ListManager.swift"; sourceTree = "<group>"; };
 		CECF3DDA2EB5408C00D7897A /* 23.70 GalleryTitleBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.70 GalleryTitleBar.swift"; sourceTree = "<group>"; };
 		CECF3DDC2EB5437800D7897A /* 62.00 ListObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "62.00 ListObj.swift"; sourceTree = "<group>"; };
 		CECF3DE22EB746A200D7897A /* 12.00 MenuBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "12.00 MenuBar.swift"; sourceTree = "<group>"; };
@@ -390,6 +396,8 @@
 				CECF3DC12EACDC5700D7897A /* 28.10 ImportProgress.swift */,
 				CEFE00000000000000000B60 /* 28.20 ImportHistory.swift */,
 				CEC720AC3007967D00A5FE7F /* 29.00 FilmQueue.swift */,
+				83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */,
+				CCF2D4EABC0E20861B227B83 /* 29.20 ATVQIntegration.swift */,
 				CE2A1F9D2E9F1A4A00EB1C02 /* 30.00 FilmSheet.swift */,
 				CED4BA052F850CB300DE89EF /* 30.01 FilmSheetView.swift */,
 				CE42AD4F2EE03B410096D62D /* 30.10 FSTextHelpers.swift */,
@@ -422,9 +430,9 @@
 				CECF3DEE2EBC0AFD00D7897A /* 64.00 ListMembershipObj.swift */,
 				CEF877CF2ECE6836002D7E45 /* 65.00 ImportSessionObj.swift */,
 				CE42AD992F1CF34C0096D62D /* 66.00 SettingsObj.swift */,
-				CE0EAE9E2ED85F37005C6F4D /* 70.00 FilmManager.swift */,
-				CECF3DD82EB5403C00D7897A /* 71.00 ListManager.swift */,
-				CE42AD912F1090430096D62D /* 71.10 SmartLists.swift */,
+				CE0EAE9E2ED85F37005C6F4D /* 70.00 LibraryManager.swift */,
+				A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */,
+				CE42AD912F1090430096D62D /* 71.00 SmartLists.swift */,
 				CE42AD9B2F1CF3990096D62D /* 72.00 SettingsManager.swift */,
 				CE7C04AA2F2AB0C800F143CF /* 73.00 EventKitManager.swift */,
 				CE2A1F792E98587C00EB1C02 /* 80.00 MetaImporter.swift */,
@@ -444,7 +452,6 @@
 				CEFD00000000000000000A10 /* 85.30 PDFSections.swift */,
 				CE42AD572EE5588E0096D62D /* 90.00 GlobalUtilities.swift */,
 				CE2A1F732E98585F00EB1C02 /* 91.00 InputUtilities.swift */,
-				CE4E9AC82FDA0B7A000805F7 /* 92.00 AppKitScrollView.swift */,
 				CE42AD8D2F0B1E0F0096D62D /* 93.00 CustomTable.swift */,
 				CE40BAC22EC6AC3B009A4ECA /* 94.00 CustomTabs.swift */,
 				CE2A1F812E9859F300EB1C02 /* 95.00 PosterUtilities.swift */,
@@ -452,23 +459,8 @@
 				CE42AD7F2EF7F0260096D62D /* 97.00 AppEventBus.swift */,
 				CE2A1F452E9630FA00EB1C02 /* 98.00 DebugLogKit.swift */,
 				CE2A1F472E9630FA00EB1C02 /* 98.10 SettingsKit.swift */,
-				CE2A1FA12E9630FA00EB1C02 /* 99.00 DebugSandbox.swift */,
-				CE2A1FA32E9630FA00EB1C02 /* 99.10 DebugHarness.swift */,
-				CE2A1FB12E9630FA00EB1C11 /* 99.11 DHStore.swift */,
-				CE2A1FB32E9630FA00EB1C13 /* 99.12 DHPipelines.swift */,
-				CE2A1FB52E9630FA00EB1C15 /* 99.13 DHBackup.swift */,
-				CE2A1FC02E9630FA00EB1D11 /* 99.20 DHViewState.swift */,
-				CEFE00000000000000000001 /* 99.30 DHPDF.swift */,
-				CEFE00000000000000000A20 /* 99.31 DHPDFSections.swift */,
-				CEFE00000000000000000B30 /* 99.53 DHDocumentation.swift */,
-				CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */,
-				CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */,
-				CE7A99350000000000000001 /* 99.40 DHDataViz.swift */,
-				CEFE00000000000000000023 /* 99.50 DHCardProfile.swift */,
-				CEFE00000000000000000021 /* 99.51 DHFocusProbe.swift */,
-				CEFE00000000000000000091 /* 99.52 DHCurrencyPlaceholder.swift */,
-				CEFE00000000000000000011 /* 99.60 DHResizeProfiler.swift */,
-				CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */,
+				CE4E9AC82FDA0B7A000805F7 /* 98.20 UtilityKit.swift */,
+				CEDB0000000000000000D001 /* DebugHarness */,
 				CE2A1F3A2E96277700EB1C02 /* Assets.xcassets */,
 				CE2A1F3F2E96277700EB1C02 /* Film_Tracker.entitlements */,
 				CE40BABB2EC1E51B009A4ECA /* Info.plist */,
@@ -476,6 +468,31 @@
 				2317EABA733A9F7CD5E801C9 /* COPYING */,
 			);
 			path = "Film Tracker";
+			sourceTree = "<group>";
+		};
+		CEDB0000000000000000D001 /* DebugHarness */ = {
+			isa = PBXGroup;
+			children = (
+				CE2A1FA12E9630FA00EB1C02 /* 99.00 DebugSandbox.swift */,
+				CE2A1FA32E9630FA00EB1C02 /* 99.10 DebugHarness.swift */,
+				CE2A1FB12E9630FA00EB1C11 /* 99.11 DHStore.swift */,
+				CE2A1FB32E9630FA00EB1C13 /* 99.12 DHPipelines.swift */,
+				CE2A1FB52E9630FA00EB1C15 /* 99.13 DHBackup.swift */,
+				CE55EE00000000000000A7B2 /* 99.14 DHLibraryOrders.swift */,
+				CE2A1FC02E9630FA00EB1D11 /* 99.20 DHViewState.swift */,
+				CEFE00000000000000000001 /* 99.30 DHPDF.swift */,
+				CEFE00000000000000000A20 /* 99.31 DHPDFSections.swift */,
+				CE7A99350000000000000001 /* 99.40 DHDataViz.swift */,
+				CEFE00000000000000000023 /* 99.50 DHCardProfile.swift */,
+				CEFE00000000000000000021 /* 99.51 DHFocusProbe.swift */,
+				CEFE00000000000000000091 /* 99.52 DHCurrencyPlaceholder.swift */,
+				CEFE00000000000000000B30 /* 99.53 DHDocumentation.swift */,
+				CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */,
+				CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */,
+				CEFE00000000000000000011 /* 99.60 DHResizeProfiler.swift */,
+				CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */,
+			);
+			path = DebugHarness;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -595,7 +612,8 @@
 				CE6242572F33E4DF001DBD2D /* 27.40 RPTabDataViz.swift in Sources */,
 				CE42AD9C2F1CF3990096D62D /* 72.00 SettingsManager.swift in Sources */,
 				CEC720BB3021C30700A5FE7F /* 30.50 FSTextList.swift in Sources */,
-				CE42AD922F1090430096D62D /* 71.10 SmartLists.swift in Sources */,
+				CE42AD922F1090430096D62D /* 71.00 SmartLists.swift in Sources */,
+				A71200000000000000000002 /* 70.10 ReleaseNotifications.swift in Sources */,
 				CE2A1F702E98485300EB1C02 /* 23.40 GalleryItem.swift in Sources */,
 				CE4E6B172F493B8D00D71DE7 /* 60.00 Snapshots.swift in Sources */,
 				CE2A1F502E96345B00EB1C02 /* 20.01 StatusBar.swift in Sources */,
@@ -607,7 +625,7 @@
 				CE40BABD2EC340D9009A4ECA /* 50.00 SearchController.swift in Sources */,
 				CE6242552F33E47D001DBD2D /* 27.20 RPTabHallOfFame.swift in Sources */,
 				CE42AD562EE2EAB80096D62D /* 24.13 CalendarPopover.swift in Sources */,
-				CE4E9AC92FDA0B7A000805F7 /* 92.00 AppKitScrollView.swift in Sources */,
+				CE4E9AC92FDA0B7A000805F7 /* 98.20 UtilityKit.swift in Sources */,
 				CEDB2E9B2EA3875B00E06F23 /* 31.00 FSTabDetails.swift in Sources */,
 				CE2A1F542E972BBF00EB1C02 /* 41.00 STabGeneral.swift in Sources */,
 				CE2A1F942E9C4C1300EB1C02 /* 24.12 WatchDetails.swift in Sources */,
@@ -644,10 +662,9 @@
 				CE3B0B0D2FD0E47700E515FF /* 27.01 ReportsHelpers.swift in Sources */,
 				CEC720B7301F4EDD00A5FE7F /* 30.30 FSStringList.swift in Sources */,
 				CECF3DCD2EB0C4AC00D7897A /* 81.10 RatingsParser.swift in Sources */,
-				CE0EAE9F2ED85F37005C6F4D /* 70.00 FilmManager.swift in Sources */,
+				CE0EAE9F2ED85F37005C6F4D /* 70.00 LibraryManager.swift in Sources */,
 				CE40BAC32EC6AC3B009A4ECA /* 94.00 CustomTabs.swift in Sources */,
 				CE2A1F7A2E98587C00EB1C02 /* 80.00 MetaImporter.swift in Sources */,
-				CECF3DD92EB5403C00D7897A /* 71.00 ListManager.swift in Sources */,
 				CE4EE4622EA0EE8000732997 /* 20.10 SelectionState.swift in Sources */,
 				CE7A41000000000000000002 /* 27.41 DVLibraryStats.swift in Sources */,
 				CE7A42000000000000000002 /* 27.42 DVComponents.swift in Sources */,
@@ -666,12 +683,15 @@
 				CEFE00000000000000000024 /* 99.50 DHCardProfile.swift in Sources */,
 				CEFE00000000000000000092 /* 99.52 DHCurrencyPlaceholder.swift in Sources */,
 				CE55EE0000000000000055AC /* 99.61 DHResizeSweep.swift in Sources */,
+				CE55EE00000000000000A7B1 /* 99.14 DHLibraryOrders.swift in Sources */,
 				CEFD000000000000000003E9 /* 43.10 PDFExporter.swift in Sources */,
 				CEFD000000000000000003EB /* 85.00 PDFCore.swift in Sources */,
 				CEFD000000000000000003ED /* 85.10 PDFTableRenderer.swift in Sources */,
 				CEFD000000000000000003EF /* 85.20 PDFReport.swift in Sources */,
 				CEFD00000000000000000A11 /* 85.30 PDFSections.swift in Sources */,
 				CEC720AD3007967D00A5FE7F /* 29.00 FilmQueue.swift in Sources */,
+				83D7EC01B3C36BA5CE592EE9 /* 29.10 UpNextSlots.swift in Sources */,
+				EEBB2437EE8B6B1B98669D7F /* 29.20 ATVQIntegration.swift in Sources */,
 				CE2A1F562E972BDC00EB1C02 /* 42.00 STabImport.swift in Sources */,
 				CE42AD7C2EF63E700096D62D /* 10.30 KeyboardManager.swift in Sources */,
 				CECF3DE32EB746A200D7897A /* 12.00 MenuBar.swift in Sources */,
@@ -821,13 +841,22 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1754;
+				CURRENT_PROJECT_VERSION = 33;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = NO;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = YES;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
@@ -835,12 +864,13 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.reference";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Film Tracker needs access to your calendars to optionally add viewing events for your films.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 avenged110. Licensed under GPL-3.0-only.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Film Tracker needs access to your local network to optionally dispatch your \"Up Next\" Queue to the ATVQ application on your Apple TV, or to its deployment utility on another Mac.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.FilmTracker;
 				PRODUCT_NAME = "Film Tracker";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -862,13 +892,22 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1754;
+				CURRENT_PROJECT_VERSION = 33;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = NO;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
 				ENABLE_RESOURCE_ACCESS_CALENDARS = YES;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
@@ -876,12 +915,13 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.reference";
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Film Tracker needs access to your calendars to optionally add viewing events for your films.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 avenged110. Licensed under GPL-3.0-only.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Film Tracker needs access to your local network to optionally dispatch your \"Up Next\" Queue to the ATVQ application on your Apple TV, or to its deployment utility on another Mac.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.FilmTracker;
 				PRODUCT_NAME = "Film Tracker";
 				SWIFT_EMIT_LOC_STRINGS = YES;

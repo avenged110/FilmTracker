@@ -237,10 +237,13 @@ final class SettingsManager: Loggable {
             lastImportsCategory: Preferences.lastImportsCategory,
             rememberSortFilterSelections: Preferences.rememberSortFilterSelections,
             confirmFilmQueueAdd: Preferences.confirmFilmQueueAdd,
+            notifyAboutNewReleases: Preferences.notifyAboutNewReleases,
+            onlyNotifyForWishlisted: Preferences.onlyNotifyForWishlisted,
             queueIsDropTarget: Preferences.queueIsDropTarget,
             queueSectionOnDrop: Preferences.queueSectionOnDrop.rawValue,
             strictFramesTableChecking: Preferences.strictFramesTableChecking,
             showWatchDetailsAnnotationGlyphs: Preferences.showWatchDetailsAnnotationGlyphs,
+            atvq: Preferences.atvq,
             // Advanced Preferences
             loggingEnabled: Preferences.loggingEnabled,
             // Complex Preferences (JSON)
@@ -355,6 +358,8 @@ final class SettingsManager: Loggable {
         apply(snapshot.rememberSortFilterSelections) { Preferences.rememberSortFilterSelections = $0 }
         
         apply(snapshot.confirmFilmQueueAdd) { Preferences.confirmFilmQueueAdd = $0 }
+        apply(snapshot.notifyAboutNewReleases) { Preferences.notifyAboutNewReleases = $0 }
+        apply(snapshot.onlyNotifyForWishlisted) { Preferences.onlyNotifyForWishlisted = $0 }
         
         apply(snapshot.queueIsDropTarget) { Preferences.queueIsDropTarget = $0 }
         
@@ -367,6 +372,7 @@ final class SettingsManager: Loggable {
         apply(snapshot.strictFramesTableChecking) { Preferences.strictFramesTableChecking = $0 }
         
         apply(snapshot.showWatchDetailsAnnotationGlyphs) { Preferences.showWatchDetailsAnnotationGlyphs = $0 }
+        apply(snapshot.atvq) { Preferences.atvq = $0 }
 
         apply(snapshot.loggingEnabled) { Preferences.loggingEnabled = $0 }
         

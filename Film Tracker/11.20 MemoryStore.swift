@@ -695,10 +695,19 @@ final class MemoryStore: Loggable {
     /// default threshold (every film without an override) and persists the result.
     /// No snapshot changes, so no view cache is invalidated: nothing in a sorted view
     /// depends on rotation dates.
-    func refreshRotationDerivedMetadata() {
+    ///
+    /// The entries are built on a utility-priority thread so the main actor stays free
+    /// (the change usually lands while a Settings picker is still animating closed). A film
+    /// edited while they were being built keeps the entry its edit already produced, and a
+    /// canceled caller (superseded by a newer change) applies nothing.
+    func refreshRotationDerivedMetadata() async {
         let affected = films.values.filter { $0.rotationThresholdOverride == nil }
         guard !affected.isEmpty else { return }
-        MetadataCache.shared.updateFilms(affected)
+        let built = await Task.detached(priority: .utility) {
+            affected.map { ($0, FilmMetadata(from: $0)) }
+        }.value
+        guard !Task.isCancelled else { return }
+        MetadataCache.shared.setEntries(built.compactMap { films[$0.0.id] == $0.0 ? $0.1 : nil })
         scheduleThrottledSave()
     }
 
@@ -1334,6 +1343,9 @@ final class MemoryStore: Loggable {
     /// The number of live entries in the view cache. Reported as a metric so unbounded
     /// growth is visible as a number rather than only as a slow leak.
     var cachedViewCountForTesting: Int { cachedViews.count }
+
+    /// Empties the view cache, so the next getFilms for every key builds afresh.
+    func clearViewCacheForTesting() { cachedViews.removeAll() }
     #endif
 
     private func rebuildHallOfFame() {

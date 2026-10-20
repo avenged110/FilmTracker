@@ -21,6 +21,11 @@
 			<true/>
 		</dict>
 	</array>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_atvq._tcp</string>
+		<string>_atvqrelay._tcp</string>
+	</array>
 	<key>LSMultipleInstancesProhibited</key>
 	<true/>
 	<key>UTExportedTypeDeclarations</key>

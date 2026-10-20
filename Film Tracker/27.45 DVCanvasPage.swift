@@ -2131,9 +2131,14 @@ enum DVCanvasSections {
 
     /// Per audio codec, in `ReleaseAudioFormat.hdOptions` order: the Dolby codecs in one hue,
     /// LPCM in its own, the DTS codecs in a third, each family in descending shades.
+    ///
+    /// Indexed by position in `hdOptions`, so it must have exactly one entry per option —
+    /// a codec added there without a tint here traps the Audio card. The five DTS shades
+    /// were re-spaced (from four) when DTS-ES joined the list.
     private static let codecTints: [(NSColor, CGFloat)] = [
         (.systemIndigo, 0.9), (.systemIndigo, 0.65), (.systemIndigo, 0.4), (.systemTeal, 0.75),
-        (.systemOrange, 0.85), (.systemOrange, 0.65), (.systemOrange, 0.45), (.systemOrange, 0.3),
+        (.systemOrange, 0.85), (.systemOrange, 0.69), (.systemOrange, 0.53), (.systemOrange, 0.39),
+        (.systemOrange, 0.27),
     ]
 
     static func technical(_ m: DVCanvasModel, _ b: DVBuild) -> Section {

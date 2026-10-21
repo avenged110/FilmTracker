@@ -610,16 +610,16 @@ final class UpNextSlotSearchModel {
         let ordered = MetadataCache.shared.sort(films.map(\.id), by: .title, direction: .ascending)
         pool = ordered.compactMap { id in
             guard let film = byID[id] else { return nil }
-            let lowercased = MetadataCache.shared.getLowercasedStrings(for: id)
+            let keys = MetadataCache.shared.getSearchKeys(for: id)
             return Entry(film: film,
-                         name: lowercased?.name ?? film.name.lowercased(),
-                         alternate: lowercased?.alternateTitle
-                            ?? film.alternateTitle.joined(separator: " ").lowercased())
+                         name: keys?.name ?? SearchText.key(film.name),
+                         alternate: keys?.alternateTitles
+                            ?? film.alternateTitle.map(SearchText.key).joined(separator: "\n"))
         }
     }
 
     func setQuery(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespaces).lowercased()
+        let trimmed = SearchText.key(text)
         guard trimmed != query else { return }
         query = trimmed
         hasQuery = !trimmed.isEmpty

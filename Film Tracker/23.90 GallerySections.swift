@@ -67,17 +67,20 @@ extension FilmQueueSection {
 enum GallerySectionKey: Equatable, Sendable {
     /// Ordered by a standard sort option, which is also what the bands are derived from.
     /// `purchaseFormat` is the view's `ViewIdentifier.purchaseFormatScope`: the format whose
-    /// purchases the Date Purchased sort ordered by, and so the one its bands must read.
+    /// purchases the Date Last Purchased sort ordered by, and so the one its bands must read.
     /// Every other option ignores it.
     case sort(SortOption, purchaseFormat: ReleaseFormat? = nil)
     /// Ordered by a Recents tab's own date type (`RecentsCategory.dateType`).
     case recentsDate(RecentsCategory)
+    /// "Upcoming Releases", ordered by each film's soonest upcoming release.
+    case upcomingRelease
 
     /// Human-readable name of the ordering, used only in the contiguity guard's log line.
     var displayName: String {
         switch self {
         case .sort(let option, _): return option.displayName
         case .recentsDate(let category): return category.displayName
+        case .upcomingRelease: return "Upcoming Release"
         }
     }
 }
@@ -162,6 +165,7 @@ enum GallerySectioning: Loggable {
     /// Rotation, does not describe the real ordering at all. See `GallerySectionKey`.
     private static func orderingKey(for coordinator: DataCoordinator) -> GallerySectionKey? {
         if let category = coordinator.loadedRecentsCategory { return .recentsDate(category) }
+        if coordinator.loadedUpcomingReleasesOrder { return .upcomingRelease }
         guard let sort = coordinator.loadedSortOption else { return nil }
         return .sort(sort, purchaseFormat: coordinator.loadedPurchaseFormat)
     }
@@ -276,7 +280,7 @@ enum GallerySectioning: Loggable {
 
         for (index, film) in films.enumerated() {
             guard let data = metadata[film.id],
-                  let section = section(for: data, key: key, context: context) else { continue }
+                  let section = section(for: data, film: film, key: key, context: context) else { continue }
             if lastSection != section {
                 guard seen.insert(section.id).inserted else {
                     Self.log("Sectioning disabled for this film set — section '\(section.displayName)' recurs, so the display order is not grouped by \(key.displayName)")
@@ -304,6 +308,8 @@ enum GallerySectioning: Loggable {
         let twoMonthsAgo: Date
         let sixMonthsAgo: Date
         let yearAgo: Date
+        /// The day "upcoming" is judged against, as SmartLists and DataCoordinator do.
+        let today: Date
 
         init() {
             let now = Date()
@@ -316,10 +322,11 @@ enum GallerySectioning: Loggable {
             twoMonthsAgo = cal.date(byAdding: .month, value: -2, to: now) ?? now
             sixMonthsAgo = cal.date(byAdding: .month, value: -6, to: now) ?? now
             yearAgo = cal.date(byAdding: .year, value: -1, to: now) ?? now
+            today = StorageDateFormatters.calendar.startOfDay(for: now)
         }
     }
 
-    private static func section(for data: FilmMetadata, key: GallerySectionKey,
+    private static func section(for data: FilmMetadata, film: FilmSnapshot, key: GallerySectionKey,
                                 context: SectionContext) -> GallerySection? {
         switch key {
         case .sort(let option, let purchaseFormat):
@@ -327,7 +334,25 @@ enum GallerySectioning: Loggable {
                                context: context)
         case .recentsDate(let category):
             return recentsSection(for: data, category: category, context: context)
+        case .upcomingRelease:
+            return upcomingReleaseSection(for: film, context: context)
         }
+    }
+
+    /// The band a film belongs to in "Upcoming Releases": the month of its soonest
+    /// upcoming release ("November 2026"), or just the year for a year-only date. A
+    /// year-only value orders as day zero of its year, so its band always comes directly
+    /// before that year's first month band and every band stays contiguous.
+    private static func upcomingReleaseSection(for film: FilmSnapshot,
+                                               context: SectionContext) -> GallerySection {
+        guard let next = SmartLists.nextUpcomingRelease(of: film, today: context.today) else {
+            return GallerySection(id: "upcoming.none", displayName: "Released")
+        }
+        guard let monthDay = next.monthDay else {
+            return GallerySection(id: "upcoming.\(next.year)", displayName: String(next.year))
+        }
+        return GallerySection(id: "upcoming.\(next.year).\(monthDay.month)",
+                              displayName: "\(ReleaseDateValue.monthName(monthDay.month)) \(next.year)")
     }
 
     /// The band a film belongs to on a Recents tab, derived from that tab's own
@@ -381,7 +406,7 @@ enum GallerySectioning: Loggable {
             let year = Int(data.year) ?? 0
             return year > 0
                 ? GallerySection(id: "year.\(year)", displayName: String(year))
-                : GallerySection(id: "year.none", displayName: "Unknown Year")
+                : GallerySection(id: "year.none", displayName: "No Release Date")
 
         case .duration:
             return durationSection(Int(data.effectiveDuration) ?? 0)

@@ -469,21 +469,21 @@ final class SearchController: Loggable {
     
     // MARK: - Token Filtering
     
-    /// Returns true if `film`'s title, or any of its alternate titles, fuzzy-matches
-    /// the pre-lowercased query.
+    /// Returns true if `film`'s title, or any of its alternate titles, contains the query,
+    /// already in `SearchText.key` form.
     ///
-    /// Prefers MetadataCache's pre-lowercased strings (allocation-free comparison via
-    /// fuzzyMatchCore) and falls back to lowercasing the snapshot fields on the fly
-    /// when the film is not yet cached. This is the single source of truth for
-    /// title matching, shared by the `.title` token case and the freeform text pass.
-    private func matchesTitle(_ film: FilmSnapshot, query lowercasedQuery: String) -> Bool {
-        guard let cached = MetadataCache.shared.getLowercasedStrings(for: film.id) else {
+    /// Prefers MetadataCache's precomputed keys (no per-keystroke normalization) and falls
+    /// back to normalizing the snapshot fields on the fly when the film is not yet cached.
+    /// This is the single source of truth for title matching, shared by the `.title` token
+    /// case and the freeform text pass.
+    private func matchesTitle(_ film: FilmSnapshot, query queryKey: String) -> Bool {
+        guard let cached = MetadataCache.shared.getSearchKeys(for: film.id) else {
             // Fallback if not in cache (shouldn't happen, but handle gracefully).
-            return fuzzyMatchOptimized(film.name, query: lowercasedQuery) ||
-                   film.alternateTitle.contains { fuzzyMatchOptimized($0, query: lowercasedQuery) }
+            return fuzzyMatchOptimized(film.name, query: queryKey) ||
+                   film.alternateTitle.contains { fuzzyMatchOptimized($0, query: queryKey) }
         }
-        if fuzzyMatchCore(cached.name, query: lowercasedQuery) { return true }
-        return fuzzyMatchCore(cached.alternateTitle, query: lowercasedQuery)
+        if fuzzyMatchCore(cached.name, query: queryKey) { return true }
+        return fuzzyMatchCore(cached.alternateTitles, query: queryKey)
     }
 
     /// The snapshot string-array properties each plain text-match token scans.
@@ -521,9 +521,9 @@ final class SearchController: Loggable {
     ) -> [FilmSnapshot] {
         let results: [FilmSnapshot]
         
-        // Pre-lowercase query once for all field types that need it,
-        // avoiding repeated lowercased() calls inside per-film filter closures.
-        let lowercasedQuery = token.value.lowercased()
+        // Normalize the query once for all field types that need it, rather than inside
+        // the per-film filter closures.
+        let lowercasedQuery = SearchText.key(token.value)
         
         switch token.field {
         case .title:
@@ -676,9 +676,11 @@ final class SearchController: Loggable {
         // Step 5: Apply freeform text search (clean text only, # patterns already stripped).
         // Freeform text matches against title and alternate titles, identical to the
         // .title token — both share matchesTitle to keep the two paths in lockstep.
-        if !searchText.isEmpty {
-            let lowercasedQuery = searchText.lowercased()
-            filtered = filtered.filter { matchesTitle($0, query: lowercasedQuery) }
+        // A query of nothing but punctuation normalizes to "", which names no text to
+        // match, so it narrows nothing — the same as an empty field.
+        let queryKey = SearchText.key(searchText)
+        if !queryKey.isEmpty {
+            filtered = filtered.filter { matchesTitle($0, query: queryKey) }
         }
 
         return filtered
@@ -703,10 +705,10 @@ final class SearchController: Loggable {
     /// separates words, so extra spaces change nothing. The synopsis is `descriptionText`;
     /// the film's own notes are what `.notes` searches.
     private func filterBySynopsis(_ films: [FilmSnapshot], query: String) -> [FilmSnapshot] {
-        let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+        let words = SearchText.key(query).split(separator: " ").map(String.init)
         guard !words.isEmpty else { return [] }
         return films.filter { film in
-            let synopsis = film.descriptionText.lowercased()
+            let synopsis = SearchText.key(film.descriptionText)
             return words.allSatisfy { synopsis.contains($0) }
         }
     }
@@ -1531,7 +1533,7 @@ final class SearchController: Loggable {
         query: String,
         listNames: (UUID) -> [String]
     ) -> [FilmSnapshot] {
-        let q = query.lowercased()
+        let q = SearchText.key(query)
         return films.filter { film in
             listNames(film.id).contains { fuzzyMatchOptimized($0, query: q) }
         }
@@ -1883,11 +1885,11 @@ final class SearchController: Loggable {
         return lowercasedText.contains(lowercasedQuery)
     }
     
-    /// Fuzzy match where the query is pre-lowercased but the text is not.
-    /// Lowercases text once before delegating to the shared core.
+    /// Match where the query is already in `SearchText.key` form but the text is not.
+    /// Normalizes the text once before delegating to the shared core.
     @inline(__always)
-    private func fuzzyMatchOptimized(_ text: String, query lowercasedQuery: String) -> Bool {
-        fuzzyMatchCore(text.lowercased(), query: lowercasedQuery)
+    private func fuzzyMatchOptimized(_ text: String, query queryKey: String) -> Bool {
+        fuzzyMatchCore(SearchText.key(text), query: queryKey)
     }
     
     /// The whole minutes a film's stored `duration` represents, or 0 when it is empty,

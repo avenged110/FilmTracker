@@ -1198,6 +1198,9 @@ struct ReleaseDateValue: Hashable, Sendable {
         return "\(month) \(monthDay.day), \(Fmt.padded(year, 4))"
     }
 
+    /// The English name of `month` (1...12), as `displayText` writes it.
+    static func monthName(_ month: Int) -> String { monthNames[month - 1] }
+
     private static let monthNames = [
         "January", "February", "March", "April", "May", "June",
         "July", "August", "September", "October", "November", "December"

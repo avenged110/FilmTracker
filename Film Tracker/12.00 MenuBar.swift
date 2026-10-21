@@ -333,11 +333,19 @@ struct MenuBar: Commands {
                 ListsMenu(appState: appState, dataCoordinator: dataCoordinator, isSheetActive: isSheetActive)
                 Divider() }
             
-            // MARK: - "Window" Menu: Restore standard window controls
-            CommandMenu("Window") {
+            // MARK: - "Window" Menu: the standard one, completed by hand
+            // AppKit supplies the Window menu, its tiling items (Fill, Center, Move & Resize)
+            // and the window list. Minimize, Zoom and Bring All to Front are SwiftUI's own
+            // items, and `.commandsRemoved()` drops them with everything else, so they are
+            // put back here: Minimize and Zoom at the top, Bring All to Front at the end.
+            // Neither group replaces `.windowArrangement`: replacing the slot makes SwiftUI
+            // strip AppKit's items again a few frames later, and the menu visibly snaps.
+            // A `CommandMenu("Window")` would be a second, hand-built menu of the same name.
+            CommandGroup(before: .windowArrangement) {
                 Button("Minimize") { NSApp.keyWindow?.performMiniaturize(nil) }
                     .keyboardShortcut("m", modifiers: .command)
-                Button("Zoom") { NSApp.keyWindow?.performZoom(nil) }
+                Button("Zoom") { NSApp.keyWindow?.performZoom(nil) } }
+            CommandGroup(after: .windowArrangement) {
                 Divider()
                 Button("Bring All to Front") { NSApp.arrangeInFront(nil) } }
         }

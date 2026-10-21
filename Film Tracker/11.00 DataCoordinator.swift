@@ -436,9 +436,15 @@ final class DataCoordinator: Loggable {
     /// from the order the films are genuinely in; see GallerySectionKey.
     private(set) var loadedRecentsCategory: RecentsCategory?
 
+    /// True when the films currently held in `films` are "Upcoming Releases" in its fixed
+    /// soonest-release-first order. Written beside `loadedRecentsCategory`, and for the same
+    /// reason: that view's `SortOption` is a placeholder, so the bands must be cut from the
+    /// release dates the films are actually ordered by.
+    private(set) var loadedUpcomingReleasesOrder = false
+
     /// The release format the films currently held in `films` were purchase-sorted within
     /// (`ViewIdentifier.purchaseFormatScope`), or nil for every-format. Written beside
-    /// `loadedSortOption` for the same reason, so the Date Purchased bands are cut from the
+    /// `loadedSortOption` for the same reason, so the Date Last Purchased bands are cut from the
     /// same format's purchases the sort ordered by.
     private(set) var loadedPurchaseFormat: ReleaseFormat?
 
@@ -620,7 +626,7 @@ final class DataCoordinator: Loggable {
         let prewarmKey = ViewIdentifier.allFilms.persistenceKey ?? "allFilms"
         let prewarmState = ViewState.decoded(from: Preferences.viewSortStates[prewarmKey] ?? [])
         // The EFFECTIVE sort, exactly as triggerReloadSync requests it — a saved choice that
-        // the saved filters disable (Date Purchased under "Unpurchased") loads as Title.
+        // the saved filters disable (Date Last Purchased under "Unpurchased") loads as Title.
         let prewarmSort = prewarmState.effectiveSortOption(in: .allFilms)
         let prewarmFilters = prewarmState.filterOptions
         let prewarmDir = prewarmState.sortDirection
@@ -650,6 +656,7 @@ final class DataCoordinator: Loggable {
         // The pre-warm is always All Films, so no Recents ordering or purchase format scope
         // is in effect.
         loadedRecentsCategory = nil
+        loadedUpcomingReleasesOrder = false
         loadedPurchaseFormat = nil
         filmCount = prewarmedFilms.count
         currentViewID = .allFilms
@@ -922,6 +929,15 @@ final class DataCoordinator: Loggable {
             loadedFilms = loadedFilms.filter { membershipSet.contains($0.id) }
         }
 
+        // "Upcoming Releases" is ordered soonest release first, whatever its stored sort
+        // (a `.title` placeholder; see ViewStateManager.loadStateSync). Re-ordered here
+        // rather than in MemoryStore because the order depends on today, which a cached
+        // view must not. The title order the films arrive in breaks ties.
+        let isUpcomingReleases = currentViewID.smartListType == .upcomingReleases
+        if isUpcomingReleases {
+            loadedFilms = Self.upcomingReleasesOrder(loadedFilms)
+        }
+
         // Apply the Film Queue's single-section display filter, if one is active. The films
         // are already section-grouped (Up Next → Soon → Later) by memoryStore.getFilms above,
         // so filtering here simply narrows that ordered list down to the one selected section
@@ -955,6 +971,7 @@ final class DataCoordinator: Loggable {
         self.filmCount = loadedFilms.count
         self.loadedSortOption = currentSortOption
         self.loadedRecentsCategory = currentViewID.recentsCategory
+        self.loadedUpcomingReleasesOrder = isUpcomingReleases
         self.loadedPurchaseFormat = currentViewID.purchaseFormatScope
 
         let duration = Date().timeIntervalSince(startTime)
@@ -965,6 +982,21 @@ final class DataCoordinator: Loggable {
         case .set: membershipInfo = " (membership filtered)"
         }
         Self.log("Loaded \(filmCount) films for \(currentViewID.description)\(searchInfo)\(membershipInfo) in \(Fmt.fixed(duration * 1000, 1))ms") }
+
+    /// `films` ordered by each one's soonest upcoming release, earliest first, keeping the
+    /// incoming order between films whose soonest releases fall on the same day. A film
+    /// with no upcoming release (one that came out since membership was computed) sorts
+    /// last rather than vanishing; the midnight recalculation removes it.
+    static func upcomingReleasesOrder(_ films: [FilmSnapshot]) -> [FilmSnapshot] {
+        let today = StorageDateFormatters.calendar.startOfDay(for: Date())
+        let keys: [Int] = films.map { film in
+            SmartLists.nextUpcomingRelease(of: film, today: today)?.sortKey ?? Int.max
+        }
+        let order: [Int] = films.indices.sorted { a, b in
+            keys[a] != keys[b] ? keys[a] < keys[b] : a < b
+        }
+        return order.map { films[$0] }
+    }
 
     // MARK: - Film Access
     func getFilm(_ id: UUID) -> FilmSnapshot? {

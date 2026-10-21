@@ -96,7 +96,8 @@ struct SortMenuInputs: Hashable, Sendable {
 
         return SortMenuInputs(
             sortOption: displayedSortOption(state.effectiveSortOption(in: activeView),
-                                            recentsCategory: activeView.recentsCategory),
+                                            recentsCategory: activeView.recentsCategory,
+                                            smartListType: activeView.smartListType),
             sortDirection: state.sortDirection,
             disabledSortOptions: disabledSortOptions(
                 smartListType: activeView.smartListType,
@@ -115,22 +116,26 @@ struct SortMenuInputs: Hashable, Sendable {
     /// no option describes: it is ordered by rotation eligibility date, and its stored
     /// `.dateAdded` is a placeholder (see RecentsCategory.sortOption). Checking "Date Added"
     /// there, as the menu used to, stated an ordering the view does not have.
+    ///
+    /// Nil on "Upcoming Releases" for the same reason: it is ordered by each film's soonest
+    /// upcoming release, and its stored `.title` is a placeholder.
     static func displayedSortOption(_ stored: SortOption,
-                                    recentsCategory: RecentsCategory?) -> SortOption? {
-        recentsCategory == .recentlyRotated ? nil : stored
+                                    recentsCategory: RecentsCategory?,
+                                    smartListType: SmartListType? = nil) -> SortOption? {
+        recentsCategory == .recentlyRotated || smartListType == .upcomingReleases ? nil : stored
     }
 
     /// The sort options that are meaningless in a view, and so render visible-but-locked
     /// there.
     ///
-    /// "Date Purchased" is meaningful in any view that can hold a purchased film — an
+    /// "Date Last Purchased" is meaningful in any view that can hold a purchased film — an
     /// unpurchased film simply sorts ahead of the purchased ones in ascending order (see
     /// MetadataCache.comparePurchaseDates). It is disabled only where every film is
     /// unpurchased by definition: the "Unpurchased" smart list and its 4K / Blu-ray / DVD
     /// variants, and any view filtered to "Unpurchased". On the "Purchased 4K / Blu-ray /
     /// DVD" lists it reads that format's purchases only (ViewIdentifier.purchaseFormatScope).
     ///
-    /// A view whose chosen sort becomes disabled — Date Purchased, then the "Unpurchased"
+    /// A view whose chosen sort becomes disabled — Date Last Purchased, then the "Unpurchased"
     /// filter — is ordered by, and checks, Title until the option is enabled again; the
     /// choice itself is remembered. See ViewState.effectiveSortOption(in:).
     ///

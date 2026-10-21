@@ -26,6 +26,7 @@ xattr -dr com.apple.quarantine "/Applications/Film Tracker.app"
 - macOS 15.6.0 or later, Apple Silicon only.
 - Sandboxed, uses Apple's Hardened Runtime, and is compliant with Swift 6 (Strict Concurrency and Strict Memory Safety); built against Xcode 26.3.
 - If you choose to use the opt-in feature to add viewing events to your system calendar, Film Tracker will request "Full Calendar Access" through Apple's TCC system in order to enumerate the list of available calendars in the application and to write these events, nothing more. This is only necessary for this one feature.
+- If you choose to use the opt-in feature to dispatch your "Up Next" Queue to the ATVQ application, Film Tracker will request "Local Network" access through Apple's TCC system to make this connection. This is only necessary for this one feature.
 
 ## Support
 

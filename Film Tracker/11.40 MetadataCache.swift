@@ -52,7 +52,7 @@ struct FilmMetadata: Codable {
     // that have any purchased release at all. A combo-pack's Blu-ray child counts as a
     // Blu-ray here exactly as it does for "Purchased Blu-ray" membership (it carries its
     // parent's purchase date). Read through `mostRecentPurchaseDate(in:)` and
-    // `hasPurchasedReleases(in:)`, which back the Date Purchased sort on the format lists.
+    // `hasPurchasedReleases(in:)`, which back the Date Last Purchased sort on the format lists.
     let mostRecentPurchaseDateByFormat: [String: Date]
     let purchasedFormats: Set<String>
 
@@ -63,9 +63,11 @@ struct FilmMetadata: Codable {
     let rotationDateFormatted: String?
     let purchaseDateFormatted: String?
     
-    // Search Cache Data (lowercased for fast searching)
-    let nameLowercase: String
-    let alternateTitleLowercase: String
+    // Search Cache Data — each title in SearchText.key form, the form search compares in.
+    // Alternate titles are joined by "\n", which no key contains, so a query can never
+    // match across the boundary between two of them.
+    let nameSearchKey: String
+    let alternateTitleSearchKeys: String
     
     /// Creates a FilmMetadata entry from a FilmSnapshot.
     /// All data is sourced from value types; no SwiftData @Model objects are accessed.
@@ -169,9 +171,9 @@ struct FilmMetadata: Codable {
         self.purchasedFormats = formats
         self.purchaseDateFormatted = mostRecent.map { Self.formatDate($0, includeDay: true) }
         
-        // Search Cache Data — precompute lowercased strings for fast searching
-        self.nameLowercase = snapshot.name.lowercased()
-        self.alternateTitleLowercase = snapshot.alternateTitle.joined(separator: " ").lowercased()
+        // Search Cache Data — precomputed so a keystroke never re-normalizes the library.
+        self.nameSearchKey = SearchText.key(snapshot.name)
+        self.alternateTitleSearchKeys = snapshot.alternateTitle.map(SearchText.key).joined(separator: "\n")
     }
 
     // MARK: - Format-Scoped Purchase Access
@@ -305,8 +307,8 @@ extension FilmMetadata {
     static let nonSortFieldNames: Set<String> = [
         "duration", "dateAddedRaw", "lastWatchedRaw", "lastModifiedRaw", "rotationDate",
         "dateAddedFormatted", "lastWatchedFormatted", "lastModifiedFormatted",
-        "rotationDateFormatted", "purchaseDateFormatted", "nameLowercase",
-        "alternateTitleLowercase",
+        "rotationDateFormatted", "purchaseDateFormatted", "nameSearchKey",
+        "alternateTitleSearchKeys",
     ]
 
     /// True when every field in `sortFieldNames` is equal, so this entry and `other`
@@ -373,8 +375,12 @@ struct FilmMetadataCacheFile: Codable {
     /// Version 5: `titleKey` strips leading articles case-insensitively ("THE", "the").
     ///
     /// Version 6 adds `mostRecentPurchaseDateByFormat` and `purchasedFormats`, which the
-    /// Date Purchased sort reads on the "Purchased 4K / Blu-ray / DVD" lists.
-    static let currentSchemaVersion = 6
+    /// Date Last Purchased sort reads on the "Purchased 4K / Blu-ray / DVD" lists.
+    ///
+    /// Version 7 replaces the lowercased search strings with `SearchText.key` forms
+    /// (`nameSearchKey`, `alternateTitleSearchKeys`), which fold diacritics and drop
+    /// punctuation so a typed hyphen or a missing colon still finds the title.
+    static let currentSchemaVersion = 7
 
     let schemaVersion: Int
     let entries: [UUID: FilmMetadata]
@@ -413,7 +419,7 @@ final class MetadataCache: Loggable {
     // mutation leaves them stale, which sends sort() back to the full sort until a
     // background rebuild lands. A stale order is never read.
 
-    /// One library order: a sort option, plus the purchase format for Date Purchased (the
+    /// One library order: a sort option, plus the purchase format for Date Last Purchased (the
     /// only option that reads it; nil for every other option, so they share one order).
     struct LibraryOrderKey: Hashable, Sendable {
         let option: SortOption
@@ -938,7 +944,7 @@ final class MetadataCache: Loggable {
         }
     }
 
-    /// The keys a build covers: every option over all formats, and Date Purchased scoped
+    /// The keys a build covers: every option over all formats, and Date Last Purchased scoped
     /// to each format (the "Purchased 4K / Blu-ray / DVD" lists).
     private static let wantedLibraryOrderKeys: Set<LibraryOrderKey> =
         Set(SortOption.allCases.map { LibraryOrderKey($0) })
@@ -1201,7 +1207,7 @@ final class MetadataCache: Loggable {
     /// identical to the full sort; see Library Orders above), and by the full sort
     /// otherwise.
     ///
-    /// `purchaseFormat` scopes the Date Purchased option to one release format (the view's
+    /// `purchaseFormat` scopes the Date Last Purchased option to one release format (the view's
     /// `ViewIdentifier.purchaseFormatScope`); every other option ignores it.
     func sort(_ filmIDs: [UUID], by option: SortOption, direction: SortDirection,
               purchaseFormat: ReleaseFormat? = nil) -> [UUID] {
@@ -1500,10 +1506,10 @@ final class MetadataCache: Loggable {
     
     // MARK: - Search Cache Access
     
-    /// Get lowercased name and alternateTitle for a film.
-    /// Returns nil if film not found in cache.
-    func getLowercasedStrings(for filmID: UUID) -> (name: String, alternateTitle: String)? {
+    /// A film's title and alternate titles in `SearchText.key` form, or nil if the film
+    /// is not in the cache.
+    func getSearchKeys(for filmID: UUID) -> (name: String, alternateTitles: String)? {
         guard let data = metadata[filmID] else { return nil }
-        return (name: data.nameLowercase, alternateTitle: data.alternateTitleLowercase)
+        return (name: data.nameSearchKey, alternateTitles: data.alternateTitleSearchKeys)
     }
 }

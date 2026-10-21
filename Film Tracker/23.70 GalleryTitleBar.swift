@@ -123,7 +123,8 @@ struct GalleryTitleBar: View {
             // Collapsing these into a single `.galleryToolbarButton()` modifier, or
             // "fixing" the odd one out for symmetry, reintroduces those layout artifacts.
             // Leave them alone.
-            // Sort menu button (shown for all views, but disabled for recents).
+            // Sort menu button (shown for all views, but locked for fixed-sort views:
+            // every Recents tab and Upcoming Releases — ViewIdentifier.hasFixedSort).
             // Use totalFilmCount (library-wide) rather than filmCount (current view),
             // so the sort button stays enabled when active filters reduce results to zero.
             //
@@ -131,7 +132,7 @@ struct GalleryTitleBar: View {
             // appState.selectedSidebarItem.capabilities.sortMenuFullyDisabled — the two
             // are NOT interchangeable here. The capability flag also covers Reports/
             // Imports for MenuBar's "Sort By" menu item, but this inline button has
-            // only ever disabled itself for Recents. The Film Queue's capability flag
+            // only ever disabled itself for the fixed-sort views. The Film Queue's capability flag
             // was removed (it previously disabled MenuBar's Sort By/Filter menus
             // for the Queue while this inline button stayed enabled); both now agree
             // that the Film Queue's Sort/Filter menus are enabled whenever it has films.
@@ -144,7 +145,7 @@ struct GalleryTitleBar: View {
             // direction pair — the interaction the disable was actually there to prevent —
             // while leaving the menu openable. With no films loaded there are no bands
             // either, so the submenu simply does not render and the menu is inert.
-            let sortMenuDisabled = isRecentsView || coordinator.totalFilmCount == 0
+            let sortMenuDisabled = viewIdentifier.hasFixedSort || coordinator.totalFilmCount == 0
             GallerySortMenu(isDisabled: sortMenuDisabled, coordinator: coordinator)
                 .frame(maxWidth: Preferences.buttonWidth)
                 .fixedSize()
@@ -197,15 +198,6 @@ struct GalleryTitleBar: View {
         .padding(.trailing, 18)
     }
 
-    /// True only for the Recents view (any tab). Kept as a narrow, local check
-    /// rather than a ViewCapabilities flag — see the comment at sortMenuDisabled's
-    /// declaration above for why this specific rule is intentionally scoped to just
-    /// this button.
-    private var isRecentsView: Bool {
-        if case .recents = viewIdentifier { return true }
-        return false
-    }
-    
     // MARK: - View Style Toggle State
     
     /// Current list-view state, read from the shared view state manager.

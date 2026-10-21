@@ -1262,7 +1262,7 @@ enum DebugHarness: Loggable {
                     "got \(descending)")
         }
 
-        // --- Date Purchased ---------------------------------------------------------
+        // --- Date Last Purchased ---------------------------------------------------------
         // The same principle extended to the two kinds of absence a purchase record has:
         // never purchased is earlier than purchased-on-an-unknown-date, which is earlier
         // than any dated purchase.
@@ -1334,7 +1334,7 @@ enum DebugHarness: Loggable {
 
     // MARK: - Scenario: Purchase-Format Sort
 
-    /// Proves Date Purchased reads only the view's own format on the "Purchased 4K /
+    /// Proves Date Last Purchased reads only the view's own format on the "Purchased 4K /
     /// Blu-ray / DVD" lists — the sort, the section bands, and the plumbing that carries the
     /// format from the view to both — and that the Sort menu lists every option in every
     /// view, disabling rather than hiding the ones that do not apply.
@@ -1455,7 +1455,7 @@ enum DebugHarness: Loggable {
         }
 
         // --- Sort menu: every option listed, inapplicable ones disabled ---------------------
-        // Date Purchased is disabled exactly where every film is unpurchased: the Unpurchased
+        // Date Last Purchased is disabled exactly where every film is unpurchased: the Unpurchased
         // family, and any view filtered to "Unpurchased". Enabled everywhere else.
         func disabled(_ smartList: SmartListType?, _ unwatched: UnwatchedCategory? = nil,
                       filters: Set<FilterOption> = []) -> Set<SortOption> {
@@ -1505,7 +1505,7 @@ enum DebugHarness: Loggable {
 
         // --- Live coordinator: the user's path through the real view switch ------------------
         // Adds the specimens to the sandbox library, lets the real smart-list calculation
-        // place them, opens "Purchased 4K" and picks Date Purchased exactly as the Sort menu
+        // place them, opens "Purchased 4K" and picks Date Last Purchased exactly as the Sort menu
         // does, then reads the gallery's own film array and bands. Every specimen is deleted
         // and the prior view restored before returning.
         let live = coordinator.memoryStoreForTesting
@@ -1563,8 +1563,8 @@ enum DebugHarness: Loggable {
         manager.updateSortDirection(.ascending)
         let allOrder = coordinator.films.filter { liveIDs.contains($0.id) }.map(\.name)
         r.check("live:all-films-order", allOrder == ["Wish Only"] + expected[3].1, "got \(allOrder)")
-        // The fallback-with-memory sequence: Date Purchased chosen, "Unpurchased" applied →
-        // the view orders by, and the menu checks, Title while Date Purchased is disabled;
+        // The fallback-with-memory sequence: Date Last Purchased chosen, "Unpurchased" applied →
+        // the view orders by, and the menu checks, Title while Date Last Purchased is disabled;
         // the choice itself stays stored (and persisted). Lifting the filter restores it.
         manager.updateFilterOptions([.unpurchased])
         var menu = SortMenuInputs.current(coordinator: coordinator)

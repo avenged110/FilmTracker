@@ -228,14 +228,18 @@
 
   <h3>Opening the search field</h3>
   <p>The search field is in the window&rsquo;s toolbar and always searches the <strong>entire film library</strong>, regardless of which sidebar item you were looking at. Press <code>&#8984;F</code> (View &gt; Search Film Library) to jump straight into it from anywhere. When you clear the search, you return to the view you started from.</p>
+  <p>The search results have their own sort, filters, and grid or list style, which start fresh with every search. They stay in effect for as long as the search field holds anything, including a pill with no text beside it. To start over completely, empty the field, pills included.</p>
 
   <h3>Plain-text search</h3>
-  <p>Type any text; results update as you type. Plain text matches against a film&rsquo;s <strong>title and its alternate titles</strong>. Matching is not case-sensitive, and the text can appear anywhere inside the title, not only at the start.</p>
+  <p>Type any text; results update as you type. Plain text matches against a film&rsquo;s <strong>title and its alternate titles</strong>. Matching is not case-sensitive, and the text can appear anywhere inside the title, not only at the start. Accents and punctuation are ignored, and every kind of dash counts as the same character, so you can type titles the way your keyboard writes them.</p>
   <div class="ex">
     <div class="row head"><span class="q">You type</span><span class="d">Finds</span></div>
     <div class="row"><span class="q">matrix</span><span class="d">The Matrix, The Matrix Reloaded, and any film with &ldquo;matrix&rdquo; in an alternate title</span></div>
     <div class="row"><span class="q">ton</span><span class="d">Anything containing those letters anywhere: &ldquo;Clinton&rdquo;, &ldquo;Tonight&rdquo;, &ldquo;Button&rdquo;</span></div>
     <div class="row"><span class="q">THE GODFATHER</span><span class="d">Same as lowercase; capitalization never matters</span></div>
+    <div class="row"><span class="q">mission impossible fallout</span><span class="d">Mission: Impossible &ndash; Fallout; the colon and the dash are ignored</span></div>
+    <div class="row"><span class="q">amelie</span><span class="d">Am&eacute;lie; accents never matter</span></div>
+    <div class="row"><span class="q">spiderman</span><span class="d">Spider-Man; punctuation inside a word is ignored, so &ldquo;spider-man&rdquo; finds it too</span></div>
   </div>
 
   <h3>Tokens: asking about something other than the title</h3>
@@ -283,7 +287,7 @@
   </table>
 
   <div class="note"><span class="t">How matching works</span>
-  <p>Unless a chapter says otherwise, a text value matches when it appears <em>anywhere</em> inside the stored text, ignoring capitalization. <code>#director nolan</code> finds &ldquo;Christopher Nolan&rdquo;; <code>#genre sci</code> finds &ldquo;Sci-Fi&rdquo;. You never need wildcards, and you never need quotation marks around multi-word values.</p>
+  <p>Unless a chapter says otherwise, a text value matches when it appears <em>anywhere</em> inside the stored text, ignoring capitalization, accents, and punctuation. Runs of spaces count as one space. <code>#director nolan</code> finds &ldquo;Christopher Nolan&rdquo;; <code>#genre sci</code> finds &ldquo;Sci-Fi&rdquo;. You never need wildcards, and you never need quotation marks around multi-word values.</p>
   </div>
   <div class="warn"><span class="t">One character to avoid</span>
   <p>Do not use <code>#</code> inside a value (for example in a note you are looking for). The last <code>#</code> in the field always starts a new token.</p>
@@ -458,7 +462,7 @@
       <tr><td>Unpurchased DVD</td><td>Edited</td><td>Alternate Versions</td></tr>
       <tr><td>Filtered Library</td><td>Waiting for Edit</td><td>Temporarily On Hold</td></tr>
       <tr><td>Indefinitely On Hold</td><td>Ignore</td><td>Blacklisted</td></tr>
-      <tr><td>Upcoming Releases</td><td></td><td></td></tr>
+      <tr><td>Upcoming Releases</td><td>No Releases Added</td><td></td></tr>
     </tbody>
   </table>
   <div class="warn"><span class="t">Substrings can overlap</span>

@@ -18,6 +18,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
     case unpurchased4K = "Unpurchased 4K"
     case unpurchasedBluray = "Unpurchased Blu-ray"
     case unpurchasedDVD = "Unpurchased DVD"
+    case noReleasesAdded = "No Releases Added"
     case upcomingReleases = "Upcoming Releases"
     case edited = "Edited"
     case alternateVersions = "Alternate Versions"
@@ -70,6 +71,9 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
         case .unpurchasedDVD:
             return ("No Unpurchased Films on DVD",
                     "Add DVD releases to films which you haven't purchased yet to populate this list.")
+        case .noReleasesAdded:
+            return ("Every Film Has Releases",
+                    "Films will appear here when they have no releases added.")
         case .upcomingReleases:
             return ("No Upcoming Releases",
                     "Add releases with a release date in the future to populate this list.")
@@ -116,7 +120,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
             return false // Accessed via Picker in the Up for Rotation view
         case .purchased4K, .purchasedBluray, .purchasedDVD:
             return false // These are accessed via Picker in the Purchased view
-        case .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD:
+        case .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD, .noReleasesAdded:
             return false // These are accessed via Picker in the Unpurchased view
         case .edited:
             return false // Accessed via Picker in the Alternate Versions view
@@ -137,7 +141,8 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
     /// True for "Purchased" and its 4K / Blu-ray / DVD format variants.
     var isPurchasedFormat: Bool { sidebarParent == .purchased }
 
-    /// True for "Unpurchased" and its 4K / Blu-ray / DVD format variants.
+    /// True for "Unpurchased", its 4K / Blu-ray / DVD format variants, and "No Releases
+    /// Added" — every list in the family holds only films with nothing purchased.
     var isUnpurchasedFormat: Bool { sidebarParent == .unpurchased }
 
     /// True for "Up for Rotation" and "Viewed Over One Year Ago".
@@ -150,7 +155,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
     /// list — "Purchased" itself included, which spans all formats.
     ///
     /// The single source of the format-to-list pairing: membership (`purchasedFormatLists`)
-    /// is derived from it, and so is the Date Purchased sort's format scope (see
+    /// is derived from it, and so is the Date Last Purchased sort's format scope (see
     /// `ViewIdentifier.purchaseFormatScope`), so a film can never sit in "Purchased 4K"
     /// while being ordered there by its Blu-ray purchase.
     var purchaseFormat: ReleaseFormat? {
@@ -183,7 +188,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
             return .upForRotation
         case .purchased, .purchased4K, .purchasedBluray, .purchasedDVD:
             return .purchased
-        case .unpurchased, .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD:
+        case .unpurchased, .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD, .noReleasesAdded:
             return .unpurchased
         // A family of one, so far: no variants, no picker, no disclosure triangle.
         case .upcomingReleases:
@@ -903,13 +908,14 @@ final class SmartLists: Loggable {
             }
         }
 
+        // The complement the Unpurchased rule above leaves out: no releases at all.
+        if film.releases.isEmpty { types.insert(.noReleasesAdded) }
+
         // --- Upcoming ---
         // At least one release whose date is still ahead of `today`, purchased (a
         // preorder) or not — see ReleaseDateValue.isUpcoming. Date-relative, like the
         // rotation lists, so the midnight refresh recomputes it.
-        if film.releases.contains(where: {
-            ReleaseDateValue($0.releaseDate, format: $0.format)?.isUpcoming(today: today) ?? false
-        }) {
+        if nextUpcomingRelease(of: film, today: today) != nil {
             types.insert(.upcomingReleases)
         }
 
@@ -934,8 +940,20 @@ final class SmartLists: Loggable {
         return types
     }
 
+    /// The soonest of `film`'s releases still to come on `today`, or nil when none is.
+    ///
+    /// Both what puts a film in "Upcoming Releases" and what orders it there, so the list
+    /// can never hold a film it has no date to place by. A year-only value counts as day
+    /// zero of its year (`ReleaseDateValue.sortKey`), ahead of every full date in it.
+    nonisolated static func nextUpcomingRelease(of film: FilmSnapshot, today: Date) -> ReleaseDateValue? {
+        film.releases
+            .compactMap { ReleaseDateValue($0.releaseDate, format: $0.format) }
+            .filter { $0.isUpcoming(today: today) }
+            .min { $0.sortKey < $1.sortKey }
+    }
+
     /// Release format → the "Purchased <format>" list it populates. Derived from
-    /// `purchaseFormat` so membership and the Date Purchased sort's scope share one pairing.
+    /// `purchaseFormat` so membership and the Date Last Purchased sort's scope share one pairing.
     nonisolated private static let purchasedFormatLists: [(String, SmartListType)] =
         SmartListType.allCases.compactMap { type in type.purchaseFormat.map { ($0.rawValue, type) } }
 

@@ -13,6 +13,8 @@ import Combine
 // MARK: - Sort Options
 enum SortOption: String, CaseIterable, Codable, Sendable {
     case title
+    // Shown as "Release Date": ordered by the film's release year, then its full release
+    // date. The raw value stays "year" because it is what persisted view states store.
     case year
     case duration
     case dateAdded
@@ -32,11 +34,11 @@ enum SortOption: String, CaseIterable, Codable, Sendable {
     var displayName: String {
         switch self {
         case .title: return "Title"
-        case .year: return "Year"
+        case .year: return "Release Date"
         case .duration: return "Duration"
         case .dateAdded: return "Date Added"
         case .dateModified: return "Date Modified"
-        case .datePurchased: return "Date Purchased"
+        case .datePurchased: return "Date Last Purchased"
         case .lastViewed: return "Last Viewed"
         case .viewCount: return "Recorded View Count"
         case .rating: return "Rating"
@@ -183,7 +185,7 @@ enum RecentsCategory: String, CaseIterable, Codable, Sendable {
     /// it names the matching option wherever one exists.
     ///
     /// Recently Purchased orders by the most recent purchase of any format, which is
-    /// exactly Date Purchased with no format scope. Recently Come Up for Rotation orders by
+    /// exactly Date Last Purchased with no format scope. Recently Come Up for Rotation orders by
     /// rotation eligibility date, which no option expresses: `.dateAdded` there is only a
     /// placeholder, and the Sort menu shows no checkmark for that tab
     /// (SortMenuInputs.displayedSortOption).
@@ -251,7 +253,7 @@ extension ViewState {
     /// The sort this view is actually ordered by, and the one its Sort menu checks.
     ///
     /// Normally the user's chosen `sortOption`. When that option is disabled in this view
-    /// as currently filtered (SortMenuInputs.disabledSortOptions) — Date Purchased under
+    /// as currently filtered (SortMenuInputs.disabledSortOptions) — Date Last Purchased under
     /// the "Unpurchased" filter, say — the view falls back to Title. The choice itself is
     /// left untouched in `sortOption`, which is persisted, so it acts as the memory: lift
     /// the filter and the option is enabled again, and both the order and the menu return
@@ -259,7 +261,7 @@ extension ViewState {
     ///
     /// Title because it is never disabled, and because it is what a disabled option's
     /// order already degrades to: every comparator ends in the title tiebreak, so a view
-    /// "sorted by" Date Purchased with no purchases in it is in title order anyway. This
+    /// "sorted by" Date Last Purchased with no purchases in it is in title order anyway. This
     /// makes the menu say so instead of claiming an ordering the view no longer has.
     func effectiveSortOption(in view: ViewIdentifier) -> SortOption {
         let disabled = SortMenuInputs.disabledSortOptions(
@@ -397,7 +399,19 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         return nil
     }
 
-    /// The release format this view's Date Purchased sort, and its section bands, read
+    /// True for the views whose order is part of what they are, so their Sort menu's
+    /// options and direction are locked: every Recents tab, and "Upcoming Releases", which
+    /// lists the soonest release first (DataCoordinator.performLoad). Filters, style and
+    /// section dividers stay the user's to set.
+    var hasFixedSort: Bool {
+        switch self {
+        case .recents: return true
+        case .smartList(let type): return type == .upcomingReleases
+        default: return false
+        }
+    }
+
+    /// The release format this view's Date Last Purchased sort, and its section bands, read
     /// purchases from — nil meaning every format. Non-nil only on the "Purchased 4K /
     /// Blu-ray / DVD" lists, where a film's purchases of OTHER formats are not what the
     /// view is about: a Blu-ray bought last year must not band a film into "Past Year" in
@@ -711,8 +725,8 @@ extension SidebarItem {
                 showsRemoveFromListInTrashMenu: true,
                 routesTabFocusToGallery: false)
 
-        case .smartList:
-            return ViewCapabilities()
+        case .smartList(let type):
+            return ViewCapabilities(sortMenuFullyDisabled: ViewIdentifier.smartList(type).hasFixedSort)
 
         case .list:
             return ViewCapabilities(showsRemoveFromListInTrashMenu: true)
@@ -1964,6 +1978,20 @@ final class ViewStateManager: Loggable {
                 state.isListView = parsed.isListView
                 state.showSectionDividers = parsed.showSectionDividers
             }
+            return state
+
+        case .smartList(.upcomingReleases):
+            // Fixed like Recents: ordered by each film's soonest upcoming release, which
+            // no SortOption expresses, so `.title` is stored as a placeholder (the order
+            // ties fall back to) and the Sort menu checks nothing (see
+            // SortMenuInputs.displayedSortOption). Ascending, soonest first. The other
+            // fields are the user's and persist as they do for any smart list.
+            var state = ViewState()
+            if let key = stateKey.persistenceKey, let stored = Preferences.viewSortStates[key] {
+                state = ViewState.decoded(from: stored)
+            }
+            state.sortOption = .title
+            state.sortDirection = .ascending
             return state
 
         case .reports, .imports, .search:

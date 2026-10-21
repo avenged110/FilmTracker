@@ -186,3 +186,44 @@ enum SearchField: String, CaseIterable, Hashable {
         return map
     }()
 }
+
+// MARK: - Search Text Normalization
+
+/// The one form search compares text in, on both sides of every match.
+///
+/// Folds case, diacritics and full-width forms, drops punctuation and symbols, and
+/// collapses every run of whitespace to a single space. Each piece answers a way a typed
+/// query used to miss a title it plainly named:
+///   • "amelie" now finds "Amélie".
+///   • A hyphen finds an en dash, and "mission impossible" finds
+///     "Mission: Impossible – Fallout". The library's own titles use typographic dashes
+///     and colons that the keyboard does not, and a plain substring test held them to the
+///     exact character.
+///   • "schindlers list" and "schindler's list" find "Schindler’s List" whichever
+///     apostrophe either side was written with.
+///
+/// Punctuation is dropped rather than turned into a space, so "u.s.a." finds "U.S.A."
+/// and "spiderman" finds "Spider-Man". A separator surrounded by spaces (" – ") still
+/// leaves exactly one space, through the whitespace collapse.
+///
+/// `nonisolated` because FilmMetadata builds its stored keys with it off the main actor.
+nonisolated enum SearchText {
+    static func key(_ text: String) -> String {
+        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+                                  locale: nil)
+        var result = String.UnicodeScalarView()
+        var pendingSpace = false
+        for scalar in folded.unicodeScalars {
+            if scalar.properties.isWhitespace {
+                pendingSpace = true
+            } else if scalar.properties.isAlphabetic || scalar.properties.numericType != nil {
+                if pendingSpace && !result.isEmpty { result.append(" ") }
+                pendingSpace = false
+                result.append(scalar)
+            }
+            // Anything else — punctuation, symbols, combining marks the fold left
+            // behind — is dropped without separating the letters either side of it.
+        }
+        return String(result)
+    }
+}

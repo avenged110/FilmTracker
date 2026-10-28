@@ -169,6 +169,15 @@ enum RecentsCategory: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// Further full names a `#list` token accepts for this tab, beside `displayName`.
+    var searchAliases: [String] {
+        switch self {
+        case .recentlyViewed: return ["Most Recently Watched", "Recently Watched", "Recently Viewed"]
+        case .recentlyRotated: return ["Recently Up for Rotation"]
+        case .recentlyAdded, .recentlyUpdated, .recentlyPurchased: return []
+        }
+    }
+
     var glyph: String {
         switch self {
         case .recentlyViewed: return ViewGlyphs.recentlyViewed.outline
@@ -1561,10 +1570,18 @@ final class ViewStateManager: Loggable {
         // stateChanged would be true. Without this condition, the gallery would show
         // a loading spinner indefinitely because triggerReloadSync() never gets called.
         //
+        // Empty films alone do not qualify: they are also the loaded answer for a view
+        // that is empty (an empty list, an empty smart list, filters that exclude every
+        // film), and the re-entrant calls every navigation makes to the view it has just
+        // switched to (the new GalleryView's onAppear, the old one's handleSidebarChange)
+        // reloaded such a view up to twice more for the same empty result. So the films
+        // must also not have been loaded for this view, which is exactly the startup case
+        // (and a load the readiness gate deferred, which records nothing).
+        //
         // IMPORTANT: This check must happen AFTER updating activeView/activeState above,
         // since coordinator.films.isEmpty checks the current activeView state and
         // we're already on .allFilms (which is the initial activeView value).
-        let needsInitialLoad = coordinator?.films.isEmpty ?? false
+        let needsInitialLoad = coordinator.map { $0.films.isEmpty && $0.loadedViewID != viewID } ?? false
         if isViewChange || stateChanged || needsInitialLoad {
             triggerReloadSync()
         }
@@ -1779,6 +1796,16 @@ final class ViewStateManager: Loggable {
             return shown
         }
         return activeState
+    }
+
+    /// The Film Queue "All" tab's view state as it stands this session, wherever the user
+    /// is: the live state while that tab is on screen, else the copy banked in memory,
+    /// else what it would load. For ATVQ's dispatch order, which must match that tab
+    /// even when nothing is persisted (rememberSortFilterSelections off).
+    func filmQueueAllTabState() -> ViewState {
+        let key = ViewStateKey(viewID: .filmQueue)
+        if ViewStateKey.current(for: activeView) == key { return activeState }
+        return viewStates[key] ?? loadStateSync(for: key)
     }
 
     /// Whether the "Section Dividers" Show/Hide pair is fixed for the tab currently on

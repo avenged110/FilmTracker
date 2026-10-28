@@ -129,6 +129,11 @@ struct Preferences: Loggable {
     /// Implemented in 24.00 RightSidebar.swift (RightSidebar).
     static let showRightSidebarTabIcons = true
 
+    /// Whether ANY CustomTabs tab bar (RightSidebar, FilmSheet, SettingsSheet) draws icons.
+    /// `false` turns them off everywhere, overriding each bar's own `showIcons` (including
+    /// `showRightSidebarTabIcons`). Implemented in 94.00 CustomTabs.swift.
+    static let showCustomTabIcons = true
+
     /// TRIAL SWITCH. Caps the "Watch Details" glyph tints at `.secondary`: a glyph beside
     /// primary text is drawn secondary instead of matching it, while one beside tertiary
     /// (placeholder) text stays tertiary. `false` restores the original rule, where a glyph
@@ -220,6 +225,8 @@ struct Preferences: Loggable {
             "preferences.showStatusBar"
         static let rememberRightSidebarTab =
             "preferences.rememberRightSidebarTab"
+        static let rememberRightSidebarReleasesFilter =
+            "preferences.rememberRightSidebarReleasesFilter"
         static let autoExpandRightSidebarTables =
             "preferences.autoExpandRightSidebarTables"
         static let additionalCalTableDetails =
@@ -236,6 +243,10 @@ struct Preferences: Loggable {
             "preferences.excludeQueuedFromUpForRotation"
         static let maintainSelectionOnSearchExit =
             "preferences.maintainSelectionOnSearchExit"
+        static let showSearchSuggestions =
+            "preferences.showSearchSuggestions"
+        static let showRecentSearches =
+            "preferences.showRecentSearches"
         static let showInfoComplete =
             "preferences.showInfoComplete"
         static let importScanSubfolders =
@@ -321,6 +332,7 @@ struct Preferences: Loggable {
     static let largeGalleryGridKey                   = Keys.largeGalleryGrid
     static let showStatusBarKey                      = Keys.showStatusBar
     static let rememberRightSidebarTabKey            = Keys.rememberRightSidebarTab
+    static let rememberRightSidebarReleasesFilterKey = Keys.rememberRightSidebarReleasesFilter
     static let autoExpandRightSidebarTablesKey       = Keys.autoExpandRightSidebarTables
     static let additionalCalTableDetailsKey          = Keys.additionalCalTableDetails
     static let showReleasesSummaryTableKey           = Keys.showReleasesSummaryTable
@@ -329,6 +341,8 @@ struct Preferences: Loggable {
     static let smartListsKey                         = Keys.smartLists
     static let excludeQueuedFromUpForRotationKey     = Keys.excludeQueuedFromUpForRotation
     static let maintainSelectionOnSearchExitKey      = Keys.maintainSelectionOnSearchExit
+    static let showSearchSuggestionsKey              = Keys.showSearchSuggestions
+    static let showRecentSearchesKey                 = Keys.showRecentSearches
     static let showInfoCompleteKey                   = Keys.showInfoComplete
     static let importScanSubfoldersKey               = Keys.importScanSubfolders
     static let fuzzyImportMatchingKey                = Keys.fuzzyImportMatching
@@ -376,6 +390,7 @@ struct Preferences: Loggable {
             Keys.largeGalleryGrid: true,
             Keys.showStatusBar: true,
             Keys.rememberRightSidebarTab: true,
+            Keys.rememberRightSidebarReleasesFilter: true,
             Keys.autoExpandRightSidebarTables: false,
             Keys.additionalCalTableDetails: false,
             Keys.showReleasesSummaryTable: false,
@@ -384,6 +399,8 @@ struct Preferences: Loggable {
             Keys.smartLists: true,
             Keys.excludeQueuedFromUpForRotation: true,
             Keys.maintainSelectionOnSearchExit: true,
+            Keys.showSearchSuggestions: true,
+            Keys.showRecentSearches: true,
             Keys.showInfoComplete: false,
             Keys.importScanSubfolders: true,
             Keys.fuzzyImportMatching: true,
@@ -585,6 +602,12 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.rememberRightSidebarTab,
                 logMessage: "rememberRightSidebarTab set to \(newValue)") } }
 
+    static var rememberRightSidebarReleasesFilter: Bool {
+        get { return defaults.bool(forKey: Keys.rememberRightSidebarReleasesFilter) }
+        set {
+            setIfChanged(newValue, forKey: Keys.rememberRightSidebarReleasesFilter,
+                logMessage: "rememberRightSidebarReleasesFilter set to \(newValue)") } }
+
     static var autoExpandRightSidebarTables: Bool {
         get { return defaults.bool(forKey: Keys.autoExpandRightSidebarTables) }
         set {
@@ -643,6 +666,22 @@ struct Preferences: Loggable {
         set {
             setIfChanged(newValue, forKey: Keys.maintainSelectionOnSearchExit,
                 logMessage: "maintainSelectionOnSearchExit set to \(newValue)") } }
+
+    /// Library-based suggestions in the search field's drop-down, and the search
+    /// heuristics that rank them. The "#field" suggestions are shown regardless.
+    static var showSearchSuggestions: Bool {
+        get { return defaults.bool(forKey: Keys.showSearchSuggestions) }
+        set {
+            setIfChanged(newValue, forKey: Keys.showSearchSuggestions,
+                logMessage: "showSearchSuggestions set to \(newValue)") } }
+
+    /// The session's recent searches, shown when the empty search field is selected.
+    /// Nested under showSearchSuggestions in Settings, and only in effect while it is on.
+    static var showRecentSearches: Bool {
+        get { return defaults.bool(forKey: Keys.showRecentSearches) }
+        set {
+            setIfChanged(newValue, forKey: Keys.showRecentSearches,
+                logMessage: "showRecentSearches set to \(newValue)") } }
 
     static var showInfoComplete: Bool {
         get { return defaults.bool(forKey: Keys.showInfoComplete) }

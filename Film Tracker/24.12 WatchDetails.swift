@@ -30,6 +30,11 @@ struct WatchDetails: View, Loggable {
     // a genuine fresh open (see handleViewingButtonClick, which clears it).
     @State private var pendingViewingEntry: PendingViewingEntry?
 
+    // The film a click is waiting on calendar permission for, while the request is out.
+    // Cleared by a change of film, so a grant that resolves after the user has moved on
+    // does not open the popover for whatever film is showing by then.
+    @State private var permissionPendingFilmID: UUID?
+
     // @AppStorage monitors for preference key changes.
     @AppStorage(preference: Preferences.iCalIntegrationKey)
         private var iCalIntegration: Bool
@@ -102,7 +107,10 @@ struct WatchDetails: View, Loggable {
         // an "unused" property wrapper would silently break the Settings→sidebar
         // update path.
         _ = defaultRotationThreshold
-        return film.map { calculateRotationData(for: $0) } ?? RotationData()
+        // Read through CurrentDay, as the Source field is, so the countdown ticks down and
+        // turns into "Ready for viewing" when the day changes without anything else changing.
+        let today = CurrentDay.shared.today
+        return film.map { calculateRotationData(for: $0, today: today) } ?? RotationData()
     }
 
     /// The Source field's display string plus its three branch-derived companions
@@ -287,8 +295,7 @@ struct WatchDetails: View, Loggable {
             .onDisappear {
                 // Cancel the pending checkmark reset on dismount, matching the
                 // cancel-on-teardown treatment every other retained task in the sidebar
-                // gets (RightSidebar's resolutionTask/swipeResetTask,
-                // ViewingHistoryDetailedTable's midnightTask). The re-entry case is
+                // gets (RightSidebar's resolutionTask/swipeResetTask). The re-entry case is
                 // already covered by the cancel() at the top of showCheckmarkFeedback().
                 checkmarkResetTask?.cancel()
                 checkmarkResetTask = nil
@@ -329,6 +336,7 @@ struct WatchDetails: View, Loggable {
                 if oldFilm.id != newFilm.id {
                     showViewingPopover = false
                     pendingViewingEntry = nil
+                    permissionPendingFilmID = nil
                     checkmarkResetTask?.cancel()
                     checkmarkResetTask = nil
                     showViewingCheckmark = false
@@ -495,7 +503,7 @@ struct WatchDetails: View, Loggable {
     }
 
     // Helper to calculate rotation data.
-    private func calculateRotationData(for film: FilmSnapshot) -> RotationData {
+    private func calculateRotationData(for film: FilmSnapshot, today: Date) -> RotationData {
         // Check if film is blacklisted or ignored. These two remain mutually exclusive
         // with "Indefinitely on hold" (enforced by the FilmSheet UI), and both still take
         // display priority over the rotation countdown even though "Waiting for edit" and/or
@@ -538,9 +546,9 @@ struct WatchDetails: View, Loggable {
                 months: effectiveThreshold
             ) {
                 // Check if rotation date has passed. `rotationDate` is midnight on
-                // the 1st, so this turns true at the first instant of the month the
-                // label names — never partway through it.
-                if Date() >= rotationDate {
+                // the 1st and `today` the start of the current day, so this turns true
+                // on the first day of the month the label names — never partway through it.
+                if today >= rotationDate {
                     formattedValue = "Ready for viewing"
                     isPlaceholder = false
                 } else {
@@ -730,7 +738,7 @@ struct WatchDetails: View, Loggable {
             return ""
         }
 
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
         var totalDays = 0
 
         // Days between each consecutive pair, matching daysBetween(from:to:) exactly —
@@ -834,6 +842,7 @@ struct WatchDetails: View, Loggable {
 
     /// The "Available for purchase on <format>" note's glyph.
     private static let purchaseNoteGlyph = "cart.fill.badge.questionmark"
+    private static let preorderNoteGlyph = "calendar.badge.clock"
 
     /// The tint a value row's glyph is drawn in.
     ///
@@ -956,6 +965,7 @@ struct WatchDetails: View, Loggable {
         // longer mutually exclusive; each is emitted independently by sourceDisplay.
         let purchaseNote = isPlaceholder ? "" : source.availableForPurchaseNote
         let regionBNote = isPlaceholder ? "" : source.regionBLockNote
+        let preorderNote = isPlaceholder ? "" : source.preorderReleaseNote
         let valueColor: Color = isPlaceholder ? Color(nsColor: .tertiaryLabelColor) : .primary
         // Resolved once and used for both the glyph itself and the tint decision that
         // depends on which glyph it is. Called separately at the two sites, the symbol
@@ -1001,6 +1011,17 @@ struct WatchDetails: View, Loggable {
             // release's date can drop to its abbreviated month ("Oct. 2, 2026") instead
             // of wrapping, exactly as the module's other date rows do. Styled to match
             // annotationRow: .secondary text and glyph, always selectable.
+            // A pre-ordered disc's release date, styled as the purchase note below it.
+            if !preorderNote.isEmpty {
+                RSBHelpers.fittingValueRow(
+                    full: Text(preorderNote).foregroundStyle(.secondary),
+                    abbreviations: source.preorderReleaseNoteAbbreviated
+                        .map { [Text($0).foregroundStyle(.secondary)] } ?? [],
+                    isPlaceholder: false,
+                    glyph: gatedGlyph(Self.preorderNoteGlyph),
+                    glyphColor: .secondary
+                )
+            }
             if !purchaseNote.isEmpty {
                 RSBHelpers.fittingValueRow(
                     full: Text(purchaseNote).foregroundStyle(.secondary),
@@ -1102,11 +1123,25 @@ struct WatchDetails: View, Loggable {
             
             if currentStatus == .notDetermined {
                 log("iCal integration enabled, requesting calendar access...")
+                let requestingFilmID = film?.id
+                permissionPendingFilmID = requestingFilmID
                 Task {
                     let granted = await EventKitManager.shared.requestAccessIfNeeded()
                     log("Access granted: \(granted)")
                     // calendarAccessStatus is kept in sync via the calendarAuthorizationChanged
                     // event bus notification that EventKitManager fires on status change.
+                    //
+                    // Open only for the film that was clicked, and only while the Details tab
+                    // is the one on screen: the permission prompt can sit for as long as the
+                    // user likes, and in the meantime the film may have changed (which clears
+                    // the pending id) or the tab may have slid away, leaving the popover's
+                    // anchor off-screen.
+                    guard permissionPendingFilmID == requestingFilmID,
+                          ViewStateManager.shared.selectedRightSidebarTab == .details else {
+                        permissionPendingFilmID = nil
+                        return
+                    }
+                    permissionPendingFilmID = nil
                     showViewingPopover = true
                 }
                 return

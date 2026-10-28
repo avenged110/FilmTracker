@@ -798,16 +798,19 @@ final class FSTabReleases {
     // Ordered list of original IDs for delta computation.
     private var originalIDs: [UUID] = []
 
-    /// The last dirty-diagnostic line emitted, so an unchanged one is not re-emitted.
+    /// What the dirty diagnostic last reported, so an unchanged report is not re-emitted.
     ///
     /// `@ObservationIgnored` is load-bearing: this is written from `checkForChanges()`, which
     /// runs on the 150 ms debounce tick. A tracked property written there would fire an
     /// @Observable invalidation on every tick that changes the diagnostic, for a value no view
     /// reads — the exact cost the surrounding code is written to avoid.
     ///
-    /// Nil means "not currently dirty", so returning to a state re-logs it rather than being
+    /// Empty means "not currently dirty", so returning to a state re-logs it rather than being
     /// swallowed as a repeat.
-    @ObservationIgnored private var lastDirtyDiagnostic: String?
+    ///
+    /// Keyed per release (and "structural"), holding the NAMES of the fields last reported for
+    /// it — not the rendered line. See the emit site for why.
+    @ObservationIgnored private var lastDirtyDiagnostic: [String: String] = [:]
 
     // Change tracking.
     var hasChanges: Bool = false
@@ -1407,7 +1410,7 @@ final class FSTabReleases {
         originalReleasesByID = byID
         // The diagnostic is a statement about a specific baseline; a new baseline makes any
         // suppressed repeat stale, so the next dirty check starts from a clean slate.
-        lastDirtyDiagnostic = nil
+        lastDirtyDiagnostic = [:]
     }
 
     // MARK: - Change Tracking
@@ -1539,20 +1542,27 @@ final class FSTabReleases {
         // 150 ms debounce tick for as long as the tab is dirty and the user keeps typing.
         if !changed {
             // Clean again — the next dirty state is news even if it repeats an earlier one.
-            lastDirtyDiagnostic = nil
+            lastDirtyDiagnostic = [:]
         } else if Logger.isLoggingEnabled {
-            var lines: [String] = []
+            // (key, signature, line): the signature is what repeat-suppression compares.
+            var entries: [(key: String, signature: String, line: String)] = []
             if currentIDs != originalIDs {
-                lines.append("structural: current \(currentIDs.count) id(s) vs original \(originalIDs.count)")
+                let line = "structural: current \(currentIDs.count) id(s) vs original \(originalIDs.count)"
+                entries.append(("structural", line, line))
             } else {
                 for model in releases {
+                    let key = model.id.uuidString
                     guard let original = originalReleasesByID[model.id] else {
-                        lines.append("release \(model.id) has no baseline entry")
+                        let line = "release \(model.id) has no baseline entry"
+                        entries.append((key, line, line))
                         continue
                     }
                     let diffs = model.snapshot().differingFields(from: original)
                     if !diffs.isEmpty {
-                        lines.append("release \(model.id): \(diffs.joined(separator: ", "))")
+                        // Field names carry no spaces; the value suffix starts at the first one.
+                        let names = diffs.map { String($0.prefix { $0 != " " }) }
+                        entries.append((key, names.joined(separator: ","),
+                                        "release \(model.id): \(diffs.joined(separator: ", "))"))
                     }
                 }
             }
@@ -1573,11 +1583,22 @@ final class FSTabReleases {
             // state the header calls out as the reason this logs on every check — still dirty
             // after the user believes they reverted everything — is still recorded the first
             // time it is seen, and again if it recurs after a clean tick.
-            let diagnostic = lines.joined(separator: " | ")
-            if diagnostic != lastDirtyDiagnostic {
-                lastDirtyDiagnostic = diagnostic
-                for line in lines { owner.log("Releases dirty — \(line)") }
+            //
+            // Suppression is PER RELEASE and on field NAMES, not on the whole assembled text.
+            // Comparing the whole text re-emitted every dirty release whenever any one of them
+            // changed: stepping one card's date month by month re-logged its untouched,
+            // already-dirty siblings on every click (~40 lines for one edit, 2026-10-22).
+            // Comparing values made each click its own line too. A release is now reported
+            // when it first becomes dirty and again only when the SET of differing fields
+            // changes; the line still shows the values as of that moment.
+            var next: [String: String] = [:]
+            for entry in entries {
+                next[entry.key] = entry.signature
+                if lastDirtyDiagnostic[entry.key] != entry.signature {
+                    owner.log("Releases dirty — \(entry.line)")
+                }
             }
+            lastDirtyDiagnostic = next
         }
 
         // Only write hasChanges — and only call owner.notifyChanges() — when the
@@ -2999,12 +3020,16 @@ final class FSTabReleases {
 
         // hasArtwork is reset because each type offers a different artwork tag set. Two
         // exceptions, both rules of the artwork vocabulary rather than of this cascade:
-        //   • the two combo-pack forms share one tag set, so moving between them keeps it;
+        //   • the combo-pack forms share their tags, so moving between them keeps any tag
+        //     the new form still offers — "Combo-pack (multi-pack)" adds "Yes (Multi-pack)",
+        //     which is retracted on the way back to a form that lacks it;
         //   • "Steelbook" is offered under every type and purchased state (see
         //     _ArtworkPicker), so no type change can make it invalid. A cascade may retract a
         //     value the NEW vocabulary cannot express, never one it still can.
         let stayedWithinComboForms = ReleaseIndependence.isComboPack(oldValue)
             && ReleaseIndependence.isComboPack(newValue)
+            && (model.hasArtwork.isEmpty
+                || ReleaseArtwork.options(forIndependence: newValue).contains(model.hasArtwork))
         if !stayedWithinComboForms && model.hasArtwork != ReleaseArtwork.steelbook {
             model.hasArtwork = ""
         }
@@ -3025,6 +3050,14 @@ final class FSTabReleases {
             } else if !ReleaseIndependence.isComboPack(newValue)
                         && model.marketAvailability == [ReleaseMarketAvailability.comboPackOnly] {
                 model.marketAvailability = []
+            } else {
+                // Entering or leaving "Multi-pack" respells the status ("Available" ⇄
+                // "Multi-pack available"); see ReleaseMarketAvailability.Kind.
+                let kind = ReleaseMarketAvailability.Kind(nationalOrigin: model.nationalOrigin,
+                                                          independence: newValue)
+                let respelled = ReleaseMarketAvailability.retargeted(model.marketAvailability,
+                                                                     for: kind)
+                if respelled != model.marketAvailability { model.marketAvailability = respelled }
             }
         }
 

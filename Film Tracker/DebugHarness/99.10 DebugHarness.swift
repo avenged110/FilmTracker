@@ -53,9 +53,15 @@ struct HarnessCheck: Codable {
     let passed: Bool
     let detail: String
     var knownIssue: String? = nil
+    /// Set when the scenario could not run because the machine was not in a state to run
+    /// it — e.g. a real-window keyboard scenario whose window could not become key because
+    /// the screen was locked or another app held focus. That says nothing about the code,
+    /// so it is reported as SKIP and does not fail the run.
+    var skipped: String? = nil
 
-    /// A check counts against the run only if it failed AND is not a known issue.
-    var isRegression: Bool { !passed && knownIssue == nil }
+    /// A check counts against the run only if it failed AND is neither a known issue nor
+    /// an environment skip.
+    var isRegression: Bool { !passed && knownIssue == nil && skipped == nil }
 }
 
 /// A named quantitative observation. Recorded rather than asserted — timings and counts
@@ -75,11 +81,18 @@ struct HarnessScenarioResult: Codable {
 
     var failureCount: Int { checks.filter(\.isRegression).count }
     var knownIssueCount: Int { checks.filter { !$0.passed && $0.knownIssue != nil }.count }
+    var skipCount: Int { checks.filter { $0.skipped != nil }.count }
     var passed: Bool { failureCount == 0 }
 
     mutating func check(_ name: String, _ passed: Bool, _ detail: String = "") {
         checks.append(DebugHarness.classify(
             HarnessCheck(name: name, passed: passed, detail: detail)))
+    }
+
+    /// Records that the scenario cannot run in this environment. The caller returns right
+    /// after: the checks that would follow would only fail for the same reason.
+    mutating func skip(_ name: String, _ reason: String) {
+        checks.append(HarnessCheck(name: name, passed: false, detail: reason, skipped: reason))
     }
 
     mutating func metric(_ name: String, _ value: Double, _ unit: String) {
@@ -96,6 +109,7 @@ struct HarnessReport: Codable {
     var totalChecks: Int { scenarios.reduce(0) { $0 + $1.checks.count } }
     var totalFailures: Int { scenarios.reduce(0) { $0 + $1.failureCount } }
     var totalKnownIssues: Int { scenarios.reduce(0) { $0 + $1.knownIssueCount } }
+    var totalSkips: Int { scenarios.reduce(0) { $0 + $1.skipCount } }
     var passed: Bool { totalFailures == 0 }
 }
 
@@ -124,6 +138,11 @@ enum DebugHarness: Loggable {
     nonisolated static let logTag = "[DebugHarness]"
 
     static var isRequested: Bool { DebugSandbox.harnessName != nil }
+
+    /// True for the `full` suite. Scenarios whose verdict does not depend on size (a
+    /// randomized walk, a large seeded library) run a smaller instance in `all`, the
+    /// regression gate, and the full-size one only here — same checks, a fraction of the time.
+    static var isThorough: Bool { DebugSandbox.harnessName == "full" }
 
     // MARK: - Known Pre-Existing Issues
 
@@ -215,6 +234,12 @@ enum DebugHarness: Loggable {
         case "backup":      return backupScenarios
         case "pdf":         return pdfScenarios
         case "dataviz":     return dataVizScenarios + dataVizPerfScenarios
+        // Not in `all`: real-main-window regressions for gallery navigation, scroll memory and
+        // the Film Queue (about five minutes). Run after a change to the gallery, the Queue or
+        // view switching. Each seeds the state it asserts about, so they run in any order.
+        case "ui":          return ["first-selection", "gallery-integrity", "coast-stop", "sidebar-tab-switch",
+                                    "gallery-edit-refresh", "gallery-reload-economy",
+                                    "queue-mixed-style", "upnext-slots", "scroll-memory"]
         // Not in `all`: they drive the real main window, and `imports-removal` films it for
         // a few minutes.
         case "imports":     return ["imports-window", "imports-removal"]
@@ -297,6 +322,11 @@ enum DebugHarness: Loggable {
             value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
             return value
         }
+        if let releasesFilterResult = await runReleasesFilterScenario(scenario, coordinator: coordinator) {
+            var value = releasesFilterResult
+            value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
+            return value
+        }
         switch scenario {
         case "launch-timeline":   result = await launchTimelineScenario(coordinator: coordinator)
         case "sandbox-integrity": result = sandboxIntegrityScenario()
@@ -305,7 +335,7 @@ enum DebugHarness: Loggable {
         case "sort-invariants":   result = await sortInvariantsScenario()
         case "sort-viewcount":    result = await viewCountScenario()
         case "sort-purchase-format": result = await purchaseFormatSortScenario(coordinator: coordinator)
-        case "date-semantics":    result = await dateSemanticsScenario()
+        case "date-semantics":    result = await dateSemanticsScenario(coordinator: coordinator)
         case "guide-sync":        result = documentationDriftScenario()
         case "sort-perf":         result = await sortPerformanceScenario()
         case "ratings-parse":     result = await ratingsParseScenario()
@@ -764,7 +794,10 @@ enum DebugHarness: Loggable {
             r.check("strip-articles:\(input)", got == expected, "got \"\(got)\", expected \"\(expected)\"")
         }
 
-        r.check("schema-version-is-6", FilmMetadataCacheFile.currentSchemaVersion == 6,
+        // A floor, not a pin: every bump would otherwise fail this until the test was edited,
+        // and `stale-version-detectable` already proves the guard. What matters here is that
+        // the version never falls back below the per-format fields tested next.
+        r.check("schema-version-at-least-6", FilmMetadataCacheFile.currentSchemaVersion >= 6,
                 "current = \(FilmMetadataCacheFile.currentSchemaVersion)")
 
         // Version 6's per-format purchase fields: a version-5 entry lacks both keys, so it
@@ -1086,7 +1119,7 @@ enum DebugHarness: Loggable {
     /// not sufficient: a rule that placed them at the right end while mangling the dated
     /// films among themselves would satisfy it. These assertions name every film and every
     /// position, so nothing about the ordering is left implied.
-    private static func dateSemanticsScenario() async -> HarnessScenarioResult {
+    private static func dateSemanticsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "date-semantics")
 
         // --- parseDate fast path ≡ the formatter chain ------------------------------
@@ -1198,6 +1231,131 @@ enum DebugHarness: Loggable {
             let fast = micros { for t in samples { _ = parseDate(from: t) } }
             r.metric("parseDate-formatters-per-call", (slow * 100).rounded() / 100, "µs")
             r.metric("parseDate-fast-path-per-call", (fast * 100).rounded() / 100, "µs")
+        }
+
+        // --- canonicalStoredTimestamp ≡ the formatter chain ------------------------
+        // The `dateAdded` / `lastModified` shape, "2026-01-24T10:30:00.000Z". The formatter
+        // that used to read it is fifth in `parseDateWithFormatters`, so that chain is the
+        // reference, compared by exact Date equality (bit for bit).
+        var stampAgreements = 0, stampFast = 0, stampDisagreements: [String] = []
+        func compareStamp(_ text: String) {
+            let expected = parseDateWithFormatters(datePortion: text, dateString: text)
+            let actual = parseDate(from: text)
+            if canonicalStoredTimestamp(text[...]) != nil { stampFast += 1 }
+            if expected == actual { stampAgreements += 1 } else if stampDisagreements.count < 5 {
+                stampDisagreements.append("\(text): formatters \(String(describing: expected?.timeIntervalSince1970)) parseDate \(String(describing: actual?.timeIntervalSince1970))")
+            }
+        }
+        func stamp(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int, _ s: Int, _ ms: Int) -> String {
+            "\(Fmt.padded(y, 4))-\(Fmt.padded(mo, 2))-\(Fmt.padded(d, 2))T\(Fmt.padded(h, 2)):\(Fmt.padded(mi, 2)):\(Fmt.padded(s, 2)).\(Fmt.padded(ms, 3))Z"
+        }
+        // First and last day of every month 1900…2100 (leap days included), at the
+        // edges of the day and in the middle.
+        for year in 1900...2100 {
+            for month in 1...12 {
+                for day in [1, gregorianDaysInMonth(month, year: year)] {
+                    for (h, mi, s, ms) in [(0, 0, 0, 0), (0, 0, 0, 1), (12, 34, 56, 789), (23, 59, 59, 999)] {
+                        compareStamp(stamp(year, month, day, h, mi, s, ms))
+                    }
+                }
+            }
+        }
+        // Every millisecond ending, before and after the epoch and today, where the
+        // division by 1,000 is most likely to round differently.
+        for (y, mo, d, h, mi, s) in [(1969, 12, 31, 23, 59, 59), (1970, 1, 1, 0, 0, 0), (1901, 3, 7, 4, 5, 6), (2026, 10, 27, 12, 34, 56), (2099, 12, 31, 23, 59, 59)] {
+            for ms in 0...999 { compareStamp(stamp(y, mo, d, h, mi, s, ms)) }
+        }
+        // 20,000 instants spread over 1900…2100, spelled by the writer itself
+        // (StorageDateFormatters.timestamp). Seeded, so a failure repeats.
+        var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func nextRandom() -> UInt64 {
+            seed &+= 0x9E37_79B9_7F4A_7C15
+            var z = seed
+            z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+            z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+            return z ^ (z >> 31)
+        }
+        var roundTripFailures: [String] = [], writerTruncations = 0
+        for _ in 0..<20_000 {
+            let span = 4_102_444_800_000 + 2_208_988_800_000   // 1900-01-01 … 2100-01-01, in ms
+            let ms = Int64(nextRandom() % UInt64(span)) - 2_208_988_800_000
+            let instant = Date(timeIntervalSince1970: Double(ms) / 1_000)
+            let text = instant.formatted(StorageDateFormatters.timestamp)
+            compareStamp(text)
+            // And the value read back is the instant written, to within the millisecond
+            // the writer truncates away. Not exact text equality: the nearest Double to
+            // ".678" can lie just below it, and the writer truncates that to ".677" — as
+            // it did against the formatters (≈16% of instants), so not the fast path's doing.
+            if let back = canonicalStoredTimestamp(text[...]) {
+                let gap = instant.timeIntervalSince1970 - back.timeIntervalSince1970
+                if back.formatted(StorageDateFormatters.timestamp) != text { writerTruncations += 1 }
+                if !(gap > -1e-6 && gap < 0.001 + 1e-6), roundTripFailures.count < 5 {
+                    roundTripFailures.append("\(text): wrote \(instant.timeIntervalSince1970), read \(back.timeIntervalSince1970)")
+                }
+            } else if roundTripFailures.count < 5 {
+                roundTripFailures.append("\(text) declined")
+            }
+        }
+        r.check("parseDate-timestamp-fast-path-generated", stampDisagreements.isEmpty && stampFast == stampAgreements,
+                "\(stampAgreements) agreements, \(stampFast) via the fast path; first disagreements: \(stampDisagreements)")
+        r.check("parseDate-timestamp-round-trip", roundTripFailures.isEmpty,
+                "\(roundTripFailures); \(writerTruncations) of 20,000 re-spell 1 ms earlier (the writer's truncation)")
+
+        // Near misses: each must be declined by the fast path (so the formatters decide
+        // it exactly as before) or, where accepted, answered identically.
+        let stampSpellings = ["2026-01-24T10:30:00.00Z", "2026-01-24T10:30:00.0000Z", "2026-01-24T10:30:00Z",
+                              "2026-01-24T24:00:00.000Z", "2026-01-24T23:60:00.000Z", "2016-12-31T23:59:60.000Z",
+                              "2026-02-29T10:30:00.000Z", "2024-02-29T10:30:00.000Z", "2026-02-30T10:30:00.000Z",
+                              "2026-13-01T10:30:00.000Z", "2026-00-01T10:30:00.000Z", "2026-01-00T10:30:00.000Z",
+                              "2026-01-24t10:30:00.000Z", "2026-01-24T10:30:00.000z", "2026-01-24 10:30:00.000Z",
+                              "2026-01-24T10:30:00,000Z", "2026-01-24T10.30.00.000Z", "0999-01-24T10:30:00.000Z",
+                              "2026-01-24T10:30:00.000+0000", "2026-01-24T10:30:00.000+00:00", "２026-01-24T10:30:00.000Z",
+                              "2026-1-24T10:30:00.000Z", "2026-01-24T1:30:00.000Z", "2026-01-24T10:30:00.-00Z",
+                              " 2026-01-24T10:30:00.000Z", "2026-01-24T10:30:00.000Z ", "2026.01.24T10:30:00.000Z"]
+        var stampSpellingDisagreements: [String] = []
+        var acceptedSpellings: [String] = []
+        for text in stampSpellings {
+            let portion = extractDatePortion(from: text) ?? text
+            if canonicalStoredTimestamp(portion[...]) != nil { acceptedSpellings.append(text) }
+            if parseDateWithFormatters(datePortion: portion, dateString: text) != parseDate(from: text) {
+                stampSpellingDisagreements.append(text)
+            }
+        }
+        r.check("parseDate-timestamp-odd-spellings", stampSpellingDisagreements.isEmpty
+                    && acceptedSpellings == ["2024-02-29T10:30:00.000Z"],
+                "disagreements \(stampSpellingDisagreements); accepted by the fast path \(acceptedSpellings)")
+
+        // Every date string the sandbox library actually stores in the two timestamp
+        // fields, through both paths.
+        var libraryStrings = 0, libraryFast = 0, libraryDisagreements: [String] = []
+        for film in coordinator.memoryStoreForTesting.getAllFilms() {
+            for text in [film.dateAdded, film.lastModified] where !text.isEmpty {
+                libraryStrings += 1
+                let portion = extractDatePortion(from: text) ?? text
+                if canonicalStoredTimestamp(portion[...]) != nil { libraryFast += 1 }
+                if parseDateWithFormatters(datePortion: portion, dateString: text) != parseDate(from: text),
+                   libraryDisagreements.count < 5 {
+                    libraryDisagreements.append(text)
+                }
+            }
+        }
+        r.check("parseDate-timestamp-library", libraryDisagreements.isEmpty,
+                "\(libraryStrings) stored strings, \(libraryFast) via the timestamp fast path; disagreements \(libraryDisagreements)")
+        r.metric("library-timestamp-strings", Double(libraryFast), "strings")
+
+        // What the timestamp fast path buys, per call.
+        do {
+            let samples = (0..<2000).map { stamp(1990 + $0 % 37, 1 + $0 % 12, 1 + $0 % 28, $0 % 24, $0 % 60, ($0 * 7) % 60, ($0 * 37) % 1000) }
+            func micros(_ body: () -> Void) -> Double {
+                body()
+                let start = ContinuousClock.now
+                body()
+                return milliseconds(ContinuousClock.now - start) * 1000 / Double(samples.count)
+            }
+            let slow = micros { for t in samples { _ = parseDateWithFormatters(datePortion: t, dateString: t) } }
+            let fast = micros { for t in samples { _ = parseDate(from: t) } }
+            r.metric("parseDate-timestamp-formatters-per-call", (slow * 100).rounded() / 100, "µs")
+            r.metric("parseDate-timestamp-fast-path-per-call", (fast * 100).rounded() / 100, "µs")
         }
 
         // --- Last Viewed -----------------------------------------------------------
@@ -1841,6 +1999,11 @@ enum DebugHarness: Loggable {
             }
         }
         for scenario in report.scenarios {
+            for check in scenario.checks where check.skipped != nil {
+                printToStandardError("[DebugHarness] SKIP \(scenario.scenario)/\(check.name): \(check.detail)\n")
+            }
+        }
+        for scenario in report.scenarios {
             for check in scenario.checks where !check.passed && check.knownIssue != nil {
                 printToStandardError("[DebugHarness] KNOWN \(scenario.scenario)/\(check.name): \(check.detail)\n")
             }
@@ -1851,73 +2014,17 @@ enum DebugHarness: Loggable {
         print("===HARNESS-REPORT-END===")
         // Stated in three separate numbers rather than one ratio: "325/325 passed" would
         // be actively misleading while 29 documented defects are failing underneath it.
-        let cleanPasses = report.totalChecks - report.totalFailures - report.totalKnownIssues
+        let cleanPasses = report.totalChecks - report.totalFailures - report.totalKnownIssues - report.totalSkips
         print("[DebugHarness] \(cleanPasses) passed, \(report.totalFailures) failed, "
-            + "\(report.totalKnownIssues) known pre-existing issues — across \(report.scenarios.count) scenarios "
+            + "\(report.totalKnownIssues) known pre-existing issues, \(report.totalSkips) skipped — across \(report.scenarios.count) scenarios "
             + "(\(report.passed ? "PASS" : "FAIL"))")
         unsafe fflush(stdout)
         unsafe fflush(stderr)
     }
 }
 
-// MARK: - Launch Timeline
-
-// Marks along the launch path, each stamped in milliseconds since the kernel started the
-// process, so the stretch before `initializeApp()` (dyld, the App struct's init and its
-// ModelContainer, the first window) can be taken apart instead of read as one `preInit`
-// number. Every DEBUG launch logs the timeline once its first gallery frame is committed;
-// `launch-timeline` reports it as metrics.
-@MainActor
-enum LaunchTimeline: Loggable {
-    nonisolated static let logTag = "[LaunchTimeline]"
-
-    private(set) static var marks: [(name: String, ms: Double)] = []
-    private static var didLog = false
-
-    private nonisolated static func wallMilliseconds() -> Double {
-        var ts = timespec()
-        unsafe clock_gettime(CLOCK_REALTIME, &ts)
-        return Double(ts.tv_sec) * 1000 + Double(ts.tv_nsec) / 1_000_000
-    }
-
-    /// The kernel's start time for this process, from `sysctl(KERN_PROC_PID)`.
-    private static let processStartWallMilliseconds: Double = {
-        var info = unsafe kinfo_proc()
-        var size = unsafe MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard unsafe sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return wallMilliseconds() }
-        let tv = unsafe info.kp_proc.p_starttime
-        return Double(tv.tv_sec) * 1000 + Double(tv.tv_usec) / 1000
-    }()
-
-    /// Records `name` once; later calls with the same name are ignored.
-    static func mark(_ name: String) {
-        guard !marks.contains(where: { $0.name == name }) else { return }
-        marks.append((name, wallMilliseconds() - processStartWallMilliseconds))
-    }
-
-    static func milliseconds(for name: String) -> Double? {
-        marks.first(where: { $0.name == name })?.ms
-    }
-
-    static var summary: String {
-        marks.map { unsafe String(format: "%@ %.1f", $0.name, $0.ms) }.joined(separator: " | ")
-    }
-
-    /// Called with the launch view's first gallery data, before its first reloadData:
-    /// marks the commit one run-loop turn later and logs the whole timeline.
-    static func markFirstGalleryFrame() {
-        mark("galleryFirstData")
-        DispatchQueue.main.async {
-            MainActor.assumeIsolated {
-                mark("galleryFirstCommit")
-                guard !didLog else { return }
-                didLog = true
-                log("LAUNCH TIMELINE (ms since process start) — \(summary)")
-            }
-        }
-    }
-}
+// The LaunchTimeline type lives in 10.00 FilmTrackerApp.swift, compiled in every
+// configuration so Release launches can be measured the same way.
 
 extension DebugHarness {
     /// `launch-timeline` (opt-in, a measurement): waits for the first gallery frame, then

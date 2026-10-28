@@ -5,6 +5,7 @@
 
 import SwiftUI
 import AppKit
+import Combine
 
 struct LeftSidebar: View, Loggable {
     nonisolated static let logTag = "[LeftSidebar]"
@@ -30,7 +31,6 @@ struct LeftSidebar: View, Loggable {
             
             ListsSection(
                 lists: dataCoordinator.cachedLists,
-                selectedSidebarItem: appState.selectedSidebarItem,
                 dataCoordinator: dataCoordinator,
                 onAction: performListAction,
                 onMove: moveItems
@@ -38,19 +38,19 @@ struct LeftSidebar: View, Loggable {
         }
         .listStyle(.sidebar)
         .frame(minWidth: 180)
-        // Animate sidebar list insertions, deletions, and reorders.
-        // Keying on cachedLists ensures the animation fires exactly when the data changes —
-        // which is now synchronous in DataCoordinator — rather than relying on AppEventBus events.
-        .animation(.default, value: dataCoordinator.cachedLists)
-        // Sync AppState -> LocalSelection (programmatic changes flow DOWN)
-        .onChange(of: displayedSelection) { _, newValue in
-            if localSelection != newValue {
-                localSelection = newValue
-            }
-        }
-        // Sync LocalSelection -> AppState (user clicks flow UP)
-        .onChange(of: localSelection) { oldValue, newValue in
-            if displayedSelection != newValue {
+        // Animate sidebar list insertions, deletions, renames, and reorders.
+        // Keyed on what the rows display, not on cachedLists itself: cachedLists also
+        // carries each list's film count, which no row shows, so keying on it ran an
+        // animated transaction over the whole sidebar on every film added to or removed
+        // from any list.
+        .animation(.default, value: dataCoordinator.cachedLists.map(ListRowKey.init))
+        // Both selection syncs read the selection inside a modifier of their own. An
+        // onChange reads its value while this body is evaluated, so applied here they
+        // made every navigation — and every click — re-evaluate this body and, through
+        // ListsSection's closures, every ListRow with it. See SidebarSelectionSync.
+        .modifier(SidebarSelectionSync(
+            localSelection: $localSelection,
+            onUserSelection: { oldValue, newValue in
                 Self.log("User selection: \(String(describing: oldValue)) → \(String(describing: newValue))")
                 if case .smartList(let type) = newValue {
                     selectSmartList(type)
@@ -58,8 +58,7 @@ struct LeftSidebar: View, Loggable {
                     appState.navigate(to: newValue)
                 }
                 handleSelectionChange(newValue: newValue)
-            }
-        }
+            }))
         .onChange(of: smartListsEnabled) { _, isEnabled in
             // If smart lists are disabled and we're viewing one, switch to All Films
             if !isEnabled, case .smartList = appState.selectedSidebarItem {
@@ -67,8 +66,7 @@ struct LeftSidebar: View, Loggable {
             }
         }
         .onAppear {
-            // Initialize local selection to match app state
-            localSelection = displayedSelection
+            ListRowActivityStore.shared.attach(appState)
         }
         // No initialization task is needed here: cachedLists is populated synchronously
         // inside finalizeInitialization() alongside films, so the rows appear in the same
@@ -78,20 +76,6 @@ struct LeftSidebar: View, Loggable {
     }
 
     // MARK: - Smart List Rows
-
-    /// The row the sidebar highlights. AppState only ever holds a smart list family's
-    /// PARENT (`.smartList(.purchased)` while "Purchased 4K" is on screen — every
-    /// navigation path relies on that), so the variant actually displayed is read from
-    /// the family's SmartListVariantState and the variant's own row is selected. Inside a
-    /// collapsed family that row is hidden, so nothing is highlighted, the same as while
-    /// Search (which has no row) is showing; expanding the family reveals it already
-    /// selected.
-    private var displayedSelection: SidebarItem {
-        if case .smartList(let parent) = appState.selectedSidebarItem {
-            return .smartList(SmartListVariantState.shared(for: parent).selected)
-        }
-        return appState.selectedSidebarItem
-    }
 
     /// A click on a smart list row: a family's parent or one of its variants.
     ///
@@ -224,6 +208,63 @@ struct LeftSidebar: View, Loggable {
             ListManager.reorderLists(from: source, to: destination,
                 coordinator: dataCoordinator)
         }
+    }
+}
+
+// MARK: - Sidebar Selection Sync
+// Keeps the List's local selection and AppState in step, in both directions. A modifier of
+// its own so that the selection it reads invalidates only this, not LeftSidebar's body.
+private struct SidebarSelectionSync: ViewModifier {
+    @Environment(AppState.self) private var appState
+    @Binding var localSelection: SidebarItem
+    /// A user click: the selection moved away from what AppState displays.
+    let onUserSelection: (SidebarItem, SidebarItem) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            // Sync AppState -> LocalSelection (programmatic changes flow DOWN)
+            .onChange(of: displayedSelection) { _, newValue in
+                if localSelection != newValue {
+                    localSelection = newValue
+                }
+            }
+            // Sync LocalSelection -> AppState (user clicks flow UP)
+            .onChange(of: localSelection) { oldValue, newValue in
+                if displayedSelection != newValue {
+                    onUserSelection(oldValue, newValue)
+                }
+            }
+            .onAppear {
+                // Initialize local selection to match app state
+                localSelection = displayedSelection
+            }
+    }
+
+    /// The row the sidebar highlights. AppState only ever holds a smart list family's
+    /// PARENT (`.smartList(.purchased)` while "Purchased 4K" is on screen — every
+    /// navigation path relies on that), so the variant actually displayed is read from
+    /// the family's SmartListVariantState and the variant's own row is selected. Inside a
+    /// collapsed family that row is hidden, so nothing is highlighted, the same as while
+    /// Search (which has no row) is showing; expanding the family reveals it already
+    /// selected.
+    private var displayedSelection: SidebarItem {
+        if case .smartList(let parent) = appState.selectedSidebarItem {
+            return .smartList(SmartListVariantState.shared(for: parent).selected)
+        }
+        return appState.selectedSidebarItem
+    }
+}
+
+// MARK: - List Row Animation Key
+// What a sidebar list row displays, and so what its insertion, removal, rename, or
+// reorder animates on. See LeftSidebar's .animation.
+private struct ListRowKey: Equatable {
+    let listID: UUID
+    let listName: String
+
+    init(_ info: ListInfo) {
+        listID = info.listID
+        listName = info.listName
     }
 }
 
@@ -422,7 +463,7 @@ private struct LibrarySection: View {
 
                     // Only show the completion glyph when the user is NOT currently
                     // viewing the Film Queue — if they are, the change is self-evident.
-                    // Mirrors ListRow's identical isSelected guard.
+                    // Mirrors ListRowActivityStore's identical guard.
                     guard appState.selectedSidebarItem != .libraryItem(.filmQueue) else { return }
 
                     MomentaryGlyph.show($showQueueCompletionGlyph, task: $queueCompletionTask)
@@ -489,7 +530,6 @@ private struct SmartListsSection: View {
 private struct ListsSection: View {
     
     let lists: [ListInfo]
-    let selectedSidebarItem: SidebarItem
     let dataCoordinator: DataCoordinator
     let onAction: (ListRowAction, UUID) -> Void
     let onMove: (IndexSet, Int) -> Void
@@ -499,7 +539,6 @@ private struct ListsSection: View {
             ForEach(lists) { listInfo in
                 ListRow(
                     listInfo: listInfo,
-                    isSelected: selectedSidebarItem == .list(listInfo.listID),
                     dataCoordinator: dataCoordinator,
                     onAction: { onAction($0, listInfo.listID) }
                 )
@@ -513,15 +552,12 @@ private struct ListsSection: View {
 private struct ListRow: View {
     
     let listInfo: ListInfo
-    let isSelected: Bool
     let dataCoordinator: DataCoordinator
     let onAction: (ListRowAction) -> Void
 
-    @State private var isOperationInProgress = false
-    @State private var showProgressIndicator = false
-    @State private var showCompletionGlyph = false
-    @State private var progressDelayTask: Task<Void, Never>?
-    @State private var completionTask: Task<Void, Never>?
+    /// This row's spinner and completion glyph, driven by ListRowActivityStore's single
+    /// listEvents subscription rather than one per row.
+    private var activity: ListRowActivity { ListRowActivityStore.shared.activity(for: listInfo.listID) }
 
     // Hover / ellipsis button state
     @State private var isHovered = false
@@ -539,7 +575,7 @@ private struct ListRow: View {
     /// Both occupy the same fixed slot, so switching between them shifts nothing either.
     @ViewBuilder
     private var trailingAccessory: some View {
-        if showProgressIndicator {
+        if activity.showProgressIndicator {
             ProgressView()
                 .controlSize(.small)
                 .scaleEffect(0.7)
@@ -586,7 +622,7 @@ private struct ListRow: View {
     /// True while the trailing slot is occupied. The title's trailing inset follows this, so
     /// the title runs the full row width until an accessory appears and truncates further
     /// only for as long as one is showing.
-    private var isAccessoryShowing: Bool { showProgressIndicator || isHovered }
+    private var isAccessoryShowing: Bool { activity.showProgressIndicator || isHovered }
 
     var body: some View {
         Label {
@@ -615,7 +651,7 @@ private struct ListRow: View {
                 .animation(nil, value: isAccessoryShowing)
                 .overlay(alignment: .trailing) { trailingAccessory }
         } icon: {
-            Image(systemName: showCompletionGlyph ? ViewGlyphs.rowCompletion.outline : ViewGlyphs.userList.outline)
+            Image(systemName: activity.showCompletionGlyph ? ViewGlyphs.rowCompletion.outline : ViewGlyphs.userList.outline)
                 .contentTransition(.symbolEffect(.replace))
         }
         .tag(SidebarItem.list(listInfo.listID))
@@ -644,52 +680,6 @@ private struct ListRow: View {
             isDropTargeted: $isDropTargeted,
             isHovered: $isHovered
         ))
-        .onReceive(AppEventBus.shared.listEvents) { event in
-            switch event {
-            case .operationStarted(let listID):
-                guard listID == listInfo.listID else { return }
-                
-                isOperationInProgress = true
-
-                progressDelayTask?.cancel()
-                progressDelayTask = Task {
-                    try? await Task.sleep(for: .seconds(1.5))
-                    guard !Task.isCancelled else { return }
-
-                    if isOperationInProgress {
-                        withAnimation(.easeIn(duration: 0.2)) {
-                            showProgressIndicator = true
-                        }
-                    }
-                }
-                
-            case .operationCompleted(let listID):
-                guard listID == listInfo.listID else { return }
-
-                isOperationInProgress = false
-
-                progressDelayTask?.cancel()
-
-                if showProgressIndicator {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        showProgressIndicator = false
-                    }
-                }
-
-                // Only show the completion glyph when the user is NOT currently
-                // viewing this list — if they are, the change is self-evident.
-                guard !isSelected else { return }
-
-                MomentaryGlyph.show($showCompletionGlyph, task: $completionTask)
-                
-            default:
-                break
-            }
-        }
-        .onDisappear {
-            progressDelayTask?.cancel()
-            completionTask?.cancel()
-        }
     }
 
     // MARK: - Context Menu Items
@@ -719,6 +709,109 @@ private struct ListRow: View {
 
         Button("Remove List") {
             onAction(.delete)
+        }
+    }
+}
+
+// MARK: - List Row Activity
+// A list row's transient feedback: the spinner shown once an operation on it has run for a
+// moment, and the momentary completion glyph. One per list, kept by ListRowActivityStore,
+// so a row reads (and is invalidated by) only its own.
+@MainActor
+@Observable
+private final class ListRowActivity {
+    var showProgressIndicator = false
+    var showCompletionGlyph = false
+
+    @ObservationIgnored fileprivate var isOperationInProgress = false
+    @ObservationIgnored fileprivate var progressDelayTask: Task<Void, Never>?
+    @ObservationIgnored fileprivate var completionTask: Task<Void, Never>?
+
+    func operationStarted() {
+        isOperationInProgress = true
+
+        progressDelayTask?.cancel()
+        progressDelayTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1.5))
+            guard let self, !Task.isCancelled, self.isOperationInProgress else { return }
+            withAnimation(.easeIn(duration: 0.2)) {
+                self.showProgressIndicator = true
+            }
+        }
+    }
+
+    func operationCompleted(showGlyph: Bool) {
+        isOperationInProgress = false
+        progressDelayTask?.cancel()
+
+        if showProgressIndicator {
+            withAnimation(.easeOut(duration: 0.2)) {
+                showProgressIndicator = false
+            }
+        }
+
+        guard showGlyph else { return }
+        // Same discipline as MomentaryGlyph: a second completion restarts the interval.
+        completionTask?.cancel()
+        showCompletionGlyph = true
+        completionTask = Task { [weak self] in
+            try? await Task.sleep(for: MomentaryGlyph.duration)
+            guard let self, !Task.isCancelled else { return }
+            self.showCompletionGlyph = false
+        }
+    }
+
+    func cancel() {
+        progressDelayTask?.cancel()
+        completionTask?.cancel()
+    }
+}
+
+// Routes listEvents to the one row each event names. Every ListRow used to subscribe
+// itself, so each event woke every row to compare list IDs. Activity outlives a row's
+// cell — a row scrolled away and back, or rebuilt by a list reorder, keeps its spinner —
+// and is dropped when its list is deleted.
+@MainActor
+private final class ListRowActivityStore {
+    static let shared = ListRowActivityStore()
+
+    private var activities: [UUID: ListRowActivity] = [:]
+    private weak var appState: AppState?
+    private var cancellable: AnyCancellable?
+
+    private init() {
+        // AppEventBus is @MainActor, so every send — and therefore this sink — runs on the
+        // main actor, synchronously, as the per-row onReceive did.
+        cancellable = AppEventBus.shared.listEvents.sink { [weak self] event in
+            MainActor.assumeIsolated { self?.handle(event) }
+        }
+    }
+
+    /// Supplies the AppState the completion glyph's "not viewing this list" check reads.
+    func attach(_ appState: AppState) {
+        self.appState = appState
+    }
+
+    func activity(for listID: UUID) -> ListRowActivity {
+        if let existing = activities[listID] { return existing }
+        let created = ListRowActivity()
+        activities[listID] = created
+        return created
+    }
+
+    private func handle(_ event: ListEvent) {
+        switch event {
+        case .operationStarted(let listID):
+            activity(for: listID).operationStarted()
+        case .operationCompleted(let listID):
+            // Only show the completion glyph when the user is NOT currently viewing this
+            // list — if they are, the change is self-evident.
+            let isViewing = appState?.selectedSidebarItem == .list(listID)
+            activity(for: listID).operationCompleted(showGlyph: !isViewing)
+        case .deleted(let listID):
+            activities.removeValue(forKey: listID)?.cancel()
+        default:
+            break
         }
     }
 }
@@ -1049,8 +1142,10 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             if listID == FilmQueueSection.upNext.listID,
                FilmQueue.upNextOverflow(adding: filmIDs, coordinator: coordinator) > 0 {
                 log("Drop of \(filmIDs.count) film(s) on '\(listName)' would overflow it — offering 'Soon'")
+                // Only the films not already in "Up Next": the rest are where the user
+                // dropped them, and adding them to "Soon" would move them out of it.
                 AppEventBus.shared.sendAlert(.offerSoonForFullUpNextDrop(
-                    filmIDs: filmIDs,
+                    filmIDs: filmIDs.subtracting(FilmQueue.upNextFilmIDs(coordinator: coordinator)),
                     message: FilmQueue.upNextFullDropMessage(filmIDs, coordinator: coordinator)))
                 return true
             }

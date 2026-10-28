@@ -479,6 +479,7 @@ extension DebugHarness {
          ("largeGalleryGrid", \.largeGalleryGrid),
          ("showStatusBar", \.showStatusBar),
          ("rememberRightSidebarTab", \.rememberRightSidebarTab),
+         ("rememberRightSidebarReleasesFilter", \.rememberRightSidebarReleasesFilter),
          ("autoExpandRightSidebarTables", \.autoExpandRightSidebarTables),
          ("additionalCalTableDetails", \.additionalCalTableDetails),
          ("showReleasesSummaryTable", \.showReleasesSummaryTable),
@@ -487,6 +488,8 @@ extension DebugHarness {
          ("smartLists", \.smartLists),
          ("excludeQueuedFromUpForRotation", \.excludeQueuedFromUpForRotation),
          ("maintainSelectionOnSearchExit", \.maintainSelectionOnSearchExit),
+         ("showSearchSuggestions", \.showSearchSuggestions),
+         ("showRecentSearches", \.showRecentSearches),
          ("showInfoComplete", \.showInfoComplete),
          ("performBackupAtLaunch", \.performBackupAtLaunch),
          ("importScanSubfolders", \.importScanSubfolders),
@@ -2823,7 +2826,9 @@ extension DebugHarness {
     private static func backupBackgroundScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "backup-background")
 
-        let filmCount = 3000
+        // The content and restore checks hold at any size; the latency metrics only mean
+        // something at the real library's scale, which `full` keeps.
+        let filmCount = isThorough ? 3000 : 400
         let container: ModelContainer
         let seededDigest: String
         do {

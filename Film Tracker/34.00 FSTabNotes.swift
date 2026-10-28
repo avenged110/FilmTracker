@@ -323,6 +323,7 @@ struct FSTabNotesView: View {
     // inline as well; both are gone with the shortcuts that targeted them.
 
     var body: some View {
+        let _ = FilmSheetBodyProbe.hit("notes")
         // Local shadows of the static layout constants — gives every downstream
         // call site in this property unqualified access without explicit Self.
         // qualification, at zero runtime cost (no allocation, no capture).
@@ -381,18 +382,26 @@ struct FSTabNotesView: View {
         // sweep was doing zero useful negotiation work — confirming values it was
         // already given on every sheet open. VStack/HStack produces pixel-identical
         // output with one fewer layout container per row (~13 rows) and no column pass.
+        //
+        // Every row that binds a field is built inside `ObservationBoundary` (30_20) or
+        // reaches its field by key path (`FilmSheetListRow`, `NotesLegendSection`): a
+        // `$viewModel.field` binding created in this body subscribes it to `field`, so a
+        // Release keystroke, a Description keystroke or a new frames entry re-ran the whole
+        // tab — measured by the `filmsheet-perf` harness scenario.
         VStack(alignment: .leading, spacing: rowSpacing) {
             // Release — single-line text field
-            HStack(alignment: .center, spacing: colSpacing) {
-                // `label`, not a top-aligned variant. This row pairs with a plain
-                // single-line TextField in a center-aligned stack, so the 2pt top
-                // padding the top-aligned label carries — which exists to line a
-                // label up with the first line of multi-line content — grew the
-                // label's box and pushed its glyphs below the field's centerline.
-                // Every other single-line field row on this sheet uses `label`.
-                label("Release:")
-                TextField("Release Used", text: $viewModel.releaseUsed)
-                    .textFieldStyle(.roundedBorder)
+            ObservationBoundary {
+                HStack(alignment: .center, spacing: colSpacing) {
+                    // `label`, not a top-aligned variant. This row pairs with a plain
+                    // single-line TextField in a center-aligned stack, so the 2pt top
+                    // padding the top-aligned label carries — which exists to line a
+                    // label up with the first line of multi-line content — grew the
+                    // label's box and pushed its glyphs below the field's centerline.
+                    // Every other single-line field row on this sheet uses `label`.
+                    label("Release:")
+                    TextField("Release Used", text: $viewModel.releaseUsed)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
             // Software Tools — top-aligned. Uses the reorderable list, as every
             // string-list row on this tab now does.
@@ -409,15 +418,19 @@ struct FSTabNotesView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing)
             // HandBrake RF Value
-            HStack(alignment: .center, spacing: colSpacing) {
-                label("HandBrake RF Value:")
-                HBRFValueStepper(value: $viewModel.editedHBRFValue)
+            ObservationBoundary {
+                HStack(alignment: .center, spacing: colSpacing) {
+                    label("HandBrake RF Value:")
+                    HBRFValueStepper(value: $viewModel.editedHBRFValue)
+                }
             }
             // Edit Date
-            HStack(alignment: .center, spacing: colSpacing) {
-                label("Edit Date:")
-                CustomDateStepper(date: $viewModel.editDate, hasValue: $viewModel.hasEditDate) {
-                    viewModel.hasEditDate = false
+            ObservationBoundary {
+                HStack(alignment: .center, spacing: colSpacing) {
+                    label("Edit Date:")
+                    CustomDateStepper(date: $viewModel.editDate, hasValue: $viewModel.hasEditDate) {
+                        viewModel.hasEditDate = false
+                    }
                 }
             }
             // Warnings — top-aligned. Built through the shared row for the same
@@ -442,18 +455,22 @@ struct FSTabNotesView: View {
                              columnSpacing: colSpacing,
                              editor: .popover)
             // Description — top-aligned; label offset matches FixedHeightScrollingTextView inset
-            HStack(alignment: .top, spacing: colSpacing) {
-                label("Description:")
-                    .padding(.top, FixedHeightScrollingTextView.labelTopOffset)
-                FixedHeightScrollingTextView(text: $viewModel.descriptionNotes, placeholder: "Description of Process Used")
-                    .frame(height: descriptionHeight)
+            ObservationBoundary {
+                HStack(alignment: .top, spacing: colSpacing) {
+                    label("Description:")
+                        .padding(.top, FixedHeightScrollingTextView.labelTopOffset)
+                    FixedHeightScrollingTextView(text: $viewModel.descriptionNotes, placeholder: "Description of Process Used")
+                        .frame(height: descriptionHeight)
+                }
             }
             // Audio Timing Notes — top-aligned; label offset matches FixedHeightScrollingTextView inset
-            HStack(alignment: .top, spacing: colSpacing) {
-                label("Audio Timing Notes:")
-                    .padding(.top, FixedHeightScrollingTextView.labelTopOffset)
-                FixedHeightScrollingTextView(text: notesOnAudioTimingText, placeholder: "Notes On Audio Timing")
-                    .frame(height: audioTimingHeight)
+            ObservationBoundary {
+                HStack(alignment: .top, spacing: colSpacing) {
+                    label("Audio Timing Notes:")
+                        .padding(.top, FixedHeightScrollingTextView.labelTopOffset)
+                    FixedHeightScrollingTextView(text: notesOnAudioTimingText, placeholder: "Notes On Audio Timing")
+                        .frame(height: audioTimingHeight)
+                }
             }
             // Special Audio Notes — top-aligned; label offset matches FixedHeightScrollingTextView inset.
             //
@@ -496,13 +513,15 @@ struct FSTabNotesView: View {
             // a frame, its time code, and ONE set of flags, and every write path
             // writes both arrays together. See the header of
             // 30_40_FSFramesList.swift.
-            HStack(alignment: .top, spacing: colSpacing) {
-                topListLabel("HandBrake Frames:")
-                ReorderableFramesList(
-                    frames: $viewModel.handbrakeFrames,
-                    timecodes: $viewModel.correspondingTimecodes,
-                    renderWave: 2
-                )
+            ObservationBoundary {
+                HStack(alignment: .top, spacing: colSpacing) {
+                    topListLabel("HandBrake Frames:")
+                    ReorderableFramesList(
+                        frames: $viewModel.handbrakeFrames,
+                        timecodes: $viewModel.correspondingTimecodes,
+                        renderWave: 2
+                    )
+                }
             }
             // Legend — conditional; shown only when an entry in one of the two
             // tables actually carries a glyph the legend explains. The condition
@@ -555,13 +574,16 @@ struct FSTabNotesView: View {
 ///
 /// **Why the condition lives here rather than in the tab's body**
 ///
-/// Same observation boundary as `FilmSheetListRow`. Evaluating the arrays in
-/// the tab's
-/// body was the only thing putting either array in the tab's observation set —
-/// `ReorderableFramesList` receives them as `Binding`s, and constructing a
-/// `Binding` from `@Bindable` does not read the value it projects. So adding one
-/// frame entry invalidated the entire tab. Moving the read into the one view
-/// whose appearance actually depends on it confines the invalidation to this row.
+/// Same observation boundary as `FilmSheetListRow`. Evaluating the arrays in the tab's
+/// body put both of them in the tab's observation set, so adding one frame entry
+/// invalidated the entire tab. Moving the read into the one view whose appearance actually
+/// depends on it confines the invalidation to this row.
+///
+/// This note used to add that `ReorderableFramesList` receiving the arrays as `Binding`s was
+/// harmless, because constructing a `Binding` from `@Bindable` does not read the value it
+/// projects. The `filmsheet-perf` harness scenario measured otherwise: with the bindings
+/// created in the tab's body, a new frames entry still re-ran that body. The frames row is
+/// now built inside an `ObservationBoundary` (30_20) as well.
 ///
 /// Read-only, so a plain stored reference rather than `@Bindable`: `@Observable`
 /// tracking applies to any property read inside a `View` body, and nothing here

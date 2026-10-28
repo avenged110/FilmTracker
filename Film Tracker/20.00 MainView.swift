@@ -67,23 +67,13 @@ struct MainView: View, Loggable {
                 Self.log("Search submitted")
                 searchController.processSearchSubmission()
             }
-            .onChange(of: appState.selectedSidebarItem) { oldItem, newItem in
-                // Defer handler work to next run loop to prevent "Publishing changes from
-                // within view updates" errors. selectionState.clearImmediate() is an
-                // @Observable mutation that must not fire synchronously inside the onChange
-                // callback while SwiftUI is mid-render.
-                //
-                // DispatchQueue.main.async is used rather than Task { @MainActor in }
-                // because onChange fires on the AppKit event thread at User-Interactive QoS.
-                // A bare Task defaults to .default QoS, producing the "Thread running at
-                // User-interactive quality-of-service class waiting on a lower QoS thread"
-                // runtime warning. DispatchQueue.main.async inherits the caller's QoS
-                // automatically, avoiding that inversion — consistent with SelectionState.select()
-                // and RecentsState.selectCategory().
-                DispatchQueue.main.async {
-                    handleViewChange(from: oldItem, to: newItem)
-                }
-            }
+            // Reads selectedSidebarItem inside a modifier of its own, for the same reason
+            // as SearchFieldModifier: an onChange reads its value while this body is
+            // evaluated, so applied here it made every navigation re-evaluate this whole
+            // body. The handler itself is unchanged; see SidebarChangeModifier.
+            .modifier(SidebarChangeModifier { oldItem, newItem in
+                handleViewChange(from: oldItem, to: newItem)
+            })
             .onChange(of: searchController.hasContent) { _, hasContent in
                 handleSearchContentChange(hasContent)
             }
@@ -92,21 +82,14 @@ struct MainView: View, Loggable {
                 // Setup global keyboard event manager.
                 keyboardManager.setup(appState: appState, selectionState: selectionState, dataCoordinator: dataCoordinator)
             }
-            .onReceive(AppEventBus.shared.uiCommands
-                .filter { if case .toggleLeftSidebar = $0 { return true
-                } else { return false } }) { _ in
-                toggleSidebarVisibility() }
-            .onReceive(AppEventBus.shared.uiCommands
-                .compactMap { command -> (field: SearchField, value: String)? in
-                    if case .activateTokenSearch(let field, let value) = command {
-                        return (field, value)
-                    }
-                    return nil
-                }) { payload in
-                handleActivateTokenSearch(field: payload.field, value: payload.value)
-            }
+            // One subscription for every UICommand this view handles. Each operator chain
+            // (.filter, .compactMap) built a new publisher on every body evaluation, which
+            // SwiftUI answered by resubscribing; the subject itself is a stable instance.
             .onReceive(AppEventBus.shared.uiCommands) { command in
                 switch command {
+                case .toggleLeftSidebar: toggleSidebarVisibility()
+                case .activateTokenSearch(let field, let value):
+                    handleActivateTokenSearch(field: field, value: value)
                 case .navigateToImportsMetadata: navigateToImports(.metadata)
                 case .navigateToImportsRatings: navigateToImports(.ratings)
                 default: break
@@ -159,39 +142,8 @@ struct MainView: View, Loggable {
                         .frame(width: 8)
                 }
             }
-            .navigationTitle(navigationTitleText)
+            .modifier(NavigationTitleModifier())
             .navigationSubtitle("")
-    }
-
-    // MARK: - Navigation Title Text
-    private var navigationTitleText: String {
-        switch appState.selectedSidebarItem {
-        case .libraryItem(.allFilms):
-            return "All Films"
-        case .libraryItem(.search):
-            return "Searching Library…"
-        case .libraryItem(.unwatched):
-            return "Unwatched"
-        case .libraryItem(.recents):
-            return "Recents"
-        case .libraryItem(.reports):
-            return "Reports"
-        case .libraryItem(.imports):
-            return "Imports"
-        case .libraryItem(.filmQueue):
-            return "Queue"
-        case .smartList(let type):
-            return type.rawValue
-        case .list(let uuid):
-            return listName(for: uuid)
-        }
-    }
-    
-    private func listName(for uuid: UUID) -> String {
-        if let list = dataCoordinator.getList(uuid) {
-            return list.listName
-        }
-        return "List"
     }
 
     // MARK: - Initialization
@@ -649,7 +601,9 @@ private struct MainContentSwitcher: View {
             if showsChrome {
                 Divider()
                 
-                RightSidebar()
+                Group {
+                    if RSBProfileFlags.noSidebar { Color.clear } else { RightSidebar() }
+                }
                     .frame(width: 300)
                     .background(Color(NSColor.controlBackgroundColor))
                     .layoutPriority(1)
@@ -743,9 +697,76 @@ private struct InlineSearchView: View {
     }
 }
 
+/// The window title for the sidebar item on screen. A modifier of its own so that the
+/// selectedSidebarItem and list name it reads invalidate only this, not MainView's body.
+///
+/// A list's name is read from cachedLists rather than DataCoordinator.getList(_:): the
+/// latter reads MemoryStore, which is not observed, so a renamed list kept its old title
+/// until something unrelated re-evaluated the view.
+private struct NavigationTitleModifier: ViewModifier {
+    @Environment(AppState.self) private var appState
+    @Environment(DataCoordinator.self) private var dataCoordinator
+
+    func body(content: Content) -> some View {
+        content.navigationTitle(titleText)
+    }
+
+    private var titleText: String {
+        switch appState.selectedSidebarItem {
+        case .libraryItem(.allFilms):
+            return "All Films"
+        case .libraryItem(.search):
+            return "Searching Library…"
+        case .libraryItem(.unwatched):
+            return "Unwatched"
+        case .libraryItem(.recents):
+            return "Recents"
+        case .libraryItem(.reports):
+            return "Reports"
+        case .libraryItem(.imports):
+            return "Imports"
+        case .libraryItem(.filmQueue):
+            return "Queue"
+        case .smartList(let type):
+            return type.rawValue
+        case .list(let uuid):
+            return dataCoordinator.cachedLists.first { $0.listID == uuid }?.listName ?? "List"
+        }
+    }
+}
+
+/// MainView's sidebar-item onChange. See its use site.
+private struct SidebarChangeModifier: ViewModifier {
+    @Environment(AppState.self) private var appState
+    let action: (SidebarItem, SidebarItem) -> Void
+
+    func body(content: Content) -> some View {
+        content.onChange(of: appState.selectedSidebarItem) { oldItem, newItem in
+            // Defer handler work to next run loop to prevent "Publishing changes from
+            // within view updates" errors. selectionState.clearImmediate() is an
+            // @Observable mutation that must not fire synchronously inside the onChange
+            // callback while SwiftUI is mid-render.
+            //
+            // DispatchQueue.main.async is used rather than Task { @MainActor in }
+            // because onChange fires on the AppKit event thread at User-Interactive QoS.
+            // A bare Task defaults to .default QoS, producing the "Thread running at
+            // User-interactive quality-of-service class waiting on a lower QoS thread"
+            // runtime warning. DispatchQueue.main.async inherits the caller's QoS
+            // automatically, avoiding that inversion — consistent with SelectionState.select()
+            // and RecentsState.selectCategory().
+            DispatchQueue.main.async {
+                action(oldItem, newItem)
+            }
+        }
+    }
+}
+
 /// MainView's toolbar search field, tokens, and "#field" suggestions. See its use site.
 private struct SearchFieldModifier: ViewModifier {
     let searchController: SearchController
+    @Environment(DataCoordinator.self) private var dataCoordinator
+    /// Whether the search field holds keyboard focus. See SearchFieldSuggestions.isFieldFocused.
+    @FocusState private var isFieldFocused: Bool
 
     func body(content: Content) -> some View {
         content
@@ -758,25 +779,81 @@ private struct SearchFieldModifier: ViewModifier {
                 Text(token.displayName)
             }
             .searchSuggestions {
-                SearchFieldSuggestions(searchController: searchController)
+                SearchFieldSuggestions(searchController: searchController, dataCoordinator: dataCoordinator,
+                                       isFieldFocused: isFieldFocused)
             }
+            .searchFocused($isFieldFocused)
+            .onAppear { searchController.suggestionSource = dataCoordinator }
     }
 }
 
-/// The search field's "#field" suggestions. A view of its own so that the search text it
-/// reads invalidates only this. See SearchFieldModifier.
+/// The search field's drop-down: the "#field" suggestions, the value suggestions for what
+/// is being typed, and the recent searches while the field is empty. At most
+/// SearchSuggestionLimits.menuRows rows in all, in that order of priority. A view of its
+/// own so that the search text it reads invalidates only this. See SearchFieldModifier.
 private struct SearchFieldSuggestions: View {
     let searchController: SearchController
+    let dataCoordinator: DataCoordinator
+    /// The field holds keyboard focus. The drop-down opens whenever its content goes from
+    /// empty to not, focused or not; clearing the field on leaving search did exactly that
+    /// (it empties the field, which brings the recent searches in), popping the menu up
+    /// over the view just switched to. Recents are therefore offered only while focused.
+    let isFieldFocused: Bool
+    @AppStorage(preference: Preferences.showSearchSuggestionsKey)
+        private var showSearchSuggestions: Bool
+    @AppStorage(preference: Preferences.showRecentSearchesKey)
+        private var showRecentSearches: Bool
 
     var body: some View {
-        if searchController.searchText.contains("#") {
-            fieldSuggestions
+        let limit = SearchSuggestionLimits.menuRows
+        let fields = searchController.searchText.contains("#")
+            ? Array(searchController.getSuggestedFields().prefix(limit)) : []
+        let values = showSearchSuggestions
+            ? Array(searchController.valueSuggestions.prefix(limit - fields.count)) : []
+        // The header takes one of the rows.
+        let recents = recentSearchesShown
+            ? Array(searchController.recentSearches.prefix(max(0, min(SearchSuggestionLimits.recentSearches,
+                                                                     limit - fields.count - values.count - 1))))
+            : []
+
+        fieldSuggestions(fields)
+        ForEach(values, id: \.self) { suggestion in
+            Button {
+                searchController.applySuggestion(suggestion)
+            } label: {
+                // One Text, so the prefix and value share a single line that truncates as a
+                // whole at the menu's width.
+                Text("\(Text(suggestion.prefix).foregroundStyle(.secondary))\(suggestion.value)")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        if !recents.isEmpty {
+            Text("Recent Searches:")
+                .foregroundStyle(.secondary)
+                .selectionDisabled()
+            ForEach(recents, id: \.self) { recent in
+                Button {
+                    searchController.applyRecentSearch(recent)
+                } label: {
+                    Text(recent.label)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
         }
     }
 
+    /// Recent searches fill the drop-down only while the field is focused and entirely empty.
+    private var recentSearchesShown: Bool {
+        isFieldFocused && showSearchSuggestions && showRecentSearches
+            && searchController.searchText.isEmpty && searchController.currentTokens.isEmpty
+    }
+
     @ViewBuilder
-    private var fieldSuggestions: some View {
-        let suggestedFields = searchController.getSuggestedFields()
+    private func fieldSuggestions(_ suggestedFields: [SearchField]) -> some View {
         // Both mode flags are derived from the same searchText and are identical for every
         // row, so they are resolved once here rather than re-scanning the string twice per
         // suggested field (up to 40 redundant scans per keystroke).

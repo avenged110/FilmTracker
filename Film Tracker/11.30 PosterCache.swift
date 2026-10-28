@@ -166,10 +166,8 @@ final class PosterCache: Loggable {
         let ordered = posterUIDs.filter { !$0.isEmpty }
         guard !ordered.isEmpty else { return }
         hasPerformedLaunchBlockingWarm = true
-        #if DEBUG
         LaunchTimeline.markFirstGalleryFrame()
         defer { LaunchTimeline.mark("launchWarmDone") }
-        #endif
 
         // Full ordering becomes the restore's priority hint (best-effort — see
         // restoreCacheFromMetadata for the timing rationale).
@@ -709,6 +707,12 @@ final class PosterCache: Loggable {
     // affordable — saveMetadataThrottled() fires from addPosters() as the startup
     // population pipeline completes each batch, and again from the shutdown flush.
     func saveMetadata() async {
+        // Before loadMetadata() the set says nothing about the posters on disk; writing it
+        // (a quit during launch) replaced the file with an empty list.
+        guard isMetadataLoaded else {
+            log("Cache metadata save skipped: not loaded yet")
+            return
+        }
         guard let url = cacheMetadataURL else {
             log("Cannot save cache metadata: URL not available")
             return

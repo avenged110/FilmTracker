@@ -365,7 +365,9 @@ final class AppEventBus {
         case alert(AlertCommand) }
     
     // MARK: - Convenience Methods (Film Events)
-    /// Notify that films were deleted
+    /// Notify that films were deleted. Post it only after removing the films from MemoryStore
+    /// and reloading the current view: GalleryView does not reload for this event, because
+    /// every sender has already loaded the final film set (see DataCoordinator.deleteFilms).
     func filmsDeleted(_ filmIDs: Set<UUID>) {
         filmEvents.send(.deleted(filmIDs: filmIDs))
     }

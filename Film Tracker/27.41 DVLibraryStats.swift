@@ -744,7 +744,7 @@ struct LibraryStatistics {
         // Purchases by year — one aggregation, one pass over the purchase dates.
         var yearDetailedData: [String: (newCount: Int, usedCount: Int, belowAvgCount: Int, totalCount: Int)] = [:]
 
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
         for release in purchasedReleases where !release.purchaseDate.isEmpty {
             if let date = Self.purchaseDay(release.purchaseDate, calendar: calendar) {
                 let year = calendar.component(.year, from: date)

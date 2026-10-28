@@ -103,7 +103,7 @@ struct DVAttentionPopover: View {
     private static let headerHorizontalPadding: CGFloat = 10
 
     /// Same ordering as the gallery's title sort: article-stripped, numbers-last,
-    /// `localizedStandardCompare`.
+    /// `englishStandardCompare`.
     private var sortedItems: [DVNamedFilm] {
         items.sorted(by: DVNamedFilm.compareTitles)
     }

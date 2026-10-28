@@ -362,6 +362,7 @@ struct FSTabReleasesView: View {
     // @Observable tracks those reads inside ReleaseCardView — so typing or changing a Picker
     // never invalidates this view.
     var body: some View {
+        let _ = FilmSheetBodyProbe.hit("releases")
         let entries = viewModel.carouselEntries
         let idx = viewModel.currentCardIndex
         let canAddRelease = viewModel.canAddRelease()
@@ -1090,6 +1091,17 @@ struct FSTabReleasesView: View {
                 hydrationRadius = radius
             }
         }
+    }
+}
+
+// The view model is the tab's only input, and it is the same object for the sheet's life;
+// see FilmSheetTabContent's Releases case for why the comparison exists. `@Bindable` is
+// main-actor state that the nonisolated == Equatable requires cannot read directly; SwiftUI
+// performs view comparisons on the main actor, so MainActor.assumeIsolated asserts that, as
+// ReleaseCardView's conformance does.
+extension FSTabReleasesView: Equatable {
+    nonisolated static func == (lhs: FSTabReleasesView, rhs: FSTabReleasesView) -> Bool {
+        MainActor.assumeIsolated { lhs.viewModel === rhs.viewModel }
     }
 }
 

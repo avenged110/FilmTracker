@@ -843,7 +843,7 @@ enum DVPrintLayout {
     /// prior year, each moved to the nearest year with viewings exactly as
     /// `DataVisualizationsView.apply` moves the stepper.
     static func defaultPeriod(for dataset: DVDataset, today: Date = Date()) -> ViewingPeriodStatistics {
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
         let viewingYears = dataset.insights.viewingYears
         var year = calendar.component(.year, from: today)
         if !viewingYears.contains(year), let last = viewingYears.last { year = last }
@@ -875,7 +875,7 @@ enum DVGrowthCard {
     static func subtitle(_ g: DVGrowth) -> String? {
         var lines: [String] = []
         if !g.isEmpty,
-           let first = Calendar.current.date(from: DateComponents(year: g.firstMonth / 12, month: g.firstMonth % 12 + 1, day: 1)) {
+           let first = AppCalendar.current.date(from: DateComponents(year: g.firstMonth / 12, month: g.firstMonth % 12 + 1, day: 1)) {
             lines.append("Since: \(DVFormat.monthYear.string(from: first))")
         }
         if g.undatedPurchases > 0 {
@@ -1195,7 +1195,7 @@ enum DVCanvasSections {
 
         // Month chart: each bar banded by chroma, release decade or genre (the menu; print
         // shows all three, each captioned), the band legend where a subtitle would be.
-        let months = Calendar.current.shortMonthSymbols
+        let months = AppCalendar.current.shortMonthSymbols
         let monthCards = switchable(b, key: "monthBands", default: 0, titles: ["Chroma", "Release Decade", "Genre"],
                                     popUpWidth: 120) { mode, control in
             let band = monthBands(p, mode: mode, compare: compare)
@@ -1241,7 +1241,7 @@ enum DVCanvasSections {
                 rewatchesFootnote = "Average viewings per film by your rating. Films rated 9–10 are rewatched \(Fmt.fixed(high / mid, 1))× as often as 6–7."
             }
         }
-        let veryShort = Calendar.current.veryShortMonthSymbols
+        let veryShort = AppCalendar.current.veryShortMonthSymbols
         let peak = insights.seasonality.max() ?? 0
         let seasonBars = (0..<12).map { i in
             DVKBar(label: veryShort[i], value: insights.seasonality[i], color: .systemOrange, dimmed: peak > 0 && insights.seasonality[i] < peak)
@@ -1290,7 +1290,7 @@ enum DVCanvasSections {
     /// words: the row of controls that scopes the Viewing History section on screen.
     private static func viewingControls(_ m: DVCanvasModel, view: DVCanvasPageView, span: String) -> any DVNode {
         let compare = m.compare.wrappedValue
-        let currentYear = Calendar.current.component(.year, from: Date())
+        let currentYear = AppCalendar.current.component(.year, from: Date())
         let years = m.insights.viewingYears.isEmpty ? [currentYear] : m.insights.viewingYears
         let selectedYear = m.selectedYear.wrappedValue
         let back = view.control("year-back") { .stepButton("chevron.left") }
@@ -1456,8 +1456,8 @@ enum DVCanvasSections {
             button.onAction = { [weak view] sender in view?.showAttentionPopover(comingUpPopoverID, from: sender.alignmentRect(forFrame: sender.frame)) }
             viewAll = DVFrame(child: DVControlNode(control: button), maxInfinity: true, hAlign: .center)
         }
-        let monthStart = Calendar.current.dateInterval(of: .month, for: insights.spendingAsOf)?.start ?? insights.spendingAsOf
-        let nextMonth = Calendar.current.date(byAdding: .month, value: 1, to: monthStart) ?? monthStart
+        let monthStart = AppCalendar.current.dateInterval(of: .month, for: insights.spendingAsOf)?.start ?? insights.spendingAsOf
+        let nextMonth = AppCalendar.current.date(byAdding: .month, value: 1, to: monthStart) ?? monthStart
         let comingUp = DVK.card(title: "Coming Up Next Month", trailing: "\(films(pool)) (\(DVFormat.shortMonthDay.string(from: nextMonth)))",
                                 subtitle: "Rotation threshold due dates roll to the 1st of the following month.", [
             insights.comingUp.isEmpty
@@ -1629,7 +1629,7 @@ enum DVCanvasSections {
             legend.append(DVKSegment(label: "No condition recorded", count: unconditioned, color: .secondaryLabelColor, fillOpacity: 0.3))
         }
         // Past 10 Years: this calendar year and the nine before it.
-        let firstRecentYear = Calendar.current.component(.year, from: Date()) - 9
+        let firstRecentYear = AppCalendar.current.component(.year, from: Date()) - 9
         let yearCharts = switchable(b, key: "purchaseYears", default: 0, titles: ["All Time", "Past 10 Years"]) { scope, control in
             let rows = scope == 0 ? allRows : allRows.filter { (Int($0.year) ?? 0) >= firstRecentYear }
             return DVK.card(title: "Purchases by Year", trailingNode: DVHStack(spacing: 12, [DVK.legend(legend, showCounts: false), control]),
@@ -1935,7 +1935,7 @@ enum DVCanvasSections {
 
     /// Purchases and Spending: dated purchases by calendar month.
     static func purchaseMonthCard(_ h: DVHabits) -> any DVNode {
-        let letters = Calendar.current.veryShortMonthSymbols
+        let letters = AppCalendar.current.veryShortMonthSymbols
         let peak = h.purchasesByMonth.max() ?? 0
         return DVK.card(title: "Purchases by Month", trailing: "All time",
                         subtitle: h.busiestMonthSentence ?? "Dated purchases by calendar month.", bottomAligned: true, [

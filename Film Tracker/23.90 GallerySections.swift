@@ -151,6 +151,20 @@ enum GallerySectioning: Loggable {
         return filmQueueSectionBreaks(for: films, coordinator: coordinator)
     }
 
+    /// The Film Queue sections' memberships, for the "All" tab only — the one banding input
+    /// that no FilmSnapshot field reflects (see filmQueueSectionBreaks, which resolves each
+    /// film's section through list membership). Both gallery styles fold this into the
+    /// inputs that gate their banding rebuild, so the "All" tab skips the O(films) rescan on
+    /// a pass where membership is unchanged, as every other view does. nil outside "All".
+    ///
+    /// Moving a film between sections changes these sets even where it leaves the films
+    /// array byte-identical (the first "Soon" film promoted to "Up Next" keeps its place).
+    /// Unchanged sets compare in O(1), as they share storage with MemoryStore's own.
+    static func filmQueueMembership(for coordinator: DataCoordinator) -> [Set<UUID>]? {
+        guard coordinator.loadedFilmQueueFilter == .all else { return nil }
+        return FilmQueueSection.allCases.map { coordinator.getList($0.listID)?.filmIDs ?? [] }
+    }
+
     /// What the coordinator's currently-loaded film set is ordered by, or nil before any
     /// load has completed.
     ///
@@ -302,7 +316,7 @@ enum GallerySectioning: Loggable {
     /// bands, which is precisely the non-contiguity the guard above would then react to by
     /// discarding every band in the view.
     private struct SectionContext {
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
         let weekAgo: Date
         let monthAgo: Date
         let twoMonthsAgo: Date
@@ -313,7 +327,7 @@ enum GallerySectioning: Loggable {
 
         init() {
             let now = Date()
-            let cal = Calendar.current
+            let cal = AppCalendar.current
             // `?? now` cannot be reached with these components on the Gregorian calendar;
             // it exists so a non-optional boundary can be stored, and collapsing every
             // boundary to `now` would simply place all dated films in the per-year bands.
@@ -457,7 +471,7 @@ enum GallerySectioning: Loggable {
     /// exactly where the sort's own first-character comparison does.
     ///
     /// Diacritics are folded (and case normalized) so "Éclair" bands with "E" rather than
-    /// opening a second, separate "É" band that `localizedStandardCompare` would have
+    /// opening a second, separate "É" band that `englishStandardCompare` would have
     /// interleaved among the "E" titles — a non-contiguous split that would cost the view
     /// its dividers entirely. A first character that is neither a digit nor a letter keeps
     /// its own band rather than being swept into "#": such titles sort among the letters,
@@ -471,7 +485,7 @@ enum GallerySectioning: Loggable {
             return GallerySection(id: "title.untitled", displayName: "Untitled")
         }
         let folded = String(first)
-            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: EnglishText.locale)
             .uppercased()
         let key = folded.first.map(String.init) ?? String(first)
         return GallerySection(id: "title.\(key)", displayName: key)

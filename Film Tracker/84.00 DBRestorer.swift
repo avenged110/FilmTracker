@@ -958,6 +958,7 @@ final class DBRestorer: Loggable {
         settings.largeGalleryGrid = parser.parseOptionalBool("largeGalleryGrid")
         settings.showStatusBar = parser.parseOptionalBool("showStatusBar")
         settings.rememberRightSidebarTab = parser.parseOptionalBool("rememberRightSidebarTab")
+        settings.rememberRightSidebarReleasesFilter = parser.parseOptionalBool("rememberRightSidebarReleasesFilter")
         settings.autoExpandRightSidebarTables = parser.parseOptionalBool("autoExpandRightSidebarTables")
         settings.additionalCalTableDetails = parser.parseOptionalBool("additionalCalTableDetails")
         settings.showReleasesSummaryTable = parser.parseOptionalBool("showReleasesSummaryTable")
@@ -966,6 +967,8 @@ final class DBRestorer: Loggable {
         settings.smartLists = parser.parseOptionalBool("smartLists")
         settings.excludeQueuedFromUpForRotation = parser.parseOptionalBool("excludeQueuedFromUpForRotation")
         settings.maintainSelectionOnSearchExit = parser.parseOptionalBool("maintainSelectionOnSearchExit")
+        settings.showSearchSuggestions = parser.parseOptionalBool("showSearchSuggestions")
+        settings.showRecentSearches = parser.parseOptionalBool("showRecentSearches")
         settings.showInfoComplete = parser.parseOptionalBool("showInfoComplete")
         settings.performBackupAtLaunch = parser.parseOptionalBool("performBackupAtLaunch")
         settings.defaultRotationThreshold = parser.parseOptionalInt("defaultRotationThreshold")
@@ -1192,7 +1195,9 @@ final class DBRestorer: Loggable {
             masterType: parser.parseString("masterType"),
             regionLock: parser.parseString("regionLock"),
             regionLockBypass: parser.parseBool("regionLockBypass"),
-            marketAvailability: parser.parseStringArray("marketAvailability"),
+            // Backups written before the two-component format hold one legacy tag.
+            marketAvailability: ReleaseMarketAvailability.migrated(
+                parser.parseStringArray("marketAvailability")),
             numberOfCopies: parser.parseInt("numberOfCopies"),
             cost: parser.parseDouble("cost"),
             amountSpent: parser.parseDouble("amountSpent"),

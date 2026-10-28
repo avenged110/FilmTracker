@@ -108,7 +108,8 @@ struct FilmManager: Loggable {
                 AppEventBus.shared.send(.list(.queueAdditionCompleted(listID: listID)))
             }
         } else {
-            log("ERROR: Add failed — list \(listID) not found")
+            // DataCoordinator.addFilmsToList refuses for two reasons; it logs the cap refusal itself.
+            log("ERROR: Add to list \(listID) failed — list not found, or 'Up Next' would exceed \(FilmQueue.upNextCapacity) films")
         }
 
         AppEventBus.shared.send(.list(.operationCompleted(listID: listID))) }
@@ -564,11 +565,44 @@ struct ListManagerSheet: View, Loggable {
     @State private var isSaving: Bool = false
     @State private var showingSmartListCollisionAlert: Bool = false
 
+    /// The live, debounced form of `collidesWithSmartList` that drives the UI: it turns
+    /// the constraint note red and disables the save button. Kept as separate state
+    /// (rather than read straight off `collidesWithSmartList` in `body`) so the onset can
+    /// be debounced — see `collisionOnsetDelay` — while `saveList()` still checks the
+    /// live value, leaving the alert as a safety net for an Enter pressed inside the
+    /// debounce window.
+    @State private var showsCollision: Bool = false
+
+    /// The list's name as it was when the sheet opened, in edit mode (nil when creating).
+    /// Saving is pointless while the entry still equals it, so the button disables.
+    @State private var originalName: String? = nil
+
+    /// How long an entry must sit on a reserved name before the UI flags it. Long enough
+    /// that typing *through* a reserved name ("Purchased" on the way to "Purchased 4K")
+    /// doesn't flash the note red for a keystroke; short enough to read as immediate
+    /// once the user stops. Clearing is never delayed — see the `.task(id:)` below.
+    private static let collisionOnsetDelay: Duration = .milliseconds(150)
+
     /// Returns true when the trimmed, lowercased entry matches a smart list name or an
     /// internal Film Queue list name (both are reserved and cannot be used for a user list).
+    /// Two Set lookups, so it is cheap enough to evaluate on every keystroke.
     private var collidesWithSmartList: Bool {
         let trimmed = listName.trimmingCharacters(in: .whitespaces)
         return SmartListType.isReservedName(trimmed) || FilmQueue.isReservedName(trimmed)
+    }
+
+    /// True when the entry, trimmed as `ListManager.updateListName` trims it, is still
+    /// the list's current name — an edit that would change nothing.
+    private var isUnchangedName: Bool {
+        guard let originalName else { return false }
+        return listName.trimmingCharacters(in: .whitespaces) == originalName
+    }
+
+    /// Whether the entry can be saved right now. Mirrors the save button's enablement so
+    /// Return (`onSubmit`) can't save what the button wouldn't.
+    private var canSave: Bool {
+        !listName.trimmingCharacters(in: .whitespaces).isEmpty
+            && !showsCollision && !isUnchangedName && !isSaving
     }
 
     enum Mode { case create; case edit }
@@ -642,13 +676,14 @@ struct ListManagerSheet: View, Loggable {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
                 .onSubmit {
-                    if !listName.trimmingCharacters(in: .whitespaces).isEmpty { saveList() }
+                    if canSave { saveList() }
                 }
 
-            // Smart list name constraint notice.
+            // Smart list name constraint notice — turns red while the entry is a
+            // reserved name.
             Text("Note: Name must not match that of any smart lists.")
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(showsCollision ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .frame(width: 280, alignment: .leading)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 20)
@@ -672,12 +707,12 @@ struct ListManagerSheet: View, Loggable {
                 Button {
                     saveList()
                 } label: {
-                    Text(mode == .create ? "Create" : "Done")
+                    Text(mode == .create ? "Create" : "Save")
                         .padding(4)
                         .font(.system(size: 12))
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(listName.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+                .disabled(!canSave)
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 20)
@@ -689,6 +724,23 @@ struct ListManagerSheet: View, Loggable {
                 listName = prefillName
             }
             loadExistingNameSync()
+            // Seed the flag undebounced, so a reserved prefill shows red from the start.
+            showsCollision = collidesWithSmartList
+        }
+        // Real-time reserved-name check. `.task(id:)` cancels the previous run on every
+        // keystroke, which is the debounce: only an entry that stays on a reserved name
+        // for `collisionOnsetDelay` raises the flag. A non-colliding entry clears it at
+        // once, so the button never stays disabled after the user has typed past a
+        // reserved name. Writes are guarded so an unchanged flag invalidates nothing.
+        .task(id: listName) {
+            guard collidesWithSmartList else {
+                if showsCollision { showsCollision = false }
+                return
+            }
+            guard !showsCollision else { return }
+            try? await Task.sleep(for: Self.collisionOnsetDelay)
+            guard !Task.isCancelled else { return }
+            showsCollision = true
         }
         .alert("Name Not Allowed", isPresented: $showingSmartListCollisionAlert) {
             Button("OK") {
@@ -706,6 +758,7 @@ struct ListManagerSheet: View, Loggable {
         // Synchronously load directly from MemoryStore via DataCoordinator (instant)
         if let list = coordinator.getList(listID) {
             listName = list.listName
+            originalName = list.listName
         } else {
             Self.log("WARNING: Could not load list name for editing")
             dismiss()

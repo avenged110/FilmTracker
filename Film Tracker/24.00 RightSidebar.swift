@@ -84,6 +84,12 @@ final class HorizontalScrollZoneRegistrar {
             activeZones.remove(id)
         }
     }
+
+    /// Clears every zone. RightSidebar calls this on a tab switch, which moves a hovered
+    /// table out from under a stationary pointer without any hover exit reaching it.
+    func removeAll() {
+        activeZones.removeAll()
+    }
 }
 
 private struct HorizontalScrollZoneRegistrarKey: EnvironmentKey {
@@ -97,22 +103,101 @@ extension EnvironmentValues {
     }
 }
 
+// MARK: - Profile Flags
+
+/// DEBUG launch flags that switch off one piece of the sidebar's load work, for A/B runs of
+/// the `rsb-load` harness scenario (99.20). Release builds read none of them.
+enum RSBProfileFlags {
+    #if DEBUG
+    /// `-FTNeighborArmingAllAtOnce`: arm both neighbor tabs in one commit, as before staging.
+    static let neighborsAllAtOnce = ProcessInfo.processInfo.arguments.contains("-FTNeighborArmingAllAtOnce")
+    /// `-FTRSBNoTopPinnedLayout`: RSBTopPinnedLayout passes its proposal straight through.
+    static let noTopPinnedLayout = ProcessInfo.processInfo.arguments.contains("-FTRSBNoTopPinnedLayout")
+    /// `-FTRSBNoViewport`: SidebarScrollView tracks no viewport height.
+    static let noViewport = ProcessInfo.processInfo.arguments.contains("-FTRSBNoViewport")
+    /// `-FTRSBNoSidebar`: MainView puts an empty view where the sidebar goes, so a run
+    /// measures what a selection costs everything else.
+    static let noSidebar = ProcessInfo.processInfo.arguments.contains("-FTRSBNoSidebar")
+    /// `-FTRSBSwiftUICrewRows`: Metadata's crew sections draw their rows as a ForEach of
+    /// SearchableItemRow, as before, rather than as CrewRowList.
+    static let swiftUICrewRows = ProcessInfo.processInfo.arguments.contains("-FTRSBSwiftUICrewRows")
+    /// `-FTRSBNoCrewBlock`: Metadata leaves out its cast-and-crew block (measurement only).
+    static let noCrewBlock = ProcessInfo.processInfo.arguments.contains("-FTRSBNoCrewBlock")
+    /// `-FTRSBNoReleaseCards`: the Releases tab leaves out its card stack (measurement only).
+    static let noReleaseCards = ProcessInfo.processInfo.arguments.contains("-FTRSBNoReleaseCards")
+    /// `-FTRSBNoNotesFrames`: the Notes tab leaves out its two frames tables (measurement only).
+    static let noNotesFrames = ProcessInfo.processInfo.arguments.contains("-FTRSBNoNotesFrames")
+    /// `-FTRSBSwiftUIFramesRows`: the Notes tab's frames tables draw their rows as a ForEach of
+    /// FrameEntryRow, as before, rather than as FramesRowList.
+    static let swiftUIFramesRows = ProcessInfo.processInfo.arguments.contains("-FTRSBSwiftUIFramesRows")
+    /// `-FTRSBNoTabBar`: a same-height empty strip replaces the tab bar (measurement only).
+    static let noTabBar = ProcessInfo.processInfo.arguments.contains("-FTRSBNoTabBar")
+    /// `-FTRSBNoHeader`: a fixed-height empty block replaces the Header (measurement only).
+    static let noHeader = ProcessInfo.processInfo.arguments.contains("-FTRSBNoHeader")
+    /// `-FTRSBFlatPlane`: only the selected tab, placed directly, with no panning strip,
+    /// neighbor slots, or swipe animation (measurement only).
+    static let flatPlane = ProcessInfo.processInfo.arguments.contains("-FTRSBFlatPlane")
+    /// `-FTTabBarNoEquatable`: CustomTabHeader re-diffs on every parent update, as before.
+    static let tabBarNoEquatable = ProcessInfo.processInfo.arguments.contains("-FTTabBarNoEquatable")
+    #else
+    static let neighborsAllAtOnce = false
+    static let noTopPinnedLayout = false
+    static let noViewport = false
+    static let noSidebar = false
+    static let swiftUICrewRows = false
+    static let noCrewBlock = false
+    static let noReleaseCards = false
+    static let noNotesFrames = false
+    static let swiftUIFramesRows = false
+    static let noTabBar = false
+    static let noHeader = false
+    static let flatPlane = false
+    static let tabBarNoEquatable = false
+    #endif
+}
+
+// MARK: - SidebarViewport
+
+/// The visible height of one sidebar tab's scroll view, for hosted content that sizes
+/// itself to the viewport (the Releases tab's empty states). A reference with a stable
+/// identity, so a window resize invalidates only the views that actually read `height` —
+/// passing the height itself through SidebarEnvironmentModifier would change the modifier
+/// on every resize step and re-render every tab's whole hosted tree.
+@Observable @MainActor
+final class SidebarViewport {
+    var height: CGFloat = 0
+}
+
+private struct SidebarViewportKey: EnvironmentKey {
+    static let defaultValue: SidebarViewport? = nil
+}
+
+extension EnvironmentValues {
+    /// Nil outside a SidebarScrollView.
+    var sidebarViewport: SidebarViewport? {
+        get { self[SidebarViewportKey.self] }
+        set { self[SidebarViewportKey.self] = newValue }
+    }
+}
+
 // MARK: - SidebarEnvironmentModifier
 
-/// Re-injects sidebarFilm, DataCoordinator, and the horizontal-scroll-zone
-/// registrar into the NSHostingView subtree. NSHostingView does not inherit the
-/// enclosing SwiftUI environment; this modifier ensures child views can read all
-/// three values via @Environment in the usual way.
-struct SidebarEnvironmentModifier: ViewModifier {
+/// Re-injects sidebarFilm, DataCoordinator, the horizontal-scroll-zone registrar, and
+/// the scroll view's viewport into the NSHostingView subtree. NSHostingView does not
+/// inherit the enclosing SwiftUI environment; this modifier ensures child views can read
+/// all four values via @Environment in the usual way.
+private struct SidebarEnvironmentModifier: ViewModifier {
     let sidebarFilm: FilmSnapshot?
     let dataCoordinator: DataCoordinator
     let horizontalScrollZoneRegistrar: HorizontalScrollZoneRegistrar?
+    let viewport: SidebarViewport
 
     func body(content: Content) -> some View {
         content
             .environment(\.sidebarFilm, sidebarFilm)
             .environment(dataCoordinator)
             .environment(\.horizontalScrollZoneRegistrar, horizontalScrollZoneRegistrar)
+            .environment(\.sidebarViewport, viewport)
     }
 }
 
@@ -142,12 +227,16 @@ struct SidebarScrollView<Content: View>: View {
     // `98.20 UtilityKit.swift`.
     @Environment(\.sidebarTabActivation) private var tabActivation
 
+    /// This scroll view's visible height, handed to the hosted content (see SidebarViewport).
+    @State private var viewport = SidebarViewport()
+
     var body: some View {
         AppKitScrollView(
             modifier: SidebarEnvironmentModifier(
                 sidebarFilm: sidebarFilm,
                 dataCoordinator: dataCoordinator,
-                horizontalScrollZoneRegistrar: horizontalScrollZoneRegistrar
+                horizontalScrollZoneRegistrar: horizontalScrollZoneRegistrar,
+                viewport: viewport
             ),
             activation: tabActivation,
             onScrollWillStart: {
@@ -161,6 +250,23 @@ struct SidebarScrollView<Content: View>: View {
             contentResetKey: sidebarFilm?.id
         ) {
             content
+        }
+        .modifier(SidebarViewportTracking(viewport: viewport))
+    }
+}
+
+/// Keeps a SidebarViewport's height current. Off under `RSBProfileFlags.noViewport`.
+private struct SidebarViewportTracking: ViewModifier {
+    let viewport: SidebarViewport
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if RSBProfileFlags.noViewport {
+            content
+        } else {
+            content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                if viewport.height != height { viewport.height = height }
+            }
         }
     }
 }
@@ -209,8 +315,9 @@ struct RightSidebar: View, Loggable {
     @Environment(DataCoordinator.self) private var dataCoordinator
     private let viewStateManager = ViewStateManager.shared
 
-    // Registry of horizontal-scroll zones (ReleasesTable, and the detailed
-    // CalendarTable when enabled) that the swipe monitor must let scroll natively
+    // Registry of horizontal-scroll zones (in this build only the detailed
+    // CalendarTable, when enabled — see HorizontalScrollZoneRegistrar) that the swipe
+    // monitor must let scroll natively
     // rather than intercepting as a tab swipe. Must be @State, not a plain `let`:
     // RightSidebar is a struct whose body is re-evaluated (and therefore whose
     // plain stored properties are re-initialized from scratch) on every render,
@@ -242,6 +349,14 @@ struct RightSidebar: View, Loggable {
     // renders a copy of that table, so this is now the only releases-table expansion
     // state the sidebar owns.
     @State private var releasesSummaryExpanded: Bool = false
+
+    /// The Releases tab's purchase filter. Held here, not in the tab, because the tab's own
+    /// view does not survive a selection change (an off-screen slot is a placeholder until
+    /// the new film's neighbors are armed, and a deselect removes the whole plane), so a
+    /// filter kept there was lost and the remember preference could not hold it. Reset to
+    /// `.all` on a selection change unless that preference is on; see the `.onChange` in
+    /// `body`.
+    @State private var releasesPurchaseFilter: RSBPurchaseFilter = .all
     
     // Adaptive debounce state for film resolution during rapid scrolling.
     @State private var resolutionTask: Task<Void, Never>?
@@ -302,19 +417,17 @@ struct RightSidebar: View, Loggable {
     // Cleared alongside `isSwipeAnimating` when the slide settles.
     @State private var departingTab: RightSidebarTab? = nil
     
-    // The film whose neighbor tabs have been brought in behind the selected tab. When
-    // it doesn't match the current film (i.e. right after a new selection), only the
-    // selected tab renders, keeping the initial paint instant; a deferred task then
-    // sets this to the current film so the rest of the swipe window becomes resident.
-    // See `isTabRendered` and the `.task` in `body`.
     /// How long the selection must stay put before the off-screen neighbor tabs are
     /// built (see `isTabRendered` and the `.task` in `body`).
     ///
     /// The neighbors exist only so a swipe can *slide* the incoming tab in rather than
     /// insert it. They are never visible at rest, yet building them is as expensive as
     /// building the visible tab: each one is a fresh `NSScrollView` + `NSHostingView`
-    /// hosting a full module stack, created from scratch because the tab plane keys its
-    /// slots on `selectedFilm?.id`. Arming them immediately after every film change
+    /// hosting a full module stack, created from scratch because `isTabRendered` drops
+    /// every neighbor slot the moment the film changes (the stale `neighborsReadyFilmID`
+    /// no longer matches). Keeping them mounted instead would not avoid the cost: an
+    /// inactive slot buffers its rootView hand-off, so the re-measure would land at the
+    /// start of the swipe rather than here. Arming them immediately after every film change
     /// therefore paid 2-3x the cost of a selection step, and during rapid discrete arrow
     /// navigation every one of those neighbor builds was torn down by the next keypress
     /// before it could ever be swiped to — pure waste, on the main thread, in exactly the
@@ -329,8 +442,32 @@ struct RightSidebar: View, Loggable {
     /// swipe window is always armed by the time a gesture could begin.
     private static let neighborArmingQuietWindow: Duration = .milliseconds(180)
 
+    /// Resumes once the main queue next runs, after the current run-loop pass and its
+    /// screen flush. See the neighbor-arming `.task` in `body` for why not `Task.yield()`.
+    private static func nextMainQueueTurn() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+    }
+
+    /// The film whose neighbor tabs have been brought in behind the selected tab. When
+    /// it doesn't match the current film (i.e. right after a new selection), only the
+    /// selected tab renders, keeping the initial paint instant; a deferred task then
+    /// sets this to the current film so the rest of the swipe window becomes resident.
+    /// See `isTabRendered` and the `.task` in `body`.
     @State private var neighborsReadyFilmID: UUID? = nil
-    
+
+    /// How much of the swipe window is armed for `neighborsReadyFilmID`. With the middle
+    /// tab selected there are two neighbors, and building both in one commit is one long
+    /// main-thread stretch; they are armed one run-loop turn apart instead, the priority
+    /// neighbor first (see `priorityNeighbor`). With one neighbor there is nothing to
+    /// split, so arming goes straight to `.all`.
+    @State private var neighborArmingStage: NeighborArmingStage = .all
+
+    private enum NeighborArmingStage { case priority, all }
+
     // The spring used exclusively for swipe-driven tab changes. It is re-applied
     // locally (see the tab plane's `.transaction` below) because MainView nils the
     // ambient transaction for its whole layout container to suppress sidebar
@@ -398,6 +535,10 @@ struct RightSidebar: View, Loggable {
     // Preference to control tab memory behavior.
     @AppStorage(preference: Preferences.rememberRightSidebarTabKey)
         private var rememberRightSidebarTab: Bool
+
+    // Preference to keep the Releases tab's purchase filter across selection changes.
+    @AppStorage(preference: Preferences.rememberRightSidebarReleasesFilterKey)
+        private var rememberReleasesFilter: Bool
     
     // Computed property for accessing the current tab from ViewStateManager
     private var selectedTab: RightSidebarTab {
@@ -414,9 +555,17 @@ struct RightSidebar: View, Loggable {
     /// against a different state variable and had to be kept in step with the other two
     /// by hand. The three `@State` flags stay separate, because the tables genuinely
     /// expand independently; only the shared rule is consolidated.
+    ///
+    /// The pinned-open case returns one shared binding rather than a fresh `.constant(true)`:
+    /// SwiftUI compares a binding by its storage identity, so a new constant on every body
+    /// pass read as a changed input to the Details and Releases tabs and handed each one a
+    /// new rootView (a full re-measure) on every tab switch, swipe, and neighbor arming.
     private func expansionBinding(_ state: Binding<Bool>) -> Binding<Bool> {
-        autoExpandRightSidebarTables ? .constant(true) : state
+        autoExpandRightSidebarTables ? Self.alwaysExpanded : state
     }
+
+    /// The single pinned-open binding `expansionBinding` hands out. See there.
+    private static let alwaysExpanded: Binding<Bool> = .constant(true)
 
     /// Shared header shown once above the tab plane so it persists across all three
     /// tabs without rebuilding. Extracted from `body` to keep that expression within
@@ -425,7 +574,13 @@ struct RightSidebar: View, Loggable {
     private var sidebarHeader: some View {
         if let film = selectedFilm {
             VStack(spacing: 0) {
-                Header(filmID: film.id)
+                Group {
+                    if RSBProfileFlags.noHeader {
+                        Color.clear.frame(height: 150)
+                    } else {
+                        Header(filmID: film.id)
+                    }
+                }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                 Divider()
@@ -438,18 +593,17 @@ struct RightSidebar: View, Loggable {
     /// index-ordered slots (each one sidebar-width wide), and the whole strip is panned
     /// so the selected tab fills the viewport. Switching tabs changes only the pan
     /// offset, so the outgoing and incoming tabs always travel together in the
-    /// spatially correct direction (Details is left of Metadata is left of Notes,
+    /// spatially correct direction (Details is left of Releases is left of Notes,
     /// exactly as in the tab header) with no overlap — there are no per-tab
     /// insertion/removal transitions whose direction could be captured stale. The strip
     /// is always mounted so the pan offset always has a prior value to animate from,
     /// which is what makes both the first swipe and rapid consecutive swipes slide
     /// instead of snap.
     ///
-    /// Which slots hold *real* content is gated by `isTabRendered`: at rest only the
-    /// selected tab is real (a single live AppKit scroll view — so scrolling keeps its
-    /// native-smooth frame rate and selecting a film from an empty selection builds
-    /// just one tab), and only during a swipe do the neighbors that can scroll into
-    /// view become real. Every other slot is a lightweight placeholder that holds the
+    /// Which slots hold *real* content is gated by `isTabRendered`: a new selection
+    /// builds only the selected tab (so selecting a film paints just one tab), and the
+    /// neighbors that a single swipe can bring into view are armed behind it once the
+    /// selection has stayed put for `neighborArmingQuietWindow`. Every other slot is a lightweight placeholder that holds the
     /// slot geometry so the pan never reindexes. The pan animates for swipes only:
     /// MainView applies `.transaction { animation = nil }` to its whole layout
     /// container (to stop the sidebar 'jiggling' on left-sidebar state changes), which
@@ -483,7 +637,20 @@ struct RightSidebar: View, Loggable {
     /// recognition runs entirely through the local `NSEvent` monitor installed in
     /// `installSwipeMonitor()`, which inspects scroll-wheel events
     /// directly and never depends on any tab's hit-testing.
+    @ViewBuilder
     private var tabPlane: some View {
+        if RSBProfileFlags.flatPlane {
+            tabContent(for: selectedTab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(\.sidebarTabActivation, tabActivations[selectedTab])
+                .appKitScrollActivation(tabActivations[selectedTab]!, isActive: true)
+                .background(SidebarSwipeZoneAnchor(anchor: $swipeZoneAnchor))
+        } else {
+            swipingTabPlane
+        }
+    }
+
+    private var swipingTabPlane: some View {
         // A hard `sidebarWidth`-wide, full-height viewport that clips the panning
         // strip. The base is `Color.clear`, which — unlike the rigid strip — is
         // flexible and so collapses to exactly the width the sidebar offers (the
@@ -618,21 +785,42 @@ struct RightSidebar: View, Loggable {
             try? await Task.sleep(for: Self.neighborArmingQuietWindow)
             guard !Task.isCancelled else { return }
 
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                DispatchQueue.main.async {
-                    continuation.resume()
-                }
-            }
+            await Self.nextMainQueueTurn()
             // The id-scoped task is canceled and replaced the instant a new film is
             // selected while this is still suspended; guard against advancing
             // `neighborsReadyFilmID` for a selection that's already stale by the
             // time the main-queue hop completes.
             guard !Task.isCancelled else { return }
+            // Two neighbors (the middle tab is selected): the priority one now, the
+            // other a turn later, so neither build shares a commit with the other. The
+            // stage is written first so the one render this turn sees both values.
+            let staged = swipeWindowTabs.count > 2 && !RSBProfileFlags.neighborsAllAtOnce
+            neighborArmingStage = staged ? .priority : .all
             neighborsReadyFilmID = selectedFilm?.id
+            guard staged else { return }
+
+            await Self.nextMainQueueTurn()
+            guard !Task.isCancelled else { return }
+            neighborArmingStage = .all
         }
         // Adaptive debouncing: combines view switching delay with scrolling performance.
         .onChange(of: selectionState.selectedFilmIDs) { oldIDs, newIDs in
             handleSelectionChange(oldIDs: oldIDs, newIDs: newIDs)
+        }
+        // A new displayed film returns the Releases filter to All unless the preference
+        // keeps it. Keyed on the resolved film rather than the raw selection, so a deferred
+        // or debounced resolution resets it when the new film actually lands.
+        .onChange(of: selectedFilm?.id) { _, _ in
+            guard !rememberReleasesFilter, releasesPurchaseFilter != .all else { return }
+            RSBHelpers.withoutAnimation { releasesPurchaseFilter = .all }
+        }
+        // A horizontal-scroll zone is cleared by its table's hover exit or onDisappear, but a
+        // tab switch fires neither: the Details tab usually stays resident beside the new
+        // tab, and a stationary pointer sends no exit. Left set, it made the swipe monitor
+        // pass every swipe through until the mouse moved. Only the selected tab can hold
+        // the pointer, so a switch clears them all.
+        .onChange(of: selectedTab) { _, _ in
+            horizontalScrollZoneRegistrar.removeAll()
         }
         // Single consolidated listener for film updates.
         // This replaces scattered listeners in child components.
@@ -664,7 +852,8 @@ struct RightSidebar: View, Loggable {
         // DispatchQueue.main.async hop moves the heavy content rebuild off the
         // notification's delivery stack (an AppKit mouse/delegate callback) into its
         // own run-loop pass, so it never shares a CA commit with the gesture's final
-        // frame. Resolution reads selectionState's LIVE selection, so any churn that
+        // frame.
+        // Resolution reads selectionState's LIVE selection, so any churn that
         // occurred while deferred settles correctly, and the pending-flag guard makes
         // every boundary with nothing pending a strict no-op.
         .onReceive(NotificationCenter.default.publisher(for: .dragDeferralWindowDidEnd)) { _ in
@@ -857,7 +1046,8 @@ struct RightSidebar: View, Loggable {
                 listTableExpanded: expansionBinding($listTableExpanded)
             )
         case .releases:
-            RTabReleases(releasesSummaryExpanded: expansionBinding($releasesSummaryExpanded))
+            RTabReleases(releasesSummaryExpanded: expansionBinding($releasesSummaryExpanded),
+                         purchaseFilter: $releasesPurchaseFilter)
         case .notes:
             RTabNotes()
         }
@@ -865,6 +1055,14 @@ struct RightSidebar: View, Loggable {
     
     @ViewBuilder
     private var tabsHeader: some View {
+        if RSBProfileFlags.noTabBar {
+            Color.clear.frame(height: 28)
+        } else {
+            realTabsHeader
+        }
+    }
+
+    private var realTabsHeader: some View {
         CustomTabHeader(
             selectedTab: selectedTab,
             enabled: hasSelection && !isMultiSelection,
@@ -898,7 +1096,19 @@ struct RightSidebar: View, Loggable {
         let upper = min(tabs.count - 1, idx + 1)
         return Set(tabs[lower...upper]).subtracting(notesDisabledTabs)
     }
-    
+
+    /// The neighbor armed first when two are due: the one before the selected tab, so
+    /// from Releases, Details is built ahead of Notes. From an end tab it is the only one.
+    private var priorityNeighbor: RightSidebarTab? {
+        let tabs = Self.tabOrder
+        guard let idx = tabs.firstIndex(of: selectedTab) else { return nil }
+        let window = swipeWindowTabs
+        return [idx - 1, idx + 1]
+            .filter { tabs.indices.contains($0) }
+            .map { tabs[$0] }
+            .first { window.contains($0) }
+    }
+
     /// Whether a given plane slot holds real content rather than a placeholder.
     ///
     /// The selected tab always renders immediately, so a new selection paints its
@@ -920,8 +1130,8 @@ struct RightSidebar: View, Loggable {
     /// view.)
     private func isTabRendered(_ tab: RightSidebarTab) -> Bool {
         if tab == selectedTab { return true }
-        guard neighborsReadyFilmID == selectedFilm?.id else { return false }
-        return swipeWindowTabs.contains(tab)
+        guard neighborsReadyFilmID == selectedFilm?.id, swipeWindowTabs.contains(tab) else { return false }
+        return neighborArmingStage == .all || tab == priorityNeighbor
     }
     
     // MARK: - Event Handling
@@ -936,7 +1146,8 @@ struct RightSidebar: View, Loggable {
     private func flushDragDeferredResolution() {
         guard hasDragDeferredResolution else { return }
         DispatchQueue.main.async {
-            guard hasDragDeferredResolution else { return }
+            guard hasDragDeferredResolution,
+                  !DragSessionMonitor.shared.isDeferralWindowActive else { return }
             hasDragDeferredResolution = false
             sidebarClearedForDrag = false
             applySelection(selectionState.selectedFilmIDs)
@@ -1024,8 +1235,7 @@ struct RightSidebar: View, Loggable {
     private func clearForDragInterim() {
         guard !sidebarClearedForDrag else { return }
         sidebarClearedForDrag = true
-        hasSelection = false
-        isMultiSelection = false
+        setSelectionFlags(hasSelection: false, isMultiSelection: false)
         selectedFilm = nil
         resetTableExpansionStates()
     }
@@ -1240,6 +1450,9 @@ struct RightSidebar: View, Loggable {
     private func refreshCurrentFilm() {
         guard let filmID = selectedFilm?.id,
               let updatedFilm = dataCoordinator.getFilm(filmID) else { return }
+        // An event can arrive for an edit that left this snapshot unchanged. Replacing it
+        // anyway changes the environment every rendered tab re-injects, re-measuring each.
+        guard updatedFilm != selectedFilm else { return }
         selectedFilm = updatedFilm
         fallBackFromNotesTabIfNeeded(for: updatedFilm)
         Self.log("Refreshed film snapshot: \(updatedFilm.name)")
@@ -1248,21 +1461,18 @@ struct RightSidebar: View, Loggable {
     // MARK: - Film Resolution
     
     /// Resolves a UUID Set to a FilmSnapshot (for single or multi-selection states).
-    @MainActor
     private func resolveSelectedFilm(from ids: Set<UUID>) {
         // No selection.
         guard !ids.isEmpty else {
             selectedFilm = nil
-            hasSelection = false
-            isMultiSelection = false
+            setSelectionFlags(hasSelection: false, isMultiSelection: false)
             return
         }
         
         // Multi-selection.
         if ids.count > 1 {
             selectedFilm = nil
-            hasSelection = true
-            isMultiSelection = true
+            setSelectionFlags(hasSelection: true, isMultiSelection: true)
             Self.log("Multi-selection: \(ids.count) films")
             return
         }
@@ -1274,22 +1484,19 @@ struct RightSidebar: View, Loggable {
         // If the same film is already loaded, don't re-fetch.
         if selectedFilm?.id == id {
             Self.log("Film already loaded: \(selectedFilm?.name ?? "Unknown")")
-            hasSelection = true
-            isMultiSelection = false
+            setSelectionFlags(hasSelection: true, isMultiSelection: false)
             return
         }
 
         // Fetch snapshot from DataCoordinator (reads from MemoryStore — no SwiftData touch).
         if let snapshot = dataCoordinator.getFilm(id) {
             selectedFilm = snapshot
-            hasSelection = true
-            isMultiSelection = false
+            setSelectionFlags(hasSelection: true, isMultiSelection: false)
             fallBackFromNotesTabIfNeeded(for: snapshot)
             Self.log("Loaded film snapshot: \(snapshot.name)")
         } else {
             selectedFilm = nil
-            hasSelection = false
-            isMultiSelection = false
+            setSelectionFlags(hasSelection: false, isMultiSelection: false)
             Self.log("Film not found: \(id)")
         }
     }
@@ -1303,6 +1510,14 @@ struct RightSidebar: View, Loggable {
         }
     }
     
+    /// Writes the two selection flags, skipping any that already hold the value. SwiftUI
+    /// does not dedupe a `@State` write against its current value (see
+    /// `resetTableExpansionStates`), and the resolution paths write these on every step.
+    private func setSelectionFlags(hasSelection has: Bool, isMultiSelection multi: Bool) {
+        if hasSelection != has { hasSelection = has }
+        if isMultiSelection != multi { isMultiSelection = multi }
+    }
+
     /// Resets all table expansion states.
     private func resetTableExpansionStates() {
         // Guarded rather than assigned unconditionally: SwiftUI does not dedupe a
@@ -1452,8 +1667,8 @@ struct RightSidebar: View, Loggable {
             let localPoint = anchor.convert(event.locationInWindow, from: nil)
             guard anchor.bounds.contains(localPoint) else { return event }
 
-            // Let any actively horizontal-scrolling table (ReleasesTable, or the
-            // detailed CalendarTable when Preferences.additionalCalTableDetails is
+            // Let any actively horizontal-scrolling table (in this build only the
+            // detailed CalendarTable, when Preferences.additionalCalTableDetails is
             // enabled) handle its own horizontal scrolling untouched. Without this,
             // a horizontal-dominant gesture beginning over such a table would be
             // captured below as a tab swipe, leaving any of its content past the

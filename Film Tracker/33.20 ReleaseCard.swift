@@ -290,16 +290,6 @@ struct ReleaseCardView: View {
         }
     }
 
-    // MARK: - Static sets (shared, allocation-free)
-    // Non-private so the isolated sub-view struct _MarketAvailabilityPicker can reference it
-    // without duplicating the data.
-    //
-    // `regionAOnlyOrigins` used to sit beside this and is gone: the Blu-ray region rule now
-    // lives in ReleaseRegionRules (63_00), because syncComboChildFields has to apply the
-    // identical rule when it pushes a country onto a combo-pack child and cannot reach a
-    // private static on a view in this file.
-    static let importOnlyTags: Set<String> = ReleaseMarketAvailability.importOnlyTags
-
     // MARK: - Shared static resources
     private static let controlBackground = Color(NSColor.controlBackgroundColor)
     private static let shadowColor       = Color.black.opacity(0.5)
@@ -1246,6 +1236,13 @@ private struct _TypeVersionsRow: View {
             items.append(.option(tag: ReleaseIndependence.comboPackDualBD,
                                  title: "Combo-pack (dual BD)"))
         }
+        // A combo pack sold inside a multi-pack: structurally a plain combo pack (one bundled
+        // Blu-ray), offered on 4K UHD cards only for the same reason. Kept for any other
+        // card already holding it, per the same tag-set guarantee.
+        if model.is4K || model.independence == ReleaseIndependence.comboPackMultiPack {
+            items.append(.option(tag: ReleaseIndependence.comboPackMultiPack,
+                                 title: "Combo-pack (multi-pack)"))
+        }
         items.append(.option(tag: ReleaseIndependence.multiPack, title: "Multi-pack"))
         return items
     }
@@ -1980,10 +1977,16 @@ private struct _ArtworkPicker: View {
     /// `ReleaseArtwork.steelbook` so all three read one definition — they were three separate
     /// literals, and two disagreed about the rule.
     ///
-    /// Four fixed lists, chosen between per render rather than assembled per render.
+    /// "Combo-pack (multi-pack)" offers both pack-qualified "Yes" tags. Its bundled Blu-ray
+    /// child carries plain "Combo-pack" but mirrors the parent's artwork, so a child is given
+    /// that superset too: its picker is disabled, but it must still list the synced value.
+    ///
+    /// Five fixed lists, chosen between per render rather than assembled per render.
     private static let steelbookOnly: [ReleaseOption] = [ReleaseOption(ReleaseArtwork.steelbook)]
     private static let comboPackArtwork: [ReleaseOption] =
         steelbookOnly + ReleaseArtwork.comboPackOptions.map { ReleaseOption($0) }
+    private static let comboMultiPackArtwork: [ReleaseOption] =
+        steelbookOnly + ReleaseArtwork.comboMultiPackOptions.map { ReleaseOption($0) }
     private static let multiPackArtwork: [ReleaseOption] =
         steelbookOnly + ReleaseArtwork.multiPackOptions.map { ReleaseOption($0) }
     private static let standaloneArtwork: [ReleaseOption] =
@@ -1993,7 +1996,9 @@ private struct _ArtworkPicker: View {
         guard model.purchased, !model.independence.isEmpty else { return Self.steelbookOnly }
         switch model.independence {
         case ReleaseIndependence.comboPack, ReleaseIndependence.comboPackDualBD:
-            return Self.comboPackArtwork
+            return model.isComboChild ? Self.comboMultiPackArtwork : Self.comboPackArtwork
+        case ReleaseIndependence.comboPackMultiPack:
+            return Self.comboMultiPackArtwork
         case ReleaseIndependence.multiPack:
             return Self.multiPackArtwork
         default: // Standalone
@@ -2017,33 +2022,18 @@ private struct _ArtworkPicker: View {
     }
 }
 
-// MARK: - Market Availability Picker (Observation Isolation)
+// MARK: - Market Availability Menu (Observation Isolation)
 // Isolated so marketAvailability/independence/nationalOrigin/purchased subscriptions
 // register here rather than on ReleaseCardView.body. Its nationalOrigin cascade is in the tree
 // only while the release is unpurchased, which is the condition it already assumed; the
 // independence half lives in FSTabReleases.commitIndependence, which applies the same guard.
+//
+// A pull-down with two internally exclusive sections — status above the divider, price below
+// — laid out like the Details tab's SpecialSortingMenu. The stored array holds one element per
+// component; see ReleaseMarketAvailability for the format and its rules.
 private struct _MarketAvailabilityPicker: View {
     @Bindable var model: ReleaseCardModel
 
-    /// Titles come from ReleaseMarketAvailability rather than being written out here, so
-    /// the menu and the right sidebar's release cards cannot disagree about how a stored tag
-    /// is spelled out. A tag needing no expansion maps to itself.
-    ///
-    /// `nonisolated` so the static lists below, whose initializers run outside the main
-    /// actor, can call it.
-    private nonisolated static func option(_ tag: String) -> ReleaseOption {
-        ReleaseOption(tag, title: ReleaseMarketAvailability.displayTitle(tag))
-    }
-
-    /// The tag list and its order come from ReleaseMarketAvailability; the US list drops
-    /// the import tags rather than restating the remainder. Three fixed lists, chosen
-    /// between per render.
-    private static let allOptions: [ReleaseOption] =
-        ReleaseMarketAvailability.allTags.map(option)
-    private static let domesticOptions: [ReleaseOption] =
-        ReleaseMarketAvailability.allTags
-            .filter { !ReleaseMarketAvailability.importOnlyTags.contains($0) }
-            .map(option)
     private static let comboLockedOptions: [ReleaseOption] =
         [ReleaseOption(ReleaseMarketAvailability.comboPackOnly)]
     /// The one row the menu shows for an upcoming release. The tag is never stored (see
@@ -2055,23 +2045,6 @@ private struct _MarketAvailabilityPicker: View {
     var body: some View {
         // A non-4K release in either combo-pack form is locked to a single value.
         let comboLocked = ReleaseIndependence.isComboPack(model.independence) && !model.is4K
-        let usOrigin    = model.nationalOrigin == ReleaseOrigin.domestic
-
-        // Read-side clamp, for the frame between a tag set changing and the cascade below
-        // updating the stored value. Both arms map to a tag that exists in the branch
-        // being rendered; an unrecognized value falls through and TaggedPicker tags it.
-        let normalizedBinding = Binding<String>(
-            get: {
-                let current = model.marketAvailability.first ?? ""
-                if comboLocked { return ReleaseMarketAvailability.comboPackOnly }
-                if current == ReleaseMarketAvailability.comboPackOnly { return "" }
-                if usOrigin, ReleaseCardView.importOnlyTags.contains(current) { return "" }
-                return current
-            },
-            set: { newValue in
-                model.marketAvailability = newValue.isEmpty ? [] : [newValue]
-            }
-        )
 
         // MARK: Unreleased
         //
@@ -2086,23 +2059,97 @@ private struct _MarketAvailabilityPicker: View {
         // Reads CurrentDay's `today`, so the lock lifts on the release day with no reload.
         let unreleased = model.isUpcomingRelease(today: CurrentDay.shared.today)
 
-        return TaggedPicker(selection: unreleased ? .constant(Self.unreleasedTag) : normalizedBinding,
-                            options: unreleased  ? Self.unreleasedOptions
-                                   : comboLocked ? Self.comboLockedOptions
-                                   : usOrigin    ? Self.domesticOptions
-                                                 : Self.allOptions,
-                            placeholder: unreleased || comboLocked ? nil : "Select Availability…")
-        .disabled(unreleased || comboLocked)
-        // The independence half of this cascade is applied by
-        // FSTabReleases.commitIndependence, at the write — see _TypeVersionsRow.
-        .onFieldChange(of: model.nationalOrigin, on: model) { _, newValue in
-            guard !model.purchased else { return }
-            if newValue == ReleaseOrigin.domestic,
-               let current = model.marketAvailability.first,
-               ReleaseCardView.importOnlyTags.contains(current) {
-                model.marketAvailability = []
+        Group {
+            if unreleased || comboLocked {
+                TaggedPicker(selection: .constant(unreleased ? Self.unreleasedTag
+                                                             : ReleaseMarketAvailability.comboPackOnly),
+                             options: unreleased ? Self.unreleasedOptions : Self.comboLockedOptions,
+                             placeholder: nil)
+                .disabled(true)
+            } else {
+                splitMenu
             }
         }
+        // The independence half of this cascade is applied by
+        // FSTabReleases.commitIndependence, at the write — see _TypeVersionsRow.
+        //
+        // Respells the status for the new origin ("Available" ⇄ "Import available") rather
+        // than clearing it: the release's availability did not change, only what to call it.
+        .onFieldChange(of: model.nationalOrigin, on: model) { _, newValue in
+            guard !model.purchased else { return }
+            let kind = ReleaseMarketAvailability.Kind(nationalOrigin: newValue,
+                                                      independence: model.independence)
+            let respelled = ReleaseMarketAvailability.retargeted(model.marketAvailability, for: kind)
+            if respelled != model.marketAvailability { model.marketAvailability = respelled }
+        }
+    }
+
+    private var splitMenu: some View {
+        typealias MA = ReleaseMarketAvailability
+        let tags = model.marketAvailability
+        // A stranded "Combo-pack only" (see _PurchaseRows) reads as no status here, so
+        // choosing anything replaces it.
+        let storedStatus = MA.status(tags)
+        let status = storedStatus == MA.comboPackOnly ? nil : storedStatus
+        let price = MA.price(tags)
+        let unrecognized = MA.unrecognized(tags)
+        let priceLocked = status.map(MA.unpricedStatusTags.contains) ?? false
+        // A status spelled for another kind (an import tag on a US release, mid-cascade)
+        // stays visible rather than vanishing from a menu that cannot show it.
+        var statusOptions = MA.statusTags(for: MA.Kind(nationalOrigin: model.nationalOrigin,
+                                                       independence: model.independence))
+        if let status, !statusOptions.contains(status) { statusOptions.append(status) }
+
+        // One write per selection: the whole array is rebuilt from its components.
+        func commit(status: String?, price: String?) {
+            let next = MA.composed(status: status, price: price, unrecognized: unrecognized)
+            if next != model.marketAvailability { model.marketAvailability = next }
+        }
+
+        let displayText = status == nil && price == nil && unrecognized.isEmpty
+            ? "Select Availability…"
+            : MA.displayText(MA.composed(status: status, price: price, unrecognized: unrecognized))
+
+        return Menu {
+            ForEach(statusOptions, id: \.self) { option in
+                Toggle(isOn: Binding(
+                    get: { status == option },
+                    // `composed` drops the price when the new status cannot carry one, so
+                    // choosing "Unavailable" clears it from the stored value outright.
+                    set: { isOn in commit(status: isOn ? option : nil, price: price) }
+                )) { Text(option) }
+            }
+            Divider()
+            ForEach(MA.priceTags, id: \.self) { option in
+                Toggle(isOn: Binding(
+                    get: { price == option },
+                    set: { isOn in commit(status: status, price: isOn ? option : nil) }
+                )) { Text(option) }
+                .disabled(priceLocked)
+            }
+            // Values neither section recognizes, kept visible so they can be removed.
+            if !unrecognized.isEmpty {
+                Divider()
+                ForEach(unrecognized, id: \.self) { option in
+                    Toggle(isOn: Binding(
+                        get: { true },
+                        set: { _ in
+                            model.marketAvailability = MA.composed(
+                                status: status, price: price,
+                                unrecognized: unrecognized.filter { $0 != option })
+                        }
+                    )) { Text(option) }
+                }
+            }
+        } label: {
+            Text(displayText)
+                .foregroundStyle(status == nil && price == nil && unrecognized.isEmpty
+                                 ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
     }
 }
 

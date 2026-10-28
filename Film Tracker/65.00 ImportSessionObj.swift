@@ -74,6 +74,7 @@ final class ImportSession {
         let f = DateFormatter()
         f.dateStyle = .full
         f.timeStyle = .none
+        f.calendar = AppCalendar.gregorian  // the locale is the user's; the calendar is not (AppCalendar)
         return f
     }()
 

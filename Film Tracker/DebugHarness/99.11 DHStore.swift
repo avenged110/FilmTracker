@@ -772,13 +772,23 @@ extension DebugHarness {
                 coordinator.filmQueueSection(forFilm: subject) == .later,
                 "resolved to \(coordinator.filmQueueSection(forFilm: subject)?.displayName ?? "nil")")
 
-        _ = coordinator.addFilmsToList(filmIDs: [subject], listID: FilmQueueSection.upNext.listID)
+        // "Up Next" refuses adds past FilmQueue.upNextCapacity, which is correct but is not
+        // what this check tests. On a library whose Up Next is already full (a real-library
+        // copy), park one of its films in "Soon" for the move and put it back afterward.
+        let upNextID = FilmQueueSection.upNext.listID
+        let parked = (coordinator.getList(upNextID)?.filmIDs.count ?? 0) >= FilmQueue.upNextCapacity
+            ? coordinator.getList(upNextID)?.filmIDs.first : nil
+        if let parked {
+            _ = coordinator.addFilmsToList(filmIDs: [parked], listID: FilmQueueSection.soon.listID)
+        }
+        _ = coordinator.addFilmsToList(filmIDs: [subject], listID: upNextID)
         r.check("queue-add-enforces-exclusivity",
                 coordinator.filmQueueListIDs(forFilm: subject).count == 1,
                 "\(coordinator.filmQueueListIDs(forFilm: subject).count) section membership(s) after a cross-section add")
         r.check("queue-add-moves-rather-than-duplicates",
                 coordinator.filmQueueSection(forFilm: subject) == .upNext,
-                "the film moved to the newly requested section")
+                "the film moved to the newly requested section"
+                    + (parked != nil ? " (Up Next was full; one film parked in Soon for the move)" : ""))
 
         // Both resolvers must agree — MemoryStore's grouping and the coordinator's per-film
         // section, which the gallery uses to place its divider bands.
@@ -805,6 +815,11 @@ extension DebugHarness {
 
         // --- Deletion, through the coordinator ------------------------------------------------
         await coordinator.deleteFilms(withIDs: corpusIDs)
+        if let parked {
+            _ = coordinator.addFilmsToList(filmIDs: [parked], listID: upNextID)
+            r.check("parked-film-returned-to-up-next",
+                    coordinator.filmQueueSection(forFilm: parked) == .upNext, "")
+        }
         r.check("delete-restores-baseline-count",
                 store.totalFilmCount == baselineFilms,
                 "\(store.totalFilmCount) vs baseline \(baselineFilms)")
@@ -846,16 +861,25 @@ extension DebugHarness {
             return (expected != nil && cached == expected,
                     "cached \(String(describing: cached)), expected \(String(describing: expected)) for \(months) months")
         }
+        // The refresh is reached through a Task hop, a Combine sink and a debounce, so it may
+        // not have started when the scenario first asks — and on a large library it takes
+        // longer still. A fixed sleep failed whenever the refresh was slower than the sleep.
+        // Poll for the expected value instead, failing only if it never arrives.
+        func awaitRotation(_ months: Int) async -> (Bool, String) {
+            let deadline = ContinuousClock.now + .seconds(5)
+            var result = cachedRotationMatches(months)
+            while !result.0 && ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+                await coordinator.awaitRotationThresholdRefreshForTesting()
+                result = cachedRotationMatches(months)
+            }
+            return result
+        }
         let before = cachedRotationMatches(originalThreshold)
         r.check("rotation-cache-follows-default:before", before.0, before.1)
 
         Preferences.defaultRotationThreshold = probeThreshold
-        // postPreferenceChangedEvent hops through a Task, and the Combine sink that arms
-        // the debounce runs on the turn after that, so give both a moment to land. The
-        // refresh they start builds its entries off the main actor; wait for it to finish.
-        try? await Task.sleep(for: .milliseconds(120))
-        await coordinator.awaitRotationThresholdRefreshForTesting()
-        let after = cachedRotationMatches(probeThreshold)
+        let after = await awaitRotation(probeThreshold)
         r.check("rotation-cache-follows-default:changed", after.0, after.1)
         await coordinator.flushPendingSettingsSync()
 
@@ -868,9 +892,7 @@ extension DebugHarness {
         // Restore the session value, and flush that too so nothing is left pending for a
         // later scenario to trip over.
         Preferences.defaultRotationThreshold = originalThreshold
-        try? await Task.sleep(for: .milliseconds(120))
-        await coordinator.awaitRotationThresholdRefreshForTesting()
-        let reverted = cachedRotationMatches(originalThreshold)
+        let reverted = await awaitRotation(originalThreshold)
         r.check("rotation-cache-follows-default:reverted", reverted.0, reverted.1)
         _ = store.deleteFilms(ids: [rotationProbe.id])
         await coordinator.flushPendingSettingsSync()

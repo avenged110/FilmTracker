@@ -110,6 +110,20 @@ struct SortMenuInputs: Hashable, Sendable {
                 showSortingSections: state.showSectionDividers))
     }
 
+    /// Whether the sort options and direction pair are locked (SortMenuContent's
+    /// `isDisabled`) for the active view: a fixed-sort view (every Recents tab, "Upcoming
+    /// Releases"), or an empty library. Never the Section Dividers pair or "Jump to
+    /// Section", and never the menu itself — see SortMenuContent.
+    ///
+    /// Shared by GallerySortMenu's host and the MenuBar's SortByMenu so the two menus lock
+    /// the same items. SortMenuContent being shared kept the items identical, but each host
+    /// used to derive this flag (and its own outer `.disabled`) separately, which is where
+    /// the two drifted apart.
+    @MainActor
+    static func optionsLocked(coordinator: DataCoordinator) -> Bool {
+        ViewStateManager.shared.activeView.hasFixedSort || coordinator.totalFilmCount == 0
+    }
+
     /// The option the menu checks for a view whose stored sort is `stored`.
     ///
     /// Nil — no checkmark — on Recently Come Up for Rotation, the one view whose ordering
@@ -194,6 +208,17 @@ struct FilterMenuInputs: Hashable, Sendable {
     /// ViewIdentifier's own sub-case accessors, rather than one being handed down by a
     /// host while the other two are read live — which is what the gallery host used to do
     /// with `smartListType`, giving one call three inputs sourced two different ways.
+    /// Whether the whole Filter menu is disabled for the active view: during initial
+    /// loading, and when the view is empty for a reason filters did not cause. With filters
+    /// active, an empty result is exactly when the menu must stay reachable so the user can
+    /// clear them. Shared by GalleryFilterMenu's host and the MenuBar's FilterItemsMenu, for
+    /// the reason `SortMenuInputs.optionsLocked` gives.
+    @MainActor
+    static func menuDisabled(coordinator: DataCoordinator) -> Bool {
+        let hasActiveFilters = !ViewStateManager.shared.activeState.filterOptions.isEmpty
+        return !coordinator.isInitialized || (coordinator.filmCount == 0 && !hasActiveFilters)
+    }
+
     static func disabledBlocks(smartListType: SmartListType?,
                                recentsCategory: RecentsCategory?,
                                unwatchedCategory: UnwatchedCategory?) -> Set<FilterBlock> {
@@ -544,7 +569,7 @@ struct GallerySortMenu: View {
     ///     move while the count stays put (a film's release year changing its band under a
     ///     release-year sort). User-paced, so this is not a bulk-operation cost; additions
     ///     and deletions are deliberately left to the count above rather than double-firing
-    ///     here.
+    ///     here. Refreshed a turn after the event, once the edited films are loaded.
     ///
     /// Everything else — the sort, the direction, the dividers setting and its lock, and
     /// the per-view disabling — changes only through a ViewStateManager mutator or a view
@@ -570,7 +595,10 @@ struct GallerySortMenu: View {
         .onChange(of: coordinator.films.count) { _, _ in refreshInputs() }
         .onFilmEvent { event in
             switch event {
-            case .updated, .releaseChanged: refreshInputs()
+            // One turn later: the event is delivered synchronously, and its sender reloads
+            // the films only after posting it (DataCoordinator.reloadCurrentView), so a
+            // refresh made here would scan the films as they were before the edit.
+            case .updated, .releaseChanged: DispatchQueue.main.async { refreshInputs() }
             case .added, .deleted: break
             }
         }

@@ -449,7 +449,7 @@ private struct ActiveImportRow: View {
             // is stable for the entire import and never re-formatted on each re-render.
             HStack {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text((importProgress.importStartDate ?? Date()).formatted(date: .complete, time: .omitted))
+                    Text((importProgress.importStartDate ?? Date()).formatted(Date.FormatStyle(date: .complete, time: .omitted, calendar: AppCalendar.current)))
                         .font(.headline)
                     Text("In Progress")
                         .font(.subheadline)

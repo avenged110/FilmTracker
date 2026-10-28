@@ -205,6 +205,7 @@ final class SettingsManager: Loggable {
             largeGalleryGrid: Preferences.largeGalleryGrid,
             showStatusBar: Preferences.showStatusBar,
             rememberRightSidebarTab: Preferences.rememberRightSidebarTab,
+            rememberRightSidebarReleasesFilter: Preferences.rememberRightSidebarReleasesFilter,
             autoExpandRightSidebarTables: Preferences.autoExpandRightSidebarTables,
             additionalCalTableDetails: Preferences.additionalCalTableDetails,
             showReleasesSummaryTable: Preferences.showReleasesSummaryTable,
@@ -213,6 +214,8 @@ final class SettingsManager: Loggable {
             smartLists: Preferences.smartLists,
             excludeQueuedFromUpForRotation: Preferences.excludeQueuedFromUpForRotation,
             maintainSelectionOnSearchExit: Preferences.maintainSelectionOnSearchExit,
+            showSearchSuggestions: Preferences.showSearchSuggestions,
+            showRecentSearches: Preferences.showRecentSearches,
             showInfoComplete: Preferences.showInfoComplete,
             performBackupAtLaunch: Preferences.performBackupAtLaunch,
             defaultRotationThreshold: Preferences.defaultRotationThreshold,
@@ -284,6 +287,8 @@ final class SettingsManager: Loggable {
         
         apply(snapshot.rememberRightSidebarTab) { Preferences.rememberRightSidebarTab = $0 }
         
+        apply(snapshot.rememberRightSidebarReleasesFilter) { Preferences.rememberRightSidebarReleasesFilter = $0 }
+        
         apply(snapshot.autoExpandRightSidebarTables) { Preferences.autoExpandRightSidebarTables = $0 }
 
         apply(snapshot.additionalCalTableDetails) { Preferences.additionalCalTableDetails = $0 }
@@ -299,6 +304,10 @@ final class SettingsManager: Loggable {
         apply(snapshot.excludeQueuedFromUpForRotation) { Preferences.excludeQueuedFromUpForRotation = $0 }
 
         apply(snapshot.maintainSelectionOnSearchExit) { Preferences.maintainSelectionOnSearchExit = $0 }
+
+        apply(snapshot.showSearchSuggestions) { Preferences.showSearchSuggestions = $0 }
+
+        apply(snapshot.showRecentSearches) { Preferences.showRecentSearches = $0 }
         
         apply(snapshot.showInfoComplete) { Preferences.showInfoComplete = $0 }
         

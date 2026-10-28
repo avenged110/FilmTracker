@@ -44,6 +44,34 @@ private let tertiaryLabelColor        = Color(NSColor.tertiaryLabelColor)
 // conversion each time.
 private let listButtonBackingFill     = Color(nsColor: .windowBackgroundColor)
 
+// MARK: - Observation Boundary
+
+/// Builds `content` in its own body, so everything `content` reads is tracked HERE rather
+/// than in the body that declares it.
+///
+/// **Why the tabs need it**
+///
+/// Creating `$viewModel.name` in a tab's body and handing it to a control there subscribes
+/// that whole body to `name`, exactly as reading `viewModel.name` there would. Measured by
+/// the `filmsheet-perf` harness scenario: one keystroke in the Details tab's Name field,
+/// Metadata's Sort Name or Notes' Release re-ran the entire tab body, and with it every
+/// row's construction, for a change one text field displays.
+///
+/// Wrapping the row moves the binding's creation into this view's body, so a change
+/// re-evaluates the row and nothing else. It is the same boundary `FilmSheetListRow`
+/// draws by taking a model and key path, and that `DeferredFieldContent` draws as a side
+/// effect of calling its closure in its own body, offered for rows that need no type of
+/// their own. A row with state or a cascade of its own is better given a named view.
+///
+/// The closure makes this view incomparable, so it re-runs whenever the enclosing body
+/// does — which, once every bound row is wrapped, is only for the few values that body
+/// still reads itself.
+struct ObservationBoundary<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View { content() }
+}
+
 // MARK: - Deferred Field Construction
 
 /// One display frame, in the units `Task.sleep(for:)` takes.
@@ -2966,6 +2994,27 @@ struct SheetMenuPicker<Value: Hashable>: View {
 // its segments change, and back. `sizeThatFits` reproduces the rule,
 // and the harness asserts the two controls' alignment rects agree for every proposal shape
 // the sheet uses.
+/// What a segmented control's measured size depends on — its labels, size and font, and the
+/// appearance it resolves CoreUI metrics in — so equal keys measure equally.
+private struct SegmentedMetricsKey: Hashable {
+    let titles: [String]
+    let controlSize: UInt
+    let fontSize: CGFloat
+    let appearance: NSAppearance.Name
+}
+
+/// Measured (minimum, ideal) width and height per segment set, shared by every
+/// `SheetSegmentedControl` in the process.
+///
+/// File scope because the control is generic, and Swift does not permit static stored
+/// properties there. Measuring is a CoreUI metrics query per segment — about a millisecond for
+/// the Queue Membership row's four — and every FilmSheet builds a fresh control showing the
+/// same four labels, so before this each open measured them again. The `filmsheet-perf`
+/// harness scenario's open loop sampled `intrinsicContentSize` under `sizeThatFits` as the
+/// largest single item in the Details tab's first layout. Bounded by the handful of distinct
+/// segment sets the app has.
+@MainActor private var segmentedMetricsCache: [SegmentedMetricsKey: (min: CGFloat, ideal: CGFloat, height: CGFloat)] = [:]
+
 struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
     /// One segment, in order. A disabled segment is drawn dimmed and ignores clicks
     /// (`NSSegmentedControl.setEnabled(_:forSegment:)`); it can still be selected through
@@ -3031,8 +3080,10 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView control: NSSegmentedControl,
                       context: Context) -> CGSize? {
-        let (minWidth, idealWidth) = context.coordinator.widths(of: control)
-        let height = control.intrinsicContentSize.height
+        // The height is measured with the widths and cached alongside them. It was read off
+        // `intrinsicContentSize` on every call — a CoreUI metrics query per segment, and
+        // SwiftUI asks several times per layout pass.
+        let (minWidth, idealWidth, height) = context.coordinator.metrics(of: control)
         if let width = proposal.width, width.isFinite {
             return CGSize(width: max(width, minWidth), height: height)
         }
@@ -3047,8 +3098,9 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
         private var tags: [Value] = []
         /// What the current segments were built from, so an unchanged update is free.
         private var builtSegments: [Segment]?
-        /// (minimum, ideal) width, measured once per segment set; see the type comment.
-        private var cachedWidths: (min: CGFloat, ideal: CGFloat)?
+        /// (minimum, ideal) width and height, measured once per segment set; see the type
+        /// comment and `segmentedMetricsCache`.
+        private var cachedWidths: (min: CGFloat, ideal: CGFloat, height: CGFloat)?
 
         init(selection: Binding<Value>) { self.selection = selection }
 
@@ -3076,18 +3128,27 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
             control.invalidateIntrinsicContentSize()
         }
 
-        func widths(of control: NSSegmentedControl) -> (min: CGFloat, ideal: CGFloat) {
+        func metrics(of control: NSSegmentedControl) -> (min: CGFloat, ideal: CGFloat, height: CGFloat) {
             if let cachedWidths { return cachedWidths }
+            let key = SegmentedMetricsKey(titles: builtSegments?.map(\.title) ?? [],
+                                          controlSize: control.controlSize.rawValue,
+                                          fontSize: control.font?.pointSize ?? 0,
+                                          appearance: control.effectiveAppearance.name)
+            if let shared = segmentedMetricsCache[key] {
+                cachedWidths = shared
+                return shared
+            }
             control.segmentDistribution = .fit
             control.invalidateIntrinsicContentSize()
             let insets = control.alignmentRectInsets
             let minWidth = control.intrinsicContentSize.width + insets.left + insets.right
             control.segmentDistribution = .fillEqually
             control.invalidateIntrinsicContentSize()
-            let idealWidth = control.intrinsicContentSize.width
-            let widths = (min: minWidth, ideal: idealWidth)
-            cachedWidths = widths
-            return widths
+            let fitted = control.intrinsicContentSize
+            let metrics = (min: minWidth, ideal: fitted.width, height: fitted.height)
+            cachedWidths = metrics
+            segmentedMetricsCache[key] = metrics
+            return metrics
         }
 
         func select(tag: Value, on control: NSSegmentedControl) {

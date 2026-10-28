@@ -378,6 +378,7 @@ struct FSTabPosterView: View {
     @Bindable var viewModel: FSTabPoster
 
     var body: some View {
+        let _ = FilmSheetBodyProbe.hit("poster")
         VStack(spacing: 16) {
             Text(viewModel.titleText)
                 .padding(.top, 3)

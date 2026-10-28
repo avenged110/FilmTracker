@@ -21,6 +21,8 @@ enum GalleryRefreshProbe {
     static var listRowsRefreshed = 0
     /// List row hosting views whose rootView was actually reassigned.
     static var listRowRootViewAssignments = 0
+    /// Grid cells whose selection ring was re-stroked (GalleryItem.updateRingVisibility).
+    static var ringRefreshes = 0
 }
 #endif
 
@@ -277,7 +279,10 @@ private let kGalleryItemID = NSUserInterfaceItemIdentifier("GalleryItem")
 struct GallerySubview: NSViewRepresentable, Loggable {
     nonisolated static let logTag = "[GallerySubview]"
 
-    let forceReloadID: UUID
+    // NOTE: no `forceReloadID` any more. GalleryView bumped one on every film event, but
+    // nothing here decided anything from it: reloads are decided from the films alone (see
+    // needsReload in updateNSView), so its only effect was an update pass, and the pass was
+    // needed only when the films had changed too — which schedules one by itself.
     /// A post-edit "keep this film in view" request from GalleryView. One-shot: the
     /// Coordinator acts on a given request once and ignores it on every later pass, so
     /// GalleryView never has to clear it (which cost a second full update pass per edit).
@@ -290,13 +295,14 @@ struct GallerySubview: NSViewRepresentable, Loggable {
     /// SwiftUI environment to inherit it from. The Coordinator stores this and forwards it to
     /// GalleryItem.configure(with:subtitleProvider:) on every cell (re)configuration.
     let subtitleProvider: GallerySubtitleProvider?
-    /// This view's section-dividers setting, read from its ViewState by GalleryView and
-    /// passed down. Was an @AppStorage read of a single global preference here; it is now
-    /// per-view state, and an NSViewRepresentable is not an observation-tracked scope, so
-    /// the read has to happen in GalleryView's body for a change to reach this struct at
-    /// all. Arriving as a stored property also means a change is a genuine value change on
-    /// the representable, which is precisely what schedules the updateNSView pass that
-    /// pushes it onto the Coordinator and adds or removes the bands in place.
+    /// This view's section-dividers setting, read by GalleryView from the state of the
+    /// films on screen (ViewStateManager.displayedGalleryState) and passed down. Was an
+    /// @AppStorage read of a single global preference here; it is now per-view state, taken
+    /// from the same state GalleryView chooses the grid/list style from, so the two cannot
+    /// describe different Film Queue tabs (see the note at its read in GalleryView). A
+    /// change arrives as a genuine value change on the representable, which schedules the
+    /// updateNSView pass that pushes it onto the Coordinator and adds or removes the bands in
+    /// place.
     let showSectionDividers: Bool
 
     @Environment(DataCoordinator.self) private var dataCoordinator
@@ -409,11 +415,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         // (the targeting prevents a stale, still-mounted search-view instance from
         // consuming it — see GalleryScrollIntent in ViewState.swift):
         //
-        // 1. Preload the destination view's films into the coordinator, reloadData(),
-        //    and match lastForceReloadID to the current forceReloadID. The first
-        //    updateNSView pass then computes needsReload = false (identical films,
-        //    matching reload ID), so no second reloadData() — which unconditionally
-        //    resets scroll to y=0 — fires after the scroll is performed.
+        // 1. Preload the destination view's films into the coordinator and reloadData().
+        //    The first updateNSView pass then computes needsReload = false (identical
+        //    films, matching view identity), so no second reloadData() — which
+        //    unconditionally resets scroll to y=0 — fires after the scroll is performed.
         //    dataCoordinator.films already holds the destination view's films here:
         //    MainView calls switchToViewSync(destination) before flipping
         //    selectedSidebarItem, and GalleryView only instantiates GallerySubview
@@ -442,7 +447,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         if let filmID = GalleryScrollIntent.shared.consume(ifTargeting: activeViewID) {
             coordinator.films = dataCoordinator.films
             // This preload path bypasses the normal updateNSView reload branch entirely
-            // (it seeds coordinator.films and lastForceReloadID directly so the very next
+            // (it seeds coordinator.films and the view identities directly so the very next
             // updateNSView pass sees no change and skips its own reload — which would
             // reset scroll to y=0 a second time, after this arming has already taken
             // effect), which means it must also perform the section-divider recomputation
@@ -480,7 +485,6 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             coordinator.withSuppressedCallbacks {
                 collectionView.reloadData()
             }
-            coordinator.lastForceReloadID = forceReloadID
             scrollView.pendingScrollFilmID = filmID
             // This path deliberately bypasses updateNSView's reload branch, which is where
             // an origin restore would otherwise be picked up. The film handoff outranks it,
@@ -546,6 +550,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        #if DEBUG
+        ViewSwitchProbe.record("grid.update \(activeViewID)")
+        #endif
         guard let collectionView = scrollView.documentView as? GalleryCollectionView else { return }
         let coordinator = context.coordinator
         coordinator.dataCoordinator = dataCoordinator
@@ -669,12 +676,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         }
 
         // Check if reload is needed:
-        // 1. Explicit signal via forceReloadID change (O(1))
-        // 2. View identity changed since the last reload (see viewIdentityChanged below)
-        // 3. Count changed (view switch or filter change)
-        // 4. First/last film changed (different view or major sort change)
-        // 5. Interior reorder with stable endpoints (ambiguous-case fallback, below)
-        let forceReloadTriggered = coordinator.lastForceReloadID != forceReloadID
+        // 1. View identity changed since the last reload (see viewIdentityChanged below)
+        // 2. Count changed (view switch or filter change)
+        // 3. First/last film changed (different view or major sort change)
+        // 4. Interior reorder with stable endpoints (ambiguous-case fallback, below)
 
         // Identity-based signal, independent of film-content heuristics: currentViewID was
         // just set to activeViewID above, and prevViewID is only ever advanced inside the
@@ -735,8 +740,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         // whether the interior order changed — e.g. switching between two sort options that
         // share the same first and last film (Date Added ⇄ Date Modified when the newest and
         // oldest films coincide under both orderings). A sort change routes through
-        // loadFilms() (which reassigns dataCoordinator.films but emits no event and does not
-        // bump forceReloadID), so without this check the reordered interior would never be
+        // loadFilms() (which reassigns dataCoordinator.films but emits no event), so without
+        // this check the reordered interior would never be
         // drawn and the gallery would keep displaying the prior order.
         //
         // The O(N) ordered-ID scan is only reached in this ambiguous branch and is negligible
@@ -748,9 +753,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         // pass where dataCoordinator.films was not reassigned (selection, status-bar toggle,
         // dividers setting), so the O(N) ID walk is only reached after a real reload.
         //
-        // A forceReloadID bump (a film edit, a smart-list recalculation) is held to the same
-        // test rather than reloading unconditionally: when the ID sequence survived, the
-        // edit changed only what the tiles show, and the in-place branch below reconfigures
+        // A film edit or a smart-list recalculation is held to the same test rather than
+        // reloading unconditionally: when the ID sequence survived, the edit changed only
+        // what the tiles show, and the in-place branch below reconfigures
         // them without the reloadData() that rebuilt every visible tile and reset the scroll.
         let structuralChange = viewIdentityChanged || countChanged || firstOrLastChanged ||
                                filmQueueFilterChanged
@@ -881,7 +886,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 collectionView.selectionIndexPaths = []
                 collectionView.reloadData()
             }
-            coordinator.lastForceReloadID = forceReloadID
+            coordinator.dividerBandsNeedRefresh = true
 
             // Decide how to handle scroll position after the reload.
             // Priority order:
@@ -1035,7 +1040,6 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 ViewSwitchProbe.record("grid.inPlace \(coordinator.currentViewID) films=\(newFilms.count)")
                 #endif
             }
-            if forceReloadTriggered { coordinator.lastForceReloadID = forceReloadID }
 
             // A reuse-path film handoff is claimed here too, not only by the reload branch.
             // A Film Queue section move that leaves the film at the same index (the last Up
@@ -1122,7 +1126,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         // additive: reads layout/cache state and dispatches background work only.
         coordinator.prefetchAroundVisibleRectIfPopulating()
 
-        // Final, unconditional reconciliation of the divider bands' TEXT against the layout
+        // Final reconciliation of the divider bands' TEXT against the layout
         // that this pass just produced. Deliberately last: by here the collection view holds
         // the current film set and the layout has been invalidated with the current breaks,
         // so every band resolves exactly. See refreshVisibleSectionDividers for why an
@@ -1235,7 +1239,6 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         let selectionState: SelectionState
 
         var hasCompletedFirstUpdate = false
-        fileprivate var lastForceReloadID: UUID = UUID()
         /// The last scroll request this Coordinator has seen, acted on or not.
         fileprivate var lastScrollRequest: FilmScrollRequest?
         private var isSuppressingCallbacks = false
@@ -1407,9 +1410,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 }
                 .store(in: &cancellables)
 
-            // NOTE: No filmEvents subscription here. GalleryView's consolidated film event
-            // handler already calls forceReload() and bumps forceReloadID for every
-            // .updated/.added/.deleted event, and updateNSView answers that pass with either a
+            // NOTE: No filmEvents subscription here. Every film change reaches this view as a
+            // change of dataCoordinator.films (GalleryView reloads for any change its sender
+            // did not load), and updateNSView answers that pass with either a
             // reloadData() (the film set or its order changed) or an in-place reconfigure of
             // the existing cells (only their content did). A refresh here would duplicate it.
         }
@@ -2125,10 +2128,17 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             let queueFilter: FilmQueueFilter?
             let sortOption: SortOption?
             let recentsCategory: RecentsCategory?
+            /// See GallerySectioning.filmQueueMembership.
+            let queueMembership: [Set<UUID>]?
         }
 
         /// What the layout's current breaks were computed from; see updateSectionDividers.
         private var lastSectionBreakInputs: SectionBreakInputs?
+
+        /// True when the bands' labels may lag the layout: the breaks or slot run changed,
+        /// or the collection view reloaded, since the last refreshVisibleSectionDividers.
+        /// That sweep is skipped on every other pass, where nothing it reconciles moved.
+        fileprivate var dividerBandsNeedRefresh = true
 
         func updateSectionDividers() {
             guard let layout = collectionView?.collectionViewLayout as? SmoothResizingGridLayout else { return }
@@ -2136,14 +2146,16 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             // bands apply. Skip it when nothing they derive from has changed: `films`
             // compares in O(1) when it is the same buffer, and the other inputs are the
             // gates inside displayedSectionBreaks — the same skip GalleryListView makes
-            // for its row model. The Film Queue's "All" tab is exempt: its bands come
-            // from queue membership, which no FilmSnapshot field reflects.
+            // for its row model. The Film Queue's "All" tab takes its bands from queue
+            // membership, which no FilmSnapshot field reflects, so that membership is an
+            // input of its own.
             let inputs = SectionBreakInputs(films: films,
                                             showSortingSections: showSortingSections,
                                             queueFilter: dataCoordinator?.loadedFilmQueueFilter,
                                             sortOption: dataCoordinator?.loadedSortOption,
-                                            recentsCategory: dataCoordinator?.loadedRecentsCategory)
-            if inputs.queueFilter != .all, inputs == lastSectionBreakInputs { return }
+                                            recentsCategory: dataCoordinator?.loadedRecentsCategory,
+                                            queueMembership: dataCoordinator.flatMap(GallerySectioning.filmQueueMembership))
+            if inputs == lastSectionBreakInputs { return }
             lastSectionBreakInputs = inputs
             // Every gate lives in GallerySectioning.displayedSectionBreaks, which the list
             // style and the Sort menu's "Jump to Section" submenu also call — so all three
@@ -2175,6 +2187,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             layout.sectionBreaks = breaks
             layout.slotRun = slotRun
             layout.invalidateLayout()
+            dividerBandsNeedRefresh = true
         }
 
         /// Declares that the user has taken this viewport over by hand, so nothing the app
@@ -2222,13 +2235,25 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// previous sort's sections. Sweeping them here makes the refresh the gallery's own
         /// responsibility rather than a behavior it has to hope for.
         ///
-        /// Cheap enough to run unconditionally: only bands currently in the view hierarchy
-        /// are visited (a handful, regardless of library size), and each one short-circuits
-        /// on unchanged text without touching the view.
+        /// Runs only on a pass where the breaks changed or the collection view reloaded (see
+        /// dividerBandsNeedRefresh). Then only bands currently in the view hierarchy are
+        /// visited (a handful, regardless of library size), and each one short-circuits on
+        /// unchanged text without touching the view.
         func refreshVisibleSectionDividers() {
             guard let collectionView,
                   let layout = collectionView.collectionViewLayout as? SmoothResizingGridLayout
             else { return }
+            // Nothing the sweep reconciles has moved since it last ran: the breaks are the
+            // ones the bands were last labeled from, and no reload has rebuilt them. Forcing
+            // the layout here on such a pass (a selection change, a status-bar toggle) was a
+            // layout of its own for no change.
+            guard dividerBandsNeedRefresh else {
+                #if DEBUG
+                GalleryRefreshProbe.skippedDividerLayouts += 1
+                #endif
+                return
+            }
+            dividerBandsNeedRefresh = false
             // No bands to label: no breaks means no divider rows, and the slot run is the
             // only other thing that places a band (its leading "Up Next" one). That is every
             // view without section dividers, and there the forced layout below was a pass of

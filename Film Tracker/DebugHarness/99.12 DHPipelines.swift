@@ -507,12 +507,12 @@ extension DebugHarness {
                                (.rating, "<9"), (.rating, "8-")] {
             search.currentTokens = [SearchToken(field: field, value: value,
                                                 isInverted: false, isOr: false)]
-            let matched = search.filterFilms([blank, valued]) { _ in [] }.map(\.name)
+            let matched = search.filterFilms([blank, valued], lists: SearchListCatalog(entries: [])).map(\.name)
             r.check("search-bounds/\(field.rawValue)\(value)", matched == [valued.name],
                     "matched \(matched), expected only '\(valued.name)'")
         }
         search.currentTokens = [SearchToken(field: .rating, value: "0", isInverted: false, isOr: false)]
-        let unrated = search.filterFilms([blank, valued]) { _ in [] }.map(\.name)
+        let unrated = search.filterFilms([blank, valued], lists: SearchListCatalog(entries: [])).map(\.name)
         r.check("search-bounds/exact-zero-still-finds-unrated", unrated == [blank.name],
                 "matched \(unrated), expected only '\(blank.name)'")
         search.clearSearch()
@@ -529,7 +529,7 @@ extension DebugHarness {
         func rotation(_ value: String, inverted: Bool = false) -> Set<String> {
             search.currentTokens = [SearchToken(field: .rotationThreshold, value: value,
                                                 isInverted: inverted, isOr: false)]
-            return Set(search.filterFilms(rotFilms) { _ in [] }.map(\.name))
+            return Set(search.filterFilms(rotFilms, lists: SearchListCatalog(entries: [])).map(\.name))
         }
         let everyOverride: Set = [sameAsDefault.name, differs.name]
         r.check("rotation-keywords/default-is-no-override", rotation("default") == [noOverride.name],
@@ -548,7 +548,7 @@ extension DebugHarness {
         // --- Ranges, unparseable dates, and the synopsis token ---------------------------------
         func ids(_ field: SearchField, _ value: String, in films: [FilmSnapshot], inverted: Bool = false) -> Set<String> {
             search.currentTokens = [SearchToken(field: field, value: value, isInverted: inverted, isOr: false)]
-            return Set(search.filterFilms(films) { _ in [] }.map(\.name))
+            return Set(search.filterFilms(films, lists: SearchListCatalog(entries: [])).map(\.name))
         }
         let band = (1...10).map { makeSnapshot(name: "Band \($0)", releaseYear: "\(1990 + $0)",
                                                rating: $0, duration: "\($0 * 20 * 60_000)") }

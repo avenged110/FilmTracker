@@ -480,7 +480,7 @@
   <ul>
     <li><strong>The default</strong> threshold for every film is set in Settings &gt; General.</li>
     <li><strong>An override</strong> gives one film its own threshold: edit the film and change Rotation Threshold from Use Default. <strong>Reset All Overrides</strong> in Settings returns every film to the default.</li>
-    <li><strong>Due dates round up</strong> to the first of the following month. A film last watched on March 14, 2024 with a 1-year threshold comes up for rotation on April 1, 2025.</li>
+    <li><strong>Due dates round up</strong> to the first of the following month. A film last watched on March 14, 2024, with a 1-year threshold comes up for rotation on April 1, 2025.</li>
   </ul>
   <p>The contextual sidebar&rsquo;s <strong>Next Up for Rotation</strong> field shows the due date and the time left, or <em>Ready for viewing</em> once it has arrived, or the Queue section the film is waiting in. Two smart lists collect these films: <strong>Up for Rotation</strong> (due under its threshold) and <strong>Viewed Over One Year Ago</strong>.</p>
 
@@ -528,7 +528,7 @@
   <table>
     <thead><tr><th style="width:1.6in">Row</th><th>Holds</th></tr></thead>
     <tbody>
-      <tr><td>Type / Versions</td><td>Standalone, Combo-pack, Combo-pack (dual BD), or Multi-pack; and the film versions on the disc.</td></tr>
+      <tr><td>Type / Versions</td><td>Standalone, Combo-pack, Combo-pack (dual BD), Combo-pack (multi-pack), or Multi-pack; and the film versions on the disc.</td></tr>
       <tr><td>Purchased</td><td>Whether you own it, and the number of discs. Purchased releases count toward spending and the Purchased smart lists. <strong>Upcoming</strong> appears beside the checkbox while the release date is still ahead.</td></tr>
       <tr><td>Misc. Traits / Art</td><td>Aspect ratio; Recordable (a BD-R or DVD-R), Remastered, Includes Subtitles, Wishlisted; and the artwork (correct, Steelbook, custom, mismatched, or missing).</td></tr>
       <tr><td>Video</td><td>Codec, HDR format (Dolby Vision, HDR10, HDR10+), whether a 4K disc is upscaled or native, and whether the transfer is interlaced.</td></tr>
@@ -537,14 +537,14 @@
       <tr><td>Released</td><td>The date of this release, and an optional base year when it reissues an earlier one with the same transfer. The date can be up to a year ahead, and no earlier than the film&rsquo;s own release date. A release recorded before full dates were kept shows only its year, with dashes for the month and day; click any part of it to fill in the rest.</td></tr>
       <tr><td>Country / Region</td><td>National origin (anything but the United States counts as an import) and region lock: A, B, B loosely-locked, Region Free, or DVD regions 1&ndash;5.</td></tr>
       <tr><td>Cost / Spent</td><td>For owned discs: the price and the amount actually spent, the purchase date, and New or Used condition.</td></tr>
-      <tr><td>Lowest Price</td><td>For discs you want: the lowest price seen, when you last saw it, and market availability (Available, out of print, import only, temporarily unavailable). While the release date is still ahead, availability reads <em>Unreleased</em> and cannot be set.</td></tr>
+      <tr><td>Lowest Price</td><td>For discs you want: the lowest price seen, when you last saw it, and market availability. The availability menu has two sections, and you pick at most one item from each: a status (Available, Out-of-print, Temporarily unavailable, Unavailable) and a price band (Cheap, Reasonable, Exorbitant), shown together as, for example, <em>Out-of-print (cheap)</em>. For a release from outside the United States, the first two statuses read Import available and Import out-of-print; for a multi-pack, Multi-pack available and Multi-pack out-of-print; and for an imported multi-pack, Imported multi-pack available and Imported multi-pack out-of-print. Temporarily unavailable and Unavailable have no price band, so choosing either one clears the price. While the release date is still ahead, availability reads <em>Unreleased</em> and cannot be set.</td></tr>
       <tr><td>Notes</td><td>Anything else.</td></tr>
     </tbody>
   </table>
 
   <div class="keep">
   <h3>Combo packs</h3>
-  <p>Set a 4K release&rsquo;s Type to <strong>Combo-pack</strong> and a bundled Blu-ray card is created and linked to it (two for <strong>Combo-pack (dual BD)</strong>). The bundled discs share the 4K card&rsquo;s purchase details, which is why those rows are dimmed on them, and they cannot be deleted on their own. Changing the Type back asks before removing bundled discs you have edited.</p>
+  <p>Set a 4K release&rsquo;s Type to <strong>Combo-pack</strong> and a bundled Blu-ray card is created and linked to it (two for <strong>Combo-pack (dual BD)</strong>). <strong>Combo-pack (multi-pack)</strong> behaves exactly like Combo-pack, for a combo pack sold inside a multi-pack; its Artwork menu offers both <strong>Yes (Combo-pack)</strong> and <strong>Yes (Multi-pack)</strong>. The bundled discs share the 4K card&rsquo;s purchase details, which is why those rows are dimmed on them, and they cannot be deleted on their own. Changing the Type back asks before removing bundled discs you have edited.</p>
   </div>
 
   <div class="keep">
@@ -576,7 +576,7 @@
   </ul>
   </div>
   <div class="warn"><span class="t">Know the difference</span><p><strong>Clear List Contents</strong> empties the list and leaves the films in your library. <strong>Delete All List Contents from Library</strong> deletes every film in the list from Film Tracker. <strong>Remove List</strong> deletes the list itself and leaves its films alone.</p></div>
-  <p>A list cannot share a name with a smart list or with a Queue section.</p>
+  <p>A list cannot share a name with a smart list or with a Queue section. The list-name sheet checks the name as you type: the note beneath the field turns red and the sheet will not save it.</p>
 
   <div class="keep">
   <h3>Smart lists</h3>
@@ -669,7 +669,7 @@
   <div class="two">
     <div><ul>
       <li><strong>Library Overview</strong> and <strong>Ownership</strong></li>
-      <li><strong>Needs Attention:</strong> overdue rotations, missing posters, IDs, or artwork, unrated films, and more</li>
+      <li><strong>Needs Attention:</strong> overdue rotations; missing posters, IDs, or artwork; unrated films; and more</li>
       <li><strong>Collection Growth</strong> and <strong>Ratings Breakdown</strong></li>
       <li><strong>Viewing History:</strong> viewings per year, rewatches, seasonality, versions watched</li>
       <li><strong>Rotation:</strong> what is overdue or due soon, and whether your thresholds match your habits</li>
@@ -799,6 +799,7 @@
       <tr><td>Show the Smart Lists section</td><td>Shows or hides smart lists. Beneath it: keep queued films out of the Up for Rotation lists.</td></tr>
       <tr><td>When dragging films onto the Queue&hellip;</td><td>Makes the Queue a drop target, and picks the section dropped films join.</td></tr>
       <tr><td>Contextual sidebar</td><td>Show the Web Query button; keep the same tab when the selection changes; expand collapsed tables automatically; show additional Viewing History details; show a summary table of all releases.</td></tr>
+      <tr><td>Show relevant suggestions when using the search field</td><td>Suggests titles and token values from your library as you type, ranked by what you search for most. Beneath it: list your recent searches from this session when you click the empty field.</td></tr>
       <tr><td>Persist selection when exiting search results</td><td>Keeps a film selected when you clear a search, if it is also in the view you return to.</td></tr>
       <tr><td>Remember prior scroll positions</td><td>Each view reopens where you left it.</td></tr>
       <tr><td>Remember the last-selected tab</td><td>Recents, Reports, or both reopen on the tab you last used, across launches.</td></tr>
@@ -826,7 +827,7 @@
       <tr><td>Show glyphs in contextual sidebar fields</td><td>Small icons beside the fields in the Details tab.</td></tr>
       <tr><td>Override date clamp for viewing events</td><td>Allows viewing dates earlier than a film&rsquo;s release date. Turns itself off when you quit.</td></tr>
       <tr><td>Strict input validation for HandBrake frame data</td><td>Checks frame numbers and time codes in the Notes tab more strictly as you enter them.</td></tr>
-      <tr><td>Prune orphaned poster images</td><td>Periodically deletes poster files that no film uses any more.</td></tr>
+      <tr><td>Prune orphaned poster images</td><td>Periodically deletes poster files that no film uses anymore.</td></tr>
       <tr><td>Debug logging</td><td>Writes a diagnostic log, useful when reporting a bug.</td></tr>
     </tbody>
   </table>

@@ -5,6 +5,7 @@
 // data. Sourced exclusively from FilmSnapshot value types; does not reference SwiftData.
 
 import Foundation
+import os
 
 // MARK: - Film Metadata Structure
 struct FilmMetadata: Codable {
@@ -68,6 +69,8 @@ struct FilmMetadata: Codable {
     // match across the boundary between two of them.
     let nameSearchKey: String
     let alternateTitleSearchKeys: String
+    /// The synopsis (`descriptionText`) in the same form, for the `#synopsis` token.
+    let synopsisSearchKey: String
     
     /// Creates a FilmMetadata entry from a FilmSnapshot.
     /// All data is sourced from value types; no SwiftData @Model objects are accessed.
@@ -174,6 +177,7 @@ struct FilmMetadata: Codable {
         // Search Cache Data — precomputed so a keystroke never re-normalizes the library.
         self.nameSearchKey = SearchText.key(snapshot.name)
         self.alternateTitleSearchKeys = snapshot.alternateTitle.map(SearchText.key).joined(separator: "\n")
+        self.synopsisSearchKey = SearchText.key(snapshot.descriptionText)
     }
 
     // MARK: - Format-Scoped Purchase Access
@@ -308,7 +312,7 @@ extension FilmMetadata {
         "duration", "dateAddedRaw", "lastWatchedRaw", "lastModifiedRaw", "rotationDate",
         "dateAddedFormatted", "lastWatchedFormatted", "lastModifiedFormatted",
         "rotationDateFormatted", "purchaseDateFormatted", "nameSearchKey",
-        "alternateTitleSearchKeys",
+        "alternateTitleSearchKeys", "synopsisSearchKey",
     ]
 
     /// True when every field in `sortFieldNames` is equal, so this entry and `other`
@@ -380,10 +384,23 @@ struct FilmMetadataCacheFile: Codable {
     /// Version 7 replaces the lowercased search strings with `SearchText.key` forms
     /// (`nameSearchKey`, `alternateTitleSearchKeys`), which fold diacritics and drop
     /// punctuation so a typed hyphen or a missing colon still finds the title.
-    static let currentSchemaVersion = 7
+    ///
+    /// Version 8 adds `synopsisSearchKey`, so the `#synopsis` token reads a stored key
+    /// instead of normalizing every film's synopsis on each search.
+    ///
+    /// Version 9: `rotationDate` is computed in the Gregorian calendar whatever the system
+    /// calendar (AppCalendar); an entry written under a Hebrew or Islamic system calendar
+    /// holds a rotation date counted in its months. The file also gains `libraryOrders`.
+    static let currentSchemaVersion = 9
 
     let schemaVersion: Int
     let entries: [UUID: FilmMetadata]
+    /// The library orders over exactly `entries`, saved only when they were current for
+    /// them, keyed by `LibraryOrderKey.storageName`; each is the order's film IDs, 16 bytes
+    /// apiece. Never trusted as read: `MetadataCache.validatedOrders` keeps only those that
+    /// are, pair by pair, what `compare` would build over these entries now. Optional, so a
+    /// file without them still loads (the orders are then built in the background).
+    var libraryOrders: [String: Data]? = nil
 }
 
 // MARK: - Metadata Cache
@@ -408,7 +425,7 @@ final class MetadataCache: Loggable {
     // the descending result is exactly the ascending one reversed. So each option's
     // ascending order over the whole library is built once, off the main actor, and every
     // later sort() of a view's films is a filter of it: O(N) instead of an
-    // O(N log N) sort whose title comparisons (localizedStandardCompare) cost ~33 ms per
+    // O(N log N) sort whose title comparisons (englishStandardCompare) cost ~33 ms per
     // 1,400 films on the main thread, after every edit.
     //
     // Correctness rests on one rule: an order is used only while it describes the
@@ -429,6 +446,26 @@ final class MetadataCache: Loggable {
             self.option = option
             self.purchaseFormat = option == .datePurchased ? purchaseFormat : nil
         }
+
+        /// How the key is written in the cache file: the option's raw value, and for a
+        /// format-scoped Date Last Purchased, "|" and the format's.
+        var storageName: String {
+            purchaseFormat.map { "\(option.rawValue)|\($0.rawValue)" } ?? option.rawValue
+        }
+
+        /// The key `storageName` names, or nil for anything this build does not write
+        /// (an option or format since renamed, or a format on an option that ignores it).
+        init?(storageName: String) {
+            let parts = storageName.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            guard let option = SortOption(rawValue: String(parts[0])) else { return nil }
+            var format: ReleaseFormat?
+            if parts.count == 2 {
+                guard let parsed = ReleaseFormat(rawValue: String(parts[1])) else { return nil }
+                format = parsed
+            }
+            self.init(option, purchaseFormat: format)
+            guard self.storageName == storageName else { return nil }
+        }
     }
 
     /// Bumped by every mutation of `metadata`.
@@ -438,7 +475,6 @@ final class MetadataCache: Loggable {
     /// Ascending orders over every film in `metadata`, by key.
     private var libraryOrders: [LibraryOrderKey: [UUID]] = [:]
     private var libraryOrderBuild: Task<Void, Never>?
-    private var localeObserver: (any NSObjectProtocol)?
 
     /// Off for harness-isolated instances, whose sort scenarios exist to exercise the
     /// comparators directly (a permutation-invariance check served from a cached order
@@ -493,12 +529,10 @@ final class MetadataCache: Loggable {
             ).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
             self.cacheURL = appSupport.appendingPathComponent("metadata-cache.bin")
             self.usesLibraryOrders = Self.libraryOrdersEnabledAtLaunch
-            observeLocaleChanges()
             return
         }
         self.cacheURL = dataFolder.appendingPathComponent("metadata-cache.bin")
         self.usesLibraryOrders = Self.libraryOrdersEnabledAtLaunch
-        observeLocaleChanges()
     }
 
     /// DEBUG builds honor `-FTDisableLibraryOrders`, so a harness run can be repeated with
@@ -509,15 +543,6 @@ final class MetadataCache: Loggable {
         #else
         return true
         #endif
-    }
-
-    /// Title comparisons are locale-dependent (localizedStandardCompare), so orders built
-    /// under the previous locale are dropped and rebuilt.
-    private func observeLocaleChanges() {
-        localeObserver = NotificationCenter.default.addObserver(
-            forName: NSLocale.currentLocaleDidChangeNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { MetadataCache.shared.dropLibraryOrders(reason: "locale changed") }
-        }
     }
 
     #if DEBUG
@@ -548,7 +573,7 @@ final class MetadataCache: Loggable {
     private var hasLoadedFromDisk = false
 
     /// The cache file's read and decode, started by beginEarlyLoad and consumed by load().
-    private var earlyRead: Task<([UUID: FilmMetadata]?, String?), Never>?
+    private var earlyRead: Task<CacheFileRead, Never>?
 
     /// Starts load()'s read and decode now, off the main thread, so it overlaps the AppKit
     /// launch work before `initializeApp()` runs. Only the read moves: every assignment and
@@ -561,13 +586,18 @@ final class MetadataCache: Loggable {
         earlyRead = Task.detached(priority: .userInitiated) { Self.readCacheFile(at: url) }
     }
 
+    /// The early read's start and end, in LaunchTimeline milliseconds, set by the read.
+    private nonisolated static let readStamps = OSAllocatedUnfairLock<(start: Double, end: Double)?>(initialState: nil)
+
     /// Reads and decodes the cache file. Returns a tuple so the actual error description
     /// is available on the MainActor side for logging. Returning only `nil`
     /// (the prior approach) silently discarded the failure reason, making
     /// cache corruption or decode errors impossible to diagnose from logs.
     /// A tuple is used rather than Result<_, String> because Result requires
     /// its Failure type to conform to Error, which String does not.
-    private nonisolated static func readCacheFile(at url: URL) -> ([UUID: FilmMetadata]?, String?) {
+    private nonisolated static func readCacheFile(at url: URL) -> CacheFileRead {
+        let start = LaunchTimeline.now()
+        defer { readStamps.withLock { $0 = (start, LaunchTimeline.now()) } }
         do {
             let data = try Data(contentsOf: url)
             let decoder = PropertyListDecoder()
@@ -580,13 +610,90 @@ final class MetadataCache: Loggable {
             // logs the reason and leaves `metadata` empty, which routes into
             // MemoryStore's existing "no existing MetadataCache" rebuild branch.
             guard file.schemaVersion == FilmMetadataCacheFile.currentSchemaVersion else {
-                return (nil, "schema version \(file.schemaVersion) ≠ expected \(FilmMetadataCacheFile.currentSchemaVersion) — discarding for rebuild")
+                return CacheFileRead(error: "schema version \(file.schemaVersion) ≠ expected \(FilmMetadataCacheFile.currentSchemaVersion) — discarding for rebuild")
             }
 
-            return (file.entries, nil)
+            // Validated here, on the read's background thread, which launch does not wait on.
+            let validationStart = ContinuousClock.now
+            let validated = validatedOrders(file.libraryOrders ?? [:], for: file.entries)
+            return CacheFileRead(entries: file.entries, orders: validated.orders,
+                                 rejectedOrders: validated.rejected,
+                                 validation: ContinuousClock.now - validationStart)
         } catch {
-            return (nil, error.localizedDescription)
+            return CacheFileRead(error: error.localizedDescription)
         }
+    }
+
+    /// What `readCacheFile` hands back: the entries, the saved library orders that proved
+    /// valid for them, how many saved orders did not, and why the read failed if it did.
+    private struct CacheFileRead: Sendable {
+        var entries: [UUID: FilmMetadata]?
+        var orders: [LibraryOrderKey: [UUID]] = [:]
+        var rejectedOrders = 0
+        var validation: Duration = .zero
+        var error: String?
+    }
+
+    /// The saved orders that are exactly the orders `compare` builds over `entries` today.
+    ///
+    /// Each must name every entry once, and each neighboring pair must compare in order.
+    /// `compare` is a strict total order (every rule ends in the film ID), whose sorted
+    /// order is unique, so that is a proof, not a heuristic: an order saved by a build
+    /// whose comparator, title rules or ICU collation differed fails it and is rebuilt.
+    /// It costs one comparison per film per order — a twelfth of a sort's.
+    nonisolated private static func validatedOrders(_ stored: [String: Data],
+                                                    for entries: [UUID: FilmMetadata]) -> (orders: [LibraryOrderKey: [UUID]], rejected: Int) {
+        var orders: [LibraryOrderKey: [UUID]] = [:]
+        var rejected = 0
+        for (name, data) in stored {
+            guard let key = LibraryOrderKey(storageName: name), wantedLibraryOrderKeys.contains(key),
+                  orders[key] == nil, let ids = unpackedIDs(data), ids.count == entries.count,
+                  Set(ids).count == ids.count, isStrictlyAscending(ids, by: key, in: entries) else {
+                rejected += 1
+                continue
+            }
+            orders[key] = ids
+        }
+        return (orders, rejected)
+    }
+
+    nonisolated private static func isStrictlyAscending(_ ids: [UUID], by key: LibraryOrderKey,
+                                                        in entries: [UUID: FilmMetadata]) -> Bool {
+        var previous: FilmMetadata?
+        for id in ids {
+            guard let entry = entries[id] else { return false }
+            if let previous, !compare(previous, entry, by: key.option, purchaseFormat: key.purchaseFormat) {
+                return false
+            }
+            previous = entry
+        }
+        return true
+    }
+
+    /// Film IDs as 16 raw bytes apiece — a fifth of their size as plist strings, and read
+    /// back without parsing.
+    nonisolated private static func packedIDs(_ ids: [UUID]) -> Data {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(ids.count * 16)
+        for id in ids {
+            let u = id.uuid
+            bytes += [u.0, u.1, u.2, u.3, u.4, u.5, u.6, u.7, u.8, u.9, u.10, u.11, u.12, u.13, u.14, u.15]
+        }
+        return Data(bytes)
+    }
+
+    nonisolated private static func unpackedIDs(_ data: Data) -> [UUID]? {
+        guard data.count % 16 == 0 else { return nil }
+        let b = [UInt8](data)
+        var ids: [UUID] = []
+        ids.reserveCapacity(b.count / 16)
+        var i = 0
+        while i < b.count {
+            ids.append(UUID(uuid: (b[i], b[i + 1], b[i + 2], b[i + 3], b[i + 4], b[i + 5], b[i + 6], b[i + 7],
+                                   b[i + 8], b[i + 9], b[i + 10], b[i + 11], b[i + 12], b[i + 13], b[i + 14], b[i + 15])))
+            i += 16
+        }
+        return ids
     }
 
     func load() async {
@@ -607,10 +714,17 @@ final class MetadataCache: Loggable {
         // Usually already under way since FilmTrackerApp.init (see beginEarlyLoad).
         let read = earlyRead ?? Task.detached(priority: .userInitiated) { Self.readCacheFile(at: url) }
         earlyRead = nil
-        let (loaded, loadError) = await read.value
+        let result = await read.value
+        let loaded = result.entries, loadError = result.error
+        if let stamps = Self.readStamps.withLock({ $0 }) {
+            LaunchTimeline.mark("metadataReadStart", at: stamps.start)
+            LaunchTimeline.mark("metadataReadDone", at: stamps.end)
+        }
         
         if let loaded {
             self.metadata = loaded
+            onDiskGeneration = metadataGeneration
+            onDiskOrderKeys = Set(result.orders.keys)
             // Assigning `metadata` wholesale is exactly the kind of mutation the recents
             // invalidation contract covers, and it was the one assignment that omitted it.
             // rebuild(from:) and incrementalUpdate(from:) both invalidate; this path did
@@ -626,7 +740,7 @@ final class MetadataCache: Loggable {
             // self-healing backstop that makes the cache correct by construction for any
             // caller, present or future, rather than by the discipline of its callers.
             invalidateRecentsCache()
-            dropLibraryOrders(reason: "cache loaded")
+            installSavedLibraryOrders(result.orders, rejected: result.rejectedOrders, validation: result.validation)
             let duration = Date().timeIntervalSince(start)
             Self.log("Loaded cache with \(loaded.count) entries in \(Fmt.fixed(duration * 1000, 1))ms")
         } else {
@@ -634,13 +748,52 @@ final class MetadataCache: Loggable {
         }
     }
     
+    /// Writes `metadata` to disk, unless the file already holds exactly this generation of
+    /// it — a quit after no edits, or after the throttled save has caught up, then writes
+    /// nothing (≈45 ms of encoding and 0.8 MB of disk writes per quit, 2026-10-27).
+    ///
+    /// Saves run one at a time, in call order: the throttled save and the quit save can
+    /// otherwise overlap, land in either order, and leave the older entries on disk with
+    /// `onDiskGeneration` claiming the newer.
     func save() async {
+        let previous = saveInFlight
+        let current = Task {
+            await previous?.value
+            await self.write()
+        }
+        saveInFlight = current
+        await current.value
+    }
+
+    /// The `metadataGeneration` the file on disk holds, or nil when that is not known
+    /// (nothing loaded or saved yet, or a save failed or is under way).
+    private var onDiskGeneration: UInt64?
+    /// The library orders the file holds for `onDiskGeneration` (valid ones, as read).
+    private var onDiskOrderKeys: Set<LibraryOrderKey> = []
+    private var saveInFlight: Task<Void, Never>?
+
+    private func write() async {
         let start = Date()
+
+        // Captured together, on MainActor: the generation names exactly these entries, and
+        // the orders are saved only while they describe them.
+        let generation = metadataGeneration
+        let orders = libraryOrdersAreCurrent ? libraryOrders : [:]
+        let orderKeys = Set(orders.keys)
+        let url = cacheURL
+        // The file must still be there: the generation only says what was written. Orders
+        // built since the last save (the background build after a launch that loaded none)
+        // are a change too.
+        if generation == onDiskGeneration, orderKeys.isSubset(of: onDiskOrderKeys),
+           FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+            Self.log("Save skipped: cache on disk is current (\(metadata.count) entries)")
+            return
+        }
+        onDiskGeneration = nil
 
         // Capture value-type copies before leaving MainActor so the detached
         // task has no shared-mutable-state access to self.
         let snapshot = metadata
-        let url = cacheURL
 
         // The detached task returns a tuple so the actual error description
         // is available on the MainActor side for logging, matching the same
@@ -654,7 +807,8 @@ final class MetadataCache: Loggable {
                 encoder.outputFormat = .binary
                 let file = FilmMetadataCacheFile(
                     schemaVersion: FilmMetadataCacheFile.currentSchemaVersion,
-                    entries: snapshot
+                    entries: snapshot,
+                    libraryOrders: Dictionary(orders.map { ($0.key.storageName, Self.packedIDs($0.value)) }, uniquingKeysWith: { first, _ in first })
                 )
                 let data = try encoder.encode(file)
                 try data.write(to: url, options: .atomic)
@@ -666,7 +820,9 @@ final class MetadataCache: Loggable {
 
         let duration = Date().timeIntervalSince(start)
         if saveSuccess {
-            Self.log("Saved cache with \(snapshot.count) entries in \(Fmt.fixed(duration * 1000, 1))ms")
+            onDiskGeneration = generation
+            onDiskOrderKeys = orderKeys
+            Self.log("Saved cache with \(snapshot.count) entries and \(orders.count) library order(s) in \(Fmt.fixed(duration * 1000, 1))ms")
         } else {
             Self.log("ERROR: Failed to save cache — \(saveError ?? "unknown error")")
         }
@@ -695,16 +851,8 @@ final class MetadataCache: Loggable {
     func rebuild(from snapshots: [UUID: FilmSnapshot]) async {
         let start = Date()
 
-        // Capture the snapshots dictionary as a value (FilmSnapshot is Sendable).
-        // The entire construction loop runs detached so MainActor is not blocked.
-        let newCache = await Task.detached(priority: .userInitiated) {
-            var result: [UUID: FilmMetadata] = [:]
-            result.reserveCapacity(snapshots.count)
-            for (id, snapshot) in snapshots {
-                result[id] = FilmMetadata(from: snapshot)
-            }
-            return result
-        }.value
+        // Built off MainActor, across the cores (see buildEntries).
+        let newCache = await Self.buildEntries(snapshots)
 
         self.metadata = newCache
         invalidateRecentsCache()
@@ -714,6 +862,34 @@ final class MetadataCache: Loggable {
         Self.log("Rebuilt cache with \(newCache.count) entries in \(Fmt.fixed(duration * 1000, 1))ms")
     }
     
+    /// Builds an entry for every snapshot, off MainActor, in parallel chunks.
+    ///
+    /// `FilmMetadata(from:)` is a pure function of its snapshot — the shared state it reads
+    /// (the storage formatters and format styles, `SearchText`) is immutable, and was
+    /// already being read from this background build and the main thread at once. A full
+    /// rebuild of 1,400 films took ~75 ms on one core in the launch that needs it (a
+    /// snapshot-cache miss, or a missing or outdated cache file), all of it on the startup
+    /// path. Chunks of at least 64 films keep task overhead negligible, so a handful of
+    /// new films is still built in one piece.
+    nonisolated private static func buildEntries(_ snapshots: [UUID: FilmSnapshot]) async -> [UUID: FilmMetadata] {
+        let pairs = Array(snapshots)
+        let chunkCount = min(ProcessInfo.processInfo.activeProcessorCount, max(1, pairs.count / 64))
+        let chunkSize = (pairs.count + chunkCount - 1) / max(1, chunkCount)
+        return await withTaskGroup(of: [(UUID, FilmMetadata)].self) { group in
+            for start in stride(from: 0, to: pairs.count, by: max(1, chunkSize)) {
+                let range = start..<min(start + chunkSize, pairs.count)
+                group.addTask(priority: .userInitiated) {
+                    pairs[range].map { ($0.key, FilmMetadata(from: $0.value)) }
+                }
+            }
+            var result = [UUID: FilmMetadata](minimumCapacity: pairs.count)
+            for await chunk in group {
+                for (id, entry) in chunk { result[id] = entry }
+            }
+            return result
+        }
+    }
+
     /// Incremental update: adds missing entries and removes stale ones.
     /// Much faster than a full rebuild when only a small delta has changed.
     ///
@@ -749,14 +925,7 @@ final class MetadataCache: Loggable {
                 }
             }
 
-            let newEntries = await Task.detached(priority: .userInitiated) {
-                var result: [UUID: FilmMetadata] = [:]
-                result.reserveCapacity(toAddSnapshots.count)
-                for (id, snapshot) in toAddSnapshots {
-                    result[id] = FilmMetadata(from: snapshot)
-                }
-                return result
-            }.value
+            let newEntries = await Self.buildEntries(toAddSnapshots)
 
             // Merge the newly-built entries back into the actor-isolated dictionary.
             for (id, entry) in newEntries {
@@ -784,7 +953,7 @@ final class MetadataCache: Loggable {
     /// The cached result for `category`, or nil when it must be recomputed — including
     /// when the cache was filled on an earlier calendar day.
     private func cachedRecents(_ category: RecentsCategory) -> [UUID]? {
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = AppCalendar.current.startOfDay(for: Date())
         if recentsCacheDay != today {
             recentsCategoryCache.removeAll()
             recentsCacheDay = today
@@ -918,6 +1087,18 @@ final class MetadataCache: Loggable {
         return result
     }
 
+    /// Adopts the orders saved with the entries just loaded — already proven to be exactly
+    /// what a build would produce (validatedOrders) — so launch starts with them current
+    /// instead of sorting the title order on the startup path and building the rest after.
+    private func installSavedLibraryOrders(_ orders: [LibraryOrderKey: [UUID]], rejected: Int, validation: Duration) {
+        guard usesLibraryOrders else { return }
+        libraryOrders = orders
+        libraryOrdersGeneration = metadataGeneration
+        reconciledChangesSinceBuild = 0
+        Self.log("Installed \(orders.count) saved library order(s)\(rejected > 0 ? ", \(rejected) rejected" : "") — validated in \(validation.formattedMilliseconds)")
+        if orders.count < Self.wantedLibraryOrderKeys.count { scheduleLibraryOrderBuild() }
+    }
+
     /// Discards every order and schedules a rebuild. Safe to call at any time: until the
     /// rebuild lands, sort() takes the full sort.
     func dropLibraryOrders(reason: String?) {
@@ -946,7 +1127,7 @@ final class MetadataCache: Loggable {
 
     /// The keys a build covers: every option over all formats, and Date Last Purchased scoped
     /// to each format (the "Purchased 4K / Blu-ray / DVD" lists).
-    private static let wantedLibraryOrderKeys: Set<LibraryOrderKey> =
+    nonisolated private static let wantedLibraryOrderKeys: Set<LibraryOrderKey> =
         Set(SortOption.allCases.map { LibraryOrderKey($0) })
             .union(ReleaseFormat.allCases.map { LibraryOrderKey(.datePurchased, purchaseFormat: $0) })
 
@@ -1086,7 +1267,7 @@ final class MetadataCache: Loggable {
             return !data1.titleStartsWithNumber
         }
         
-        let cmp = data1.titleKey.localizedStandardCompare(data2.titleKey)
+        let cmp = data1.titleKey.englishStandardCompare(data2.titleKey)
         if cmp != .orderedSame {
             return cmp == .orderedAscending
         }
@@ -1235,6 +1416,10 @@ final class MetadataCache: Loggable {
     /// Its only caller is the All Films pre-warm, which has no purchase format scope.
     func sortAsync(_ filmIDs: [UUID], by option: SortOption, direction: SortDirection) async -> [UUID] {
         guard !filmIDs.isEmpty else { return [] }
+        // A current order answers without sorting — at launch, the one saved with the cache.
+        if let ordered = sortFromLibraryOrder(filmIDs, key: LibraryOrderKey(option), direction: direction) {
+            return ordered
+        }
         // Copy the dictionary header on MainActor (O(1) for Swift's CoW dicts).
         // The actual element data is shared until the detached task modifies it,
         // which it never does — it only reads, so no copy-on-write is triggered.
@@ -1422,7 +1607,7 @@ final class MetadataCache: Loggable {
                                  })
 
         case .recentlyRotated:
-            guard let cutoff = Calendar.current.date(byAdding: .day,
+            guard let cutoff = AppCalendar.current.date(byAdding: .day,
                                                      value: -recentlyRotatedWindowDays,
                                                      to: now) else { return [] }
             // The cached rotation date is the film's eligibility date whether or not it
@@ -1436,7 +1621,7 @@ final class MetadataCache: Loggable {
             }
 
         case .recentlyPurchased:
-            guard let cutoff = Calendar.current.date(byAdding: .day,
+            guard let cutoff = AppCalendar.current.date(byAdding: .day,
                                                      value: -purchaseWindowDays,
                                                      to: now) else { return [] }
             result = newestFirst { data in
@@ -1511,5 +1696,10 @@ final class MetadataCache: Loggable {
     func getSearchKeys(for filmID: UUID) -> (name: String, alternateTitles: String)? {
         guard let data = metadata[filmID] else { return nil }
         return (name: data.nameSearchKey, alternateTitles: data.alternateTitleSearchKeys)
+    }
+
+    /// A film's synopsis in `SearchText.key` form, or nil if the film is not in the cache.
+    func getSynopsisSearchKey(for filmID: UUID) -> String? {
+        metadata[filmID]?.synopsisSearchKey
     }
 }

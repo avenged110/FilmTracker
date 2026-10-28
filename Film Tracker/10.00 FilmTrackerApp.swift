@@ -42,18 +42,14 @@ struct FilmTrackerApp: App, Loggable {
         // Library/Logs rather than FilmTracker.log in the data folder. Nothing may log
         // above this line.
         Self.bootstrapLogging()
-        #if DEBUG
         LaunchTimeline.mark("appInit")
-        #endif
 
         // Before the store is opened: refuse to be the second process on this data
         // folder. Does not return if another instance already holds it.
         Self.acquireInstanceLockOrExit()
 
         let result = Self.createModelContainer()
-        #if DEBUG
         LaunchTimeline.mark("containerOpen")
-        #endif
         self.modelContainer = result.container
         self.persistentContainerFailed = result.failed
 
@@ -75,9 +71,7 @@ struct FilmTrackerApp: App, Loggable {
         coordinator.beginEarlyCacheLoads()
 
         NSWindow.allowsAutomaticWindowTabbing = false
-        #if DEBUG
         LaunchTimeline.mark("appInitEnd")
-        #endif
     }
 
     var body: some Scene {
@@ -284,9 +278,7 @@ struct FilmTrackerApp: App, Loggable {
         // beginInitialization() performs the check and the assignment with no suspension
         // point between them, so MainActor isolation alone is enough to serialize callers.
         guard dataCoordinator.beginInitialization() else { return }
-        #if DEBUG
         LaunchTimeline.mark("initStart")
-        #endif
 
         log("Starting application initialization...")
         let startTime = Date()
@@ -333,9 +325,7 @@ struct FilmTrackerApp: App, Loggable {
         // the duration of the SLOWEST of them, not their sum — so comparing it against each
         // job's own logged total identifies which one is the long pole.
         let parallelPhaseElapsed = ContinuousClock.now - initStart
-        #if DEBUG
         LaunchTimeline.mark("parallelDone")
-        #endif
 
         // Phase 2: Validate cache integrity and finalize.
         // Requires both MetadataCache and MemoryStore to be loaded.
@@ -345,9 +335,7 @@ struct FilmTrackerApp: App, Loggable {
         let finalizeStart = ContinuousClock.now
         await coordinator.finalizeInitialization()
         let finalizeElapsed = ContinuousClock.now - finalizeStart
-        #if DEBUG
         LaunchTimeline.mark("uiReady")
-        #endif
 
         let duration = Date().timeIntervalSince(startTime)
         log("Application initialization complete in \(Fmt.fixed(duration, 2))s — UI ready")
@@ -530,7 +518,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
     func applicationWillFinishLaunching(_ notification: Notification) {
         // First statement in the earliest delegate callback — see launchReferenceInstant.
         Self.launchReferenceInstant = ContinuousClock.now
-        #if DEBUG
         LaunchTimeline.mark("willFinishLaunching")
         NotificationCenter.default.addObserver(forName: NSApplication.didFinishLaunchingNotification,
                                                object: nil, queue: .main) { _ in
@@ -540,7 +527,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
                                                object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { LaunchTimeline.mark("firstWindowKey") }
         }
-        #endif
 
         // These two go to `.standard` rather than through Preferences because AppKit reads
         // them from the app's own standard domain — a suite would have no effect. That
@@ -736,11 +722,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         // PosterCache.saveMetadata() is independent of MemoryStore and must be saved
         // separately; it runs concurrently with the coordinator save.
         Self.log("Saving caches (concurrent)...")
+        let saveStart = ContinuousClock.now
         async let coordinatorSave: Void = Self.dataCoordinator?.saveImmediately() ?? ()
         async let posterSave: Void = PosterCache.shared.saveMetadata()
         await coordinatorSave
         await posterSave
-        Self.log("All caches saved")
+        Self.log("All caches saved in \((ContinuousClock.now - saveStart).formattedMilliseconds)")
 
         Self.log("Clearing in-memory caches")
         PosterCache.shared.clearMemory()
@@ -1227,5 +1214,76 @@ final class AppState: Loggable {
         // Orphaned and duplicate membership cleanup runs entirely in DataManager's
         // background actor.
         await coordinator.cleanupOrphanedAndDuplicateMemberships()
+    }
+}
+
+// MARK: - Launch Timeline
+
+// Marks along the launch path, each stamped in milliseconds since the kernel started the
+// process, so the stretch before `initializeApp()` (dyld, the App struct's init and its
+// ModelContainer, the first window) can be taken apart instead of read as one `preInit`
+// number. Every launch, Debug or Release, logs the timeline once its first gallery frame is
+// committed (when logging is on); the DEBUG `launch-timeline` scenario reports it as metrics.
+// Each mark is one clock read and an array append, so it costs nothing worth gating.
+@MainActor
+enum LaunchTimeline: Loggable {
+    nonisolated static let logTag = "[LaunchTimeline]"
+
+    private(set) static var marks: [(name: String, ms: Double)] = []
+    private static var didLog = false
+
+    /// Milliseconds since process start, readable from any thread. Background work stamps
+    /// itself with this and hands the value to `mark(_:at:)` on the main actor.
+    nonisolated static func now() -> Double {
+        wallMilliseconds() - processStartWallMilliseconds
+    }
+
+    private nonisolated static func wallMilliseconds() -> Double {
+        var ts = timespec()
+        unsafe clock_gettime(CLOCK_REALTIME, &ts)
+        return Double(ts.tv_sec) * 1000 + Double(ts.tv_nsec) / 1_000_000
+    }
+
+    /// The kernel's start time for this process, from `sysctl(KERN_PROC_PID)`.
+    private nonisolated static let processStartWallMilliseconds: Double = {
+        var info = unsafe kinfo_proc()
+        var size = unsafe MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard unsafe sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return wallMilliseconds() }
+        let tv = unsafe info.kp_proc.p_starttime
+        return Double(tv.tv_sec) * 1000 + Double(tv.tv_usec) / 1000
+    }()
+
+    /// Records `name` once; later calls with the same name are ignored.
+    static func mark(_ name: String) {
+        mark(name, at: now())
+    }
+
+    /// Records `name` at a time stamped earlier with `now()`, for work done off the main actor.
+    static func mark(_ name: String, at ms: Double) {
+        guard !marks.contains(where: { $0.name == name }) else { return }
+        marks.append((name, ms))
+    }
+
+    static func milliseconds(for name: String) -> Double? {
+        marks.first(where: { $0.name == name })?.ms
+    }
+
+    static var summary: String {
+        marks.sorted { $0.ms < $1.ms }.map { unsafe String(format: "%@ %.1f", $0.name, $0.ms) }.joined(separator: " | ")
+    }
+
+    /// Called with the launch view's first gallery data, before its first reloadData:
+    /// marks the commit one run-loop turn later and logs the whole timeline.
+    static func markFirstGalleryFrame() {
+        mark("galleryFirstData")
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                mark("galleryFirstCommit")
+                guard !didLog else { return }
+                didLog = true
+                log("LAUNCH TIMELINE (ms since process start) — \(summary)")
+            }
+        }
     }
 }

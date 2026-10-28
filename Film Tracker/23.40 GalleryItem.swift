@@ -24,6 +24,10 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     private var currentPosterUID: String?
     private var currentSubtitleText: String?
     private var currentIsSelected: Bool = false
+    /// The selection state the ring and ring-top shadow are currently drawn for. Kept apart
+    /// from currentIsSelected because prepareForReuse resets that one while the recycled
+    /// cell's layers still show the previous film's ring.
+    private var ringShowsSelection = false
 
     /// In-flight asynchronous poster load for the current cell, started only when
     /// refreshTileContent misses the cache. Canceled on reuse and superseded whenever a
@@ -172,10 +176,8 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     // NSCollectionView's isSelected provides immediate visual feedback during user interaction.
     override var isSelected: Bool {
         didSet {
-            if isSelected != currentIsSelected {
-                currentIsSelected = isSelected
-                updateRingVisibility()
-            }
+            currentIsSelected = isSelected
+            if ringShowsSelection != isSelected { updateRingVisibility() }
         }
     }
 
@@ -206,9 +208,11 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
 
         if filmChanged || posterChanged || subtitleChanged { refreshTileContent() }
 
-        // Ring visibility must always match, even when no other property changed
-        // (e.g. a cell is recycled directly onto a selected index path).
-        updateRingVisibility()
+        // Ring visibility must match whatever the cell was last drawn for — a cell recycled
+        // directly onto a selected index path, or off one. Only on a mismatch: the in-place
+        // refreshes reconfigure every visible cell on each film edit, and re-stroking each
+        // one rebuilt the selected cell's two paths for no change at all.
+        if ringShowsSelection != currentIsSelected { updateRingVisibility() }
     }
 
     // MARK: - Tile Content View Management
@@ -430,6 +434,10 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     /// geometry if the cell just became selected.
     private func updateRingVisibility() {
         guard let ring = ringLayer else { return }
+        #if DEBUG
+        GalleryRefreshProbe.ringRefreshes += 1
+        #endif
+        ringShowsSelection = currentIsSelected
         ring.strokeColor = currentIsSelected
             ? NSColor.controlAccentColor.cgColor
             : NSColor.clear.cgColor
@@ -444,14 +452,19 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
         // here, once, rather than waiting for the next incidental layout pass. Safe to call
         // unconditionally whenever selection just turned on: view.bounds is already
         // authoritative at this point regardless of when the last layout pass ran, and this
-        // method only runs on an actual selection-state change (isSelected's didSet, or
-        // configure(with:) for a recycled cell landing directly on a selected index path)
-        // -- never per-frame.
+        // method only runs when the ring is drawn for the other selection state
+        // (isSelected's didSet, or configure(with:) for a recycled cell landing on or off a
+        // selected index path) -- never per-frame, and never for an unchanged cell.
         if currentIsSelected, let posterRect = currentPosterRect() {
             updateRingPath(posterRect: posterRect)
             updateRingShadowGeometry(posterRect: posterRect)
         }
     }
+
+    #if DEBUG
+    /// Whether the ring is currently stroked, for the harness.
+    var debugRingShowsSelection: Bool { (ringLayer?.strokeColor?.alpha ?? 0) > 0 }
+    #endif
 
     // MARK: - Ring-Top Shadow
     //

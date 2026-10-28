@@ -6,6 +6,23 @@
 
 import SwiftUI
 
+// MARK: - Animated Expansion Opt-In
+
+private struct CustomTableAnimatesExpansionKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// When true, "Show All" flips `isExpanded` without suppressing animation, so an
+    /// ancestor's `.animation(_:value:)` keyed to the expansion state animates it. Set only
+    /// by the right sidebar's Details tab (RTabDetails), which owns that animation and the
+    /// layout that keeps it from jumping; every other table expands in one step as before.
+    var customTableAnimatesExpansion: Bool {
+        get { self[CustomTableAnimatesExpansionKey.self] }
+        set { self[CustomTableAnimatesExpansionKey.self] = newValue }
+    }
+}
+
 struct CustomTable<Data: RandomAccessCollection,
     Content: View>: View where Data.Element: Identifiable {
     let data: Data
@@ -43,6 +60,7 @@ struct CustomTable<Data: RandomAccessCollection,
     // horizontal scroll is actually active, driven by `.onHover` below. Always
     // nil, and therefore a no-op, everywhere else CustomTable is used.
     @Environment(\.horizontalScrollZoneRegistrar) private var horizontalScrollZoneRegistrar
+    @Environment(\.customTableAnimatesExpansion) private var animatesExpansion
     // Stable identity for this table instance's zone registration; a plain
     // per-instance constant is sufficient since CustomTable never needs more than
     // one zone of its own.
@@ -192,9 +210,17 @@ struct CustomTable<Data: RandomAccessCollection,
                             // interpolation that NSScrollView could misinterpret.
                             // The rows become visible in the same frame (clipHeight
                             // is never set, so no animated reveal gap is produced).
-                            var transaction = Transaction()
-                            transaction.disablesAnimations = true
-                            withTransaction(transaction) { isExpanded = true }
+                            //
+                            // Unless an ancestor has opted in to animating it (see
+                            // `customTableAnimatesExpansion`): then the flip is plain, and
+                            // that ancestor's `.animation(_:value:)` supplies the animation.
+                            if animatesExpansion {
+                                isExpanded = true
+                            } else {
+                                var transaction = Transaction()
+                                transaction.disablesAnimations = true
+                                withTransaction(transaction) { isExpanded = true }
+                            }
                         } }) {
                         Text("Show All")
                             .font(.system(size: 11))
@@ -223,7 +249,9 @@ struct CustomTable<Data: RandomAccessCollection,
             // HorizontalScrollZoneRegistrar) so RightSidebar's tab-swipe monitor
             // lets horizontal-dominant gestures here reach this ScrollView instead
             // of switching tabs. onDisappear guards against this table being
-            // removed (tab switch, collapse) while still marked hovered.
+            // removed (collapse, film change) while still marked hovered; a tab
+            // switch usually leaves it mounted, so RightSidebar clears the
+            // registrar itself on every switch.
             ScrollView(.horizontal, showsIndicators: true) { tableContent }
                 .frame(maxWidth: .infinity)
                 .onHover { hovering in

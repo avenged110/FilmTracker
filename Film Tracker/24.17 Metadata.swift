@@ -89,7 +89,7 @@ struct Metadata: View {
                     || !film.screenwriters.isEmpty
                     || !film.composer.isEmpty
                     || !film.studio.isEmpty
-                if hasAnyCrewField {
+                if hasAnyCrewField && !RSBProfileFlags.noCrewBlock {
                     // Header is inside the gate so a film with no credits shows neither
                     // a stray title nor the trailing divider below.
                     RSBHelpers.moduleHeader("Cast and Crewmen")

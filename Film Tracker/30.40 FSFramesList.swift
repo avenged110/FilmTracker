@@ -467,7 +467,7 @@ struct TimeCodeRangeText: View {
     private static let referenceShape = "##:##:##"
 
     /// The two sub-column widths for a given point size.
-    private struct Metrics {
+    struct Metrics {
         /// Rendered width of `referenceShape` in the widest numeral, and
         /// therefore of each half's sub-column.
         let half: CGFloat
@@ -490,7 +490,7 @@ struct TimeCodeRangeText: View {
     /// synchronization reasoning.
     @MainActor private static var metricsCache: [CGFloat: Metrics] = [:]
 
-    @MainActor private static func metrics(fontSize: CGFloat) -> Metrics {
+    @MainActor static func metrics(fontSize: CGFloat) -> Metrics {
         if let cached = metricsCache[fontSize] { return cached }
 
         // `NSFont.systemFont(ofSize:)` is the same face SwiftUI's
@@ -521,7 +521,7 @@ struct TimeCodeRangeText: View {
     /// spaces, since the sub-column supplies the spacing here. Taken from
     /// `FramesRangeText` rather than restated, so the glyph shown always matches
     /// the glyph written.
-    private static let dashGlyph =
+    static let dashGlyph =
         FramesRangeText.separator.trimmingCharacters(in: .whitespaces)
 
     /// Whether a half is a well-formed time code: numerals and colons only.
@@ -543,6 +543,13 @@ struct TimeCodeRangeText: View {
     /// back rather than lose its tail — which is the failure this whole block
     /// exists to prevent.
     @MainActor private func alignedHalves(within metrics: Metrics)
+        -> (leading: String, trailing: String)? {
+        Self.alignedHalves(of: text, fontSize: fontSize, within: metrics)
+    }
+
+    /// `alignedHalves(within:)` for any value, so the sidebar's AppKit rows (FramesRowList,
+    /// in RTabNotes) make the same aligned-or-plain decision this view does.
+    @MainActor static func alignedHalves(of text: String, fontSize: CGFloat, within metrics: Metrics)
         -> (leading: String, trailing: String)? {
         let halves = FramesRangeText.split(text)
         guard Self.isTimeCodeShaped(halves.leading),

@@ -639,7 +639,7 @@ final class SmartLists: Loggable {
         rotationRefreshTask?.cancel()
 
         // Calculate time until next midnight.
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
         let now = Date()
         
         guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
@@ -713,7 +713,7 @@ final class SmartLists: Loggable {
         // knows its result is stale and should not be applied.
         calculationGeneration &+= 1
         let capturedGeneration = calculationGeneration
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = AppCalendar.current.startOfDay(for: Date())
 
         // Open the race-protection window. Any targeted recalculation that arrives before the
         // background result is applied will record its film ID so it can be replayed after.
@@ -789,7 +789,7 @@ final class SmartLists: Loggable {
     /// Fetches its own film list since it runs independently of calculateAllLists.
     /// Refreshes both rotation-group lists in a single pass.
     private func calculateUpForRotation() {
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
         let today = calendar.startOfDay(for: Date())
         if let lastCalc = lastRotationCalculationDate,
            calendar.isDate(lastCalc, inSameDayAs: today) {
@@ -1133,7 +1133,7 @@ final class SmartLists: Loggable {
     /// side effects outside `sets` — first, exactly as before.
     private func applyMembership(of film: FilmSnapshot, scope: Set<SmartListType>) {
         let filmID = film.id
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = AppCalendar.current.startOfDay(for: Date())
         let member = Self.membership(of: film, today: today)
 
         for type in SmartListType.allCases where scope.contains(type) {

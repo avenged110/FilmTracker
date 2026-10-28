@@ -8,6 +8,27 @@ import Foundation
 import SwiftUI
 import Observation
 
+// MARK: - List Catalog
+
+/// Every list a `#list` token can name, each with a way to resolve it to its films.
+/// Built by DataCoordinator.searchListCatalog(). A list's films are resolved only when a
+/// token names it, so building the catalog costs no membership work.
+struct SearchListCatalog {
+    /// Where a list comes from, in the order the suggestion list groups them.
+    enum Kind: Int, Comparable {
+        case report, recents, smart, user
+        static func < (a: Kind, b: Kind) -> Bool { a.rawValue < b.rawValue }
+    }
+    struct Entry {
+        let name: String
+        let kind: Kind
+        /// Other full names the list answers to. Matched like the name, never suggested.
+        var aliases: [String] = []
+        let filmIDs: () -> Set<UUID>
+    }
+    let entries: [Entry]
+}
+
 // MARK: - Search Controller
 @MainActor
 @Observable
@@ -15,7 +36,20 @@ final class SearchController: Loggable {
     nonisolated static let logTag = "[SearchCon]"
     
     static let shared = SearchController()
-    init() {}
+    init() {
+        // Recent searches are kept only while both settings allow them. Watching the
+        // defaults catches every way a setting turns off — the checkbox, a restore — so
+        // the list is dropped, not merely hidden, the moment it is no longer allowed.
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if !Self.recentSearchesEnabled && !self.recentSearches.isEmpty { self.recentSearches = [] }
+                if !Preferences.showSearchSuggestions && !self.valueSuggestions.isEmpty { self.valueSuggestions = [] }
+            }
+        }
+    }
     
     // MARK: - Published State (Bound to .searchable())
     
@@ -23,6 +57,7 @@ final class SearchController: Loggable {
     var searchText: String = "" {
         didSet {
             guard !isClearing else { return }
+            refreshSuggestions()
             updateTokenEntryState()
             // Trigger search with minimal delay for text changes
             if !isEnteringToken {
@@ -35,6 +70,10 @@ final class SearchController: Loggable {
     var currentTokens: [SearchToken] = [] {
         didSet {
             guard !isClearing else { return }
+            // A pill removed while a "#" token is being typed takes effect at once. The
+            // paused results otherwise kept filtering by the removed token, and because the
+            // query string already matched, leaving token entry never reloaded them.
+            if isEnteringToken { lastConfirmedTokens = currentTokens }
             // Immediately trigger search when tokens change
             triggerSearchImmediate()
         }
@@ -79,6 +118,18 @@ final class SearchController: Loggable {
     /// freeform text, which would briefly zero out films and flash the placeholder.
     private var pendingCleanText: String? = nil
     
+    /// Set by the text debounce for the one reload it starts, and consumed by filterFilms:
+    /// only the freeform text changed, so the cached token results still hold.
+    private var isTextOnlyReload = false
+    
+    /// The result of the token steps for the last token set, reused across keystrokes.
+    private struct TokenResultCache {
+        let tokens: [SearchToken]
+        let inputCount: Int
+        let ids: Set<UUID>
+    }
+    private var tokenResultCache: TokenResultCache?
+    
     // MARK: - Token Entry State
     
     /// Update token entry state based on search text.
@@ -91,7 +142,11 @@ final class SearchController: Loggable {
         
         // Update hasContent (for view switching - any input counts)
         hasContent = !searchText.isEmpty || !currentTokens.isEmpty
-        
+        // Kept in step here too: triggerSearch() does not run during token entry, so a
+        // reload in that window otherwise read a stale `true` and filtered by the
+        // half-typed token's value instead of holding the last confirmed results.
+        isActive = hasContent && !isEnteringToken
+
         // When starting token entry, save current state
         if isEnteringToken && !wasEnteringToken {
             lastConfirmedTokens = currentTokens
@@ -173,6 +228,17 @@ final class SearchController: Loggable {
         }
     }
     
+    /// Commits a token for `field` with `value` exactly, keeping the typed OR and inversion
+    /// prefixes. The same path as pressing Return, so it leaves the field in the same state.
+    private func insertTokenValue(_ field: SearchField, value: String) {
+        guard let fragment = hashFragment else { return }
+        var prefix = ""
+        if fragment.isOr { prefix += "/" }
+        if fragment.isInverted { prefix += "!" }
+        searchText = fragment.beforeHash + "#" + prefix + (field.aliases.first ?? field.rawValue) + " " + value
+        processSearchSubmission()
+    }
+    
     /// Check if inverted mode is active (! after #)
     var isInvertedMode: Bool { hashFragment?.isInverted ?? false }
     
@@ -201,43 +267,31 @@ final class SearchController: Loggable {
             currentTokens.append(token)
             Self.log("Added token: \(token.displayName)")
         }
+        // A committed token is a deliberate choice, so its value is learned at once,
+        // whatever its prefixes.
+        recordHeuristic(value, scope: field.rawValue)
     }
     
     /// Process search text on submission to extract tokens.
     /// Called when user presses Return in the search field.
     func processSearchSubmission() {
-        let text = searchText
-        
         // If no # present, just trigger search if we have content
-        guard let hashIndex = text.lastIndex(of: "#") else {
+        guard let fragment = hashFragment else {
             if hasContent {
                 triggerSearchImmediate()
             }
             return
         }
         
-        let afterHash = String(text[text.index(after: hashIndex)...])
+        // Need "field value" pattern (must have space with value after it).
+        // Incomplete token - don't process.
+        guard fragment.hasValue else { return }
         
-        // Need "field value" pattern (must have space with value after it)
-        guard afterHash.contains(" ") else {
-            // Incomplete token - don't process
-            return
-        }
-        
-        var parts = afterHash.components(separatedBy: " ")
-        guard parts.count >= 2 else { return }
-
-        // Check for OR mode (/) and inversion (!) — both prefix the field name.
-        var firstWord = parts[0]
-        let isOr = firstWord.hasPrefix("/")
-        if isOr {
-            firstWord = String(firstWord.dropFirst())
-        }
-        let isInverted = firstWord.hasPrefix("!")
-        if isInverted {
-            firstWord = String(firstWord.dropFirst())
-        }
-        parts[0] = firstWord
+        // The OR ("/") and inversion ("!") prefixes are already stripped by hashFragment,
+        // the same parse the suggestion list and insertField read.
+        let parts = fragment.partial.components(separatedBy: " ")
+        let isOr = fragment.isOr
+        let isInverted = fragment.isInverted
 
         // Resolve the field name, allowing it to span more than one word.
         //
@@ -253,17 +307,25 @@ final class SearchController: Loggable {
         // previously-unresolvable input gains a match. At least one word is always reserved
         // for the value, and the value must be non-empty, so a bare field name still
         // correctly produces no token.
+        //
+        // A two-word display name is tried first, though. Two of them begin with a word
+        // that is an alias on its own — "date" (Year) and "rotation" — so shortest-first
+        // read "#date added 2020" as a Year token with the value "added 2020".
+        func value(after wordCount: Int) -> String {
+            parts[wordCount...].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        }
         var matchedField: SearchField?
         var matchedValue = ""
-        for wordCount in 1..<parts.count {
-            let candidateName = parts[0..<wordCount].joined()
-            guard let field = SearchField.from(alias: candidateName) else { continue }
-            let candidateValue = parts[wordCount...]
-                .joined(separator: " ")
-                .trimmingCharacters(in: .whitespaces)
-            guard !candidateValue.isEmpty else { break }
+        if parts.count > 2, let field = SearchField.from(twoWordName: parts[0] + parts[1]),
+           !value(after: 2).isEmpty {
             matchedField = field
-            matchedValue = candidateValue
+            matchedValue = value(after: 2)
+        }
+        for wordCount in 1..<parts.count where matchedField == nil {
+            guard let field = SearchField.from(alias: parts[0..<wordCount].joined()) else { continue }
+            guard !value(after: wordCount).isEmpty else { break }
+            matchedField = field
+            matchedValue = value(after: wordCount)
             break
         }
 
@@ -278,7 +340,7 @@ final class SearchController: Loggable {
         // Without this, the residual value portion after the field name space
         // ("producer d") leaks into the freeform filter pass, briefly zeroing
         // films and flashing the placeholder before the correct results arrive.
-        let beforeHash = String(text[..<hashIndex]).trimmingCharacters(in: .whitespaces)
+        let beforeHash = fragment.beforeHash.trimmingCharacters(in: .whitespaces)
         pendingCleanText = beforeHash
         
         // Exit token entry mode before adding token
@@ -296,6 +358,8 @@ final class SearchController: Loggable {
         
         // Clear the # pattern from search text
         searchText = beforeHash
+        // The token is chosen; suggestions for the text left beside it wait for an edit.
+        suppressSuggestions()
         
         Self.log("Confirmed token: \(field.displayName): \(value) (inverted=\(isInverted), or=\(isOr))")
     }
@@ -313,7 +377,9 @@ final class SearchController: Loggable {
             } catch {
                 return // Canceled — a newer keystroke superseded this one.
             }
+            isTextOnlyReload = true
             triggerSearch()
+            isTextOnlyReload = false
         })
     }
     
@@ -352,6 +418,273 @@ final class SearchController: Loggable {
         // The AppEventBus path for searchQueryChanged has been removed: the direct
         // synchronous call here is the canonical and only update path.
         ViewStateManager.shared.updateSearchQuery(query)
+        
+        if isActive {
+            scheduleSettle()
+        } else if !hasContent {
+            // The field was emptied by hand: the search it held has ended.
+            commitSearch()
+        }
+    }
+    
+    // MARK: - Suggestions
+    
+    /// The data the value suggestions draw on. Set by the search field's view.
+    weak var suggestionSource: DataCoordinator?
+    
+    /// The ranked value suggestions for what the field holds, computed off the main actor.
+    private(set) var valueSuggestions: [SearchSuggestion] = []
+    
+    /// The session's recent searches, newest first. Never written to disk.
+    private(set) var recentSearches: [RecentSearch] = []
+    
+    /// A search as the user left it: its pills and its freeform text.
+    struct RecentSearch: Hashable {
+        let tokens: [SearchToken]
+        let text: String
+        
+        var label: String {
+            (tokens.map(\.displayName) + (text.isEmpty ? [] : ["\u{201C}\(text)\u{201D}"]))
+                .joined(separator: ", ")
+        }
+    }
+    
+    static var recentSearchesEnabled: Bool {
+        Preferences.showSearchSuggestions && Preferences.showRecentSearches
+    }
+    
+    private var suggestionTask: TaskHandle?
+    /// The field the last request was for (nil inside: freeform), so a change of field
+    /// clears the old rows at once instead of leaving them up until the new ones arrive.
+    private var lastSuggestionField: SearchField??
+    /// After a suggestion is picked, the text it left: no suggestions until it is edited.
+    private var suppressedSuggestionText: String?
+    
+    private var vocabulary = SearchVocabulary.empty
+    /// The films map `vocabulary` was (or is being) built from. Holding it makes "has the
+    /// library changed?" an O(1) comparison while the storage is still shared.
+    private var vocabularySource: [UUID: FilmSnapshot]?
+    /// The Queue and the day the vocabulary's affinities were computed for: either
+    /// changing changes them, though no film does.
+    private var vocabularyQueue: Set<UUID> = []
+    private var vocabularyDay: Date?
+    private var vocabularyTask: TaskHandle?
+    
+    /// The search in progress once it has held still for `settleDelay`: what a recent
+    /// search and the freeform heuristics record when the search ends. Waiting for it to
+    /// settle keeps every keystroke of a word, and every step of deleting it, out of both.
+    private var settledSearch: RecentSearch?
+    /// The search in progress the last time it was active, settled or not.
+    private var lastActiveSearch: RecentSearch?
+    private var settleHandle: TaskHandle?
+    private static let settleDelay: Duration = .milliseconds(1500)
+    
+    /// Recomputes the value suggestions for the field's current text.
+    private func refreshSuggestions() {
+        suggestionTask = nil
+        if let suppressed = suppressedSuggestionText {
+            if suppressed == searchText {
+                valueSuggestions = []
+                return
+            }
+            suppressedSuggestionText = nil
+        }
+        guard Preferences.showSearchSuggestions, let source = suggestionSource,
+              let (field, typed) = suggestionInput() else {
+            valueSuggestions = []
+            lastSuggestionField = nil
+            return
+        }
+        if lastSuggestionField != .some(field) {
+            valueSuggestions = []
+            lastSuggestionField = .some(field)
+        }
+        updateVocabulary(from: source)
+        
+        let request = SearchSuggestionRequest(
+            field: field, typed: typed,
+            lists: field == .list ? source.searchListCatalog().entries.map { ($0.name, $0.kind) } : [],
+            context: suggestionContext())
+        let vocabulary = self.vocabulary
+        let scope = field?.rawValue ?? SearchHeuristics.textScope
+        suggestionTask = TaskHandle(Task { [weak self] in
+            let learned = await SearchHeuristics.shared.weights(scope: scope)
+            // A detached task does not inherit cancellation, so it is forwarded by hand.
+            let work = Task.detached(priority: .userInitiated) {
+                SearchSuggestionRanker.rank(request, vocabulary: vocabulary, learned: learned,
+                                            limit: SearchSuggestionLimits.menuRows)
+            }
+            let ranked = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard !Task.isCancelled, let self else { return }
+            self.valueSuggestions = ranked
+        })
+    }
+    
+    /// The field a value is being typed for (nil for freeform text) and the value so far,
+    /// or nil when there is nothing to suggest values for: a "#" fragment still naming its
+    /// field, or one whose field is not recognized. Resolves the field as Return does, a
+    /// two-word display name ("last watched") first.
+    private func suggestionInput() -> (SearchField?, String)? {
+        guard hashFragment != nil else {
+            let text = searchText.trimmingCharacters(in: .whitespaces)
+            return text.isEmpty ? nil : (nil, text)
+        }
+        guard let (field, value) = tokenValueInput() else { return nil }
+        // An Is value is suggested for one term at a time: the one after the last comma.
+        if field == .flags { return (field, FilmFlag.splitLast(value).term) }
+        return (field, value)
+    }
+
+    /// The field and value text of the "#" fragment being typed, or nil while it still
+    /// names its field or names none.
+    private func tokenValueInput() -> (SearchField, String)? {
+        guard let fragment = hashFragment, fragment.hasValue else { return nil }
+        let words = fragment.partial.split(separator: " ").map(String.init)
+        guard let first = words.first else { return nil }
+        if words.count > 1, let field = SearchField.from(twoWordName: first + words[1]) {
+            return (field, words.dropFirst(2).joined(separator: " "))
+        }
+        guard let field = SearchField.from(alias: first) else { return nil }
+        return (field, words.dropFirst().joined(separator: " "))
+    }
+    
+    /// Starts rebuilding the vocabulary off the main actor when the library has changed
+    /// since it was built. Suggestions use the previous vocabulary until it is ready.
+    private func updateVocabulary(from source: DataCoordinator) {
+        let films = source.getAllFilmsMap()
+        let queued = source.getFilmQueueFilmIDs()
+        let today = AppCalendar.current.startOfDay(for: Date())
+        guard vocabularySource != films || vocabularyQueue != queued || vocabularyDay != today else { return }
+        vocabularySource = films
+        vocabularyQueue = queued
+        vocabularyDay = today
+        vocabularyTask = TaskHandle(Task { [weak self] in
+            // Forwarded by hand, as a detached task does not inherit cancellation: a
+            // superseded build stops at SearchVocabulary.init's cancellation check.
+            let work = Task.detached(priority: .utility) {
+                SearchVocabulary(films: films, queued: queued, today: today)
+            }
+            let built = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+            guard !Task.isCancelled, let self else { return }
+            self.vocabulary = built
+            self.refreshSuggestions()
+        })
+    }
+    
+    /// What the suggestions should relate to: the pills in the field at full weight, the
+    /// freeform text beside them (when a token's value is being typed) a little less, and
+    /// this session's recent searches less again, each older one 0.6 of the one after it.
+    /// Recent searches inform this only while they are being kept (recentSearchesEnabled).
+    private func suggestionContext() -> SearchContext {
+        var context = SearchContext()
+        func add(_ tokens: [SearchToken], text: String, weight: Double) {
+            // An inverted pill names what the user does not want; it relates nothing.
+            for token in tokens where !token.isInverted {
+                context.values.append(.init(field: token.field, key: SearchText.key(token.value), weight: weight))
+            }
+            let key = SearchText.key(text)
+            if !key.isEmpty { context.values.append(.init(field: nil, key: key, weight: weight * 0.8)) }
+        }
+        add(currentTokens, text: hashFragment?.beforeHash ?? "", weight: 1)
+        for token in currentTokens where !token.isInverted {
+            context.present[token.field, default: []].insert(SearchText.key(token.value))
+        }
+        var weight = 0.5
+        for recent in recentSearches {
+            add(recent.tokens, text: recent.text, weight: weight)
+            weight *= 0.6
+        }
+        return context
+    }
+    
+    /// Applies a picked value suggestion: commits the token, or puts the title in the field.
+    func applySuggestion(_ suggestion: SearchSuggestion) {
+        // An Is value holds several terms, so picking one completes the term being typed
+        // and leaves the token open for a comma and the next; Return commits it.
+        if suggestion.field == .flags, let fragment = hashFragment, let (_, value) = tokenValueInput() {
+            let (head, negation, _) = FilmFlag.splitLast(value)
+            var prefix = ""
+            if fragment.isOr { prefix += "/" }
+            if fragment.isInverted { prefix += "!" }
+            searchText = fragment.beforeHash + "#" + prefix + (SearchField.flags.aliases.first ?? "is") + " "
+                + head + negation + suggestion.value
+            suppressSuggestions()
+            return
+        }
+        if let field = suggestion.field {
+            insertTokenValue(field, value: suggestion.value)
+        } else {
+            searchText = suggestion.value
+        }
+        suppressSuggestions()
+    }
+    
+    /// Restores a recent search exactly as it was left.
+    /// The text goes in first: the token change that follows cancels its debounce and runs
+    /// one search with both, where the other order searched the new tokens with the old text.
+    func applyRecentSearch(_ recent: RecentSearch) {
+        searchText = recent.text
+        currentTokens = recent.tokens
+        suppressSuggestions()
+    }
+    
+    /// Hides the value suggestions until the field's text is next edited.
+    private func suppressSuggestions() {
+        suggestionTask = nil
+        valueSuggestions = []
+        suppressedSuggestionText = searchText
+    }
+    
+    /// Notes the search in progress, once it holds still, as the one to record when it ends.
+    private func scheduleSettle() {
+        let state = RecentSearch(tokens: currentTokens, text: getCleanSearchText())
+        lastActiveSearch = state
+        settleHandle = TaskHandle(Task { [weak self] in
+            do { try await Task.sleep(for: Self.settleDelay) } catch { return }
+            self?.settledSearch = state
+        })
+    }
+    
+    /// Records the search that just ended: as a recent search, and its freeform text in the
+    /// heuristics. A search being left with content in the field is recorded as it stands.
+    /// One the user emptied by hand is recorded as it last stood, unless that was partway
+    /// through taking it apart — some of the settled search's pills, and text that the
+    /// settled text starts with — in which case it is recorded as it last settled.
+    private func commitSearch() {
+        settleHandle = nil
+        defer { settledSearch = nil; lastActiveSearch = nil }
+        let search: RecentSearch
+        if isActive && hasContent {
+            search = RecentSearch(tokens: currentTokens, text: getCleanSearchText())
+        } else if let last = lastActiveSearch {
+            if let settled = settledSearch, last.tokens.allSatisfy(settled.tokens.contains),
+               settled.text.hasPrefix(last.text) {
+                search = settled
+            } else {
+                search = last
+            }
+        } else {
+            return
+        }
+        guard !search.tokens.isEmpty || !search.text.isEmpty else { return }
+        
+        if Self.recentSearchesEnabled {
+            recentSearches.removeAll { $0 == search }
+            recentSearches.insert(search, at: 0)
+            if recentSearches.count > SearchSuggestionLimits.recentSearches {
+                recentSearches.removeLast(recentSearches.count - SearchSuggestionLimits.recentSearches)
+            }
+        }
+        if !search.text.isEmpty { recordHeuristic(search.text, scope: SearchHeuristics.textScope) }
+    }
+    
+    /// Teaches the heuristics one use of `value`, at background priority. Nothing is
+    /// learned (or loaded) while suggestions are off.
+    private func recordHeuristic(_ value: String, scope: String) {
+        guard Preferences.showSearchSuggestions else { return }
+        Task(priority: .background) {
+            await SearchHeuristics.shared.record(value, scope: scope)
+        }
     }
     
     // MARK: - Clear/Reset
@@ -361,9 +694,10 @@ final class SearchController: Loggable {
     /// `searchText` and `currentTokens` are reset under `isClearing`, which suppresses
     /// their didSet observers so neither the text debounce path nor the token
     /// immediate-search path fires mid-reset; the derived flags are then set explicitly.
-    /// `isActive`/`hasContent` are left false here — `programmaticTokenSearch` raises them
-    /// itself before assigning its token, which is the only case where they end up true.
+    /// `isActive`/`hasContent` are left false here; the next `triggerSearch()` derives them
+    /// again from the text and tokens.
     private func resetState() {
+        commitSearch()
         isClearing = true
         searchText = ""
         currentTokens = []
@@ -376,6 +710,11 @@ final class SearchController: Loggable {
         lastConfirmedTokens = []
         lastConfirmedText = ""
         pendingCleanText = nil
+        tokenResultCache = nil
+        settleHandle = nil
+        suggestionTask = nil
+        suppressedSuggestionText = nil
+        valueSuggestions = []
     }
     
     func clearSearch() {
@@ -398,16 +737,10 @@ final class SearchController: Loggable {
         // Clear every piece of prior search state before installing the new token.
         resetState()
 
-        // Set content/active flags to their final values BEFORE assigning currentTokens.
-        // This ensures that when currentTokens.didSet fires triggerSearchImmediate(),
-        // both hasContent and isActive are already true — so triggerSearch() writes the
-        // correct query string to ViewStateManager on the very first call.
-        hasContent = true
-        isActive = true
-
         // Assign the token directly. The didSet on currentTokens (isClearing is false
-        // here) calls triggerSearchImmediate() → triggerSearch(), which reads the final
-        // flag state set above and dispatches the query to ViewStateManager immediately.
+        // here) calls triggerSearchImmediate() → triggerSearch(), which derives hasContent
+        // and isActive from the new token (both true, since resetState left no "#" text)
+        // and dispatches the query to ViewStateManager immediately.
         let token = SearchToken(field: field, value: value, isInverted: false, isOr: false)
         currentTokens = [token]
 
@@ -452,7 +785,6 @@ final class SearchController: Loggable {
             return searchText.trimmingCharacters(in: .whitespaces)
         }
         // Remove any # patterns from the search text.
-        // The pattern is compiled once as a static constant rather than on every call.
         let cleaned = searchText.replacingOccurrences(
             of: Self.hashPatternRegex,
             with: "",
@@ -461,9 +793,11 @@ final class SearchController: Loggable {
         return cleaned.trimmingCharacters(in: .whitespaces)
     }
     
-    /// Regex pattern that strips any "#<field><optional-value>" token fragment from
-    /// freeform search text. Compiled once; reused on every getCleanSearchText() call.
-    private static let hashPatternRegex = "#[^\\s]*\\s*"
+    /// Regex pattern that strips the "#…" token fragment, value included, from freeform
+    /// search text. Everything after the "#" belongs to the token being typed; stripping
+    /// only "#<field> " left its value behind as freeform text ("#dir nolan" → "nolan").
+    /// The same rule updateTokenEntryState uses for lastConfirmedText.
+    private static let hashPatternRegex = "#.*"
     
     // MARK: - Film Filtering
     
@@ -506,18 +840,17 @@ final class SearchController: Loggable {
         case .tags:              return [\.tags]
         // Handled by their own branches in applyTokenFilter — never routed here.
         case .title, .genre, .notes, .synopsis, .year, .duration, .rating, .lastWatched,
-             .dateAdded, .list, .releases, .rotationThreshold:
+             .dateAdded, .list, .releases, .rotationThreshold, .flags:
             return []
         }
     }
 
     /// Apply a single token filter to a set of film snapshots.
-    /// 'listNames' maps a film's UUID to the names of any lists it belongs to,
-    /// enabling list-field filtering without accessing SwiftData objects.
+    /// 'lists' resolves a `#list` token to its films without accessing SwiftData objects.
     private func applyTokenFilter(
         token: SearchToken,
         to films: [FilmSnapshot],
-        listNames: (UUID) -> [String]
+        lists: SearchListCatalog
     ) -> [FilmSnapshot] {
         let results: [FilmSnapshot]
         
@@ -573,13 +906,16 @@ final class SearchController: Loggable {
             results = filterByDateField(films, query: token.value, fieldValue: { $0.dateAdded })
             
         case .list:
-            results = filterByList(films, query: token.value, listNames: listNames)
+            results = filterByList(films, query: token.value, lists: lists)
             
         case .releases:
             results = filterByReleases(films, query: token.value)
             
         case .rotationThreshold:
             results = filterByRotationThreshold(films, query: token.value)
+
+        case .flags:
+            results = filterByFlags(films, query: token.value)
         }
         
         // Handle inversion
@@ -594,32 +930,74 @@ final class SearchController: Loggable {
     /// Filter film snapshots based on current search state.
     /// Called by DataCoordinator after view-scoped films are retrieved.
     ///
-    /// 'listNames' is a closure that returns the names of all lists a given film
-    /// belongs to. Callers supply this to avoid coupling SearchController to
-    /// MemoryStore directly. DataCoordinator provides this via its own helper.
-    /// The `listNames` closure is required rather than defaulted: the only sensible default
-    /// (`{ _ in [] }`) silently makes every `#list` token match nothing, which is a wrong
-    /// answer rather than a degraded one. Requiring it means a future caller cannot omit it
-    /// by accident.
-    func filterFilms(_ films: [FilmSnapshot], listNames: (UUID) -> [String]) -> [FilmSnapshot] {
+    /// 'lists' is the catalog of every list a `#list` token can name. Callers supply it to
+    /// avoid coupling SearchController to MemoryStore directly; DataCoordinator builds it
+    /// with searchListCatalog(). It is required rather than defaulted: an empty default
+    /// silently makes every `#list` token match nothing, which is a wrong answer rather
+    /// than a degraded one.
+    func filterFilms(_ films: [FilmSnapshot], lists: SearchListCatalog) -> [FilmSnapshot] {
+        // Consumed here whatever happens, so the flag never outlives the reload it was set for.
+        let textOnly = isTextOnlyReload
+        isTextOnlyReload = false
         
         // During token entry, maintain last confirmed search state
         if !isActive {
             Self.log("filterFilms: Token entry mode - using last confirmed state")
-            return applyFilters(to: films, tokens: lastConfirmedTokens, searchText: lastConfirmedText, listNames: listNames)
+            return applyFilters(to: films, tokens: lastConfirmedTokens, searchText: lastConfirmedText,
+                                lists: lists, reuseTokenResults: false)
         }
         
         Self.log("filterFilms: Filtering \(films.count) films with \(currentTokens.count) tokens, searchText='\(searchText)'")
         
-        return applyFilters(to: films, tokens: currentTokens, searchText: getCleanSearchText(), listNames: listNames)
+        return applyFilters(to: films, tokens: currentTokens, searchText: getCleanSearchText(),
+                            lists: lists, reuseTokenResults: textOnly)
     }
     
-    /// Apply filtering logic with given tokens and search text
+    /// Apply filtering logic with given tokens and search text.
+    ///
+    /// The token steps (1–4) depend only on the tokens and the films, never on the freeform
+    /// text, so their result is cached and reused while only the text changes. Without this,
+    /// every keystroke re-ran every token's filter over the whole library, which is why typing
+    /// slowed with each token added. `reuseTokenResults` is true only for a reload that the
+    /// text debounce started (see isTextOnlyReload); any other reload — a token change, an
+    /// edit, a view or sort change — recomputes, so a cached set is never applied to data it
+    /// was not computed from.
     private func applyFilters(
         to films: [FilmSnapshot],
         tokens: [SearchToken],
         searchText: String,
-        listNames: (UUID) -> [String]
+        lists: SearchListCatalog,
+        reuseTokenResults: Bool
+    ) -> [FilmSnapshot] {
+        let filtered: [FilmSnapshot]
+        if tokens.isEmpty {
+            filtered = films
+        } else if reuseTokenResults, let cache = tokenResultCache,
+                  cache.tokens == tokens, cache.inputCount == films.count {
+            filtered = films.filter { cache.ids.contains($0.id) }
+        } else {
+            filtered = applyTokens(tokens, to: films, lists: lists)
+            tokenResultCache = TokenResultCache(tokens: tokens, inputCount: films.count,
+                                                ids: Set(filtered.map(\.id)))
+        }
+
+        // Apply freeform text search (clean text only, # patterns already stripped).
+        // Freeform text matches against title and alternate titles, identical to the
+        // .title token — both share matchesTitle to keep the two paths in lockstep.
+        // A query of nothing but punctuation normalizes to "", which names no text to
+        // match, so it narrows nothing — the same as an empty field.
+        let queryKey = SearchText.key(searchText)
+        if !queryKey.isEmpty {
+            return filtered.filter { matchesTitle($0, query: queryKey) }
+        }
+        return filtered
+    }
+    
+    /// Steps 1–4 of applyFilters: the films that satisfy `tokens`, in their input order.
+    private func applyTokens(
+        _ tokens: [SearchToken],
+        to films: [FilmSnapshot],
+        lists: SearchListCatalog
     ) -> [FilmSnapshot] {
         // Separate tokens into three groups:
         //   AND  — normal positive match, all must be satisfied (intersection)
@@ -631,38 +1009,27 @@ final class SearchController: Loggable {
         let orTokens  = tokens.filter {  $0.isOr && !$0.isInverted }
         let notTokens = tokens.filter {  $0.isInverted }
 
-        var filtered: [FilmSnapshot]
-
         // Step 1: Apply all AND tokens (intersection — every AND token must match)
         var andResults = films
         for token in andTokens {
-            andResults = applyTokenFilter(token: token, to: andResults, listNames: listNames)
+            andResults = applyTokenFilter(token: token, to: andResults, lists: lists)
         }
 
         // Step 2: Apply OR tokens (union — collect IDs for any OR match against the full set)
         var orResults: Set<UUID> = []
-        if !orTokens.isEmpty {
-            for token in orTokens {
-                let matches = applyTokenFilter(token: token, to: films, listNames: listNames)
-                orResults.formUnion(matches.map { $0.id })
-            }
+        for token in orTokens {
+            let matches = applyTokenFilter(token: token, to: films, lists: lists)
+            orResults.formUnion(matches.map { $0.id })
         }
 
-        // Step 3: Combine AND and OR results
-        if andTokens.isEmpty && !orTokens.isEmpty {
-            // Only OR tokens — use OR results
-            filtered = films.filter { orResults.contains($0.id) }
-        } else if !andTokens.isEmpty && orTokens.isEmpty {
-            // Only AND tokens — use AND results
-            filtered = andResults
-        } else if !andTokens.isEmpty && !orTokens.isEmpty {
-            // Both AND and OR — union: any film satisfying AND or OR qualifies
-            let andIDs = Set(andResults.map { $0.id })
-            let combinedIDs = andIDs.union(orResults)
-            filtered = films.filter { combinedIDs.contains($0.id) }
-        } else {
-            // No positive tokens — start from full set
-            filtered = films
+        // Step 3: Combine AND and OR results. With no OR tokens the AND results stand (the
+        // full set when there are no AND tokens either). With OR tokens, a film qualifies by
+        // matching any OR token, or every AND token when there are some — andResults is the
+        // full set when there are none, so it cannot join the union then.
+        var filtered = andResults
+        if !orTokens.isEmpty {
+            let keep = andTokens.isEmpty ? orResults : orResults.union(andResults.map { $0.id })
+            filtered = films.filter { keep.contains($0.id) }
         }
 
         // Step 4: Apply NOT tokens (global exclusions from the positive set).
@@ -670,17 +1037,7 @@ final class SearchController: Loggable {
         // is true, it returns the complement of the matched set. Passing the token
         // through once here gives the correct exclusion behavior.
         for token in notTokens {
-            filtered = applyTokenFilter(token: token, to: filtered, listNames: listNames)
-        }
-
-        // Step 5: Apply freeform text search (clean text only, # patterns already stripped).
-        // Freeform text matches against title and alternate titles, identical to the
-        // .title token — both share matchesTitle to keep the two paths in lockstep.
-        // A query of nothing but punctuation normalizes to "", which names no text to
-        // match, so it narrows nothing — the same as an empty field.
-        let queryKey = SearchText.key(searchText)
-        if !queryKey.isEmpty {
-            filtered = filtered.filter { matchesTitle($0, query: queryKey) }
+            filtered = applyTokenFilter(token: token, to: filtered, lists: lists)
         }
 
         return filtered
@@ -708,9 +1065,15 @@ final class SearchController: Loggable {
         let words = SearchText.key(query).split(separator: " ").map(String.init)
         guard !words.isEmpty else { return [] }
         return films.filter { film in
-            let synopsis = SearchText.key(film.descriptionText)
+            let synopsis = synopsisKey(for: film)
             return words.allSatisfy { synopsis.contains($0) }
         }
+    }
+
+    /// A film's synopsis in `SearchText.key` form: MetadataCache's stored key, or the
+    /// synopsis normalized on the fly when the film is not yet cached, as matchesTitle does.
+    private func synopsisKey(for film: FilmSnapshot) -> String {
+        MetadataCache.shared.getSynopsisSearchKey(for: film.id) ?? SearchText.key(film.descriptionText)
     }
 
     private func filterByYear(_ films: [FilmSnapshot], query: String) -> [FilmSnapshot] {
@@ -754,7 +1117,7 @@ final class SearchController: Loggable {
             }
         }
         if query.hasPrefix(">"), let mins = Int(query.dropFirst()) {
-            return films.filter { parseDurationToMinutes($0.effectiveDuration) > mins }
+            return films.filter { (DurationHelpers.storedMinutes($0.effectiveDuration) ?? 0) > mins }
         }
         // A film with no stored duration is excluded, not read as 0 minutes long; otherwise
         // every film missing a duration matched every "<" query.
@@ -765,7 +1128,7 @@ final class SearchController: Loggable {
             }
         }
         if let mins = Int(query) {
-            return films.filter { parseDurationToMinutes($0.effectiveDuration) >= mins }
+            return films.filter { (DurationHelpers.storedMinutes($0.effectiveDuration) ?? 0) >= mins }
         }
         // Unrecognized query — return no results, consistent with all other filter methods.
         return []
@@ -826,7 +1189,7 @@ final class SearchController: Loggable {
     ) -> [FilmSnapshot] {
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)
         let now = Date()
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
         
         // "none": films with no date recorded for the field (for Last Watched, no viewing
         // date). Tested first so no other form can claim the word.
@@ -1100,7 +1463,7 @@ final class SearchController: Loggable {
     /// `date` moved back by an amount of time. Whole months and years use calendar
     /// arithmetic; fractions of them are converted to days.
     private func naturalDate(_ date: Date, back amount: Double, _ unit: DateUnit) -> Date? {
-        let cal = Calendar.current
+        let cal = AppCalendar.current
         let days: Double
         let months: Double
         switch unit {
@@ -1138,7 +1501,7 @@ final class SearchController: Loggable {
     private func naturalDateMatcher(_ query: String, now: Date) -> ((Date) -> Bool)? {
         let words = naturalDateWords(query)
         guard !words.isEmpty else { return nil }
-        let cal = Calendar.current
+        let cal = AppCalendar.current
         let phrase = words.joined(separator: " ")
 
         // Any recorded date at all.
@@ -1178,7 +1541,9 @@ final class SearchController: Loggable {
     /// The fixed single-period forms (a year, "dec 2020", a full date) or a natural phrase,
     /// as a span. Used for each side of a range and for "since"/"before"/"after".
     private func naturalDateAnySpan(_ words: [String], now: Date) -> DateSpan? {
-        let cal = Calendar.current
+        // An unfinished phrase ("march to", "prior to", "<") leaves no words on one side.
+        guard !words.isEmpty else { return nil }
+        let cal = AppCalendar.current
         let text = words.joined(separator: " ")
         if words.count == 1, text.count == 4, let year = Int(text), year > 1900 && year < 2100,
            let start = cal.date(from: DateComponents(year: year, month: 1, day: 1)),
@@ -1195,7 +1560,9 @@ final class SearchController: Loggable {
 
     /// The natural phrases that name one stretch of time.
     private func naturalDateSpan(_ words: [String], now: Date) -> DateSpan? {
-        let cal = Calendar.current
+        // Several branches below read words[0]; an empty list names no span.
+        guard !words.isEmpty else { return nil }
+        let cal = AppCalendar.current
         let today = cal.startOfDay(for: now)
         let phrase = words.joined(separator: " ")
         let forever = Date.distantFuture
@@ -1497,7 +1864,7 @@ final class SearchController: Loggable {
     /// of three months or more divide by whole months; shorter ones by days.
     private func naturalDatePortion(_ span: DateSpan, part: String?) -> DateSpan? {
         guard let part else { return span }
-        let cal = Calendar.current
+        let cal = AppCalendar.current
         let pieces = part.hasSuffix("half") ? 2 : 3
         let index: Int
         switch part {
@@ -1526,19 +1893,77 @@ final class SearchController: Loggable {
         return DateSpan(start: start, end: end)
     }
 
-    /// Filters films by list name using the caller-supplied list name lookup closure.
-    /// 'listNames' returns the names of all lists a given film ID belongs to.
+    /// Filters films to those in the list(s) the query names.
+    ///
+    /// A query that is a list's whole name selects that list alone, even when the name also
+    /// appears inside another one: "purchased 4k" is "Purchased 4K", not "Unpurchased 4K"
+    /// too, which is what the token's pill promises. Only a query that names no list exactly
+    /// falls back to every list whose name contains it, so "#list purch" still works.
+    /// A list's aliases are matched exactly as its name is.
     private func filterByList(
         _ films: [FilmSnapshot],
         query: String,
-        listNames: (UUID) -> [String]
+        lists: SearchListCatalog
     ) -> [FilmSnapshot] {
         let q = SearchText.key(query)
-        return films.filter { film in
-            listNames(film.id).contains { fuzzyMatchOptimized($0, query: q) }
+        let keyed = lists.entries.indices.flatMap { index in
+            ([lists.entries[index].name] + lists.entries[index].aliases).map { (key: SearchText.key($0), index: index) }
         }
+        var matched = Set(keyed.filter { $0.key == q }.map(\.index))
+        if matched.isEmpty { matched = Set(keyed.filter { fuzzyMatchCore($0.key, query: q) }.map(\.index)) }
+        guard !matched.isEmpty else { return [] }
+        let ids = matched.reduce(into: Set<UUID>()) { $0.formUnion(lists.entries[$1].filmIDs()) }
+        return films.filter { ids.contains($0.id) }
     }
     
+    /// The Is token: films for which every term of the comma-separated value holds (see
+    /// FilmFlag). An unrecognized term matches nothing, as other tokens' unread values do.
+    private func filterByFlags(_ films: [FilmSnapshot], query: String) -> [FilmSnapshot] {
+        guard let tests = FilmFlag.parse(query) else { return [] }
+        let today = StorageDateFormatters.calendar.startOfDay(for: Date())
+        return films.filter { film in
+            tests.allSatisfy { Self.film(film, has: $0.flag, today: today) != $0.negated }
+        }
+    }
+
+    /// One flag's test. Each mirrors the rule of the smart list or report it shares a name
+    /// with, minus that list's side conditions (see FilmFlag).
+    private static func film(_ film: FilmSnapshot, has flag: FilmFlag, today: Date) -> Bool {
+        func ownsFormat(_ format: ReleaseFormat) -> Bool {
+            film.releases.contains { $0.purchased && $0.format == format.rawValue }
+        }
+        switch flag {
+        case .edited: return film.edited
+        case .watched: return film.watched
+        case .rated: return film.userRating > 0
+        case .complete: return film.infoComplete
+        case .sorted: return !film.specialSorting.isEmpty
+        case .waitingForEdit: return film.specialSorting.contains(FilmSpecialSorting.waitingForEdit)
+        case .onHold:
+            return film.specialSorting.contains(FilmSpecialSorting.temporarilyOnHold)
+                || film.specialSorting.contains(FilmSpecialSorting.indefinitelyOnHold)
+        case .temporarilyOnHold: return film.specialSorting.contains(FilmSpecialSorting.temporarilyOnHold)
+        case .indefinitelyOnHold: return film.specialSorting.contains(FilmSpecialSorting.indefinitelyOnHold)
+        case .ignored: return film.specialSorting.contains(FilmSpecialSorting.ignore)
+        case .blacklisted: return film.specialSorting.contains(FilmSpecialSorting.blacklisted)
+        case .owned: return film.releases.contains { $0.purchased }
+        case .owned4K: return ownsFormat(.uhd4K)
+        case .ownedBluray: return ownsFormat(.bluRay)
+        case .ownedDVD: return ownsFormat(.dvd)
+        // The Unpurchased list's rule: releases, none of them purchased. "!owned" also
+        // takes the films with no releases at all.
+        case .unowned: return !film.releases.isEmpty && film.releases.allSatisfy { !$0.purchased }
+        case .noReleases: return film.releases.isEmpty
+        case .wishlisted: return film.releases.contains { $0.wishlist > 0 && $0.isTopLevel }
+        case .upcoming:
+            return film.releases.contains {
+                ReleaseDateValue($0.releaseDate, format: $0.format)?.isUpcoming(today: today) ?? false
+            }
+        case .alternateVersions: return SmartLists.hasAlternateVersions(film)
+        case .hallOfFame: return film.hofPosition > 0
+        }
+    }
+
     private func filterByReleases(_ films: [FilmSnapshot], query: String) -> [FilmSnapshot] {
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)
 
@@ -1575,7 +2000,11 @@ final class SearchController: Loggable {
             // Unpurchased/wishlist releases are those not marked as purchased.
             return films.filter { film in film.releases.contains { !$0.purchased } }
         }
-        if q == "purchased" || q.contains("owned") {
+        // Exact words: a substring test read "unowned" and "owned 4k" as "owned".
+        if q == "unowned" || q == "not owned" {
+            return films.filter { film in film.releases.contains { !$0.purchased } }
+        }
+        if q == "purchased" || q == "owned" {
             return films.filter { film in film.releases.contains { $0.purchased } }
         }
 
@@ -1654,8 +2083,11 @@ final class SearchController: Loggable {
             return films.filter { film in film.releases.contains { $0.independence == ReleaseIndependence.multiPack } }
         }
 
+        // Normalized like every other text token, so punctuation and accents in the
+        // query match the studio name either way.
+        let studioKey = SearchText.key(query)
         return films.filter { film in
-            film.releases.contains { fuzzyMatchOptimized($0.studio, query: q) }
+            film.releases.contains { fuzzyMatchOptimized($0.studio, query: studioKey) }
         }
     }
 
@@ -1714,7 +2146,7 @@ final class SearchController: Loggable {
         }
 
         if let monthStart = parseMonthYear(q) {
-            let c = Calendar.current.dateComponents([.year, .month], from: monthStart)
+            let c = AppCalendar.current.dateComponents([.year, .month], from: monthStart)
             guard let y = c.year, let m = c.month else { return nil }
             return { $0.year == y && $0.monthDay?.month == m }
         }
@@ -1864,25 +2296,11 @@ final class SearchController: Loggable {
     
     // MARK: - Fuzzy Matching
     
-    /// Core fuzzy match implementation. Both text and query must be pre-lowercased.
-    ///
-    /// Priority order (each successful check short-circuits):
-    ///   1. Exact match  — cheapest, most common for token equality
-    ///   2. Prefix match — common for autocomplete-style queries
-    ///   3. Substring match — the general case
-    ///
-    /// A separate word-start pass used to follow the substring check, but it was
-    /// unreachable: `word.hasPrefix(query)` implies `text.contains(query)`, so once
-    /// the substring check returns false no word can begin with the query either.
-    /// The exact and prefix checks are retained purely as fast exits ahead of the
-    /// (potentially O(n·m)) substring scan; each is subsumed by the substring check
-    /// but avoids that scan in the common cases.
+    /// Substring match. Both text and query must already be in `SearchText.key` form.
+    /// An empty query names nothing to narrow by, so it matches every text.
     @inline(__always)
     private func fuzzyMatchCore(_ lowercasedText: String, query lowercasedQuery: String) -> Bool {
-        guard !lowercasedQuery.isEmpty, !lowercasedText.isEmpty else { return lowercasedQuery.isEmpty }
-        if lowercasedText == lowercasedQuery         { return true }
-        if lowercasedText.hasPrefix(lowercasedQuery) { return true }
-        return lowercasedText.contains(lowercasedQuery)
+        lowercasedQuery.isEmpty || lowercasedText.contains(lowercasedQuery)
     }
     
     /// Match where the query is already in `SearchText.key` form but the text is not.
@@ -1890,20 +2308,5 @@ final class SearchController: Loggable {
     @inline(__always)
     private func fuzzyMatchOptimized(_ text: String, query queryKey: String) -> Bool {
         fuzzyMatchCore(SearchText.key(text), query: queryKey)
-    }
-    
-    /// The whole minutes a film's stored `duration` represents, or 0 when it is empty,
-    /// unparseable, or non-positive.
-    ///
-    /// `Film.duration` is a MILLISECOND count stored as a string — MetaParser writes
-    /// `asset.duration.seconds * 1000`, and every reader (the sidebar's formatters, the
-    /// list view's duration column, the FilmSheet's hours/minutes fields) decodes it as
-    /// such through `RSBHelpers.hoursAndMinutes`. This used to read the string as a minute
-    /// count instead (with a dead branch for an "H:MM:SS" form nothing ever stored), so
-    /// `duration:>90` compared 5,400,000 against 90 and matched every film that had a
-    /// duration at all, while `duration:<200` matched none. Going through the shared
-    /// decoder keeps the search's idea of a film's length the same as the display's.
-    private func parseDurationToMinutes(_ duration: String) -> Int {
-        DurationHelpers.storedMinutes(duration) ?? 0
     }
 }

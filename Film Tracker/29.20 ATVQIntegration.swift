@@ -131,6 +131,18 @@ final class ATVQClient: Loggable {
     @ObservationIgnored private var activationObserver: (any NSObjectProtocol)?
     @ObservationIgnored private var preferenceObserver: (any NSObjectProtocol)?
 
+    /// When a dispatch from this Mac last reached a recipient, for the title-bar button's
+    /// tooltip. Internal state like `requestedKey`, and likewise not backed up: it describes
+    /// this Mac's dispatches, not the library.
+    private static let lastDeliveredKey = "atvq.lastDelivered"
+    private(set) var lastDelivered: Date? = Preferences.store.object(forKey: lastDeliveredKey) as? Date
+
+    func noteDelivered() {
+        let now = Date()
+        lastDelivered = now
+        Preferences.store.set(now, forKey: Self.lastDeliveredKey)
+    }
+
     private var hasRequested: Bool {
         get { Preferences.store.bool(forKey: Self.requestedKey) }
         set { Preferences.store.set(newValue, forKey: Self.requestedKey) }
@@ -524,14 +536,7 @@ final class ATVQClient: Loggable {
     /// "Up Next", in the order the Queue's "All" tab shows it, capped at ATVQ's eight slots.
     private static func upNextFilms(coordinator: DataCoordinator) -> [FilmSnapshot] {
         let ids = Array(FilmQueue.upNextFilmIDs(coordinator: coordinator))
-        let state: ViewState
-        if case .filmQueue = ViewStateManager.shared.activeView,
-           FilmQueueFilterState.shared.selectedFilter == .all {
-            state = ViewStateManager.shared.activeState
-        } else {
-            let key = ViewStateKey(viewID: .filmQueue).persistenceKey ?? "filmQueue"
-            state = ViewState.decoded(from: Preferences.viewSortStates[key] ?? [])
-        }
+        let state = ViewStateManager.shared.filmQueueAllTabState()
         let ordered = MetadataCache.shared.sort(ids, by: state.effectiveSortOption(in: .filmQueue),
                                                 direction: state.sortDirection)
         return ordered.prefix(FilmQueue.upNextCapacity).compactMap { coordinator.getFilm($0) }
@@ -860,7 +865,31 @@ private struct ATVQDispatchButtonContent: View {
         if client.access == .denied {
             return "Dispatching to ATVQ needs Local Network access. Turn on Film Tracker in System Settings › Privacy & Security › Local Network."
         }
-        return "Dispatch your \"Up Next\" Queue to ATVQ"
+        let base = "Dispatch your \"Up Next\" Queue to ATVQ"
+        guard let last = client.lastDelivered else { return base }
+        return base + "\nLast sent " + Self.relativeTimestamp(last)
+    }
+
+    /// "today at 2:46 PM", "yesterday at 5:10 PM", "Tuesday at 1:11 AM" within the past
+    /// week, then "October 5 at 4:04 PM" (with the year when it isn't this one).
+    private static func relativeTimestamp(_ date: Date, now: Date = Date()) -> String {
+        let calendar = AppCalendar.current
+        let time = date.formatted(date: .omitted, time: .shortened)
+        let day: String
+        if calendar.isDateInToday(date) {
+            day = "today"
+        } else if calendar.isDateInYesterday(date) {
+            day = "yesterday"
+        } else if let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
+                                                     to: calendar.startOfDay(for: now)).day,
+                  days < 7 {
+            day = date.formatted(Date.FormatStyle(calendar: calendar).weekday(.wide))
+        } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            day = date.formatted(Date.FormatStyle(calendar: calendar).month(.wide).day())
+        } else {
+            day = date.formatted(Date.FormatStyle(calendar: calendar).month(.wide).day().year())
+        }
+        return "\(day) at \(time)"
     }
 
     private func click() {
@@ -879,6 +908,7 @@ private struct ATVQDispatchButtonContent: View {
             glyphAnimates = true
             phase = failure.map { .failed($0) } ?? .delivered
             guard failure == nil else { return }
+            client.noteDelivered()
             resetTask = Task {
                 try? await Task.sleep(for: .seconds(3))
                 guard !Task.isCancelled else { return }

@@ -6,8 +6,8 @@
 // Sandboxed, the app cannot read the project folder, so Documentation/Tools/check.sh stages
 // copies of the guide's HTML and of 50.00 SearchController.swift in the app's temporary
 // directory (`guide-sync/`) and runs this scenario. The scenario fails when the code
-// accepts something the guide does not mention: a field alias, a pill label, a smart list
-// name, a keyword inside one of the keyword-driven filters, or the set of rotation
+// accepts something the guide does not mention: a field alias, a pill label, an Is term, a smart
+// list name, a keyword inside one of the keyword-driven filters, or the set of rotation
 // thresholds. It cannot tell whether a description is still accurate, only that nothing
 // the code accepts has gone missing, so a change to search still means re-reading the guide.
 
@@ -51,6 +51,14 @@ extension DebugHarness {
                 r.check("guide-sync/pill-label/\(field.rawValue)",
                         guide.contains("class=\"pill\">\(field.tokenPillLabel)</span>"),
                         "pill label '\(field.tokenPillLabel)' of \(field.displayName) is not shown")
+            }
+        }
+
+        // Every Is term, under each spelling it accepts.
+        for term in FilmFlag.terms {
+            for spelling in [term.display] + term.aliases {
+                r.check("guide-sync/is-term/\(spelling)", guide.contains("<code>\(spelling)</code>"),
+                        "Is term '\(spelling)' is not listed as <code>\(spelling)</code>")
             }
         }
 

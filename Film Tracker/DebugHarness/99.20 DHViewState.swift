@@ -16,8 +16,10 @@
 #if DEBUG
 
 import AppKit
+import Combine
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension DebugHarness {
 
@@ -42,9 +44,41 @@ extension DebugHarness {
         case "queue-mixed-style":   return await queueMixedStyleScenario(coordinator: coordinator)
         case "upnext-slots":        return await upNextSlotsScenario(coordinator: coordinator)
         case "sidebar-tab-switch":  return await sidebarTabSwitchScenario(coordinator: coordinator)
+        case "rsb-load":            return await rsbLoadScenario(coordinator: coordinator)
+        case "rsb-modules":         return await rsbModulesScenario(coordinator: coordinator)
+        case "rsb-cards":           return await rsbCardsScenario(coordinator: coordinator)
+        case "rsb-rows":            return await rsbRowsScenario(coordinator: coordinator)
+        case "rsb-crew-parity":     return await rsbCrewParityScenario()
+        case "rsb-frames-parity":   return await rsbFramesParityScenario()
+        case "rsb-metadata-shot":   return await rsbMetadataShotScenario(coordinator: coordinator)
+        case "rsb-notes-shot":      return await rsbNotesShotScenario(coordinator: coordinator)
+        case "rsb-releases-shot":   return await rsbReleasesShotScenario(coordinator: coordinator)
+        case "rsb-glyph-shot":      return await rsbGlyphShotScenario(coordinator: coordinator)
         case "gallery-edit-refresh": return await galleryEditRefreshScenario(coordinator: coordinator)
+        case "gallery-reload-economy": return await galleryReloadEconomyScenario(coordinator: coordinator)
         default:                    return nil
         }
+    }
+
+    /// Empties all three Film Queue sections, then fills them with the given films.
+    ///
+    /// Every Queue scenario seeds on top of whatever the sandbox already holds — a real-library
+    /// copy, or an earlier scenario in the same run. "Up Next" refuses adds past
+    /// FilmQueue.upNextCapacity, so seeding without clearing first silently left it full and
+    /// failed checks that need a known vacancy (or a known count) for reasons unrelated to
+    /// the code under test.
+    static func seedFilmQueue(_ coordinator: DataCoordinator,
+                              upNext: some Collection<UUID>,
+                              soon: some Collection<UUID> = [UUID](),
+                              later: some Collection<UUID> = [UUID]()) {
+        for section in FilmQueueSection.allCases {
+            if let ids = coordinator.getList(section.listID)?.filmIDs, !ids.isEmpty {
+                coordinator.removeFilmsFromList(filmIDs: ids, listID: section.listID)
+            }
+        }
+        _ = coordinator.addFilmsToList(filmIDs: Set(upNext), listID: FilmQueueSection.upNext.listID)
+        if !soon.isEmpty { _ = coordinator.addFilmsToList(filmIDs: Set(soon), listID: FilmQueueSection.soon.listID) }
+        if !later.isEmpty { _ = coordinator.addFilmsToList(filmIDs: Set(later), listID: FilmQueueSection.later.listID) }
     }
 
     /// The save path is debounced (ViewStateManager.saveDebounceMs, 300ms) and runs on a
@@ -424,7 +458,7 @@ extension DebugHarness {
     private struct GridHost: View {
         let coordinator: DataCoordinator
         var body: some View {
-            GallerySubview(forceReloadID: UUID(), scrollRequest: nil, activeViewID: .allFilms,
+            GallerySubview(scrollRequest: nil, activeViewID: .allFilms,
                            subtitleProvider: nil, showSectionDividers: false)
                 .environment(coordinator)
                 .environment(SelectionState.shared)
@@ -712,10 +746,8 @@ extension DebugHarness {
     private struct IntegrityGridHost: View {
         let coordinator: DataCoordinator
         let viewID: ViewIdentifier
-        // Fixed, so a body re-evaluation is not read as a forced reload.
-        static let reloadID = UUID()
         var body: some View {
-            GallerySubview(forceReloadID: Self.reloadID, scrollRequest: nil, activeViewID: viewID,
+            GallerySubview(scrollRequest: nil, activeViewID: viewID,
                            subtitleProvider: nil, showSectionDividers: false)
                 .environment(coordinator)
                 .environment(SelectionState.shared)
@@ -1167,12 +1199,17 @@ extension DebugHarness {
                 sv.contentView.setBoundsOrigin(.zero)
                 sv.reflectScrolledClipView(sv.contentView)
             }
+            // The coast is the precondition, not the subject: act as soon as it is visibly
+            // under way rather than after a fixed delay, which a short coast could outlast.
+            func awaitCoastUnderway() async {
+                for _ in 0..<15 where !(probe.isLive && y() > 40) { await wait(20) }
+            }
 
             // Control: without the stop, a programmatic jump during the coast does not stick.
             scrollToTop()
             await drainTurns(window)
             _ = unsafe sv.perform(automateSelector)
-            await wait(300)
+            await awaitCoastUnderway()
             r.check("\(style)-control-coast-running", probe.isLive && y() > 0,
                     "live \(probe.isLive) y \(y())")
             scrollToTop()
@@ -1188,7 +1225,7 @@ extension DebugHarness {
             selection.selectImmediate([coordinator.films[targetIndex].id])
             await drainTurns(window)
             _ = unsafe sv.perform(automateSelector)
-            await wait(300)
+            await awaitCoastUnderway()
             let coastY = y()
             r.check("\(style)-coast-running", probe.isLive && coastY > 0,
                     "live \(probe.isLive) y \(coastY)")
@@ -1589,8 +1626,7 @@ extension DebugHarness {
         // scrollable section T1 restores.
         let all = coordinator.films.map(\.id)
         let upNextSeed = FilmQueue.upNextCapacity - 1
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[0..<upNextSeed]), listID: FilmQueueSection.upNext.listID)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[upNextSeed..<600]), listID: FilmQueueSection.soon.listID)
+        seedFilmQueue(coordinator, upNext: all[0..<upNextSeed], soon: all[upNextSeed..<600])
         appState.navigate(to: .libraryItem(.filmQueue)); await settle(1000)
         let fq = FilmQueueFilterState.shared
 
@@ -1695,9 +1731,7 @@ extension DebugHarness {
         let all = coordinator.films.map(\.id)
         // "Up Next" is capped at FilmQueue.upNextCapacity (8); "Soon" takes the rest.
         let upNextSeed = FilmQueue.upNextCapacity
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[0..<upNextSeed]), listID: FilmQueueSection.upNext.listID)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[upNextSeed..<600]), listID: FilmQueueSection.soon.listID)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[600..<900]), listID: FilmQueueSection.later.listID)
+        seedFilmQueue(coordinator, upNext: all[0..<upNextSeed], soon: all[upNextSeed..<600], later: all[600..<900])
         appState.navigate(to: .libraryItem(.filmQueue)); await settle(1000)
         let fq = FilmQueueFilterState.shared
         fq.selectFilter(.all); await settle(700); manager.updateListViewStyle(false); await settle(700)
@@ -1797,9 +1831,7 @@ extension DebugHarness {
         appState.navigate(to: .libraryItem(.allFilms)); await settle(800)
         let all = coordinator.films.map(\.id)
         let upNext = Set(all[0..<3])
-        _ = coordinator.addFilmsToList(filmIDs: upNext, listID: upNextID)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[3..<23]), listID: FilmQueueSection.soon.listID)
-        _ = coordinator.addFilmsToList(filmIDs: Set(all[23..<33]), listID: FilmQueueSection.later.listID)
+        seedFilmQueue(coordinator, upNext: upNext, soon: all[3..<23], later: all[23..<33])
         appState.navigate(to: .libraryItem(.filmQueue)); await settle(1000)
         FilmQueueFilterState.shared.selectFilter(.all); await settle(800)
         manager.updateListViewStyle(false); await settle(900)
@@ -1985,6 +2017,987 @@ extension DebugHarness {
 }
 #endif
 
+// MARK: - Right Sidebar Load
+//
+// `rsb-load` (opt-in, a measurement; not in any suite): what one film-to-film selection
+// costs the right sidebar on the main thread, split into the visible tab's build (the busy
+// stretches within 150 ms of the selection) and the neighbor-tab arming that follows the
+// 180 ms quiet window (every stretch after that). Run once per starting tab, since the
+// middle tab (Releases) arms two neighbors and the end tabs one. Films with notes are used
+// so Notes is never disabled. Launch flags for A/B runs: see RSBProfileFlags (24.00).
+//
+// FT_RSB_LOOP_SECONDS=<n> then re-selects films on the Releases tab for n seconds, after
+// writing "RSB-LOOP-ARMED <pid>" to stderr and holding 3 s, so `sample` can be attached.
+#if DEBUG
+extension DebugHarness {
+    static func rsbLoadScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "rsb-load")
+        guard let appState = AppDelegate.appState else {
+            r.check("app-state", false, "no AppDelegate.appState")
+            return r
+        }
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        func median(_ v: [Double]) -> Double { v.isEmpty ? 0 : v.sorted()[v.count / 2] }
+        if !coordinator.hasDatabaseFilms { coordinator.importFilms(reportsCorpus()) }
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(2000)
+
+        let withNotes = coordinator.films.filter(\.hasNotesContent)
+        guard withNotes.count >= 8 else {
+            r.check("films", false, "\(withNotes.count) films with notes")
+            return r
+        }
+        // Evenly spaced through the gallery order, so the set is not all one kind of film.
+        let count = min(17, withNotes.count)
+        let films = (0..<count).map { withNotes[$0 * withNotes.count / count] }
+        r.check("films", true, "\(Fmt.int(count)) of \(Fmt.int(withNotes.count)) films with notes; flags: "
+                + "allAtOnce \(RSBProfileFlags.neighborsAllAtOnce), noTopPinned \(RSBProfileFlags.noTopPinnedLayout), "
+                + "noViewport \(RSBProfileFlags.noViewport)")
+
+        let selection = SelectionState.shared
+        let manager = ViewStateManager.shared
+        let recorder = RunLoopBusyRecorder()
+        recorder.start()
+        defer { recorder.stop() }
+
+        /// The busy stretches in [t0, t0 + window], as (start offset, duration) in ms.
+        func stretches(from t0: Double, window: Double) -> [(start: Double, duration: Double)] {
+            var out: [(Double, Double)] = []
+            var busySince: Double? = t0
+            for e in recorder.events where e.time >= t0 && e.time <= t0 + window {
+                if e.idle, let since = busySince {
+                    out.append((since - t0, e.time - since))
+                    busySince = nil
+                } else if !e.idle {
+                    busySince = e.time
+                }
+            }
+            return out
+        }
+
+        for tab in [RightSidebarTab.details, .releases, .notes] {
+            manager.setRightSidebarTab(tab)
+            selection.selectImmediate(films[0].id)
+            await settle(1500)
+            var visible: [Double] = [], neighborTotal: [Double] = [], neighborLongest: [Double] = []
+            var neighborCounts: [Double] = [], cpus: [Double] = []
+            for film in films.dropFirst() {
+                recorder.reset()
+                let cpu0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
+                let t0 = CACurrentMediaTime() * 1000
+                selection.selectImmediate(film.id)
+                await settle(1000)
+                cpus.append(Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - cpu0) / 1e6)
+                let all = stretches(from: t0, window: 1000)
+                let early = all.filter { $0.start < 150 }
+                let late = all.filter { $0.start >= 150 && $0.duration >= 1 }
+                visible.append(early.reduce(0) { $0 + $1.duration })
+                neighborTotal.append(late.reduce(0) { $0 + $1.duration })
+                neighborLongest.append(late.map(\.duration).max() ?? 0)
+                neighborCounts.append(Double(late.count))
+            }
+            let name = tab.rawValue
+            r.metric("\(name)-visible-median", median(visible), "ms")
+            r.metric("\(name)-neighbors-total-median", median(neighborTotal), "ms")
+            r.metric("\(name)-neighbors-longest-median", median(neighborLongest), "ms")
+            r.metric("\(name)-cpu-median", median(cpus), "ms")
+            r.check(name, true,
+                    "visible \(Fmt.fixed(median(visible), 1)) ms (max \(Fmt.fixed(visible.max() ?? 0, 1))), "
+                    + "neighbors total \(Fmt.fixed(median(neighborTotal), 1)) ms, "
+                    + "longest \(Fmt.fixed(median(neighborLongest), 1)) ms (max \(Fmt.fixed(neighborLongest.max() ?? 0, 1))), "
+                    + "stretches \(Fmt.fixed(median(neighborCounts), 0)), cpu \(Fmt.fixed(median(cpus), 1)) ms")
+        }
+
+        if let seconds = Double(ProcessInfo.processInfo.environment["FT_RSB_LOOP_SECONDS"] ?? "") {
+            manager.setRightSidebarTab(.releases)
+            FileHandle.standardError.write("RSB-LOOP-ARMED \(getpid())\n".data(using: .utf8)!)
+            await settle(3000)
+            let end = CACurrentMediaTime() + seconds
+            var i = 0
+            while CACurrentMediaTime() < end {
+                selection.selectImmediate(films[i % films.count].id)
+                i += 1
+                await settle(450)
+            }
+            r.check("loop", true, "\(Fmt.int(i)) selections")
+        }
+        selection.selectImmediate(nil as UUID?)
+        return r
+    }
+}
+#endif
+
+// MARK: - Right Sidebar Modules
+//
+// `rsb-modules` (opt-in, a measurement): what each right sidebar module costs to re-point
+// at a new film, measured alone. Each module is hosted in its own NSHostingView in an
+// off-screen window, at the width the sidebar gives it, with the environment RightSidebar
+// injects; a film change is a rootView hand-off plus layoutSubtreeIfNeeded, and the cost is
+// main-thread CPU across that call and the two run-loop turns after it. The same films as
+// `rsb-load`. Whole tabs are measured too, scroll view included.
+#if DEBUG
+extension DebugHarness {
+    static func rsbModulesScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "rsb-modules")
+        func turn() async {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async { c.resume() }
+            }
+        }
+        func cpuMS() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e6 }
+        func median(_ v: [Double]) -> Double { v.isEmpty ? 0 : v.sorted()[v.count / 2] }
+
+        let withNotes = coordinator.films.filter(\.hasNotesContent)
+        guard withNotes.count >= 8 else {
+            r.check("films", false, "\(withNotes.count) films with notes")
+            return r
+        }
+        let count = min(17, withNotes.count)
+        let films = (0..<count).map { withNotes[$0 * withNotes.count / count] }
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 900),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        window.contentView = container
+
+        /// `width` is what the module is offered: 268 inside a tab's 16 pt insets, 300 for a tab.
+        func profile(_ name: String, width: CGFloat, height: CGFloat? = nil,
+                     _ make: @escaping (FilmSnapshot) -> AnyView) async {
+            func root(_ film: FilmSnapshot) -> AnyView {
+                AnyView(make(film)
+                    .frame(width: width, height: height)
+                    .environment(\.sidebarFilm, film)
+                    .environment(coordinator))
+            }
+            let host = NSHostingView(rootView: root(films[0]))
+            host.frame = NSRect(x: 0, y: 0, width: width, height: height ?? 800)
+            container.addSubview(host)
+            host.layoutSubtreeIfNeeded()
+            await turn(); await turn()
+            var costs: [Double] = []
+            for (i, film) in films.enumerated() where i > 0 {
+                let c0 = cpuMS()
+                host.rootView = root(film)
+                host.layoutSubtreeIfNeeded()
+                await turn(); await turn()
+                costs.append(cpuMS() - c0)
+                if name == "metadata" {
+                    let rows = film.cast.count + film.directors.count + film.producers.count
+                        + film.executiveProducers.count + film.screenwriters.count + film.composer.count
+                        + film.studio.count
+                    r.check("metadata-film-\(Fmt.int(i))", true, "\(Fmt.fixed(costs.last!, 2)) ms, crew rows \(Fmt.int(rows)), "
+                            + "tags \(Fmt.int(film.tags.count)), alt \(Fmt.int(film.alternateTitle.count)), "
+                            + "notes \(Fmt.int(film.notes.count)) ch, comments \(Fmt.int(film.comments.count)) ch")
+                }
+                if name == "tab-releases" {
+                    r.check("releases-film-\(Fmt.int(i))", true, "\(Fmt.fixed(costs.last!, 2)) ms, releases "
+                            + "\(Fmt.int(film.releases.count)), summary table \(Preferences.showReleasesSummaryTable)")
+                }
+                if name == "tab-notes" {
+                    let text = film.warning.count + film.notesOnAudioTiming.count + film.specialAudioNotes.count
+                        + film.notesArray.count + film.tools.count
+                    r.check("notes-film-\(Fmt.int(i))", true, "\(Fmt.fixed(costs.last!, 2)) ms, frames rows "
+                            + "\(Fmt.int(film.handbrakeFrames.count + film.correspondingTimecodes.count)), "
+                            + "text entries \(Fmt.int(text))")
+                }
+            }
+            // FT_RSB_MODULE_LOOP=<name> keeps re-pointing that one module for 12 s, after
+            // writing "RSB-LOOP-ARMED <pid>" to stderr and holding 3 s, for `sample`.
+            if ProcessInfo.processInfo.environment["FT_RSB_MODULE_LOOP"] == name {
+                FileHandle.standardError.write("RSB-LOOP-ARMED \(getpid())\n".data(using: .utf8)!)
+                try? await Task.sleep(for: .seconds(3))
+                let end = CACurrentMediaTime() + 12
+                var i = 0
+                while CACurrentMediaTime() < end {
+                    host.rootView = root(films[i % films.count])
+                    host.layoutSubtreeIfNeeded()
+                    await turn()
+                    i += 1
+                }
+            }
+            // The first switches warm caches; report the rest.
+            let steady = Array(costs.dropFirst(2))
+            r.metric("\(name)-median", median(steady), "ms")
+            r.check(name, true, "median \(Fmt.fixed(median(steady), 2)) ms, max \(Fmt.fixed(steady.max() ?? 0, 2)) ms")
+            host.removeFromSuperview()
+        }
+
+        let collapsed = Binding.constant(false)
+        await profile("header", width: 268) { AnyView(Header(filmID: $0.id)) }
+        await profile("watch-details", width: 268) { _ in AnyView(WatchDetails()) }
+        await profile("calendar-table", width: 268) { _ in AnyView(CalendarTable(isTableExpanded: collapsed)) }
+        await profile("list-table", width: 268) { _ in AnyView(ListTable(isTableExpanded: collapsed)) }
+        await profile("synopsis", width: 268) { _ in AnyView(Synopsis()) }
+        await profile("metadata", width: 268) { _ in AnyView(Metadata()) }
+        await profile("tab-details", width: 300, height: 700) { _ in
+            AnyView(RTabDetails(calendarTableExpanded: collapsed, listTableExpanded: collapsed)) }
+        await profile("tab-releases", width: 300, height: 700) { _ in
+            AnyView(RTabReleases(releasesSummaryExpanded: collapsed, purchaseFilter: .constant(.all))) }
+        await profile("tab-notes", width: 300, height: 700) { _ in AnyView(RTabNotes()) }
+        window.close()
+        return r
+    }
+}
+#endif
+
+// MARK: - Release Card Cost
+//
+// `rsb-cards` (opt-in, a measurement): what one release card costs, measured as `rsb-modules`
+// measures the Releases tab, across three sets of real films — one single card, one two-disc
+// combo-pack card, and no card at all (the tab's own cost, to subtract).
+#if DEBUG
+extension DebugHarness {
+    static func rsbCardsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "rsb-cards")
+        func turn() async {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async { c.resume() }
+            }
+        }
+        func cpuMS() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e6 }
+        func median(_ v: [Double]) -> Double { v.isEmpty ? 0 : v.sorted()[v.count / 2] }
+        func groups(_ f: FilmSnapshot) -> [[ReleaseSnapshot]] {
+            releasesGroupedByHierarchy(f.releases.filter { ReleaseFormat(rawValue: $0.format) != nil })
+        }
+        func spread(_ v: [FilmSnapshot]) -> [FilmSnapshot] {
+            let n = min(13, v.count)
+            return (0..<n).map { v[$0 * v.count / n] }
+        }
+        let singles = spread(coordinator.films.filter { let g = groups($0); return g.count == 1 && g[0].count == 1 })
+        let combos = spread(coordinator.films.filter { let g = groups($0); return g.count == 1 && g[0].count == 2 })
+        let empty = spread(coordinator.films.filter { groups($0).isEmpty })
+        guard singles.count >= 6, combos.count >= 6, empty.count >= 6 else {
+            r.check("films", false, "singles \(singles.count), combos \(combos.count), empty \(empty.count)")
+            return r
+        }
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 900),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        window.contentView = container
+        let collapsed = Binding.constant(false)
+
+        func profile(_ name: String, _ films: [FilmSnapshot]) async {
+            func root(_ film: FilmSnapshot) -> AnyView {
+                AnyView(RTabReleases(releasesSummaryExpanded: collapsed, purchaseFilter: .constant(.all))
+                    .frame(width: 300, height: 700)
+                    .environment(\.sidebarFilm, film)
+                    .environment(coordinator))
+            }
+            // Each set alternates with a film from `empty`, so every measured step builds its
+            // card from nothing, as a new selection does, rather than re-pointing a card.
+            let host = NSHostingView(rootView: root(empty[0]))
+            host.frame = NSRect(x: 0, y: 0, width: 300, height: 700)
+            container.addSubview(host)
+            host.layoutSubtreeIfNeeded()
+            await turn(); await turn()
+            var costs: [Double] = []
+            // Per build: the rootView hand-off, the layout pass, the two turns after it, and
+            // what the AppKit rows did (CardRowsProbe).
+            var handOff: [Double] = [], layout: [Double] = [], after: [Double] = []
+            var ours: [Double] = [], created: [Double] = []
+            for round in 0..<2 {
+                for (i, film) in films.enumerated() {
+                    host.rootView = root(empty[(i + 1) % empty.count])
+                    host.layoutSubtreeIfNeeded()
+                    await turn(); await turn()
+                    CardRowsProbe.reset()
+                    let c0 = cpuMS()
+                    host.rootView = root(film)
+                    let c1 = cpuMS()
+                    host.layoutSubtreeIfNeeded()
+                    let c2 = cpuMS()
+                    let before = (CardRowsProbe.layouts, CardRowsProbe.rowsCreated)
+                    await turn(); await turn()
+                    let c3 = cpuMS()
+                    let afterCalls = (CardRowsProbe.layouts - before.0, CardRowsProbe.rowsCreated - before.1)
+                    if round == 1 {
+                        costs.append(c3 - c0)
+                        handOff.append(c1 - c0); layout.append(c2 - c1); after.append(c3 - c2)
+                        ours.append(CardRowsProbe.layoutTime * 1000)
+                        created.append(Double(CardRowsProbe.rowsCreated))
+                        if i < 3 {
+                            let sv = findView(NSScrollView.self, in: host, where: { _ in true })
+                            r.check("\(name)-film-\(i)-scroll", true, "scroller style \(sv?.scrollerStyle.rawValue ?? -1), "
+                                    + "vertical shown \(sv.map { !($0.verticalScroller?.isHidden ?? true) } ?? false), "
+                                    + "document \(sv?.documentView?.frame.size ?? .zero), clip \(sv?.contentView.bounds.size ?? .zero)")
+                            r.check("\(name)-film-\(i)-rows", true, "row layouts \(CardRowsProbe.rowLayouts), label moves \(CardRowsProbe.labelMoves), "
+                                    + "row layout time \(Fmt.fixed(CardRowsProbe.rowLayoutTime * 1000, 2)) ms")
+                            r.check("\(name)-film-\(i)", true, "\(Fmt.fixed(c3 - c0, 2)) ms; in layout: \(before.0) layouts, \(before.1) rows made; "
+                                    + "after: \(afterCalls.0) layouts, \(afterCalls.1) rows made")
+                        }
+                    }
+                }
+            }
+            r.check("\(name)-phases", true, "hand-off \(Fmt.fixed(median(handOff), 2)), layout \(Fmt.fixed(median(layout), 2)), "
+                    + "after \(Fmt.fixed(median(after), 2)) ms; AppKit rows' own code \(Fmt.fixed(median(ours), 2)) ms, "
+                    + "\(Fmt.fixed(median(created), 0)) rows made")
+            // FT_RSB_MODULE_LOOP=<name> repeats the set for 12 s, for `sample`.
+            if ProcessInfo.processInfo.environment["FT_RSB_MODULE_LOOP"] == name {
+                FileHandle.standardError.write("RSB-LOOP-ARMED \(getpid())\n".data(using: .utf8)!)
+                try? await Task.sleep(for: .seconds(3))
+                let end = CACurrentMediaTime() + 12
+                var i = 0
+                while CACurrentMediaTime() < end {
+                    host.rootView = root(i % 2 == 0 ? films[(i / 2) % films.count] : empty[(i / 2) % empty.count])
+                    host.layoutSubtreeIfNeeded()
+                    await turn()
+                    i += 1
+                }
+            }
+            r.metric("\(name)-median", median(costs), "ms")
+            r.check(name, true, "median \(Fmt.fixed(median(costs), 2)) ms, min \(Fmt.fixed(costs.min() ?? 0, 2)), "
+                    + "max \(Fmt.fixed(costs.max() ?? 0, 2)) ms over \(costs.count) films")
+            host.removeFromSuperview()
+        }
+        await profile("empty", empty)
+        await profile("single", singles)
+        await profile("combo", combos)
+        window.close()
+        return r
+    }
+}
+#endif
+
+// MARK: - Right Sidebar Row Variants
+//
+// `rsb-rows` (opt-in, a measurement): which part of a Metadata crew row costs what. The same
+// twelve-name list is built several ways and re-pointed across real films' casts, measured
+// as `rsb-modules` measures a module.
+#if DEBUG
+extension DebugHarness {
+    private struct RowVariantList: View {
+        let names: [String]
+        let selectable: Bool
+        let button: Bool
+        var body: some View {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(names.enumerated()), id: \.offset) { _, name in
+                    HStack(spacing: 6) {
+                        Text(name)
+                            .font(.system(size: 12))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .modifier(OptionalSelection(on: selectable))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if button {
+                            Button {} label: { Image(systemName: "magnifyingglass") }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                                .fixedSize()
+                        }
+                    }
+                    .sidebarRowContainer(glyph: "person", glyphColor: .secondary)
+                }
+            }
+        }
+    }
+
+    private struct OptionalSelection: ViewModifier {
+        let on: Bool
+        @ViewBuilder func body(content: Content) -> some View {
+            if on { content.textSelection(.enabled) } else { content }
+        }
+    }
+
+    static func rsbRowsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "rsb-rows")
+        func turn() async {
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                DispatchQueue.main.async { c.resume() }
+            }
+        }
+        func cpuMS() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e6 }
+        func median(_ v: [Double]) -> Double { v.isEmpty ? 0 : v.sorted()[v.count / 2] }
+
+        // `-FTRowsVarying`: each list takes a different length (4 to 20 names), as a real
+        // film's crew sections do, so rows are inserted and removed rather than only updated.
+        let varying = ProcessInfo.processInfo.arguments.contains("-FTRowsVarying")
+        let lengths = [12, 5, 18, 9, 20, 4, 14, 7, 16, 11, 19, 6, 13, 8, 17, 10, 15]
+        let pool = coordinator.films.flatMap(\.cast)
+        let casts: [[String]] = pool.count < 400 ? [] : (0..<17).map { i in
+            Array(pool[(i * 20)..<(i * 20 + (varying ? lengths[i] : 12))]) }
+        guard casts.count >= 8 else { r.check("films", false, "\(pool.count) cast names"); return r }
+
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 900),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 900))
+        window.contentView = container
+
+        func profile(_ name: String, _ make: @escaping ([String]) -> AnyView) async {
+            func root(_ names: [String]) -> AnyView { AnyView(make(names).frame(width: 268)) }
+            let host = NSHostingView(rootView: root(casts[0]))
+            host.frame = NSRect(x: 0, y: 0, width: 268, height: 800)
+            container.addSubview(host)
+            host.layoutSubtreeIfNeeded()
+            await turn(); await turn()
+            var costs: [Double] = []
+            for names in casts.dropFirst() {
+                let c0 = cpuMS()
+                host.rootView = root(names)
+                host.layoutSubtreeIfNeeded()
+                await turn(); await turn()
+                costs.append(cpuMS() - c0)
+            }
+            let steady = Array(costs.dropFirst(2))
+            r.metric("\(name)-median", median(steady), "ms")
+            r.check(name, true, "median \(Fmt.fixed(median(steady), 2)) ms, max \(Fmt.fixed(steady.max() ?? 0, 2)) ms")
+            host.removeFromSuperview()
+        }
+
+        await profile("current") { AnyView(RowVariantList(names: $0, selectable: true, button: true)) }
+        await profile("no-selection") { AnyView(RowVariantList(names: $0, selectable: false, button: true)) }
+        await profile("no-button") { AnyView(RowVariantList(names: $0, selectable: true, button: false)) }
+        await profile("text-only") { AnyView(RowVariantList(names: $0, selectable: false, button: false)) }
+        await profile("metadata-section") { names in
+            AnyView(RSBHelpers.searchableItemSection(title: "Cast", items: names, field: .cast,
+                                                     glyph: "person", glyphColor: .secondary))
+        }
+        window.close()
+        return r
+    }
+}
+#endif
+
+// MARK: - Crew Row Parity
+//
+// `rsb-crew-parity` (opt-in; puts a window on screen): CrewRowList's AppKit rows against
+// SearchableItemRow, the SwiftUI rows they stand in for. Both are drawn in one window from
+// the same names, light and dark, captured through the window server at full resolution,
+// and compared pixel by pixel. The captures and a diff image (differing pixels in red) go
+// to `harness-reports/crew-parity/`. Also logs the view tree of the SwiftUI row, so the
+// AppKit row's controls can be matched to what SwiftUI actually builds.
+#if DEBUG
+extension DebugHarness {
+    private struct CrewParityContent: View {
+        let names: [String]
+        let glyph: String?
+        var tint: Color = .secondary
+        var body: some View {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: RSBHelpers.headerRowSpacing) {
+                    ForEach(Array(names.enumerated()), id: \.offset) { _, name in
+                        SearchableItemRow(item: name, field: .cast, glyph: glyph, glyphColor: tint)
+                    }
+                }
+                .frame(width: 268)
+                CrewRowList(items: names, field: .cast, glyph: glyph, glyphColor: tint)
+                    .frame(width: 268)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+    }
+
+    static func rsbCrewParityScenario() async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "rsb-crew-parity")
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        guard let grab = unsafe windowImageFunction else {
+            r.check("capture-available", false, "CGWindowListCreateImage did not resolve")
+            return r
+        }
+        let names = ["Tom Hanks", "Catherine Zeta-Jones", "A Remarkably Long Name That Has To Truncate Here"]
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 360),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: CrewParityContent(names: names, glyph: "person"))
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        await settle(800)
+
+        // What SwiftUI builds for one row.
+        var lines: [String] = []
+        func walk(_ v: NSView, _ depth: Int) {
+            var line = String(repeating: "  ", count: depth) + "\(type(of: v)) \(v.frame)"
+            if let b = v as? NSButton {
+                line += " bezel \(b.bezelStyle.rawValue) size \(b.controlSize.rawValue) bordered \(b.isBordered) "
+                    + "image \(b.image?.size ?? .zero) imagePos \(b.imagePosition.rawValue) font \(b.font?.pointSize ?? 0) "
+                    + "symbolConfig \(String(describing: b.symbolConfiguration)) title '\(b.title)'"
+            }
+            if let t = v as? NSTextField { line += " font \(t.font?.pointSize ?? 0) '\(t.stringValue)'" }
+            lines.append(line)
+            for sub in v.subviews { walk(sub, depth + 1) }
+        }
+        walk(host, 0)
+        log("CREW-PARITY TREE\n" + lines.joined(separator: "\n"))
+
+        guard let list = findView(CrewRowListView.self, in: host) else {
+            r.check("mounted", false, "no CrewRowListView")
+            return r
+        }
+
+        // Behavior: each row's button sends the token search for its own name, and its name
+        // is selectable, with the SwiftUI row's tooltip.
+        var received: [String] = []
+        let subscription = AppEventBus.shared.uiCommands.sink { command in
+            if case .activateTokenSearch(let field, let value) = command { received.append("\(field.rawValue):\(value)") }
+        }
+        var buttons: [NSButton] = [], labels: [NSTextField] = []
+        var stack: [NSView] = [list]
+        while let v = stack.popLast() {
+            if let b = v as? NSButton { buttons.append(b) }
+            if let t = v as? NSTextField { labels.append(t) }
+            stack.append(contentsOf: v.subviews.reversed())
+        }
+        for b in buttons { b.performClick(nil) }
+        await settle(100)
+        subscription.cancel()
+        r.check("search-buttons", received == names.map { "cast:\($0)" }, received.joined(separator: " | "))
+        r.check("selectable-names", !labels.isEmpty && labels.allSatisfy { $0.isSelectable && !$0.isEditable },
+                "\(labels.count) labels")
+        r.check("tooltips", !buttons.isEmpty && buttons.allSatisfy { $0.toolTip == "Perform a token-based search for this name" },
+                "\(buttons.count) buttons")
+        let listFrame = list.convert(list.bounds, to: nil)   // window coordinates, bottom-left
+        r.check("heights", true, "AppKit list \(Fmt.fixed(listFrame.height, 2)) pt, row \(Fmt.fixed(CrewRowView.height, 2)) pt")
+
+        let dir = DebugSandbox.rootURL?.appendingPathComponent("harness-reports/crew-parity", isDirectory: true)
+        if let dir {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        func png(_ image: CGImage, _ name: String) {
+            guard let dir, let dest = CGImageDestinationCreateWithURL(
+                dir.appendingPathComponent(name) as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }
+            CGImageDestinationAddImage(dest, image, nil)
+            CGImageDestinationFinalize(dest)
+        }
+        func rgba(_ image: CGImage) -> [UInt8] {
+            var buf = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let ctx = unsafe CGContext(data: &buf, width: image.width, height: image.height, bitsPerComponent: 8,
+                                bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return buf
+        }
+
+        // Every crew glyph, glyphs off, and the primary tint (the glyph-tint preference).
+        let configs: [(String, String?, Color)] = [
+            ("person", "person", .secondary), ("movieclapper", "movieclapper", .secondary),
+            ("megaphone", "megaphone", .secondary), ("chair", "chair", .secondary),
+            ("book", "book.pages", .secondary), ("music", "music.quarternote.3", .secondary),
+            ("studio", "building.columns", .secondary), ("noglyph", nil, .secondary),
+            ("primary", "person", .primary)]
+        for (configName, glyph, tint) in configs {
+        host.rootView = CrewParityContent(names: names, glyph: glyph, tint: tint)
+        for (appearanceName, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            let mode = "\(configName)-\(appearanceName)"
+            window.appearance = NSAppearance(named: appearance)
+            await settle(600)
+            // The SwiftUI rows sit 24 pt above the AppKit list and are as tall as it should be;
+            // 4 pt of margin catches the shadows.
+            let margin: CGFloat = 4
+            let appkitRect = listFrame.insetBy(dx: -margin, dy: -margin)
+            let swiftRect = appkitRect.offsetBy(dx: 0, dy: listFrame.height + 24)
+            func screenRect(_ rect: CGRect) -> CGRect {
+                let onScreen = window.convertToScreen(rect)
+                let h = NSScreen.screens.first?.frame.height ?? 0
+                return CGRect(x: onScreen.minX, y: h - onScreen.maxY, width: onScreen.width, height: onScreen.height)
+            }
+            guard let a = unsafe grab(screenRect(swiftRect), 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
+                  let b = unsafe grab(screenRect(appkitRect), 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
+                  a.width == b.width, a.height == b.height else {
+                r.check("\(mode)-capture", false, "capture failed or sizes differ")
+                continue
+            }
+            png(a, "\(mode)-swiftui.png")
+            png(b, "\(mode)-appkit.png")
+            let pa = rgba(a), pb = rgba(b)
+            var diff = pa
+            var differing = 0, maxDelta = 0
+            for i in stride(from: 0, to: pa.count, by: 4) {
+                let d = max(abs(Int(pa[i]) - Int(pb[i])), abs(Int(pa[i+1]) - Int(pb[i+1])), abs(Int(pa[i+2]) - Int(pb[i+2])))
+                maxDelta = max(maxDelta, d)
+                if d > 8 {
+                    differing += 1
+                    diff[i] = 255; diff[i+1] = 0; diff[i+2] = 0; diff[i+3] = 255
+                }
+            }
+            let ctx = unsafe CGContext(data: &diff, width: a.width, height: a.height, bitsPerComponent: 8,
+                                bytesPerRow: a.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            if let img = ctx.makeImage() { png(img, "\(mode)-diff.png") }
+            r.metric("\(mode)-differing-pixels", Double(differing), "px")
+            // A glyph is rasterized by NSImageView and drawn as a vector path by SwiftUI, so
+            // its edge pixels may differ slightly; anything past 48/255 is a real difference.
+            r.check("\(mode)-pixels", maxDelta <= 48,
+                    "\(Fmt.int(differing)) of \(Fmt.int(a.width * a.height)) pixels differ by more than 8/255 (max \(Fmt.int(maxDelta)))")
+        }
+        }
+        return r
+    }
+}
+#endif
+
+// MARK: - Frames Row Parity
+//
+// `rsb-frames-parity` (opt-in; on screen): FramesRowList beside a VStack of FrameEntryRow,
+// for plain frames, aligned time-code ranges (with a value that falls back to the plain run),
+// every mark and fade glyph, and a value long enough to truncate, light and dark. Captures go
+// to `harness-reports/frames-parity/`, and the SwiftUI rows' view tree is logged.
+#if DEBUG
+extension DebugHarness {
+    private struct FramesParityContent: View {
+        let entries: [String]
+        let alignsRanges: Bool
+        var body: some View {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: FrameEntryRow.spacing) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { i, entry in
+                        FrameEntryRow(index: i + 1, entry: entry, alignsRanges: alignsRanges)
+                    }
+                }
+                .frame(width: 252)
+                FramesRowList(entries: entries, alignsRanges: alignsRanges)
+                    .frame(width: 252)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+    }
+
+    static func rsbFramesParityScenario() async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "rsb-frames-parity")
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        guard let grab = unsafe windowImageFunction else {
+            r.check("capture-available", false, "CGWindowListCreateImage did not resolve")
+            return r
+        }
+        let plain = ["1234", "56789, yes, none, none", "101112, caret, linear, none",
+                     "131415, number, none, scurve", "161718, no, plus, minus",
+                     "A remarkably long frames note that has to truncate here, yes, linear, scurve",
+                     "22, no, none, none"]
+        let ranges = ["00:01:02 – 00:03:04", "01:11:11 – 04:44:48, yes, minus, plus",
+                      "00:00:00 – 12:34:56, no, scurve, linear", "not a range at all",
+                      "1:2 – 3:4, caret, none, none", "00:10:00 – 00:20:00, number, plus, none"]
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 420),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: FramesParityContent(entries: ranges, alignsRanges: true))
+        window.contentView = host
+        window.orderFrontRegardless()
+        defer { window.orderOut(nil) }
+        await settle(800)
+
+        var lines: [String] = []
+        func walk(_ v: NSView, _ depth: Int) {
+            var line = String(repeating: "  ", count: depth) + "\(type(of: v)) \(v.frame)"
+            if let t = v as? NSTextField { line += " font \(t.font?.pointSize ?? 0) sel \(t.isSelectable) '\(t.stringValue)'" }
+            lines.append(line)
+            for sub in v.subviews { walk(sub, depth + 1) }
+        }
+        walk(host, 0)
+        log("FRAMES-PARITY TREE\n" + lines.joined(separator: "\n"))
+
+        let dir = DebugSandbox.rootURL?.appendingPathComponent("harness-reports/frames-parity", isDirectory: true)
+        if let dir {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        func png(_ image: CGImage, _ name: String) {
+            guard let dir, let dest = CGImageDestinationCreateWithURL(
+                dir.appendingPathComponent(name) as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }
+            CGImageDestinationAddImage(dest, image, nil)
+            CGImageDestinationFinalize(dest)
+        }
+        func rgba(_ image: CGImage) -> [UInt8] {
+            var buf = [UInt8](repeating: 0, count: image.width * image.height * 4)
+            let ctx = unsafe CGContext(data: &buf, width: image.width, height: image.height, bitsPerComponent: 8,
+                                bytesPerRow: image.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+            return buf
+        }
+
+        for (configName, entries, aligns) in [("plain", plain, false), ("ranges", ranges, true)] {
+            host.rootView = FramesParityContent(entries: entries, alignsRanges: aligns)
+            await settle(400)
+            guard let list = findView(FramesRowListView.self, in: host) else {
+                r.check("\(configName)-mounted", false, "no FramesRowListView")
+                continue
+            }
+            // Behavior: the values are selectable and the index is not, as in FrameEntryRow.
+            var labels: [NSTextField] = []
+            var stack: [NSView] = [list]
+            while let v = stack.popLast() {
+                if let t = v as? NSTextField, !t.isHidden { labels.append(t) }
+                stack.append(contentsOf: v.subviews.reversed())
+            }
+            let indexes = labels.filter { $0.stringValue.hasSuffix(".") && $0.stringValue.count == 3 }
+            let values = labels.filter { !indexes.contains($0) }
+            r.check("\(configName)-selection", !values.isEmpty && values.allSatisfy { $0.isSelectable && !$0.isEditable }
+                    && indexes.allSatisfy { !$0.isSelectable },
+                    "\(values.count) selectable values, \(indexes.count) indexes")
+            let listFrame = list.convert(list.bounds, to: nil)
+            r.check("\(configName)-heights", true, "AppKit list \(Fmt.fixed(listFrame.height, 2)) pt, row \(Fmt.fixed(FramesRowView.height, 2)) pt")
+
+            for (appearanceName, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                let mode = "\(configName)-\(appearanceName)"
+                window.appearance = NSAppearance(named: appearance)
+                await settle(600)
+                let margin: CGFloat = 4
+                let appkitRect = listFrame.insetBy(dx: -margin, dy: -margin)
+                let swiftRect = appkitRect.offsetBy(dx: 0, dy: listFrame.height + 24)
+                func screenRect(_ rect: CGRect) -> CGRect {
+                    let onScreen = window.convertToScreen(rect)
+                    let h = NSScreen.screens.first?.frame.height ?? 0
+                    return CGRect(x: onScreen.minX, y: h - onScreen.maxY, width: onScreen.width, height: onScreen.height)
+                }
+                guard let a = unsafe grab(screenRect(swiftRect), 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
+                      let b = unsafe grab(screenRect(appkitRect), 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
+                      a.width == b.width, a.height == b.height else {
+                    r.check("\(mode)-capture", false, "capture failed or sizes differ")
+                    continue
+                }
+                png(a, "\(mode)-swiftui.png")
+                png(b, "\(mode)-appkit.png")
+                let pa = rgba(a), pb = rgba(b)
+                var diff = pa
+                var differing = 0, maxDelta = 0
+                for i in stride(from: 0, to: pa.count, by: 4) {
+                    let d = max(abs(Int(pa[i]) - Int(pb[i])), abs(Int(pa[i+1]) - Int(pb[i+1])), abs(Int(pa[i+2]) - Int(pb[i+2])))
+                    maxDelta = max(maxDelta, d)
+                    if d > 8 {
+                        differing += 1
+                        diff[i] = 255; diff[i+1] = 0; diff[i+2] = 0; diff[i+3] = 255
+                    }
+                }
+                let ctx = unsafe CGContext(data: &diff, width: a.width, height: a.height, bitsPerComponent: 8,
+                                    bytesPerRow: a.width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                if let img = ctx.makeImage() { png(img, "\(mode)-diff.png") }
+                r.metric("\(mode)-differing-pixels", Double(differing), "px")
+                // Glyph edges are vector in SwiftUI and raster here, as in rsb-crew-parity.
+                r.check("\(mode)-pixels", maxDelta <= 48,
+                        "\(Fmt.int(differing)) of \(Fmt.int(a.width * a.height)) pixels differ by more than 8/255 (max \(Fmt.int(maxDelta)))")
+            }
+        }
+        return r
+    }
+}
+#endif
+
+// MARK: - Metadata Screenshots
+//
+// `rsb-metadata-shot` (opt-in; drives the real main window): the Details tab of several real
+// films, scrolled to the bottom so the Metadata module is in view, captured through the
+// window server at full resolution into `harness-reports/metadata-shot/`, light and dark.
+// Run it twice, with and without `-FTRSBSwiftUICrewRows`, and compare the two directories:
+// the crew rows are the only thing the flag changes.
+#if DEBUG
+extension DebugHarness {
+    static func rsbMetadataShotScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "rsb-metadata-shot")
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        guard let appState = AppDelegate.appState,
+              let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) && $0.contentView != nil }),
+              let grab = unsafe windowImageFunction else {
+            r.check("main-window", false, "no main window or capture")
+            return r
+        }
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(1500)
+        // Films whose crew sections differ in length, and one with no producers at all.
+        let films = coordinator.films.filter { $0.cast.count >= 3 }
+        guard films.count >= 4 else { r.check("films", false, "\(films.count)"); return r }
+        let picks = [films[0], films[films.count / 3], films[2 * films.count / 3], films[films.count - 1]]
+        let dir = DebugSandbox.rootURL?.appendingPathComponent("harness-reports/metadata-shot", isDirectory: true)
+        if let dir {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        ViewStateManager.shared.setRightSidebarTab(.details)
+        // App-wide: the main window is SwiftUI's scene window (see sidebarTabShots).
+        let saved = NSApp.appearance
+        let store = Preferences.store
+        let savedGlyphs = store.object(forKey: Preferences.showWatchDetailsAnnotationGlyphsKey)
+        defer {
+            NSApp.appearance = saved
+            store.set(savedGlyphs, forKey: Preferences.showWatchDetailsAnnotationGlyphsKey)
+        }
+        for (glyphs, glyphMode) in [(false, "plain"), (true, "glyphs")] {
+        store.set(glyphs, forKey: Preferences.showWatchDetailsAnnotationGlyphsKey)
+        for (appearanceName, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            NSApp.appearance = NSAppearance(named: appearance)
+            for (filmIndex, film) in picks.enumerated() {
+            // Three scroll positions from the bottom, which between them cover the crew block.
+            for (offsetIndex, fromBottom) in [CGFloat(0), 500, 1000].enumerated() {
+                let mode = "\(glyphMode)-\(appearanceName)"
+                let i = filmIndex * 3 + offsetIndex
+                SelectionState.shared.selectImmediate(film.id)
+                await settle(1200)
+                guard let sv = findView(NSScrollView.self, in: window.contentView, where: { sv in
+                    guard let doc = sv.documentView, unsafe sv.window != nil else { return false }
+                    var stack: [NSView] = [doc]
+                    while let v = stack.popLast() {
+                        if String(describing: type(of: v)).contains("RTabDetailsContent"), unsafe sv.hitTest(sv.convert(NSPoint(x: 10, y: 10), to: sv.superview)) != nil { return true }
+                        stack.append(contentsOf: v.subviews)
+                    }
+                    return false
+                }) else {
+                    r.check("\(mode)-\(i)-scroll", false, "Details scroll view not found")
+                    continue
+                }
+                if let doc = sv.documentView {
+                    sv.contentView.scroll(to: NSPoint(x: 0, y: max(0, doc.frame.height - sv.contentView.bounds.height - fromBottom)))
+                    sv.reflectScrolledClipView(sv.contentView)
+                }
+                await settle(500)
+                let onScreen = window.convertToScreen(sv.convert(sv.bounds, to: nil))
+                let h = NSScreen.screens.first?.frame.height ?? 0
+                let rect = CGRect(x: onScreen.minX, y: h - onScreen.maxY, width: onScreen.width - 20, height: onScreen.height)
+                guard let image = unsafe grab(rect, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
+                      let dir, let dest = CGImageDestinationCreateWithURL(
+                        dir.appendingPathComponent("\(mode)-\(i).png") as CFURL, UTType.png.identifier as CFString, 1, nil)
+                else { r.check("\(mode)-\(i)-capture", false, ""); continue }
+                CGImageDestinationAddImage(dest, image, nil)
+                CGImageDestinationFinalize(dest)
+                r.check("\(mode)-\(i)", true, "\(film.name): cast \(film.cast.count), producers \(film.producers.count), \(image.width)x\(image.height)")
+            }
+            }
+        }
+        }
+        SelectionState.shared.selectImmediate(nil as UUID?)
+        return r
+    }
+
+    /// `rsb-notes-shot` (opt-in; drives the real main window): the Notes tab of the films with
+    /// the longest frames tables, plus one with only a few entries, captured top to bottom one
+    /// viewport at a time into `harness-reports/notes-shot/`, light and dark. Run it twice, with
+    /// and without `-FTRSBSwiftUIFramesRows`, and compare the two directories: the frames rows
+    /// are the only thing the flag changes.
+    static func rsbNotesShotScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        func frames(_ f: FilmSnapshot) -> Int { f.handbrakeFrames.count + f.correspondingTimecodes.count }
+        let byFrames = coordinator.films.filter { frames($0) > 0 }.sorted { frames($0) > frames($1) }
+        // The longest tables, the longest with any mark or fade glyph, and a short one.
+        var picks = Array(byFrames.prefix(2))
+        if let glyphs = byFrames.first(where: { f in !picks.contains { $0.id == f.id }
+            && (FramesEntryParser.containsLegendGlyphs(f.handbrakeFrames)
+                || FramesEntryParser.containsLegendGlyphs(f.correspondingTimecodes)) }) { picks.append(glyphs) }
+        if let short = byFrames.last(where: { f in frames(f) >= 4 && !picks.contains { $0.id == f.id } }) { picks.append(short) }
+        return await sidebarTabShots(scenario: "rsb-notes-shot", tab: .notes, folder: "notes-shot", films: picks,
+                                     enough: byFrames.count >= 6) { film in
+            "frames \(film.handbrakeFrames.count) + time codes \(film.correspondingTimecodes.count), "
+                + "rows \(RSBProfileFlags.swiftUIFramesRows ? "SwiftUI" : "AppKit")"
+        }
+    }
+
+    /// `rsb-releases-shot` (opt-in; drives the real main window): the Releases tab of the films
+    /// with the most cards, the one with the most combo packs, and one with a single card,
+    /// into `harness-reports/releases-shot/`, as `rsb-notes-shot` captures the Notes tab, for
+    /// comparing two builds' directories.
+    static func rsbReleasesShotScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        func groups(_ f: FilmSnapshot) -> [[ReleaseSnapshot]] {
+            releasesGroupedByHierarchy(f.releases.filter { ReleaseFormat(rawValue: $0.format) != nil })
+        }
+        let withCards = coordinator.films.filter { !groups($0).isEmpty }
+        let byCards = withCards.sorted { groups($0).count > groups($1).count }
+        var picks = Array(byCards.prefix(2))
+        let combos = withCards.sorted { groups($0).filter { $0.count > 1 }.count > groups($1).filter { $0.count > 1 }.count }
+        if let combo = combos.first(where: { f in !picks.contains { $0.id == f.id } }) { picks.append(combo) }
+        if let single = withCards.first(where: { f in groups(f).count == 1 && groups(f)[0].count == 1
+            && !picks.contains { $0.id == f.id } }) { picks.append(single) }
+        return await sidebarTabShots(scenario: "rsb-releases-shot", tab: .releases, folder: "releases-shot", films: picks,
+                                     enough: withCards.count >= 6) { film in
+            let g = groups(film)
+            return "\(g.count) cards, \(g.filter { $0.count > 1 }.count) combo packs"
+        }
+    }
+
+    /// One sidebar tab of each film, captured top to bottom one viewport at a time, light and
+    /// dark, into `harness-reports/<folder>/`.
+    private static func sidebarTabShots(scenario: String, tab: RightSidebarTab, folder: String, films picks: [FilmSnapshot],
+                                        enough: Bool, describe: (FilmSnapshot) -> String) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: scenario)
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        guard let appState = AppDelegate.appState,
+              let window = NSApp.windows.first(where: { $0.isVisible && $0.styleMask.contains(.titled) && $0.contentView != nil }),
+              let grab = unsafe windowImageFunction else {
+            r.check("main-window", false, "no main window or capture")
+            return r
+        }
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
+        guard enough else { r.check("films", false, "too few films"); return r }
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(1500)
+        let dir = DebugSandbox.rootURL?.appendingPathComponent("harness-reports/\(folder)", isDirectory: true)
+        if let dir {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        ViewStateManager.shared.setRightSidebarTab(tab)
+        // App-wide, as a system appearance change reaches the app: the main window is
+        // SwiftUI's scene window, which ignores an appearance set on it, and the scene's
+        // content keeps the color scheme SwiftUI derived (an appearance set on the window left
+        // every "dark" capture light).
+        let saved = NSApp.appearance
+        defer { NSApp.appearance = saved }
+        /// The sidebar's visible tab: the scroll view in the window's right third that its own
+        /// center hit-tests into.
+        func tabScrollView() -> NSScrollView? {
+            let width = window.contentView?.bounds.width ?? 0
+            return findView(NSScrollView.self, in: window.contentView, where: { sv in
+                guard unsafe sv.window != nil, sv.documentView != nil else { return false }
+                let frame = sv.convert(sv.bounds, to: nil)
+                guard frame.minX > width * 0.6, frame.width > 200 else { return false }
+                let center = NSPoint(x: frame.midX, y: frame.midY)
+                guard let hit = window.contentView?.hitTest(window.contentView!.convert(center, from: nil)) else { return false }
+                return hit.isDescendant(of: sv)
+            })
+        }
+        for (appearanceName, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            NSApp.appearance = NSAppearance(named: appearance)
+            await settle(600)
+            for (filmIndex, film) in picks.enumerated() {
+                SelectionState.shared.selectImmediate(film.id)
+                await settle(1200)
+                guard let sv = tabScrollView(), let doc = sv.documentView else {
+                    r.check("\(appearanceName)-\(filmIndex)-scroll", false, "\(tab.rawValue) scroll view not found")
+                    continue
+                }
+                let page = sv.contentView.bounds.height
+                let maxY = max(0, doc.frame.height - page)
+                var offsets: [CGFloat] = stride(from: 0, to: maxY, by: page - 40).map { $0 }
+                offsets.append(maxY)
+                for (step, y) in offsets.enumerated() {
+                    sv.contentView.scroll(to: NSPoint(x: 0, y: y))
+                    sv.reflectScrolledClipView(sv.contentView)
+                    await settle(400)
+                    let onScreen = window.convertToScreen(sv.convert(sv.bounds, to: nil))
+                    let h = NSScreen.screens.first?.frame.height ?? 0
+                    // The scroller's 20 pt strip is left out: it fades on its own clock.
+                    let rect = CGRect(x: onScreen.minX, y: h - onScreen.maxY, width: onScreen.width - 20, height: onScreen.height)
+                    let name = "\(appearanceName)-\(filmIndex)-\(step).png"
+                    guard let image = unsafe grab(rect, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
+                          let dir, let dest = CGImageDestinationCreateWithURL(
+                            dir.appendingPathComponent(name) as CFURL, UTType.png.identifier as CFString, 1, nil)
+                    else { r.check("\(name)-capture", false, ""); continue }
+                    CGImageDestinationAddImage(dest, image, nil)
+                    CGImageDestinationFinalize(dest)
+                }
+                r.check("\(appearanceName)-\(filmIndex)", true, "\(film.name): \(describe(film)), \(offsets.count) captures")
+            }
+        }
+        SelectionState.shared.selectImmediate(nil as UUID?)
+        return r
+    }
+
+    /// The first view of `type` under `view`, depth first, that satisfies `test`.
+    private static func findView<T: NSView>(_ type: T.Type, in view: NSView?, where test: (T) -> Bool) -> T? {
+        guard let view else { return nil }
+        if let match = view as? T, test(match) { return match }
+        for sub in view.subviews { if let found = findView(type, in: sub, where: test) { return found } }
+        return nil
+    }
+}
+#endif
+
 // MARK: - Gallery Edit Refresh
 //
 // `gallery-edit-refresh` (opt-in, a measurement plus correctness checks): what a same-order
@@ -2095,6 +3108,274 @@ extension DebugHarness {
         manager.updateSortOption(saved.sortOption)
         manager.updateSortDirection(saved.sortDirection)
         await settle(500)
+        return r
+    }
+}
+#endif
+
+
+// MARK: - Gallery Reload Economy
+//
+// `gallery-reload-economy` (opt-in, a measurement plus checks): how many film loads and gallery
+// update passes a film change costs while a gallery is on screen, read from ViewSwitchProbe.
+// One edit, a burst of per-film update events, an import and a deletion should each cost
+// exactly one load (and an edit or a burst at most one grid pass); a change to films the view does not show should cost no gallery pass;
+// an edit that takes a film out of the view should take it out in that one load; and
+// visiting an empty view should load it once. Also checks that grid selection rings stay
+// right through in-place reconfigures and cell recycling, and counts how often they are
+// re-stroked.
+#if DEBUG
+extension DebugHarness {
+    static func galleryReloadEconomyScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "gallery-reload-economy")
+        guard let appState = AppDelegate.appState else {
+            r.check("app-state", false, "no AppDelegate.appState")
+            return r
+        }
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        if !coordinator.hasDatabaseFilms { coordinator.importFilms(reportsCorpus()) }
+        let manager = ViewStateManager.shared
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(1500)
+        let saved = manager.activeState
+        manager.updateSortOption(.title)
+        manager.updateSortDirection(.ascending)
+        manager.updateShowSectionDividers(false)
+        manager.updateListViewStyle(false)
+        await settle(1200)
+        guard coordinator.films.count > 60 else { r.check("films", false, "\(coordinator.films.count)"); return r }
+
+        ViewSwitchProbe.isEnabled = true
+        defer { ViewSwitchProbe.isEnabled = false }
+        func count(_ prefix: String) -> Int { ViewSwitchProbe.events.filter { $0.hasPrefix(prefix) }.count }
+        func summary() -> String {
+            "loads \(Fmt.int(count("load "))), grid passes \(Fmt.int(count("grid.update"))), list passes \(Fmt.int(count("list.update")))"
+        }
+        var originals: [UUID: FilmSnapshot] = [:]
+        func rated(_ film: FilmSnapshot, _ rating: Int) -> FilmSnapshot {
+            if originals[film.id] == nil { originals[film.id] = film }
+            var edited = film
+            edited.userRating = rating
+            return edited
+        }
+
+        // One same-order edit.
+        ViewSwitchProbe.reset()
+        let edited = coordinator.films[12]
+        await coordinator.updateFilm(rated(edited, edited.userRating == 7 ? 8 : 7))
+        await settle(700)
+        r.check("edit-one-load", count("load ") == 1 && count("grid.update") <= 1, summary())
+
+        // A burst of per-film update events in one turn — the shape a Hall of Fame reorder or
+        // a ratings-import rollback posts.
+        ViewSwitchProbe.reset()
+        for film in coordinator.films[20..<40] {
+            AppEventBus.shared.send(.film(.updated(filmID: film.id)))
+        }
+        await settle(700)
+        r.check("burst-one-load", count("load ") == 1 && count("grid.update") <= 1, summary())
+
+        // An edit that takes a film out of the view: rating a film in Unwatched ▸ Not Rated.
+        appState.navigate(to: .libraryItem(.unwatched))
+        await settle(900)
+        UnwatchedState.shared.selectCategory(.notRated)
+        await settle(900)
+        if let unrated = coordinator.films.first(where: { $0.userRating == 0 }) {
+            ViewSwitchProbe.reset()
+            await coordinator.updateFilm(rated(unrated, 6))
+            let goneAtOnce = !coordinator.films.contains { $0.id == unrated.id }
+            await settle(700)
+            let goneAfter = !coordinator.films.contains { $0.id == unrated.id }
+            r.check("membership-edit-one-load", count("load ") == 1 && count("grid.update") <= 1 && goneAtOnce && goneAfter,
+                    "\(summary()), left the view at once \(goneAtOnce), afterward \(goneAfter)")
+        } else {
+            r.check("membership-edit-one-load", true, "skipped: no unrated film")
+        }
+        UnwatchedState.shared.selectCategory(.unwatched)
+        await settle(600)
+
+        // Import and delete with a gallery on screen.
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(900)
+        let fresh = (0..<4).map { makeSnapshot(name: "Economy Probe \($0)") }
+        ViewSwitchProbe.reset()
+        coordinator.importFilms(fresh)
+        await settle(700)
+        let freshIDs = Set(fresh.map(\.id))
+        r.check("import-one-load", count("load ") == 1 && coordinator.films.filter { freshIDs.contains($0.id) }.count == 4,
+                summary())
+        ViewSwitchProbe.reset()
+        await FilmManager.deleteFilms(freshIDs, coordinator: coordinator)
+        await settle(700)
+        r.check("delete-one-load", count("load ") == 1 && !coordinator.films.contains { freshIDs.contains($0.id) },
+                summary())
+
+        // Changes to films the view does not show cost no gallery pass.
+        let listID = coordinator.createList(name: "Economy Probe List", displayOrder: 991)
+        FilmManager.addFilmsToList(Set(coordinator.films[0..<3].map(\.id)), listID: listID, coordinator: coordinator)
+        await settle(500)
+        appState.navigate(to: .list(listID))
+        await settle(900)
+        let outsider = makeSnapshot(name: "Economy Outsider")
+        ViewSwitchProbe.reset()
+        coordinator.importFilms([outsider])
+        await settle(700)
+        r.check("unrelated-add-no-pass", count("grid.update") == 0, summary())
+        ViewSwitchProbe.reset()
+        await FilmManager.deleteFilms([outsider.id], coordinator: coordinator)
+        await settle(700)
+        r.check("unrelated-delete-no-pass", count("grid.update") == 0, summary())
+
+        // Visiting an empty view loads it once, like any other.
+        let emptyID = coordinator.createList(name: "Economy Empty List", displayOrder: 992)
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(900)
+        ViewSwitchProbe.reset()
+        appState.navigate(to: .list(emptyID))
+        await settle(900)
+        r.check("empty-view-one-load", count("load ") == 1 && coordinator.films.isEmpty, summary())
+        ViewSwitchProbe.reset()
+        appState.navigate(to: .libraryItem(.allFilms))
+        await settle(900)
+        r.check("full-view-one-load", count("load ") == 1, summary())
+
+        // Selection rings through an in-place reconfigure and through cell recycling.
+        let window = NSApp.windows.first { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) }
+        if let cv = findView(GalleryCollectionView.self, in: window?.contentView),
+           let scrollView = cv.enclosingScrollView {
+            func ring(_ index: Int) -> Bool? {
+                (cv.item(at: IndexPath(item: index, section: 0)) as? GalleryItem)?.debugRingShowsSelection
+            }
+            func ringedCount() -> Int {
+                cv.visibleItems().filter { ($0 as? GalleryItem)?.debugRingShowsSelection == true }.count
+            }
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            await settle(400)
+            let selected = coordinator.films[5]
+            SelectionState.shared.selectImmediate([selected.id])
+            await settle(500)
+            r.check("ring-on-select", ring(5) == true && ringedCount() == 1, "ringed \(Fmt.int(ringedCount()))")
+
+            GalleryRefreshProbe.ringRefreshes = 0
+            let other = coordinator.films[8]
+            await coordinator.updateFilm(rated(other, other.userRating == 7 ? 8 : 7))
+            await settle(700)
+            r.check("ring-after-in-place-edit", ring(5) == true && ringedCount() == 1,
+                    "ringed \(Fmt.int(ringedCount())), ring re-strokes \(Fmt.int(GalleryRefreshProbe.ringRefreshes))")
+
+            // Recycle every visible cell: far down and back.
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, cv.frame.height - scrollView.documentVisibleRect.height)))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            await settle(500)
+            let ringedAtBottom = ringedCount()
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+            await settle(500)
+            r.check("ring-after-recycling", ringedAtBottom == 0 && ring(5) == true && ringedCount() == 1,
+                    "ringed at bottom \(Fmt.int(ringedAtBottom)), at top \(Fmt.int(ringedCount()))")
+
+            SelectionState.shared.selectImmediate([])
+            await settle(500)
+            r.check("ring-on-deselect", ring(5) == false && ringedCount() == 0, "ringed \(Fmt.int(ringedCount()))")
+        } else {
+            r.check("ring-grid", false, "no grid collection view found")
+        }
+
+        // Restore what this run changed.
+        for film in originals.values { await coordinator.updateFilm(film) }
+        _ = ListManager.deleteList(listID, coordinator: coordinator)
+        _ = ListManager.deleteList(emptyID, coordinator: coordinator)
+        manager.updateListViewStyle(saved.isListView)
+        manager.updateShowSectionDividers(saved.showSectionDividers)
+        manager.updateSortOption(saved.sortOption)
+        manager.updateSortDirection(saved.sortDirection)
+        await settle(500)
+        return r
+    }
+}
+#endif
+
+
+// MARK: - Sidebar Glyph Shots
+//
+// `rsb-glyph-shot` (opt-in; on screen): the Details, Releases and Notes tabs of one film each,
+// every tab in a sidebar-sized window of its own, captured through the window server at the
+// display's scale into `harness-reports/glyph-shot/`, light and dark. The PNGs carry the
+// display's DPI, so they open at on-screen size. Details and Notes are scrolled to the
+// bottom, where the crew rows and frames tables are; annotation glyphs are on. For comparing the sidebar's AppKit SF Symbol glyphs between two builds.
+#if DEBUG
+extension DebugHarness {
+    static func rsbGlyphShotScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "rsb-glyph-shot")
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        guard let grab = unsafe windowImageFunction else {
+            r.check("capture-available", false, "CGWindowListCreateImage did not resolve")
+            return r
+        }
+        let films = coordinator.films
+        let cardFilm = films.first { $0.name == "Secret Window" } ?? films.first
+        let notesFilm = films.max { $0.handbrakeFrames.count < $1.handbrakeFrames.count }
+        guard let cardFilm, let notesFilm else { r.check("films", false, "none"); return r }
+        let dir = DebugSandbox.rootURL?.appendingPathComponent("harness-reports/glyph-shot", isDirectory: true)
+        if let dir {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        func png(_ image: CGImage, _ name: String) {
+            guard let dir, let dest = CGImageDestinationCreateWithURL(
+                dir.appendingPathComponent(name) as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }
+            let dpi = 72 * scale
+            CGImageDestinationAddImage(dest, image, [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi] as CFDictionary)
+            CGImageDestinationFinalize(dest)
+        }
+        // The crew glyphs follow the annotation-glyph preference.
+        let store = Preferences.store
+        let savedGlyphs = store.object(forKey: Preferences.showWatchDetailsAnnotationGlyphsKey)
+        store.set(true, forKey: Preferences.showWatchDetailsAnnotationGlyphsKey)
+        defer { store.set(savedGlyphs, forKey: Preferences.showWatchDetailsAnnotationGlyphsKey) }
+        let height: CGFloat = 1100
+        let tabs: [(String, FilmSnapshot, AnyView)] = [
+            ("details", cardFilm, AnyView(RTabDetails(calendarTableExpanded: .constant(false), listTableExpanded: .constant(false)))),
+            ("releases", cardFilm, AnyView(RTabReleases(releasesSummaryExpanded: .constant(false), purchaseFilter: .constant(.all)))),
+            ("notes", notesFilm, AnyView(RTabNotes()))]
+        for (name, film, tab) in tabs {
+            let content = tab
+                .frame(width: RightSidebar.sidebarWidth, height: height)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .environment(\.sidebarFilm, film)
+                .environment(coordinator)
+                .environment(SelectionState.shared)
+            let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: RightSidebar.sidebarWidth, height: height),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            let host = NSHostingView(rootView: content)
+            window.contentView = host
+            window.orderFrontRegardless()
+            await settle(1000)
+            if name != "releases", let scroll = findView(NSScrollView.self, in: host), let doc = scroll.documentView {
+                let clip = scroll.contentView
+                let y = doc.isFlipped ? max(0, doc.bounds.height - clip.bounds.height) : 0
+                clip.scroll(to: NSPoint(x: 0, y: y))
+                scroll.reflectScrolledClipView(clip)
+            }
+            for (appearanceName, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+                window.appearance = NSAppearance(named: appearance)
+                await settle(700)
+                let frame = window.frame
+                let h = NSScreen.screens.first?.frame.height ?? 0
+                let rect = CGRect(x: frame.minX, y: h - frame.maxY, width: frame.width, height: frame.height)
+                guard let image = unsafe grab(rect, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue() else {
+                    r.check("\(name)-\(appearanceName)-capture", false, "capture failed")
+                    continue
+                }
+                png(image, "\(name)-\(appearanceName).png")
+                r.check("\(name)-\(appearanceName)-capture", true, "\(film.name), \(image.width)x\(image.height) px")
+            }
+            window.orderOut(nil)
+            window.contentView = nil
+        }
         return r
     }
 }

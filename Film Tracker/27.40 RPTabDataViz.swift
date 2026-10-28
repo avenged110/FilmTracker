@@ -70,10 +70,10 @@ struct DataVisualizationsView: View {
     /// the next pass reuse them; its inputs let the next pass tell that nothing changed.
     @State private var dataset: DVDataset? = nil
     @State private var period: ViewingPeriodStatistics? = nil
-    @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
+    @State private var selectedYear: Int = AppCalendar.current.component(.year, from: Date())
     @State private var yearToDate = true
     @State private var compareWithPriorYear = true
-    @State private var compareYear: Int = Calendar.current.component(.year, from: Date()) - 1
+    @State private var compareYear: Int = AppCalendar.current.component(.year, from: Date()) - 1
     /// True between a recalculation being requested and the coalesced pass running.
     /// See `scheduleRecalculation`.
     @State private var recalculationPending = false
@@ -259,7 +259,7 @@ struct DataVisualizationsView: View {
         let key = dataset.map {
             ReportsState.PeriodKey(inputs: $0.inputs, year: selectedYear, yearToDate: yearToDate,
                                    compareYear: compareYear,
-                                   day: Calendar.current.startOfDay(for: today))
+                                   day: AppCalendar.current.startOfDay(for: today))
         }
         if let key, let cached = ReportsState.shared.cachedPeriod(for: key) {
             pageRevision += 1

@@ -342,7 +342,7 @@ final class EventKitManager: Loggable {
         log("Loading calendars from EventKit...")
         let calendars = eventStore.calendars(for: .event)
             .filter { $0.allowsContentModifications }
-            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            .sorted { $0.title.englishCaseInsensitiveCompare($1.title) == .orderedAscending }
         
         // Update cache.
         cachedCalendars = calendars

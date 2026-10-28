@@ -82,6 +82,29 @@ final class ClearableNSStepper: NSStepper {
     /// holds the AppKit focus ring. Set by ClearableStepperView's Coordinator.
     var onDelete: (() -> Void)?
 
+    /// AppKit's intrinsic size per control size and appearance, shared by every stepper.
+    ///
+    /// Auto Layout asks each stepper for its intrinsic size on every constraint pass, and
+    /// NSStepper answers with a CoreUI metrics query rather than a stored value. The FilmSheet
+    /// carries several (Release Date, User Rating, Duration, and more on every release card),
+    /// so the `filmsheet-perf` harness scenario's open loop sampled that query as one of the
+    /// largest AppKit costs in the Details tab's first layout. The answer depends only on
+    /// what the key holds, so it is measured once per key.
+    private struct IntrinsicSizeKey: Hashable {
+        let controlSize: UInt
+        let appearance: NSAppearance.Name
+    }
+    private static var intrinsicSizes: [IntrinsicSizeKey: NSSize] = [:]
+
+    override var intrinsicContentSize: NSSize {
+        let key = IntrinsicSizeKey(controlSize: controlSize.rawValue,
+                                   appearance: effectiveAppearance.name)
+        if let size = Self.intrinsicSizes[key] { return size }
+        let size = super.intrinsicContentSize
+        Self.intrinsicSizes[key] = size
+        return size
+    }
+
     override func keyDown(with event: NSEvent) {
         // keyCode 51 is the Delete (Backspace) key on all standard Mac keyboards.
         // Only intercept when no intentional modifier keys are held — plain Delete only.

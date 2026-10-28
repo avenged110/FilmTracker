@@ -1038,7 +1038,7 @@ extension DebugHarness {
                 $0.releases = [ReleaseSnapshot(
                     format: ReleaseFormat.bluRay.rawValue,
                     nationalOrigin: "Germany",
-                    marketAvailability: [ReleaseMarketAvailability.oopExpensive])]
+                    marketAvailability: [ReleaseMarketAvailability.outOfPrint, ReleaseMarketAvailability.exorbitant])]
             },
             cells: [(.disc2K, PDFCell("OOP", fill: PDFPalette.red))]))
         // MARK: Purchased 4K

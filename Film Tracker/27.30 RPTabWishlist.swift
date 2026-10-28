@@ -24,14 +24,17 @@ private enum WishlistColW {
     static let availability: CGFloat = 100 // Col E – Market availability
 
     // ─── Inter-column spacing ─────────────────────────────────────────────────
-    // All trailing columns share a single uniform gap. Adjust here to tighten
-    // or loosen the spacing between every trailing field simultaneously.
-    //
-    // Tightened from 14: the four gaps between the five trailing columns give back 16 pt
-    // in total, and all of it goes to the title, which is the only non-fixed field in the
-    // row — the ranked list gives it whatever the position badge and the trailing region
-    // leave, so a narrower trailing region is directly more room before it truncates.
-    static let columnGap: CGFloat = 10
+    // All trailing columns share a single uniform gap: this trailing pad plus the table's
+    // 12 pt intercell spacing, 16 pt in all. Adjust here to tighten or loosen the spacing
+    // between every trailing field simultaneously. Every point it gives back goes to the
+    // title, the only field the ranked list lets flex.
+    static let detailGap: CGFloat = 4
+
+    /// The studio column gives up to half its width before the title truncates further.
+    static let studioMin: CGFloat = studio / 2
+
+    /// The title column's floor: 50% above ReportsRankedListView's default 80.
+    static let titleMin: CGFloat = 120
 }
 
 // MARK: - View
@@ -52,16 +55,16 @@ struct ReleaseWishlistView: View {
     )
 
     /// Format badge, studio, release date, independence, availability. Each fixed column's
-    /// `trailingPad` plus the table's 12 pt intercell spacing reproduces the former row's gap
-    /// (12 pt HStack spacing either side of a `columnGap` spacer).
+    /// `trailingPad` (`detailGap`) plus the table's 12 pt intercell spacing is the gap to the
+    /// next column.
     private static let trailingColumns: [ReportTableColumn<WishlistRelease>] = {
-        let pad = WishlistColW.columnGap + 12
+        let detailPad = WishlistColW.detailGap
         let secondary = NSFont.systemFont(ofSize: 12)
         let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let italic = NSFont(descriptor: secondary.fontDescriptor.withSymbolicTraits(.italic), size: 12)
             ?? secondary
         return [
-            ReportTableColumn(id: "format", width: WishlistColW.format + pad, trailingPad: pad,
+            ReportTableColumn(id: "format", width: WishlistColW.format + detailPad, trailingPad: detailPad,
                               content: .badge { row in
                                   // The ReleaseCard header's band tint, with near-white
                                   // lettering on every format's tint, the DVD gray included.
@@ -69,10 +72,14 @@ struct ReleaseWishlistView: View {
                                               fill: ReleaseFormatPalette.tint(for: row.format),
                                               ink: ReleaseFormatPalette.lightInk)
                               }),
-            ReportTableColumn(id: "studio", width: WishlistColW.studio + pad, font: secondary,
-                              isSecondary: true, trailingPad: pad, content: .text { $0.studio }),
-            ReportTableColumn(id: "year", width: WishlistColW.releaseDate + pad, alignment: .right,
-                              font: secondary, isSecondary: true, trailingPad: pad,
+            // The one trailing column that resizes: at narrow widths it shrinks alongside the
+            // title, down to half its width, and never grows past its normal width.
+            ReportTableColumn(id: "studio", width: WishlistColW.studio + detailPad,
+                              minWidth: WishlistColW.studioMin + detailPad,
+                              maxWidth: WishlistColW.studio + detailPad, font: secondary,
+                              isSecondary: true, trailingPad: detailPad, content: .text { $0.studio }),
+            ReportTableColumn(id: "year", width: WishlistColW.releaseDate + detailPad, alignment: .right,
+                              font: secondary, isSecondary: true, trailingPad: detailPad,
                               content: .runs { row in
                                   // "May 30, " in the system face, the year monospaced. A
                                   // year-only or unreadable value is all "year".
@@ -82,8 +89,8 @@ struct ReleaseWishlistView: View {
                                   return [ReportTextRun(text: String(row.releaseDate[..<comma.upperBound])),
                                           ReportTextRun(text: String(row.releaseDate[comma.upperBound...]), font: mono)]
                               }),
-            ReportTableColumn(id: "independence", width: WishlistColW.independence + pad, font: secondary,
-                              isSecondary: true, trailingPad: pad, content: .text { $0.independence }),
+            ReportTableColumn(id: "independence", width: WishlistColW.independence + detailPad, font: secondary,
+                              isSecondary: true, trailingPad: detailPad, content: .text { $0.independence }),
             ReportTableColumn(id: "availability", width: WishlistColW.availability, font: secondary,
                               isSecondary: true, content: .runs { row in
                                   // An upcoming release has no availability yet (the card
@@ -109,7 +116,8 @@ struct ReleaseWishlistView: View {
                     handleMove(from: source, to: destination)
                 },
                 primaryLabel: { $0.filmName },
-                trailingColumns: Self.trailingColumns
+                trailingColumns: Self.trailingColumns,
+                primaryMinWidth: WishlistColW.titleMin
             )
         }
         // Expose selection to the MenuBar so that Film menu items (e.g. "Delete from Library")
@@ -430,7 +438,7 @@ struct WishlistRelease: Identifiable, Equatable, RankedItem {
                 // "Combo-pack (dual BD)", which the column cannot fit; every other value
                 // passes through unchanged.
                 independence: ReleaseIndependence.compactDisplay(pair.release.independence),
-                marketAvailability: pair.release.marketAvailability.first ?? "",
+                marketAvailability: ReleaseMarketAvailability.displayText(pair.release.marketAvailability),
                 isUpcoming: ReleaseDateValue(pair.release.releaseDate, format: pair.release.format)?
                     .isUpcoming(today: today) ?? false
             )

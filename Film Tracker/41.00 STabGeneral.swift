@@ -51,8 +51,14 @@ struct GeneralSettingsView: View, Loggable {
         private var showStatusBar: Bool
     @AppStorage(preference: Preferences.maintainSelectionOnSearchExitKey)
         private var maintainSelectionOnSearchExit: Bool
+    @AppStorage(preference: Preferences.showSearchSuggestionsKey)
+        private var showSearchSuggestions: Bool
+    @AppStorage(preference: Preferences.showRecentSearchesKey)
+        private var showRecentSearches: Bool
     @AppStorage(preference: Preferences.rememberRightSidebarTabKey)
         private var rememberRightSidebarTab: Bool
+    @AppStorage(preference: Preferences.rememberRightSidebarReleasesFilterKey)
+        private var rememberRightSidebarReleasesFilter: Bool
     @AppStorage(preference: Preferences.autoExpandRightSidebarTablesKey)
         private var autoExpandRightSidebarTables: Bool
     @AppStorage(preference: Preferences.additionalCalTableDetailsKey)
@@ -279,12 +285,28 @@ struct GeneralSettingsView: View, Loggable {
                 Toggle(isOn: $additionalCalTableDetails) {
                     Text("Show additional details in the Viewing History table") }
 
+                Toggle(isOn: $rememberRightSidebarReleasesFilter) {
+                    Text("Maintain the active releases filter across selection changes") }
+
                 Toggle(isOn: $showReleasesSummaryTable) {
                     Text("Show a table summarizing all available releases") }
             }
             .settingsChildRowInset()
 
             Divider()
+
+            SettingsDescribedToggle("Show relevant suggestions when using the search field",
+                description: "Suggestions are based off of content in your library and local heuristics.",
+                isOn: $showSearchSuggestions)
+
+            // Indented beneath the suggestions toggle and disabled while it is off, matching
+            // the excludeQueuedFromUpForRotation row: recent searches are offered through
+            // the same drop-down, and SearchSuggestions only shows them while both are on.
+            SettingsDescribedToggle("Show recent searches when the search field is selected",
+                description: "The recording of recent searches is ephemeral and session-local.",
+                isOn: $showRecentSearches,
+                isEnabled: showSearchSuggestions)
+            .settingsChildRowInset()
 
             SettingsDescribedToggle("Persist selection when exiting search results",
                 description: "If a single film is selected within search results when the query is cleared and this same film is present in the prior view, persist the selection instead of clearing it.",

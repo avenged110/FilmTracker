@@ -306,6 +306,27 @@ actor DataManager: Loggable {
         log("Duplicate Release cleanup complete")
     }
 
+    /// Rewrites every Release still holding a legacy single-element `marketAvailability` tag
+    /// ("OOP (cheap)") in the two-component format. See ReleaseMarketAvailability.
+    ///
+    /// Memory never sees the legacy tags — ReleaseSnapshot migrates them on conversion, and
+    /// MemoryStore declines a snapshot cache that still holds one — so this only brings the
+    /// store itself into line. DataCoordinator calls it once at startup, and only when
+    /// MemoryStore saw a legacy tag during load, since the fetch materializes every Release.
+    /// Film.lastModified is not touched, so the snapshot-cache fingerprint is unaffected.
+    func migrateLegacyMarketAvailability() async throws {
+        let allReleases = try modelContext.fetch(FetchDescriptor<Release>())
+        var count = 0
+        for release in allReleases
+        where ReleaseMarketAvailability.needsMigration(release.marketAvailability) {
+            release.marketAvailability = ReleaseMarketAvailability.migrated(release.marketAvailability)
+            count += 1
+        }
+        guard count > 0 else { return }
+        try commit()
+        log("Migrated market availability on \(count) release(s)")
+    }
+
     /// Removes ListMembership records that are structurally meaningless: those whose
     /// film or list relationship is nil (orphans), and redundant rows for a
     /// (film, list) pair that is already represented (duplicates).

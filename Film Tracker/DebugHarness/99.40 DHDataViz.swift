@@ -112,7 +112,7 @@ extension DebugHarness {
             film("On Schedule", rating: 10, viewings: ["2026.03.03", "2026.06.01"], source: FilmDigitalSource.download1080p,
                  directors: ["B. Director"], hof: 1,
                  releases: [release(.dvd, cost: 8, date: "2026.02.15", condition: ReleaseCondition.used, studio: "Warner Bros.", origin: "United States", region: "Region 1"),
-                            release(.uhd4K, purchased: false, cost: 35, availability: [ReleaseMarketAvailability.oopCheap], wishlist: 1)]),
+                            release(.uhd4K, purchased: false, cost: 35, availability: [ReleaseMarketAvailability.outOfPrint, ReleaseMarketAvailability.cheap], wishlist: 1)]),
             // Special sorting excludes it from rotation entirely, though it has a date.
             film("Held", viewings: ["2020.05.05"], special: [FilmSpecialSorting.temporarilyOnHold], genre: "Drama"),
             // Never viewed, no releases: digital only, unwatched backlog.
@@ -123,7 +123,7 @@ extension DebugHarness {
                  edited: true, editedMinutes: 100, rf: 20),
             // Unpurchased and out of print.
             film("Unobtainable", rating: 0, viewings: [], genre: "Sci-Fi",
-                 releases: [release(.bluRay, purchased: false, cost: 60, availability: [ReleaseMarketAvailability.oopExpensive], wishlist: 2)]),
+                 releases: [release(.bluRay, purchased: false, cost: 60, availability: [ReleaseMarketAvailability.outOfPrint, ReleaseMarketAvailability.exorbitant], wishlist: 2)]),
         ]
     }
 

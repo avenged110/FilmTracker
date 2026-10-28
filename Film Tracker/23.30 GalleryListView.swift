@@ -573,6 +573,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        #if DEBUG
+        ViewSwitchProbe.record("list.update \(activeViewID)")
+        #endif
         guard let tableView = scrollView.documentView as? DraggableListTableView else { return }
         let coordinator = context.coordinator
         // Refreshed on every pass (the environment object is a stable singleton, but the
@@ -741,8 +744,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         // lookup and constructing a GallerySection (two Strings) per film — and then builds
         // a fresh row array and a fresh film→row dictionary. The list used to assign
         // coordinator.films unconditionally, so it paid all of that on every pass. (The
-        // grid assigns its films only inside its own needsReload branch, though it still
-        // recomputes its section breaks on every pass — see its updateSectionDividers.)
+        // grid assigns its films only inside its own needsReload branch, and gates its
+        // section-break recompute on the same inputs — see its updateSectionDividers.)
         //
         // Deep equality — not an ID-sequence comparison — is required here. An edit that
         // changes a rendered field without moving the film (renaming a film under a Date
@@ -770,14 +773,15 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             showSortingSections: showSectionDividers,
             queueFilter: dataCoordinator.loadedFilmQueueFilter,
             sortOption: dataCoordinator.loadedSortOption,
-            recentsCategory: dataCoordinator.loadedRecentsCategory)
+            recentsCategory: dataCoordinator.loadedRecentsCategory,
+            queueMembership: GallerySectioning.filmQueueMembership(for: dataCoordinator))
         // nil on the first pass, so a fresh mount always rebuilds.
         let sectionInputsChanged = coordinator.lastSectionInputs != sectionInputs
         coordinator.lastSectionInputs = sectionInputs
 
         // The Film Queue's "All" tab is the ONE banding whose inputs are not derivable from
-        // the films array, so it opts out of the skip entirely and rebuilds on every pass,
-        // exactly as this method did for every view before the gate above existed.
+        // the films array, which is why its section memberships are part of sectionInputs
+        // (see GallerySectioning.filmQueueMembership) rather than left to `filmsChanged`.
         //
         // Its bands come from GallerySectioning.filmQueueSectionBreaks, which resolves each
         // film's Up Next / Soon / Later membership through
@@ -786,8 +790,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         // it changes: promoting the first film of "Soon" to "Up Next" leaves it in the same
         // position (still after every Up Next film, still before every remaining Soon film)
         // with every snapshot byte-identical, while deleting the "Soon" band above it. Both
-        // `filmsChanged` and `sectionInputs` are blind to that, so neither may be trusted to
-        // gate this tab.
+        // `filmsChanged` and the sort-derived inputs are blind to that; the memberships are
+        // not.
         //
         // Every other view's bands are sort-derived, and GallerySectioning resolves those
         // from MetadataCache values that are themselves derived from FilmSnapshot fields
@@ -796,7 +800,6 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         // viewCount, and both Recents dates←lastWatched/rotationThresholdOverride and
         // `releases`). A change to any of them moves a FilmSnapshot field, so `filmsChanged`
         // sees it and the skip is sound there.
-        let queueBandsNotDerivableFromFilms = dataCoordinator.loadedFilmQueueFilter == .all
 
         // Whether the ROW ORDER changed, which is what the table's cached row views cannot
         // survive. Guarded by filmsChanged so the O(films) walk is never reached on a pass
@@ -816,7 +819,7 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         coordinator.showSortingSections = showSectionDividers
         if filmsChanged {
             coordinator.films = newFilms      // didSet rebuilds the row model
-        } else if sectionInputsChanged || queueBandsNotDerivableFromFilms {
+        } else if sectionInputsChanged {
             coordinator.rebuildRowModel()     // same films, possibly different banding
         }
 
@@ -1028,6 +1031,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             let queueFilter: FilmQueueFilter?
             let sortOption: SortOption?
             let recentsCategory: RecentsCategory?
+            /// See GallerySectioning.filmQueueMembership.
+            let queueMembership: [Set<UUID>]?
         }
 
         /// The section inputs the current row model was built from, or nil before the first

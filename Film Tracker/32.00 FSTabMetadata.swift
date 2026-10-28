@@ -376,6 +376,11 @@ struct FSTabMetadataView: View {
     // the label as well as the list. Keeping them here meant this body read every
     // array's `count` to build the labels, which put all eleven of them in this
     // view's observation set — so committing one entry invalidated the whole tab.
+    //
+    // The bound rows above the lists sit inside `ObservationBoundary` (30_20) for the same
+    // reason: a `$viewModel.field` binding created in this body subscribes it to `field`, so a
+    // Sort Name keystroke, or a Color toggle, re-ran the whole tab — eleven list rows and
+    // all — measured by the `filmsheet-perf` harness scenario.
 
     // MARK: - Label helpers
     // Encapsulates the fixed-width, left-aligned, single-line label pattern used by
@@ -390,6 +395,7 @@ struct FSTabMetadataView: View {
     // the only thing that ever published one.
 
     var body: some View {
+        let _ = FilmSheetBodyProbe.hit("metadata")
         // Local shadows of the static layout constants — gives every downstream
         // call site in this property unqualified access without explicit Self.
         // qualification, at zero runtime cost (no allocation, no capture).
@@ -450,81 +456,91 @@ struct FSTabMetadataView: View {
         // output with one fewer layout container per row and no column pass.
         VStack(alignment: .leading, spacing: rowSpacing) {
             // Sort Name
-            HStack(alignment: .center, spacing: colSpacing) {
-                label("Sort Name:")
-                TextField("Sort Name", text: $viewModel.sortName)
-                    .textFieldStyle(.roundedBorder)
+            ObservationBoundary {
+                HStack(alignment: .center, spacing: colSpacing) {
+                    label("Sort Name:")
+                    TextField("Sort Name", text: $viewModel.sortName)
+                        .textFieldStyle(.roundedBorder)
+                }
             }
 
             Divider()
                 .padding(.vertical, 6)
 
             // Digital Source
-            HStack(alignment: .center, spacing: colSpacing) {
-                label("Digital Source:")
-                HStack(spacing: 0) {
-                    // AppKit pop-ups, as every menu picker in the sheet is — see
-                    // SheetPopUpButton (30_20).
-                    SheetMenuPicker(selection: $viewModel.digitalSource,
-                                    items: Self.digitalSourceItems, width: pickerWidth)
-                    Spacer().frame(width: 27)
-                    // AppKit checkboxes, so they are stops in the sheet's Tab traversal —
-                    // see SheetCheckbox (30_20).
-                    SheetCheckbox(isOn: $viewModel.isRemastered)
-                    Spacer().frame(width: Preferences.spacingAfterCheckbox)
-                    Text("Remastered Version")
+            ObservationBoundary {
+                HStack(alignment: .center, spacing: colSpacing) {
+                    label("Digital Source:")
+                    HStack(spacing: 0) {
+                        // AppKit pop-ups, as every menu picker in the sheet is — see
+                        // SheetPopUpButton (30_20).
+                        SheetMenuPicker(selection: $viewModel.digitalSource,
+                                        items: Self.digitalSourceItems, width: pickerWidth)
+                        Spacer().frame(width: 27)
+                        // AppKit checkboxes, so they are stops in the sheet's Tab traversal —
+                        // see SheetCheckbox (30_20).
+                        SheetCheckbox(isOn: $viewModel.isRemastered)
+                        Spacer().frame(width: Preferences.spacingAfterCheckbox)
+                        Text("Remastered Version")
+                    }
                 }
             }
             // Version / Subtitles
-            HStack(alignment: .center, spacing: colSpacing) {
-                label("Version / Subtitles:")
-                HStack(spacing: 8) {
-                    // Options come from ViewingVersion so this menu and the release card's
-                    // "Included Versions" menu cannot drift apart. See ViewingVersion.selectable.
-                    //
-                    // "Colorized" and "Black-and-White" are the two options this menu qualifies
-                    // against the Color checkbox below: a colorized copy is by definition a
-                    // color copy, and a black-and-white one is by definition not, so each is
-                    // disabled while the checkbox already contradicts it. Disabled rather than
-                    // hidden so the option stays visible and its precondition discoverable, and
-                    // an already-stored contradictory value keeps displaying rather than
-                    // vanishing from the menu. The release card has no Color flag to qualify
-                    // against, so the rule is local to this menu. Selecting either option itself
-                    // locks the Color checkbox to the matching value (see digitalVersion's
-                    // didSet) rather than leaving the pair inconsistent until the row above
-                    // re-evaluates on the next render.
-                    SheetMenuPicker(selection: $viewModel.digitalVersion,
-                                    items: Self.digitalVersionItems(colorAllowed: viewModel.color),
-                                    width: pickerWidth)
-                    SheetMenuPicker(selection: $viewModel.subtitles,
-                                    items: Self.subtitleItems, width: pickerWidth)
+            ObservationBoundary {
+                HStack(alignment: .center, spacing: colSpacing) {
+                    label("Version / Subtitles:")
+                    HStack(spacing: 8) {
+                        // Options come from ViewingVersion so this menu and the release card's
+                        // "Included Versions" menu cannot drift apart. See ViewingVersion.selectable.
+                        //
+                        // "Colorized" and "Black-and-White" are the two options this menu qualifies
+                        // against the Color checkbox below: a colorized copy is by definition a
+                        // color copy, and a black-and-white one is by definition not, so each is
+                        // disabled while the checkbox already contradicts it. Disabled rather than
+                        // hidden so the option stays visible and its precondition discoverable, and
+                        // an already-stored contradictory value keeps displaying rather than
+                        // vanishing from the menu. The release card has no Color flag to qualify
+                        // against, so the rule is local to this menu. Selecting either option itself
+                        // locks the Color checkbox to the matching value (see digitalVersion's
+                        // didSet) rather than leaving the pair inconsistent until the row above
+                        // re-evaluates on the next render.
+                        SheetMenuPicker(selection: $viewModel.digitalVersion,
+                                        items: Self.digitalVersionItems(colorAllowed: viewModel.color),
+                                        width: pickerWidth)
+                        SheetMenuPicker(selection: $viewModel.subtitles,
+                                        items: Self.subtitleItems, width: pickerWidth)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             // Asp. Ratio / Frames
-            HStack(alignment: .center, spacing: colSpacing) {
-                label("Asp. Ratio / Frames:")
-                HStack(spacing: 8) {
-                    SheetMenuPicker(selection: $viewModel.aspectRatio,
-                                    items: Self.aspectRatioItems, width: pickerWidth)
-                    SheetMenuPicker(selection: $viewModel.frameRate,
-                                    items: Self.frameRateItems, width: pickerWidth)
+            ObservationBoundary {
+                HStack(alignment: .center, spacing: colSpacing) {
+                    label("Asp. Ratio / Frames:")
+                    HStack(spacing: 8) {
+                        SheetMenuPicker(selection: $viewModel.aspectRatio,
+                                        items: Self.aspectRatioItems, width: pickerWidth)
+                        SheetMenuPicker(selection: $viewModel.frameRate,
+                                        items: Self.frameRateItems, width: pickerWidth)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             // HandBrake RF Value / Color
-            HStack(alignment: .center, spacing: colSpacing) {
-                label("HandBrake RF Value:")
-                HStack(spacing: 0) {
-                    HBRFValueStepper(value: $viewModel.libraryHBRFValue)
-                    Spacer().frame(width: Preferences.spacingBeforeCheckbox)
-                    // Locked (and disabled) to the matching value while "Colorized" or
-                    // "Black-and-White" is the selected version — see digitalVersion's
-                    // didSet and isColorLocked's doc comment.
-                    SheetCheckbox(isOn: $viewModel.color)
-                        .disabled(viewModel.isColorLocked)
-                    Spacer().frame(width: Preferences.spacingAfterCheckbox)
-                    Text("Color")
+            ObservationBoundary {
+                HStack(alignment: .center, spacing: colSpacing) {
+                    label("HandBrake RF Value:")
+                    HStack(spacing: 0) {
+                        HBRFValueStepper(value: $viewModel.libraryHBRFValue)
+                        Spacer().frame(width: Preferences.spacingBeforeCheckbox)
+                        // Locked (and disabled) to the matching value while "Colorized" or
+                        // "Black-and-White" is the selected version — see digitalVersion's
+                        // didSet and isColorLocked's doc comment.
+                        SheetCheckbox(isOn: $viewModel.color)
+                            .disabled(viewModel.isColorLocked)
+                        Spacer().frame(width: Preferences.spacingAfterCheckbox)
+                        Text("Color")
+                    }
                 }
             }
             // Encoding Tools — top-aligned

@@ -604,7 +604,9 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         self.masterType = release.masterType
         self.regionLock = release.regionLock
         self.regionLockBypass = release.regionLockBypass
-        self.marketAvailability = release.marketAvailability
+        // Migrated on the way in, so a store not yet rewritten by
+        // DataManager.migrateLegacyMarketAvailability never shows a legacy tag.
+        self.marketAvailability = ReleaseMarketAvailability.migrated(release.marketAvailability)
         self.numberOfCopies = release.numberOfCopies
         self.cost = release.cost
         self.amountSpent = release.amountSpent
@@ -1117,6 +1119,7 @@ struct SettingsSnapshot: Sendable, Equatable {
     let largeGalleryGrid: Bool?
     let showStatusBar: Bool?
     let rememberRightSidebarTab: Bool?
+    let rememberRightSidebarReleasesFilter: Bool?
     let autoExpandRightSidebarTables: Bool?
     let additionalCalTableDetails: Bool?
     let showReleasesSummaryTable: Bool?
@@ -1125,6 +1128,8 @@ struct SettingsSnapshot: Sendable, Equatable {
     let smartLists: Bool?
     let excludeQueuedFromUpForRotation: Bool?
     let maintainSelectionOnSearchExit: Bool?
+    let showSearchSuggestions: Bool?
+    let showRecentSearches: Bool?
     let showInfoComplete: Bool?
     let performBackupAtLaunch: Bool?
     let defaultRotationThreshold: Int?
@@ -1178,6 +1183,7 @@ struct SettingsSnapshot: Sendable, Equatable {
          largeGalleryGrid: Bool? = nil,
          showStatusBar: Bool? = nil,
          rememberRightSidebarTab: Bool? = nil,
+         rememberRightSidebarReleasesFilter: Bool? = nil,
          autoExpandRightSidebarTables: Bool? = nil,
          additionalCalTableDetails: Bool? = nil,
          showReleasesSummaryTable: Bool? = nil,
@@ -1186,6 +1192,8 @@ struct SettingsSnapshot: Sendable, Equatable {
          smartLists: Bool? = nil,
          excludeQueuedFromUpForRotation: Bool? = nil,
          maintainSelectionOnSearchExit: Bool? = nil,
+         showSearchSuggestions: Bool? = nil,
+         showRecentSearches: Bool? = nil,
          showInfoComplete: Bool? = nil,
          performBackupAtLaunch: Bool? = nil,
          defaultRotationThreshold: Int? = nil,
@@ -1227,6 +1235,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.largeGalleryGrid = largeGalleryGrid
         self.showStatusBar = showStatusBar
         self.rememberRightSidebarTab = rememberRightSidebarTab
+        self.rememberRightSidebarReleasesFilter = rememberRightSidebarReleasesFilter
         self.autoExpandRightSidebarTables = autoExpandRightSidebarTables
         self.additionalCalTableDetails = additionalCalTableDetails
         self.showReleasesSummaryTable = showReleasesSummaryTable
@@ -1235,6 +1244,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.smartLists = smartLists
         self.excludeQueuedFromUpForRotation = excludeQueuedFromUpForRotation
         self.maintainSelectionOnSearchExit = maintainSelectionOnSearchExit
+        self.showSearchSuggestions = showSearchSuggestions
+        self.showRecentSearches = showRecentSearches
         self.showInfoComplete = showInfoComplete
         self.performBackupAtLaunch = performBackupAtLaunch
         self.defaultRotationThreshold = defaultRotationThreshold
@@ -1281,6 +1292,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.largeGalleryGrid = object.largeGalleryGrid
         self.showStatusBar = object.showStatusBar
         self.rememberRightSidebarTab = object.rememberRightSidebarTab
+        self.rememberRightSidebarReleasesFilter = object.rememberRightSidebarReleasesFilter
         self.autoExpandRightSidebarTables = object.autoExpandRightSidebarTables
         self.additionalCalTableDetails = object.additionalCalTableDetails
         self.showReleasesSummaryTable = object.showReleasesSummaryTable
@@ -1289,6 +1301,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.smartLists = object.smartLists
         self.excludeQueuedFromUpForRotation = object.excludeQueuedFromUpForRotation
         self.maintainSelectionOnSearchExit = object.maintainSelectionOnSearchExit
+        self.showSearchSuggestions = object.showSearchSuggestions
+        self.showRecentSearches = object.showRecentSearches
         self.showInfoComplete = object.showInfoComplete
         self.performBackupAtLaunch = object.performBackupAtLaunch
         self.defaultRotationThreshold = object.defaultRotationThreshold
@@ -1335,6 +1349,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.largeGalleryGrid = largeGalleryGrid
         object.showStatusBar = showStatusBar
         object.rememberRightSidebarTab = rememberRightSidebarTab
+        object.rememberRightSidebarReleasesFilter = rememberRightSidebarReleasesFilter
         object.autoExpandRightSidebarTables = autoExpandRightSidebarTables
         object.additionalCalTableDetails = additionalCalTableDetails
         object.showReleasesSummaryTable = showReleasesSummaryTable
@@ -1343,6 +1358,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.smartLists = smartLists
         object.excludeQueuedFromUpForRotation = excludeQueuedFromUpForRotation
         object.maintainSelectionOnSearchExit = maintainSelectionOnSearchExit
+        object.showSearchSuggestions = showSearchSuggestions
+        object.showRecentSearches = showRecentSearches
         object.showInfoComplete = showInfoComplete
         object.performBackupAtLaunch = performBackupAtLaunch
         object.defaultRotationThreshold = defaultRotationThreshold

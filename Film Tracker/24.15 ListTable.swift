@@ -83,7 +83,7 @@ struct ListTable: View {
             if lhs.isQueueList != rhs.isQueueList { return lhs.isQueueList }
             if lhs.isSmartList != rhs.isSmartList { return rhs.isSmartList }
             if lhs.isSmartList {
-                return lhs.listName.localizedCaseInsensitiveCompare(rhs.listName) == .orderedAscending
+                return lhs.listName.englishCaseInsensitiveCompare(rhs.listName) == .orderedAscending
             }
             // Both queue entries and regular lists land here. Two queue entries are only
             // reachable at all through a corrupted or pre-exclusivity restore that left a
@@ -100,7 +100,7 @@ struct ListTable: View {
             // that the app itself can produce (a restored backup carrying two identically
             // named lists is no worse off than before).
             if lhs.displayOrder != rhs.displayOrder { return lhs.displayOrder < rhs.displayOrder }
-            return lhs.listName.localizedCaseInsensitiveCompare(rhs.listName) == .orderedAscending
+            return lhs.listName.englishCaseInsensitiveCompare(rhs.listName) == .orderedAscending
         }
     }
 

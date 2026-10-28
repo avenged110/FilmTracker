@@ -34,6 +34,24 @@ enum FilmTab: String, CaseIterable, Identifiable, CustomTab {
     }
 }
 
+// MARK: - FilmSheetBodyProbe
+
+/// Counts body evaluations of the sheet's views, for the `filmsheet-perf` harness scenario
+/// (DHCardProfile). Each instrumented body opens with `let _ = FilmSheetBodyProbe.hit(…)`;
+/// in a release build the call is empty and inlined away.
+@MainActor
+enum FilmSheetBodyProbe {
+    #if DEBUG
+    static var counts: [String: Int] = [:]
+    #endif
+
+    @inline(__always) static func hit(_ name: String) {
+        #if DEBUG
+        counts[name, default: 0] += 1
+        #endif
+    }
+}
+
 // MARK: - FilmSheetScrollProxy
 
 /// Programmatic-scroll bridge for FilmSheet tabs.
@@ -45,13 +63,22 @@ typealias FilmSheetScrollProxy = AppKitScrollProxy
 
 /// SwiftUI wrapper for the FilmSheet's scrollable tabs (Details, Metadata, Notes).
 ///
-/// `isActive` controls whether the underlying NSScrollView participates in
-/// AppKit's hit-test chain. When `false`, the scroll view's `hitTest(_:)` is
+/// `activation` controls whether the underlying NSScrollView participates in
+/// AppKit's hit-test chain. While it is inactive, the scroll view's `hitTest(_:)` is
 /// short-circuited to return `nil` (see `HitTestGatedScrollView` in
 /// `98.20 UtilityKit.swift`), removing it and all of its AppKit subviews
 /// from AppKit's hit-test traversal — without hiding it. This is a
 /// defense-in-depth companion to the `TabEventShield` overlay applied at the
 /// `tabLayer` level.
+///
+/// An `AppKitScrollActivation` rather than an `isActive: Bool` parameter, because a
+/// parameter is part of the representable's value: flipping it on every tab switch stamped
+/// a new revision and handed the unchanged tab to its hosting view again, a full re-measure
+/// of the hosted tree each time the tab came back — measured by the `filmsheet-perf`
+/// harness scenario as one hand-off and about 60 ms per return to Details. The activation
+/// is one object for the tab's life, set by `.appKitScrollActivation(_:isActive:)` outside
+/// the scroll view, so a switch changes no value SwiftUI compares. The RightSidebar's tab
+/// plane uses the same route.
 ///
 /// `scrollProxy` enables programmatic scroll-to-anchor for tabs that need it
 /// (currently Details alone). Omit it — the parameter defaults to `nil` — for tabs
@@ -60,15 +87,15 @@ struct FilmSheetScrollView<Content: View>: View {
 
     let content: Content
     var scrollProxy: FilmSheetScrollProxy?
-    var isActive: Bool
+    let activation: AppKitScrollActivation
 
     init(
         scrollProxy: FilmSheetScrollProxy? = nil,
-        isActive: Bool = true,
+        activation: AppKitScrollActivation,
         @ViewBuilder content: () -> Content
     ) {
         self.scrollProxy = scrollProxy
-        self.isActive = isActive
+        self.activation = activation
         self.content = content()
     }
 
@@ -76,7 +103,7 @@ struct FilmSheetScrollView<Content: View>: View {
         AppKitScrollView(
             modifier: EmptyModifier(),
             scrollProxy: scrollProxy,
-            isActive: isActive
+            activation: activation
         ) {
             content
         }
@@ -97,6 +124,7 @@ struct FilmSheetView: View {
     @State private var tabMonitor: Any?
 
     var body: some View {
+        let _ = FilmSheetBodyProbe.hit("sheet")
         VStack(spacing: 0) {
             // Custom titlebar — windowTitle is resolved once in FilmSheet.init (from
             // isEditMode and, in edit mode, the film's name at open time), so it never
@@ -815,7 +843,15 @@ private struct FilmSheetTabContent: View {
     /// consumers that never scroll programmatically, which is what they pass.
     @State private var detailsScrollProxy = FilmSheetScrollProxy()
 
+    /// One activation per scroll tab, for the sheet's lifetime — the channel through which a
+    /// tab's scroll view learns it is (or is no longer) the active tab without any SwiftUI
+    /// value changing. See FilmSheetScrollView.
+    @State private var detailsActivation  = AppKitScrollActivation()
+    @State private var metadataActivation = AppKitScrollActivation()
+    @State private var notesActivation    = AppKitScrollActivation()
+
     var body: some View {
+        let _ = FilmSheetBodyProbe.hit("tab-content")
         // Compute the effective "appeared" set once. FilmSheet seeds the set with the
         // initial tab and inserts each subsequent selection from selectedTab's didSet,
         // so the fast path (identity return, zero allocation) is taken on every render.
@@ -880,9 +916,10 @@ private struct FilmSheetTabContent: View {
     ///     from hitTest when shielded, consuming the event before any underlying
     ///     control sees it.
     ///
-    /// `FilmSheetScrollView` (Details, Metadata, Notes) additionally receives `isActive`
-    /// and short-circuits its NSScrollView's own `hitTest(_:)` to `nil` — defense in
-    /// depth alongside the shield, independently excluding the whole scroll subtree.
+    /// `FilmSheetScrollView` (Details, Metadata, Notes) additionally receives an
+    /// `AppKitScrollActivation` and short-circuits its NSScrollView's own `hitTest(_:)` to
+    /// `nil` — defense in depth alongside the shield, independently excluding the whole
+    /// scroll subtree.
     @ViewBuilder
     private func tabLayer<C: View>(_ tab: FilmTab, loaded: Bool, active: Bool,
                                    @ViewBuilder content: () -> C) -> some View {
@@ -893,6 +930,19 @@ private struct FilmSheetTabContent: View {
                 // the opacity, so it is hidden with the tab (the loop only ever asks for
                 // the active tab's region anyway).
                 .background(FilmSheetTabFocusRegion(tab: tab))
+                // A permanent container for the tab's NSViews, so hiding and showing it
+                // only changes that container's alpha. Without one, SwiftUI hosts a
+                // transparent subtree's platform views in a zero-alpha container and a
+                // visible one's directly in the hosting view, so every switch RE-PARENTED
+                // every NSView of both tabs involved — and each re-insert rebuilt the key
+                // view loop and laid out that view's hosted tree again (sampled during a
+                // tab-switch loop: ~90% of the switch was -[NSView addSubview:] from
+                // SwiftUI's display-list updater). Measured by the `filmsheet-perf`
+                // harness scenario, returning to a built tab fell from 35–70 ms to 10–25 ms.
+                // `compositingGroup` does not rasterize, so at opacity 1 the tab draws as
+                // before; hidden, it is still a zero-alpha ancestor, which is what
+                // FilmSheetKeyLoop's hidden-tab test looks for.
+                .compositingGroup()
                 .opacity(active ? 1 : 0)
                 .allowsHitTesting(active)
                 .overlay(TabEventShield(isShielded: !active))
@@ -918,15 +968,13 @@ private struct FilmSheetTabContent: View {
                 FilmSheetFocusSink(swallowReturn: false, reclaimWhenActive: selectedTab == .details)
                     .frame(height: 0)
                     .clipped()
-                FilmSheetScrollView(scrollProxy: detailsScrollProxy,
-                                    isActive: selectedTab == .details) {
-                    FSTabDetailsView(viewModel: detailsTab,
-                                     scrollProxy: detailsScrollProxy)
-                        .padding(26)
-                        .coordinateSpace(name: "filmSheetScrollContent")
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                DetailsScrollTab(viewModel: detailsTab,
+                                 scrollProxy: detailsScrollProxy,
+                                 activation: detailsActivation)
+                    .equatable()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .appKitScrollActivation(detailsActivation, isActive: selectedTab == .details)
         case .metadata:
             // No scroll proxy and no named coordinate space: this tab publishes no
             // anchor and targets none. Its lists pull a newly committed row back into
@@ -938,12 +986,13 @@ private struct FilmSheetTabContent: View {
                 FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .metadata)
                     .frame(height: 0)
                     .clipped()
-                FilmSheetScrollView(isActive: selectedTab == .metadata) {
+                FilmSheetScrollView(activation: metadataActivation) {
                     FSTabMetadataView(viewModel: metadataTab)
                         .padding(26)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .appKitScrollActivation(metadataActivation, isActive: selectedTab == .metadata)
         case .releases:
             // FilmSheetFocusSink mirrors the Details usage. The Releases tab
             // is only built the first time the user activates it, but at that moment
@@ -957,7 +1006,13 @@ private struct FilmSheetTabContent: View {
                 FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .releases)
                     .frame(height: 0)
                     .clipped()
+                // Equatable on the view model's identity, so a tab switch — which re-runs this
+                // body — does not re-run the Releases tab's body while it is hidden. It did on
+                // every switch (measured by the `filmsheet-perf` harness scenario): unlike the
+                // scroll tabs, this one is not behind a hosting view's hand-off gate. Its own
+                // state and observed reads still update it as before.
                 FSTabReleasesView(viewModel: releasesTab)
+                    .equatable()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .notes:
@@ -979,12 +1034,13 @@ private struct FilmSheetTabContent: View {
                 FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .notes)
                     .frame(height: 0)
                     .clipped()
-                FilmSheetScrollView(isActive: selectedTab == .notes) {
+                FilmSheetScrollView(activation: notesActivation) {
                     FSTabNotesView(viewModel: notesTab)
                         .padding(26)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .appKitScrollActivation(notesActivation, isActive: selectedTab == .notes)
         case .poster:
             // swallowReturn: true — same reasoning as Metadata/Releases/Notes above.
             VStack(spacing: 0) {
@@ -995,6 +1051,40 @@ private struct FilmSheetTabContent: View {
                     .padding(26)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+}
+
+// MARK: - DetailsScrollTab
+/// The Details tab's scroll view, compared by the identity of its three inputs.
+///
+/// Metadata and Notes are built inline, and a tab switch — which re-runs
+/// FilmSheetTabContent's body — leaves their scroll views alone because SwiftUI finds the
+/// rebuilt values equal. The Details content is not comparable that way (its view carries an
+/// `@AppStorage`, and the named coordinate space wraps its name in a type-erased value), so
+/// every switch rebuilt its AppKitScrollView, stamped a new revision, and the tab's whole
+/// hosted tree was handed off and re-measured each time it came back: two hand-offs per
+/// return, measured by the `filmsheet-perf` harness scenario. All three inputs are the same
+/// objects for the sheet's life, so comparing them by identity is exact.
+private struct DetailsScrollTab: View, Equatable {
+    let viewModel: FSTabDetails
+    let scrollProxy: FilmSheetScrollProxy
+    let activation: AppKitScrollActivation
+
+    // SwiftUI performs view comparisons on the main actor; see ReleaseCardView's conformance.
+    nonisolated static func == (lhs: DetailsScrollTab, rhs: DetailsScrollTab) -> Bool {
+        MainActor.assumeIsolated {
+            lhs.viewModel === rhs.viewModel
+                && lhs.scrollProxy === rhs.scrollProxy
+                && lhs.activation === rhs.activation
+        }
+    }
+
+    var body: some View {
+        FilmSheetScrollView(scrollProxy: scrollProxy, activation: activation) {
+            FSTabDetailsView(viewModel: viewModel, scrollProxy: scrollProxy)
+                .padding(26)
+                .coordinateSpace(name: "filmSheetScrollContent")
         }
     }
 }

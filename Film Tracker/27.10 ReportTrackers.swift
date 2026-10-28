@@ -622,23 +622,24 @@ extension ReleaseData {
 
     /// The Purchase and Expense Tracker's opening order: newest purchase first.
     static let costTrackerDefaultSort: [KeyPathComparator<ReleaseData>] =
-        [KeyPathComparator(\ReleaseData.purchaseDate, order: .reverse)]
+        [comparator(forKey: "purchaseDate", order: .reverse)!]
 
     /// The sortable columns' keys, as `ReportTableColumn.sortKey` names them.
     private static let sortKeys = ["filmTitle", "purchaseDate", "lowestPriceDate", "studio", "condition", "notes"]
 
     /// The comparator a header key sorts by. Title sorts by `titleSort`, the gallery's
-    /// order; the rest by their stored strings.
+    /// order; the rest by their stored strings, under English rules (a String key path's
+    /// default comparator, `.localizedStandard`, follows the system language).
     private static func comparator(forKey key: String, order: SortOrder) -> KeyPathComparator<ReleaseData>? {
         switch key {
         // The gallery's Title order (sort name, articles stripped, numbers last), not
         // the raw title.
         case "filmTitle":       return KeyPathComparator(\.titleSort, order: order)
-        case "purchaseDate":    return KeyPathComparator(\.purchaseDate, order: order)
-        case "lowestPriceDate": return KeyPathComparator(\.lowestPriceDate, order: order)
-        case "studio":          return KeyPathComparator(\.studio, order: order)
-        case "condition":       return KeyPathComparator(\.condition, order: order)
-        case "notes":           return KeyPathComparator(\.notes, order: order)
+        case "purchaseDate":    return KeyPathComparator(\.purchaseDate, comparator: EnglishText.standardComparator, order: order)
+        case "lowestPriceDate": return KeyPathComparator(\.lowestPriceDate, comparator: EnglishText.standardComparator, order: order)
+        case "studio":          return KeyPathComparator(\.studio, comparator: EnglishText.standardComparator, order: order)
+        case "condition":       return KeyPathComparator(\.condition, comparator: EnglishText.standardComparator, order: order)
+        case "notes":           return KeyPathComparator(\.notes, comparator: EnglishText.standardComparator, order: order)
         default:                return nil
         }
     }
@@ -658,11 +659,11 @@ extension ReleaseData {
 
     /// The Price Tracker's opening order: most recent price observation first.
     static let priceTrackerDefaultSort: [KeyPathComparator<ReleaseData>] =
-        [KeyPathComparator(\ReleaseData.lowestPriceDate, order: .reverse)]
+        [comparator(forKey: "lowestPriceDate", order: .reverse)!]
 
     /// Sorts `items` by the given column order, applying a title tiebreaker whenever every
     /// active comparator treats two items as equal. The tiebreaker mirrors the gallery
-    /// view's title sort: article-stripped, numbers-last, `localizedStandardCompare`.
+    /// view's title sort: article-stripped, numbers-last, `englishStandardCompare`.
     /// Swift's `sorted(by:)` is a stable sort, so items that also tie on title retain
     /// their original relative order.
     ///

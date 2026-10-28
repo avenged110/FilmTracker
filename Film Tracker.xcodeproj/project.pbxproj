@@ -71,6 +71,7 @@
 		CE42AD562EE2EAB80096D62D /* 24.13 CalendarPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD552EE2EAB80096D62D /* 24.13 CalendarPopover.swift */; };
 		CE42AD582EE5588E0096D62D /* 90.00 GlobalUtilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD572EE5588E0096D62D /* 90.00 GlobalUtilities.swift */; };
 		CE42AD602EEC135A0096D62D /* 50.10 SearchToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD5F2EEC135A0096D62D /* 50.10 SearchToken.swift */; };
+		CE42AD602EEC135A0096D7A2 /* 50.20 SearchSuggestions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD5F2EEC135A0096D7A1 /* 50.20 SearchSuggestions.swift */; };
 		CE42AD6A2EEEAE130096D62D /* 10.10 SheetHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD692EEEAE130096D62D /* 10.10 SheetHostView.swift */; };
 		CE42AD742EF00C050096D62D /* 20.00 MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD732EF00C050096D62D /* 20.00 MainView.swift */; };
 		CE42AD7C2EF63E700096D62D /* 10.30 KeyboardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD7B2EF63E700096D62D /* 10.30 KeyboardManager.swift */; };
@@ -151,6 +152,7 @@
 		CEFE00000000000000000B31 /* 99.53 DHDocumentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE00000000000000000B30 /* 99.53 DHDocumentation.swift */; };
 		CEFE00000000000000000B41 /* 99.54 DHImportsRemoval.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */; };
 		CEFE00000000000000000B51 /* 99.55 DHImportsSwitch.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */; };
+		CEFE00000000000000000B53 /* 99.56 DHReleasesFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE00000000000000000B52 /* 99.56 DHReleasesFilter.swift */; };
 		CEFE00000000000000000B61 /* 28.20 ImportHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFE00000000000000000B60 /* 28.20 ImportHistory.swift */; };
 		EEBB2437EE8B6B1B98669D7F /* 29.20 ATVQIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCF2D4EABC0E20861B227B83 /* 29.20 ATVQIntegration.swift */; };
 /* End PBXBuildFile section */
@@ -224,6 +226,7 @@
 		CE42AD552EE2EAB80096D62D /* 24.13 CalendarPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "24.13 CalendarPopover.swift"; sourceTree = "<group>"; };
 		CE42AD572EE5588E0096D62D /* 90.00 GlobalUtilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "90.00 GlobalUtilities.swift"; sourceTree = "<group>"; };
 		CE42AD5F2EEC135A0096D62D /* 50.10 SearchToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.10 SearchToken.swift"; sourceTree = "<group>"; };
+		CE42AD5F2EEC135A0096D7A1 /* 50.20 SearchSuggestions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.20 SearchSuggestions.swift"; sourceTree = "<group>"; };
 		CE42AD692EEEAE130096D62D /* 10.10 SheetHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "10.10 SheetHostView.swift"; sourceTree = "<group>"; };
 		CE42AD732EF00C050096D62D /* 20.00 MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "20.00 MainView.swift"; sourceTree = "<group>"; };
 		CE42AD7B2EF63E700096D62D /* 10.30 KeyboardManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "10.30 KeyboardManager.swift"; sourceTree = "<group>"; };
@@ -304,6 +307,7 @@
 		CEFE00000000000000000B30 /* 99.53 DHDocumentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.53 DHDocumentation.swift"; sourceTree = "<group>"; };
 		CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.54 DHImportsRemoval.swift"; sourceTree = "<group>"; };
 		CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.55 DHImportsSwitch.swift"; sourceTree = "<group>"; };
+		CEFE00000000000000000B52 /* 99.56 DHReleasesFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.56 DHReleasesFilter.swift"; sourceTree = "<group>"; };
 		CEFE00000000000000000B60 /* 28.20 ImportHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "28.20 ImportHistory.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -422,6 +426,7 @@
 				CE2A1F5D2E972FD200EB1C02 /* 45.00 STabAdvanced.swift */,
 				CE40BABC2EC340D9009A4ECA /* 50.00 SearchController.swift */,
 				CE42AD5F2EEC135A0096D62D /* 50.10 SearchToken.swift */,
+				CE42AD5F2EEC135A0096D7A1 /* 50.20 SearchSuggestions.swift */,
 				CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */,
 				CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */,
 				CE2A1F382E96277600EB1C02 /* 61.00 FilmObj.swift */,
@@ -489,6 +494,7 @@
 				CEFE00000000000000000B30 /* 99.53 DHDocumentation.swift */,
 				CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */,
 				CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */,
+				CEFE00000000000000000B52 /* 99.56 DHReleasesFilter.swift */,
 				CEFE00000000000000000011 /* 99.60 DHResizeProfiler.swift */,
 				CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */,
 			);
@@ -579,6 +585,7 @@
 				CECF3DE52EB752E600D7897A /* 40.00 SettingsSheet.swift in Sources */,
 				CE2A1F782E98587300EB1C02 /* 84.10 DBImporter.swift in Sources */,
 				CE42AD602EEC135A0096D62D /* 50.10 SearchToken.swift in Sources */,
+				CE42AD602EEC135A0096D7A2 /* 50.20 SearchSuggestions.swift in Sources */,
 				CE40BAD32EC88BC7009A4ECA /* 11.00 DataCoordinator.swift in Sources */,
 				CE2A1F4A2E96343700EB1C02 /* 23.00 GalleryView.swift in Sources */,
 				CED4BA062F850CB300DE89EF /* 30.01 FilmSheetView.swift in Sources */,
@@ -678,6 +685,7 @@
 				CEFE00000000000000000B31 /* 99.53 DHDocumentation.swift in Sources */,
 				CEFE00000000000000000B41 /* 99.54 DHImportsRemoval.swift in Sources */,
 				CEFE00000000000000000B51 /* 99.55 DHImportsSwitch.swift in Sources */,
+				CEFE00000000000000000B53 /* 99.56 DHReleasesFilter.swift in Sources */,
 				CEFE00000000000000000012 /* 99.60 DHResizeProfiler.swift in Sources */,
 				CEFE00000000000000000022 /* 99.51 DHFocusProbe.swift in Sources */,
 				CEFE00000000000000000024 /* 99.50 DHCardProfile.swift in Sources */,
@@ -841,7 +849,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 35;
+				CURRENT_PROJECT_VERSION = 40;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -870,7 +878,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = app.FilmTracker;
 				PRODUCT_NAME = "Film Tracker";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -892,7 +900,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 35;
+				CURRENT_PROJECT_VERSION = 40;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -921,7 +929,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.0.1;
+				MARKETING_VERSION = 1.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = app.FilmTracker;
 				PRODUCT_NAME = "Film Tracker";
 				SWIFT_EMIT_LOC_STRINGS = YES;

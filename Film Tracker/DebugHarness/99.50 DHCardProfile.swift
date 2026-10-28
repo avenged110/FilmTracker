@@ -62,6 +62,7 @@ extension DebugHarness {
         case "sidebar-expansion-seed": return sidebarExpansionSeedScenario()
         case "sidebar-expansion-restore": return await sidebarExpansionRestoreScenario()
         case "jump-menu-width": return await jumpMenuWidthScenario(coordinator: coordinator)
+        case "filmsheet-perf": return await filmSheetPerfScenario(coordinator: coordinator)
         default:           return nil
         }
     }
@@ -104,6 +105,17 @@ extension DebugHarness {
             try? await Task.sleep(for: .milliseconds(100))
         }
         return window.isKeyWindow
+    }
+
+    /// The reason a real-window keyboard scenario cannot run here, or nil if it can. Key
+    /// status is the precondition every keystroke check rests on; without it they all fail
+    /// together and say nothing about the code.
+    static func keyWindowUnavailable(_ window: NSWindow) async -> String? {
+        if await makeKey(window) { return nil }
+        let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+        return (session?["CGSSessionScreenIsLocked"] as? Bool) == true
+            ? "the screen is locked; re-run while someone is at the Mac"
+            : "the window could not become key (another app holds focus?); re-run with the Mac idle"
     }
 
     private static func oneRunLoopTurn() async {
@@ -2257,7 +2269,7 @@ extension DebugHarness {
         // A header click is NSTableView replacing its sortDescriptors; the delegate reports it.
         costTable.sortDescriptors = [NSSortDescriptor(key: "filmTitle", ascending: true)] + costTable.sortDescriptors
         await settle()
-        let titleOrder = [KeyPathComparator(\ReleaseData.titleSort, order: .forward), KeyPathComparator(\ReleaseData.purchaseDate, order: .reverse)]
+        let titleOrder = ReleaseData.comparators(forHeaderSort: [("filmTitle", true), ("purchaseDate", false)])
         let byTitle = ReleaseData.sorted(costRows, using: titleOrder)
         let saved = reports.savedSortOrder(for: .costTracker)
         r.check("header-sort-saved-as-comparators", saved == titleOrder, "\(String(describing: saved))")
@@ -2287,13 +2299,34 @@ extension DebugHarness {
         // Drag rows 0 and 2 to above row 5: SwiftUI onMove / Array.move semantics.
         var expected = before
         expected.move(fromOffsets: [0, 2], toOffset: 5)
+        let reloadsBefore = (hofTable as? ReportNSTableView)?.fullReloadCount
         let moved = hofCoordinator.move([0, 2], to: 5)
+        // The table shows the new order at once (the rows slide there), before the store
+        // answers.
+        r.check("hof-reorder-shown-immediately", Array(hofCoordinator.rowIDs.prefix(8)) == Array(expected.prefix(8)), "")
         await settle(600)
         r.check("hof-reorder-accepted", moved, "")
+        // The renumbered rows that come back refresh cells in place: a full reload would
+        // snap the rows instead of letting them slide.
+        let reloadsAfter = (hofTable as? ReportNSTableView)?.fullReloadCount
+        r.check("hof-reorder-no-full-reload", reloadsBefore != nil && reloadsBefore == reloadsAfter,
+                "full reloads \(String(describing: reloadsBefore)) → \(String(describing: reloadsAfter))")
+        if let reportTable = hofTable as? ReportNSTableView, reportTable.numberOfRows > 3 {
+            reportTable.showDropIndicator(aboveRow: 3)
+            let shown = reportTable.dropIndicator
+            r.check("hof-drop-indicator-shown", shown.map { $0.isHidden == false && reportTable.subviews.contains($0) } == true, "")
+            r.check("hof-drop-indicator-on-boundary", shown.map { abs($0.frame.midY - reportTable.rect(ofRow: 3).minY) < 0.5 } == true,
+                    "midY \(String(describing: shown?.frame.midY)) vs \(reportTable.rect(ofRow: 3).minY)")
+            reportTable.hideDropIndicator()
+            r.check("hof-drop-indicator-hidden", reportTable.dropIndicator?.isHidden == true, "")
+        }
+        r.check("hof-reorder-table-matches-store",
+                Array(hofCoordinator.rowIDs.prefix(8)) == Array(coordinator.hallOfFameFilms.prefix(8)), "")
         r.check("hof-reorder-reaches-store", Array(coordinator.hallOfFameFilms.prefix(8)) == Array(expected.prefix(8)),
                 "store head \(coordinator.hallOfFameFilms.prefix(4).map { $0.uuidString.prefix(4) })")
         let firstCell = hofTable.view(atColumn: 0, row: 0, makeIfNecessary: true)?.accessibilityValue() as? String
         r.check("hof-positions-renumbered", firstCell == "1.", "first position cell \(String(describing: firstCell))")
+
 
         // MARK: Wishlist — rows present
         reports.selectCategory(.releaseWishlist, persist: false, immediate: true)
@@ -3081,7 +3114,9 @@ extension DebugHarness {
             let host = NSHostingView(rootView: FilmSheetView(owner: sheet))
             host.frame = NSRect(x: 0, y: 0, width: size, height: size)
             window.contentView = host
-            let isKey = await makeKey(window)
+            if let reason = await keyWindowUnavailable(window) {
+                r.skip("\(label)/window-key", reason); window.orderOut(nil); return
+            }
             for _ in 0..<6 { await oneRunLoopTurn() }
             try? await Task.sleep(for: .milliseconds(250))   // deferred Synopsis wave
             host.layoutSubtreeIfNeeded()
@@ -3090,7 +3125,7 @@ extension DebugHarness {
             try? await Task.sleep(for: .milliseconds(100))
             let target = focus(window, host)
             try? await Task.sleep(for: .milliseconds(100))
-            r.check("\(label)/window-key", isKey && window.isKeyWindow, "screen locked?")
+            r.check("\(label)/window-key", window.isKeyWindow, "lost key status while settling")
             r.check("\(label)/field-focused", target != nil && window.firstResponder is NSTextView,
                     "responder \(String(describing: window.firstResponder.map { type(of: $0) }))")
 
@@ -3402,9 +3437,8 @@ extension DebugHarness {
         coordinator.importFilms([flagged, a, b])
         guard let appState = AppDelegate.appState else { r.check("app-state", false, ""); return r }
         guard let window = mainHarnessWindow() else { r.check("main-window", false, ""); return r }
-        let isKey = await makeKey(window)
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         try? await Task.sleep(for: .milliseconds(300))
-        r.check("window-key", isKey, "screen locked?")
         let selection = SelectionState.shared
         let listID = coordinator.createList(name: "Alert Host List", displayOrder: 9_999)
 
@@ -3491,8 +3525,7 @@ extension DebugHarness {
         coordinator.importFilms([a, b])
         guard let appState = AppDelegate.appState else { r.check("app-state", false, ""); return r }
         guard let window = mainHarnessWindow() else { r.check("main-window", false, ""); return r }
-        let isKey = await makeKey(window)
-        r.check("window-key", isKey, "screen locked?")
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         let listL = coordinator.createList(name: "Collision L", displayOrder: 9_998)
         let listM = coordinator.createList(name: "Collision M", displayOrder: 9_999)
 
@@ -3657,9 +3690,8 @@ extension DebugHarness {
         let film = makeSnapshot(name: "Tab Cycle")
         coordinator.importFilms([film])
         guard let window = mainHarnessWindow() else { r.check("main-window", false, ""); return r }
-        let isKey = await makeKey(window)
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         try? await Task.sleep(for: .milliseconds(200))
-        r.check("window-key", isKey && window.isKeyWindow, "screen locked?")
 
         func postArrow(down: Bool) async {
             let key = down ? NSDownArrowFunctionKey : NSUpArrowFunctionKey
@@ -3953,6 +3985,219 @@ extension DebugHarness {
         window.close()
         try? await Task.sleep(for: .milliseconds(300))
         await coordinator.deleteFilms(withIDs: [film.id]) {}
+        return r
+    }
+}
+
+// MARK: - FilmSheet Perf
+//
+// `filmsheet-perf` (opt-in, a measurement): what the FilmSheet costs to OPEN onto its Details
+// tab, to SWITCH tabs once each tab is built, and what one discrete edit on the Details tab
+// re-evaluates. The sheet is hosted at its real size in a window parked below the screen's
+// bottom edge (ordered in, so SwiftUI and AppKit run their real display-cycle work), on the
+// sandbox library's heaviest film — most releases, then most viewing dates — so a real-data
+// copy gives real weight.
+//
+// Every step reports FilmSheetBodyProbe's per-view body counts and AppKitScrollHandoffProbe's
+// hand-offs (each a full re-measure of one scroll tab's hosted tree), plus run-loop busy time.
+extension DebugHarness {
+    static func filmSheetPerfScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "filmsheet-perf")
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        if !coordinator.hasDatabaseFilms { coordinator.importFilms(reportsCorpus()) }
+        guard let film = coordinator.getAllFilms().max(by: {
+            ($0.releases.count, $0.calendarTable.count) < ($1.releases.count, $1.calendarTable.count)
+        }) else {
+            r.check("film", false, "no films")
+            return r
+        }
+        r.check("film", true, "\(film.name): \(Fmt.int(film.releases.count)) releases, \(Fmt.int(film.calendarTable.count)) viewing dates")
+
+        let size = Preferences.sheetSize
+        func host(_ sheet: FilmSheet) -> NSWindow {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: size, height: size),
+                                  styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.setFrameOrigin(NSPoint(x: 100, y: -size + 20))
+            window.alphaValue = 0.1
+            let view = NSHostingView(rootView: FilmSheetView(owner: sheet).frame(width: size, height: size))
+            view.frame = NSRect(x: 0, y: 0, width: size, height: size)
+            window.contentView = view
+            window.orderFront(nil)
+            return window
+        }
+        func counts() -> String {
+            FilmSheetBodyProbe.counts.sorted { $0.key < $1.key }
+                .map { "\($0.key) \(Fmt.int($0.value))" }.joined(separator: ", ")
+        }
+        func resetProbes() {
+            FilmSheetBodyProbe.counts = [:]
+            AppKitScrollHandoffProbe.applied = 0
+            AppKitScrollHandoffProbe.newRevisions = 0
+        }
+        let recorder = RunLoopBusyRecorder()
+        recorder.start()
+        defer { recorder.stop() }
+
+        // ── Open ────────────────────────────────────────────────────────────────────────
+        // Tab view models, each built alone against a throwaway sheet, so the open's
+        // synchronous model cost can be attributed.
+        do {
+            let probe = FilmSheet(coordinator: coordinator, filmID: film.id)
+            var tabInit: [String: [Double]] = [:]
+            for _ in 0..<20 {
+                func time(_ name: String, _ build: () -> AnyObject) {
+                    let t0 = CACurrentMediaTime()
+                    _ = build()
+                    tabInit[name, default: []].append((CACurrentMediaTime() - t0) * 1000)
+                }
+                time("details")  { FSTabDetails(owner: probe) }
+                time("metadata") { FSTabMetadata(owner: probe) }
+                time("releases") { FSTabReleases(owner: probe) }
+                time("notes")    { FSTabNotes(owner: probe) }
+                time("poster")   { FSTabPoster(owner: probe) }
+            }
+            for (name, values) in tabInit.sorted(by: { $0.key < $1.key }) {
+                r.metric("open.init.\(name)-median", stats(values).median, "ms")
+            }
+            await settle(300)
+        }
+
+        // `-FTDebugFilmSheetOpenLoop`: open and close the sheet onto Details for 15 s, for a
+        // sampler attached from outside, then end the scenario.
+        if ProcessInfo.processInfo.arguments.contains("-FTDebugFilmSheetOpenLoop") {
+            print("OPEN-LOOP START"); unsafe fflush(stdout)
+            let end = ContinuousClock.now + .seconds(15)
+            while ContinuousClock.now < end {
+                let window = host(FilmSheet(coordinator: coordinator, filmID: film.id))
+                window.contentView?.layoutSubtreeIfNeeded()
+                await settle(250)
+                window.orderOut(nil)
+                window.contentView = nil
+                await settle(50)
+            }
+            return r
+        }
+
+        var initMs: [Double] = [], layoutMs: [Double] = [], busyMs: [Double] = [], longestMs: [Double] = []
+        var detailsBodies: [Double] = []
+        var openCounts = ""
+        let trials = 8
+        for trial in 0...trials {
+            resetProbes()
+            recorder.reset()
+            let t0 = CACurrentMediaTime() * 1000
+            let sheet = FilmSheet(coordinator: coordinator, filmID: film.id)
+            let t1 = CACurrentMediaTime() * 1000
+            let window = host(sheet)
+            window.contentView?.layoutSubtreeIfNeeded()
+            let t2 = CACurrentMediaTime() * 1000
+            await settle(800)
+            let reading = recorder.reading(from: t0, window: 800)
+            if trial > 0 {  // trial 0 warms caches
+                initMs.append(t1 - t0)
+                layoutMs.append(t2 - t1)
+                busyMs.append(reading.busy)
+                longestMs.append(reading.longest)
+                detailsBodies.append(Double(FilmSheetBodyProbe.counts["details", default: 0]))
+                openCounts = "\(counts()); handoffs \(Fmt.int(AppKitScrollHandoffProbe.applied)), revisions \(Fmt.int(AppKitScrollHandoffProbe.newRevisions))"
+            }
+            window.orderOut(nil)
+            window.contentView = nil
+            await settle(200)
+        }
+        r.metric("open.sheet-init-median", stats(initMs).median, "ms")
+        r.metric("open.first-layout-median", stats(layoutMs).median, "ms")
+        r.metric("open.busy-median", stats(busyMs).median, "ms")
+        r.metric("open.longest-stretch-median", stats(longestMs).median, "ms")
+        r.metric("open.details-bodies-median", stats(detailsBodies).median, "n")
+        r.check("open-counts", true, openCounts)
+
+        // ── Tab switches, then Details edits, on one sheet ──────────────────────────────
+        let sheet = FilmSheet(coordinator: coordinator, filmID: film.id)
+        let window = host(sheet)
+        window.contentView?.layoutSubtreeIfNeeded()
+        await settle(1000)
+        func measure(_ label: String, settleMs: Int = 700, _ action: () -> Void) async {
+            resetProbes()
+            recorder.reset()
+            let t0 = CACurrentMediaTime() * 1000
+            action()
+            await settle(settleMs)
+            let reading = recorder.reading(from: t0, window: Double(settleMs))
+            r.check(label, true, "\(counts()); handoffs \(Fmt.int(AppKitScrollHandoffProbe.applied)), revisions \(Fmt.int(AppKitScrollHandoffProbe.newRevisions)), busy \(Fmt.fixed(reading.busy, 1)) ms, longest \(Fmt.fixed(reading.longest, 1)) ms")
+        }
+        // `-FTDebugFilmSheetSwitchLoop`: flip between two built tabs for 15 s, for a sampler
+        // attached from outside, then end the scenario.
+        if ProcessInfo.processInfo.arguments.contains("-FTDebugFilmSheetSwitchLoop") {
+            for tab in [FilmTab.metadata, .releases, .notes, .poster, .details] {
+                sheet.selectedTab = tab
+                await settle(400)
+            }
+            print("SWITCH-LOOP START"); unsafe fflush(stdout)
+            let end = ContinuousClock.now + .seconds(15)
+            while ContinuousClock.now < end {
+                sheet.selectedTab = sheet.selectedTab == .details ? .notes : .details
+                await settle(120)
+            }
+            return r
+        }
+        // The floor every reading below sits on: a step that changes nothing.
+        await measure("idle") { }
+        let order: [FilmTab] = [.metadata, .releases, .notes, .poster, .details]
+        for pass in 0..<2 {
+            for tab in order {
+                await measure("switch-\(pass == 0 ? "first" : "again")-\(tab.rawValue.lowercased())") {
+                    sheet.selectedTab = tab
+                }
+            }
+        }
+
+        let details = sheet.detailsTab!
+        // The first keystroke dirties the sheet, so it also animates the button bar; the
+        // second is the steady state of typing.
+        await measure("edit-name-keystroke", settleMs: 300) { details.name += "x" }
+        await measure("edit-name-second-keystroke", settleMs: 300) { details.name += "y" }
+        await measure("edit-name-revert", settleMs: 300) { details.name.removeLast(2) }
+        await measure("edit-release-date-step", settleMs: 300) {
+            details.releaseDate = StorageDateFormatters.calendar.date(byAdding: .day, value: 1, to: details.releaseDate) ?? details.releaseDate
+        }
+        await measure("edit-edited-toggle", settleMs: 300) { details.edited.toggle() }
+        await measure("edit-edited-toggle-back", settleMs: 300) { details.edited.toggle() }
+        await measure("edit-hall-of-fame-toggle", settleMs: 300) { details.inHallOfFame.toggle() }
+        await measure("edit-hall-of-fame-toggle-back", settleMs: 300) { details.inHallOfFame.toggle() }
+        await measure("edit-auto-add-toggle", settleMs: 300) {
+            details.autoAddToQueueOnRotation = details.autoAddToQueueOnRotation == nil ? 0 : nil
+        }
+        await measure("edit-special-sorting-toggle", settleMs: 300) {
+            if details.specialSorting.contains(FilmSpecialSorting.blacklisted) {
+                details.specialSorting.remove(FilmSpecialSorting.blacklisted)
+            } else {
+                details.specialSorting.insert(FilmSpecialSorting.blacklisted)
+            }
+        }
+        await measure("edit-lists-refresh", settleMs: 300) { details.refreshAvailableLists() }
+        await measure("edit-viewing-date-add", settleMs: 300) { details.calendarTable.append("2001.01.01") }
+
+        sheet.selectedTab = .metadata
+        await settle(500)
+        let metadata = sheet.metadataTab!
+        await measure("edit-metadata-sort-name-keystroke", settleMs: 300) { metadata.sortName += "x" }
+        await measure("edit-metadata-color-toggle", settleMs: 300) { metadata.color.toggle() }
+        await measure("edit-metadata-cast-add", settleMs: 300) { metadata.cast.append("Probe") }
+
+        sheet.selectedTab = .notes
+        await settle(500)
+        let notes = sheet.notesTab!
+        await measure("edit-notes-release-keystroke", settleMs: 300) { notes.releaseUsed += "x" }
+        await measure("edit-notes-description-keystroke", settleMs: 300) { notes.descriptionNotes += "x" }
+        await measure("edit-notes-frames-add", settleMs: 300) {
+            notes.handbrakeFrames.append("1")
+            notes.correspondingTimecodes.append("00:00:01")
+        }
+
+        window.orderOut(nil)
+        window.contentView = nil
         return r
     }
 }

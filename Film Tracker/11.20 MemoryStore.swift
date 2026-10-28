@@ -52,8 +52,8 @@ final class MemoryStore: Loggable {
     nonisolated static let logTag = "[MemoryStore]"
     
     // MARK: - Storage (value types only — no SwiftData @Model objects)
-    private var films: [UUID: FilmSnapshot] = [:]
-    private var lists: [UUID: MemoryList] = [:]
+    private var films: [UUID: FilmSnapshot] = [:] { didSet { contentVersion = Self.nextContentVersion() } }
+    private var lists: [UUID: MemoryList] = [:] { didSet { contentVersion = Self.nextContentVersion() } }
     private var filmToLists: [UUID: Set<UUID>] = [:]
     private(set) var hallOfFameFilms: [UUID] = []
     private var cachedViews: [CacheKey: [FilmSnapshot]] = [:]
@@ -98,6 +98,18 @@ final class MemoryStore: Loggable {
     ///   • the Phase 1 SwiftData fetch threw (loadFailed above).
     private var cachePersistenceSuspended = false
 
+    /// Identifies the current contents of `films` and `lists` — everything the snapshot
+    /// cache persists — so MemoryStoreCache can skip a save of contents it already wrote.
+    /// Moved by the two properties' `didSet`, so no mutation path can miss it (`filmToLists`
+    /// is not persisted). Drawn from one counter for every instance, so two stores never
+    /// share a version once mutated; a store still at 0 has never held anything.
+    private var contentVersion: UInt64 = 0
+    private static var contentVersionCounter: UInt64 = 0
+    private static func nextContentVersion() -> UInt64 {
+        contentVersionCounter &+= 1
+        return contentVersionCounter
+    }
+
     /// Permanently suspends derived-cache persistence for this session. One-way by design:
     /// there is no in-session recovery from either triggering condition — both require a
     /// relaunch — so re-enabling would only reintroduce the risk it exists to remove.
@@ -115,6 +127,10 @@ final class MemoryStore: Loggable {
     /// validateCacheAndFinalize() reads this to decide whether to write
     /// a fresh MemoryStore snapshot cache after startup completes.
     private var snapshotCacheNeedsRebuild = false
+
+    /// True when Phase 1 met a legacy single-element market availability tag, in the snapshot
+    /// cache or the store. DataCoordinator then runs DataManager's one-time store rewrite.
+    private(set) var hasLegacyMarketAvailability = false
     
     /// Direct film count without array allocation.
     var totalFilmCount: Int { films.count }
@@ -164,16 +180,30 @@ final class MemoryStore: Loggable {
 
         // Fast path: try to restore from the on-disk MemoryStore snapshot.
         // MemoryStoreCache stores the full [UUID: FilmSnapshot] + list data serialized
-        // as a binary plist, validated by a fingerprint derived from the SwiftData DB.
+        // as JSON, validated by a fingerprint derived from the SwiftData DB.
         // On a cache hit the entire SwiftData fetch + snapshot conversion is skipped —
-        // reducing Phase 1 from O(N × relationships) to a single plist decode.
-        let cacheResult = await MemoryStoreCache.shared.load(dataManager: dataManager)
+        // reducing Phase 1 from O(N × relationships) to a single JSON decode.
+        var cacheResult = await MemoryStoreCache.shared.load(dataManager: dataManager)
+
+        // A cache written by a build that predates the two-component market availability
+        // format still holds legacy tags. Read the store instead: ReleaseSnapshot migrates
+        // them on conversion, and the rebuilt cache is written in the new format.
+        if case .hit(let cachedFilms, _, _) = cacheResult,
+           cachedFilms.values.contains(where: { $0.releases.contains {
+               ReleaseMarketAvailability.needsMigration($0.marketAvailability) } }) {
+            Self.log("Snapshot cache holds legacy market availability tags — reading SwiftData")
+            hasLegacyMarketAvailability = true
+            cacheResult = .miss
+        }
 
         switch cacheResult {
         case .hit(let films, let lists, let filmToLists):
             self.films = films
             self.lists = lists
             self.filmToLists = filmToLists
+            // These dictionaries are the file's contents, so a save before anything changes
+            // them has nothing to write.
+            MemoryStoreCache.shared.recordOnDisk(contentVersion: contentVersion)
             self.sortedListsCache = nil
             self.rebuildHallOfFame()
             // No payload is pushed to MemoryStoreCache here. Every flush reads this store's
@@ -322,6 +352,11 @@ final class MemoryStore: Loggable {
         // for very large libraries (2,600+ films would still yield ~13 times).
         let yieldInterval = 200
         for (index, film) in allFilms.enumerated() {
+            if !hasLegacyMarketAvailability,
+               film.releases.contains(where: {
+                   ReleaseMarketAvailability.needsMigration($0.marketAvailability) }) {
+                hasLegacyMarketAvailability = true
+            }
             filmDict[film.id] = FilmSnapshot(from: film)
             if index % yieldInterval == yieldInterval - 1 {
                 await Task.yield()
@@ -427,10 +462,12 @@ final class MemoryStore: Loggable {
         // reason at all.
         let filmsPayload = films
         let listsPayload = lists
+        // Read in the same synchronous step as the payload it names (see contentVersion).
+        let payloadVersion = contentVersion
 
         async let metadataSave: Void = MetadataCache.shared.save()
         async let snapshotSave: Void = MemoryStoreCache.shared.save(
-            films: filmsPayload, lists: listsPayload)
+            films: filmsPayload, lists: listsPayload, contentVersion: payloadVersion)
         await metadataSave
         await snapshotSave
     }
@@ -448,6 +485,15 @@ final class MemoryStore: Loggable {
         // for the failure paths, because the shutdown flush bypasses the throttle entirely.
         guard !cachePersistenceSuspended else {
             Self.log("Immediate save skipped — derived-cache persistence is suspended for this session")
+            return
+        }
+        // A quit during launch, before this store and MetadataCache hold the library: what
+        // they hold then is nothing, or a part, and writing it would replace caches on disk
+        // that are at least as good (an empty snapshot meant a full SwiftData read on the
+        // next launch, an empty MetadataCache a rebuild). Nothing is lost by not writing —
+        // the store is the record; these files only spare the next launch work.
+        guard isInitialized else {
+            Self.log("Immediate save skipped — startup had not finished loading the library")
             return
         }
 

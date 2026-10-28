@@ -421,7 +421,7 @@ struct DVDataset: Sendable {
     /// changed: the snapshot arrays mostly still share storage with the library's.
     nonisolated static func compute(films: [FilmSnapshot], previous: DVDataset?,
                                     showInfoComplete: Bool) async -> DVDataset? {
-        let today = Date(), calendar = Calendar.current
+        let today = Date(), calendar = AppCalendar.current
         if let previous,
            previous.inputs == Inputs(films: films, showInfoComplete: showInfoComplete, today: today, calendar: calendar) {
             return nil
@@ -984,9 +984,9 @@ struct LibraryInsights {
                     default: break
                     }
                     if ReleaseMarketAvailability.isUnobtainable(r.marketAvailability)
-                        || r.marketAvailability.contains(ReleaseMarketAvailability.importOnly)
-                        || r.marketAvailability.contains(ReleaseMarketAvailability.importOnlyOOP) { wishOOP += 1 }
-                    if r.marketAvailability.contains(ReleaseMarketAvailability.tempNA) { wishTemp += 1 }
+                        || ReleaseMarketAvailability.isImport(r.marketAvailability) { wishOOP += 1 }
+                    if ReleaseMarketAvailability.status(r.marketAvailability)
+                        == ReleaseMarketAvailability.temporarilyUnavailable { wishTemp += 1 }
                     if r.dateAdded >= ninetyDaysAgo { wishRecent += 1 }
                 }
                 if r.format == ReleaseFormat.uhd4K.rawValue {
@@ -2014,7 +2014,7 @@ struct DVHabits {
     /// The busiest purchase month's share of dated purchases and how its prices compare.
     var busiestMonthSentence: String? {
         guard datedPurchases > 0, let m = (0..<12).max(by: { purchasesByMonth[$0] < purchasesByMonth[$1] }), purchasesByMonth[m] > 0 else { return nil }
-        let name = Calendar.current.monthSymbols[m]
+        let name = AppCalendar.current.monthSymbols[m]
         var text = "\(name) accounts for \(DVFormat.percent(purchasesByMonth[m], of: datedPurchases))% of dated purchases"
         let rest = (0..<12).filter { $0 != m }
         let restCount = rest.reduce(0) { $0 + pricedByMonth[$1] }

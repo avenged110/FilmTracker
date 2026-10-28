@@ -93,7 +93,7 @@ extension DebugHarness {
             r.check("main-window", false, "no main window")
             return r
         }
-        r.check("window-key", await makeKey(window), "")
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         let context = coordinator.modelContainer.mainContext
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
 
@@ -279,7 +279,7 @@ extension DebugHarness {
             r.check("main-window", false, "no main window")
             return r
         }
-        r.check("window-key", await makeKey(window), "")
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         let container = coordinator.modelContainer
         let context = container.mainContext
         let history = ImportHistory.shared
@@ -563,7 +563,7 @@ extension DebugHarness {
             r.check("main-window", false, "no main window")
             return r
         }
-        r.check("window-key", await makeKey(window), "")
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
         // `-FTDebugImportsScrollSeed N` replaces the container's sessions with N seeded ones.
         let seeded = UserDefaults.standard.integer(forKey: "FTDebugImportsScrollSeed")

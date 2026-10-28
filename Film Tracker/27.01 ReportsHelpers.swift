@@ -11,7 +11,7 @@ import AppKit
 /// A film's place in the gallery's Title sort, as one Comparable value, so a report list or
 /// table column orders titles exactly as the gallery does: `MetadataCache.compareTitles`'
 /// rules, in its order — titles starting with a letter before those starting with a digit,
-/// then `localizedStandardCompare` on the article-stripped sort name (or name), then
+/// then `englishStandardCompare` on the article-stripped sort name (or name), then
 /// release year, then film id. The id makes it a total order, so equal titles cannot trade
 /// places between loads; descending is the exact reverse, as the gallery's swap is.
 struct GalleryTitleKey: Comparable, Sendable {
@@ -30,7 +30,7 @@ struct GalleryTitleKey: Comparable, Sendable {
 
     static func < (lhs: Self, rhs: Self) -> Bool {
         if lhs.startsWithNumber != rhs.startsWithNumber { return !lhs.startsWithNumber }
-        switch lhs.key.localizedStandardCompare(rhs.key) {
+        switch lhs.key.englishStandardCompare(rhs.key) {
         case .orderedAscending:  return true
         case .orderedDescending: return false
         case .orderedSame:       break
@@ -154,6 +154,8 @@ struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID =
     let primaryLabel: (Item) -> String
     /// The fixed-width columns to the right of the name.
     let trailingColumns: [ReportTableColumn<Item>]
+    /// The narrowest the name column may get before the trailing columns give way.
+    var primaryMinWidth: CGFloat = 80
 
     /// Row pitch of the SwiftUI `List(.inset)` this replaced (12 pt text, 2 pt vertical padding).
     static var rowHeight: CGFloat { 27 }
@@ -162,7 +164,8 @@ struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID =
         [ReportTableColumn(id: "position", width: 30, alignment: .right,
                            font: .systemFont(ofSize: 12, weight: .medium), isSecondary: true,
                            content: .text { "\($0.position)." }),
-         ReportTableColumn(id: "name", width: 80, minWidth: 80, maxWidth: .greatestFiniteMagnitude,
+         ReportTableColumn(id: "name", width: primaryMinWidth, minWidth: primaryMinWidth,
+                           maxWidth: .greatestFiniteMagnitude,
                            content: .text(primaryLabel))]
         + trailingColumns
     }
@@ -320,7 +323,15 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         table.delegate = coordinator
         if onMove != nil {
             table.registerForDraggedTypes([Self.rowDragType])
-            table.draggingDestinationFeedbackStyle = .gap
+            // `.none`: the table draws no drop feedback of its own; ReportNSTableView draws
+            // the sidebar's indicator, a line with a circle at its leading end, instead.
+            // Neither `.regular` nor `.sourceList` draws the circle in an `.inset` table —
+            // both gave the bare line. The source row stays put during the drag and the rows
+            // slide to their new places only on the drop (see `move`).
+            // `.gap` (rows sliding apart during the drag) was tried twice and glitched: the
+            // picked-up row jumped above the cursor, rows overlapped, and the gap misbehaved,
+            // even with mid-drag reloads deferred and the drop's move animated locally.
+            table.draggingDestinationFeedbackStyle = .none
             table.setDraggingSourceOperationMask(.move, forLocal: true)
         }
 
@@ -381,9 +392,21 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             defer { isApplying = false }
 
             columnsByID = Dictionary(uniqueKeysWithValues: parent.columns.map { ($0.id, $0) })
-            if force || parent.rows != rows {
+            if force {
                 rows = parent.rows
                 table.reloadData()
+            } else if parent.rows != rows {
+                if parent.rows.map(\.id) == rows.map(\.id) {
+                    // Same rows in the same order: typically the renumbered ranks arriving
+                    // after a drop `move` has already animated. Refresh the cells in place;
+                    // a full reload would cut the slide short.
+                    rows = parent.rows
+                    table.reloadData(forRowIndexes: IndexSet(integersIn: 0..<rows.count),
+                                     columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
+                } else {
+                    rows = parent.rows
+                    table.reloadData()
+                }
             }
 
             let descriptors = parent.sort.map { NSSortDescriptor(key: $0.key, ascending: $0.ascending) }
@@ -440,8 +463,12 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
 
         func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo,
                        proposedRow row: Int, proposedDropOperation op: NSTableView.DropOperation) -> NSDragOperation {
-            guard parent?.onMove != nil, (info.draggingSource as? NSTableView) === tableView else { return [] }
+            guard parent?.onMove != nil, (info.draggingSource as? NSTableView) === tableView else {
+                (tableView as? ReportNSTableView)?.hideDropIndicator()
+                return []
+            }
             if op == .on { tableView.setDropRow(row, dropOperation: .above) }
+            (tableView as? ReportNSTableView)?.showDropIndicator(aboveRow: row)
             return .move
         }
 
@@ -460,12 +487,46 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
 
         /// The drop's effect: SwiftUI `onMove` semantics, (source rows, destination row in the
         /// pre-move index space). Separate from the drag plumbing so the harness can drive it.
+        ///
+        /// The rows slide to their new places here, animated, BEFORE `onMove` reports the new
+        /// order. That leaves `rows` already in the order SwiftUI sends back, so the update
+        /// that follows only refreshes cells (`apply`'s same-order path) instead of reloading
+        /// the table, which would snap the rows into place.
         @discardableResult
         func move(_ source: IndexSet, to row: Int) -> Bool {
-            guard let onMove = parent?.onMove, !source.isEmpty, row >= 0, row <= rows.count else { return false }
+            guard let onMove = parent?.onMove, !source.isEmpty, row >= 0, row <= rows.count,
+                  source.allSatisfy({ rows.indices.contains($0) }) else { return false }
+            if let table {
+                isApplying = true
+                table.beginUpdates()
+                // Each moveRow shifts the indexes after it; the offsets track that. Rows from
+                // above the destination land just above it, in order; rows from below it land
+                // just after the previous one.
+                var aboveOffset = 0
+                var belowOffset = 0
+                for index in source {
+                    if index < row {
+                        table.moveRow(at: index + aboveOffset, to: row - 1)
+                        aboveOffset -= 1
+                    } else {
+                        table.moveRow(at: index, to: row + belowOffset)
+                        belowOffset += 1
+                    }
+                }
+                rows.move(fromOffsets: source, toOffset: row)
+                table.endUpdates()
+                isApplying = false
+            } else {
+                rows.move(fromOffsets: source, toOffset: row)
+            }
             onMove(source, row)
             return true
         }
+
+        #if DEBUG
+        /// The row order the table is showing, for the harness.
+        var rowIDs: [UUID] { rows.map(\.id) }
+        #endif
     }
 }
 
@@ -477,6 +538,58 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
 /// it as a row gesture — the same "clicking on nothing" the empty space below the last row
 /// already is.
 final class ReportNSTableView: NSTableView {
+    private(set) var dropIndicator: ReportDropIndicatorView?
+
+    /// Places the drop indicator on the boundary above `row` (`numberOfRows` = below the last).
+    func showDropIndicator(aboveRow row: Int) {
+        guard numberOfRows > 0, numberOfColumns > 0 else { hideDropIndicator(); return }
+        let y = row < numberOfRows ? rect(ofRow: row).minY : rect(ofRow: numberOfRows - 1).maxY
+        // Spans the row content: from the first cell's leading edge to the last cell's
+        // trailing edge, which is where the inset style's highlight sits.
+        let reference = min(row, numberOfRows - 1)
+        let minX = frameOfCell(atColumn: 0, row: reference).minX
+        let maxX = frameOfCell(atColumn: numberOfColumns - 1, row: reference).maxX
+        let height = ReportDropIndicatorView.height
+        let frame = NSRect(x: minX - ReportDropIndicatorView.circleDiameter / 2, y: y - height / 2,
+                           width: maxX - minX + ReportDropIndicatorView.circleDiameter / 2, height: height)
+        let indicator = dropIndicator ?? {
+            let view = ReportDropIndicatorView(frame: frame)
+            addSubview(view)
+            dropIndicator = view
+            return view
+        }()
+        if indicator.frame != frame { indicator.frame = frame }
+        // Row views the table adds while scrolling would otherwise stack above it.
+        if subviews.last !== indicator { addSubview(indicator, positioned: .above, relativeTo: nil) }
+        indicator.isHidden = false
+    }
+
+    func hideDropIndicator() { dropIndicator?.isHidden = true }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        super.draggingExited(sender)
+        hideDropIndicator()
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        super.draggingEnded(sender)
+        hideDropIndicator()
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        super.concludeDragOperation(sender)
+        hideDropIndicator()
+    }
+
+    #if DEBUG
+    /// Full reloads so far, for the harness: a drop must animate, not reload.
+    private(set) var fullReloadCount = 0
+    override func reloadData() {
+        fullReloadCount += 1
+        super.reloadData()
+    }
+    #endif
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if row(at: point) >= 0, column(at: point) < 0 {
@@ -484,6 +597,34 @@ final class ReportNSTableView: NSTableView {
             return
         }
         super.mouseDown(with: event)
+    }
+}
+
+/// The sidebar-style drop indicator ReportNSTableView shows between rows: a hollow circle at
+/// the leading end and a line running from it, in the accent color.
+final class ReportDropIndicatorView: NSView {
+    static let circleDiameter: CGFloat = 6
+    static let lineWidth: CGFloat = 2
+    static let height: CGFloat = circleDiameter + lineWidth
+
+    override var isFlipped: Bool { true }
+    /// Never takes clicks or drags: it only marks the drop.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.controlAccentColor.setStroke()
+        let midY = bounds.midY
+        let circle = NSRect(x: Self.lineWidth / 2, y: midY - Self.circleDiameter / 2,
+                            width: Self.circleDiameter, height: Self.circleDiameter)
+        let ring = NSBezierPath(ovalIn: circle)
+        ring.lineWidth = Self.lineWidth
+        ring.stroke()
+        let line = NSBezierPath()
+        line.move(to: NSPoint(x: circle.maxX + Self.lineWidth / 2, y: midY))
+        line.line(to: NSPoint(x: bounds.maxX, y: midY))
+        line.lineWidth = Self.lineWidth
+        line.lineCapStyle = .round
+        line.stroke()
     }
 }
 
@@ -509,18 +650,17 @@ final class ReportTableCellView: NSTableCellView {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
                 .applying(.init(paletteColors: [color])))
     }
-    /// The badge's outline, drawn outside the plate.
-    private static let badgeOutlineWidth: CGFloat = 1
-    /// Room left of the plate for the outline and the shadow's blur.
+    /// Room left of the plate for the shadow's blur.
     private static let badgeOutsideAllowance: CGFloat = 3
-    /// The release cards' format-badge shadow (RTabReleases' `rsbBadgeShadow`). NSShadow
-    /// offsets are in the base coordinate space, which is y-up even in this flipped view,
-    /// so a negative height drops the shadow downward.
+    /// The badge's drop shadow: heavier than the release cards' (`rsbBadgeShadow`), since the
+    /// plate here has no outline to set it off the row. NSShadow offsets are in the base
+    /// coordinate space, which is y-up even in this flipped view, so a negative height drops
+    /// the shadow downward.
     private static let badgeShadow: NSShadow = {
         let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.6)
-        shadow.shadowBlurRadius = 1.5
-        shadow.shadowOffset = NSSize(width: 0, height: -0.5)
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.75)
+        shadow.shadowBlurRadius = 2.5
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
         return shadow
     }()
     private static let secondaryStar = star(.secondaryLabelColor)
@@ -614,22 +754,17 @@ final class ReportTableCellView: NSTableCellView {
             let text = badge.text as NSString
             let size = text.size(withAttributes: attributes)
             //
-            // The plate carries a 1 pt tertiary outline drawn OUTSIDE it, so the outline adds
-            // to the badge rather than eating into the plate, and the release cards' subtle
-            // badge drop shadow (RSBCardChrome.glyphShadow*). The plate starts
-            // `badgeOutsideAllowance` in from the leading edge so neither is clipped by the
-            // cell; the trailing side spills into `trailingPad`, which is far wider.
+            // The plate carries a drop shadow and no outline. It starts `badgeOutsideAllowance`
+            // in from the leading edge so the shadow is not clipped by the cell; the trailing
+            // side spills into `trailingPad`, which is far wider.
             let plateHeight = ceil(size.height) + 2
             let plate = NSRect(x: Self.badgeOutsideAllowance, y: floor((bounds.height - plateHeight) / 2),
                                width: width, height: plateHeight)
-            let outline = plate.insetBy(dx: -Self.badgeOutlineWidth, dy: -Self.badgeOutlineWidth)
             NSGraphicsContext.saveGraphicsState()
             Self.badgeShadow.set()
-            NSColor.quaternaryLabelColor.setFill()
-            NSBezierPath(cgPath: CGPath.continuousRoundedRect(outline, cornerRadius: 4 + Self.badgeOutlineWidth)).fill()
-            NSGraphicsContext.restoreGraphicsState()
             badge.fill.setFill()
             NSBezierPath(cgPath: CGPath.continuousRoundedRect(plate, cornerRadius: 4)).fill()
+            NSGraphicsContext.restoreGraphicsState()
             text.draw(at: NSPoint(x: plate.midX - size.width / 2, y: plate.minY + 1), withAttributes: attributes)
         case .rating(let rating):
             guard rating > 0 else { return }

@@ -22,6 +22,27 @@ import AppKit
 // MARK: - Releases Tab
 
 struct RTabReleases: View {
+    var releasesSummaryExpanded: Binding<Bool>
+
+    /// The purchase filter, owned by RightSidebar. It lives there rather than in this tab
+    /// because the tab itself does not survive a selection change: an off-screen tab slot
+    /// is torn down until the new film's neighbors are armed, and the whole plane goes on
+    /// a deselect, so a filter held here was lost and "remember the filter" could not work.
+    var purchaseFilter: Binding<RSBPurchaseFilter>
+
+    /// The content is its own view, built INSIDE the scroll view, so the filter's animated
+    /// mirror lives in the hosted tree. SidebarScrollView hosts its content in a separate
+    /// NSHostingView; state owned out here reaches it as a rootView replacement, which
+    /// carries no animation transaction, so a filter change could never animate.
+    var body: some View {
+        SidebarScrollView {
+            RTabReleasesContent(releasesSummaryExpanded: releasesSummaryExpanded,
+                                purchaseFilterBinding: purchaseFilter)
+        }
+    }
+}
+
+private struct RTabReleasesContent: View {
     @Environment(\.sidebarFilm) private var film: FilmSnapshot?
 
     /// Expansion state for the optional summary table. Threaded down from RightSidebar,
@@ -44,71 +65,115 @@ struct RTabReleases: View {
     /// both faster and removes any window in which the two could disagree.
     ///
     /// Read exactly once per render, into a local at the top of `body`. That matters
-    /// here: this value is consumed twice (an empty check and the `ForEach`), and as a
-    /// derived property each read would otherwise repeat the whole sort-and-map.
+    /// here: this value is consumed several times (the empty checks and the card stack),
+    /// and as a derived property each read would otherwise repeat the whole sort-and-map.
     private var releaseCardGroups: [RSBReleaseCardGroup] {
-        RSBReleaseCardBuilder.buildGroups(from: film?.releases ?? [])
+        RSBReleaseCardBuilder.buildGroups(from: filteredFilm?.releases ?? [])
+    }
+
+    /// RightSidebar's filter, which survives this view being torn down. RightSidebar also
+    /// resets it on a selection change unless the remember preference is on.
+    var purchaseFilterBinding: Binding<RSBPurchaseFilter>
+
+    /// Which releases the tab shows: a local mirror of `purchaseFilterBinding`, the same
+    /// pattern RTabDetailsContent uses for its table expansion. The picker writes the mirror,
+    /// so the change animates inside the hosted tree; the mirror is kept in step with
+    /// RightSidebar in both directions, and changes arriving from there land unanimated.
+    @State private var purchaseFilter: RSBPurchaseFilter
+
+    init(releasesSummaryExpanded: Binding<Bool>, purchaseFilterBinding: Binding<RSBPurchaseFilter>) {
+        self.releasesSummaryExpanded = releasesSummaryExpanded
+        self.purchaseFilterBinding = purchaseFilterBinding
+        _purchaseFilter = State(initialValue: purchaseFilterBinding.wrappedValue)
+    }
+
+    /// The scroll view's visible height, for centering the empty states in it.
+    @Environment(\.sidebarViewport) private var viewport
+
+    /// The film with its releases narrowed to `purchaseFilter`. Handed to the summary
+    /// table through the environment so the table and the cards always show one set.
+    /// Filtering on `purchased` alone keeps combo packs whole: `syncComboChildFields`
+    /// locks a child's purchased flag to its parent's.
+    private var filteredFilm: FilmSnapshot? {
+        guard var film, purchaseFilter != .all else { return film }
+        film.releases = film.releases.filter { purchaseFilter.includes($0.purchased) }
+        return film
+    }
+
+    /// Whether the film has any disc release at all, filtered or not. Without one the
+    /// filter picker is still drawn, so the placeholder sits where it always does, but
+    /// disabled and with no segment selected.
+    private var hasDiscReleases: Bool {
+        film?.releases.contains { ReleaseFormat(rawValue: $0.format) != nil } ?? false
     }
 
     var body: some View {
         // Resolved once and passed down; see `releaseCardGroups`.
         let groups = releaseCardGroups
+        let narrowedFilm = filteredFilm
 
-        return SidebarScrollView {
+        return RSBTopPinnedLayout {
             // Spacing matches the horizontal and bottom insets below, so the gaps between
             // cards and the gaps to those three edges are one measure. The top inset is
             // deliberately tighter: the content sits directly beneath the tab header,
             // which already supplies visual separation of its own.
             VStack(alignment: .leading, spacing: RSBCardChrome.sidebarInset) {
-                if groups.isEmpty {
-                    emptyState
-                } else {
-                    // `spacing: 0` because everything above the cards sets its own gaps
-                    // explicitly (see below) rather than inheriting the outer stack's
-                    // card spacing, which is far wider than the Details tab's module
-                    // metrics this header is meant to match. With the summary table off
-                    // this collapses to nothing but the card stack, so the cards sit at
-                    // the top of the scroll view exactly as they did before.
-                    VStack(alignment: .leading, spacing: 0) {
-                        // Scrolls with the cards because it is a sibling inside the same
-                        // scrolled VStack. Gated on a non-empty group set so the section's
-                        // own "No Releases Added" placeholder can never duplicate the tab's.
-                        if showReleasesSummaryTable {
-                            RSBReleasesSection(releasesExpanded: releasesSummaryExpanded,
-                                               mode: .releaseCard)
-                                // 12 = RTabDetails' module stack spacing (4) plus
-                                // RSBHelpers.sectionDivider's vertical padding (8). The
-                                // gaps are spelled out here instead of reusing
-                                // `sectionDivider` because that helper's padding assumes
-                                // the Details stack's 4pt spacing on either side of it,
-                                // which this stack (spacing 0) does not supply.
-                                .padding(.bottom, 12)
-                            Divider()
-                            allReleasesHeader
-                                .padding(.top, 12)
-                                // Matches RSBHelpers.headerRowSpacing-scale gap the
-                                // Details modules put between their title and content
-                                // (e.g. CalendarTable's VStack(spacing: 6)).
-                                .padding(.bottom, 6)
-                        }
-                        // Nested so the cards keep their own inter-card spacing
-                        // independent of the header block's tighter metrics.
-                        VStack(alignment: .leading, spacing: RSBCardChrome.sidebarInset) {
-                            ForEach(groups) { group in
-                                RSBReleaseCardGroupView(group: group)
-                            }
-                        }
+                purchaseFilterPicker
+                // The card stack is one AppKit view (RSBCardStack) and stays mounted through an
+                // empty result (zero height, the placeholder over it), so a filter or film
+                // change re-points it rather than inserting it: SwiftUI re-measures the whole
+                // tab each time it inserts an AppKit view.
+                ZStack(alignment: .topLeading) {
+                    if groups.isEmpty {
+                        emptyState
+                            .transition(OpacityTransition())
                     }
-                    // Preserves the full-width proposal the cards previously received
-                    // directly from the outer stack, now that they sit one level deeper.
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // `spacing: 0` because the summary block sets its own gaps explicitly
+                    // rather than inheriting the outer stack's card spacing, which is far
+                    // wider than the Details tab's module metrics that header is meant to
+                    // match. With the summary table off this is the card stack alone.
+                    VStack(alignment: .leading, spacing: 0) {
+                        if !groups.isEmpty {
+                            summaryBlock(narrowedFilm)
+                        }
+                        RSBCardStack(groups: RSBProfileFlags.noReleaseCards ? [] : groups,
+                                     today: CurrentDay.shared.today)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+                .frame(maxHeight: groups.isEmpty ? .infinity : nil, alignment: .top)
             }
+            // With nothing to list, the stack fills the viewport so the placeholder can
+            // center in it (see `emptyStackHeight`).
+            .frame(height: groups.isEmpty ? emptyStackHeight : nil, alignment: .top)
+            // Scoped to the filter, so only a filter change animates — a new film or an
+            // edited release still swaps in on the first frame. Re-enables animation
+            // explicitly for this subtree, past MainView's container-wide `animation = nil`;
+            // it works only because the filter's @State lives inside the hosted tree (see
+            // RTabReleases.body).
+            .animation(.smooth(duration: 0.3), value: purchaseFilter)
             .padding(.horizontal, RSBCardChrome.sidebarInset)
             .padding(.top, 8)
             .padding(.bottom, RSBCardChrome.sidebarInset)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        // Local → RightSidebar, so the choice outlives this view.
+        .onChange(of: purchaseFilter) { _, value in
+            if purchaseFilterBinding.wrappedValue != value { purchaseFilterBinding.wrappedValue = value }
+        }
+        // RightSidebar → local, unanimated: its selection-change reset lands with the new
+        // film, which swaps in in one step.
+        .onChange(of: purchaseFilterBinding.wrappedValue) { _, value in
+            if purchaseFilter != value { RSBHelpers.withoutAnimation { purchaseFilter = value } }
+        }
+        #if DEBUG
+        // The `releases-filter` harness scenario (99.56) switches the filter through this.
+        .onAppear {
+            let filter = $purchaseFilter
+            ReleasesFilterProbe.select = { filter.wrappedValue = RSBPurchaseFilter(rawValue: $0) ?? .all }
+        }
+        .onDisappear { ReleasesFilterProbe.select = nil }
+        #endif
         // No refresh handler: the groups are derived, so they are correct on the first
         // frame and on every subsequent one. FilmSnapshot is a value type and
         // RightSidebar refreshes the environment snapshot on both .updated and
@@ -116,20 +181,123 @@ struct RTabReleases: View {
         // subscription is needed here either.
     }
 
+    /// The optional summary table and the "All Releases" title above the cards.
+    @ViewBuilder
+    private func summaryBlock(_ narrowedFilm: FilmSnapshot?) -> some View {
+        // Scrolls with the cards because it is a sibling inside the same
+        // scrolled VStack. Gated on a non-empty group set (by the callers) so the section's
+        // own "No Releases Added" placeholder can never duplicate the tab's.
+        if showReleasesSummaryTable {
+            RSBReleasesSection(releasesExpanded: releasesSummaryExpanded,
+                               mode: .releaseCard)
+                .environment(\.sidebarFilm, narrowedFilm)
+                // 12 = RTabDetails' module stack spacing (4) plus
+                // RSBHelpers.sectionDivider's vertical padding (8). The
+                // gaps are spelled out here instead of reusing
+                // `sectionDivider` because that helper's padding assumes
+                // the Details stack's 4pt spacing on either side of it,
+                // which this stack (spacing 0) does not supply.
+                .padding(.bottom, 12)
+            Divider()
+            allReleasesHeader
+                .padding(.top, 12)
+                // Matches RSBHelpers.headerRowSpacing-scale gap the
+                // Details modules put between their title and content
+                // (e.g. CalendarTable's VStack(spacing: 6)).
+                .padding(.bottom, 6)
+        }
+    }
+
     /// Titles the card stack when the summary table sits above it, so the two blocks
     /// read as separate modules rather than one run-on list. Drawn with the same shared
     /// builder as every other module title in the sidebar, which is what the note this
     /// replaces asked for by naming the four files to keep it in step with.
     private var allReleasesHeader: some View {
-        RSBHelpers.moduleHeader("All Releases")
+        RSBHelpers.moduleHeader(purchaseFilter.cardsTitle)
+    }
+
+    /// The stack's height when there is nothing to list: the viewport less the insets, so
+    /// the content is exactly one viewport tall and does not scroll. The stack's 16 pt
+    /// spacing above the placeholder and the 16 pt bottom inset below it make its region
+    /// symmetric, so it centers between the picker and the viewport's bottom. Before the
+    /// viewport is first measured (and outside a sidebar scroll view) it falls back to a
+    /// modest fixed height.
+    private var emptyStackHeight: CGFloat {
+        max(80, (viewport?.height ?? 0) - 8 - RSBCardChrome.sidebarInset)
+    }
+
+    /// Full width at the top of the tab, at the standard control size, with the same insets as
+    /// the Details tab's "Add Viewing Event" row.
+    ///
+    /// Bound through an optional so that, with no disc releases, it can show no segment
+    /// selected; the stored filter is left as it was for the next film.
+    private var purchaseFilterPicker: some View {
+        let selection = Binding<RSBPurchaseFilter?>(
+            get: { hasDiscReleases ? purchaseFilter : nil },
+            set: { if let value = $0 { purchaseFilter = value } })
+        return Picker("Show", selection: selection) {
+            ForEach(RSBPurchaseFilter.allCases) { filter in
+                Text(filter.title).tag(Optional(filter))
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: .infinity)
+        .disabled(!hasDiscReleases)
     }
 
     private var emptyState: some View {
-        Text("No Releases Added")
+        // The filter can outlive a change of film (rememberReleasesFilter), so a film with no
+        // disc releases (where the picker is disabled and shows no selection) must not
+        // report the filter's narrower "No Purchased Releases".
+        Text(hasDiscReleases ? purchaseFilter.emptyText : RSBPurchaseFilter.all.emptyText)
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .center)
+            // Fills the space the stack leaves below the picker, centered in it.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .padding(.vertical, 12)
+    }
+}
+
+// MARK: - Purchase Filter
+
+enum RSBPurchaseFilter: String, CaseIterable, Identifiable {
+    case all, purchased, unpurchased
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .all:         "All"
+        case .purchased:   "Purchased"
+        case .unpurchased: "Unpurchased"
+        }
+    }
+
+    /// Titles the cards when the summary table sits above them.
+    var cardsTitle: String {
+        switch self {
+        case .all:         "All Releases"
+        case .purchased:   "All Purchased Releases"
+        case .unpurchased: "All Unpurchased Releases"
+        }
+    }
+
+    /// Shown in place of the cards when the filter leaves nothing.
+    var emptyText: String {
+        switch self {
+        case .all:         "No Releases Added"
+        case .purchased:   "No Purchased Releases"
+        case .unpurchased: "No Unpurchased Releases"
+        }
+    }
+
+    func includes(_ purchased: Bool) -> Bool {
+        switch self {
+        case .all:         true
+        case .purchased:   purchased
+        case .unpurchased: !purchased
+        }
     }
 }
 
@@ -410,11 +578,9 @@ private enum RSBReleaseCardBuilder {
             // purchase block, matching the table's reuse of its Purchase Date column.
             spendLine = ""
             purchaseLine = ""
-            // Expanded rather than joined verbatim. The stored vocabulary is abbreviated
-            // for the releases table's fixed-width column ("OOP (cheap)"); a card line is
-            // prose with room to spare, so it prints the full form the picker offers.
-            // See ReleaseMarketAvailability.
-            marketAvailability = ReleaseMarketAvailability.displayList(release.marketAvailability)
+            // The status and price elements joined as "Out-of-print (cheap)". See
+            // ReleaseMarketAvailability.
+            marketAvailability = ReleaseMarketAvailability.displayText(release.marketAvailability)
 
             // Price and date are independently optional, and each says something on its
             // own: a price with no date is the best figure seen at some unrecorded point,
@@ -546,9 +712,9 @@ private enum RSBCardChrome {
     /// carries purchase status, but the glyph itself never did either.
     static let checkmarkGreen = Preferences.green
 
-    /// Wash distinguishing an attached child half from its parent. Also serves as the
-    /// child's header fill, in place of a purchase tint.
-    static let childWash = Color.primary.opacity(0.035)
+    /// Wash distinguishing an attached child half from its parent, the label color at this
+    /// opacity. Also serves as the child's header fill, in place of a purchase tint.
+    static let childWashOpacity: CGFloat = 0.035
 
     /// Format-badge plate and lettering. Both are fixed rather than appearance-adaptive:
     /// the badge must read identically on the parent's dark tinted band and on the child
@@ -575,12 +741,8 @@ private enum RSBCardChrome {
     /// that color.
     static let badgeFill = Preferences.darkGray
 
-    /// Diameter of the region lock's disc. Declared here, alongside the height derived from
-    /// it, rather than on `RSBIndicatorView` that draws it: a `View`'s type is `@MainActor`
-    /// by inference and so are its statics, while this enum is nonisolated — deriving one
-    /// from the other across that boundary is a main-actor-isolated value in a nonisolated
-    /// context. Keeping both on the nonisolated side lets the derivation stand and still
-    /// leaves one source of truth.
+    /// Diameter of the region lock's disc — the summary table's `IndicatorBadge` size — which
+    /// also sets the badge row's height below.
     static let regionBadgeDiameter: CGFloat = 14
 
     /// Uniform height for everything on the badge row: the region lock's disc plus
@@ -642,103 +804,21 @@ private enum RSBCardChrome {
     static let borderOpacity: Double = 0.32
     static let borderFadeStart: Double = FieldEdgeTreatment.borderFadeStart
 
-    /// Border color, fading to nothing over the last stretch of the drop. Vertical rather
-    /// than uniform so the lower edge is carried by the shadow.
-    static let borderGradient = LinearGradient(
-        stops: [
-            .init(color: Color(NSColor.separatorColor).opacity(borderOpacity), location: 0.0),
-            .init(color: Color(NSColor.separatorColor).opacity(borderOpacity), location: borderFadeStart),
-            .init(color: Color(NSColor.separatorColor).opacity(0), location: 1.0)
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    /// Card corner radius (continuous).
+    static let cardCornerRadius: CGFloat = 8
 
     static let shadowOpacity: Double = 0.26
     static let shadowRadius: CGFloat = FieldEdgeTreatment.shadowRadius
     static let shadowOffsetY: CGFloat = FieldEdgeTreatment.shadowOffsetY
 }
 
-extension View {
-    /// The drop shadow shared by the purchase glyph, the format badge, and the year badge.
-    fileprivate func rsbBadgeShadow() -> some View {
-        shadow(
-            color: .black.opacity(RSBCardChrome.glyphShadowOpacity),
-            radius: RSBCardChrome.glyphShadowRadius,
-            x: 0,
-            y: RSBCardChrome.glyphShadowOffsetY)
-    }
-}
-
-// MARK: - Card Group View
-// One plate per acquisition. A combo-pack parent and its attached child or children
-// share the plate, producing the double-height card — or, for a "Combo-pack (dual BD)"
-// pack that bundles two distinct Blu-ray copies, a triple-height one. The parent half
-// opens with a purchase-tinted band; each child half opens with the same faint wash it
-// carries throughout, separated from what precedes it by a divider, since its meaning is
-// inherited from the parent it is attached to rather than restated. The stack is built by
-// iterating the group, so the number of attached halves follows the data with no ceiling
-// baked into the layout.
-//
-// Edge treatment follows the FilmSheet reorderable lists' — a subtle outline that wraps
-// the top and fades out toward the bottom, with the lower edge carried by a shadow
-// instead. See `RSBCardChrome` for the strengths and why they are stated locally.
-private struct RSBReleaseCardGroupView: View {
-    let group: RSBReleaseCardGroup
-
-    static let cornerRadius: CGFloat = 8
-
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-    }
-
-    /// How many halves of this plate are attached children. Index 0 is always the group's
-    /// top-level parent — `releasesGroupedByHierarchy` keys on `parentReleaseID ?? id` and
-    /// sorts `isTopLevel` first — so this is simply everything after it: one for a
-    /// "Combo-pack" pack, two for "Combo-pack (dual BD)", and zero for a standalone
-    /// release.
-    private var attachedChildCount: Int { max(0, group.releases.count - 1) }
-
-    /// The banner an attached child shows in place of the parent's studio and purchase
-    /// status. When a pack bundles two Blu-rays the halves are otherwise identical at a
-    /// glance — same format badge, same wash, same inherited fields — so each is numbered
-    /// to make plain that they are two discs and not one card drawn twice. A single child
-    /// is left unnumbered: "1 of 1" would add a count where there is nothing to count.
-    private func childBanner(at index: Int) -> String {
-        attachedChildCount > 1
-            ? "Included in Combo-pack (\(index) of \(attachedChildCount))"
-            : "Included in Combo-pack"
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(group.releases.enumerated()), id: \.element.id) { index, release in
-                RSBReleaseCardBody(
-                    model: release,
-                    attachedChildBanner: index > 0 ? childBanner(at: index) : nil)
-                    .background(index > 0 ? RSBCardChrome.childWash : Color.clear)
-            }
-        }
-        .background(shape.fill(Color(NSColor.controlBackgroundColor)))
-        // Clips the child wash and the tinted header band to the plate's rounded corners
-        // before the outline is stroked over the result, so the band's fill and the
-        // outline meet cleanly at the top corners rather than one overrunning the other.
-        .clipShape(shape)
-        .overlay(
-            shape.strokeBorder(
-                RSBCardChrome.borderGradient,
-                lineWidth: RSBCardChrome.borderWidth))
-        .shadow(
-            color: .black.opacity(RSBCardChrome.shadowOpacity),
-            radius: RSBCardChrome.shadowRadius,
-            x: 0,
-            y: RSBCardChrome.shadowOffsetY)
-    }
-}
-
 // MARK: - Card Body
 
-private struct RSBReleaseCardBody: View {
+/// One release's half of a card, as RSBCardBodyView draws it: the model, whether it hangs
+/// under a combo-pack parent, and everything derived from the two — the header's colors, the
+/// badge row's presence, and the glyph rows.
+@MainActor
+fileprivate struct RSBReleaseCardBody {
     let model: RSBReleaseCard
 
     /// Non-nil when this half is a combo-pack child attached beneath its parent, in which
@@ -773,30 +853,11 @@ private struct RSBReleaseCardBody: View {
     /// visible directly above — rather than a property that merely correlates with it. A
     /// release drawn with no parent above it therefore shows its own acquisition figures,
     /// which is the correct outcome in every case, including the one this cannot rule out.
-    private var isAttachedChild: Bool { attachedChildBanner != nil }
+    fileprivate var isAttachedChild: Bool { attachedChildBanner != nil }
 
     /// Today, for the release-date wording. Read through CurrentDay so the card re-renders
     /// on the day a release comes out and "Releases on" becomes "Released on".
-    private var today: Date { CurrentDay.shared.today }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if isAttachedChild {
-                // Full-bleed: separates this half from the parent's details above.
-                Divider()
-            }
-            header
-            details
-                .padding(.horizontal, RSBCardChrome.contentPadding)
-                .padding(.bottom, RSBCardChrome.contentPadding)
-                // A child half opens with the divider that closes its header, and that
-                // divider has to sit flush against the header's lower edge for the header
-                // to stand the same height as a parent's tinted band. Any top padding here
-                // would push it down and make the child header visibly taller.
-                .padding(.top, isAttachedChild ? 0 : RSBCardChrome.contentTopPadding)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
+    fileprivate var today: Date { CurrentDay.shared.today }
 
     // MARK: Header
     // Format badge, studio, and purchase status on one horizontal plane, on a full-bleed
@@ -808,80 +869,13 @@ private struct RSBReleaseCardBody: View {
     /// White on the dark tinted band. Only ever read on a parent half — a child names its
     /// relationship to the parent instead of carrying a studio — so it needs no untinted
     /// variant.
-    private var titleColor: Color {
+    fileprivate var titleColor: Color {
         model.studio.isEmpty ? Color.white.opacity(0.55) : .white
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Text(model.format)
-                .font(.system(size: 11, weight: .heavy))
-                .foregroundStyle(RSBCardChrome.badgeInk)
-                .frame(width: 52, alignment: .center)
-                .padding(.vertical, 1)
-                .background(RSBCardChrome.badgePlate)
-                .clipShape(RoundedRectangle(
-                    cornerRadius: RSBCardChrome.badgeCornerRadius, style: .continuous))
-                .fixedSize()
-                .rsbBadgeShadow()
-
-            if let banner = attachedChildBanner {
-                // A child half names its relationship to the parent instead of restating
-                // the parent's studio and purchase status. Both are properties of the
-                // combo-pack as a whole, already shown on the half directly above, so
-                // repeating them here would say nothing the attachment does not.
-                Text(banner)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text(model.studio.isEmpty ? "Unknown Studio" : model.studio)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(titleColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                // The band is now tinted by FORMAT, matching the FilmSheet's release
-                // cards, so purchase status carries entirely in this glyph. A purchased
-                // release gets the exact same checkmark badge the summary table draws
-                // (see `symbolBadge`, 24_21) at a slightly larger size for the card;
-                // an unpurchased one gets the dashed-circle glyph in the same red used
-                // there.
-                Group {
-                    if model.purchased {
-                        // The shadow goes on the circular fill alone, via
-                        // `circleShadow` — not chained on as `.rsbBadgeShadow()` —
-                        // so it cannot also fall across the checkmark glyph's own
-                        // shadow (from `IndicatorBadge`'s `inkNeedsShadow`), which
-                        // stays exactly what it already was.
-                        symbolBadge("checkmark", RSBCardChrome.checkmarkGreen, diameter: 18,
-                                    circleShadow: (RSBCardChrome.glyphShadowOpacity,
-                                                   RSBCardChrome.glyphShadowRadius,
-                                                   RSBCardChrome.glyphShadowOffsetY))
-                    } else {
-                        Image(systemName: "circle.dashed")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .rsbBadgeShadow()
-                    }
-                }
-                .frame(width: RSBCardChrome.trailingGlyphWidth,
-                       height: RSBCardChrome.trailingGlyphHeight, alignment: .center)
-                .help(model.purchased ? "Purchased" : "Not purchased")
-            }
-        }
-        .padding(.horizontal, RSBCardChrome.contentPadding)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background { bandFill }
     }
 
     /// Same lookup as `ReleaseCardView.bandTint` (33_20): `model.format` carries the full
     /// format name that mapping is keyed on.
-    private var bandTint: Color {
+    fileprivate var bandTint: Color {
         switch ReleaseFormat(rawValue: model.format) {
         case .uhd4K:  return RSBCardChrome.tint4K
         case .bluRay: return RSBCardChrome.tintBluRay
@@ -890,211 +884,128 @@ private struct RSBReleaseCardBody: View {
         }
     }
 
-    @ViewBuilder
-    private var bandFill: some View {
-        if !isAttachedChild {
-            bandTint
-        } else {
-            // The child wash is already applied behind the whole half by the group view;
-            // leaving the band clear lets it show through unbroken.
-            Color.clear
+    /// The rows above the acquisition block.
+    fileprivate var mainRows: [RSBGlyphRowSpec] {
+        var rows: [RSBGlyphRowSpec] = []
+        func glyphRow(_ leading: RSBRowItem, trailing: RSBRowItem? = nil, leadingContentHelp: String? = nil) {
+            rows.append(RSBGlyphRowSpec(leading: leading, trailing: trailing, leadingContentHelp: leadingContentHelp))
         }
-    }
-
-    // MARK: Details
-
-    private var details: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // The child header's closing divider lives here, at the top of the padded
-            // details block, so it picks up the card's content inset the same way the
-            // text below it does rather than stating a margin of its own.
-            if isAttachedChild {
-                Divider()
-            }
-            if hasBadgeRow {
-                // The same two equal flexible columns at the same spacing as every field
-                // row below, so the pill — which fills its column — has its left edge on
-                // the second column's axis and its right edge at the card's, while the
-                // fixed-width year badge sits on the first column's axis.
-                HStack(spacing: 10) {
-                    // Each column is held open by a zero-height Color.clear underlay rather
-                    // than by the badge alone. An absent badge is an EmptyView, which has no
-                    // layout footprint at all — `frame(maxWidth:)` on it yields nothing, and
-                    // the surviving badge would take the whole row instead of its column.
-                    columnSlot {
-                        // Shown on a child half too, even though a combo-pack child's
-                        // release year is locked to its parent's and so restates it. The
-                        // redundancy is the lesser cost: the badge row's leading column is
-                        // reserved regardless, so suppressing the badge left a conspicuous
-                        // gap beside the region pill rather than tightening anything.
-                        if !model.releaseYear.isEmpty {
-                            RSBYearBadge(
-                                releaseYear: model.releaseYear,
-                                baseReleaseYear: model.originalReleaseYear,
-                                releaseHelp: model.releaseDate.map {
-                                    RSBReleaseCard.releasePhrase($0, today: today)
-                                } ?? "Release year \(model.releaseYear)",
-                                isUpcoming: model.releaseDate?.isUpcoming(today: today) ?? false)
-                        }
-                    }
-                    columnSlot {
-                        if model.regionIndicator != nil || !model.nationalOrigin.isEmpty {
-                            RSBRegionOriginPill(
-                                region: model.regionIndicator,
-                                regionLabel: model.regionLabel,
-                                nationalOrigin: model.nationalOrigin)
-                        }
-                    }
-                }
-            }
-
-            // Glyph-led lines sharing a leading glyph column, so their text starts at a
-            // common x-origin. Several carry a second line in the trailing column, each
-            // appearing only when it has something to say and leaving its partner to span
-            // the full width alone.
-            //
-            // Where the remaster flag lands depends on the format. A 4K release has an HDR
-            // value, which takes the video row's trailing slot and pushes the flag down
-            // beside the aspect ratio; the other two formats have no HDR, so the flag stays
-            // in the video row rather than leaving that slot empty and opening a new line.
-            // Both of those rows can themselves be absent, in which case the flag falls
-            // through to a line of its own — see `remasteredNeedsOwnRow`.
-            if showsVideoRow {
-                glyphRow(RSBRowItem(symbol: "tv", text: model.video), trailing: videoRowTrailing)
-            }
-            if showsAspectRatioRow {
-                glyphRow(
-                    RSBRowItem(
-                        symbol: "aspectratio.fill", text: model.aspectRatio,
-                        help: "Aspect ratio"),
-                    trailing: aspectRatioRowTrailing,
-                    leadingContentHelp: aspectRatioContentHelp)
-            }
-            if remasteredNeedsOwnRow, let remasteredItem {
-                glyphRow(remasteredItem)
-            }
-            if !model.audio.isEmpty {
-                glyphRow(RSBRowItem(symbol: "speaker.wave.2.fill", text: model.audio))
-            }
-            // The disc line is unconditional: `discs` is built from the disc count and so
-            // always carries at least "1 disc". Subtitles ride in the trailing column and
-            // are shown only when present — their absence is the negative case, so nothing
-            // is drawn rather than a line stating it.
+        // Glyph-led lines sharing a leading glyph column, so their text starts at a
+        // common x-origin. Several carry a second line in the trailing column, each
+        // appearing only when it has something to say and leaving its partner to span
+        // the full width alone.
+        //
+        // Where the remaster flag lands depends on the format. A 4K release has an HDR
+        // value, which takes the video row's trailing slot and pushes the flag down
+        // beside the aspect ratio; the other two formats have no HDR, so the flag stays
+        // in the video row rather than leaving that slot empty and opening a new line.
+        // Both of those rows can themselves be absent, in which case the flag falls
+        // through to a line of its own — see `remasteredNeedsOwnRow`.
+        if showsVideoRow {
+            glyphRow(RSBRowItem(symbol: "tv", text: model.video), trailing: videoRowTrailing)
+        }
+        if showsAspectRatioRow {
             glyphRow(
-                RSBRowItem(symbol: "opticaldisc.fill", text: model.discs),
-                trailing: model.hasSubtitles
-                    ? RSBRowItem(symbol: "captions.bubble.fill", text: "Includes subtitles")
-                    : nil)
-            // Combo-pack children inherit the parent's artwork verbatim, so restating it
-            // on the child half would only repeat the line directly above.
-            if !isAttachedChild && !model.artworkNote.isEmpty {
-                glyphRow(RSBRowItem(symbol: "text.book.closed.fill", text: model.artworkNote))
-            }
-            // Suppressed when the release contains only the theatrical version,
-            // which every release is assumed to carry — see
-            // `RSBReleaseCard.showsIncludedVersions`. The emptiness test stays as
-            // the guard against drawing a glyph beside nothing; the flag is what
-            // decides whether a populated list is worth a row.
-            if model.showsIncludedVersions && !model.includedVersions.isEmpty {
-                glyphRow(RSBRowItem(
-                    symbol: "film.stack.fill", text: model.includedVersions,
-                    help: "Versions included"))
-            }
-            // The full release date, last before the acquisition block. Only for a full date:
-            // a year-only value says nothing the year badge does not. Suppressed on an
-            // attached child for the same reason as the artwork note — a child's release
-            // date is its parent's, stated on the parent half directly above.
-            if !isAttachedChild, let releaseDate = model.releaseDate, !releaseDate.isYearOnly {
-                glyphRow(RSBRowItem(symbol: "calendar",
-                                    text: RSBReleaseCard.releasePhrase(releaseDate, today: today)))
-            }
-
-            // Everything the card says about acquiring the release, below one divider.
-            // Suppressed entirely for combo-pack children, whose cost, amount spent, and
-            // purchase date are all recorded on the parent 4K release above. A purchased
-            // release fills this with what it cost and when; an unpurchased one with where
-            // it can be found, what it has been seen going for, and whether it is wanted.
-            //
-            // Gated on the LAYOUT fact — "a parent half is drawn directly above me" — not on
-            // the release's own child flag. The two are now provably the same thing (see
-            // `attachedChildBanner`), so this is the one that says what the suppression
-            // actually depends on: the figures are omitted because they are visible above,
-            // and this is the condition that means exactly that.
-            if !isAttachedChild && !acquisitionBlockIsEmpty {
-                Divider()
-                if !model.spendLine.isEmpty {
-                    glyphRow(RSBRowItem(symbol: "cart.fill", text: model.spendLine))
-                }
-                if !model.purchaseLine.isEmpty {
-                    glyphRow(RSBRowItem(symbol: "calendar.badge.clock", text: model.purchaseLine))
-                }
-                // The wishlist flag rides in the trailing column beside market availability
-                // when there is one, and takes the leading column itself when there is not,
-                // rather than sitting alone in a second column with an empty first.
-                if !model.marketAvailability.isEmpty {
-                    glyphRow(
-                        RSBRowItem(
-                            symbol: "cart.fill.badge.questionmark",
-                            text: model.marketAvailability,
-                            help: "Market availability"),
-                        trailing: wishlistItem)
-                } else if let wishlistItem {
-                    glyphRow(wishlistItem)
-                }
-                if !model.lowestPriceLine.isEmpty {
-                    glyphRow(RSBRowItem(
-                        symbol: "calendar.badge.clock", text: model.lowestPriceLine,
-                        help: "Lowest price"))
-                }
-            }
-            // Wrapped lines align under the first line's text rather than under its glyph,
-            // because RSBGlyphLine puts the text in its own column beside the glyph.
-            if !model.notes.isEmpty {
-                glyphRow(RSBRowItem(symbol: "note.text", text: model.notes, help: "Notes"))
-            }
+                RSBRowItem(
+                    symbol: "aspectratio.fill", text: model.aspectRatio,
+                    help: "Aspect ratio"),
+                trailing: aspectRatioRowTrailing,
+                leadingContentHelp: aspectRatioContentHelp)
         }
+        if remasteredNeedsOwnRow, let remasteredItem {
+            glyphRow(remasteredItem)
+        }
+        if !model.audio.isEmpty {
+            glyphRow(RSBRowItem(symbol: "speaker.wave.2.fill", text: model.audio))
+        }
+        // The disc line is unconditional: `discs` is built from the disc count and so
+        // always carries at least "1 disc". Subtitles ride in the trailing column and
+        // are shown only when present — their absence is the negative case, so nothing
+        // is drawn rather than a line stating it.
+        glyphRow(
+            RSBRowItem(symbol: "opticaldisc.fill", text: model.discs),
+            trailing: model.hasSubtitles
+                ? RSBRowItem(symbol: "captions.bubble.fill", text: "Includes subtitles")
+                : nil)
+        // Combo-pack children inherit the parent's artwork verbatim, so restating it
+        // on the child half would only repeat the line directly above.
+        if !isAttachedChild && !model.artworkNote.isEmpty {
+            glyphRow(RSBRowItem(symbol: "text.book.closed.fill", text: model.artworkNote))
+        }
+        // Suppressed when the release contains only the theatrical version,
+        // which every release is assumed to carry — see
+        // `RSBReleaseCard.showsIncludedVersions`. The emptiness test stays as
+        // the guard against drawing a glyph beside nothing; the flag is what
+        // decides whether a populated list is worth a row.
+        if model.showsIncludedVersions && !model.includedVersions.isEmpty {
+            glyphRow(RSBRowItem(
+                symbol: "film.stack.fill", text: model.includedVersions,
+                help: "Versions included"))
+        }
+        // The full release date, last before the acquisition block. Only for a full date:
+        // a year-only value says nothing the year badge does not. Suppressed on an
+        // attached child for the same reason as the artwork note — a child's release
+        // date is its parent's, stated on the parent half directly above.
+        if !isAttachedChild, let releaseDate = model.releaseDate, !releaseDate.isYearOnly {
+            glyphRow(RSBRowItem(symbol: "calendar",
+                                text: RSBReleaseCard.releasePhrase(releaseDate, today: today),
+                                italic: releaseDate.isUpcoming(today: today)))
+        }
+        return rows
     }
 
-    /// A glyph-led line, optionally paired with a second one in the trailing column. The
-    /// two columns are equal and flexible at a shared 10pt spacing, matching the badge row
-    /// above, so every trailing item on the card — the remaster flag, the subtitles line,
-    /// the wishlist flag — starts on one common second-column axis.
+    /// Everything the card says about acquiring the release, below one divider.
+    /// Suppressed entirely for combo-pack children, whose cost, amount spent, and
+    /// purchase date are all recorded on the parent 4K release above. A purchased
+    /// release fills this with what it cost and when; an unpurchased one with where
+    /// it can be found, what it has been seen going for, and whether it is wanted.
     ///
-    /// Both halves of a paired row truncate: a wrap on one side would push its partner out
-    /// of vertical alignment with the single-line rows above and below it. Unpaired, a line
-    /// spans the full width and wraps freely.
-    ///
-    /// `leadingContentHelp`, when given, puts a tooltip on the leading line's *text*
-    /// column — distinct from the glyph's own tooltip, which names the field. It is
-    /// meant for a paired row whose leading half is truncating, where the tooltip is
-    /// the only way to read what was cut off; callers pass `nil` in every other
-    /// case rather than tooltipping text the reader can already see in full.
-    @ViewBuilder
-    private func glyphRow(_ leading: RSBRowItem,
-                          trailing: RSBRowItem? = nil,
-                          leadingContentHelp: String? = nil) -> some View {
-        if let trailing {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                RSBGlyphLine(item: leading, truncates: true, contentHelp: leadingContentHelp)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                RSBGlyphLine(item: trailing, truncates: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        } else {
-            RSBGlyphLine(item: leading)
+    /// Gated on the LAYOUT fact — "a parent half is drawn directly above me" — not on
+    /// the release's own child flag. The two are now provably the same thing (see
+    /// `attachedChildBanner`), so this is the one that says what the suppression
+    /// actually depends on: the figures are omitted because they are visible above,
+    /// and this is the condition that means exactly that.
+    fileprivate var acquisitionRows: [RSBGlyphRowSpec] {
+        var rows: [RSBGlyphRowSpec] = []
+        func glyphRow(_ leading: RSBRowItem, trailing: RSBRowItem? = nil, leadingContentHelp: String? = nil) {
+            rows.append(RSBGlyphRowSpec(leading: leading, trailing: trailing, leadingContentHelp: leadingContentHelp))
         }
+        if !model.spendLine.isEmpty {
+            glyphRow(RSBRowItem(symbol: "cart.fill", text: model.spendLine))
+        }
+        if !model.purchaseLine.isEmpty {
+            glyphRow(RSBRowItem(symbol: "calendar.badge.clock", text: model.purchaseLine))
+        }
+        // The wishlist flag rides in the trailing column beside market availability
+        // when there is one, and takes the leading column itself when there is not,
+        // rather than sitting alone in a second column with an empty first.
+        if !model.marketAvailability.isEmpty {
+            glyphRow(
+                RSBRowItem(
+                    symbol: "cart.fill.badge.questionmark",
+                    text: model.marketAvailability,
+                    help: "Market availability",
+                    glyphOverhangs: true),
+                trailing: wishlistItem.map { item in
+                    var item = item
+                    item.glyphOverhangs = true
+                    return item
+                })
+        } else if let wishlistItem {
+            glyphRow(wishlistItem)
+        }
+        if !model.lowestPriceLine.isEmpty {
+            glyphRow(RSBRowItem(
+                symbol: "calendar.badge.clock", text: model.lowestPriceLine,
+                help: "Lowest price"))
+        }
+        return rows
     }
 
-    /// One column of the badge row: exactly half the available width, occupied or not.
-    private func columnSlot<Content: View>(
-        @ViewBuilder _ content: () -> Content
-    ) -> some View {
-        ZStack {
-            Color.clear
-                .frame(maxWidth: .infinity)
-                .frame(height: 0)
-            content()
-        }
+    /// The notes line. Wrapped lines align under the first line's text rather than under its
+    /// glyph, because RSBGlyphRowView puts the text in its own column beside the glyph.
+    fileprivate var notesRow: [RSBGlyphRowSpec] {
+        model.notes.isEmpty ? [] : [RSBGlyphRowSpec(leading: RSBRowItem(symbol: "note.text", text: model.notes, help: "Notes"))]
     }
 
     private var remasteredItem: RSBRowItem? {
@@ -1167,7 +1078,7 @@ private struct RSBReleaseCardBody: View {
         model.remastered && !videoRowTookRemastered && !showsAspectRatioRow
     }
 
-    private var acquisitionBlockIsEmpty: Bool {
+    fileprivate var acquisitionBlockIsEmpty: Bool {
         model.spendLine.isEmpty
             && model.purchaseLine.isEmpty
             && model.marketAvailability.isEmpty
@@ -1177,267 +1088,10 @@ private struct RSBReleaseCardBody: View {
 
     /// True when either badge has something to show. Guards the row so an otherwise empty
     /// HStack does not contribute its spacing to the details stack.
-    private var hasBadgeRow: Bool {
+    fileprivate var hasBadgeRow: Bool {
         !model.releaseYear.isEmpty
             || model.regionIndicator != nil
             || !model.nationalOrigin.isEmpty
-    }
-}
-
-// MARK: - Badge Row
-// The release year and the region/origin pill, sharing the first line under the header.
-// Both use the same opaque gray fill so they read as a matched pair.
-
-
-// The release year, with the base (original) release year alongside it when the release
-// has one. Both compartments are a fixed width sized for four numerals, and the trailing
-// one's footprint is reserved whether or not it has a value, so the badge is identical
-// across every release and nothing shifts between the two cases.
-private struct RSBYearBadge: View {
-    let releaseYear: String
-    let baseReleaseYear: String
-    /// The tooltip's description of the release itself — "Released on October 17, 2026".
-    let releaseHelp: String
-    /// True while the release date is still ahead; the badge is then an outline.
-    let isUpcoming: Bool
-
-    private static let upcomingStroke = StrokeStyle(lineWidth: 1, dash: [3, 2])
-
-    /// Floor only. Each compartment takes half of the badge row's leading column, so the
-    /// badge mirrors the region/origin pill filling the trailing column. The reserved base
-    /// year slot is sized identically whether or not it holds a value, so the release year
-    /// occupies the same half in both cases and nothing shifts between cards.
-    private static let minimumCompartmentWidth: CGFloat = 48
-
-    /// Gap between the two compartments.
-    private static let compartmentGap: CGFloat = 3
-
-    private var hasBaseYear: Bool { !baseReleaseYear.isEmpty }
-
-    /// Fully rounded, matching the region/origin pill beside it — the two badges share
-    /// one fill and one silhouette so they read as a matched pair on the badge row.
-    private var compartmentShape: Capsule { Capsule(style: .continuous) }
-
-    /// Encloses both compartments and the gap between them, in the same capsule profile.
-    /// Coincident with the leading compartment's own capsule along their shared edge.
-    private var connectorShape: Capsule { Capsule(style: .continuous) }
-
-    var body: some View {
-        HStack(spacing: Self.compartmentGap) {
-            // Only the release year is filled. The contrast between a filled compartment
-            // and a bare one is what distinguishes the two years at a glance; the outline
-            // below is what shows they belong together.
-            // The shadow rides on the fill shape rather than the composed view, so it
-            // outlines the capsule alone. Applied to the whole badge it would also trace
-            // the numerals, which reads as a text shadow in light mode.
-            //
-            // A release not yet out is drawn as an outline instead: dashed, unfilled, in the
-            // tertiary color, so the badge says "not here yet" in the same visual language as
-            // the card's other unset states. Its year then takes the label color, as the bare
-            // base year beside it does.
-            compartment(releaseYear, isOnFill: !isUpcoming)
-                .background {
-                    if isUpcoming {
-                        compartmentShape.strokeBorder(.tertiary, style: Self.upcomingStroke)
-                    } else {
-                        compartmentShape.fill(RSBCardChrome.badgeFill).rsbBadgeShadow()
-                    }
-                }
-
-            // Bare text in a reserved slot of the same width. Drawn only when there is a
-            // value, but its space is occupied either way, so the badge's footprint never
-            // changes between the two cases.
-            compartment(baseReleaseYear, isOnFill: false)
-                .opacity(hasBaseYear ? 1 : 0)
-        }
-        // The outline is stroked on the badge's own bounds, so it shares the outermost
-        // edge of the release year's fill rather than sitting in a ring outside it, which
-        // keeps the badge exactly `badgeRowHeight` tall — matching the region/origin pill
-        // beside it.
-        //
-        // A BACKGROUND, not an overlay. Both draw the same geometry, but an overlay renders
-        // above the compartment's own fill, so along the edge they share the outline sat on
-        // top of the fill — and since it carries a shadow, that shadow fell across the fill
-        // too, making the outline look like a separate layer resting on the badge. As a
-        // background the whole stroke renders beneath the compartment, so the fill covers it
-        // along their shared edge and only the two short stubs where the outline emerges
-        // past the fill remain visible — which is what the connection should look like.
-        .background {
-            if hasBaseYear && isUpcoming {
-                // Dashed to match the outlined compartment, and masked to the part that lies
-                // beyond the compartment's own straight edges: where the two outlines
-                // coincide, two dash patterns out of phase would read as one solid line. What
-                // remains is the same pair of stubs the filled badge shows past its fill.
-                connectorShape
-                    .strokeBorder(.tertiary, style: Self.upcomingStroke)
-                    .mask {
-                        GeometryReader { g in
-                            let compartmentWidth = (g.size.width - Self.compartmentGap) / 2
-                            let start = max(0, compartmentWidth - g.size.height / 2)
-                            Rectangle()
-                                .frame(width: max(0, g.size.width - start))
-                                .offset(x: start)
-                        }
-                    }
-            } else if hasBaseYear {
-                connectorShape
-                    .strokeBorder(RSBCardChrome.badgeFill, lineWidth: 1)
-                    .rsbBadgeShadow()
-            }
-        }
-        .help(hasBaseYear
-              ? "\(releaseHelp); original release \(baseReleaseYear)"
-              : releaseHelp)
-    }
-
-    /// `isOnFill` distinguishes the release year, which sits on the gray capsule and takes
-    /// a constant white, from the base year, which sits on the card and takes the adaptive
-    /// label color. The fill is a fixed opaque gray at both appearances, so white is the
-    /// legible choice on it in light mode as well as dark.
-    private func compartment(_ text: String, isOnFill: Bool) -> some View {
-        Text(text)
-            .font(.system(size: 11, weight: .heavy))
-            .foregroundStyle(isOnFill ? Color.white : Color.primary)
-            .lineLimit(1)
-            .frame(
-                minWidth: Self.minimumCompartmentWidth,
-                maxWidth: .infinity,
-                minHeight: RSBCardChrome.badgeRowHeight,
-                maxHeight: RSBCardChrome.badgeRowHeight)
-    }
-}
-
-/// Region lock and country of origin as a single pill: the region's indicator badge on
-/// the left, the country centered in the remaining space beside it.
-///
-/// The badge is `RSBIndicatorView` — the same colored disc, lettering, and globe glyph
-/// the ReleasesTable draws, at the same `regionBadgeDiameter` (14pt) that table's
-/// `IndicatorBadge` uses — rather than a flattened mark, so the region reads identically
-/// in both presentations. That diameter is also what sets `badgeRowHeight`.
-///
-/// The pill is a fixed overall width, and the region's slot is reserved whether or not
-/// there is a region to draw, so the pill neither changes size between countries nor
-/// shifts its country text between releases.
-private struct RSBRegionOriginPill: View {
-    let region: RSBRegionIndicator?
-
-    /// The stored region lock spelled out, for the badge's tooltip. Carried alongside the
-    /// indicator rather than reconstructed from it: "Region B" and "Region B
-    /// (Loosely-locked)" both draw as a lettered "B" and are distinguished only by tint, so
-    /// the drawn mark is not a reliable source for the text.
-    let regionLabel: String
-
-    let nationalOrigin: String
-
-    /// Floor only. The pill is placed in the badge row's trailing column and stretches to
-    /// fill it, so its left edge lands on the same axis as the second column of every
-    /// field row below. This minimum keeps "United States" — the widest country name in
-    /// use — from ellipsizing when the sidebar is at its narrowest.
-    private static let minimumPillWidth: CGFloat = 116
-    private static let regionSlotWidth: CGFloat = RSBCardChrome.regionBadgeDiameter
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Group {
-                if let region {
-                    RSBIndicatorView(indicator: region)
-                } else {
-                    // Placeholder for a release with no recorded region lock, so the pill
-                    // keeps the same internal geometry as every other one on screen and
-                    // the country text does not shift left to fill the gap.
-                    Image(systemName: "circle.dashed")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Color.white)
-                }
-            }
-            .frame(width: Self.regionSlotWidth)
-            // See RSBGlyphLine.glyph: the tracking region has to be the slot's whole box,
-            // not the disc's drawn edge, for the tooltip to be reliable on sustained hover.
-            .contentShape(Rectangle())
-            // On the SLOT, covering both branches. Attached to the badge alone, the
-            // placeholder had no tooltip at all — so a release with no recorded region, and
-            // one whose stored region is outside the vocabulary and draws as an illegible
-            // sliver in this 14pt slot, were the two cases with nothing to read and no way
-            // to ask. Those are precisely the cases that need it; the ones that draw a
-            // recognizable mark are the ones that could arguably do without.
-            //
-            // Still the slot rather than the whole pill: it names the region lock, which is
-            // what this slot encodes, while the country beside it already names itself.
-            .help(regionHelp)
-
-            Text(nationalOrigin)
-                // Constant white, like the release year beside it: the fill is a fixed
-                // opaque gray at both appearances, so the adaptive label color would go
-                // dark against it in light mode.
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .padding(.horizontal, 8)
-        .frame(
-            minWidth: Self.minimumPillWidth,
-            maxWidth: .infinity,
-            minHeight: RSBCardChrome.badgeRowHeight,
-            maxHeight: RSBCardChrome.badgeRowHeight)
-        // The shadow rides on the capsule rather than the composed view, so it does not
-        // also trace the country text and the region badge's glyph.
-        .background(Capsule(style: .continuous).fill(RSBCardChrome.badgeFill).rsbBadgeShadow())
-    }
-
-    private var regionHelp: String {
-        regionLabel.isEmpty ? "No region lock recorded" : regionLabel
-    }
-}
-
-// MARK: - Region Indicator Rendering
-// The card's drawing of an `RSBRegionIndicator`. What the mark *is* and how a playable one
-// is colored versus a locked one are `RSBRegionIndicator` / `RSBRegionBadge`'s, shared with
-// the summary table; this view supplies only the card's own chrome, which genuinely differs
-// from the table's: everything here sits on the region/origin pill's fixed opaque gray, so
-// the globe and the raw-value fallback take a constant white where the table's take the
-// adaptive label color, and the disc carries the pill's badge shadow.
-
-private struct RSBIndicatorView: View {
-    let indicator: RSBRegionIndicator
-
-    /// Local alias for readability; the constant itself lives on the nonisolated
-    /// `RSBCardChrome` so the badge row's height can be derived from it.
-    private static let diameter = RSBCardChrome.regionBadgeDiameter
-
-    var body: some View {
-        switch indicator {
-        case let .character(label, playable):
-            ZStack {
-                Circle()
-                    .fill(RSBRegionBadge.fill(playable: playable))
-                    .frame(width: Self.diameter, height: Self.diameter)
-                    .rsbBadgeShadow()
-                Text(label)
-                    .font(RSBRegionBadge.characterFont)
-                    .foregroundStyle(RSBRegionBadge.ink(playable: playable))
-                    .shadow(
-                        color: .black.opacity(
-                            RSBRegionBadge.inkNeedsShadow(playable: playable) ? 0.5 : 0),
-                        radius: 0.5, x: 0, y: 0.5)
-            }
-        case .globe:
-            Image(systemName: "globe")
-                .font(.system(size: Self.diameter))
-                .foregroundStyle(.white)
-                .frame(width: Self.diameter, height: Self.diameter)
-        case let .raw(value):
-            // The slot is sized for the disc, so there is no room to render an arbitrary
-            // string legibly; shrinking to fit salvages a short one, and the slot's tooltip
-            // carries the value in full either way.
-            Text(value)
-                .font(.system(size: 11))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                .truncationMode(.tail)
-        }
     }
 }
 
@@ -1450,93 +1104,1204 @@ private struct RSBIndicatorView: View {
 /// as bare values beside a small symbol. Naming the field on hover keeps the row compact
 /// without leaving it ambiguous. Rows whose text names itself ("Remastered", "3 discs")
 /// carry no tooltip, since repeating the visible text would be noise.
-private struct RSBRowItem {
+/// A glyph-led line, optionally paired with a second one in the trailing column. The
+/// two columns are equal and flexible at a shared 10pt spacing, matching the badge row
+/// above, so every trailing item on the card — the remaster flag, the subtitles line,
+/// the wishlist flag — starts on one common second-column axis.
+///
+/// Both halves of a paired row truncate: a wrap on one side would push its partner out
+/// of vertical alignment with the single-line rows above and below it. Unpaired, a line
+/// spans the full width and wraps freely.
+///
+/// `leadingContentHelp`, when given, puts a tooltip on the leading line's *text*
+/// column — distinct from the glyph's own tooltip, which names the field. It is
+/// meant for a paired row whose leading half is truncating, where the tooltip is
+/// the only way to read what was cut off; callers pass `nil` in every other
+/// case rather than tooltipping text the reader can already see in full.
+struct RSBGlyphRowSpec {
+    let leading: RSBRowItem
+    var trailing: RSBRowItem? = nil
+    var leadingContentHelp: String? = nil
+}
+
+struct RSBRowItem {
     let symbol: String
     let text: String
     var help: String? = nil
+    /// Sets the text in italics — used for an upcoming release's date.
+    var italic: Bool = false
+    /// Lets a glyph that stands taller above the baseline than the text overhang the row's top
+    /// instead of pushing the row's baseline down, so its text sits where a plain glyph's would.
+    /// Market availability's `cart.fill.badge.questionmark` (and the gift beside it) stand
+    /// ½ pt higher than `cart.fill` at 2x, 1 pt at 1x, which set that line lower than the
+    /// cost line it stands in for on an unpurchased release.
+    var glyphOverhangs: Bool = false
 }
 
-/// A line led by a secondary-colored glyph. The glyph occupies a fixed width so the text of
-/// stacked lines starts at the same x-origin regardless of glyph shape, and wrapped lines
-/// align under the first line's text rather than under the glyph.
-private struct RSBGlyphLine: View {
-    let item: RSBRowItem
+/// A card's run of glyph rows (the acquisition divider splits a card into two): the row pool, laid out top to bottom at the details stack's
+/// spacing, each row's frame rounded as SwiftUI rounds a stack's children (origin and bottom
+/// edge to the window's pixels).
+final class RSBGlyphRowListView: NSView {
+    static let spacing: CGFloat = 8
 
-    /// Clamp the text to one line with a trailing ellipsis instead of letting it wrap. Set
-    /// for both halves of a paired row — see `glyphRow`.
-    var truncates: Bool = false
+    private var rows: [RSBGlyphRowView] = []
+    private var count = 0
 
-    /// A tooltip for the *text* column, as opposed to `item.help`, which is the
-    /// glyph's. Supplied only where the line truncates and the tooltip is therefore
-    /// the sole way to read the whole value — see `aspectRatioContentHelp`. `nil`
-    /// leaves the text with no tooltip at all, which is the default and remains the
-    /// case for every other line on the card.
-    var contentHelp: String? = nil
+    override var isFlipped: Bool { true }
 
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            glyph
-            text
+    func update(rows specs: [RSBGlyphRowSpec]) {
+        while rows.count < specs.count {
+            #if DEBUG
+            CardRowsProbe.rowsCreated += 1
+            #endif
+            let row = RSBGlyphRowView()
+            // Framed by layout(), never by constraints. Left translating its frame into
+            // constraints, every row and part joins the Auto Layout engine, and the hosting
+            // view's constraint pass over the tab walks them all on each film change.
+            row.translatesAutoresizingMaskIntoConstraints = false
+            rows.append(row)
+            addSubview(row)
+        }
+        for (i, row) in rows.enumerated() {
+            row.isHidden = i >= specs.count
+            guard i < specs.count else { continue }
+            row.configure(leading: specs[i].leading, trailing: specs[i].trailing,
+                          leadingContentHelp: specs[i].leadingContentHelp)
+        }
+        count = specs.count
+        needsLayout = true
+    }
+
+    /// A new width re-wraps the rows: lay out again.
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
+    }
+
+    func height(forWidth width: CGFloat) -> CGFloat {
+        let heights = rows.prefix(count).map { $0.height(forWidth: width) }
+        return heights.reduce(0, +) + CGFloat(max(0, heights.count - 1)) * Self.spacing
+    }
+
+    override func layout() {
+        #if DEBUG
+        let t0 = CACurrentMediaTime()
+        defer { CardRowsProbe.layouts += 1; CardRowsProbe.layoutTime += CACurrentMediaTime() - t0 }
+        #endif
+        super.layout()
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        let windowHeight = unsafe window?.contentView?.bounds.height ?? 0
+        let originY = windowHeight - convert(NSPoint.zero, to: nil).y
+        func pixel(_ v: CGFloat) -> CGFloat { ((originY + v) * scale + 0.5).rounded(.down) / scale - originY }
+        var y: CGFloat = 0
+        for row in rows.prefix(count) {
+            let height = row.height(forWidth: bounds.width)
+            let top = pixel(y)
+            row.frame = NSRect(x: 0, y: top, width: bounds.width, height: pixel(y + height) - top)
+            y += height + Self.spacing
+        }
+    }
+}
+
+/// One row of an RSBGlyphRowListView.
+final class RSBGlyphRowView: NSView {
+    static let glyphColumn: CGFloat = 14
+    static let glyphGap: CGFloat = 6
+    static let pairSpacing: CGFloat = 10
+
+    private let columns = [RSBGlyphColumn(), RSBGlyphColumn()]
+    private var paired = false
+
+    override var isFlipped: Bool { true }
+
+    init() {
+        super.init(frame: .zero)
+        for column in columns { column.install(in: self) }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    func configure(leading: RSBRowItem, trailing: RSBRowItem?, leadingContentHelp: String?) {
+        paired = trailing != nil
+        columns[0].configure(leading, wraps: !paired, contentHelp: leadingContentHelp)
+        if let trailing { columns[1].configure(trailing, wraps: false, contentHelp: nil) }
+        columns[1].isHidden = !paired
+        needsLayout = true
+    }
+
+    private func columnWidths(_ width: CGFloat) -> [CGFloat] {
+        paired ? Array(repeating: (width - Self.pairSpacing) / 2, count: 2) : [width]
+    }
+
+    func height(forWidth width: CGFloat) -> CGFloat {
+        zip(columns, columnWidths(width)).map { $0.metrics(width: $1).height }.max() ?? 0
+    }
+
+    override func layout() {
+        #if DEBUG
+        let t0 = CACurrentMediaTime()
+        let labelsBefore = columns.map(\.label.frame)
+        defer {
+            CardRowsProbe.rowLayouts += 1
+            CardRowsProbe.rowLayoutTime += CACurrentMediaTime() - t0
+            if columns.map(\.label.frame) != labelsBefore { CardRowsProbe.labelMoves += 1 }
+        }
+        #endif
+        super.layout()
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        let widths = columnWidths(bounds.width)
+        let metrics = zip(columns, widths).map { $0.metrics(width: $1) }
+        // The pair shares a baseline: the lower of the two, as an HStack aligned on the first
+        // text baseline places it.
+        let baseline = metrics.map(\.baseline).max() ?? 0
+        let windowHeight = unsafe window?.contentView?.bounds.height ?? 0
+        let originY = windowHeight - convert(NSPoint.zero, to: nil).y
+        var x: CGFloat = 0
+        for (column, width) in zip(columns, widths) {
+            column.layout(x: x, width: width, baseline: baseline, rowHeight: bounds.height, scale: scale, originY: originY)
+            x += width + Self.pairSpacing
+        }
+    }
+}
+
+/// One glyph-led line inside an RSBGlyphRowView: the glyph, the label, and the two tooltip areas.
+@MainActor
+final class RSBGlyphColumn {
+    private static let font = NSFont.systemFont(ofSize: 11)
+    private static let italicFont: NSFont = {
+        let descriptor = font.fontDescriptor.withSymbolicTraits(.italic)
+        return NSFont(descriptor: descriptor, size: 11) ?? font
+    }()
+
+    /// A line of the 11 pt text as SwiftUI lays it out, and the step to each further line.
+    private static let textLayout = SwiftUIVerticalMetrics.measure(Text("Xg").font(.system(size: 11)),
+                                                                   twoLines: Text("Xg\nXg").font(.system(size: 11)))
+    private static let italicLayout = SwiftUIVerticalMetrics.measure(Text("Xg").font(.system(size: 11)).italic(),
+                                                                     twoLines: Text("Xg\nXg").font(.system(size: 11)).italic())
+
+    let glyph = RSBBaselineGlyphView()
+    private var italic = false
+    private var glyphOverhangs = false
+    let label = NSTextField(labelWithString: "")
+    /// Carry the tooltips over SwiftUI's hit areas: the glyph's 14 pt column, and the text's
+    /// whole flexible frame.
+    private let glyphHelp = NSView()
+    private let textHelp = NSView()
+    private var wraps = false
+
+    var isHidden = false {
+        didSet { for v in [glyph, label, glyphHelp, textHelp] { v.isHidden = isHidden } }
+    }
+
+    func install(in view: NSView) {
+        // Framed by RSBGlyphRowView.layout (see RSBGlyphRowListView.update).
+        for v in [glyph, label, glyphHelp, textHelp] { v.translatesAutoresizingMaskIntoConstraints = false }
+        label.textColor = .labelColor
+        label.isSelectable = true
+        label.maximumNumberOfLines = 1
+        view.addSubview(glyphHelp)
+        view.addSubview(textHelp)
+        view.addSubview(glyph)
+        view.addSubview(label)
+    }
+
+    func configure(_ item: RSBRowItem, wraps: Bool, contentHelp: String?) {
+        self.wraps = wraps
+        italic = item.italic
+        glyphOverhangs = item.glyphOverhangs
+        let font = item.italic ? Self.italicFont : Self.font
+        if label.font != font { label.font = font }
+        if label.stringValue != item.text { label.stringValue = item.text }
+        label.maximumNumberOfLines = wraps ? 0 : 1
+        label.lineBreakMode = wraps ? .byWordWrapping : .byTruncatingTail
+        label.cell?.truncatesLastVisibleLine = !wraps
+        label.cell?.wraps = wraps
+        glyph.symbolName = item.symbol
+        glyphHelp.toolTip = item.help
+        glyphHelp.describeForAccessibility(item.help)
+        textHelp.toolTip = contentHelp
+    }
+
+    struct Metrics {
+        /// The label's size and its first baseline from the row's top, and the row's height.
+        var labelSize: CGSize
+        var labelTop: CGFloat
+        var baseline: CGFloat
+        var glyphTop: CGFloat
+        var height: CGFloat
+    }
+
+    private func textSize(width: CGFloat) -> CGSize {
+        guard let cell = label.cell else { return .zero }
+        if wraps {
+            // The cell keeps 2 pt of padding on each side inside its bounds (the label's frame
+            // is the text's width plus 4), so it wraps at the column's width plus that; at the
+            // column's own width it broke a line 4 pt early. The size returned is the text's.
+            let size = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: max(0, width) + 4, height: .greatestFiniteMagnitude))
+            return CGSize(width: size.width - 4, height: size.height)
+        }
+        let natural = label.intrinsicContentSize
+        return CGSize(width: min(natural.width, max(0, width)), height: natural.height)
+    }
+
+    func metrics(width: CGFloat) -> Metrics {
+        let textWidth = width - RSBGlyphRowView.glyphColumn - RSBGlyphRowView.glyphGap
+        let size = textSize(width: textWidth)
+        // SwiftUI's own measures, unrounded: SwiftUI rounds the row's frame where it places
+        // it, and the row rounds its parts the same way (see RSBGlyphRowView.layout).
+        let text = italic ? Self.italicLayout : Self.textLayout
+        let lines = max(1, (size.height / label.intrinsicContentSize.height).rounded())
+        let textHeight = text.height + (lines - 1) * text.lineHeight
+        let glyphLayout = glyph.layout
+        // The taller of the two above the baseline sets it (unless the glyph overhangs); the
+        // deeper below sets the height.
+        let baseline = glyphOverhangs ? text.baseline : max(text.baseline, glyphLayout.baseline)
+        let labelTop = baseline - text.baseline
+        let glyphTop = baseline - glyph.heightAboveBaseline
+        let height = max(labelTop + textHeight, baseline - glyphLayout.baseline + glyphLayout.height)
+        return Metrics(labelSize: size, labelTop: labelTop, baseline: baseline, glyphTop: glyphTop, height: height)
+    }
+
+    func layout(x: CGFloat, width: CGFloat, baseline: CGFloat, rowHeight: CGFloat, scale: CGFloat, originY: CGFloat) {
+        // Rounded where the window's pixels are: `originY` is the row's top in the window's
+        // flipped space, so a part lands on the pixel SwiftUI's own row would put it on.
+        func pixel(_ v: CGFloat) -> CGFloat { ((originY + v) * scale + 0.5).rounded(.down) / scale - originY }
+        let m = metrics(width: width)
+        let shift = baseline - m.baseline
+        let textX = x + RSBGlyphRowView.glyphColumn + RSBGlyphRowView.glyphGap
+        label.frame = NSRect(x: textX - 2, y: pixel(m.labelTop + shift),
+                             width: m.labelSize.width + 4, height: m.labelSize.height)
+        glyph.frame = NSRect(x: x, y: pixel(m.glyphTop + shift), width: RSBGlyphRowView.glyphColumn, height: glyph.imageHeight)
+        glyphHelp.frame = glyph.frame
+        textHelp.frame = NSRect(x: textX, y: 0, width: max(0, x + width - textX), height: rowHeight)
+    }
+}
+
+/// A glyph line's symbol at 11 pt, secondary, centered in its column on the alignment
+/// rectangle's width, its baseline (the alignment rectangle's bottom) on the text's.
+final class RSBBaselineGlyphView: NSView {
+    private static var images: [String: NSImage] = [:]
+    /// By symbol and display scale: SwiftUI rounds a symbol's layout to the pixel, so at 1x
+    /// some come out half a point taller above the baseline than at 2x (gift.fill, tv, …).
+    private static var layouts: [String: SwiftUIVerticalMetrics] = [:]
+
+    var symbolName: String? {
+        didSet {
+            guard symbolName != oldValue else { return }
+            image = symbolName.flatMap { name in
+                if let cached = Self.images[name] { return cached }
+                let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+                    .withSymbolConfiguration(.init(pointSize: 11, weight: .regular))
+                Self.images[name] = image
+                return image
+            }
+            needsDisplay = true
+        }
+    }
+    private var image: NSImage?
+
+    /// The height and baseline SwiftUI lays the symbol out at on this view's display, which
+    /// set the row's height. Before the view is in a window, the main screen's.
+    var layout: SwiftUIVerticalMetrics {
+        guard let name = symbolName, image != nil else { return .zero }
+        let scale = unsafe window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let key = "\(name)@\(scale)"
+        if let cached = Self.layouts[key] { return cached }
+        let layout = SwiftUIVerticalMetrics.measure(Image(systemName: name).font(.system(size: 11)), scale: scale)
+        Self.layouts[key] = layout
+        return layout
+    }
+
+    var imageHeight: CGFloat { image?.size.height ?? 0 }
+    var heightAboveBaseline: CGFloat { (image?.size.height ?? 0) - (image?.alignmentRect.minY ?? 0) }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image else { return }
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        func pixel(_ v: CGFloat) -> CGFloat { (v * scale + 0.5).rounded(.down) / scale }
+        let align = image.alignmentRect
+        let rect = NSRect(x: pixel((bounds.width - align.width) / 2) - align.minX, y: 0,
+                          width: image.size.width, height: image.size.height)
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        NSColor.secondaryLabelColor.set()
+        rect.fill(using: .sourceIn)
+    }
+}
+
+/// A view's height and first baseline as SwiftUI lays it out, unrounded, read once through a
+/// Layout that records them. AppKit's own measures (an NSImage's size, a text field's line
+/// height) are close but not SwiftUI's, and a row placed by them lands half a point off.
+struct SwiftUIVerticalMetrics {
+    var height: CGFloat
+    var baseline: CGFloat
+    /// The step from one line to the next, for text.
+    var lineHeight: CGFloat = 0
+
+    static let zero = SwiftUIVerticalMetrics(height: 0, baseline: 0)
+
+    /// Written by the probe's layout pass inside `measure` and read right after it, on the
+    /// main actor both times; Layout's Sendable requirement cannot see that.
+    private final class Sink: @unchecked Sendable { var metrics = SwiftUIVerticalMetrics.zero }
+
+    private struct Probe: Layout {
+        let sink: Sink
+        func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+            guard let view = subviews.first else { return .zero }
+            let d = view.dimensions(in: .unspecified)
+            sink.metrics = SwiftUIVerticalMetrics(height: d.height, baseline: d[.firstTextBaseline])
+            return CGSize(width: d.width, height: d.height)
+        }
+        func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+            subviews.first?.place(at: bounds.origin, proposal: .unspecified)
         }
     }
 
-    /// The line's value, with its optional whole-column tooltip.
-    ///
-    /// The help modifier goes on the text's own flexible frame rather than on the
-    /// `Text`, so the target is the entire remainder of the line — including the
-    /// space to the right of a short value — rather than only the drawn glyphs. As
-    /// with the glyph, `contentShape` is what makes that hold: a `Text`'s
-    /// interaction shape is its rendered characters, so without it the cursor would
-    /// fall between words and lose the tooltip.
-    ///
-    /// The two tracking regions do not overlap. The glyph's is its own 14pt box and
-    /// this one begins after the stack's 6pt spacing, so hovering the symbol shows
-    /// the field name and hovering the value shows the value — which is the whole
-    /// reason this is a second tooltip rather than a longer version of the first.
-    @ViewBuilder
-    private var text: some View {
-        let label = Text(item.text)
-            .font(.system(size: 11))
-            .foregroundStyle(.primary)
-            .textSelection(.enabled)
-            .lineLimit(truncates ? 1 : nil)
-            .truncationMode(.tail)
-            // Only meaningful when wrapping. `fixedSize` vertically tells the text to
-            // take the height its wrapped content needs rather than being clipped to
-            // one line; with `lineLimit(1)` there is nothing to grow into.
-            .fixedSize(horizontal: false, vertical: !truncates)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    /// At the display's scale: SwiftUI rounds a symbol's layout to the pixel, so at the
+    /// renderer's default 1x every symbol measure comes back in whole points. (Text measures
+    /// the same at 1x and 2x.)
+    @MainActor static func measure<V: View>(_ view: V, scale: CGFloat? = nil) -> SwiftUIVerticalMetrics {
+        let sink = Sink()
+        let renderer = ImageRenderer(content: Probe(sink: sink) { view })
+        renderer.scale = scale ?? NSScreen.main?.backingScaleFactor ?? 2
+        _ = renderer.cgImage
+        return sink.metrics
+    }
 
-        if let contentHelp {
-            label
-                .contentShape(Rectangle())
-                .help(contentHelp)
-        } else {
-            label
+    @MainActor static func measure<V: View, W: View>(_ view: V, twoLines: W) -> SwiftUIVerticalMetrics {
+        var metrics = measure(view)
+        metrics.lineHeight = measure(twoLines).height - metrics.height
+        return metrics
+    }
+}
+
+#if DEBUG
+/// What RSBGlyphRowListView does per card build, for `rsb-cards` (99.20): layout passes and
+/// the seconds spent in them, and rows made.
+@MainActor enum CardRowsProbe {
+    static var layouts = 0, rowsCreated = 0
+    static var layoutTime: CFTimeInterval = 0
+    static var rowLayouts = 0, labelMoves = 0
+    static var rowLayoutTime: CFTimeInterval = 0
+    static func reset() {
+        layouts = 0; rowsCreated = 0; rowLayouts = 0; labelMoves = 0; rowLayoutTime = 0; layoutTime = 0
+    }
+}
+#endif
+
+// MARK: - Card Stack
+//
+// The whole card stack as one AppKit view: every group's plate, outline and shadow, each
+// release's header band, badge row, dividers and glyph rows (RSBGlyphRowListView), from
+// RSBReleaseCardBody's values. It replaced SwiftUI cards that drew the same thing pixel for
+// pixel (`rsb-card-parity`, retired with them, compared the two at three widths, light and
+// dark), for cost: about 30 → 11 ms a film change, and 16 → 4 ms to build a single card
+// (Debug). Built in SwiftUI, each card cost 8–10 ms, two-thirds of it selectable text; AppKit
+// leaves inside SwiftUI cards gained little, because SwiftUI re-measures the whole tab each
+// time it inserts one.
+//
+// One acquisition per plate: a combo-pack parent and its attached child or children share it,
+// producing the double-height card — or the triple-height one of a "Combo-pack (dual BD)"
+// pack. The parent half opens with a format-tinted band; each child half carries a faint wash
+// throughout and opens with a divider, since its meaning is inherited from the parent above.
+// The edge follows the FilmSheet reorderable lists': an outline that wraps the top and fades
+// out toward the bottom, with the lower edge carried by a shadow (see RSBCardChrome).
+//
+// Matching SwiftUI took a few rules, kept here for later changes: label frames are the text's
+// width + 4 at x − 2, laid out left-aligned and placed by hand (a self-centering NSTextField
+// starts the line between pixels); text and symbol heights come from SwiftUIVerticalMetrics at
+// the display's scale; child frames round where the window's pixels are (PixelSnap); a view's
+// own shadow goes through NSView.shadow (RSBViewShadow), a sublayer's takes SwiftUI's radius.
+fileprivate struct RSBCardStack: NSViewRepresentable {
+    let groups: [RSBReleaseCardGroup]
+    /// Passed so the day changing updates the cards ("Releases on" becomes "Released on"), as
+    /// the SwiftUI cards' read of CurrentDay did; the stack also keys its no-change check on it.
+    let today: Date
+
+    func makeNSView(context: Context) -> RSBCardStackView { RSBCardStackView() }
+
+    func updateNSView(_ view: RSBCardStackView, context: Context) {
+        let animated = context.transaction.animation != nil && !context.transaction.disablesAnimations
+        view.update(groups: groups, today: today, animated: animated)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: RSBCardStackView, context: Context) -> CGSize? {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? 268
+        return CGSize(width: width, height: nsView.height(forWidth: width))
+    }
+}
+
+/// SwiftUI's measures for the card's text and dividers, read once (see SwiftUIVerticalMetrics).
+@MainActor
+private enum RSBCardMetrics {
+    static let badgeText = SwiftUIVerticalMetrics.measure(Text("2023").font(.system(size: 11, weight: .heavy)))
+    static let studioText = SwiftUIVerticalMetrics.measure(Text("Xg").font(.system(size: 12, weight: .semibold)))
+    static let bannerText = SwiftUIVerticalMetrics.measure(Text("Xg").font(.system(size: 10, weight: .medium)))
+    static let divider = SwiftUIVerticalMetrics.measure(Divider())
+    static let headerHeight = max(badgeText.height + 2, studioText.height, RSBCardChrome.trailingGlyphHeight)
+    static let childHeaderHeight = max(badgeText.height + 2, bannerText.height)
+
+    static func color(_ color: Color) -> NSColor { NSColor(color) }
+}
+
+/// Rounds a container's child frames where the window's pixels are, as SwiftUI rounds them.
+@MainActor
+private struct PixelSnap {
+    let originY: CGFloat
+    let scale: CGFloat
+    init(_ view: NSView) {
+        scale = unsafe view.window?.backingScaleFactor ?? 2
+        let windowHeight = unsafe view.window?.contentView?.bounds.height ?? 0
+        originY = windowHeight - view.convert(NSPoint.zero, to: nil).y
+    }
+    func y(_ v: CGFloat) -> CGFloat { ((originY + v) * scale + 0.5).rounded(.down) / scale - originY }
+    func x(_ v: CGFloat) -> CGFloat { (v * scale + 0.5).rounded(.down) / scale }
+    func rect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> NSRect {
+        let top = self.y(y), left = self.x(x)
+        return NSRect(x: left, y: top, width: self.x(x + width) - left, height: self.y(y + height) - top)
+    }
+}
+
+final class RSBCardStackView: NSView {
+    /// The cards shown, top to bottom, with the group each one draws.
+    private var visible: [(id: UUID, view: RSBCardGroupView)] = []
+    /// Cards fading out after a filter change, still at their old frames, by group. A group
+    /// that comes back before its card has gone takes the same card back, as SwiftUI does.
+    private var leaving: [(id: UUID, view: RSBCardGroupView)] = []
+    private var pool: [RSBCardGroupView] = []
+    private var fadeToken = 0
+    /// What the cards were last drawn from. The groups and the day are everything a card reads,
+    /// so an update that repeats both (the summary table toggled, an edit elsewhere in the film,
+    /// the tab rebuilt off-screen as a swipe neighbor) has nothing to change.
+    private var drawn: (groups: [RSBReleaseCardGroup], today: Date)?
+
+    override var isFlipped: Bool { true }
+
+    private func takeView() -> RSBCardGroupView {
+        if let view = pool.popLast() {
+            view.isHidden = false
+            view.alphaValue = 1
+            return view
+        }
+        let view = RSBCardGroupView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        return view
+    }
+
+    private func retire(_ view: RSBCardGroupView) {
+        view.layer?.removeAllAnimations()
+        view.isHidden = true
+        view.alphaValue = 1
+        pool.append(view)
+    }
+
+    /// `animated` is a filter change (the transaction RTabReleasesContent's `.animation`
+    /// scopes to the filter); anything else — a new film, an edited release — swaps in at once.
+    fileprivate func update(groups: [RSBReleaseCardGroup], today: Date, animated: Bool) {
+        if let drawn, drawn.groups == groups, drawn.today == today { return }
+        drawn = (groups, today)
+        guard animated, unsafe window != nil, bounds.width > 0 else {
+            let gone = leaving
+            leaving = []
+            for entry in gone { retire(entry.view) }
+            // Re-point the cards in place, by position: a new film's groups are all new.
+            var views = visible.map(\.view)
+            while views.count > groups.count { retire(views.removeLast()) }
+            while views.count < groups.count { views.append(takeView()) }
+            for (view, group) in zip(views, groups) {
+                view.layer?.removeAllAnimations()
+                view.configure(group)
+            }
+            visible = zip(groups, views).map { ($0.id, $1) }
+            needsLayout = true
+            return
+        }
+        // SwiftUI's ForEach, by identity: a card that stays moves to its new place, a card that
+        // goes fades out where it was, and one that comes fades in where it lands, all on the
+        // filter's spring (`.smooth(duration: 0.3)`).
+        var byID = Dictionary(uniqueKeysWithValues: visible.map { ($0.id, $0.view) })
+        var next: [(id: UUID, view: RSBCardGroupView, inserted: Bool)] = []
+        for group in groups {
+            if let view = byID.removeValue(forKey: group.id) {
+                view.configure(group)
+                next.append((group.id, view, false))
+            } else if let i = leaving.firstIndex(where: { $0.id == group.id }) {
+                // Coming back mid-fade: fade it in again from where it is.
+                let view = leaving.remove(at: i).view
+                let opacity = view.layer?.presentation()?.opacity ?? 0
+                view.alphaValue = 1
+                view.layer?.add(spring("opacity", from: opacity, to: 1), forKey: "fade")
+                view.configure(group)
+                next.append((group.id, view, false))
+            } else {
+                let view = takeView()
+                view.configure(group)
+                next.append((group.id, view, true))
+            }
+        }
+        visible = next.map { ($0.id, $0.view) }
+        let frames = targetFrames(width: bounds.width)
+        for (entry, frame) in zip(next, frames) {
+            let view = entry.view
+            if entry.inserted {
+                view.frame = frame
+                view.alphaValue = 1
+                view.layer?.add(spring("opacity", from: 0, to: 1), forKey: "fade")
+            } else {
+                let from = view.layer?.presentation()?.position ?? view.layer?.position ?? .zero
+                view.frame = frame
+                if let to = view.layer?.position, to != from {
+                    view.layer?.add(spring("position", from: NSValue(point: from), to: NSValue(point: to)), forKey: "move")
+                }
+            }
+        }
+        for (id, view) in byID {
+            leaving.append((id, view))
+            // From its current opacity: it may still be fading in.
+            let opacity = view.layer?.presentation()?.opacity ?? 1
+            view.alphaValue = 0
+            let fade = spring("opacity", from: opacity, to: 0)
+            CATransaction.begin()
+            // Only this fade's own finish retires the card: one replaced or removed early
+            // (the card came back, or the stack was re-pointed) also calls this.
+            // (The layer keeps a copy of the animation, so it is told apart by a token.)
+            fadeToken += 1
+            let token = fadeToken
+            fade.setValue(token, forKey: "token")
+            CATransaction.setCompletionBlock { [weak self, weak view] in
+                guard let self, let view,
+                      (view.layer?.animation(forKey: "fade")?.value(forKey: "token") as? Int).map({ $0 == token }) ?? true,
+                      let i = self.leaving.firstIndex(where: { $0.view === view }) else { return }
+                self.leaving.remove(at: i)
+                self.retire(view)
+            }
+            view.layer?.add(fade, forKey: "fade")
+            CATransaction.commit()
         }
     }
 
-    /// The tooltip is attached to the glyph alone, not the whole line: the text beside it is
-    /// selectable, and a help modifier spanning both would put a tooltip on content the user
-    /// may be trying to copy.
-    @ViewBuilder
-    private var glyph: some View {
-        // `contentShape` is what makes the tooltip reliable. A help modifier's tracking
-        // region follows the view's interaction shape, which for an Image is its drawn
-        // glyph — a handful of thin strokes at 11pt, with gaps between them that count as
-        // misses. Sustained hover would land in one of those gaps and no tooltip would
-        // appear until the cursor left and came back. Declaring the full 14pt frame as the
-        // interaction shape makes every point over the glyph's box a hit.
-        let image = Image(systemName: item.symbol)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .frame(width: 14, alignment: .center)
-            .contentShape(Rectangle())
+    /// The filter's spring: SwiftUI's `.smooth(duration: 0.3)` is a spring with a 0.3 s
+    /// perceptual duration and no bounce, which is what this initializer takes.
+    ///
+    /// Started two display frames late. Core Animation times an animation from the frame it
+    /// will be shown in, SwiftUI from its update, which reaches the screen two frames later;
+    /// `releases-filter` films the same switch both ways, and undelayed the AppKit cards led
+    /// SwiftUI's by 25–35 ms (two frames at 60 Hz) on the same curve.
+    private func spring(_ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
+        let animation = CASpringAnimation(perceptualDuration: 0.3, bounce: 0)
+        animation.keyPath = keyPath
+        animation.fromValue = from
+        animation.toValue = to
+        animation.duration = animation.settlingDuration
+        let fps = Double(unsafe window?.screen?.maximumFramesPerSecond ?? 60)
+        animation.beginTime = CACurrentMediaTime() + 2 / max(fps, 1)
+        animation.fillMode = .backwards
+        return animation
+    }
 
-        if let help = item.help {
-            image.help(help)
-        } else {
-            image
+    #if DEBUG
+    /// For `releases-filter`'s burst checks (99.56): cards shown, cards still fading out, the
+    /// lowest opacity a shown card is drawn at, and shown cards that are hidden or transparent.
+    var debugState: (shown: Int, leaving: Int, minOpacity: Float, drawnHidden: Int) {
+        let opacities = visible.map { $0.view.layer?.presentation()?.opacity ?? $0.view.layer?.opacity ?? 1 }
+        let hidden = visible.filter { $0.view.isHidden || $0.view.alphaValue < 1 }.count
+        return (visible.count, leaving.count, opacities.min() ?? 1, hidden)
+    }
+    #endif
+
+    func height(forWidth width: CGFloat) -> CGFloat {
+        let heights = visible.map { $0.view.height(forWidth: width) }
+        return heights.reduce(0, +) + CGFloat(max(0, heights.count - 1)) * RSBCardChrome.sidebarInset
+    }
+
+    private func targetFrames(width: CGFloat) -> [NSRect] {
+        let snap = PixelSnap(self)
+        var y: CGFloat = 0
+        return visible.map { entry in
+            let h = entry.view.height(forWidth: width)
+            defer { y += h + RSBCardChrome.sidebarInset }
+            return snap.rect(x: 0, y: y, width: width, height: h)
         }
+    }
+
+    /// Moved to a display of another scale, or into a window at all (SwiftUI sizes and lays
+    /// out a new view before inserting it): every frame was rounded for other pixels, and the
+    /// rows' symbol measures, so the stack's height, can differ by scale. Relayout everything
+    /// and have SwiftUI ask for the height again.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        invalidateForPixels()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if unsafe window != nil { invalidateForPixels() }
+    }
+
+    private func invalidateForPixels() {
+        var pending: [NSView] = [self]
+        while let view = pending.popLast() {
+            view.needsLayout = true
+            pending.append(contentsOf: view.subviews)
+        }
+        invalidateIntrinsicContentSize()
+    }
+
+    override func layout() {
+        super.layout()
+        for (entry, frame) in zip(visible, targetFrames(width: bounds.width)) where entry.view.frame != frame {
+            entry.view.frame = frame
+        }
+    }
+}
+
+/// One acquisition's plate: the release bodies stacked inside the clipped, outlined,
+/// shadowed rounded rectangle.
+fileprivate final class RSBCardGroupView: NSView {
+    private let shadowLayer = CAShapeLayer()
+    private let content = RSBFlippedView()
+    private let borderLayer = CAGradientLayer()
+    private let borderMask = CAShapeLayer()
+    private var bodies: [RSBCardBodyView] = []
+    private var count = 0
+
+    override var isFlipped: Bool { true }
+
+    /// A new width re-wraps the rows and re-rounds every frame below: lay out again.
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
+    }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        shadowLayer.shadowOpacity = Float(RSBCardChrome.shadowOpacity)
+        shadowLayer.shadowRadius = RSBCardChrome.shadowRadius
+        shadowLayer.shadowOffset = CGSize(width: 0, height: RSBCardChrome.shadowOffsetY)
+        shadowLayer.shadowColor = NSColor.black.cgColor
+        layer?.addSublayer(shadowLayer)
+        content.wantsLayer = true
+        content.layer?.masksToBounds = true
+        content.layer?.cornerRadius = RSBCardChrome.cardCornerRadius
+        content.layer?.cornerCurve = .continuous
+        content.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(content)
+        borderLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        borderLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        borderLayer.locations = [0, NSNumber(value: RSBCardChrome.borderFadeStart), 1]
+        borderMask.fillColor = nil
+        borderMask.strokeColor = NSColor.black.cgColor
+        borderMask.lineWidth = RSBCardChrome.borderWidth
+        borderLayer.mask = borderMask
+        borderLayer.zPosition = 10
+        layer?.addSublayer(borderLayer)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    func configure(_ group: RSBReleaseCardGroup) {
+        while bodies.count < group.releases.count {
+            let body = RSBCardBodyView()
+            body.translatesAutoresizingMaskIntoConstraints = false
+            bodies.append(body)
+            content.addSubview(body)
+        }
+        let children = max(0, group.releases.count - 1)
+        for (i, body) in bodies.enumerated() {
+            body.isHidden = i >= group.releases.count
+            guard i < group.releases.count else { continue }
+            let banner: String? = i == 0 ? nil
+                : (children > 1 ? "Included in Combo-pack (\(i) of \(children))" : "Included in Combo-pack")
+            body.configure(RSBReleaseCardBody(model: group.releases[i], attachedChildBanner: banner))
+        }
+        count = group.releases.count
+        needsLayout = true
+    }
+
+    func height(forWidth width: CGFloat) -> CGFloat {
+        bodies.prefix(count).map { $0.height(forWidth: width) }.reduce(0, +)
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds
+        let path = RoundedRectangle(cornerRadius: RSBCardChrome.cardCornerRadius, style: .continuous).path(in: b).cgPath
+        shadowLayer.frame = b
+        shadowLayer.path = path
+        shadowLayer.shadowPath = path
+        content.frame = b
+        borderLayer.frame = b
+        borderMask.frame = b
+        let inset = RSBCardChrome.borderWidth / 2
+        borderMask.path = RoundedRectangle(cornerRadius: RSBCardChrome.cardCornerRadius - inset, style: .continuous)
+            .path(in: b.insetBy(dx: inset, dy: inset)).cgPath
+        let snap = PixelSnap(content)
+        var y: CGFloat = 0
+        for body in bodies.prefix(count) {
+            let h = body.height(forWidth: b.width)
+            body.frame = snap.rect(x: 0, y: y, width: b.width, height: h)
+            y += h
+        }
+    }
+
+    override func updateLayer() { super.updateLayer(); applyColors() }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyColors() }
+
+    private func applyColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            shadowLayer.fillColor = NSColor.controlBackgroundColor.cgColor
+            let edge = NSColor.separatorColor
+            let c = edge.withAlphaComponent(edge.alphaComponent * RSBCardChrome.borderOpacity).cgColor
+            borderLayer.colors = [c, c, edge.withAlphaComponent(0).cgColor]
+        }
+    }
+}
+
+/// A layer-drawn capsule or circle with the card's badge shadow, optionally dashed.
+final class RSBShapeView: NSView {
+    enum Style { case fill(NSColor), stroke(NSColor, dashed: Bool) }
+    private let shape = CAShapeLayer()
+    /// A rounded rectangle of this radius instead of a capsule (the format badge).
+    var cornerRadius: CGFloat? { didSet { needsLayout = true } }
+    var style: Style = .fill(.gray) { didSet { needsLayout = true; applyColors() } }
+    var shadowed = true { didSet { shape.shadowOpacity = shadowed ? Float(RSBCardChrome.glyphShadowOpacity) : 0 } }
+    /// Draws only the part right of this x (the upcoming connector's mask).
+    var visibleFromX: CGFloat = 0 { didSet { needsLayout = true } }
+
+    override var isFlipped: Bool { true }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        shape.shadowColor = NSColor.black.cgColor
+        shape.shadowRadius = RSBCardChrome.glyphShadowRadius
+        shape.shadowOffset = CGSize(width: 0, height: RSBCardChrome.glyphShadowOffsetY)
+        shape.shadowOpacity = Float(RSBCardChrome.glyphShadowOpacity)
+        layer?.addSublayer(shape)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    override func layout() {
+        super.layout()
+        shape.frame = bounds
+        switch style {
+        case .fill:
+            let path = (cornerRadius.map { RoundedRectangle(cornerRadius: $0, style: .continuous).path(in: bounds) }
+                        ?? Capsule(style: .continuous).path(in: bounds)).cgPath
+            shape.path = path
+            shape.shadowPath = path
+            shape.lineDashPattern = nil
+            shape.mask = nil
+        case .stroke(_, let dashed):
+            shape.path = Capsule(style: .continuous).path(in: bounds.insetBy(dx: 0.5, dy: 0.5)).cgPath
+            shape.shadowPath = nil
+            shape.lineWidth = 1
+            shape.lineDashPattern = dashed ? [3, 2] : nil
+            if visibleFromX > 0 {
+                let mask = CALayer()
+                mask.backgroundColor = NSColor.black.cgColor
+                mask.frame = CGRect(x: visibleFromX, y: -2, width: max(0, bounds.width - visibleFromX), height: bounds.height + 4)
+                shape.mask = mask
+            } else {
+                shape.mask = nil
+            }
+        }
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyColors() }
+
+    private func applyColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            switch style {
+            case .fill(let color):
+                shape.fillColor = color.cgColor
+                shape.strokeColor = nil
+            case .stroke(let color, _):
+                shape.fillColor = nil
+                shape.strokeColor = color.cgColor
+            }
+        }
+    }
+}
+
+/// A card symbol: FramesGlyphView's placement (SwiftUI's own for an Image at a font), with an
+/// optional shadow under the drawn glyph, as `.shadow` puts one under an Image.
+final class RSBSymbolView: FramesGlyphView {
+    func setShadow(opacity: Double, radius: CGFloat, offsetY: CGFloat) {
+        wantsLayer = true
+        shadow = RSBViewShadow.make(opacity: opacity, radius: radius, offsetY: offsetY)
+    }
+
+    func set(_ name: String, size: CGFloat, weight: NSFont.Weight) {
+        pointSize = size
+        self.weight = weight
+        symbolName = name
+    }
+}
+
+/// One release's half of a card: the header band, then the badge row, glyph rows and
+/// dividers, as RSBReleaseCardBody lays them out.
+fileprivate final class RSBCardBodyView: NSView {
+    private var body: RSBReleaseCardBody?
+
+    private let wash = NSView()
+    private let band = NSView()
+    private let topDivider = NSView()
+    private let formatPlate = RSBShapeView()
+    private let formatLabel = NSTextField(labelWithString: "")
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let purchaseCircle = RSBShapeView()
+    private let purchaseGlyph = RSBSymbolView()
+    private let purchaseHelp = NSView()
+
+    private let yearFill = RSBShapeView()
+    private let yearConnector = RSBShapeView()
+    private let yearLabel = NSTextField(labelWithString: "")
+    private let baseYearLabel = NSTextField(labelWithString: "")
+    private let yearHelp = NSView()
+    private let regionPill = RSBShapeView()
+    private let regionCircle = RSBShapeView()
+    private let regionChar = NSTextField(labelWithString: "")
+    /// Carries the letter's ink shadow (see RSBViewShadow).
+    private let regionCharShadow = RSBFlippedView()
+    private let regionGlyph = RSBSymbolView()
+    private let regionHelp = NSView()
+    private let originLabel = NSTextField(labelWithString: "")
+
+    private let detailsDivider = NSView()
+    private let acquisitionDivider = NSView()
+    private let mainRows = RSBGlyphRowListView()
+    private let lowerRows = RSBGlyphRowListView()
+    private var splitsAcquisition = false
+
+    override var isFlipped: Bool { true }
+
+    /// A new width re-wraps the rows and re-rounds every frame below: lay out again.
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
+    }
+
+    init() {
+        super.init(frame: .zero)
+        let all: [NSView] = [wash, band, topDivider, formatPlate, formatLabel, titleLabel, purchaseCircle, purchaseGlyph,
+                             purchaseHelp, yearConnector, yearFill, yearLabel, baseYearLabel, yearHelp, regionPill,
+                             regionCircle, regionCharShadow, regionGlyph, regionHelp, originLabel, detailsDivider,
+                             acquisitionDivider, mainRows, lowerRows]
+        for v in all {
+            v.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(v)
+        }
+        for v in [wash, band, topDivider, detailsDivider, acquisitionDivider] { v.wantsLayer = true }
+        formatPlate.style = .fill(RSBCardMetrics.color(RSBCardChrome.badgePlate))
+        formatPlate.cornerRadius = RSBCardChrome.badgeCornerRadius
+        formatLabel.font = .systemFont(ofSize: 11, weight: .heavy)
+        formatLabel.textColor = RSBCardMetrics.color(RSBCardChrome.badgeInk)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.cell?.truncatesLastVisibleLine = true
+        purchaseCircle.style = .fill(RSBCardMetrics.color(RSBCardChrome.checkmarkGreen))
+        purchaseGlyph.tint = .white
+        yearFill.style = .fill(RSBCardMetrics.color(RSBCardChrome.badgeFill))
+        for l in [yearLabel, baseYearLabel] { l.font = .systemFont(ofSize: 11, weight: .heavy) }
+        regionPill.style = .fill(RSBCardMetrics.color(RSBCardChrome.badgeFill))
+        regionChar.font = .systemFont(ofSize: 10, weight: .semibold)
+        regionChar.translatesAutoresizingMaskIntoConstraints = false
+        regionCharShadow.addSubview(regionChar)
+        regionCharShadow.wantsLayer = true
+        originLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        originLabel.textColor = .white
+        originLabel.lineBreakMode = .byTruncatingTail
+        originLabel.cell?.truncatesLastVisibleLine = true
+        regionGlyph.tint = .white
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    func configure(_ body: RSBReleaseCardBody) {
+        self.body = body
+        let model = body.model
+        let child = body.isAttachedChild
+        wash.isHidden = !child
+        band.isHidden = child
+        topDivider.isHidden = !child
+        detailsDivider.isHidden = !child
+        formatLabel.stringValue = model.format
+        if let banner = body.attachedChildBanner {
+            titleLabel.stringValue = banner
+            titleLabel.font = .systemFont(ofSize: 10, weight: .medium)
+            titleLabel.textColor = .secondaryLabelColor
+        } else {
+            titleLabel.stringValue = model.studio.isEmpty ? "Unknown Studio" : model.studio
+            titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+            titleLabel.textColor = NSColor(body.titleColor)
+        }
+        purchaseCircle.isHidden = child || !model.purchased
+        purchaseGlyph.isHidden = child
+        purchaseHelp.isHidden = child
+        if model.purchased {
+            purchaseGlyph.set("checkmark", size: 18 * 8 / 14, weight: .bold)
+            purchaseGlyph.centersVectorBoundsHorizontally = true
+            purchaseGlyph.setShadow(opacity: 0.5, radius: 0.5, offsetY: 0.5)
+        } else {
+            purchaseGlyph.set("circle.dashed", size: 16, weight: .semibold)
+            purchaseGlyph.centersVectorBoundsHorizontally = false
+            purchaseGlyph.setShadow(opacity: RSBCardChrome.glyphShadowOpacity, radius: RSBCardChrome.glyphShadowRadius,
+                                    offsetY: RSBCardChrome.glyphShadowOffsetY)
+        }
+        purchaseCircle.shadowed = true
+        purchaseHelp.toolTip = model.purchased ? "Purchased" : "Not purchased"
+        purchaseHelp.describeForAccessibility(child ? nil : purchaseHelp.toolTip)
+
+        // Badge row.
+        let showsBadges = body.hasBadgeRow
+        let today = body.today
+        let upcoming = model.releaseDate?.isUpcoming(today: today) ?? false
+        let hasYear = showsBadges && !model.releaseYear.isEmpty
+        let hasBase = !model.originalReleaseYear.isEmpty
+        for v in [yearFill, yearLabel, yearHelp] as [NSView] { v.isHidden = !hasYear }
+        yearFill.style = upcoming ? .stroke(.tertiaryLabelColor, dashed: true) : .fill(RSBCardMetrics.color(RSBCardChrome.badgeFill))
+        yearFill.shadowed = !upcoming
+        yearLabel.stringValue = model.releaseYear
+        yearLabel.textColor = upcoming ? .labelColor : .white
+        baseYearLabel.stringValue = model.originalReleaseYear
+        baseYearLabel.textColor = .labelColor
+        baseYearLabel.isHidden = !hasYear || !hasBase
+        yearConnector.isHidden = !hasYear || !hasBase
+        yearConnector.style = .stroke(upcoming ? .tertiaryLabelColor : RSBCardMetrics.color(RSBCardChrome.badgeFill), dashed: upcoming)
+        yearConnector.shadowed = !upcoming
+        let releaseHelp = model.releaseDate.map { RSBReleaseCard.releasePhrase($0, today: today) } ?? "Release year \(model.releaseYear)"
+        yearHelp.toolTip = hasBase ? "\(releaseHelp); original release \(model.originalReleaseYear)" : releaseHelp
+        yearLabel.setAccessibilityHelp(yearHelp.toolTip)
+
+        let hasRegion = showsBadges && (model.regionIndicator != nil || !model.nationalOrigin.isEmpty)
+        for v in [regionPill, originLabel, regionHelp] as [NSView] { v.isHidden = !hasRegion }
+        regionCircle.isHidden = true
+        regionChar.isHidden = true
+        regionGlyph.isHidden = !hasRegion
+        switch model.regionIndicator {
+        case let .character(label, playable)?:
+            regionCircle.isHidden = !hasRegion
+            regionChar.isHidden = !hasRegion
+            regionGlyph.isHidden = true
+            regionCircle.style = .fill(NSColor(RSBRegionBadge.fill(playable: playable)))
+            regionChar.stringValue = label
+            regionChar.textColor = NSColor(RSBRegionBadge.ink(playable: playable))
+            regionCharShadow.shadow = RSBRegionBadge.inkNeedsShadow(playable: playable)
+                ? RSBViewShadow.make(opacity: 0.5, radius: 0.5, offsetY: 0.5) : nil
+        case .globe?:
+            regionGlyph.set("globe", size: RSBCardChrome.regionBadgeDiameter, weight: .regular)
+        case let .raw(value)?:
+            regionGlyph.isHidden = true
+            regionChar.isHidden = !hasRegion
+            regionChar.stringValue = value
+            regionChar.textColor = .white
+            regionCharShadow.shadow = nil
+        case nil:
+            regionGlyph.set("circle.dashed", size: 14, weight: .regular)
+        }
+        originLabel.stringValue = model.nationalOrigin
+        regionHelp.toolTip = model.regionLabel.isEmpty ? "No region lock recorded" : model.regionLabel
+        regionHelp.describeForAccessibility(hasRegion ? regionHelp.toolTip : nil)
+
+        // Rows.
+        splitsAcquisition = !child && !body.acquisitionBlockIsEmpty
+        mainRows.update(rows: splitsAcquisition ? body.mainRows : body.mainRows + body.notesRow)
+        lowerRows.update(rows: splitsAcquisition ? body.acquisitionRows + body.notesRow : [])
+        lowerRows.isHidden = !splitsAcquisition
+        acquisitionDivider.isHidden = !splitsAcquisition
+        needsLayout = true
+        applyColors()
+    }
+
+    /// The details stack's items, top to bottom, with their heights.
+    private enum Item { case divider(NSView), badges, rows(RSBGlyphRowListView) }
+
+    private func items() -> [Item] {
+        guard let body else { return [] }
+        var items: [Item] = []
+        if body.isAttachedChild { items.append(.divider(detailsDivider)) }
+        if !yearFill.isHidden || !regionPill.isHidden { items.append(.badges) }
+        items.append(.rows(mainRows))
+        if splitsAcquisition {
+            items.append(.divider(acquisitionDivider))
+            items.append(.rows(lowerRows))
+        }
+        return items
+    }
+
+    private func itemHeight(_ item: Item, width: CGFloat) -> CGFloat {
+        switch item {
+        case .divider: return RSBCardMetrics.divider.height
+        case .badges: return RSBCardChrome.badgeRowHeight
+        case .rows(let list): return list.height(forWidth: width)
+        }
+    }
+
+    private var headerBlockHeight: CGFloat {
+        guard let body else { return 0 }
+        return (body.isAttachedChild ? RSBCardMetrics.childHeaderHeight : RSBCardMetrics.headerHeight) + 8
+    }
+
+    func height(forWidth width: CGFloat) -> CGFloat {
+        guard let body else { return 0 }
+        let inner = width - 2 * RSBCardChrome.contentPadding
+        let list = items()
+        let details = list.map { itemHeight($0, width: inner) }.reduce(0, +) + CGFloat(max(0, list.count - 1)) * 8
+        let top: CGFloat = body.isAttachedChild ? 0 : RSBCardChrome.contentTopPadding
+        let lead: CGFloat = body.isAttachedChild ? RSBCardMetrics.divider.height : 0
+        return lead + headerBlockHeight + top + details + RSBCardChrome.contentPadding
+    }
+
+    override func layout() {
+        super.layout()
+        guard let body else { return }
+        let snap = PixelSnap(self)
+        let w = bounds.width
+        let pad = RSBCardChrome.contentPadding
+        // Every label is left-aligned and placed here, centered ones included: a text field
+        // that centers its own text centers the text's fractional width, which starts the
+        // line between pixels; SwiftUI rounds the text's frame to the pixel and draws from it.
+        func label(_ field: NSTextField, x: CGFloat, width: CGFloat, centerY: CGFloat, height: CGFloat, align: CGFloat = 0) {
+            let natural = field.intrinsicContentSize.width
+            let textWidth = min(natural, width)
+            field.frame = snap.rect(x: x + (width - textWidth) * align - 2, y: centerY - height / 2,
+                                    width: textWidth + 4, height: height)
+        }
+        wash.frame = bounds
+        var y: CGFloat = 0
+        if body.isAttachedChild {
+            topDivider.frame = snap.rect(x: 0, y: 0, width: w, height: RSBCardMetrics.divider.height)
+            y += RSBCardMetrics.divider.height
+        }
+        // Header band.
+        let headerH = headerBlockHeight
+        band.frame = snap.rect(x: 0, y: y, width: w, height: headerH)
+        let mid = y + headerH / 2
+        let badgeH = RSBCardMetrics.badgeText.height + 2
+        formatPlate.frame = snap.rect(x: pad, y: mid - badgeH / 2, width: 52, height: badgeH)
+        label(formatLabel, x: pad, width: 52, centerY: mid, height: RSBCardMetrics.badgeText.height, align: 0.5)
+        let titleX = pad + 52 + 8
+        if body.isAttachedChild {
+            label(titleLabel, x: titleX, width: w - titleX - pad, centerY: mid, height: RSBCardMetrics.bannerText.height)
+        } else {
+            let glyphX = w - pad - RSBCardChrome.trailingGlyphWidth
+            label(titleLabel, x: titleX, width: glyphX - 8 - titleX, centerY: mid, height: RSBCardMetrics.studioText.height)
+            let glyphFrame = snap.rect(x: glyphX, y: mid - RSBCardChrome.trailingGlyphHeight / 2,
+                                       width: RSBCardChrome.trailingGlyphWidth, height: RSBCardChrome.trailingGlyphHeight)
+            purchaseHelp.frame = glyphFrame
+            purchaseCircle.frame = snap.rect(x: glyphX + (RSBCardChrome.trailingGlyphWidth - 18) / 2, y: mid - 9, width: 18, height: 18)
+            // The checkmark centers on its circle (as the summary table's symbolBadge ZStack does), the dashed circle on
+            // the slot: the same center, rounded from different origins.
+            purchaseGlyph.frame = body.model.purchased ? purchaseCircle.frame : glyphFrame
+        }
+        y += headerH
+        // Details.
+        if !body.isAttachedChild { y += RSBCardChrome.contentTopPadding }
+        let inner = w - 2 * pad
+        for (i, item) in items().enumerated() {
+            if i > 0 { y += 8 }
+            let h = itemHeight(item, width: inner)
+            switch item {
+            case .divider(let view):
+                view.frame = snap.rect(x: pad, y: y, width: inner, height: h)
+            case .rows(let list):
+                list.frame = snap.rect(x: pad, y: y, width: inner, height: h)
+            case .badges:
+                // The two columns' HStack: equal halves, unless a badge's minimum (the year's
+                // two 48 pt compartments, the pill's 116 pt) is wider than its half, when it
+                // takes its minimum and the other column the rest — at a legacy scroller's width.
+                let available = inner - 10
+                let yearMinimum: CGFloat = yearFill.isHidden ? 0 : 2 * 48 + 3
+                let pillMinimum: CGFloat = regionPill.isHidden ? 0 : 116
+                var yearColumn = available / 2
+                if pillMinimum > available / 2 { yearColumn = max(yearMinimum, available - pillMinimum) }
+                else if yearMinimum > available / 2 { yearColumn = yearMinimum }
+                let pillColumn = max(pillMinimum, available - yearColumn)
+                let rowMid = y + h / 2
+                let compartment = max(48, (yearColumn - 3) / 2)
+                yearFill.frame = snap.rect(x: pad, y: y, width: compartment, height: h)
+                yearConnector.frame = snap.rect(x: pad, y: y, width: 2 * compartment + 3, height: h)
+                yearConnector.visibleFromX = (yearConnector.style.isDashed) ? max(0, compartment - h / 2) : 0
+                yearHelp.frame = yearConnector.frame
+                label(yearLabel, x: pad, width: compartment, centerY: rowMid, height: RSBCardMetrics.badgeText.height, align: 0.5)
+                label(baseYearLabel, x: pad + compartment + 3, width: compartment, centerY: rowMid,
+                      height: RSBCardMetrics.badgeText.height, align: 0.5)
+                let pillX = pad + yearColumn + 10
+                regionPill.frame = snap.rect(x: pillX, y: y, width: pillColumn, height: h)
+                let slot = snap.rect(x: pillX + 8, y: rowMid - 7, width: 14, height: 14)
+                regionCircle.frame = slot
+                regionGlyph.frame = slot
+                regionHelp.frame = snap.rect(x: pillX + 8, y: y, width: 14, height: h)
+                regionCharShadow.frame = snap.rect(x: pillX + 8, y: y, width: 14, height: h)
+                label(regionChar, x: pillX + 8, width: 14, centerY: rowMid, height: RSBCardMetrics.bannerText.height, align: 0.5)
+                regionChar.frame = regionChar.frame.offsetBy(dx: -regionCharShadow.frame.minX, dy: -regionCharShadow.frame.minY)
+                let originX = pillX + 8 + 14 + 6
+                label(originLabel, x: originX, width: pillX + pillColumn - 8 - originX, centerY: rowMid,
+                      height: RSBCardMetrics.badgeText.height, align: 0.5)
+            }
+            y += h
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyColors() }
+
+    private func applyColors() {
+        guard let body else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            wash.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(RSBCardChrome.childWashOpacity).cgColor
+            band.layer?.backgroundColor = NSColor(body.bandTint).cgColor
+            for d in [topDivider, detailsDivider, acquisitionDivider] {
+                d.layer?.backgroundColor = NSColor.separatorColor.cgColor
+            }
+        }
+    }
+}
+
+/// A plain flipped container.
+final class RSBFlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+extension NSView {
+    /// Makes a tooltip's box the accessibility element for the glyph under it, named by the
+    /// tooltip, as SwiftUI names an Image that carries `.help`; nil takes it out again.
+    func describeForAccessibility(_ label: String?) {
+        setAccessibilityElement(label != nil)
+        setAccessibilityRole(label != nil ? .image : nil)
+        setAccessibilityLabel(label)
+    }
+}
+
+private extension RSBShapeView.Style {
+    var isDashed: Bool { if case .stroke(_, true) = self { return true } else { return false } }
+}
+
+/// A SwiftUI `.shadow(color: .black.opacity(o), radius: r, y: dy)` for a whole view. AppKit owns
+/// a layer-backed view's own layer and keeps its shadow in step with the view's `shadow`, so a
+/// shadow set on that layer directly is overwritten and never drawn; this goes through the
+/// view's property. (A shadow on a sublayer the view adds, as RSBShapeView's, is unaffected.)
+enum RSBViewShadow {
+    /// NSShadow's blur radius for a SwiftUI shadow radius, fit against SwiftUI's with `rsb-card-parity` (2 was
+    /// the closest of 0.5–4 for the checkmark, the dashed circle and the region letter).
+    static let blurScale: CGFloat = 2
+
+    static func make(opacity: Double, radius: CGFloat, offsetY: CGFloat) -> NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(opacity)
+        shadow.shadowBlurRadius = radius * blurScale
+        // AppKit copies this offset straight onto the view's layer, and a flipped view's layer is
+        // geometry-flipped, so positive is down there. Every caller's view is flipped.
+        shadow.shadowOffset = NSSize(width: 0, height: offsetY)
+        return shadow
     }
 }

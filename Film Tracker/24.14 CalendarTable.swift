@@ -147,7 +147,7 @@ func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry
         }
         .sorted { $0.date > $1.date }
 
-    let calendar = Calendar.current
+    let calendar = AppCalendar.current
     // Allocated in iteration order, so a repeated entry's occurrence suffix is assigned
     // deterministically — `map` over `enumerated()` runs strictly in sequence.
     var identities = RowIdentityAllocator()
@@ -214,31 +214,19 @@ struct ViewingHistoryTable: View {
 // MARK: - Detailed Viewing History Table
 
 /// Expanded table that adds "Time from Today" and "Version" columns with horizontal scrolling.
-/// Gated by Preferences.additionalCalTableDetails. Dates-from-today are recalculated once per
-/// day at midnight (mirroring the SmartLists daily sentinel pattern) and upon first appearance.
-/// @MainActor is required so the midnight-scheduling Task can capture `self` without triggering
-/// a Sendable warning — SwiftUI View bodies are implicitly main-actor, but the struct type is not
-/// unless explicitly annotated.
-@MainActor
+/// Gated by Preferences.additionalCalTableDetails. The "Time Ago" column is measured against
+/// `CurrentDay.shared.today`, so it re-renders when the calendar day changes (at midnight, on
+/// wake, or on a clock or time-zone change) and at no other time.
 struct ViewingHistoryDetailedTable: View {
     @Binding var isTableExpanded: Bool
     let calendarTable: [String]
 
-    /// The calendar day the "Time Ago" column is measured against.
-    ///
-    /// This is the one input to the rows that is not derivable from `calendarTable`, so
-    /// it is the only piece of state this table keeps. The rows themselves are derived
-    /// (see `tableData`), which is what removes the second render pass a new film used
-    /// to cost — the old `@State` cache was rewritten from `onChange(of: calendarTable)`
-    /// on every film transition, and the `lastCalendarTable` / `lastTodayStart` pair
-    /// existed solely to decide whether that rewrite could be skipped. Deriving the rows
-    /// makes both mirrors unnecessary: there is nothing to keep in step.
-    @State private var referenceDay: Date = Calendar.current.startOfDay(for: Date())
-    @State private var midnightTask: Task<Void, Never>?
-
-    /// The rows, derived from `calendarTable` and `referenceDay`.
+    /// The rows, derived from `calendarTable` and the current day. Reading
+    /// `CurrentDay.shared.today` here is what re-renders the table when the day turns; the
+    /// table keeps no state and schedules nothing of its own.
     private var tableData: [DetailedCalendarRow] {
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
+        let referenceDay = CurrentDay.shared.today
         return viewingHistoryEntries(from: calendarTable).map { entry in
             DetailedCalendarRow(
                 id: entry.id,
@@ -250,16 +238,6 @@ struct ViewingHistoryDetailedTable: View {
                 // "Version" column — mirrors ViewingDatesTableContent in FSTabDetails.
                 version: extractVersionCode(from: entry.original).displayName)
         }
-    }
-
-    /// Advances `referenceDay` when, and only when, the calendar day has actually
-    /// changed. The guard is what keeps this from costing a render: SwiftUI does not
-    /// dedupe a `@State` write against its current value, so an unguarded assignment
-    /// would invalidate the view on every call — reintroducing, on each film change,
-    /// exactly the second pass this conversion removes.
-    private func refreshReferenceDayIfNeeded() {
-        let today = Calendar.current.startOfDay(for: Date())
-        if referenceDay != today { referenceDay = today }
     }
 
     // Column widths — fixed to accommodate widest possible readouts.
@@ -288,45 +266,6 @@ struct ViewingHistoryDetailedTable: View {
             CustomTableCell(row.timeFromToday, minWidth: timeFromTodayColWidth, maxWidth: timeFromTodayColWidth)
             CustomTableCell(row.version, minWidth: versionColWidth, maxWidth: versionColWidth)
         }
-        // The rows no longer need populating here — they are derived. What this still
-        // covers is a stale reference day: if the app has been running across a midnight
-        // and the scheduled task has not yet fired (or was delayed by sleep), the next
-        // film change corrects the "Time Ago" column, exactly as the old rebuild did.
-        // The write inside is guarded, so on any ordinary day this is a no-op.
-        .onChange(of: calendarTable, initial: true) { _, _ in
-            refreshReferenceDayIfNeeded()
-        }
-        .onAppear {
-            scheduleDaily()
-        }
-        .onDisappear {
-            midnightTask?.cancel()
-            midnightTask = nil
-        }
-    }
-
-    // MARK: - Midnight Scheduling
-
-    /// Schedules a single task that fires at the next midnight, rebuilds against the
-    /// new calendar day, then re-schedules itself for the following midnight. This mirrors the pattern
-    /// used by SmartLists.scheduleRotationRefresh(). Capturing 'self' is safe here
-    /// because the struct is annotated @MainActor. The task is stored in midnightTask
-    /// so it can be canceled on view destruction to avoid resource leaks.
-    private func scheduleDaily() {
-        midnightTask?.cancel()
-        let calendar = Calendar.current
-        let now = Date()
-        guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: now),
-              let midnight = calendar.date(bySettingHour: 0, minute: 0, second: 0, of: tomorrow) else {
-            return
-        }
-        let interval = midnight.timeIntervalSince(now)
-        midnightTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(interval))
-            guard !Task.isCancelled else { return }
-            refreshReferenceDayIfNeeded()
-            scheduleDaily()
-        }
     }
 
     // MARK: - Time-from-Today Formatting
@@ -337,7 +276,7 @@ struct ViewingHistoryDetailedTable: View {
     ///   < 1 month  → expressed in weeks
     ///   < 1 week   → expressed in days
     static func formatTimeFromToday(from viewingDay: Date, to today: Date) -> String {
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
 
         // Days difference (viewing dates should always be in the past).
         let daysDiff = calendar.dateComponents([.day], from: viewingDay, to: today).day ?? 0

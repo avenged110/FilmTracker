@@ -382,17 +382,17 @@ struct UnifiedViewingPopover: View, Loggable {
     
     private var calculatedEndTime: String {
         // Create start date using selected date and time
-        var components = Calendar.current.dateComponents([.year, .month, .day], from: selectedDate)
+        var components = AppCalendar.current.dateComponents([.year, .month, .day], from: selectedDate)
         components.hour = hour24
         components.minute = minute
         
-        guard let startDate = Calendar.current.date(from: components) else {
+        guard let startDate = AppCalendar.current.date(from: components) else {
             return "--:-- --"
         }
         
         // Calculate end date (start + duration in minutes).
         
-        guard let endDate = Calendar.current.date(byAdding: .minute, value: durationMinutes, to: startDate) else {
+        guard let endDate = AppCalendar.current.date(byAdding: .minute, value: durationMinutes, to: startDate) else {
             return "--:-- --"
         }
         
@@ -502,7 +502,7 @@ struct UnifiedViewingPopover: View, Loggable {
         Preferences.store.set(calendar.calendarIdentifier, forKey: "LastSelectedCalendarID")
         
         // Create start date using selected date and time.
-        var components = Calendar.current.dateComponents([.year, .month, .day], from: selectedDate)
+        var components = AppCalendar.current.dateComponents([.year, .month, .day], from: selectedDate)
         components.hour = hour24
         components.minute = minute
         
@@ -515,7 +515,7 @@ struct UnifiedViewingPopover: View, Loggable {
         // the other two paths were already corrected for. Unreachable in practice, since
         // the components come from a real date plus a validated 24-hour time; kept
         // consistent rather than left as the odd path out.
-        guard let startDate = Calendar.current.date(from: components) else {
+        guard let startDate = AppCalendar.current.date(from: components) else {
             log("Failed to create start date; recording viewing locally only")
             onDateSelected(selectedDate, selectedVersion ?? .none)
             isPresented = false
@@ -525,7 +525,7 @@ struct UnifiedViewingPopover: View, Loggable {
 
         // Calculate end date (start + duration in minutes).
 
-        let endDate = Calendar.current.date(byAdding: .minute, value: durationMinutes, to: startDate) ?? startDate
+        let endDate = AppCalendar.current.date(byAdding: .minute, value: durationMinutes, to: startDate) ?? startDate
         
         log("Creating event: Start=\(startDate), Duration=\(durationMinutes)min, End=\(endDate)")
         

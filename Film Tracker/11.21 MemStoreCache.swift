@@ -1,7 +1,7 @@
 // MARK: - MemStoreCache.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Persists MemoryStore's snapshot dictionaries as a binary plist so subsequent launches
+// Persists MemoryStore's snapshot dictionaries as JSON so subsequent launches
 // can skip the SwiftData fetch entirely on a cache hit. Validates on load by computing a
 // lightweight fingerprint (film count, UUID XOR, max lastModified, list/membership counts)
 // from cheap SwiftData queries and comparing it against the stored fingerprint; a mismatch
@@ -22,10 +22,44 @@ import SwiftData
 ///
 /// Version 3: `ReleaseSnapshot.releaseYear` became `releaseDate` (full release dates). A v2
 /// file would also fail to decode for the missing key; the bump states it outright.
-private let currentCacheFormatVersion = 3
+///
+/// Version 4: the payload is JSON rather than a binary plist (see `MemoryStoreCacheCoding`).
+/// A v3 file fails to decode as JSON, so it is a cache miss before the version is read.
+private let currentCacheFormatVersion = 4
+
+/// The payload's encoder and decoder. JSON, not a binary plist: measured 2026-10-27 on a
+/// 1,400-film library (Release, median of six launches each), the launch decode fell from
+/// 317 to 129 ms and the save's encode from 175 to 105 ms, for a file 4.8 MB against
+/// 2.6 MB — which costs 1–2 ms more to read even from the SSD, and about half a
+/// millisecond more to write. The decode is off the critical path (see `load()`), so first
+/// paint is unchanged; what moved is the slack before initializeApp() (170 → 360 ms) and
+/// the work of every save. The round trip was checked against the v3 plist on the same
+/// library: every film, release and list identical, every Double and Date bit for bit. The fingerprint file stays a plist; it
+/// is a few hundred bytes. A non-finite Double, which JSON cannot spell and which
+/// JSONEncoder would otherwise refuse (failing the whole save), is written as a string and
+/// read back as the same value.
+private enum MemoryStoreCacheCoding {
+    static let nonFiniteSpellings = (positiveInfinity: "+Infinity", negativeInfinity: "-Infinity", nan: "NaN")
+
+    static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: nonFiniteSpellings.positiveInfinity,
+            negativeInfinity: nonFiniteSpellings.negativeInfinity, nan: nonFiniteSpellings.nan)
+        return encoder
+    }
+
+    static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+            positiveInfinity: nonFiniteSpellings.positiveInfinity,
+            negativeInfinity: nonFiniteSpellings.negativeInfinity, nan: nonFiniteSpellings.nan)
+        return decoder
+    }
+}
 
 /// The complete serializable representation of MemoryStore's data.
-/// Stored as a binary plist alongside a fingerprint for validation.
+/// Stored as JSON alongside a fingerprint (a binary plist) for validation.
 ///
 /// Three pieces of redundancy were removed in version 2, each of which cost decode time for
 /// no information gained:
@@ -79,6 +113,9 @@ private struct SpeculativePayloadLoad: Sendable {
     let readElapsed: Duration
     let decodeElapsed: Duration
     let rebuildElapsed: Duration
+    /// When the read began and the last stage ended, in LaunchTimeline milliseconds.
+    var startedAt: Double = 0
+    var finishedAt: Double = 0
 }
 
 // MARK: - Store Fingerprint
@@ -269,7 +306,50 @@ final class MemoryStoreCache: Loggable {
     /// `MemoryStoreCachePayload`), and omitting it also spares the caller from taking a second
     /// reference to it for the duration of the write — one less dictionary whose storage is
     /// non-uniquely-referenced while an encode is in flight.
-    func save(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList]) async {
+    ///
+    /// `contentVersion` is MemoryStore's: it moves on every mutation of `films` or `lists`
+    /// (see `MemoryStore.contentVersion`). A save of the version the files already hold is
+    /// skipped — the bytes would describe the same store — which is what makes a quit after
+    /// no edits, or after the throttled save has already caught up, write nothing (≈105 ms
+    /// of encoding and 4.8 MB of disk writes per quit, 2026-10-27).
+    ///
+    /// Saves run one at a time, in call order. A throttled save already encoding when the
+    /// quit save begins is not stopped by canceling its task, and two overlapping writes
+    /// could otherwise land in either order — leaving the older payload on disk, and the
+    /// version bookkeeping above believing the newer one.
+    ///
+    /// A save still waiting its turn when `invalidateOnDisk()` runs is dropped: it was asked
+    /// for against the files being invalidated (a restore replaces the store under them).
+    func save(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], contentVersion: UInt64) async {
+        let previous = saveInFlight
+        let requestedEpoch = invalidationEpoch
+        let current = Task {
+            await previous?.value
+            guard requestedEpoch == self.invalidationEpoch else {
+                Self.log("Save dropped: snapshot cache invalidated after it was requested")
+                return
+            }
+            await self.write(films: films, lists: lists, contentVersion: contentVersion)
+        }
+        saveInFlight = current
+        await current.value
+    }
+
+    /// Records that the files on disk hold exactly this store content — for MemoryStore to
+    /// call when it adopts a cache hit, whose dictionaries ARE the file's contents.
+    func recordOnDisk(contentVersion: UInt64) {
+        onDiskContentVersion = contentVersion
+    }
+
+    /// The MemoryStore content version the files on disk hold, or nil when that is not
+    /// known (nothing loaded or saved yet, a save failed or is under way, the files were
+    /// invalidated).
+    private var onDiskContentVersion: UInt64?
+    private var saveInFlight: Task<Void, Never>?
+    /// Moved by every `invalidateOnDisk()`.
+    private var invalidationEpoch = 0
+
+    private func write(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], contentVersion: UInt64) async {
         guard let payloadURL = payloadURL,
               let fingerprintURL = fingerprintURL else {
             Self.log("Save skipped: URL unavailable")
@@ -277,12 +357,25 @@ final class MemoryStoreCache: Loggable {
         }
 
         let filmCount = films.count
+
+        // Both files must still be there: the version only says what was written, not that
+        // nothing has removed it since.
+        if contentVersion == onDiskContentVersion,
+           FileManager.default.fileExists(atPath: payloadURL.path(percentEncoded: false)),
+           FileManager.default.fileExists(atPath: fingerprintURL.path(percentEncoded: false)) {
+            Self.log("Save skipped: snapshot cache on disk is current (\(filmCount) films)")
+            return
+        }
+        // Unknown from here until this write succeeds: a failure partway leaves the files in
+        // a state no version describes.
+        onDiskContentVersion = nil
         let fingerprint = buildFingerprint(films: films, lists: lists)
 
-        let success = await Task.detached(priority: .utility) {
+        // Timed inside the detached task, so the figures are the work and not the wait for it.
+        let saved = await Task.detached(priority: .utility) {
+            () -> (encode: Duration, write: Duration, bytes: Int)? in
             do {
-                let encoder = PropertyListEncoder()
-                encoder.outputFormat = .binary
+                let encodeStart = ContinuousClock.now
 
                 // Array construction happens here rather than on MainActor: `Array(_.values)`
                 // is an O(N) copy of every FilmSnapshot, and there is no reason for the main
@@ -293,7 +386,9 @@ final class MemoryStoreCache: Loggable {
                     lists: Array(lists.values)
                 )
 
-                let payloadData = try encoder.encode(payload)
+                let payloadData = try MemoryStoreCacheCoding.encoder().encode(payload)
+                let encodeElapsed = ContinuousClock.now - encodeStart
+                let writeStart = ContinuousClock.now
                 try payloadData.write(to: payloadURL, options: .atomic)
 
                 // Payload first, fingerprint second, and both atomic. A crash or a quit
@@ -302,17 +397,24 @@ final class MemoryStoreCache: Loggable {
                 // incidental, and `load()` depends on its mirror image (read the
                 // fingerprint, then the payload). See the read-ordering discussion there
                 // before changing either side.
-                let fpData = try encoder.encode(fingerprint)
+                let fingerprintEncoder = PropertyListEncoder()
+                fingerprintEncoder.outputFormat = .binary
+                let fpData = try fingerprintEncoder.encode(fingerprint)
                 try fpData.write(to: fingerprintURL, options: .atomic)
 
-                return true
+                return (encodeElapsed, ContinuousClock.now - writeStart, payloadData.count)
             } catch {
-                return false
+                return nil
             }
         }.value
 
-        if success {
-            Self.log("Saved snapshot cache: \(filmCount) films (format v\(currentCacheFormatVersion))")
+        if let saved {
+            onDiskContentVersion = contentVersion
+            Self.log("""
+                Saved snapshot cache: \(filmCount) films (format v\(currentCacheFormatVersion)) — \
+                encode: \(saved.encode.formattedMilliseconds) | write: \(saved.write.formattedMilliseconds) | \
+                size: \(Fmt.fixed(Double(saved.bytes) / (1_024 * 1_024), 2))MB
+                """)
         } else {
             Self.log("ERROR: Failed to save snapshot cache")
         }
@@ -331,6 +433,8 @@ final class MemoryStoreCache: Loggable {
     /// Fingerprint first: `runPipeline` treats a missing fingerprint as a miss on its own,
     /// so a failure to delete the payload afterward still forces the slow path.
     func invalidateOnDisk() {
+        onDiskContentVersion = nil
+        invalidationEpoch += 1
         for url in [fingerprintURL, payloadURL].compactMap({ $0 }) {
             do {
                 try FileManager.default.removeItem(at: url)
@@ -433,11 +537,13 @@ final class MemoryStoreCache: Loggable {
                 + "(read took \(elapsed.formattedMilliseconds))")
             return .miss
 
-        case .ready(let stored, let readElapsed, let live, let task):
+        case .ready(let stored, let readElapsed, let live, let task, let startedAt, let fingerprintsAt):
             storedFP = stored
             fingerprintReadElapsed = readElapsed
             liveFPResult = live
             payloadTask = task
+            LaunchTimeline.mark("snapshotPipelineStart", at: startedAt)
+            LaunchTimeline.mark("snapshotFingerprints", at: fingerprintsAt)
         }
 
         // Step 4: compare. Equatable conformance covers every field, so a field added to
@@ -566,8 +672,11 @@ final class MemoryStoreCache: Loggable {
         Self.log("Fingerprint match (\(storedFP.filmCount) films, \(storedFP.listCount) lists, \(storedFP.membershipCount) memberships) — loading snapshot cache...")
 
         // Step 5: join the speculative payload pipeline. On the fast path this has already
-        // completed — it ran inside the fingerprint's ~980ms shadow — so this await is free.
+        // completed — started from FilmTrackerApp.init, it finishes while AppKit is still
+        // building the menu bar and first window — so this await is free.
         let speculative = await payloadTask.value
+        LaunchTimeline.mark("snapshotPayloadStart", at: speculative.startedAt)
+        LaunchTimeline.mark("snapshotPayloadDone", at: speculative.finishedAt)
 
         let decoded: DecodedStore
         switch speculative.outcome {
@@ -591,11 +700,14 @@ final class MemoryStoreCache: Loggable {
         // benefit — save() receives the current state as arguments when it actually runs.
         Self.log("Cache hit: restored \(decoded.films.count) films, \(decoded.lists.count) lists from snapshot cache")
 
-        // Note these segments no longer sum into the launch critical path: read, decode, and
-        // rebuild all run concurrently with the live fingerprint and finish long before it.
-        // They are still reported because they determine whether that remains true — if the
-        // fingerprint is ever made cheap, whichever of these is largest becomes the next
-        // bottleneck, and the decode is the one that would then justify sharding.
+        // Note these segments are not on the launch critical path: read, decode, and rebuild
+        // start from FilmTrackerApp.init (beginEarlyLoad) and run while AppKit builds the
+        // menu bar and first window. Measured 2026-10-27, 1,400 films, Release (the decode
+        // is Foundation's JSONDecoder, so -Onone barely slows it): the live fingerprint takes
+        // ~5ms (direct store read), the decode ~130ms, and the pipeline finishes ~360ms
+        // before initializeApp() asks for it. The decode is the segment that would reach the
+        // critical path first if launch work moved earlier or the library grew severalfold;
+        // under a debugger it runs slower (the plist decode ran ~60% slower).
         //
         // The per-item counts normalize cost against library size, and the field total is
         // what actually drives decode cost: every field of every film and every release is
@@ -633,7 +745,8 @@ final class MemoryStoreCache: Loggable {
         case noCacheFiles
         case storedFingerprintUnreadable(elapsed: Duration)
         case ready(stored: StoreFingerprint, readElapsed: Duration,
-                   live: StoreFingerprint?, payload: Task<SpeculativePayloadLoad, Never>)
+                   live: StoreFingerprint?, payload: Task<SpeculativePayloadLoad, Never>,
+                   startedAt: Double, fingerprintsAt: Double)
     }
 
     /// Steps 1–3 of `load()`, started by `beginEarlyLoad` and consumed by `load()`.
@@ -669,6 +782,7 @@ final class MemoryStoreCache: Loggable {
               FileManager.default.fileExists(atPath: fingerprintURL.path(percentEncoded: false)) else {
             return .noCacheFiles
         }
+        let pipelineStart = LaunchTimeline.now()
 
         // Step 1: stored fingerprint read (background thread) and live fingerprint
         // computation (DataManager's background ModelActor), started together. MainActor is
@@ -704,18 +818,16 @@ final class MemoryStoreCache: Loggable {
         // begin — read, decode, and dictionary rebuild, all on one background task, started
         // before the validity verdict is known.
         //
-        // Measurement is what justifies decoding speculatively rather than only reading
-        // speculatively. The live fingerprint takes ~980ms (SwiftData materializes every
-        // Film object; see DataManager.computeStoreFingerprint) while read + decode + rebuild
-        // together take ~175ms. Sequencing the decode after validation therefore cost the
-        // full ~175ms on top of the ~980ms wait, during which the machine was otherwise idle.
-        // Overlapping them hides the payload work entirely: the fast path becomes the
-        // duration of the fingerprint alone.
+        // Decoding speculatively rather than only reading speculatively is what keeps the
+        // decode off the critical path. The live fingerprint is now ~5ms (a direct store
+        // read; see DataManager.computeStoreFingerprint), so the payload no longer hides
+        // behind it; it hides behind AppKit's launch instead, which this whole pipeline
+        // overlaps (see beginEarlyLoad). Waiting for the verdict first would only move the
+        // ~130ms decode later, toward initializeApp(), for no gain.
         //
-        // The earlier objection to this — that a wasted decode would compete with the
-        // slow-path SwiftData fetch on a mismatch — was raised before those numbers existed.
-        // It does not survive them: a mismatch costs ~2.8s regardless, against which ~175ms
-        // of background CPU that has already finished is noise.
+        // The objection that a wasted decode would compete with the slow-path SwiftData
+        // fetch on a mismatch does not hold either: a mismatch rebuilds from SwiftData,
+        // which costs far more than the decode, and it runs on another core.
         //
         // Integrity is unaffected. Decoding early is not the same as trusting early: the
         // result is consumed only after the fingerprint comparison below passes, and the read
@@ -728,10 +840,13 @@ final class MemoryStoreCache: Loggable {
         // than a plain `Task`: an unstructured `Task` created here would inherit MainActor
         // isolation and run the decode on the main thread. On a mismatch the task finishes
         // unobserved and its allocations are released when the task is. No cancellation check
-        // is worth adding — the verdict does not arrive until ~980ms in, by which point this
-        // pipeline has long since finished.
+        // is worth adding: on a mismatch the decode is already well under way, and nothing
+        // waits on it.
         let payloadTask = Task.detached(priority: .userInitiated) {
             () -> SpeculativePayloadLoad in
+            // Stamped for the launch timeline around the whole read-decode-rebuild.
+            let startedAt = LaunchTimeline.now()
+            var result = { () -> SpeculativePayloadLoad in
             let readStart = ContinuousClock.now
             guard let payloadData = try? Data(contentsOf: payloadURL) else {
                 return SpeculativePayloadLoad(outcome: .readFailed, byteCount: 0,
@@ -741,7 +856,7 @@ final class MemoryStoreCache: Loggable {
             let readElapsed = ContinuousClock.now - readStart
 
             let decodeStart = ContinuousClock.now
-            guard let payload = try? PropertyListDecoder()
+            guard let payload = try? MemoryStoreCacheCoding.decoder()
                 .decode(MemoryStoreCachePayload.self, from: payloadData) else {
                 return SpeculativePayloadLoad(outcome: .decodeFailed, byteCount: payloadData.count,
                                               readElapsed: readElapsed,
@@ -786,11 +901,16 @@ final class MemoryStoreCache: Loggable {
                                           readElapsed: readElapsed,
                                           decodeElapsed: decodeElapsed,
                                           rebuildElapsed: ContinuousClock.now - rebuildStart)
+            }()
+            result.startedAt = startedAt
+            result.finishedAt = LaunchTimeline.now()
+            return result
         }
 
         let liveFP = await liveFPLoad
         return .ready(stored: storedFP, readElapsed: storedFPResult.elapsed,
-                      live: liveFP, payload: payloadTask)
+                      live: liveFP, payload: payloadTask,
+                      startedAt: pipelineStart, fingerprintsAt: LaunchTimeline.now())
     }
 
     // MARK: - Fingerprint Helpers

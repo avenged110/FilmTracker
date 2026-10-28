@@ -810,7 +810,7 @@ enum DiscReleasesPDFReport {
     private static func aspectCell(_ release: ReleaseSnapshot) -> PDFCell {
         let ratios = release.releaseAspectRatio
         let notable = ratios.count > 1 || ratios.contains {
-            $0.localizedCaseInsensitiveContains(AspectRatioVocabulary.openMatteQualifier)
+            $0.englishCaseInsensitiveContains(AspectRatioVocabulary.openMatteQualifier)
         }
         return PDFCell(FilmDetailStyle.orDash(ratios.joined(separator: ", ")),
                        truncates: true, columnSpan: 2,

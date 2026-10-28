@@ -34,7 +34,7 @@ If you find a bug, please report it here on GitHub and I will try to fix it. If 
 
 You're welcome to request features or changes if you're so-inclined, and I will give such requests due consideration, but just know that this application was built first and foremost for an audience of one and I consider it largely feature-complete at this time.
 
-Film Tracker is available in English only, by design.
+Film Tracker is available in English only, by design, and only supports the Gregorian calendar. I did not test this application with the light mode in macOS, so if something looks "off," use dark mode; it's better anyway.
 
 ## Note
 

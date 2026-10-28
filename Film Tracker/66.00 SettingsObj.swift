@@ -21,6 +21,7 @@ final class SettingsObject {
     var largeGalleryGrid: Bool?
     var showStatusBar: Bool?
     var rememberRightSidebarTab: Bool?
+    var rememberRightSidebarReleasesFilter: Bool?
     var autoExpandRightSidebarTables: Bool?
     var additionalCalTableDetails: Bool?
     var showReleasesSummaryTable: Bool?
@@ -29,6 +30,8 @@ final class SettingsObject {
     var smartLists: Bool?
     var excludeQueuedFromUpForRotation: Bool?
     var maintainSelectionOnSearchExit: Bool?
+    var showSearchSuggestions: Bool?
+    var showRecentSearches: Bool?
     var showInfoComplete: Bool?
     var performBackupAtLaunch: Bool?
     var defaultRotationThreshold: Int?
@@ -109,6 +112,7 @@ extension SettingsObject: ExportableModel {
         if let val = largeGalleryGrid { props["largeGalleryGrid"] = val }
         if let val = showStatusBar { props["showStatusBar"] = val }
         if let val = rememberRightSidebarTab { props["rememberRightSidebarTab"] = val }
+        if let val = rememberRightSidebarReleasesFilter { props["rememberRightSidebarReleasesFilter"] = val }
         if let val = autoExpandRightSidebarTables { props["autoExpandRightSidebarTables"] = val }
         if let val = additionalCalTableDetails { props["additionalCalTableDetails"] = val }
         if let val = showReleasesSummaryTable { props["showReleasesSummaryTable"] = val }
@@ -117,6 +121,8 @@ extension SettingsObject: ExportableModel {
         if let val = smartLists { props["smartLists"] = val }
         if let val = excludeQueuedFromUpForRotation { props["excludeQueuedFromUpForRotation"] = val }
         if let val = maintainSelectionOnSearchExit { props["maintainSelectionOnSearchExit"] = val }
+        if let val = showSearchSuggestions { props["showSearchSuggestions"] = val }
+        if let val = showRecentSearches { props["showRecentSearches"] = val }
         if let val = showInfoComplete { props["showInfoComplete"] = val }
         if let val = performBackupAtLaunch { props["performBackupAtLaunch"] = val }
         if let val = defaultRotationThreshold { props["defaultRotationThreshold"] = val }

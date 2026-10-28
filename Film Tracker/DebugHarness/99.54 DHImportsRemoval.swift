@@ -271,7 +271,7 @@ extension DebugHarness {
         // the same stale frame. Say so once instead of failing every case.
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         guard (session?["CGSSessionScreenIsLocked"] as? Bool) != true else {
-            r.check("screen-unlocked", false, "the screen is locked; re-run while someone is at the Mac")
+            r.skip("screen-unlocked", "the screen is locked; re-run while someone is at the Mac")
             return r
         }
         guard unsafe windowImageFunction != nil else {
@@ -286,7 +286,11 @@ extension DebugHarness {
         let frame = NSRect(x: visible.minX + 80, y: visible.minY,
                            width: min(1200, visible.width - 80), height: min(1100, visible.height))
         window.setFrame(frame, display: true)
-        r.check("window-key", await makeKey(window), "")
+        if let reason = await keyWindowUnavailable(window) {
+            window.setFrame(savedFrame, display: true)
+            r.skip("window-key", reason)
+            return r
+        }
 
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
 

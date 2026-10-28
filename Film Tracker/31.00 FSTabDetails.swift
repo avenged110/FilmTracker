@@ -150,8 +150,7 @@ final class FSTabDetails {
     // Hall of Fame state
     var hallOfFameIsFull: Bool = false
 
-    /// `upNextIsFull` as the sheet opened. Nothing outside a modal sheet can change while
-    /// it is open, so this is fixed for the sheet's lifetime: it disables the picker's
+    /// `upNextIsFull` as the sheet opened, fixed for the sheet's lifetime: it disables the picker's
     /// "Up Next" segment and shows the "full" note beneath it, both from the first frame.
     private(set) var upNextWasFullAtOpen = false
 
@@ -524,24 +523,32 @@ final class FSTabDetails {
     /// selected Up Next section (or out of the queue entirely). Returned sets are folded
     /// into the FilmChangeset's listsToAdd / listsToRemove by FilmSheet.confirm().
     ///
-    /// The delta is derived against `originalInternalListIDs` (the film's actual internal
-    /// memberships at load), so it is self-healing: selecting a section removes the film
-    /// from every other internal list it may have been in, and selecting "None" removes it
-    /// from all of them.
+    /// The delta is derived against the film's LIVE internal memberships at save time, not
+    /// those captured at load: the midnight rotation refresh can auto-enqueue the film while
+    /// the sheet is open, and a delta from the stale baseline would leave it in two sections
+    /// (saveFilmChangeset applies the delta as-is) or ignore a "None". It is self-healing:
+    /// selecting a section removes the film from every other internal list it may be in, and
+    /// "None" removes it from all of them. When the user left the picker untouched and the
+    /// membership changed underneath the sheet, that newer placement is kept.
     func filmQueueDelta() -> (add: Set<UUID>, remove: Set<UUID>) {
+        guard let owner else { return (add: [], remove: []) }
+        let coordinator = owner.coordinator
+        let current = owner.isEditMode ? coordinator.filmQueueListIDs(forFilm: owner.filmID) : []
+        if selectedFilmQueueSection == originalFilmQueueSection, current != originalInternalListIDs {
+            return (add: [], remove: [])
+        }
         // The picker refuses "Up Next" when it is full (see upNextIsFull), but "Up Next" can
-        // still fill while the sheet is open. Then the film keeps the membership it had
+        // still fill while the sheet is open. Then the film keeps the membership it has
         // rather than overfilling it.
         let upNextID = FilmQueueSection.upNext.listID
-        if selectedFilmQueueSection == .upNext, !originalInternalListIDs.contains(upNextID),
-           let coordinator = owner?.coordinator,
+        if selectedFilmQueueSection == .upNext, !current.contains(upNextID),
            FilmQueue.upNextVacancies(coordinator: coordinator) == 0 {
             return (add: [], remove: [])
         }
         var target: Set<UUID> = []
         if let section = selectedFilmQueueSection { target.insert(section.listID) }
-        let add = target.subtracting(originalInternalListIDs)
-        let remove = originalInternalListIDs.subtracting(target)
+        let add = target.subtracting(current)
+        let remove = current.subtracting(target)
         return (add: add, remove: remove)
     }
 

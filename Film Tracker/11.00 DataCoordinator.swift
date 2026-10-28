@@ -448,6 +448,20 @@ final class DataCoordinator: Loggable {
     /// same format's purchases the sort ordered by.
     private(set) var loadedPurchaseFormat: ReleaseFormat?
 
+    /// The view the films currently held in `films` were loaded for, or nil before any load
+    /// has completed. Written beside `loadedSortOption`, for the same reason. Read by
+    /// ViewStateManager.switchToViewSync, which must reload an empty view only when nothing
+    /// has been loaded for it yet: an empty result loaded for the view itself is an answer.
+    /// Not observed, since no view renders from it.
+    @ObservationIgnored private(set) var loadedViewID: ViewIdentifier?
+
+    /// Counts the loads that resolved the current view from scratch, as `loadFilms` does
+    /// and `refreshFilms` does not: membership, Recents ordering and Film Queue section all
+    /// re-read. GalleryView compares it across a film event to tell whether the change has
+    /// already been loaded; a full load after the event leaves the gallery nothing to do.
+    /// Not observed, since no view renders from it.
+    @ObservationIgnored private(set) var fullLoadGeneration = 0
+
     /// The Film Queue display filter that the films currently held in `films` were
     /// actually produced with, or nil when `films` is not a Film Queue result set at all.
     ///
@@ -652,6 +666,7 @@ final class DataCoordinator: Loggable {
         films = prewarmedFilms
         // Pre-warm installs its films directly rather than through performLoad, so it must
         // record the ordering itself; currentSortOption was set to prewarmSort just above.
+        loadedViewID = .allFilms
         loadedSortOption = currentSortOption
         // The pre-warm is always All Films, so no Recents ordering or purchase format scope
         // is in effect.
@@ -725,12 +740,20 @@ final class DataCoordinator: Loggable {
         // the first gallery frame (measured with `sample` against a copy of a 1,384-film
         // library).
         let dataManager = self.dataManager
+        let migrateAvailability = memoryStore.hasLegacyMarketAvailability
         Task.detached(priority: .background) { [weak self] in
             guard let self, await !self.isShuttingDown else { return }
             do {
                 try await dataManager.cleanupDuplicateReleases()
             } catch {
                 Self.log("WARNING: Duplicate release cleanup failed: \(error)")
+            }
+            // Memory is already in the new format; this rewrites the store to match.
+            guard migrateAvailability else { return }
+            do {
+                try await dataManager.migrateLegacyMarketAvailability()
+            } catch {
+                Self.log("WARNING: Market availability migration failed: \(error)")
             }
         }
     }
@@ -836,6 +859,7 @@ final class DataCoordinator: Loggable {
             currentFilmQueueSectionFilter = nil
         }
 
+        fullLoadGeneration &+= 1
         performLoad(recentsOrder: recentsOrder)
     }
 
@@ -854,6 +878,20 @@ final class DataCoordinator: Loggable {
     /// full loadFilms via ViewStateManager.triggerReloadSync.
     func refreshFilms() {
         performLoad(recentsOrder: nil)
+    }
+
+    /// Reloads the current view from scratch, with the sort and filters it was last loaded
+    /// with: the reload for a mutation announced by a `.film` event, made AFTER the event.
+    ///
+    /// SmartLists updates its membership sets synchronously inside that send, and Recents
+    /// and Unwatched resolve theirs at load time. A refreshFilms() made before the event kept
+    /// the old membership, so it drew a film set the event then made wrong (an edited film
+    /// stayed in a view it had just left), and GalleryView's reaction to the event loaded the
+    /// whole view a second time to correct it. Made after the event this one load is final,
+    /// and GalleryView, seeing a full load since the event (fullLoadGeneration), skips its own.
+    func reloadCurrentView() {
+        loadFilms(viewID: currentViewID, sortOption: currentSortOption,
+                  filterOptions: currentFilterOptions, direction: currentDirection)
     }
 
     /// Shared load core for loadFilms/refreshFilms: builds the film array for the
@@ -958,10 +996,7 @@ final class DataCoordinator: Loggable {
         // this load to skip filterFilms() entirely and show the full library.
         // The original isSearch guard is preserved: non-search views are unaffected.
         if currentViewID.isSearch && SearchController.shared.hasContent {
-            loadedFilms = SearchController.shared.filterFilms(loadedFilms) { [weak self] filmID in
-                guard let self else { return [] }
-                return self.getListNames(forFilm: filmID)
-            }
+            loadedFilms = SearchController.shared.filterFilms(loadedFilms, lists: searchListCatalog())
         }
 
         #if DEBUG
@@ -969,6 +1004,7 @@ final class DataCoordinator: Loggable {
         #endif
         self.films = loadedFilms
         self.filmCount = loadedFilms.count
+        self.loadedViewID = currentViewID
         self.loadedSortOption = currentSortOption
         self.loadedRecentsCategory = currentViewID.recentsCategory
         self.loadedUpcomingReleasesOrder = isUpcomingReleases
@@ -1010,23 +1046,47 @@ final class DataCoordinator: Loggable {
     /// when its storage is shared, so "nothing changed meanwhile" costs nothing to confirm.
     func getAllFilmsMap() -> [UUID: FilmSnapshot] { return memoryStore.getAllFilmsMap() }
 
-    /// Returns the names of all lists (user-generated and smart) the given film belongs to.
-    /// Used by SearchController.filterFilms for list-field token filtering
-    /// without any SwiftData object access.
-    func getListNames(forFilm filmID: UUID) -> [String] {
-        // User-generated list names. Internal Film Queue lists are excluded so their
-        // names never surface in the #list search field (they are not user lists).
-        let listIDs = memoryStore.getListIDs(forFilm: filmID)
-            .subtracting(FilmQueue.allListIDs)
-        var names = listIDs.compactMap { memoryStore.getList($0)?.listName }
-
-        // Smart list names — every smart list whose computed set contains this film, in
-        // allCases order. Resolved through getSmartListTypes below rather than by repeating
-        // its loop and its Preferences.smartLists gate, which is what this did before: the
-        // two asked the identical membership question and had to agree about the gate.
-        names.append(contentsOf: getSmartListTypes(forFilm: filmID).map(\.rawValue))
-
-        return names
+    /// Every list a `#list` token can name — user lists, smart lists and the two ranked
+    /// Reports lists — with a way to resolve one name to its films.
+    ///
+    /// Membership is resolved per list rather than per film: the token asks for the films in
+    /// one or two lists, so reading those lists' sets directly avoids asking every film in the
+    /// library which of every smart list it belongs to. Internal Film Queue lists are left out
+    /// by getAllLists, so their names never surface in the field. Smart lists are left out
+    /// while the feature is off — their sets are not maintained then and none is navigable.
+    func searchListCatalog() -> SearchListCatalog {
+        var entries: [SearchListCatalog.Entry] = getAllLists().map { list in
+            let listID = list.listID
+            return .init(name: list.listName, kind: .user) { [weak self] in
+                self?.memoryStore.getList(listID)?.filmIDs ?? []
+            }
+        }
+        if Preferences.smartLists {
+            entries += SmartListType.allCases.map { type in
+                .init(name: type.rawValue, kind: .smart) { [weak self] in
+                    self?.smartLists.filmIDs(for: type) ?? []
+                }
+            }
+        }
+        // The Recents tabs, under the names they show, with the same (capped, ordered) film
+        // IDs the tabs load, so a token matches exactly what the tab displays.
+        entries += RecentsCategory.allCases.map { category in
+            .init(name: category.displayName, kind: .recents, aliases: category.searchAliases) {
+                Set(category.orderedFilmIDs())
+            }
+        }
+        // The two ranked Reports lists, under the names their tabs show, with the same
+        // membership tests the tabs use: a Hall of Fame position, and a top-level release on
+        // the wishlist (getWishlistReleases' filter).
+        entries.append(.init(name: ReportsCategory.hallOfFame.displayName, kind: .report) { [weak self] in
+            Set(self?.memoryStore.getAllFilms().filter { $0.hofPosition > 0 }.map(\.id) ?? [])
+        })
+        entries.append(.init(name: ReportsCategory.releaseWishlist.displayName, kind: .report) { [weak self] in
+            Set(self?.memoryStore.getAllFilms()
+                .filter { $0.releases.contains { $0.wishlist > 0 && $0.isTopLevel } }
+                .map(\.id) ?? [])
+        })
+        return SearchListCatalog(entries: entries)
     }
 
     /// Every smart list whose computed set currently contains `filmID`, in
@@ -1035,9 +1095,8 @@ final class DataCoordinator: Loggable {
     ///
     /// Returns an empty array when the smart lists feature is switched off — the sets are
     /// not maintained in that state and none of the lists is navigable, so reporting
-    /// membership would be both stale and useless. Mirrors the identical gate in
-    /// `getListNames(forFilm:)` above, which is the other consumer of this same
-    /// membership question.
+    /// membership would be both stale and useless. `searchListCatalog()` above applies the
+    /// same gate.
     ///
     /// Sub-variants are deliberately NOT collapsed into their parents: a film in
     /// "Purchased 4K" is by construction also in "Purchased", and the "Show in List ▸
@@ -1063,26 +1122,24 @@ final class DataCoordinator: Loggable {
 
         memoryStore.updateFilm(snapshot)
 
-        // Always reload the current view so sort order, filter results, and display
-        // values stay consistent with the updated snapshot. When in a list view the
-        // film may not be a member of that list, but a reload is still needed because
-        // sort-key fields (title, rating, etc.) could have changed for other views.
-        refreshFilms()
-
-        // refreshFilms() repaints only DataCoordinator.films. Everything that holds its
-        // own copy of a snapshot — the right sidebar's selected film, the Hall of Fame and
-        // Wishlist reports — and SmartLists' membership sets are driven by this event, so
-        // without it they keep showing the pre-update values. The rollback below posts
-        // the same event for the same reason: restoring MemoryStore alone is invisible to
-        // every one of those consumers (see applyImportedRatingUpdates).
+        // Everything that holds its own copy of a snapshot — the right sidebar's selected
+        // film, the Hall of Fame and Wishlist reports — and SmartLists' membership sets are
+        // driven by this event, so without it they keep showing the pre-update values. The
+        // rollback below posts the same event for the same reason: restoring MemoryStore
+        // alone is invisible to every one of those consumers (see applyImportedRatingUpdates).
         AppEventBus.shared.send(.film(.updated(filmID: snapshot.id)))
+
+        // Then reload the current view, so its sort order, filter results, membership and
+        // display values all reflect the update. After the event, not before it: see
+        // reloadCurrentView.
+        reloadCurrentView()
 
         trackOperation(
             rollback: { [weak self] in
                 guard let self, let pre = preSnapshot else { return }
                 self.memoryStore.updateFilm(pre)
-                self.refreshFilms()
                 AppEventBus.shared.send(.film(.updated(filmID: snapshot.id)))
+                self.reloadCurrentView()
                 Self.log("Rolled back updateFilm for \(snapshot.id)")
             }
         ) { [dataManager] in
@@ -1111,7 +1168,7 @@ final class DataCoordinator: Loggable {
         let addedEntries = Set(newCalendarTable).subtracting(Set(oldCalendarTable))
         guard !addedEntries.isEmpty else { return }
 
-        let calendar = Calendar.current
+        let calendar = AppCalendar.current
         let triggersRemoval = addedEntries.contains { entry in
             guard let date = parseDate(from: entry) else { return false }
             return calendar.isDateInToday(date) || calendar.isDateInYesterday(date)
@@ -1145,6 +1202,7 @@ final class DataCoordinator: Loggable {
                 AppEventBus.shared.listMembershipChanged(listID)
             }
             Self.log("Rolled back automatic Film Queue removal for film \(filmID)")
+            self.settleUpNextOverflow(restored: [filmID], restoredTo: queueListIDs)
         }) { [dataManager] in
             try await dataManager.batchRemoveFilmsFromLists(filmIDs: [filmID], listIDs: queueListIDs)
         }
@@ -1177,22 +1235,20 @@ final class DataCoordinator: Loggable {
         // Sync MemoryStore
         memoryStore.updateFilm(snapshot)
 
-        // Reload view
-        refreshFilms()
-
-        // Post UI event immediately
+        // Post the UI event, then reload the view — in that order; see reloadCurrentView.
         AppEventBus.shared.send(.film(.updated(filmID: filmID)))
+        reloadCurrentView()
 
         // Persist in background with rollback on failure
         trackOperation(
             rollback: { [weak self] in
                 guard let self else { return }
                 self.memoryStore.restoreFilm(filmID: filmID, from: preSnapshot)
-                self.refreshFilms()
                 // Same event the forward path posted, so the sidebar's copied snapshot
                 // and SmartLists' membership follow the restore rather than keeping the
                 // rolled-back viewing entry.
                 AppEventBus.shared.send(.film(.updated(filmID: filmID)))
+                self.reloadCurrentView()
                 Self.log("Rolled back viewing date update for film \(filmID)")
             }
         ) { [dataManager, snapshot] in
@@ -1261,7 +1317,11 @@ final class DataCoordinator: Loggable {
         if preListMemberships.contains(where: { !$0.value.isEmpty }) {
             syncListsCache()
         }
-        refreshFilms()
+        // A full reload, and final as it stands: the deleted films are gone from MemoryStore,
+        // so no membership SmartLists drops on the `.deleted` event that follows (FilmManager
+        // posts it) can change what this loads. That is why GalleryView does not reload for
+        // `.deleted` — which holds only while every sender reloads like this first.
+        reloadCurrentView()
         Self.log("Deleted \(ids.count) film(s) from MemoryStore (optimistic)")
 
         trackOperation(
@@ -1285,15 +1345,16 @@ final class DataCoordinator: Loggable {
                 // One batched call so the ordered list is rebuilt once rather than per film.
                 self.memoryStore.restoreHofPositions(preHofPositions)
                 self.totalFilmCount = self.memoryStore.totalFilmCount
-                self.refreshFilms()
                 // FilmManager broadcast `.deleted` when the deletion was applied, and
                 // SmartLists dropped these films from every membership set on that
                 // signal. Restoring the store alone would leave them absent from every
                 // smart list until the next full recalculation, so announce them the
-                // way any other newly present film is announced.
+                // way any other newly present film is announced — and reload after the
+                // announcement, so the reload sees that membership (see reloadCurrentView).
                 for snapshot in preSnapshots {
                     AppEventBus.shared.filmAdded(snapshot.id)
                 }
+                self.reloadCurrentView()
                 Self.log("Rolled back deletion of \(preSnapshots.count) film(s)")
             }
         ) { [dataManager] in
@@ -1541,8 +1602,7 @@ final class DataCoordinator: Loggable {
             syncListsCache()
         }
 
-        // Step 5: Reload and post UI events
-        refreshFilms()
+        // Step 5: Post UI events, then reload (see reloadCurrentView for the order)
 
         // Guard the upcoming .film event posts so that if this same save also causes
         // the film to newly qualify for "Up for Rotation", autoEnqueueFilmsNewlyUpForRotation
@@ -1575,6 +1635,11 @@ final class DataCoordinator: Loggable {
         if touchesQueueExplicitly {
             explicitQueueChangeFilmIDs.remove(filmID)
         }
+
+        // Every membership the film events above changed is now in place, so this one load
+        // is final. Ahead of the list events below, which is where the reload used to sit
+        // relative to them.
+        reloadCurrentView()
 
         for listID in changeset.listsToAdd {
             AppEventBus.shared.listMembershipChanged(listID)
@@ -1616,8 +1681,6 @@ final class DataCoordinator: Loggable {
                     self.syncListsCache()
                 }
 
-                self.refreshFilms()
-
                 // The forward path announced the film as added or updated; the rollback
                 // must announce the reverse, or the sidebar's copied snapshot and
                 // SmartLists' membership keep describing the save that never committed.
@@ -1629,6 +1692,7 @@ final class DataCoordinator: Loggable {
                 if hasReleaseChanges {
                     AppEventBus.shared.send(.film(.releaseChanged(filmID: filmID)))
                 }
+                self.reloadCurrentView()
 
                 Self.log("Rollback complete for film \(filmID)")
             }
@@ -1821,7 +1885,7 @@ final class DataCoordinator: Loggable {
                 let ordered = upNext.sorted {
                     let lhs = memoryStore.getFilm($0)?.name ?? "", rhs = memoryStore.getFilm($1)?.name ?? ""
                     return lhs == rhs ? $0.uuidString < $1.uuidString
-                        : lhs.localizedStandardCompare(rhs) == .orderedAscending
+                        : lhs.englishStandardCompare(rhs) == .orderedAscending
                 }
                 let fitting = Set(ordered.prefix(vacancies))
                 filmIDsBySection[.upNext] = fitting.isEmpty ? nil : fitting
@@ -1971,7 +2035,36 @@ final class DataCoordinator: Loggable {
             if !removals.isEmpty {
                 Self.log("Rolled back Film Queue exclusivity enforcement alongside the add it belonged to")
             }
+            if let upNext = removals[FilmQueueSection.upNext.listID] {
+                self.settleUpNextOverflow(restored: upNext, restoredTo: [FilmQueueSection.upNext.listID])
+            }
         }
+    }
+
+    /// Keeps a rollback from leaving "Up Next" over FilmQueue.upNextCapacity.
+    ///
+    /// A rollback puts films back into "Up Next" straight through MemoryStore, past every
+    /// capacity check, and other adds may have filled the freed slots in the meantime (a
+    /// film moved out leaves 7, another is added to make 8, then the move fails and its
+    /// film returns as a ninth). The database still holds the restored membership, so the
+    /// excess is moved to "Soon" through addFilmsToList, which persists the move like any
+    /// other, rather than only in memory. Only restored films are moved, chosen by title as
+    /// the rotation auto-enqueue chooses, so the films the user added since stay put.
+    private func settleUpNextOverflow(restored: Set<UUID>, restoredTo listIDs: Set<UUID>) {
+        let upNextID = FilmQueueSection.upNext.listID
+        guard listIDs.contains(upNextID), let upNext = memoryStore.getList(upNextID)?.filmIDs else { return }
+        let excess = upNext.count - FilmQueue.upNextCapacity
+        guard excess > 0 else { return }
+        let ordered = restored.intersection(upNext).sorted {
+            let lhs = memoryStore.getFilm($0)?.name ?? "", rhs = memoryStore.getFilm($1)?.name ?? ""
+            return lhs == rhs ? $0.uuidString < $1.uuidString
+                : lhs.englishStandardCompare(rhs) == .orderedAscending
+        }
+        let moving = Set(ordered.suffix(excess))
+        guard !moving.isEmpty else { return }
+        Self.log("Rollback left 'Up Next' \(excess) over capacity; moving \(moving.count) restored film(s) to 'Soon'")
+        addFilmsToList(filmIDs: moving, listID: FilmQueueSection.soon.listID)
+        AppEventBus.shared.listMembershipChanged(FilmQueueSection.soon.listID)
     }
 
     /// The background write for one add-to-list operation, including any Film Queue
@@ -2088,6 +2181,7 @@ final class DataCoordinator: Loggable {
             self.syncListsCache()
             self.refreshFilms()
             AppEventBus.shared.send(.list(.membershipChanged(listID: listID)))
+            self.settleUpNextOverflow(restored: actuallyRemoved, restoredTo: [listID])
         }) { [dataManager] in
             try await dataManager.batchRemoveFilmsFromLists(
                 filmIDs: filmIDs, listIDs: [listID]) } }
@@ -2178,18 +2272,20 @@ final class DataCoordinator: Loggable {
         }
 
         totalFilmCount = memoryStore.totalFilmCount
-        refreshFilms()
 
-        // Notify SmartLists and the rest of the UI about each newly imported film.
+        // Notify SmartLists and the rest of the UI about each newly imported film, then
+        // reload the view once (see reloadCurrentView for the order).
         for snapshot in snapshots {
             AppEventBus.shared.filmAdded(snapshot.id)
         }
+        reloadCurrentView()
 
         trackOperation(rollback: { [weak self] in
             guard let self else { return }
             self.memoryStore.deleteFilms(ids: importedIDs)
             self.totalFilmCount = self.memoryStore.totalFilmCount
-            self.refreshFilms()
+            // Final as it stands, as in deleteFilms: the films are gone from the store.
+            self.reloadCurrentView()
             // The forward path posted `.added` per film, which is what put them into
             // SmartLists' membership sets; the matching `.deleted` takes them back out.
             AppEventBus.shared.filmsDeleted(importedIDs)

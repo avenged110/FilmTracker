@@ -87,8 +87,7 @@ struct GalleryTitleBar: View {
         // when this view is empty for a reason filters did not cause: with filters
         // active, an empty result is exactly when the button must stay reachable so the
         // user can clear them.
-        let hasActiveFilters = !ViewStateManager.shared.activeState.filterOptions.isEmpty
-        return !coordinator.isInitialized || (coordinator.filmCount == 0 && !hasActiveFilters)
+        FilterMenuInputs.menuDisabled(coordinator: coordinator)
     }
     
     // MARK: - Button Section
@@ -145,7 +144,7 @@ struct GalleryTitleBar: View {
             // direction pair — the interaction the disable was actually there to prevent —
             // while leaving the menu openable. With no films loaded there are no bands
             // either, so the submenu simply does not render and the menu is inert.
-            let sortMenuDisabled = viewIdentifier.hasFixedSort || coordinator.totalFilmCount == 0
+            let sortMenuDisabled = SortMenuInputs.optionsLocked(coordinator: coordinator)
             GallerySortMenu(isDisabled: sortMenuDisabled, coordinator: coordinator)
                 .frame(maxWidth: Preferences.buttonWidth)
                 .fixedSize()

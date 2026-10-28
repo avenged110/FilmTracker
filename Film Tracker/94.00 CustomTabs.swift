@@ -7,7 +7,7 @@ import SwiftUI
 
 // MARK: - Tab Protocol
 // Protocol that any tab enum must conform to for use with CustomTabHeader.
-protocol CustomTab: CaseIterable, Identifiable, Hashable {
+protocol CustomTab: CaseIterable, Identifiable, Hashable, Sendable {
     var id: String { get }
     var displayName: String { get }
     var iconName: String { get }
@@ -32,6 +32,40 @@ struct CustomTabHeader<Tab: CustomTab>: View {
         self.showIcons = showIcons
         self.disabledTabs = disabledTabs
         self.onTabSelect = onTabSelect
+    }
+
+    var body: some View {
+        // Compared by value, closure excluded: see `TabHeaderContent`.
+        let content = TabHeaderContent(selectedTab: selectedTab, enabled: enabled, showIcons: showIcons,
+                                       disabledTabs: disabledTabs, onTabSelect: onTabSelect)
+        if RSBProfileFlags.tabBarNoEquatable {
+            content
+        } else {
+            content.equatable()
+        }
+    }
+}
+
+// MARK: - Tab Header Content
+/// The header's actual layout, equatable on everything except `onTabSelect`.
+///
+/// Every caller passes a fresh closure on each body pass, and SwiftUI cannot compare
+/// closures, so without this the whole header was re-diffed whenever its parent updated
+/// (for RightSidebar, on every film change) even though nothing it draws had changed.
+/// Ignoring the closure is safe because every caller's closure only forwards to a
+/// reference with a stable identity (a coordinator, sheet owner, or view-state manager),
+/// so a retained older closure behaves exactly like the newest one.
+private struct TabHeaderContent<Tab: CustomTab>: View, Equatable {
+    // Nonisolated so the nonisolated `==` SwiftUI calls can read them.
+    nonisolated let selectedTab: Tab
+    nonisolated let enabled: Bool
+    nonisolated let showIcons: Bool
+    nonisolated let disabledTabs: Set<Tab>
+    let onTabSelect: (Tab) -> Void
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.selectedTab == rhs.selectedTab && lhs.enabled == rhs.enabled
+            && lhs.showIcons == rhs.showIcons && lhs.disabledTabs == rhs.disabledTabs
     }
 
     var body: some View {
@@ -95,7 +129,7 @@ private struct CustomTabButton<Tab: CustomTab>: View {
             // The icon branch adds no horizontal padding (content fills the cell
             // naturally); the text-only branch retains its .padding(.horizontal, 8).
             Group {
-                if showIcon && !tab.iconName.isEmpty {
+                if showIcon && Preferences.showCustomTabIcons && !tab.iconName.isEmpty {
                     HStack(spacing: 4) {
                         Image(systemName: tab.iconName)
                             .font(.system(size: 11))

@@ -372,6 +372,41 @@ enum StorageDateFormatters {
     }()
 }
 
+/// The calendar for everything computed from "now" or shown to the user: always
+/// Gregorian, whatever calendar the Mac is set to.
+///
+/// `Calendar.current` follows System Settings › Language & Region › Calendar, so under a
+/// Hebrew, Islamic, Buddhist or Japanese system calendar it counts years as 5787, 1448,
+/// 2569 or 8, months as Tishri or Muharram, and every "this month" or "year 2026" in the
+/// app would mean something else. Where the system calendar is already Gregorian this IS
+/// `Calendar.current` — the same object, so nothing changes for those users. Otherwise it
+/// is a Gregorian calendar carrying everything else `Calendar.current` would have: the
+/// region's locale (so month names stay in English), time zone, first weekday and
+/// minimum days in the first week. A Hebrew-calendar user in the UK therefore gets what
+/// a Gregorian user in the UK gets — weeks from Monday, "27 October 2026" — checked
+/// 2026-10-27 under Hebrew, Islamic, Buddhist and Japanese calendars in US, UK and Czech
+/// regions.
+///
+/// Stored dates are a separate matter, parsed with `StorageDateFormatters.calendar`
+/// (Gregorian, in the time zone the formatters were created in).
+nonisolated enum AppCalendar {
+    static var current: Calendar {
+        let system = Calendar.current
+        guard system.identifier != .gregorian else { return system }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = system.locale
+        calendar.timeZone = system.timeZone
+        calendar.firstWeekday = system.firstWeekday
+        calendar.minimumDaysInFirstWeek = system.minimumDaysInFirstWeek
+        return calendar
+    }
+
+    /// Gregorian with no other settings, for format styles and formatters whose locale
+    /// is pinned already — a pinned locale does not pin the calendar ("en_US" alone still
+    /// printed "16 Heshvan 5787" under a Hebrew system calendar).
+    static let gregorian = Calendar(identifier: .gregorian)
+}
+
 /// Local midnight of a date written exactly as `yyyy?MM?dd` — eight ASCII digits with
 /// `separator` in both positions — or nil for anything else, including a day the month
 /// does not have, which the non-lenient formatters this stands in for also reject.
@@ -431,6 +466,42 @@ func canonicalStoredDay(_ text: Substring, separator: Character,
     return date
 }
 
+/// The instant a timestamp written exactly as `yyyy-MM-ddTHH:mm:ss.SSSZ` names — the
+/// shape `StorageDateFormatters.timestamp` writes for `dateAdded` and `lastModified` — or
+/// nil for anything else.
+///
+/// The second fast path of `parseDate(from:)`. Those strings decline every cheaper parser
+/// in its chain and are read only by the `yyyy-MM-dd'T'HH:mm:ss.SSSZ` formatter, fifth in
+/// line, after four failed ICU parses: about 140 µs each, which made the two fields most of
+/// the cost of building MetadataCache (≈420 ms of a 500 ms full rebuild for 1,400 films)
+/// and of every `#added` search. The string names a UTC instant, so no calendar or time
+/// zone is involved: the digits are the whole answer. The value is built the way the
+/// formatter builds it — whole milliseconds since 1970, divided once — so the two agree
+/// bit for bit: checked 2026-10-27 against the formatter chain on every stored date
+/// string of a 1,400-film library (8,344 strings, 2,799 of them timestamps; none
+/// differed), at ~1 µs a timestamp against ~147 µs. A leap second, an
+/// out-of-range field or any other shape is declined and goes to the formatters as before.
+func canonicalStoredTimestamp(_ text: Substring) -> Date? {
+    let u = Array(text.utf8)
+    guard u.count == 24, u[4] == 45, u[7] == 45, u[10] == 84, u[13] == 58, u[16] == 58,
+          u[19] == 46, u[23] == 90 else { return nil }
+    func number(_ range: Range<Int>) -> Int? {
+        var value = 0
+        for i in range {
+            guard u[i] >= 48, u[i] <= 57 else { return nil }
+            value = value * 10 + Int(u[i]) - 48
+        }
+        return value
+    }
+    guard let year = number(0..<4), let month = number(5..<7), let day = number(8..<10),
+          let hour = number(11..<13), let minute = number(14..<16), let second = number(17..<19),
+          let millisecond = number(20..<23),
+          year >= 1000, (1...12).contains(month), day >= 1, day <= gregorianDaysInMonth(month, year: year),
+          hour < 24, minute < 60, second < 60 else { return nil }
+    let seconds = daysSinceEpoch(year: year, month: month, day: day) * 86_400 + hour * 3_600 + minute * 60 + second
+    return Date(timeIntervalSince1970: Double(seconds * 1_000 + millisecond) / 1_000)
+}
+
 /// Days from 1970-01-01 to the given proleptic-Gregorian date (negative before it).
 private func daysSinceEpoch(year: Int, month: Int, day: Int) -> Int {
     let y = month <= 2 ? year - 1 : year
@@ -481,15 +552,16 @@ private let timestampDateFormatters: [DateFormatter] = {
 // infrastructure as DateFormatter — but without the bridging overhead or
 // thread-safety constraints that required nonisolated(unsafe) on the old formatter.
 // Locale is pinned to en_US to guarantee consistent English output regardless of
-// the system language setting, matching the behavior of the previous DateFormatter.
-private let displayDateStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"))
+// the system language setting, matching the behavior of the previous DateFormatter, and
+// the calendar to Gregorian, which the locale alone does not do (see AppCalendar).
+private let displayDateStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: AppCalendar.gregorian)
     .month(.wide)
     .day(.defaultDigits)
     .year(.defaultDigits)
 
 // Output format style for month+year display (e.g., "November 2026"), used by monthYearLabel(for:).
 // Same Sendability and performance advantages as displayDateStyle above.
-private let monthYearStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"))
+private let monthYearStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: AppCalendar.gregorian)
     .month(.wide)
     .year(.defaultDigits)
 
@@ -565,10 +637,11 @@ func parseDate(from dateString: String?) -> Date? {
     // Extract just the date portion (strips version codes and trailing dots)
     let datePortion = extractDatePortion(from: dateString) ?? dateString
 
-    // The two stored shapes, read directly (see canonicalStoredDay). Anything declined
+    // The stored shapes, read directly (see canonicalStoredDay, canonicalStoredTimestamp). Anything declined
     // here goes through the formatters below exactly as it always did.
     if let date = canonicalStoredDay(datePortion[...], separator: ".")
-        ?? canonicalStoredDay(datePortion[...], separator: "-") {
+        ?? canonicalStoredDay(datePortion[...], separator: "-")
+        ?? canonicalStoredTimestamp(datePortion[...]) {
         return date
     }
     return parseDateWithFormatters(datePortion: datePortion, dateString: dateString)
@@ -634,7 +707,7 @@ func formatDate(_ date: Date) -> String {
 func timeAgo(from dateString: String?) -> String {
     guard let date = parseDate(from: dateString) else { return "Unknown" }
 
-    let calendar = Calendar.current
+    let calendar = AppCalendar.current
     let now = Date()
     
     // Calculate day difference first for recent dates
@@ -736,7 +809,7 @@ func formatDateWithTimeAgo(_ dateString: String?) -> String {
 ///   - calendar: The calendar to compute against. Defaults to `.current`.
 /// - Returns: Midnight on the 1st of the eligibility month, or `nil` if the
 ///   calendar arithmetic fails (which in practice it does not).
-func rotationEligibilityDate(from lastWatchedDate: Date, months: Int, calendar: Calendar = .current) -> Date? {
+func rotationEligibilityDate(from lastWatchedDate: Date, months: Int, calendar: Calendar = AppCalendar.current) -> Date? {
     guard let anniversary = calendar.date(
         byAdding: .month, value: months, to: lastWatchedDate
     ) else { return nil }
@@ -806,7 +879,7 @@ func monthYearLabel(for date: Date) -> String {
 /// - Parameter futureDate: The target date in the future.
 /// - Returns: Human-readable time distance (e.g., "1 year 11 months away", "3 months away", "2 weeks away").
 func timeDistanceFromNow(to futureDate: Date) -> String {
-    let calendar = Calendar.current
+    let calendar = AppCalendar.current
 
     // Both endpoints are normalized to the start of their calendar day before
     // anything is measured, and every tier below is computed from these two
@@ -2063,5 +2136,55 @@ nonisolated enum Fmt {
         let sign = value < 0 ? "-" : ""
         let zeros = max(0, width - sign.count - digits.count)
         return sign + String(repeating: "0", count: zeros) + digits
+    }
+}
+
+// MARK: - English Comparison Rules
+
+/// The rules every sort and text comparison in the app uses: English, whatever the
+/// system's language.
+///
+/// `localizedStandardCompare` and its kin follow the FIRST PREFERRED LANGUAGE in System
+/// Settings — not the app's own language, and not the Region setting. An English-only app
+/// still reports an English `Locale.current` ("en_CZ") while those calls apply Czech rules
+/// ("ch" after "h"), so a Czech, Lithuanian or Estonian first language reorders hundreds of
+/// a library's titles, Swedish and Danish move Å/Ä/Ö/Ø past Z, and Turkish changes how
+/// "I" folds. Pinning the locale keeps Film Tracker's order one order everywhere.
+///
+/// Measured 2026-10-27 on an English system: identical results to the calls they replace
+/// on 400,000 random pairs (letters each language treats specially, accents, ligatures,
+/// fullwidth digits, punctuation) and on the full title order of a 1,400-film library;
+/// under Czech, Swedish, Turkish, Lithuanian, Danish and Spanish first languages these
+/// still give the English results where the old calls did not. An `NSLocale` held once and
+/// handed to `NSString.compare` costs the same as `localizedStandardCompare` (6.5 vs 6.6 ms
+/// to sort 1,400 titles); bridging a Swift `Locale` on every call cost 8.8 ms.
+nonisolated enum EnglishText {
+    static let locale = Locale(identifier: "en_US")
+    fileprivate static let nsLocale = NSLocale(localeIdentifier: "en_US")
+    /// The options `localizedStandardCompare` documents itself as (Finder-like order).
+    static let standardOptions: String.CompareOptions = [.caseInsensitive, .numeric, .widthInsensitive, .forcedOrdering]
+    /// `localizedStandardCompare` as a `SortComparator`, for `KeyPathComparator` columns
+    /// (whose default for a String is `.localizedStandard`, the system-language rules).
+    static let standardComparator = String.Comparator(options: standardOptions, locale: locale)
+}
+
+nonisolated extension String {
+    /// `localizedStandardCompare(_:)` under English rules.
+    func englishStandardCompare(_ other: String) -> ComparisonResult {
+        let text = self as NSString
+        return text.compare(other, options: EnglishText.standardOptions,
+                            range: NSRange(location: 0, length: text.length), locale: EnglishText.nsLocale)
+    }
+
+    /// `localizedCaseInsensitiveCompare(_:)` under English rules.
+    func englishCaseInsensitiveCompare(_ other: String) -> ComparisonResult {
+        let text = self as NSString
+        return text.compare(other, options: .caseInsensitive,
+                            range: NSRange(location: 0, length: text.length), locale: EnglishText.nsLocale)
+    }
+
+    /// `localizedCaseInsensitiveContains(_:)` under English rules.
+    func englishCaseInsensitiveContains(_ other: String) -> Bool {
+        range(of: other, options: .caseInsensitive, locale: EnglishText.locale) != nil
     }
 }

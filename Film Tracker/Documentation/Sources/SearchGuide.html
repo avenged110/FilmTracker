@@ -164,9 +164,9 @@
   .card h4 { margin-top: 0; }
   .toc { margin: 8pt 0 0; }
   .toc .item { display: flex; align-items: baseline; padding: 6pt 0; border-bottom: 1px solid #ececf0; }
-  .toc .n { width: 28pt; color: var(--accent); font-weight: 700; }
+  .toc .n { flex: 0 0 28pt; color: var(--accent); font-weight: 700; }
   .toc .t { font-weight: 600; flex: 0 0 2.4in; }
-  .toc .s { color: var(--muted); font-size: 9.8pt; }
+  .toc .s { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 9.8pt; }
   .small { font-size: 9pt; color: var(--muted); }
   .cheat { font-size: 9.2pt; line-height: 1.35; break-inside: avoid; }
   .cheat h2 { font-size: 19pt; }
@@ -209,12 +209,12 @@
     <div class="item"><span class="n">1</span><span class="t">The basics</span><span class="s">Plain-text search, the # key, and how a token is made</span></div>
     <div class="item"><span class="n">2</span><span class="t">Combining tokens</span><span class="s">AND, OR, NOT, and the order in which they apply</span></div>
     <div class="item"><span class="n">3</span><span class="t">Field names and shortcuts</span><span class="s">Every token, with every alias it answers to</span></div>
-    <div class="item"><span class="n">4</span><span class="t">Text tokens</span><span class="s">Title, people, genre, studio, tags, notes, synopsis, lists</span></div>
+    <div class="item"><span class="n">4</span><span class="t">Text tokens</span><span class="s">Title, people, genre, studio, tags, notes, synopsis, lists, and Is</span></div>
     <div class="item"><span class="n">5</span><span class="t">Number tokens</span><span class="s">Year, duration, rating</span></div>
     <div class="item"><span class="n">6</span><span class="t">Date tokens</span><span class="s">Last Watched and Date Added</span></div>
     <div class="item"><span class="n">7</span><span class="t">The Release token</span><span class="s">Formats, ownership, release dates, HDR, region, packaging, and more</span></div>
     <div class="item"><span class="n">8</span><span class="t">The Rotation Threshold token</span><span class="s">Values, units, and the default / override keywords</span></div>
-    <div class="item"><span class="n">9</span><span class="t">Recipes</span><span class="s">Worked examples for common questions</span></div>
+    <div class="item"><span class="n">9</span><span class="t">Recipes</span><span class="s">Examples for common questions</span></div>
     <div class="item"><span class="n">10</span><span class="t">Troubleshooting</span><span class="s">When a search returns nothing, or too much</span></div>
     <div class="item"><span class="n">11</span><span class="t">Cheat sheet</span><span class="s">Everything on one page</span></div>
   </div>
@@ -241,6 +241,10 @@
     <div class="row"><span class="q">amelie</span><span class="d">Am&eacute;lie; accents never matter</span></div>
     <div class="row"><span class="q">spiderman</span><span class="d">Spider-Man; punctuation inside a word is ignored, so &ldquo;spider-man&rdquo; finds it too</span></div>
   </div>
+
+  <h3>Suggestions and recent searches</h3>
+  <p>As you type, a menu below the field suggests values from your library: titles for plain text, and, once you type the space after a field name, that field&rsquo;s values (people for <code>#cast</code>, tags for <code>#tag</code>, list names for <code>#list</code>, and so on). Picking a suggestion adds it exactly as shown. The closest matches to what you type always come first. Among similar matches, suggestions rise when you search for them often, when they relate to the pills already in the field or to your recent searches (after <code>#director nolan</code>, <code>#cast</code> lists his regular cast first), and when they belong to films you rate highly, watch often, watched or added recently, have queued or ranked in the Hall of Fame, or have a release coming soon. Values you have searched for before are suggested even when they are not library text, such as a year range. You can also type initials (<code>tdk</code> for The Dark Knight) or words in any order (<code>hanks tom</code>). Clicking the empty field lists your ten most recent searches from this session; pick one to run it again. The menu shows at most 30 rows.</p>
+  <p>Both are on by default and can be turned off in Settings &gt; General. Recent searches are kept only until you quit Film Tracker. What the suggestions have learned is kept on this Mac, and it fades over time when you stop using it.</p>
 
   <h3>Tokens: asking about something other than the title</h3>
   <p>A token pairs a <strong>field</strong> (such as Director or Rating) with a <strong>value</strong> (such as &ldquo;kubrick&rdquo; or &ldquo;8+&rdquo;). Tokens appear in the search field as small rounded pills, like the ones on the cover.</p>
@@ -270,7 +274,7 @@
   <p>Delete the pill the same way you would delete any token in a macOS search field: select it and press Delete, or place the cursor after it and press Delete once. The results update immediately.</p>
 
   <h3>What the pill shows</h3>
-  <p>Pills use short labels so they stay compact. Two optional prefixes mark how a token behaves (Chapter 2). The long field names are abbreviated as follows:</p>
+  <p>Pills use short labels so they stay compact, and a list name longer than 20 characters is shortened with &ldquo;&hellip;&rdquo;. Two optional prefixes mark how a token behaves (Chapter 2). The long field names are abbreviated as follows:</p>
   <table>
     <thead><tr><th>Field</th><th>Pill label</th></tr></thead>
     <tbody>
@@ -370,6 +374,7 @@
       <tr><td><strong>Notes</strong></td><td><code>note</code> <code>notes</code></td><td>Text</td><td>4</td></tr>
       <tr><td><strong>Synopsis</strong></td><td><code>synopsis</code> <code>plot</code> <code>description</code></td><td>Words, any order</td><td>4</td></tr>
       <tr><td><strong>List</strong></td><td><code>list</code> <code>lists</code></td><td>Text, list name</td><td>4</td></tr>
+      <tr><td><strong>Is</strong></td><td><code>is</code> <code>flag</code> <code>flags</code></td><td>Keywords, comma-separated</td><td>4</td></tr>
       <tr><td><strong>Year</strong></td><td><code>year</code> <code>years</code> <code>releaseyear</code> <code>date</code></td><td>Number or range</td><td>5</td></tr>
       <tr><td><strong>Duration</strong></td><td><code>duration</code> <code>runtime</code> <code>length</code> <code>time</code></td><td>Minutes</td><td>5</td></tr>
       <tr><td><strong>Rating</strong></td><td><code>rating</code> <code>userrating</code> <code>rate</code> <code>score</code></td><td>0 to 10</td><td>5</td></tr>
@@ -452,7 +457,17 @@
   </ul>
 
   <h3>List</h3>
-  <p><code>#list</code> finds films that belong to a list whose name contains your text. It searches your own lists <strong>and</strong> the built-in smart lists, as long as smart lists are enabled in Settings. The internal Film Queue lists are not searchable this way.</p>
+  <p><code>#list</code> finds films that belong to the list you name. Once you type the space after <code>#list</code>, the suggestion list shows every list you can search, narrowing as you type; pick one to add it as a pill. It searches your own lists, the built-in smart lists (as long as smart lists are enabled in Settings), and the two ranked lists in Reports: <strong>Hall of Fame</strong> and <strong>Release Wishlist</strong> (a film is on the wishlist when at least one of its releases is wishlisted), and the five Recents tabs. The internal Film Queue lists are not searchable this way.</p>
+  <p>A Recents tab matches exactly the films that tab shows, up to its 200 most recent. In suggestions these are marked &ldquo;Recents:&rdquo;.</p>
+  <table>
+    <tbody>
+      <tr><td>Most Recently Viewed</td><td>also <code>most recently watched</code>, <code>recently watched</code>, <code>recently viewed</code></td></tr>
+      <tr><td>Recently Come Up for Rotation</td><td>also <code>recently up for rotation</code></td></tr>
+      <tr><td>Recently Added</td><td></td></tr>
+      <tr><td>Recently Updated</td><td></td></tr>
+      <tr><td>Recently Purchased</td><td></td></tr>
+    </tbody>
+  </table>
   <p>The built-in smart list names are:</p>
   <table>
     <tbody>
@@ -466,13 +481,49 @@
     </tbody>
   </table>
   <div class="warn"><span class="t">Substrings can overlap</span>
-  <p><code>#list purchased</code> also matches &ldquo;Unpurchased&rdquo;, because that word contains &ldquo;purchased&rdquo;. To get only Purchased 4K, type <code>#list purchased 4k</code>; to avoid the unpurchased lists, add <code>#!list unpurchased</code>.</p>
+  <p>When your text is a list&rsquo;s full name (in any case), only that list matches, even if the name appears inside another one: <code>#list purchased 4k</code> is the Purchased 4K list alone, not Unpurchased 4K as well. Text that is not a full list name matches every list whose name contains it, so <code>#list 4k</code> covers both Purchased 4K and Unpurchased 4K.</p>
   </div>
   <div class="ex">
     <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
-    <div class="row"><span class="q">#list favorites</span><span class="d">Films on any list whose name contains &ldquo;favorites&rdquo;</span></div>
+    <div class="row"><span class="q">#list favorites</span><span class="d">Films on the list named &ldquo;Favorites&rdquo;, or, if no list has that exact name, on any list whose name contains it</span></div>
     <div class="row"><span class="q">#list up for rotation</span><span class="d">Films currently in the Up for Rotation smart list</span></div>
     <div class="row"><span class="q">#list purchased 4k</span><span class="d">Films in the Purchased 4K smart list</span></div>
+    <div class="row"><span class="q">#list hall of fame</span><span class="d">Films ranked in the Hall of Fame</span></div>
+    <div class="row"><span class="q">#list wishlist</span><span class="d">Films with a release on the Release Wishlist</span></div>
+    <div class="row"><span class="q">#list most recently watched</span><span class="d">The films on the Most Recently Viewed tab</span></div>
+    <div class="row"><span class="q">#list recently</span><span class="d">Every Recents tab at once, since each name contains &ldquo;recently&rdquo;</span></div>
+  </div>
+
+  <h3>Is</h3>
+  <p><code>#is</code> tests yes/no properties of a film, several at once. Separate the terms with commas; a film must satisfy every one. Put <code>!</code> (or <code>not</code>) in front of a single term to require the opposite. One <code>#is</code> pill can therefore replace several <code>#list</code> pills.</p>
+  <p>Once you type the space after <code>#is</code>, the suggestion list offers the terms. Picking one completes the term you are typing and leaves the token open, so you can type a comma and the next term; press <strong>Return</strong> to make the pill.</p>
+  <table>
+    <thead><tr><th style="width:1.2in">Property</th><th>Terms</th><th style="width:2.2in">True when</th></tr></thead>
+    <tbody>
+      <tr><td>Editing</td><td><code>edited</code> <code>unedited</code></td><td>The film is marked as edited</td></tr>
+      <tr><td>Viewing</td><td><code>watched</code> <code>unwatched</code> (<code>seen</code> <code>viewed</code> <code>unseen</code> <code>unviewed</code> <code>never watched</code>)</td><td>The film is marked as watched</td></tr>
+      <tr><td>Rating</td><td><code>rated</code> <code>unrated</code></td><td>You have given the film a rating</td></tr>
+      <tr><td>Info</td><td><code>complete</code> <code>incomplete</code> (<code>info complete</code> <code>info incomplete</code>)</td><td>The film&rsquo;s info is marked complete</td></tr>
+      <tr><td>Special sorting</td><td><code>sorted</code> <code>unsorted</code> (<code>special sorting</code> <code>specially sorted</code> <code>no special sorting</code>)</td><td>The film carries any special sorting tag</td></tr>
+      <tr><td>One sorting tag</td><td><code>waiting for edit</code> <code>waiting</code> <code>on hold</code> <code>held</code> <code>temporarily on hold</code> <code>temp on hold</code> <code>indefinitely on hold</code> <code>ignored</code> <code>ignore</code> <code>blacklisted</code></td><td>The film carries that tag; <code>on hold</code> is either kind of hold</td></tr>
+      <tr><td>Ownership</td><td><code>owned</code> <code>purchased</code> <code>owned 4k</code> <code>owned uhd</code> <code>purchased 4k</code> <code>owned blu-ray</code> <code>owned 2k</code> <code>purchased blu-ray</code> <code>owned dvd</code> <code>purchased dvd</code></td><td>At least one purchased release (of that format)</td></tr>
+      <tr><td>Not owned</td><td><code>unowned</code> <code>unpurchased</code> <code>no releases</code> <code>no releases added</code></td><td>Releases, none purchased; or no releases at all</td></tr>
+      <tr><td>Releases</td><td><code>wishlisted</code> <code>on wishlist</code> <code>wishlist</code> <code>upcoming</code></td><td>A release on the Release Wishlist; a release still to come</td></tr>
+      <tr><td>Other</td><td><code>alternate versions</code> <code>alt versions</code> <code>alternates</code> <code>hall of fame</code> <code>hof</code></td><td>A purchased release with an alternate version; ranked in the Hall of Fame</td></tr>
+    </tbody>
+  </table>
+  <div class="warn"><span class="t">Not the same as the smart lists</span>
+  <p>Each term tests only the one property it names. The smart lists of similar names can add conditions of their own: <strong>Filtered Library</strong> also requires the film to be watched, and <strong>Viewed Over One Year Ago</strong> leaves out films with special sorting and waits until the 1st of the month after the anniversary. <code>unsorted</code> is only &ldquo;no special sorting&rdquo;. A term the app does not recognize makes the whole pill match nothing, so a typo shows up as an empty result rather than a wider one.</p>
+  </div>
+  <div class="warn"><span class="t">!term inside versus #!is</span>
+  <p><code>#is owned 4k, !edited</code> means &ldquo;owned in 4K and not edited&rdquo;. <code>#!is owned 4k, edited</code> removes the films that are <em>both</em> owned in 4K and edited, which keeps every film missing either one.</p>
+  </div>
+  <div class="ex">
+    <div class="row head"><span class="q">Query</span><span class="d">Finds</span></div>
+    <div class="row"><span class="q">#is owned 4k, unsorted, unedited</span><span class="d">4K films you own that are not edited and carry no special sorting</span></div>
+    <div class="row"><span class="q">#is watched, !rated</span><span class="d">Films you have watched but not rated</span></div>
+    <div class="row"><span class="q">#is unowned, wishlisted</span><span class="d">Films with releases but none purchased, at least one wishlisted</span></div>
+    <div class="row"><span class="q">#is on hold</span><span class="d">Films temporarily or indefinitely on hold</span></div>
   </div>
 </section>
 
@@ -614,7 +665,7 @@
       <tr><td>Months</td><td><code>january</code> <code>jan</code>, <code>february</code> <code>feb</code>, <code>march</code> <code>mar</code>, <code>april</code> <code>apr</code>, <code>may</code>, <code>june</code> <code>jun</code>, <code>july</code> <code>jul</code>, <code>august</code> <code>aug</code>, <code>september</code> <code>sep</code> <code>sept</code>, <code>october</code> <code>oct</code>, <code>november</code> <code>nov</code>, <code>december</code> <code>dec</code></td></tr>
       <tr><td>Seasons</td><td><code>spring</code> (March&ndash;May), <code>summer</code> (June&ndash;August), <code>fall</code> (September&ndash;November), <code>winter</code> (December&ndash;February, named for the year its December falls in: <code>winter 2024</code> runs into 2025)</td></tr>
       <tr><td>Quarters</td><td><code>q1</code> <code>q2</code> <code>q3</code> <code>q4</code></td></tr>
-      <tr><td>Holidays</td><td><code>christmas</code> <code>xmas</code> (December 24&ndash;26), <code>christmas eve</code>, <code>christmas day</code>, <code>new years eve</code> <code>nye</code>, <code>new years</code> <code>new year</code> <code>new years day</code> (December 31&ndash;January 1), <code>halloween</code>, <code>valentines</code> <code>valentines day</code>, <code>independence day</code> or <em>fourth of July</em> (July 4), <code>thanksgiving</code> (the fourth Thursday of November through that Sunday), <code>holidays</code> <code>holiday season</code> (December 20&ndash;January 2)</td></tr>
+      <tr><td>Holidays</td><td><code>christmas</code> <code>xmas</code> (December 24&ndash;26), <code>christmas eve</code>, <code>christmas day</code>, <code>new years eve</code> <code>nye</code>, <code>new years</code> <code>new year</code> <code>new years day</code> (December 31&ndash;January 1), <code>halloween</code>, <code>valentines</code> <code>valentines day</code>, <code>independence day</code> or <code>fourth of july</code> (July 4), <code>thanksgiving</code> (the fourth Thursday of November through that Sunday), <code>holidays</code> <code>holiday season</code> (December 20&ndash;January 2)</td></tr>
     </tbody>
   </table>
 
@@ -808,7 +859,7 @@
     <div class="row"><span class="q">#rotation 24 months</span><span class="d">24 months. Also accepted: <code>24 month</code>, <code>24 mo</code>, <code>24 mo.</code></span></div>
     <div class="row"><span class="q">#rotation 1.5</span><span class="d">1&frac12; years = 18 months</span></div>
   </div>
-  <p>A value search matches a film's <strong>effective</strong> threshold. That is the film&rsquo;s override if it has one, otherwise the current global default. So if the default is 2 years, <code>#rotation 2 years</code> finds <em>both</em> films explicitly set to 2 years <em>and</em> films that simply follow the default.</p>
+  <p>A value search matches a film&rsquo;s <strong>effective</strong> threshold. That is the film&rsquo;s override if it has one, otherwise the current global default. So if the default is 2 years, <code>#rotation 2 years</code> finds <em>both</em> films explicitly set to 2 years <em>and</em> films that simply follow the default.</p>
   <p>Values the app cannot map to a real threshold return no films: <code>6 months</code>, <code>7</code>, <code>36 years</code>, and <code>2 dingus</code> all return nothing. A unit must be a real one, and a month value must be an exact whole number.</p>
 
   <h3>Searching by override</h3>
@@ -854,6 +905,9 @@
   <h4>Either of two filmmakers</h4>
   <div class="ex"><div class="row"><span class="q">#/director kubrick<br>#/director lynch</span><span class="d">Every Kubrick film and every Lynch film</span></div></div>
 
+
+  <h4>Owned in 4K, untouched, not seen in a year</h4>
+  <div class="ex"><div class="row"><span class="q">#is owned 4k, unsorted, unedited<br>#watched over 1 year ago</span><span class="d">4K films you own with no edit and no special sorting, last watched more than a year ago. Use <code>#!watched within 1 year</code> instead to include films never watched.</span></div></div>
 
   <h4>No viewing date recorded</h4>
   <div class="ex"><div class="row"><span class="q">#watched none</span><span class="d">Films with no viewing date</span></div></div>
@@ -949,6 +1003,8 @@
       </tbody></table>
       <h4>Text fields (match anywhere, any case)</h4>
       <p><code>title</code> <code>cast</code> <code>director</code> <code>producer</code> <code>exp</code> <code>writer</code> <code>composer</code> <code>crew</code> <code>genre</code> <code>studio</code> <code>tags</code> <code>notes</code> <code>list</code></p>
+      <h4>Is: <code>is</code> (comma-separated, <code>!</code> negates a term)</h4>
+      <p class="small"><code>owned 4k, unsorted, !edited</code> &middot; <code>watched</code> <code>rated</code> <code>complete</code> <code>sorted</code> <code>on hold</code> <code>owned</code> <code>unowned</code> <code>no releases</code> <code>wishlisted</code> <code>upcoming</code> <code>alternate versions</code> <code>hall of fame</code></p>
       <h4>Synopsis: <code>synopsis</code> <code>plot</code> <code>description</code></h4>
       <p class="small">Every word must appear, in any order: <code>detective sins mills</code></p>
       <h4>Number fields (ranges include both ends)</h4>

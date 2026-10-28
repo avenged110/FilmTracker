@@ -32,7 +32,6 @@ struct GalleryView: View, Loggable {
     @State private var viewID = UUID()
     @State private var hasInitialized = false
     @State private var hasLoadedInitialView = false  // Prevents duplicate loads
-    @State private var forceReloadID = UUID()
     @State private var scrollRequest: FilmScrollRequest?
     
     /// Holds Combine subscriptions for gallery event handlers. Plain reference type — not an
@@ -56,14 +55,16 @@ struct GalleryView: View, Loggable {
                 let shown = viewStateManager.displayedGalleryState(
                     loadedQueueFilter: dataCoordinator.loadedFilmQueueFilter)
                 if !isOutgoing && !dataCoordinator.films.isEmpty && PosterCache.shared.isReady && !shouldShowLoading {
-                    // showSectionDividers is read HERE, in a real SwiftUI body, rather
-                    // than inside either style. Both consumers are NSViewRepresentables,
-                    // whose updateNSView is not an observation-tracked scope — reading the
-                    // @Observable ViewState from inside one would give SwiftUI no reason to
-                    // run another update pass when the value changed. Reading it in this
-                    // body (which already observes activeState for isListView directly
-                    // above) makes it a stored property of the representable, so a change
-                    // re-renders here and propagates down as an ordinary value change.
+                    // showSectionDividers is read HERE, from `shown`, rather than inside
+                    // either style. Not because the styles could not observe it: SwiftUI
+                    // does track @Observable reads made in updateNSView, and re-runs it when
+                    // one changes (the reason SelectionState.untrackedSelectedFilmIDs
+                    // exists). It is because `shown` is the state of the films on screen,
+                    // which differs from activeState across a Film Queue tab switch, and the
+                    // style chosen just below comes from it: taking the dividers flag from
+                    // the same value keeps the two from ever describing different tabs.
+                    // Passed down, a change is an ordinary value change on the
+                    // representable, which schedules the update pass that applies it.
                     if shown.isListView {
                         GalleryListView(activeViewID: viewStateManager.activeView,
                                         scrollRequest: scrollRequest,
@@ -72,7 +73,7 @@ struct GalleryView: View, Loggable {
                             .environment(dataCoordinator)
                             .environment(selectionState)
                     } else {
-                        GallerySubview(forceReloadID: forceReloadID, scrollRequest: scrollRequest, activeViewID: viewStateManager.activeView, subtitleProvider: subtitleProvider, showSectionDividers: shown.showSectionDividers)
+                        GallerySubview(scrollRequest: scrollRequest, activeViewID: viewStateManager.activeView, subtitleProvider: subtitleProvider, showSectionDividers: shown.showSectionDividers)
                             .environment(dataCoordinator)
                             .environment(selectionState)
                     }
@@ -452,43 +453,43 @@ struct GalleryView: View, Loggable {
         // handled cost a RunLoop hop plus a redundant @State write that invalidated this
         // whole view's body.
         
-        // Film changes (consolidated handler for updated/added/deleted).
-        // All three event types share the same core logic: force-reload the current view
-        // state and bump forceReloadID to signal GallerySubview. The only difference is
-        // scroll behavior — film updates request a scroll-to-film evaluation, while
-        // adds/deletes do not.
+        // Film changes, and smart-list recalculations underneath an open smart list. Each
+        // one that can change what this view shows is noted on the holder, which flushes
+        // once per turn however many arrive (see SubscriptionHolder.noteChange) and reloads
+        // the view only if no full load has happened since the latest of them.
+        //
+        // Both conditions are what keep a change to one load. A single edit is announced
+        // and then loaded by DataCoordinator itself, in that order (see
+        // DataCoordinator.reloadCurrentView), so by the flush it is already on screen and
+        // reloading it again was pure duplication. A burst of per-film events — a Hall of
+        // Fame reorder, an import, a ratings rollback — used to cost one full load per
+        // event; it now costs one load for the burst, or none when its sender loaded after.
+        //
+        // Synchronous, with no receive(on:): the load generation has to be read at the
+        // moment of the event, before the sender's own reload moves it on. The flush itself
+        // stays one turn later, exactly where the reload used to happen.
         AppEventBus.shared.filmEvents
-            .receive(on: RunLoop.main)
-            .sink { [weak dataCoordinator, weak appState] event in
-                // Liveness check only — neither object is read in this closure any more,
-                // so they are tested rather than bound (a binding would be unused).
-                guard dataCoordinator != nil, appState != nil else { return }
-
-                // Extract the scroll target (if any).
-                let scrollTarget: UUID?
+            .sink { [weak dataCoordinator] event in
+                guard let dataCoordinator else { return }
                 switch event {
                 case .updated(let filmID):
-                    scrollTarget = filmID
-                case .added, .deleted:
-                    scrollTarget = nil
-                default:
+                    // Edits also ask the gallery to keep the edited film in view.
+                    handler.pendingScrollTarget = filmID
+                case .added:
+                    break
+                case .deleted:
+                    // Already loaded, finally, by every sender: each reloads the view after
+                    // removing the films from MemoryStore and before posting this, and no
+                    // membership the event changes can alter that load — the films are gone.
+                    // See DataCoordinator.deleteFilms.
+                    return
+                case .releaseChanged:
                     return
                 }
-                
-                Self.log("Film change detected - preserving current view state")
-                
-                // Refresh data without reloading view state, keeping search query intact.
-                ViewStateManager.shared.forceReload()
-                
-                // Signal the gallery to evaluate the post-edit scroll position. The request
-                // is one-shot on the gallery's side (each carries a fresh token and is acted
-                // on once), so it is simply left in place rather than cleared on a later
-                // turn — clearing it cost every edit a second full gallery update pass.
-                if let scrollTarget { scrollRequest = FilmScrollRequest(filmID: scrollTarget) }
-                forceReloadID = UUID()
+                handler.noteChange(coordinator: dataCoordinator, flush: flushChanges)
             }
             .store(in: &handler.cancellables)
-        
+
         // Smart list membership changed underneath an open gallery. Two independent sources
         // post this: the daily midnight rotation recalculation and the rotation-family display
         // filters (both of which affect only "Up for Rotation" / "Viewed Over One Year Ago"),
@@ -504,16 +505,36 @@ struct GalleryView: View, Loggable {
         // a rotation-only broadcast is negligible.
         AppEventBus.shared.viewEvents
             .filter { if case .smartListsRecalculated = $0 { return true } else { return false } }
-            .receive(on: RunLoop.main)
-            .sink { _ in
-                guard case .smartList = ViewStateManager.shared.activeView else { return }
+            .sink { [weak dataCoordinator] _ in
+                guard let dataCoordinator, case .smartList = ViewStateManager.shared.activeView else { return }
                 Self.log("Smart lists recalculated - refreshing active smart list view")
-                ViewStateManager.shared.forceReload()
-                forceReloadID = UUID()
+                handler.noteChange(coordinator: dataCoordinator, flush: flushChanges)
             }
             .store(in: &handler.cancellables)
 
         Self.log("Event handlers setup complete (instance: \(viewID))")
+    }
+
+    /// The deferred half of the change handlers above, run once per turn by the holder.
+    /// `reload` is false when DataCoordinator has fully loaded the view since the latest
+    /// change, which is the case for every edit it announces itself.
+    ///
+    /// No other signal is sent to the gallery. A reload that changes the films reaches it
+    /// through `dataCoordinator.films`, and a post-edit scroll through `scrollRequest`; a
+    /// reload that changes nothing has nothing to show. (A `forceReloadID` bump used to go
+    /// with every reload, and its only effect was a gallery update pass in exactly that
+    /// last case: GallerySubview decided its reloads from the films alone.)
+    private func flushChanges(reload: Bool, scrollTarget: UUID?) {
+        if reload {
+            Self.log("Film or smart-list change not yet loaded - reloading current view state")
+            // Refresh data without reloading view state, keeping search query intact.
+            ViewStateManager.shared.forceReload()
+        }
+        // Signal the gallery to evaluate the post-edit scroll position. The request is
+        // one-shot on the gallery's side (each carries a fresh token and is acted on once),
+        // so it is simply left in place rather than cleared on a later turn — clearing it
+        // cost every edit a second full gallery update pass.
+        if let scrollTarget { scrollRequest = FilmScrollRequest(filmID: scrollTarget) }
     }
 
     // MARK: - Sidebar Handling
@@ -684,15 +705,67 @@ struct GalleryView: View, Loggable {
 
 // MARK: - SubscriptionHolder
 
-/// Manages Combine subscriptions for gallery event handlers with proper lifecycle cleanup.
-/// Plain reference type — not ObservableObject — because it holds no @Observable
-/// properties that SwiftUI needs to observe. No deinit: each AnyCancellable cancels itself
-/// when the set releases it, which is exactly what an explicit removeAll() there did.
+/// Manages Combine subscriptions for gallery event handlers with proper lifecycle cleanup,
+/// and coalesces the changes they report into one flush per turn. Plain reference type —
+/// not ObservableObject — because it holds no @Observable properties that SwiftUI needs to
+/// observe. No deinit: each AnyCancellable cancels itself when the set releases it, which
+/// is exactly what an explicit removeAll() there did.
+@MainActor
 private final class SubscriptionHolder {
     var cancellables = Set<AnyCancellable>()
 
+    /// The film the latest edit in this turn asked to keep in view.
+    var pendingScrollTarget: UUID?
+    /// DataCoordinator.fullLoadGeneration when the latest change of this turn arrived.
+    private var generationAtLatestChange: Int?
+    private weak var coordinator: DataCoordinator?
+    private var flush: ((_ reload: Bool, _ scrollTarget: UUID?) -> Void)?
+    private var isFlushScheduled = false
+    /// Carries the turn's one flush request to the main run loop. The same hop the change
+    /// handlers used to take themselves (`receive(on: RunLoop.main)`), and deliberately not
+    /// DispatchQueue.main.async: a run-loop delivery lands before SwiftUI's update for the
+    /// turn, so the scroll request it sets joins the sender's own reload in ONE gallery
+    /// update pass, where a main-queue block arrived after it and cost a second.
+    private let flushRequests = PassthroughSubject<Void, Never>()
+    private var flushSubscription: AnyCancellable?
+
+    /// Records a change this view may not have loaded yet, and schedules the turn's one
+    /// flush. The flush reloads only if no full load has happened since the LATEST change:
+    /// a load after the last change covers every change before it, and a change after the
+    /// last load leaves the view behind.
+    func noteChange(coordinator: DataCoordinator,
+                    flush: @escaping (_ reload: Bool, _ scrollTarget: UUID?) -> Void) {
+        generationAtLatestChange = coordinator.fullLoadGeneration
+        self.coordinator = coordinator
+        self.flush = flush
+        guard !isFlushScheduled else { return }
+        isFlushScheduled = true
+        if flushSubscription == nil {
+            flushSubscription = flushRequests
+                .receive(on: RunLoop.main)
+                .sink { [weak self] in self?.performFlush() }
+        }
+        flushRequests.send()
+    }
+
+    private func performFlush() {
+        isFlushScheduled = false
+        let reload = generationAtLatestChange != nil
+            && generationAtLatestChange == coordinator?.fullLoadGeneration
+        let target = pendingScrollTarget
+        generationAtLatestChange = nil
+        pendingScrollTarget = nil
+        flush?(reload, target)
+    }
+
+    /// Also drops a flush already scheduled: canceling its subscription cancels its delivery.
     func cancel() {
         cancellables.removeAll()
+        flushSubscription = nil
+        isFlushScheduled = false
+        generationAtLatestChange = nil
+        pendingScrollTarget = nil
+        flush = nil
     }
 }
 

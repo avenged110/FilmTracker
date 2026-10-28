@@ -615,7 +615,7 @@ struct DiscReleasesTable: View {
                 } else {
                     formattedCost = ""
                     formattedAmountSpent = ""
-                    formattedPurchaseDate = release.marketAvailability.joined(separator: ", ")
+                    formattedPurchaseDate = ReleaseMarketAvailability.displayText(release.marketAvailability)
                     formattedCondition = ""
                 }
 

@@ -693,11 +693,15 @@ struct RSBHelpers {
                     .font(.system(size: rowFontSize))
                     .sidebarRowContainer(glyph: glyph,
                                          glyphColor: Color(nsColor: .tertiaryLabelColor))
-            } else {
+            } else if RSBProfileFlags.swiftUICrewRows {
                 ForEach(Array(trimmedItems.enumerated()), id: \.offset) { _, item in
                     SearchableItemRow(item: item, field: field,
                                       glyph: glyph, glyphColor: glyphColor)
                 }
+            } else {
+                // The same rows in AppKit, re-pointed rather than rebuilt per film. See
+                // CrewRowList.
+                CrewRowList(items: trimmedItems, field: field, glyph: glyph, glyphColor: glyphColor)
             }
         }
     }
@@ -768,6 +772,7 @@ struct RSBHelpers {
     private static let fullTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .current
+        formatter.calendar = AppCalendar.gregorian  // .current alone carries the system calendar
         formatter.timeZone = .current
         formatter.dateFormat = "MMMM d, yyyy, 'at' h:mm a"
         return formatter
@@ -956,6 +961,15 @@ struct RSBHelpers {
         /// Region A on region-free hardware and so is not a practical restriction.
         /// Scoped to non-edited films by design. Rendered as its own annotation row.
         var regionBLockNote: String = ""
+        /// "Releases on <date>" (or "… in <year>") — empty unless the displayed value is a
+        /// purchased disc whose release date is still to come on `today`: a paid pre-order.
+        /// Keyed off the very release the value row names, so owning some other purchased
+        /// release, or having an unpurchased upcoming one, never triggers it. Rendered as
+        /// its own annotation row.
+        var preorderReleaseNote: String = ""
+        /// `preorderReleaseNote` with the month abbreviated, or nil when identical. The
+        /// same overflow-only contract as `availableForPurchaseNoteAbbreviated`.
+        var preorderReleaseNoteAbbreviated: String? = nil
     }
 
     /// `today` decides whether the release behind the purchase note is upcoming; views
@@ -1005,6 +1019,9 @@ struct RSBHelpers {
         // step with the branch it describes.
         var isPurchasedDisc = false
         var displayedBluRay: ReleaseSnapshot?
+        // The purchased release the value row names, when it names one; drives the
+        // pre-order note.
+        var displayedPurchased: ReleaseSnapshot?
 
         if isEdited {
             // Edited films: Blu-ray only.
@@ -1013,6 +1030,7 @@ struct RSBHelpers {
                 let label  = formatLabel("Blu-ray disc", remastered: best2K?.remastered ?? false)
                 raw = SourceValueForms(lead: "Edited ", prefix: prefix, label: label)
                 isPurchasedDisc = true
+                displayedPurchased = best2K
                 // Deliberately no displayedBluRay: the Region B suffix is scoped to
                 // non-edited films only.
             } else if hasDigitalSource {
@@ -1026,6 +1044,7 @@ struct RSBHelpers {
                 let base: String
                 if digitalSource == FilmDigitalSource.dvd && !purchasedDVD.isEmpty {
                     base = "DVD"
+                    displayedPurchased = bestDVD
                     // The disc itself was bought — that is precisely why "rip" is
                     // omitted here — so this branch does display a purchased disc.
                     isPurchasedDisc = true
@@ -1051,11 +1070,13 @@ struct RSBHelpers {
                 let label  = formatLabel("4K disc", remastered: best4K?.remastered ?? false)
                 raw = SourceValueForms(lead: "", prefix: prefix, label: label)
                 isPurchasedDisc = true
+                displayedPurchased = best4K
             } else if !purchased2K.isEmpty {
                 let prefix = sourcePrefix(best: best2K, allOfFormat: all2K)
                 let label  = formatLabel("Blu-ray disc", remastered: best2K?.remastered ?? false)
                 raw = SourceValueForms(lead: "", prefix: prefix, label: label)
                 isPurchasedDisc = true
+                displayedPurchased = best2K
                 // The one branch the Region B suffix applies to.
                 displayedBluRay = best2K
             } else if !purchasedDVD.isEmpty {
@@ -1065,6 +1086,7 @@ struct RSBHelpers {
                 let label  = formatLabel("DVD", remastered: bestDVD?.remastered ?? false)
                 raw = SourceValueForms(lead: "", prefix: prefix, label: label)
                 isPurchasedDisc = true
+                displayedPurchased = bestDVD
             } else if hasDigitalSource {
                 // No purchased disc of any format. "Blu-ray disc" and "DVD" digital
                 // sources represent rips from unpurchased discs, so append " rip".
@@ -1108,12 +1130,14 @@ struct RSBHelpers {
         //   • 4K UHD  — film is not edited, owns no purchased 4K, and a 4K release is
         //               available to buy. Covers both "no purchased 4K or Blu-ray" and
         //               "purchased Blu-ray plus an unpurchased 4K".
-        //   • Blu-ray — no unpurchased 4K release exists (or the film is edited, where
-        //               4K never applies), an unpurchased Blu-ray does, and no
-        //               purchased Blu-ray or better (4K) is owned.
+        //   • Blu-ray — the 4K note did not fire, an unpurchased Blu-ray exists, and no
+        //               purchased Blu-ray is owned. A purchased 4K does not suppress it:
+        //               owning the 4K says nothing about owning the Blu-ray, and for an
+        //               edited film (Blu-ray only) the 4K is not a source at all.
         //   • DVD     — shown only when the displayed value is not a purchased disc
-        //               (so no DVD or better is owned) and neither 4K nor Blu-ray has
-        //               anything to buy.
+        //               (so no DVD or better is owned), nothing on Blu-ray is to buy, and
+        //               nothing on 4K is either — the 4K condition waived for edited films,
+        //               where 4K never applies, exactly as the Blu-ray rule waives it.
         let has4KToBuy  = all4K.contains  { !$0.purchased }
         let has2KToBuy  = all2K.contains  { !$0.purchased }
         let hasDVDToBuy = allDVD.contains { !$0.purchased }
@@ -1139,15 +1163,25 @@ struct RSBHelpers {
         var availableForPurchase = ""
         if !isEdited && has4KToBuy && purchased4K.isEmpty {
             availableForPurchase = buyPhrase("4K UHD", all4K)
-        } else if (isEdited || !has4KToBuy) && has2KToBuy && purchased2K.isEmpty && purchased4K.isEmpty {
+        } else if has2KToBuy && purchased2K.isEmpty {
             availableForPurchase = buyPhrase("Blu-ray", all2K)
-        } else if !isPurchasedDisc && !has4KToBuy && !has2KToBuy && hasDVDToBuy {
+        } else if !isPurchasedDisc && (isEdited || !has4KToBuy) && !has2KToBuy && hasDVDToBuy {
             availableForPurchase = buyPhrase("DVD", allDVD)
         }
 
         let regionBLock = (displayedBluRay?.regionLock == ReleaseRegionRules.regionB)
             ? "Region B locked"
             : ""
+
+        // A purchased disc that has not come out yet: a paid pre-order.
+        var preorderNote = ""
+        if let displayedPurchased,
+           let date = ReleaseDateValue(displayedPurchased.releaseDate, format: displayedPurchased.format),
+           date.isUpcoming(today: today) {
+            preorderNote = date.isYearOnly
+                ? "Releases in \(date.displayText)"
+                : "Releases on \(date.displayText)"
+        }
 
         return SourceDisplay(
             value: value,
@@ -1157,7 +1191,9 @@ struct RSBHelpers {
             isPurchasedDiscSource: isPurchasedDisc,
             availableForPurchaseNote: availableForPurchase,
             availableForPurchaseNoteAbbreviated: SidebarTextAbbreviation.abbreviatingMonthNames(in: availableForPurchase),
-            regionBLockNote: regionBLock
+            regionBLockNote: regionBLock,
+            preorderReleaseNote: preorderNote,
+            preorderReleaseNoteAbbreviated: SidebarTextAbbreviation.abbreviatingMonthNames(in: preorderNote)
         )
     }
 
@@ -1338,8 +1374,15 @@ struct RSBHelpers {
 
         // Only one release of this format: nothing to disambiguate, so no year or
         // studio. The import rule is the one thing that does not depend on the pool.
+        // Every spelling is filled: no studio is shown here, so the studio-compacted forms
+        // are the full and origin-compacted ones. Left at their empty defaults, they read as
+        // ladder steps with the origin dropped altogether ("Blu-ray disc" for an Australian
+        // disc), which the row could pick whenever the full value overflowed.
         guard allOfFormat.count >= 2 else {
-            return isImport ? SourcePrefix(full: originToken, originAbbreviated: originShortToken)
+            return isImport ? SourcePrefix(full: originToken,
+                                           originAbbreviated: originShortToken,
+                                           studioAbbreviated: originToken,
+                                           originAndStudioAbbreviated: originShortToken)
                             : SourcePrefix()
         }
 
@@ -1457,6 +1500,15 @@ struct RSBHelpers {
         return count == 1 ? singular : plural
     }
     
+    /// Applies a state change with `.animation(_:value:)` modifiers suppressed, for state a
+    /// tab animates on that must also follow a new selection in one step (the Details tab's
+    /// table expansion, the Releases tab's purchase filter).
+    static func withoutAnimation(_ change: () -> Void) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, change)
+    }
+
     // Standard section divider used throughout sidebar modules.
     static var sectionDivider: some View {
         Divider()
@@ -1637,7 +1689,7 @@ func releaseSortKeysPrecede(_ lhs: ReleaseSnapshot, _ rhs: ReleaseSnapshot) -> B
     if lhsDate == nil && rhsDate != nil { return false }
 
     // Quaternary: studio (ascending)
-    let studioOrder = lhs.studio.localizedStandardCompare(rhs.studio)
+    let studioOrder = lhs.studio.englishStandardCompare(rhs.studio)
     if studioOrder != .orderedSame { return studioOrder == .orderedAscending }
 
     return nil
@@ -1898,7 +1950,9 @@ enum QueryHandoff {
 /// perform a programmatic single-token search — the user sees instant results with no
 /// intermediate state.
 @MainActor
-private struct SearchableItemRow: View {
+/// One crew name's row: the name, selectable, and its token-search button. Internal rather
+/// than private so Metadata's pooled crew block (24.17) draws exactly the same row.
+struct SearchableItemRow: View {
     let item: String
     let field: SearchField
     let glyph: String?
@@ -1927,6 +1981,314 @@ private struct SearchableItemRow: View {
             .help("Perform a token-based search for this name")
         }
         .sidebarRowContainer(glyph: glyph, glyphColor: glyphColor)
+    }
+}
+
+// MARK: - Crew Row List
+//
+// The rows of one Metadata crew section (Cast, Directors, …), built from AppKit views rather
+// than as a ForEach of SearchableItemRow. Each row is a plate (fill, shadow and fading
+// outline), an optional glyph, the name as a selectable label, and the token-search button
+// — the same parts SearchableItemRow draws, to the point. A film change re-points the rows:
+// a name is a string assignment, and a longer list adds rows to a pool that a shorter one
+// leaves intact. The section header above stays SwiftUI.
+//
+// `rsb-modules` measured the crew block at about 20 ms of Metadata's median 27 ms (Debug):
+// in SwiftUI a row costs about half a millisecond to update even when nothing in it is
+// built, and a film's crew lists run to twenty or thirty rows. `rsb-crew-parity` compares
+// these rows with SearchableItemRow pixel for pixel, light and dark.
+struct CrewRowList: NSViewRepresentable {
+    let items: [String]
+    let field: SearchField
+    let glyph: String?
+    let glyphColor: Color
+
+    func makeNSView(context: Context) -> CrewRowListView { CrewRowListView() }
+
+    func updateNSView(_ view: CrewRowListView, context: Context) {
+        let tint = NSColor(Color(glyphColor.resolve(in: context.environment)))
+        view.update(items: items, field: field, glyph: glyph, glyphTint: tint)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: CrewRowListView,
+                      context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? nsView.bounds.width, height: nsView.totalHeight)
+    }
+}
+
+/// CrewRowList's AppKit side: the row pool, laid out top to bottom.
+final class CrewRowListView: NSView {
+    private var rows: [CrewRowView] = []
+    private var count = 0
+
+    override var isFlipped: Bool { true }
+
+    var totalHeight: CGFloat {
+        count == 0 ? 0 : CGFloat(count) * CrewRowView.height + CGFloat(count - 1) * RSBHelpers.headerRowSpacing
+    }
+
+    func update(items: [String], field: SearchField, glyph: String?, glyphTint: NSColor) {
+        while rows.count < items.count {
+            let row = CrewRowView()
+            rows.append(row)
+            addSubview(row)
+        }
+        for (i, row) in rows.enumerated() {
+            row.isHidden = i >= items.count
+            guard i < items.count else { continue }
+            row.configure(item: items[i], field: field, glyph: glyph, glyphTint: glyphTint)
+        }
+        if count != items.count {
+            count = items.count
+            invalidateIntrinsicContentSize()
+        }
+        needsLayout = true
+    }
+
+    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: totalHeight) }
+
+    /// The rows round their labels to the window's pixels, so a display of another scale needs
+    /// them placed again.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        for row in rows { row.needsLayout = true }
+    }
+
+    override func layout() {
+        super.layout()
+        for (i, row) in rows.prefix(count).enumerated() {
+            row.frame = NSRect(x: 0, y: CGFloat(i) * (CrewRowView.height + RSBHelpers.headerRowSpacing),
+                               width: bounds.width, height: CrewRowView.height)
+        }
+    }
+}
+
+/// One crew row. Every measure is SearchableItemRow's, through `sidebarRowContainer` and
+/// `sidebarFieldEdgeChrome`; the constants come from RSBHelpers and FieldEdgeTreatment.
+final class CrewRowView: NSView {
+    /// The taller of the label's line and the button, plus the plate's vertical padding —
+    /// SearchableItemRow's HStack. The button counts at its alignment rectangle, as SwiftUI
+    /// lays it out; its frame overhangs that for the bezel's shadow and focus ring.
+    static let height: CGFloat = max(labelHeight, buttonAlignmentSize.height)
+        + RSBHelpers.rowFontBackgroundVerticalPadding * 2
+
+    /// One line of the row font: what SwiftUI's selectable Text is, as a text field.
+    private static let labelHeight: CGFloat = {
+        let field = NSTextField(labelWithString: "Xg")
+        field.font = .systemFont(ofSize: RSBHelpers.rowFontSize)
+        return field.intrinsicContentSize.height
+    }()
+
+    /// The cell's own size, unrounded: `fittingSize` rounds up to whole points (37 pt where
+    /// SwiftUI's button is 36.5).
+    private static let buttonFrameSize: NSSize = {
+        let button = makeButton()
+        return button.cell?.cellSize ?? button.fittingSize
+    }()
+
+    private static let buttonAlignmentSize: NSSize = {
+        let button = makeButton()
+        return button.alignmentRect(forFrame: NSRect(origin: .zero, size: buttonFrameSize)).size
+    }()
+
+    /// The magnifying glass at the small control font, cut to the width SwiftUI gives a
+    /// symbol label: its alignment rectangle's (12.5 pt, against an image 13 pt wide), at
+    /// the image's full height. Drawn from the left edge, where the alignment rectangle
+    /// starts; nothing of the symbol lies in the half point this leaves off.
+    private static let searchImage: NSImage = {
+        let config = NSImage.SymbolConfiguration(pointSize: NSFont.systemFontSize(for: .small), weight: .regular)
+        guard let symbol = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Search")?
+            .withSymbolConfiguration(config) else { return NSImage() }
+        let size = NSSize(width: symbol.alignmentRect.width, height: symbol.size.height)
+        let image = NSImage(size: size, flipped: false) { _ in
+            symbol.draw(in: NSRect(origin: .zero, size: symbol.size))
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = "Search"
+        return image
+    }()
+
+    /// SwiftUI's `.bordered` small button, as SwiftUI builds it: bezel style 28 (no public
+    /// name in the SDK; `rsb-crew-parity` logs the style SwiftUI's own button carries) with
+    /// the symbol at the small control font.
+    private static func makeButton() -> NSButton {
+        let button = NSButton(image: searchImage, target: nil, action: nil)
+        button.title = ""
+        button.imagePosition = .imageOnly
+        button.bezelStyle = NSButton.BezelStyle(rawValue: 28) ?? .push
+        button.controlSize = .small
+        button.toolTip = "Perform a token-based search for this name"
+        return button
+    }
+
+    private let fillLayer = CAShapeLayer()
+    private let borderLayer = CAGradientLayer()
+    private let borderMask = CAShapeLayer()
+    private let glyphView = CrewGlyphView()
+    private let label = NSTextField(labelWithString: "")
+    private let button = CrewRowView.makeButton()
+
+    private var item = ""
+    private var field: SearchField = .cast
+    private var glyph: String?
+    private var glyphTint: NSColor = .secondaryLabelColor
+
+    override var isFlipped: Bool { true }
+
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        fillLayer.shadowOpacity = Float(FieldEdgeTreatment.shadowOpacity)
+        fillLayer.shadowRadius = FieldEdgeTreatment.shadowRadius
+        fillLayer.shadowOffset = CGSize(width: 0, height: FieldEdgeTreatment.shadowOffsetY)
+        fillLayer.shadowColor = NSColor.black.cgColor
+        layer?.addSublayer(fillLayer)
+        borderLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        borderLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        borderLayer.locations = [0, NSNumber(value: FieldEdgeTreatment.borderFadeStart), 1]
+        borderMask.fillColor = nil
+        borderMask.strokeColor = NSColor.black.cgColor
+        borderMask.lineWidth = FieldEdgeTreatment.borderWidth
+        borderLayer.mask = borderMask
+        layer?.addSublayer(borderLayer)
+
+        addSubview(glyphView)
+
+        label.font = .systemFont(ofSize: RSBHelpers.rowFontSize)
+        label.textColor = .labelColor
+        label.isSelectable = true
+        label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
+        label.cell?.truncatesLastVisibleLine = true
+        addSubview(label)
+
+        button.target = self
+        button.action = #selector(search)
+        addSubview(button)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    func configure(item: String, field: SearchField, glyph: String?, glyphTint: NSColor) {
+        self.item = item
+        self.field = field
+        if label.stringValue != item {
+            label.stringValue = item
+            // The label is as wide as its text, so a new name needs a new frame.
+            needsLayout = true
+        }
+        if glyph != self.glyph {
+            self.glyph = glyph
+            glyphView.image = glyph.flatMap(Self.glyphImage)
+            glyphView.isHidden = glyph == nil
+            needsLayout = true
+        }
+        if glyphTint != self.glyphTint {
+            self.glyphTint = glyphTint
+            glyphView.tint = glyphTint
+        }
+    }
+
+    private static func glyphImage(_ name: String) -> NSImage? {
+        let weight: NSFont.Weight = RSBHelpers.glyphWeight(for: name) == .semibold ? .semibold : .regular
+        let config = NSImage.SymbolConfiguration(pointSize: RSBHelpers.glyphPointSize(for: name), weight: weight)
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+    }
+
+    @objc private func search() {
+        AppEventBus.shared.sendCommand(.activateTokenSearch(field: field, value: item))
+    }
+
+    override func layout() {
+        super.layout()
+        let b = bounds
+        let path = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
+            .path(in: b).cgPath
+        fillLayer.frame = b
+        fillLayer.path = path
+        fillLayer.shadowPath = path
+        borderLayer.frame = b
+        borderMask.frame = b
+        let inset = FieldEdgeTreatment.borderWidth / 2
+        borderMask.path = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius - inset, style: .continuous)
+            .path(in: b.insetBy(dx: inset, dy: inset)).cgPath
+
+        let pad = RSBHelpers.rowHorizontalPadding
+        if let glyph {
+            glyphView.frame = NSRect(x: RSBHelpers.glyphLeadingPadding + RSBHelpers.glyphHorizontalOffset(for: glyph),
+                                     y: 0, width: RSBHelpers.glyphBoxWidth, height: RSBHelpers.singleLineRowHeight)
+        }
+        let leading = pad + (glyph == nil ? 0 : RSBHelpers.glyphGutterWidth)
+        // The button's alignment rectangle ends at the plate's trailing padding, centered
+        // vertically; its frame is placed around that.
+        let align = Self.buttonAlignmentSize
+        let alignRect = NSRect(x: b.width - pad - align.width, y: (b.height - align.height) / 2,
+                               width: align.width, height: align.height)
+        var buttonFrame = button.frame(forAlignmentRect: alignRect)
+        buttonFrame.size = Self.buttonFrameSize
+        button.frame = buttonFrame
+        // SwiftUI's selectable Text is a text field 2 pt wider on each side than the text
+        // (the field's own intrinsic width is the text's alone),
+        // centered on the row and, as SwiftUI places it, on the window's pixels (the 15 pt line
+        // in the 24 pt row centers on a half point, between two pixels at 1x); a truncated name
+        // runs to the HStack's 6 pt gap.
+        let available = max(0, alignRect.minX - 6 - leading)
+        let height = Self.labelHeight
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        let labelY = ((b.height - height) / 2 * scale).rounded(.toNearestOrAwayFromZero) / scale
+        label.frame = NSRect(x: leading - 2, y: labelY,
+                             width: min(label.intrinsicContentSize.width, available) + 4, height: height)
+    }
+
+    override func updateLayer() {
+        super.updateLayer()
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            fillLayer.fillColor = NSColor.controlBackgroundColor.cgColor
+            let edge = NSColor.separatorColor
+            borderLayer.colors = [edge.withAlphaComponent(edge.alphaComponent * FieldEdgeTreatment.borderOpacity).cgColor,
+                                  edge.withAlphaComponent(edge.alphaComponent * FieldEdgeTreatment.borderOpacity).cgColor,
+                                  edge.withAlphaComponent(0).cgColor]
+        }
+    }
+}
+
+/// A crew row's glyph, placed in its box exactly as SwiftUI places the Image in
+/// SearchableItemRow. NSImageView centers differently, which put five of the seven crew
+/// symbols half a pixel or more off.
+final class CrewGlyphView: NSView {
+    var image: NSImage? { didSet { needsDisplay = true } }
+    var tint: NSColor = .secondaryLabelColor { didSet { needsDisplay = true } }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image else { return }
+        // SwiftUI's placement, read off `rsb-crew-parity` captures of all seven crew symbols:
+        // horizontally the alignment rectangle's width is centered, vertically the image's
+        // full height, and the origin is rounded to the nearest device pixel.
+        let size = image.size
+        let align = image.alignmentRect
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        func pixel(_ v: CGFloat) -> CGFloat { (v * scale).rounded(.toNearestOrAwayFromZero) / scale }
+        let rect = NSRect(x: pixel((bounds.width - align.width) / 2) - align.minX,
+                          y: pixel((bounds.height - size.height) / 2),
+                          width: size.width, height: size.height)
+        image.draw(in: rect)
+        // The symbol is a template: replace what it drew with the tint, keeping its coverage.
+        // (.sourceAtop would blend a translucent tint, such as .secondary, over the black.)
+        tint.set()
+        rect.fill(using: .sourceIn)
     }
 }
 
@@ -2169,5 +2531,43 @@ enum SidebarTextAbbreviation {
         // candidate could never win. Deriving the answer from the work actually done
         // makes the two incapable of disagreeing.
         return shortened == value ? nil : shortened
+    }
+}
+
+// MARK: - Top-Pinned Layout
+
+/// Keeps the root of a sidebar tab's hosted tree the same size during an animated update
+/// that changes the tab's height (the Releases tab's purchase filter, the Details tab's
+/// table expansion). Wrap the tab's whole content in it, inside SidebarScrollView.
+///
+/// Measured with the `releases-filter` harness scenario (99.56): when a filter change made
+/// the content TALLER, and the root of the hosted tree took the new height in that same
+/// animated pass, the whole stack — picker included — started half the growth lower and
+/// slid back up over the length of the animation (123 pt for a 246 pt grow). The animated
+/// cards were interpolated against the root's center, which had moved by half the growth.
+/// A shrink never showed it, because there the root kept its size through the animated
+/// pass and the hosting view shrank afterward, in a pass of its own.
+///
+/// So the root reports exactly the height it is offered, and the content, placed at the
+/// top at its own natural height, may overhang it briefly. Under the unspecified height
+/// NSHostingView measures with, the natural height passes through, so the hosting view
+/// still grows to fit — just in the following pass, without moving anything on screen.
+/// Top placement also keeps a shorter stack at the top instead of centered.
+struct RSBTopPinnedLayout: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        // A plain pass-through under the profile flag, to measure what pinning costs.
+        if RSBProfileFlags.noTopPinnedLayout { return subviews.first?.sizeThatFits(proposal) ?? .zero }
+        let ideal = subviews.first?.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) ?? .zero
+        let height = proposal.height.flatMap { $0.isFinite ? $0 : nil } ?? ideal.height
+        return CGSize(width: proposal.width ?? ideal.width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        if RSBProfileFlags.noTopPinnedLayout {
+            subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
+            return
+        }
+        subviews.first?.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
+                              proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 }

@@ -45,7 +45,7 @@ extension DebugHarness {
     private struct SweepHost: View {
         let coordinator: DataCoordinator
         var body: some View {
-            GallerySubview(forceReloadID: UUID(), scrollRequest: nil, activeViewID: .allFilms,
+            GallerySubview(scrollRequest: nil, activeViewID: .allFilms,
                            subtitleProvider: nil, showSectionDividers: false)
                 .environment(coordinator)
                 .environment(SelectionState.shared)

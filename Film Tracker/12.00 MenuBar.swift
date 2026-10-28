@@ -219,35 +219,40 @@ struct MenuBar: Commands {
                     // Sits above "Add to List", offering the three internal Film Queue
                     // sections. Available for any selection size and in every view,
                     // including the Film Queue itself, where it acts as a section move.
-                    Menu(addToQueueMenuTitle) {
-                        if selectionCount > 0, let filmIDs = selectedFilmIDs {
-                            AddToQueueMenuContent(filmIDs: filmIDs,
-                                                  dataCoordinator: dataCoordinator)
-                        } else {
-                            Text("No Film Selected")
-                            .disabled(true) } }
-                    .disabled(selectionCount == 0 || isSheetActive)
+                    // With no selection (or behind a sheet) each of the three is a
+                    // disabled plain item rather than a disabled Menu: Commands does not
+                    // carry `.disabled` onto a Menu's own item, so the submenu still opened
+                    // (see SortByMenu). Mirrors GalleryTitleBar's SelectionMenuButton, which
+                    // is disabled outright in the same state.
+                    if selectionCount == 0 || isSheetActive {
+                        Button(addToQueueMenuTitle) {}.disabled(true)
+                        Button("Add to List") {}.disabled(true)
+                        Button("Show in List") {}.disabled(true)
+                    } else {
+                        Menu(addToQueueMenuTitle) {
+                            if let filmIDs = selectedFilmIDs {
+                                AddToQueueMenuContent(filmIDs: filmIDs,
+                                                      dataCoordinator: dataCoordinator)
+                            }
+                        }
 
-                    Menu("Add to List") {
-                        if selectionCount > 0, let filmIDs = selectedFilmIDs {
-                            AddToListMenuContent(filmIDs: filmIDs,
-                                                 dataCoordinator: dataCoordinator)
-                        } else {
-                            Text("No Film Selected")
-                            .disabled(true) } }
-                    .disabled(selectionCount == 0 || isSheetActive)
-                
-                    Menu("Show in List") {
-                        if selectionCount == 1, let filmID = selectedFilmID {
-                            ShowInListMenuContent(filmID: filmID, appState: appState,
-                                                  dataCoordinator: dataCoordinator)
-                        } else if selectionCount > 1 {
-                            Text("Multiple Films Selected")
-                                .disabled(true)
-                        } else {
-                            Text("No Film Selected")
-                            .disabled(true) } }
-                    .disabled(selectionCount == 0 || isSheetActive)
+                        Menu("Add to List") {
+                            if let filmIDs = selectedFilmIDs {
+                                AddToListMenuContent(filmIDs: filmIDs,
+                                                     dataCoordinator: dataCoordinator)
+                            }
+                        }
+
+                        Menu("Show in List") {
+                            if selectionCount == 1, let filmID = selectedFilmID {
+                                ShowInListMenuContent(filmID: filmID, appState: appState,
+                                                      dataCoordinator: dataCoordinator)
+                            } else {
+                                Text("Multiple Films Selected")
+                                    .disabled(true)
+                            }
+                        }
+                    }
                 
                 }
 
@@ -325,7 +330,8 @@ struct MenuBar: Commands {
                 SortByMenu(filmCount: filmCount, isSheetActive: isSheetActive,
                            selectedSidebarItem: appState.selectedSidebarItem,
                            coordinator: dataCoordinator)
-                FilterItemsMenu(filmCount: filmCount, isSheetActive: isSheetActive, selectedSidebarItem: appState.selectedSidebarItem)
+                FilterItemsMenu(filmCount: filmCount, isSheetActive: isSheetActive, selectedSidebarItem: appState.selectedSidebarItem,
+                                dataCoordinator: dataCoordinator)
                 Divider()
                 LeftSidebarMenu(appState: appState, isSheetActive: isSheetActive)
                 RightSidebarMenu(isSheetActive: isSheetActive, selectionCount: selectionCount,
@@ -580,10 +586,43 @@ struct SortByMenu: View {
     /// Computed property that determines if the menu is disabled
     @MainActor
     private var isMenuDisabled: Bool {
-        filmCount == 0 || isSheetActive || selectedSidebarItem.capabilities.sortMenuFullyDisabled
+        isSheetActive || SortMenuInputs.optionsLocked(coordinator: coordinator)
+    }
+
+    /// True for views with no gallery at all (Reports, Imports): nothing in the menu applies,
+    /// so `body` shows a disabled item in place of the submenu.
+    @MainActor
+    private var isMenuNotApplicable: Bool {
+        let capabilities = selectedSidebarItem.capabilities
+        return capabilities.sortMenuFullyDisabled && !capabilities.supportsSectionDividers
     }
 
     var body: some View {
+        Group {
+            if isMenuNotApplicable {
+                // A disabled plain item, not a disabled Menu. In menu-bar Commands SwiftUI does
+                // not carry `.disabled` onto a Menu's own NSMenuItem — only into its children —
+                // so a sealed "Sort By" still opened, onto a submenu of locked items with the
+                // left-behind gallery view's sort and direction checked. These views are ordered
+                // manually, which no option here describes. A Button does honor `.disabled`,
+                // so the item is grayed and never opens.
+                Button("Sort By") {}
+                    .disabled(true)
+            } else {
+                sortMenu
+            }
+        }
+        .onAppear { syncFromViewStateManager() }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
+            syncFromViewStateManager() }
+        // Section dividers need no dedicated .onChange: the value lives in ViewState, so
+        // every change to it goes through commitActiveStateChange and arrives here on the
+        // same viewStateChanged event the sort mirrors ride, which re-derives the jump
+        // targets rather than merely re-rendering the existing ones.
+        .onViewStateChanged { syncFromViewStateManager() }
+    }
+
+    private var sortMenu: some View {
         Menu("Sort By") {
             SortMenuContent(
                 isDisabled: isMenuDisabled,
@@ -613,26 +652,12 @@ struct SortByMenu: View {
                 onJumpToSection: { ViewStateManager.shared.jumpToSectionBand($0) }
             )
         }
-        // Sealed only when nothing inside it can be reached or acted on. `isMenuDisabled`
-        // locks every sort option and the direction pair through `isDisabled`, which is
-        // the interaction it exists to prevent; sealing the whole menu on top of that
-        // would also seal off "Jump to Section" and the "Section Dividers" pair, neither
-        // of which changes any sort state. The dividers clause is what keeps the Recents
-        // tabs usable: their sort is fixed (so `isMenuDisabled` is always true there) and
-        // their bands are absent whenever dividers are off (so `jumpTargets` is empty) —
-        // without it, "Show" would be unreachable in precisely the state where it is the
-        // one thing the user needs. Reports and Imports are not gallery-backed and set
-        // `supportsSectionDividers` false, so they still seal as before.
-        .disabled(isMenuDisabled && jumpTargets.isEmpty
-                  && !selectedSidebarItem.capabilities.supportsSectionDividers)
-        .onAppear { syncFromViewStateManager() }
-        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
-            syncFromViewStateManager() }
-        // Section dividers need no dedicated .onChange: the value lives in ViewState, so
-        // every change to it goes through commitActiveStateChange and arrives here on the
-        // same viewStateChanged event the sort mirrors ride, which re-derives the jump
-        // targets rather than merely re-rendering the existing ones.
-        .onViewStateChanged { syncFromViewStateManager() }
+        // Never sealed as a whole, matching GallerySortMenu. Every view that reaches this
+        // Menu is gallery-backed (Reports and Imports get `isMenuNotApplicable`'s item), so
+        // its "Section Dividers" pair is always live, even where `isMenuDisabled` locks the
+        // sort options: every Recents tab and "Upcoming Releases". A previous seal of
+        // `isMenuDisabled && jumpTargets.isEmpty` grayed out the whole menu, dividers pair
+        // included, on exactly those views whenever their dividers were off.
     }
 
     @MainActor
@@ -649,6 +674,8 @@ struct FilterItemsMenu: View {
     let filmCount: Int
     let isSheetActive: Bool
     let selectedSidebarItem: SidebarItem
+    /// Source for the shared `FilterMenuInputs.menuDisabled` rule.
+    let dataCoordinator: DataCoordinator
 
     /// Mirror of the active filters and the blocks disabled for this view, resolved
     /// together through the shared FilterMenuInputs so this always agrees with
@@ -659,10 +686,37 @@ struct FilterItemsMenu: View {
     /// Computed property that determines if the menu is disabled
     @MainActor
     private var isMenuDisabled: Bool {
-        filmCount == 0 || isSheetActive || selectedSidebarItem.capabilities.filterMenuFullyDisabled
+        isSheetActive || FilterMenuInputs.menuDisabled(coordinator: dataCoordinator)
+    }
+
+    /// True for views with no gallery at all (Reports, Imports), the same test SortByMenu's
+    /// `isMenuNotApplicable` makes: `body` shows a disabled item in place of the submenu.
+    @MainActor
+    private var isMenuNotApplicable: Bool {
+        let capabilities = selectedSidebarItem.capabilities
+        return capabilities.filterMenuFullyDisabled && !capabilities.supportsSectionDividers
     }
 
     var body: some View {
+        Group {
+            if isMenuNotApplicable || isMenuDisabled {
+                // A disabled plain item, for the reason SortByMenu gives: Commands does not
+                // carry `.disabled` onto a Menu's own item, so the submenu still opened.
+                // Also wherever GalleryTitleBar disables its Filter button outright (an
+                // empty view with no filters to clear, initial loading), and behind a sheet.
+                Button("Filter") {}
+                    .disabled(true)
+            } else {
+                filterMenu
+            }
+        }
+        .onAppear { syncFromViewStateManager() }
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
+            syncFromViewStateManager() }
+        .onViewStateChanged { syncFromViewStateManager() }
+    }
+
+    private var filterMenu: some View {
         Menu("Filter") {
             FilterMenuContent(
                 currentFilters: inputs.filters,
@@ -680,11 +734,6 @@ struct FilterItemsMenu: View {
                 }
             )
         }
-        .disabled(isMenuDisabled)
-        .onAppear { syncFromViewStateManager() }
-        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
-            syncFromViewStateManager() }
-        .onViewStateChanged { syncFromViewStateManager() }
     }
 
     @MainActor

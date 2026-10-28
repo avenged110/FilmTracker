@@ -174,7 +174,7 @@ enum LibraryPDFReport {
         films.sorted { lhs, rhs in
             let left = lhs.sortName.isEmpty ? lhs.name : lhs.sortName
             let right = rhs.sortName.isEmpty ? rhs.name : rhs.sortName
-            let comparison = left.localizedCaseInsensitiveCompare(right)
+            let comparison = left.englishCaseInsensitiveCompare(right)
             if comparison != .orderedSame { return comparison == .orderedAscending }
             // Total order: two films sharing a sort name would otherwise be free to swap
             // between exports, which makes two PDFs of an unchanged library differ.
@@ -442,14 +442,9 @@ enum LibraryPDFReport {
         return "available"
     }
 
-    /// True when a release carries any tag meaning it is no longer pressed — the three
-    /// price tiers plus the import-and-out-of-print tag, which `outOfPrintTags` itself
-    /// deliberately excludes because the picker files it under imports.
+    /// True when a release is no longer pressed, domestic or import.
     private static func isOutOfPrint(_ release: ReleaseSnapshot) -> Bool {
-        release.marketAvailability.contains {
-            ReleaseMarketAvailability.outOfPrintTags.contains($0)
-                || $0 == ReleaseMarketAvailability.importOnlyOOP
-        }
+        ReleaseMarketAvailability.isOutOfPrint(release.marketAvailability)
     }
 
     /// True for a release from anywhere but the domestic market — `ReleaseOrigin`'s rule.
@@ -1013,7 +1008,7 @@ enum LibraryPDFReport {
         let stored = film.aspectRatio
         guard !stored.isEmpty else { return PDFCell("") }
 
-        if stored.localizedCaseInsensitiveContains("Hybrid") {
+        if stored.englishCaseInsensitiveContains("Hybrid") {
             return PDFCell(stored, fill: PDFPalette.veryDarkPurple)
         }
 
@@ -1033,7 +1028,7 @@ enum LibraryPDFReport {
 
     /// True for a stored ratio carrying the open-matte qualifier.
     private static func isOpenMatte(_ stored: String) -> Bool {
-        stored.localizedCaseInsensitiveContains(openMatteQualifier)
+        stored.englishCaseInsensitiveContains(openMatteQualifier)
     }
 
     /// `stored` with the open-matte qualifier and its separating space removed.

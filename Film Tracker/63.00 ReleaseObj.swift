@@ -22,20 +22,28 @@ import SwiftData
 /// cards; the bundled Blu-ray children themselves always carry plain `comboPack`, which
 /// is what keeps every existing child-side check (`independence == "Combo-pack" && format
 /// != "4K UHD"`) correct without modification.
+///
+/// `comboPackMultiPack` is a descriptive variant of plain `comboPack`, for a 4K + Blu-ray
+/// combo pack that is itself sold as part of a multi-pack. Structurally it IS `comboPack`
+/// — one bundled Blu-ray child, the same locks and cascades — and differs only in what it
+/// offers the user: its artwork picker carries both the combo-pack and the multi-pack
+/// "Yes" tags (see `ReleaseArtwork.comboMultiPackOptions`). Like `comboPackDualBD` it is a
+/// 4K-only parent value; its child carries plain `comboPack`.
 enum ReleaseIndependence {
-    static let standalone       = "Standalone"
-    static let comboPack        = "Combo-pack"
-    static let comboPackDualBD  = "Combo-pack (dual BD)"
-    static let multiPack        = "Multi-pack"
+    static let standalone         = "Standalone"
+    static let comboPack          = "Combo-pack"
+    static let comboPackDualBD    = "Combo-pack (dual BD)"
+    static let comboPackMultiPack = "Combo-pack (multi-pack)"
+    static let multiPack          = "Multi-pack"
 
     /// How many child Blu-ray releases a 4K UHD parent carrying `value` should have.
     /// Returns 0 for every non-combo value, which is what makes it safe to call on any
     /// independence string without a prior membership test.
     static func childCount(for value: String) -> Int {
         switch value {
-        case comboPackDualBD: return 2
-        case comboPack:       return 1
-        default:              return 0
+        case comboPackDualBD:               return 2
+        case comboPack, comboPackMultiPack: return 1
+        default:                            return 0
         }
     }
 
@@ -44,7 +52,9 @@ enum ReleaseIndependence {
     static func isComboPack(_ value: String) -> Bool { childCount(for: value) > 0 }
 
     /// The independence value implied by an actual child count — the inverse of
-    /// `childCount(for:)`. Returns nil for counts outside 1...2, which have no
+    /// `childCount(for:)`, picking plain `comboPack` for one child (callers only reach for
+    /// it when the stated count is wrong, so the descriptive multi-pack variant, which
+    /// shares that count, is never the one being corrected). Returns nil for counts outside 1...2, which have no
     /// corresponding value and must be handled by the caller (a parent found holding
     /// three children is a data anomaly, not a fourth pack type).
     static func value(forChildCount count: Int) -> String? {
@@ -55,12 +65,13 @@ enum ReleaseIndependence {
         }
     }
 
-    /// The form shown in fixed-width table columns. `comboPackDualBD` is ~70% wider than
-    /// the widest column that displays this field (78 pt) and would truncate mid-word;
-    /// the dual-Blu-ray structure is already conveyed by the two stacked child rows
-    /// directly beneath the parent, so the column states the pack type alone.
+    /// The form shown in fixed-width table columns. `comboPackDualBD` and
+    /// `comboPackMultiPack` are both far wider than the widest column that displays this
+    /// field (78 pt) and would truncate mid-word; the dual-Blu-ray structure is already
+    /// conveyed by the two stacked child rows directly beneath the parent, and the
+    /// multi-pack qualifier is descriptive only, so the column states the pack type alone.
     static func compactDisplay(_ value: String) -> String {
-        value == comboPackDualBD ? comboPack : value
+        isComboPack(value) ? comboPack : value
     }
 }
 
@@ -276,9 +287,28 @@ enum ReleaseArtwork {
     // Each list is what the card offers ON TOP OF `steelbook`, which is seeded
     // unconditionally. Selected by the release's independence value.
 
-    static let standaloneOptions = [yes, yesIncorrectRelease, yesCustom, no]
-    static let comboPackOptions  = [yesComboPack, no]
-    static let multiPackOptions  = [yesMultiPack, no]
+    static let standaloneOptions     = [yes, yesIncorrectRelease, yesCustom, no]
+    static let comboPackOptions      = [yesComboPack, no]
+    static let multiPackOptions      = [yesMultiPack, no]
+    /// "Combo-pack (multi-pack)": a combo pack sold inside a multi-pack, whose artwork may
+    /// be either the pack's own or the multi-pack's. A superset of `comboPackOptions`.
+    static let comboMultiPackOptions = [yesComboPack, yesMultiPack, no]
+
+    /// The tags (beyond `steelbook`) the artwork picker offers under `independence`,
+    /// ignoring purchased state. Read by the picker and by the independence cascade, so
+    /// both agree on what a type can express.
+    static func options(forIndependence independence: String) -> [String] {
+        switch independence {
+        case ReleaseIndependence.comboPack, ReleaseIndependence.comboPackDualBD:
+            return comboPackOptions
+        case ReleaseIndependence.comboPackMultiPack:
+            return comboMultiPackOptions
+        case ReleaseIndependence.multiPack:
+            return multiPackOptions
+        default: // Standalone
+            return standaloneOptions
+        }
+    }
 
     /// The tags that answer "yes, artwork is present", including the pack-qualified forms
     /// and the unofferable negative forms' counterparts. `steelbook` is deliberately
@@ -454,79 +484,223 @@ enum ReleaseVideoFormat {
 }
 
 // MARK: - Market Availability Vocabulary
-/// The stored vocabulary for `Release.marketAvailability`, paired with the unabbreviated
-/// form each tag is shown as.
+/// The stored vocabulary for `Release.marketAvailability`: two independent descriptors, each
+/// held as its own element of the array.
 ///
-/// The stored values are abbreviated because they originated in a fixed-width table
-/// column ("OOP (cheap)"), and — like every other release vocabulary in this file — they
-/// are persisted verbatim, exported to XML backups, and read back by `SafeValueParser`,
-/// so they cannot simply be renamed. The expansion therefore lives at the display layer,
-/// as a lookup keyed by tag, and this is its single definition: the release card's picker
-/// builds its option titles from it, and the right sidebar's release cards print through
-/// it. A tag with no entry is its own title, which is the correct answer for both the
-/// values that need no expansion ("Available", "Unavailable") and for an unknown value
-/// arriving from a legacy or hand-edited backup.
+/// # The two components
+///
+/// A STATUS (whether the release can be bought new, and whether it is an import) and a PRICE
+/// band (what it costs when it can be found). Each is optional and each is single-valued, so
+/// the array holds zero, one or two elements, always status first:
+///
+///     []                                   nothing selected
+///     ["Available"]                        status only
+///     ["Out-of-print", "Exorbitant"]       both
+///     ["Cheap"]                            price only
+///
+/// Consumers identify a component by MEMBERSHIP in its tag list, never by position, so a price
+/// stored alone is not mistaken for a status. `displayText` joins the two as
+/// "Out-of-print (exorbitant)" — that composite is display-only and is never stored.
+///
+/// A status in `unpricedStatusTags` cannot carry a price: something that cannot be bought at
+/// all has no price band. The release card's menu disables the price rows and clears any
+/// stored price when one is chosen.
+///
+/// # Imports and multi-packs
+///
+/// "Available" and "Out-of-print" are respelled for the kind of release they describe:
+///
+///     domestic, single      Available                       Out-of-print
+///     import                Import available                Import out-of-print
+///     multi-pack            Multi-pack available            Multi-pack out-of-print
+///     import + multi-pack   Imported multi-pack available   Imported multi-pack out-of-print
+///
+/// An import is a release whose national origin is set to a country other than the United
+/// States; a multi-pack is one whose independence is exactly `ReleaseIndependence.multiPack`.
+/// The spellings are distinct stored tags, so reports can count them without consulting
+/// either field. The release card's nationalOrigin cascade and FSTabReleases'
+/// commitIndependence respell a stored status when either field changes
+/// (`statusTags(for:)`, `retargeted`).
+///
+/// # The legacy single-element format
+///
+/// Earlier builds stored ONE abbreviated tag that folded both components together ("OOP
+/// (cheap)", "Temp. N/A", "Import only (OOP)"). `migrated` rewrites those to the current form;
+/// it runs wherever stored values enter the app — the SwiftData-to-snapshot conversion, the
+/// startup store pass (DataManager.migrateLegacyMarketAvailability) and DBRestorer — so no
+/// other code needs to know the old spellings. Like every vocabulary in this file the field is
+/// open: a value matching neither list (a hand-edited backup) is kept untouched.
 enum ReleaseMarketAvailability {
-    /// The locked value carried by a non-4K release inside a combo pack.
+    /// The locked value carried by a non-4K release inside a combo pack. A status, stored
+    /// alone.
     static let comboPackOnly = "Combo-pack only"
 
-    // MARK: The stored tags
-    //
-    // Added after the abbreviation trap this vocabulary was always going to spring: the
-    // Reports tab tallied out-of-print releases against "Out of print (cheap)" and friends
-    // — neither the stored tag NOR its expansion, which is "Out-of-print (cheap)" with a
-    // hyphen — so all three OOP arms of that filter were dead and the count silently
-    // reported only the "Unavailable" ones. A vocabulary whose stored form and displayed
-    // form differ CANNOT be safely respelled from memory at a call site.
+    // MARK: Status tags
+    static let available              = "Available"
+    static let outOfPrint             = "Out-of-print"
+    static let importAvailable        = "Import available"
+    static let importOutOfPrint       = "Import out-of-print"
+    static let multiPackAvailable     = "Multi-pack available"
+    static let multiPackOutOfPrint    = "Multi-pack out-of-print"
+    static let importMultiPackAvailable  = "Imported multi-pack available"
+    static let importMultiPackOutOfPrint = "Imported multi-pack out-of-print"
+    static let temporarilyUnavailable = "Temporarily unavailable"
+    static let unavailable            = "Unavailable"
 
-    static let available   = "Available"
-    static let unavailable = "Unavailable"
-    static let importOnly     = "Import only"
-    static let importOnlyOOP  = "Import only (OOP)"
-    static let oopCheap      = "OOP (cheap)"
-    static let oopReasonable = "OOP (reasonable)"
-    static let oopExpensive  = "OOP (expensive)"
-    static let tempNA        = "Temp. N/A"
+    // MARK: Price tags
+    static let cheap      = "Cheap"
+    static let reasonable = "Reasonable"
+    static let exorbitant = "Exorbitant"
 
-    /// The import tags, withheld for a release whose national origin is the United States.
-    static let importOnlyTags: Set<String> = [importOnly, importOnlyOOP]
+    /// The price section of the menu, in order.
+    static let priceTags: [String] = [cheap, reasonable, exorbitant]
 
-    /// The three out-of-print price tiers. `importOnlyOOP` is deliberately absent: it is
-    /// an import that also happens to be out of print, and the picker offers it in the
-    /// import group rather than this one.
-    static let outOfPrintTags: Set<String> = [oopCheap, oopReasonable, oopExpensive]
+    /// Which spelling of "Available" / "Out-of-print" a release takes.
+    struct Kind: Equatable {
+        var isImport: Bool
+        var isMultiPack: Bool
 
-    /// The tags meaning a release cannot currently be bought new at retail — the
-    /// out-of-print tiers plus a flat `unavailable`. Backs the Reports tab's
-    /// "unpurchased and out-of-print" tally.
-    static let unobtainableTags: Set<String> = outOfPrintTags.union([unavailable])
+        /// The kind for a release's national origin and independence. An unset origin is
+        /// not an import.
+        init(nationalOrigin: String, independence: String) {
+            isImport = !nationalOrigin.isEmpty && nationalOrigin != ReleaseOrigin.domestic
+            isMultiPack = independence == ReleaseIndependence.multiPack
+        }
 
-    /// True when `tags` contains any tag meaning the release cannot be bought new.
-    static func isUnobtainable(_ tags: [String]) -> Bool {
-        tags.contains { unobtainableTags.contains($0) }
+        /// This kind's (available, out-of-print) pair.
+        var spellings: (available: String, outOfPrint: String) {
+            switch (isImport, isMultiPack) {
+            case (false, false): return (ReleaseMarketAvailability.available,
+                                         ReleaseMarketAvailability.outOfPrint)
+            case (true, false):  return (ReleaseMarketAvailability.importAvailable,
+                                         ReleaseMarketAvailability.importOutOfPrint)
+            case (false, true):  return (ReleaseMarketAvailability.multiPackAvailable,
+                                         ReleaseMarketAvailability.multiPackOutOfPrint)
+            case (true, true):   return (ReleaseMarketAvailability.importMultiPackAvailable,
+                                         ReleaseMarketAvailability.importMultiPackOutOfPrint)
+            }
+        }
     }
 
-    /// The picker's tags for a non-US release, in menu order. A US release drops
-    /// `importOnlyTags` — an American release cannot be an import.
-    static let allTags: [String] = [
-        available, importOnly, importOnlyOOP,
-        oopCheap, oopReasonable, oopExpensive, tempNA, unavailable,
+    /// The status section of the menu, in order, for a kind of release.
+    static func statusTags(for kind: Kind) -> [String] {
+        let s = kind.spellings
+        return [s.available, s.outOfPrint, temporarilyUnavailable, unavailable]
+    }
+
+    /// Every spelling of "Available", and of "Out-of-print".
+    private static let availableSpellings: Set<String> = [
+        available, importAvailable, multiPackAvailable, importMultiPackAvailable,
+    ]
+    private static let outOfPrintSpellings: Set<String> = [
+        outOfPrint, importOutOfPrint, multiPackOutOfPrint, importMultiPackOutOfPrint,
+    ]
+    private static let importSpellings: Set<String> = [
+        importAvailable, importOutOfPrint, importMultiPackAvailable, importMultiPackOutOfPrint,
     ]
 
-    private static let titles: [String: String] = [
-        importOnlyOOP: "Import only, out-of-print",
-        oopCheap:      "Out-of-print (cheap)",
-        oopReasonable: "Out-of-print (reasonable)",
-        oopExpensive:  "Out-of-print (expensive)",
-        tempNA:        "Temporarily unavailable",
+    /// Every status tag: each spelling, the two unavailable statuses and the combo-pack lock.
+    static let allStatusTags: Set<String> = availableSpellings.union(outOfPrintSpellings)
+        .union([temporarilyUnavailable, unavailable, comboPackOnly])
+    private static let priceTagSet = Set(priceTags)
+
+    /// Statuses that cannot carry a price.
+    static let unpricedStatusTags: Set<String> = [temporarilyUnavailable, unavailable]
+
+
+    // MARK: Reading a stored array
+
+    /// The status component, or nil.
+    static func status(_ tags: [String]) -> String? { tags.first { allStatusTags.contains($0) } }
+
+    /// The price component, or nil.
+    static func price(_ tags: [String]) -> String? { tags.first { priceTagSet.contains($0) } }
+
+    /// Values belonging to neither component (kept, never dropped).
+    static func unrecognized(_ tags: [String]) -> [String] {
+        tags.filter { !allStatusTags.contains($0) && !priceTagSet.contains($0) }
+    }
+
+    /// Builds the stored array from its components: status, then price, then any
+    /// unrecognized values. A price beside an unpriced status is dropped.
+    static func composed(status: String?, price: String?, unrecognized: [String] = []) -> [String] {
+        var tags: [String] = []
+        if let status { tags.append(status) }
+        if let price, !(status.map(unpricedStatusTags.contains) ?? false) { tags.append(price) }
+        return tags + unrecognized
+    }
+
+    /// The same array with its status respelled for `kind` ("Available" ⇄ "Import
+    /// available" ⇄ "Multi-pack available"…). Returns `tags` unchanged when there is nothing
+    /// to respell.
+    static func retargeted(_ tags: [String], for kind: Kind) -> [String] {
+        let s = kind.spellings
+        return tags.map {
+            availableSpellings.contains($0) ? s.available
+                : outOfPrintSpellings.contains($0) ? s.outOfPrint : $0
+        }
+    }
+
+    /// The one-line form shown everywhere a value is displayed: "Available (cheap)",
+    /// "Unavailable", "Reasonable". Unrecognized values follow, comma-separated.
+    static func displayText(_ tags: [String]) -> String {
+        var parts: [String] = []
+        switch (status(tags), price(tags)) {
+        case let (s?, p?): parts.append("\(s) (\(p.lowercased()))")
+        case let (s?, nil): parts.append(s)
+        case let (nil, p?): parts.append(p)
+        case (nil, nil): break
+        }
+        return (parts + unrecognized(tags)).joined(separator: ", ")
+    }
+
+    // MARK: Questions consumers ask
+
+    /// True when the release cannot currently be bought new at retail: out of print
+    /// domestically (single or multi-pack) or flatly unavailable. Backs the Reports tab's
+    /// "unpurchased and out-of-print" tally. Imports out of print are deliberately not
+    /// included; consumers that want them test `isImport` as well, as they always have.
+    static func isUnobtainable(_ tags: [String]) -> Bool {
+        guard let s = status(tags) else { return false }
+        return s == outOfPrint || s == multiPackOutOfPrint || s == unavailable
+    }
+
+    /// True for any import status, single or multi-pack.
+    static func isImport(_ tags: [String]) -> Bool {
+        guard let s = status(tags) else { return false }
+        return importSpellings.contains(s)
+    }
+
+    /// True when the release is out of print, in any spelling.
+    static func isOutOfPrint(_ tags: [String]) -> Bool {
+        guard let s = status(tags) else { return false }
+        return outOfPrintSpellings.contains(s)
+    }
+
+    // MARK: Legacy migration
+
+    /// Each legacy single-element tag and what it becomes. "Available" and "Unavailable" were
+    /// spelled the same then and need no entry.
+    private static let legacy: [String: [String]] = [
+        "Import only":       [importAvailable],
+        "Import only (OOP)": [importOutOfPrint],
+        "OOP (cheap)":       [outOfPrint, cheap],
+        "OOP (reasonable)":  [outOfPrint, reasonable],
+        "OOP (expensive)":   [outOfPrint, exorbitant],
+        "Temp. N/A":         [temporarilyUnavailable],
     ]
 
-    /// The unabbreviated form of one stored tag.
-    static func displayTitle(_ tag: String) -> String { titles[tag] ?? tag }
+    /// True when `tags` holds any legacy tag.
+    static func needsMigration(_ tags: [String]) -> Bool {
+        tags.contains { legacy[$0] != nil }
+    }
 
-    /// The unabbreviated forms of a stored array, joined for a single line of prose.
-    static func displayList(_ tags: [String]) -> String {
-        tags.map(displayTitle).joined(separator: ", ")
+    /// `tags` in the current format. Returns `tags` itself when there is nothing to migrate.
+    static func migrated(_ tags: [String]) -> [String] {
+        guard needsMigration(tags) else { return tags }
+        let expanded = tags.flatMap { legacy[$0] ?? [$0] }
+        return composed(status: status(expanded), price: price(expanded),
+                        unrecognized: unrecognized(expanded))
     }
 }
 
@@ -1249,9 +1423,10 @@ final class Release {
     var wishlist: Int
     var format: String // Values: "4K UHD", "Blu-ray", "DVD"
     var includedVersions: [String]
-    // Values: "Standalone", "Combo-pack", "Combo-pack (dual BD)", "Multi-pack".
-    // See ReleaseIndependence for the vocabulary and the child-count rules derived
-    // from it. "Combo-pack (dual BD)" only ever appears on a 4K UHD parent.
+    // Values: "Standalone", "Combo-pack", "Combo-pack (dual BD)", "Combo-pack (multi-pack)",
+    // "Multi-pack". See ReleaseIndependence for the vocabulary and the child-count rules
+    // derived from it. "Combo-pack (dual BD)" and "Combo-pack (multi-pack)" only ever
+    // appear on a 4K UHD parent.
     var independence: String
 
     // MARK: - Technical Details

@@ -205,7 +205,8 @@ struct FilmTrackerApp: App, Loggable {
             ListMembership.self,
             Release.self,
             ImportSession.self,
-            SettingsObject.self
+            SettingsObject.self,
+            SavedSearchObject.self
         ])
 
         // Debug sandbox: open the store at an explicit throwaway URL inside the sandbox
@@ -972,6 +973,7 @@ enum SidebarItem: Hashable {
     case libraryItem(LibraryItem)
     case smartList(SmartListType)
     case list(UUID)
+    case savedSearch(UUID)
 }
 
 // MARK: - App State
@@ -1106,7 +1108,7 @@ final class AppState: Loggable {
         if dataCoordinator?.isInitialized == true {
             switch newItem {
             case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
-                 .libraryItem(.filmQueue), .smartList, .list:
+                 .libraryItem(.filmQueue), .smartList, .list, .savedSearch:
                 GalleryView.preSwitchBeforeSidebarFlip(from: oldItem, to: newItem)
             case .libraryItem(.search), .libraryItem(.reports), .libraryItem(.imports):
                 break

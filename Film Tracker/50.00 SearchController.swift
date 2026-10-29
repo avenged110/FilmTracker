@@ -6,6 +6,7 @@
 
 import Foundation
 import SwiftUI
+import AppKit
 import Observation
 
 // MARK: - List Catalog
@@ -16,7 +17,7 @@ import Observation
 struct SearchListCatalog {
     /// Where a list comes from, in the order the suggestion list groups them.
     enum Kind: Int, Comparable {
-        case report, recents, smart, user
+        case report, recents, smart, saved, user
         static func < (a: Kind, b: Kind) -> Bool { a.rawValue < b.rawValue }
     }
     struct Entry {
@@ -70,6 +71,12 @@ final class SearchController: Loggable {
     var currentTokens: [SearchToken] = [] {
         didSet {
             guard !isClearing else { return }
+            // `.searchable` writes the tokens back, unchanged, on every keystroke (ahead of
+            // the text). Read as a token change, that write canceled the text debounce and
+            // ran a search at once with the previous keystroke's text — a full reload that
+            // skipped tokenResultCache, re-running every token per keystroke whenever keys
+            // came faster than the debounce. Only a real change searches.
+            guard currentTokens != oldValue else { return }
             // A pill removed while a "#" token is being typed takes effect at once. The
             // paused results otherwise kept filtering by the removed token, and because the
             // query string already matched, leaving token entry never reloaded them.
@@ -622,9 +629,13 @@ final class SearchController: Loggable {
     /// Restores a recent search exactly as it was left.
     /// The text goes in first: the token change that follows cancels its debounce and runs
     /// one search with both, where the other order searched the new tokens with the old text.
+    /// Pills the field already holds are no change, so that one search is started here.
     func applyRecentSearch(_ recent: RecentSearch) {
+        editingSavedSearchID = nil
+        let tokensChange = currentTokens != recent.tokens
         searchText = recent.text
         currentTokens = recent.tokens
+        if !tokensChange { triggerSearchImmediate() }
         suppressSuggestions()
     }
     
@@ -715,6 +726,7 @@ final class SearchController: Loggable {
         suggestionTask = nil
         suppressedSuggestionText = nil
         valueSuggestions = []
+        editingSavedSearchID = nil
     }
     
     func clearSearch() {
@@ -747,6 +759,65 @@ final class SearchController: Loggable {
         Self.log("Programmatic token search: \(field.displayName) = \"\(value)\"")
     }
     
+    // MARK: - Empty-Field Menu Hold
+
+    /// True from leaving search with the keyboard elsewhere until the field next gains focus.
+    /// Leaving search empties the field, and an empty field's drop-down (saved and recent
+    /// searches) opens the moment it has rows — while SwiftUI's focus state, updated a beat
+    /// late, still reports the field focused. Holding those rows closes that window.
+    private(set) var isEmptyFieldMenuHeld = false
+
+    /// Called as leaving search clears the field. Holds the menu only when the keyboard is
+    /// really elsewhere: deleting the last character also leaves search, with the field
+    /// still focused, and there the menu should behave as it always has.
+    func holdEmptyFieldMenuIfUnfocused() {
+        isEmptyFieldMenuHeld = !Self.searchFieldHoldsKeyboard
+    }
+
+    func releaseEmptyFieldMenu() {
+        if isEmptyFieldMenuHeld { isEmptyFieldMenuHeld = false }
+    }
+
+    /// Whether the toolbar search field's editor is the key window's first responder, read
+    /// from AppKit directly rather than from the lagging focus state. Compared by identity
+    /// with the field's own `currentEditor()`, not through `NSText.delegate`, an
+    /// `unowned(unsafe)` reference strict memory safety flags.
+    private static var searchFieldHoldsKeyboard: Bool {
+        guard let window = NSApp.keyWindow, let responder = window.firstResponder,
+              let item = window.toolbar?.items.lazy.compactMap({ $0 as? NSSearchToolbarItem }).first,
+              let editor = item.searchField.currentEditor() else { return false }
+        return responder === editor
+    }
+
+    // MARK: - Saved Searches
+
+    /// The saved search the field was opened from, for as long as the field holds it (edited
+    /// or not). Once the field changes, the title bar and the Search menu offer "Update
+    /// Saved Search…" for it. Cleared with the field.
+    private(set) var editingSavedSearchID: UUID?
+
+    /// The search in the field as a saved search stores it: the confirmed pills and the
+    /// freeform text beside them, with any "#" fragment still being typed left out.
+    var currentQuery: SavedSearchQuery {
+        SavedSearchQuery(tokens: currentTokens, text: getCleanSearchText())
+    }
+
+    /// Puts a saved search in the field, exactly as applyRecentSearch restores a recent one,
+    /// and remembers where it came from.
+    func applySavedSearch(_ search: SavedSearch) {
+        applyRecentSearch(RecentSearch(tokens: search.query.tokens, text: search.query.text))
+        editingSavedSearchID = search.id
+    }
+
+    /// The films `query` matches among `films`, by the same token and text steps the field's
+    /// own search runs. Leaves `tokenResultCache` alone: that belongs to the field's search.
+    func filmIDs(matching query: SavedSearchQuery, in films: [FilmSnapshot],
+                 lists: SearchListCatalog) -> Set<UUID> {
+        guard !query.isEmpty else { return [] }
+        let tokenMatched = query.tokens.isEmpty ? films : applyTokens(query.tokens, to: films, lists: lists)
+        return Set(applyFreeformText(query.text, to: tokenMatched).map(\.id))
+    }
+
     // MARK: - Query Generation
     
     /// Get current query string for ViewStateManager.
@@ -820,24 +891,52 @@ final class SearchController: Loggable {
         return fuzzyMatchCore(cached.alternateTitles, query: queryKey)
     }
 
+    /// Returns true if any value of any of `arrays` contains the query, already in
+    /// `SearchText.key` form: through MetadataCache's stored keys, or by normalizing the
+    /// snapshot's values on the fly when the film is not yet cached, as matchesTitle does.
+    private func matchesText(_ film: FilmSnapshot, _ arrays: [TextArray], query queryKey: String) -> Bool {
+        guard let keys = MetadataCache.shared.getTextSearchKeys(for: film.id) else {
+            return arrays.contains { array in
+                film[keyPath: array.values].contains { fuzzyMatchOptimized($0, query: queryKey) }
+            }
+        }
+        // An empty query matches every value, so every array that has one — which the
+        // joined keys cannot tell (see FilmTextSearchKeys).
+        if queryKey.isEmpty { return arrays.contains { !film[keyPath: $0.values].isEmpty } }
+        return arrays.contains { fuzzyMatchCore(keys[keyPath: $0.keys], query: queryKey) }
+    }
+
+    /// One string-array property a plain text-match token scans: the snapshot's values, and
+    /// the same values' stored keys (FilmTextSearchKeys).
+    private struct TextArray {
+        let values: KeyPath<FilmSnapshot, [String]>
+        let keys: KeyPath<FilmTextSearchKeys, String>
+    }
+
     /// The snapshot string-array properties each plain text-match token scans.
     ///
     /// The switch is deliberately exhaustive rather than defaulted: every field that has
     /// its own branch in `applyTokenFilter` (title, genre, notes and the specialized
     /// numeric/date/list/release filters) is listed here returning no key paths, so adding
     /// a SearchField is a compile error in both places instead of silently matching nothing.
-    private static func textArrayKeyPaths(for field: SearchField) -> [KeyPath<FilmSnapshot, [String]>] {
+    private static func textArrays(for field: SearchField) -> [TextArray] {
+        let cast = TextArray(values: \.cast, keys: \.cast)
+        let directors = TextArray(values: \.directors, keys: \.directors)
+        let producers = TextArray(values: \.producers, keys: \.producers)
+        let executiveProducers = TextArray(values: \.executiveProducers, keys: \.executiveProducers)
+        let screenwriters = TextArray(values: \.screenwriters, keys: \.screenwriters)
+        let composer = TextArray(values: \.composer, keys: \.composer)
         switch field {
         case .crew:
-            return [\.cast, \.directors, \.producers, \.executiveProducers, \.screenwriters, \.composer]
-        case .cast:              return [\.cast]
-        case .directors:         return [\.directors]
-        case .producer:          return [\.producers]
-        case .executiveProducer: return [\.executiveProducers]
-        case .screenwriter:      return [\.screenwriters]
-        case .composer:          return [\.composer]
-        case .studio:            return [\.studio]
-        case .tags:              return [\.tags]
+            return [cast, directors, producers, executiveProducers, screenwriters, composer]
+        case .cast:              return [cast]
+        case .directors:         return [directors]
+        case .producer:          return [producers]
+        case .executiveProducer: return [executiveProducers]
+        case .screenwriter:      return [screenwriters]
+        case .composer:          return [composer]
+        case .studio:            return [TextArray(values: \.studio, keys: \.studio)]
+        case .tags:              return [TextArray(values: \.tags, keys: \.tags)]
         // Handled by their own branches in applyTokenFilter — never routed here.
         case .title, .genre, .notes, .synopsis, .year, .duration, .rating, .lastWatched,
              .dateAdded, .list, .releases, .rotationThreshold, .flags:
@@ -871,20 +970,24 @@ final class SearchController: Loggable {
         // the first array that matches.
         case .crew, .cast, .directors, .producer, .executiveProducer,
              .screenwriter, .composer, .studio, .tags:
-            let keyPaths = Self.textArrayKeyPaths(for: token.field)
-            results = films.filter { film in
-                keyPaths.contains { keyPath in
-                    film[keyPath: keyPath].contains { fuzzyMatchOptimized($0, query: lowercasedQuery) }
-                }
-            }
-            
+            let arrays = Self.textArrays(for: token.field)
+            results = films.filter { matchesText($0, arrays, query: lowercasedQuery) }
+
         case .genre:
-            results = films.filter { fuzzyMatchOptimized($0.genre, query: lowercasedQuery) }
-            
+            results = films.filter { film in
+                guard let keys = MetadataCache.shared.getTextSearchKeys(for: film.id) else {
+                    return fuzzyMatchOptimized(film.genre, query: lowercasedQuery)
+                }
+                return fuzzyMatchCore(keys.genre, query: lowercasedQuery)
+            }
+
         case .notes:
             results = films.filter { film in
-                fuzzyMatchOptimized(film.notes, query: lowercasedQuery) ||
-                fuzzyMatchOptimized(film.descriptionNotes, query: lowercasedQuery)
+                guard let keys = MetadataCache.shared.getTextSearchKeys(for: film.id) else {
+                    return fuzzyMatchOptimized(film.notes, query: lowercasedQuery) ||
+                        fuzzyMatchOptimized(film.descriptionNotes, query: lowercasedQuery)
+                }
+                return fuzzyMatchCore(keys.notes, query: lowercasedQuery)
             }
             
         case .synopsis:
@@ -900,10 +1003,12 @@ final class SearchController: Loggable {
             results = filterByRating(films, query: token.value)
             
         case .lastWatched:
-            results = filterByDateField(films, query: token.value, fieldValue: { $0.lastWatched })
+            results = filterByDateField(films, query: token.value, fieldValue: { $0.lastWatched },
+                                        dateType: .lastWatched)
             
         case .dateAdded:
-            results = filterByDateField(films, query: token.value, fieldValue: { $0.dateAdded })
+            results = filterByDateField(films, query: token.value, fieldValue: { $0.dateAdded },
+                                        dateType: .dateAdded)
             
         case .list:
             results = filterByList(films, query: token.value, lists: lists)
@@ -981,16 +1086,18 @@ final class SearchController: Loggable {
                                                 ids: Set(filtered.map(\.id)))
         }
 
-        // Apply freeform text search (clean text only, # patterns already stripped).
-        // Freeform text matches against title and alternate titles, identical to the
-        // .title token — both share matchesTitle to keep the two paths in lockstep.
-        // A query of nothing but punctuation normalizes to "", which names no text to
-        // match, so it narrows nothing — the same as an empty field.
-        let queryKey = SearchText.key(searchText)
-        if !queryKey.isEmpty {
-            return filtered.filter { matchesTitle($0, query: queryKey) }
-        }
-        return filtered
+        return applyFreeformText(searchText, to: filtered)
+    }
+
+    /// Apply freeform text search (clean text only, # patterns already stripped).
+    /// Freeform text matches against title and alternate titles, identical to the
+    /// .title token — both share matchesTitle to keep the two paths in lockstep.
+    /// A query of nothing but punctuation normalizes to "", which names no text to
+    /// match, so it narrows nothing — the same as an empty field.
+    private func applyFreeformText(_ text: String, to films: [FilmSnapshot]) -> [FilmSnapshot] {
+        let queryKey = SearchText.key(text)
+        guard !queryKey.isEmpty else { return films }
+        return films.filter { matchesTitle($0, query: queryKey) }
     }
     
     /// Steps 1–4 of applyFilters: the films that satisfy `tokens`, in their input order.
@@ -1066,7 +1173,7 @@ final class SearchController: Loggable {
         guard !words.isEmpty else { return [] }
         return films.filter { film in
             let synopsis = synopsisKey(for: film)
-            return words.allSatisfy { synopsis.contains($0) }
+            return words.allSatisfy { SearchText.contains(synopsis, $0) }
         }
     }
 
@@ -1168,7 +1275,11 @@ final class SearchController: Loggable {
     
     /// Shared implementation for date-field token filters (lastWatched, dateAdded).
     ///
-    /// `fieldValue` extracts the raw date string from a FilmSnapshot.
+    /// `fieldValue` extracts the raw date string from a FilmSnapshot; `dateType` names the
+    /// same field's parsed date in MetadataCache, which the forms below compare against
+    /// instead of parsing every film's string again (falling back to that parse for a film
+    /// not yet cached). The cache holds `parseDate(from:)` of the same string, so the
+    /// answer is the same.
     /// "none" finds films with no date for the field; a bare year ("2025") finds that
     /// calendar year. A query that matches none of the forms below, or names a date that cannot be parsed,
     /// returns no films — the same answer a misspelled title gets. It used to return every
@@ -1185,12 +1296,16 @@ final class SearchController: Loggable {
     private func filterByDateField(
         _ films: [FilmSnapshot],
         query: String,
-        fieldValue: (FilmSnapshot) -> String
+        fieldValue: (FilmSnapshot) -> String,
+        dateType: MetadataCache.DateType
     ) -> [FilmSnapshot] {
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)
         let now = Date()
         let calendar = AppCalendar.current
-        
+        func filmDate(_ film: FilmSnapshot) -> Date? {
+            MetadataCache.shared.getParsedDate(for: film.id, type: dateType) ?? parseDate(from: fieldValue(film))
+        }
+
         // "none": films with no date recorded for the field (for Last Watched, no viewing
         // date). Tested first so no other form can claim the word.
         if q == "none" || q == "never" {
@@ -1202,7 +1317,7 @@ final class SearchController: Loggable {
             guard let start = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
                   let end = calendar.date(from: DateComponents(year: year + 1, month: 1, day: 1)) else { return [] }
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date >= start && date < end
             }
         }
@@ -1213,7 +1328,7 @@ final class SearchController: Loggable {
         // and spelled-out dates, which name the same span either way.
         if let matches = naturalDateMatcher(q, now: now) {
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return matches(date)
             }
         }
@@ -1222,7 +1337,7 @@ final class SearchController: Loggable {
         if q.contains("today") {
             let startOfToday = calendar.startOfDay(for: now)
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date >= startOfToday
             }
         }
@@ -1233,7 +1348,7 @@ final class SearchController: Loggable {
                 return []
             }
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date >= weekAgo
             }
         }
@@ -1244,7 +1359,7 @@ final class SearchController: Loggable {
                 return []
             }
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date >= monthAgo
             }
         }
@@ -1255,7 +1370,7 @@ final class SearchController: Loggable {
                 return []
             }
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date >= yearAgo
             }
         }
@@ -1270,7 +1385,7 @@ final class SearchController: Loggable {
                     return []
                 }
                 return films.filter {
-                    guard let date = parseDate(from: fieldValue($0)) else { return false }
+                    guard let date = filmDate($0) else { return false }
                     return date > yearEndDate
                 }
             }
@@ -1278,7 +1393,7 @@ final class SearchController: Loggable {
             guard let compareDate = parseDate(from: dateString)
                     ?? naturalDateAnySpan(naturalDateWords(dateString), now: now)?.end else { return [] }
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date > compareDate
             }
         }
@@ -1293,14 +1408,14 @@ final class SearchController: Loggable {
                     return []
                 }
                 return films.filter {
-                    guard let date = parseDate(from: fieldValue($0)) else { return false }
+                    guard let date = filmDate($0) else { return false }
                     return date < yearStartDate
                 }
             }
             guard let compareDate = parseDate(from: dateString)
                     ?? naturalDateAnySpan(naturalDateWords(dateString), now: now)?.start else { return [] }
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date < compareDate
             }
         }
@@ -1312,7 +1427,7 @@ final class SearchController: Loggable {
                 return []
             }
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date >= startOfMonth && date <= endOfMonth
             }
         }
@@ -1324,7 +1439,7 @@ final class SearchController: Loggable {
                 return []
             }
             return films.filter {
-                guard let date = parseDate(from: fieldValue($0)) else { return false }
+                guard let date = filmDate($0) else { return false }
                 return date >= startOfDay && date < endOfDay
             }
         }
@@ -1905,12 +2020,11 @@ final class SearchController: Loggable {
         query: String,
         lists: SearchListCatalog
     ) -> [FilmSnapshot] {
-        let q = SearchText.key(query)
+        // The rule itself is SearchListMatcher's, shared with the saved-search cycle check.
         let keyed = lists.entries.indices.flatMap { index in
             ([lists.entries[index].name] + lists.entries[index].aliases).map { (key: SearchText.key($0), index: index) }
         }
-        var matched = Set(keyed.filter { $0.key == q }.map(\.index))
-        if matched.isEmpty { matched = Set(keyed.filter { fuzzyMatchCore($0.key, query: q) }.map(\.index)) }
+        let matched = Set(SearchListMatcher.matches(query, keys: keyed.map(\.key)).map { keyed[$0].index })
         guard !matched.isEmpty else { return [] }
         let ids = matched.reduce(into: Set<UUID>()) { $0.formUnion(lists.entries[$1].filmIDs()) }
         return films.filter { ids.contains($0.id) }
@@ -2087,7 +2201,12 @@ final class SearchController: Loggable {
         // query match the studio name either way.
         let studioKey = SearchText.key(query)
         return films.filter { film in
-            film.releases.contains { fuzzyMatchOptimized($0.studio, query: studioKey) }
+            guard let keys = MetadataCache.shared.getTextSearchKeys(for: film.id) else {
+                return film.releases.contains { fuzzyMatchOptimized($0.studio, query: studioKey) }
+            }
+            // An empty key matches any release (see FilmTextSearchKeys).
+            if studioKey.isEmpty { return !film.releases.isEmpty }
+            return fuzzyMatchCore(keys.releaseStudios, query: studioKey)
         }
     }
 
@@ -2300,7 +2419,7 @@ final class SearchController: Loggable {
     /// An empty query names nothing to narrow by, so it matches every text.
     @inline(__always)
     private func fuzzyMatchCore(_ lowercasedText: String, query lowercasedQuery: String) -> Bool {
-        lowercasedQuery.isEmpty || lowercasedText.contains(lowercasedQuery)
+        SearchText.contains(lowercasedText, lowercasedQuery)
     }
     
     /// Match where the query is already in `SearchText.key` form but the text is not.

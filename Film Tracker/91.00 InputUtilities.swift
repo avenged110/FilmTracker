@@ -792,6 +792,11 @@ struct CustomDateStepper: View {
     // EVERY construction of this view, including the year-only init that overwrites it.
     private static var currentYear: Int { CurrentYear.value }
 
+    /// The years a year Stepper steps through when its caller gives no range. Also the
+    /// range the saved-search builder clamps a typed year to (SavedSearchSheet), so a
+    /// year typed there is one a Stepper could reach.
+    static var defaultYearRange: ClosedRange<Int> { 1910...currentYear }
+
     /// Every month/day/year decomposition and composition in this view goes through the
     /// app's pinned Gregorian calendar — the one the stored-date formatters use — never
     /// `Calendar.current`.
@@ -828,7 +833,7 @@ struct CustomDateStepper: View {
         self._date = date
         self._hasValue = hasValue ?? .constant(true)
         self.yearOnlyValue = yearOnlyValue
-        self.yearRange = yearRange ?? 1910...Self.currentYear
+        self.yearRange = yearRange ?? Self.defaultYearRange
         self.minDate = minDate
         self.maxDate = maxDate
         self.onDelete = onDelete
@@ -859,7 +864,7 @@ struct CustomDateStepper: View {
         // call site passes one (see _ReleaseYearRow), and SwiftUI re-runs this init on
         // every parent body pass — so a hoisted read was a Calendar.component() per
         // construction whose result was then discarded. Matches the full-date init above.
-        self.yearRange = yearRange ?? 1910...Self.currentYear
+        self.yearRange = yearRange ?? Self.defaultYearRange
         // Year-only mode has no full-date minDate concept — the year stepper's own
         // yearRange already governs its bounds.
         self.minDate = nil
@@ -1901,6 +1906,9 @@ struct DigitTextField: NSViewRepresentable {
     /// they are not counted against the cap.
     var advancesOnFill: Bool = false
 
+    /// The field's point size.
+    var fontSize: CGFloat = 13
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     /// The caller's placeholder, or the historical default of `maxLength` zeros.
@@ -1951,7 +1959,7 @@ struct DigitTextField: NSViewRepresentable {
             // to. Natural-aligned fields keep `isScrollable` (set below) because the
             // frames table relies on it as a safety margin for a rare long value.
             cell.isScrollable   = false
-            cell.font           = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+            cell.font           = .monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
             cell.placeholderString = resolvedPlaceholder
             cell.alignment      = alignment
             field.cell          = cell
@@ -1974,7 +1982,7 @@ struct DigitTextField: NSViewRepresentable {
         }
         field.drawsBackground   = true
         field.focusRingType     = .default
-        field.font              = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        field.font              = .monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
         field.placeholderString = resolvedPlaceholder
         field.alignment         = alignment
         // Seed isEnabled from the SwiftUI environment at creation time.

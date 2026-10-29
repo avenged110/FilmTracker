@@ -90,6 +90,8 @@ struct MainView: View, Loggable {
                 case .toggleLeftSidebar: toggleSidebarVisibility()
                 case .activateTokenSearch(let field, let value):
                     handleActivateTokenSearch(field: field, value: value)
+                case .openSavedSearchInField(let id):
+                    handleOpenSavedSearchInField(id)
                 case .navigateToImportsMetadata: navigateToImports(.metadata)
                 case .navigateToImportsRatings: navigateToImports(.ratings)
                 default: break
@@ -127,6 +129,9 @@ struct MainView: View, Loggable {
                 }
                 ToolbarItem(placement: .automatic) {
                     AddNewListToolbarButton()
+                }
+                ToolbarItem(placement: .automatic) {
+                    NewSavedSearchToolbarButton()
                 }
                 ToolbarItem(placement: .automatic) {
                     ScanDuplicatesToolbarButton()
@@ -206,6 +211,7 @@ struct MainView: View, Loggable {
             } else {
                 Self.log("User switched away from search - clearing search query")
                 searchController.clearSearch()
+                searchController.holdEmptyFieldMenuIfUnfocused()
             }
         }
     }
@@ -387,8 +393,39 @@ struct MainView: View, Loggable {
     /// Returns All Films for a list that no longer exists; otherwise returns
     /// `previousSidebarItem` unchanged.
     private func resolvedPreviousSidebarItem() -> SidebarItem {
-        guard case .list(let listID) = previousSidebarItem else { return previousSidebarItem }
-        return dataCoordinator.getList(listID) == nil ? .libraryItem(.allFilms) : previousSidebarItem
+        switch previousSidebarItem {
+        case .list(let listID) where dataCoordinator.getList(listID) == nil:
+            return .libraryItem(.allFilms)
+        case .savedSearch(let id) where SavedSearchStore.shared.search(id) == nil:
+            return .libraryItem(.allFilms)
+        default:
+            return previousSidebarItem
+        }
+    }
+
+    // MARK: - Saved Search Editing
+
+    /// Opens a saved search in the field. The same eager promotion to the search view as
+    /// handleActivateTokenSearch, for the same race; the view being left becomes the search-
+    /// exit destination, so clearing the field returns there. Updating it from the title bar's
+    /// "Update Saved Search…" goes to the saved search's own view instead (SavedSearchSheet.save).
+    private func handleOpenSavedSearchInField(_ id: UUID) {
+        guard let search = SavedSearchStore.shared.search(id) else { return }
+        let current = appState.selectedSidebarItem
+        let isAlreadyInSearch = current == .libraryItem(.search)
+        ViewStateManager.shared.switchToViewSync(
+            .search, matchingStyleOf: isAlreadyInSearch ? nil : viewIdentifier(for: current))
+        searchController.applySavedSearch(search)
+        // Focus the field with the caret after the query, once the field has taken the
+        // query and the switch to the search view has settled.
+        DispatchQueue.main.async {
+            guard let item = NSApp.keyWindow?.toolbar?.items.lazy
+                    .compactMap({ $0 as? NSSearchToolbarItem }).first else { return }
+            item.beginSearchInteraction()
+            if let editor = item.searchField.currentEditor() {
+                editor.selectedRange = NSRange(location: (editor.string as NSString).length, length: 0)
+            }
+        }
     }
 
     // MARK: - Token Search Activation
@@ -529,6 +566,22 @@ private struct AddNewListToolbarButton: View {
     }
 }
 
+// MARK: - New Saved Search Toolbar Button
+/// Top-level toolbar button that opens a blank saved-search builder, so a search can be
+/// built without typing one into the field first.
+@MainActor
+private struct NewSavedSearchToolbarButton: View {
+    var body: some View {
+        Button {
+            SavedSearchActions.newSearch()
+        } label: {
+            Image(systemName: "plus.magnifyingglass")
+                .frame(width: 22)
+        }
+        .help("Create new saved search")
+    }
+}
+
 // MARK: - Scan Duplicates Toolbar Button
 /// Top-level toolbar button that shows the duplicate-scan sheet.
 /// Invokes DuplicateSheet exactly as the former "Scan for Duplicates" item
@@ -643,7 +696,7 @@ private struct MainContentSwitcher: View {
             ImportsView()
                 .id("imports")
         case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
-             .libraryItem(.filmQueue), .smartList, .list:
+             .libraryItem(.filmQueue), .smartList, .list, .savedSearch:
             // `item` IS the identity. Each of the six is a distinct SidebarItem value, so
             // this is exactly as discriminating as the six hand-written strings it
             // replaces ("gallery-all-films", "gallery-smartlist-<type>", "gallery-list-
@@ -731,6 +784,8 @@ private struct NavigationTitleModifier: ViewModifier {
             return type.rawValue
         case .list(let uuid):
             return dataCoordinator.cachedLists.first { $0.listID == uuid }?.listName ?? "List"
+        case .savedSearch(let id):
+            return SavedSearchStore.shared.search(id)?.name ?? "Saved Search"
         }
     }
 }
@@ -783,6 +838,14 @@ private struct SearchFieldModifier: ViewModifier {
                                        isFieldFocused: isFieldFocused)
             }
             .searchFocused($isFieldFocused)
+            .onChange(of: isFieldFocused) { _, focused in
+                if focused { searchController.releaseEmptyFieldMenu() }
+            }
+            // Typing proves the field has the keyboard, even if the focus state never
+            // flipped (it may have stayed true throughout).
+            .onChange(of: searchController.searchText.isEmpty) { _, isEmpty in
+                if !isEmpty { searchController.releaseEmptyFieldMenu() }
+            }
             .onAppear { searchController.suggestionSource = dataCoordinator }
     }
 }
@@ -810,10 +873,15 @@ private struct SearchFieldSuggestions: View {
             ? Array(searchController.getSuggestedFields().prefix(limit)) : []
         let values = showSearchSuggestions
             ? Array(searchController.valueSuggestions.prefix(limit - fields.count)) : []
-        // The header takes one of the rows.
+        // Saved searches lead the empty field's menu, above the recent searches. Each
+        // header takes one of the rows.
+        let saved = savedSearchesShown
+            ? Array(SavedSearchStore.shared.searches.prefix(max(0, limit - fields.count - values.count - 1)))
+            : []
+        let savedRows = saved.isEmpty ? 0 : saved.count + 1
         let recents = recentSearchesShown
             ? Array(searchController.recentSearches.prefix(max(0, min(SearchSuggestionLimits.recentSearches,
-                                                                     limit - fields.count - values.count - 1))))
+                                                                     limit - fields.count - values.count - savedRows - 1))))
             : []
 
         fieldSuggestions(fields)
@@ -827,6 +895,21 @@ private struct SearchFieldSuggestions: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        if !saved.isEmpty {
+            Text("Saved Searches:")
+                .foregroundStyle(.secondary)
+                .selectionDisabled()
+            ForEach(saved) { search in
+                Button {
+                    searchController.applySavedSearch(search)
+                } label: {
+                    Text(search.name)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         if !recents.isEmpty {
@@ -846,9 +929,16 @@ private struct SearchFieldSuggestions: View {
         }
     }
 
+    /// Saved searches show on the same terms as recent ones, but follow only the suggestions
+    /// setting: they are not session history.
+    private var savedSearchesShown: Bool {
+        isFieldFocused && !searchController.isEmptyFieldMenuHeld && showSearchSuggestions
+            && searchController.searchText.isEmpty && searchController.currentTokens.isEmpty
+    }
+
     /// Recent searches fill the drop-down only while the field is focused and entirely empty.
     private var recentSearchesShown: Bool {
-        isFieldFocused && showSearchSuggestions && showRecentSearches
+        isFieldFocused && !searchController.isEmptyFieldMenuHeld && showSearchSuggestions && showRecentSearches
             && searchController.searchText.isEmpty && searchController.currentTokens.isEmpty
     }
 

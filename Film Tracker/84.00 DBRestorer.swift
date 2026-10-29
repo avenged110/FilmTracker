@@ -153,6 +153,9 @@ final class DBRestorer: Loggable {
         var listByID: [UUID: ListObject] = [:]
         // Populated during the second pass for use in the third-pass hierarchy link step.
         var releaseByID: [UUID: Release] = [:]
+        // Created after the first pass, once every list has its final name: a saved
+        // search's name must not be one a list already answers to (createSavedSearches).
+        var savedSearchObjects: [ParsedObject] = []
 
         let totalObjects = backup.objects.count
         var processedObjects = 0
@@ -185,6 +188,9 @@ final class DBRestorer: Loggable {
                     // ImportSession is optional metadata, safe to skip
                 }
 
+            case "SavedSearchObject":
+                savedSearchObjects.append(obj)
+
             case "SettingsObject":
                 do {
                     _ = try createSettingsObject(from: obj, context: context)
@@ -206,6 +212,8 @@ final class DBRestorer: Loggable {
             let objectProgress = 0.3 + (0.2 * Double(processedObjects) / Double(totalObjects))
             progress?(objectProgress, "Creating objects... \(processedObjects)/\(totalObjects)")
         }
+
+        createSavedSearches(from: savedSearchObjects, lists: Array(listByID.values), context: context)
 
         // Second pass: Create join entities now that parent objects exist
         for obj in backup.objects {
@@ -570,7 +578,8 @@ final class DBRestorer: Loggable {
             ListMembership.self,
             Release.self,
             ImportSession.self,
-            SettingsObject.self
+            SettingsObject.self,
+            SavedSearchObject.self
         ])
 
         let freshConfig = ModelConfiguration(
@@ -926,6 +935,81 @@ final class DBRestorer: Loggable {
 
         context.insert(session)
         return session
+    }
+
+    /// Restores the saved searches, in backup order, once every list has its final name.
+    ///
+    /// A saved search's name is a `#list` target, in one namespace with every list, smart
+    /// list, Queue section, Recents tab and report (SavedSearchName), and two entries with
+    /// one key would both answer the same token. The app refuses such a name when a search
+    /// is saved; a backup is not a trusted input, and one made before a built-in name
+    /// existed can hold a search that now takes it. Lists keep their names (resolveListName
+    /// has settled them) and the search is renamed instead, " 2", " 3"… as the Save sheet
+    /// names one. A second row with an ID already restored is skipped.
+    ///
+    /// The stored query is kept exactly as backed up, rules this version cannot read
+    /// included: they are logged here, and the search needs review (SavedSearchStore) at
+    /// every launch until the user saves it, which is what replaces them.
+    private func createSavedSearches(from objects: [ParsedObject], lists: [ListObject], context: ModelContext) {
+        guard !objects.isEmpty else { return }
+        let coordinator = dataCoordinator ?? AppDelegate.dataCoordinator
+        var claims = coordinator?.listNameClaims(includingUserLists: false)
+            ?? SmartListType.allCases.map { .init(name: $0.rawValue, kind: .smartList) }
+                + FilmQueueSection.allCases.map { .init(name: $0.rawValue, kind: .filmQueue) }
+        claims += lists.map { .init(name: $0.listName, kind: .userList) }
+        var restoredIDs: Set<UUID> = []
+
+        for obj in objects {
+            do {
+                guard let search = try createSavedSearch(from: obj, claims: claims, skipping: restoredIDs,
+                                                         context: context) else { continue }
+                restoredIDs.insert(search.searchID)
+                claims.append(.init(name: search.name, kind: .savedSearch))
+            } catch {
+                Self.log("WARNING: Skipping malformed SavedSearchObject \(obj.exportID): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// The restored row, or nil (logged) when its ID is in `restoredIDs` already.
+    private func createSavedSearch(from parsed: ParsedObject, claims: [SavedSearchName.Claim],
+                                   skipping restoredIDs: Set<UUID>,
+                                   context: ModelContext) throws -> SavedSearchObject? {
+        let props = parsed.properties
+        var parser = SafeValueParser(
+            properties: props,
+            entityName: "SavedSearchObject",
+            logMalformed: { [weak self] in self?.logMalformed($0) },
+            recordMissing: { [weak self] in self?.recordMissingField($0) },
+            checkExists: { [weak self] in self?.propertyExists($0, in: props) ?? false }
+        )
+        let searchID = try parser.parseRequiredUUID("searchID")
+        guard !restoredIDs.contains(searchID) else {
+            Self.log("WARNING: Skipping SavedSearchObject \(parsed.exportID): its ID was already restored")
+            return nil
+        }
+        let rawName = parser.parseString("name")
+        let name = SavedSearchName.available(rawName, claims: claims)
+        if name != rawName {
+            Self.log("NOTE: Restored saved search \"\(rawName)\" renamed to \"\(name)\" — its name is already a #list target")
+        }
+        let queryJSON = parser.parseString("queryJSON")
+        if let decoded = SavedSearchCodec.decode(queryJSON) {
+            for token in decoded.dropped {
+                Self.log("Saved search \"\(name)\": kept \(token.syntax), which this version cannot read — the search needs review")
+            }
+        } else {
+            Self.log("Saved search \"\(name)\": kept an unreadable query — the search needs review")
+        }
+        let search = SavedSearchObject(
+            searchID: searchID,
+            name: name,
+            queryJSON: queryJSON,
+            displayOrder: parser.parseInt("displayOrder"),
+            dateCreated: parser.parseDate("dateCreated"),
+            dateModified: parser.parseDate("dateModified"))
+        context.insert(search)
+        return search
     }
 
     // MARK: - Settings Creation

@@ -71,7 +71,9 @@ struct GalleryTitleBar: View {
             }
             .padding(.leading, 12)
 
-        case .allFilms, .list, .reports, .imports, .search:
+        // A saved search's own controls (Edit, Remove) live in the sidebar's menu and the
+        // menu bar; Search's "Save Search" leads the button row instead.
+        case .allFilms, .list, .reports, .imports, .search, .savedSearch:
             EmptyView()
         }
     }
@@ -105,6 +107,11 @@ struct GalleryTitleBar: View {
             // on. Leads the row so the existing buttons keep their positions when absent.
             if case .filmQueue = viewIdentifier {
                 ATVQDispatchButton()
+            }
+
+            // "Save Search" — Search only. Leads the row as "Dispatch to ATVQ" does.
+            if case .search = viewIdentifier {
+                SaveSearchButton()
             }
 
             // SIZING/SPACING — DO NOT "TIDY". The frame/fixedSize/menuIndicator chains on

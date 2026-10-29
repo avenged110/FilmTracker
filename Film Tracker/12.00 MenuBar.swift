@@ -144,6 +144,9 @@ struct MenuBar: Commands {
                     .keyboardShortcut("n", modifiers: [.option, .command])
                     .disabled(isSheetActive)
                 }
+                Button("Create New Saved Search…") { SavedSearchActions.newSearch() }
+                    .keyboardShortcut("s", modifiers: [.shift, .command])
+                    .disabled(isSheetActive)
 
                 Divider()
 
@@ -311,8 +314,9 @@ struct MenuBar: Commands {
                 .disabled(selectionCount == 0 || isSheetActive)
             }
             
-            // MARK: - View Menu: Customize
-            CommandGroup(replacing: .sidebar) {
+            // MARK: - "Search" Menu: Create
+            // Declared after "Film", so it follows it in the menu bar.
+            CommandMenu("Search") {
                 Button("Search Film Library") {
                     if let toolbar = NSApp.keyWindow?.toolbar,
                        let search = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "com.apple.SwiftUI.search" }) as? NSSearchToolbarItem {
@@ -321,6 +325,26 @@ struct MenuBar: Commands {
                 }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(isSheetActive)
+                SaveSearchMenuItem(isSheetActive: isSheetActive)
+                // Only in a saved search's view, as Duplicate List is only in a list's (the
+                // two share ⌥⌘N, so they must never be offered together).
+                if case .savedSearch(let id) = appState.selectedSidebarItem {
+                    Divider()
+                    Button("Edit Saved Search…") { SavedSearchActions.edit(id) }
+                        .disabled(isSheetActive)
+                    Button("Duplicate Saved Search…") { SavedSearchActions.duplicate(id) }
+                        .keyboardShortcut("n", modifiers: [.option, .command])
+                        .disabled(isSheetActive)
+                    Button("Open in Search Field") { SavedSearchActions.openInSearchField(id) }
+                        .disabled(isSheetActive)
+                    Divider()
+                    Button("Remove Saved Search") { SavedSearchActions.delete(id) }
+                        .disabled(isSheetActive)
+                }
+            }
+
+            // MARK: - View Menu: Customize
+            CommandGroup(replacing: .sidebar) {
                 Button("Scroll to Selection") {
                     AppEventBus.shared.sendCommand(.scrollToSelection) }
                 .keyboardShortcut("l", modifiers: .command)
@@ -485,6 +509,31 @@ struct MenuBar: Commands {
         guard !isSheetActive, let filmIDs = selectedFilmIDs else { return false }
         return FilmRemoval.canRemoveFromCurrentList(filmIDs: filmIDs, appState: appState,
                                                     coordinator: dataCoordinator)
+    }
+}
+
+// MARK: - Save Search Menu Item
+/// "Search ▸ Save Search…". A view of its own because its enabled state reads the search
+/// field's text, which changes on every keystroke: read in MenuBar's body, that made each
+/// keystroke re-evaluate the whole menu bar. Here a keystroke re-evaluates only this item.
+///
+/// Follows the title bar's SaveSearchButton for a saved search opened in the field: off
+/// until the field changes, then joined by "Update Saved Search…".
+struct SaveSearchMenuItem: View {
+    let isSheetActive: Bool
+
+    var body: some View {
+        let canSave = !isSheetActive && SearchController.shared.isActive
+            && !SearchController.shared.currentQuery.isEmpty
+        let origin = SavedSearchActions.fieldOrigin
+        let originChanged = origin.map(SavedSearchActions.fieldDiffers(from:)) ?? false
+        Button("Save Search…") { SavedSearchActions.saveCurrentSearch() }
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(!canSave || (origin != nil && !originChanged))
+        if let origin, originChanged {
+            Button("Update Saved Search…") { SavedSearchActions.updateFromField(origin.id) }
+                .disabled(!canSave)
+        }
     }
 }
 

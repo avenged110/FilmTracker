@@ -71,7 +71,9 @@ struct FilmMetadata: Codable {
     let alternateTitleSearchKeys: String
     /// The synopsis (`descriptionText`) in the same form, for the `#synopsis` token.
     let synopsisSearchKey: String
-    
+    /// The credits, studios, tags, genre and notes in the same form, for the text tokens.
+    let textSearchKeys: FilmTextSearchKeys
+
     /// Creates a FilmMetadata entry from a FilmSnapshot.
     /// All data is sourced from value types; no SwiftData @Model objects are accessed.
     init(from snapshot: FilmSnapshot) {
@@ -178,6 +180,7 @@ struct FilmMetadata: Codable {
         self.nameSearchKey = SearchText.key(snapshot.name)
         self.alternateTitleSearchKeys = snapshot.alternateTitle.map(SearchText.key).joined(separator: "\n")
         self.synopsisSearchKey = SearchText.key(snapshot.descriptionText)
+        self.textSearchKeys = FilmTextSearchKeys(snapshot)
     }
 
     // MARK: - Format-Scoped Purchase Access
@@ -312,7 +315,7 @@ extension FilmMetadata {
         "duration", "dateAddedRaw", "lastWatchedRaw", "lastModifiedRaw", "rotationDate",
         "dateAddedFormatted", "lastWatchedFormatted", "lastModifiedFormatted",
         "rotationDateFormatted", "purchaseDateFormatted", "nameSearchKey",
-        "alternateTitleSearchKeys", "synopsisSearchKey",
+        "alternateTitleSearchKeys", "synopsisSearchKey", "textSearchKeys",
     ]
 
     /// True when every field in `sortFieldNames` is equal, so this entry and `other`
@@ -391,7 +394,11 @@ struct FilmMetadataCacheFile: Codable {
     /// Version 9: `rotationDate` is computed in the Gregorian calendar whatever the system
     /// calendar (AppCalendar); an entry written under a Hebrew or Islamic system calendar
     /// holds a rotation date counted in its months. The file also gains `libraryOrders`.
-    static let currentSchemaVersion = 9
+    ///
+    /// Version 10 adds `textSearchKeys`, so the credit, studio, tag, genre, notes and
+    /// release-studio tokens read stored keys instead of normalizing every value of every
+    /// film on each search (~100 ms on the main actor per Crew token at 1,400 films).
+    static let currentSchemaVersion = 10
 
     let schemaVersion: Int
     let entries: [UUID: FilmMetadata]
@@ -1701,5 +1708,26 @@ final class MetadataCache: Loggable {
     /// A film's synopsis in `SearchText.key` form, or nil if the film is not in the cache.
     func getSynopsisSearchKey(for filmID: UUID) -> String? {
         metadata[filmID]?.synopsisSearchKey
+    }
+
+    /// A film's credits, studios, tags, genre and notes in `SearchText.key` form, or nil if
+    /// the film is not in the cache.
+    func getTextSearchKeys(for filmID: UUID) -> FilmTextSearchKeys? {
+        metadata[filmID]?.textSearchKeys
+    }
+
+    /// A film's date added or last watched as `parseDate(from:)` reads the stored string —
+    /// nil inside when there is none or it does not parse — or nil when the film is not in
+    /// the cache. The entries hold `Date.distantPast` for "no date"; that is turned back
+    /// into nil here.
+    func getParsedDate(for filmID: UUID, type: DateType) -> Date?? {
+        guard let data = metadata[filmID] else { return nil }
+        let date: Date
+        switch type {
+        case .dateAdded: date = data.dateAddedParsed
+        case .lastWatched: date = data.lastWatchedParsed
+        case .lastModified, .rotationDate, .purchaseDate: return nil
+        }
+        return .some(date == .distantPast ? nil : date)
     }
 }

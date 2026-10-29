@@ -323,6 +323,49 @@ nonisolated enum FilmFlag: CaseIterable {
     }
 }
 
+// MARK: - Film Text Search Keys
+
+/// A film's credits, studios, tags, genre and notes in `SearchText.key` form: what the text
+/// tokens search, stored in MetadataCache so a search never normalizes the library again.
+///
+/// Each array's values are joined by "\n", as MetadataCache joins alternate titles. No key
+/// holds "\n" (the fold turns it into a space), so a query matches the joined string
+/// exactly when it matches one of the values. The one difference is an empty query (a
+/// value of only punctuation), which matches any value at all: a joined string cannot say
+/// whether the array had one, so the matcher asks the snapshot instead.
+nonisolated struct FilmTextSearchKeys: Codable, Sendable {
+    let cast: String
+    let directors: String
+    let producers: String
+    let executiveProducers: String
+    let screenwriters: String
+    let composer: String
+    let studio: String
+    let tags: String
+    let genre: String
+    /// The film's notes and its description notes — both of what `#notes` searches.
+    let notes: String
+    /// Every release's studio, for the releases token's studio form.
+    let releaseStudios: String
+
+    init(_ film: FilmSnapshot) {
+        func joined(_ values: [String]) -> String {
+            values.map(SearchText.key).joined(separator: "\n")
+        }
+        cast = joined(film.cast)
+        directors = joined(film.directors)
+        producers = joined(film.producers)
+        executiveProducers = joined(film.executiveProducers)
+        screenwriters = joined(film.screenwriters)
+        composer = joined(film.composer)
+        studio = joined(film.studio)
+        tags = joined(film.tags)
+        genre = SearchText.key(film.genre)
+        notes = joined([film.notes, film.descriptionNotes])
+        releaseStudios = joined(film.releases.map(\.studio))
+    }
+}
+
 // MARK: - Search Text Normalization
 
 /// The one form search compares text in, on both sides of every match.
@@ -361,5 +404,40 @@ nonisolated enum SearchText {
             // behind — is dropped without separating the letters either side of it.
         }
         return String(result)
+    }
+
+    /// Whether `text` contains `query`, both already in `key` form. An empty query names
+    /// nothing to narrow by, so it is contained in every text.
+    ///
+    /// The same answer `text.contains(query)` gives, much faster when both are ASCII — as
+    /// nearly every key is, the fold having taken the accents off. There each Character is
+    /// one byte (a key holds no "\r", so no "\r\n" pair), so a byte search finds exactly
+    /// what a Character search does, for a fraction of its cost on a long text (a synopsis,
+    /// a film's joined cast). Anything else is left to the Character search.
+    static func contains(_ text: String, _ query: String) -> Bool {
+        offset(of: query, in: text).map { $0 != nil } ?? text.contains(query)
+    }
+
+    /// Where `query` first starts in `text`, in UTF-8 bytes (nil: not found), when both are
+    /// ASCII and an empty query is not asked about; nil (the outer one) otherwise.
+    static func offset(of query: String, in text: String) -> Int?? {
+        if query.isEmpty { return .some(0) }
+        var text = text
+        var query = query
+        return query.withUTF8 { needle -> Int?? in
+            guard unsafe isASCII(needle) else { return nil }
+            return text.withUTF8 { haystack -> Int?? in
+                guard unsafe isASCII(haystack) else { return nil }
+                guard needle.count <= haystack.count,
+                      let base = haystack.baseAddress,
+                      let found = unsafe memmem(base, haystack.count, needle.baseAddress, needle.count)
+                else { return .some(nil) }
+                return .some(unsafe UnsafeRawPointer(base).distance(to: found))
+            }
+        }
+    }
+
+    private static func isASCII(_ bytes: UnsafeBufferPointer<UInt8>) -> Bool {
+        unsafe !bytes.contains { $0 >= 0x80 }
     }
 }

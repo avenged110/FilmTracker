@@ -16,11 +16,13 @@ actor DataManager: Loggable {
     enum PersistenceError: Error, LocalizedError {
         case filmNotFound(UUID)
         case listNotFound(UUID)
+        case savedSearchNotFound(UUID)
 
         var errorDescription: String? {
             switch self {
             case .filmNotFound(let id): return "Film not found: \(id)"
-            case .listNotFound(let id): return "List not found: \(id)" } } }
+            case .listNotFound(let id): return "List not found: \(id)"
+            case .savedSearchNotFound(let id): return "Saved search not found: \(id)" } } }
 
     // MARK: - State
     private let batchSize = 100
@@ -1433,3 +1435,63 @@ final class DataManagerThreadProbe: @unchecked Sendable {
     }
 }
 #endif
+
+// MARK: - Saved Search Operations
+// An extension in this file, so it can call the actor's private commit().
+
+extension DataManager {
+    /// Every saved search, for SavedSearchStore.attach at startup, and the ones that need
+    /// review: a stored rule this build cannot read (a backup or store a newer version wrote)
+    /// is left out, and a query that cannot be read at all loads empty. Each is logged. Their
+    /// rows are not rewritten here — only the user's save does that.
+    func fetchSavedSearches() throws -> (searches: [SavedSearch], needingReview: Set<UUID>) {
+        var searches: [SavedSearch] = []
+        var needingReview: Set<UUID> = []
+        for row in try SavedSearchObject.fetchAll(in: modelContext) {
+            let (search, dropped, isUnreadable) = row.decoded
+            if isUnreadable {
+                Self.log("WARNING: Saved search \"\(row.name)\" (\(row.searchID)) has an unreadable query — it needs review", level: .warning)
+            }
+            for token in dropped {
+                Self.log("WARNING: Saved search \"\(row.name)\": left out \(token.syntax) — not a rule this version can read", level: .warning)
+            }
+            if isUnreadable || !dropped.isEmpty { needingReview.insert(search.id) }
+            searches.append(search)
+        }
+        return (searches, needingReview)
+    }
+
+    func insertSavedSearch(_ search: SavedSearch) async throws {
+        modelContext.insert(SavedSearchObject(search))
+        try commit()
+    }
+
+    func updateSavedSearch(_ search: SavedSearch) async throws {
+        try savedSearchRow(search.id).apply(search)
+        try commit()
+    }
+
+    func deleteSavedSearch(id: UUID) async throws {
+        modelContext.delete(try savedSearchRow(id))
+        try commit()
+    }
+
+    /// Writes new sidebar positions: `orders` maps a search's ID to its displayOrder.
+    func updateSavedSearchOrders(_ orders: [UUID: Int]) async throws {
+        guard !orders.isEmpty else { return }
+        let ids = Set(orders.keys)
+        let rows = try modelContext.fetch(FetchDescriptor<SavedSearchObject>(
+            predicate: #Predicate { ids.contains($0.searchID) }))
+        for row in rows {
+            if let order = orders[row.searchID] { row.displayOrder = order }
+        }
+        try commit()
+    }
+
+    private func savedSearchRow(_ id: UUID) throws -> SavedSearchObject {
+        let rows = try modelContext.fetch(FetchDescriptor<SavedSearchObject>(
+            predicate: #Predicate { $0.searchID == id }))
+        guard let row = rows.first else { throw PersistenceError.savedSearchNotFound(id) }
+        return row
+    }
+}

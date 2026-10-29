@@ -35,6 +35,11 @@ struct LeftSidebar: View, Loggable {
                 onAction: performListAction,
                 onMove: moveItems
             )
+
+            // Shown once there is something in it.
+            if !SavedSearchStore.shared.searches.isEmpty {
+                SavedSearchesSection()
+            }
         }
         .listStyle(.sidebar)
         .frame(minWidth: 180)
@@ -44,6 +49,8 @@ struct LeftSidebar: View, Loggable {
         // animated transaction over the whole sidebar on every film added to or removed
         // from any list.
         .animation(.default, value: dataCoordinator.cachedLists.map(ListRowKey.init))
+        // Keyed on what the rows show, as ListRowKey is.
+        .animation(.default, value: SavedSearchStore.shared.searches.map(SavedSearchRowKey.init))
         // Both selection syncs read the selection inside a modifier of their own. An
         // onChange reads its value while this body is evaluated, so applied here they
         // made every navigation — and every click — re-evaluate this body and, through
@@ -713,6 +720,111 @@ private struct ListRow: View {
     }
 }
 
+// MARK: - Saved Search Row Animation Key
+private struct SavedSearchRowKey: Equatable {
+    let id: UUID
+    let name: String
+
+    init(_ search: SavedSearch) {
+        id = search.id
+        name = search.name
+    }
+}
+
+// MARK: - Saved Searches Section Component
+// One row per saved search, in the order the user dragged them into. A row opens the
+// search's own gallery view (ViewIdentifier.savedSearch); its menu edits it, opens it in
+// the search field, duplicates or removes it. Not a drop target: films cannot be added to
+// a query.
+private struct SavedSearchesSection: View {
+    private var store: SavedSearchStore { .shared }
+
+    var body: some View {
+        Section("Saved Searches") {
+            ForEach(store.searches) { search in
+                SavedSearchRow(search: search)
+            }
+            .onMove { store.move(fromOffsets: $0, toOffset: $1) }
+        }
+    }
+}
+
+// MARK: - Saved Search Row Component
+private struct SavedSearchRow: View {
+    let search: SavedSearch
+
+    @Environment(DataCoordinator.self) private var dataCoordinator
+
+    // Hover / ellipsis button state, as ListRow's.
+    @State private var isHovered = false
+    @State private var isEllipsisPressed = false
+    /// Required by the row proxy's interface; a saved search row never becomes a drop target.
+    @State private var isDropTargeted = false
+
+    private static let accessorySlotWidth: CGFloat = 18
+
+    var body: some View {
+        // Laid out as ListRow is — the ellipsis an overlay on the title, reserved for by a
+        // trailing inset only while it shows — for the same reason: the icon must not move.
+        Label {
+            Text(search.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, isHovered ? Self.accessorySlotWidth + 4 : 0)
+                .animation(nil, value: isHovered)
+                .overlay(alignment: .trailing) { ellipsis }
+        } icon: {
+            Image(systemName: ViewGlyphs.savedSearch.outline)
+        }
+        .tag(SidebarItem.savedSearch(search.id))
+        .contextMenu { menuItems() }
+        .onChange(of: isHovered) { _, hovering in
+            if !hovering, isEllipsisPressed { isEllipsisPressed = false }
+        }
+        // The list rows' full-row hover tracking (see ListRow), with drops turned off.
+        .overlay(
+            ListRowDropTarget(listID: search.id, listName: search.name, dataCoordinator: dataCoordinator,
+                              isDropTargeted: $isDropTargeted, isHovered: $isHovered, acceptsDrops: false)
+                .frame(width: 0, height: 0))
+    }
+
+    /// ListRow's hover ellipsis: a plain glyph that takes the row's selection coloring, under
+    /// an invisible Menu that catches the click.
+    @ViewBuilder
+    private var ellipsis: some View {
+        if isHovered {
+            Image(systemName: "ellipsis.circle")
+                .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
+                .opacity(isEllipsisPressed ? 0.4 : 1.0)
+                .animation(.easeOut(duration: 0.08), value: isEllipsisPressed)
+                .overlay {
+                    Menu { menuItems() } label: { Color.clear }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
+                        .focusable(false)
+                        .focusEffectDisabled()
+                }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in isEllipsisPressed = true }
+                        .onEnded { _ in isEllipsisPressed = false })
+                .help("Saved Search Options")
+        }
+    }
+
+    // Shared by the context menu and the ellipsis, as ListRow's are.
+    @ViewBuilder
+    private func menuItems() -> some View {
+        Button("Edit Saved Search…") { SavedSearchActions.edit(search.id) }
+        Button("Duplicate Saved Search…") { SavedSearchActions.duplicate(search.id) }
+        Button("Open in Search Field") { SavedSearchActions.openInSearchField(search.id) }
+        Divider()
+        Button("Remove Saved Search") { SavedSearchActions.delete(search.id) }
+    }
+}
+
 // MARK: - List Row Activity
 // A list row's transient feedback: the spinner shown once an operation on it has run for a
 // moment, and the momentary completion glyph. One per list, kept by ListRowActivityStore,
@@ -831,10 +943,15 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
     let dataCoordinator: DataCoordinator
     @Binding var isDropTargeted: Bool
     @Binding var isHovered: Bool
+    /// False for a row that only wants the full-row hover tracking (a saved search: films
+    /// cannot be dropped onto a query). Its proxy then registers for no drag types, so a
+    /// drag passes over it as over any unregistered view.
+    var acceptsDrops = true
 
     func makeNSView(context: Context) -> DropTargetAnchorView {
         let view = DropTargetAnchorView()
         // Seed initial values; updateNSView also runs immediately after makeNSView.
+        view.acceptsDrops = acceptsDrops
         view.listID = listID
         view.listName = listName
         view.dataCoordinator = dataCoordinator
@@ -872,6 +989,7 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
 
         var listID: UUID = UUID()
         var listName: String = ""
+        var acceptsDrops = true
         weak var dataCoordinator: DataCoordinator?
         var onTargetChanged: ((Bool) -> Void)?
         var onHoverChanged: ((Bool) -> Void)?
@@ -888,66 +1006,70 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             guard unsafe window != nil else { return }
             guard proxy == nil,
                   let rowView = findAncestor(ofType: NSTableRowView.self) else { return }
-            let p = RowDragProxyView()
-            p.listID = listID
-            p.listName = listName
-            p.dataCoordinator = dataCoordinator
-            p.onTargetChanged = onTargetChanged
-            p.onHoverChanged = onHoverChanged
-            rowView.addSubview(p, positioned: .below, relativeTo: nil)
-            p.frame = rowView.bounds
+            // NSOutlineView recycles its row views as the sidebar scrolls, handing each one
+            // a different row's cell. The proxy stays with the row view and is lent to
+            // whichever anchor arrives there, so scrolling reuses proxies rather than
+            // removing and installing one per row that passes through view.
+            let existing = rowView.subviews.lazy.compactMap { $0 as? RowDragProxyView }.first
+            let p = existing ?? RowDragProxyView()
+            if existing == nil {
+                rowView.addSubview(p, positioned: .below, relativeTo: nil)
+                p.frame = rowView.bounds
+            }
+            p.activate(for: self)
             proxy = p
-            Self.noteProxy(installed: true)
+            Self.noteProxy(created: existing == nil)
         }
 
         override func viewWillMove(toWindow newWindow: NSWindow?) {
-            // Clean up when the view leaves its window (e.g., app close / sidebar teardown).
-            if newWindow == nil, let p = proxy {
-                p.removeFromSuperview()
-                proxy = nil
-                Self.noteProxy(installed: false)
-            }
+            // The anchor leaves its window when its cell is recycled for another row,
+            // when the row is deleted, or when the sidebar is torn down.
+            if newWindow == nil { releaseProxy() }
             super.viewWillMove(toWindow: newWindow)
         }
 
         override func viewWillMove(toSuperview newSuperview: NSView?) {
-            // Clean up when SwiftUI removes the anchor from NSHostingView
-            // (cell recycled for a different row or list item deleted).
-            if newSuperview == nil, let p = proxy {
-                p.removeFromSuperview()
-                proxy = nil
-                Self.noteProxy(installed: false)
-            }
+            if newSuperview == nil { releaseProxy() }
             super.viewWillMove(toSuperview: newSuperview)
         }
 
+        /// Returns the proxy to its row view, inert until the next anchor claims it. One
+        /// already claimed by another anchor (whose cell arrived first) is left alone.
+        private func releaseProxy() {
+            guard let p = proxy else { return }
+            if p.owner === self { p.deactivate() }
+            proxy = nil
+        }
+
         // MARK: Proxy digest
-        // Every sidebar row installs a proxy, all at once on each mount and again on each
-        // reload, so a line per install filled the log. Installs and removals are counted
-        // instead, and one digest line is written per burst.
-        private static var liveProxies = 0
-        private static var installedSinceDigest = 0
-        private static var removedSinceDigest = 0
+        // Proxies are created once per row view and reused after that, so this digest
+        // should show creations only while the sidebar first fills (or grows), and reuses
+        // as it scrolls. One line is written per burst rather than one per row.
+        private static var createdTotal = 0
+        private static var createdSinceDigest = 0
+        private static var reusedSinceDigest = 0
         private static var isDigestScheduled = false
         /// How long a burst may run before its digest is written.
         private static let digestDelay: TimeInterval = 0.5
 
-        private static func noteProxy(installed: Bool) {
-            if installed {
-                liveProxies += 1
-                installedSinceDigest += 1
+        private static func noteProxy(created: Bool) {
+            if created {
+                createdTotal += 1
+                createdSinceDigest += 1
             } else {
-                liveProxies -= 1
-                removedSinceDigest += 1
+                reusedSinceDigest += 1
             }
             guard !isDigestScheduled else { return }
             isDigestScheduled = true
             DispatchQueue.main.asyncAfter(deadline: .now() + digestDelay) {
                 isDigestScheduled = false
-                log("RowDragProxyViews: \(liveProxies) installed "
-                    + "(+\(installedSinceDigest) / -\(removedSinceDigest) since last digest)")
-                installedSinceDigest = 0
-                removedSinceDigest = 0
+                // A reuse-only burst is ordinary scrolling; only creations are worth a line.
+                if createdSinceDigest > 0 {
+                    log("RowDragProxyViews: \(createdTotal) created "
+                        + "(+\(createdSinceDigest) new, \(reusedSinceDigest) reused since last digest)")
+                }
+                createdSinceDigest = 0
+                reusedSinceDigest = 0
             }
         }
 
@@ -981,6 +1103,33 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         // The single tracking area covering the proxy's entire bounds. Rebuilt
         // whenever the bounds change so it always matches the full NSTableRowView.
         private var hoverTrackingArea: NSTrackingArea?
+
+        /// The anchor whose row this proxy currently serves; nil while the row view sits
+        /// unused in the outline view's reuse pool.
+        private(set) weak var owner: DropTargetAnchorView?
+
+        /// Takes on `anchor`'s row: its list, callbacks, and whether it accepts drops.
+        func activate(for anchor: DropTargetAnchorView) {
+            owner = anchor
+            Self.activeProxies.add(self)
+            listID = anchor.listID
+            listName = anchor.listName
+            dataCoordinator = anchor.dataCoordinator
+            onTargetChanged = anchor.onTargetChanged
+            onHoverChanged = anchor.onHoverChanged
+            if anchor.acceptsDrops { registerForDraggedTypes([.filmIDs]) } else { unregisterDraggedTypes() }
+            reconcileHover()
+        }
+
+        /// Clears the departing row's state so the proxy reports nothing for it.
+        func deactivate() {
+            setHovered(false)
+            owner = nil
+            Self.activeProxies.remove(self)
+            onTargetChanged = nil
+            onHoverChanged = nil
+            unregisterDraggedTypes()
+        }
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
@@ -1030,9 +1179,24 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         private static weak var hoveredProxy: RowDragProxyView?
         private static var observersInstalled = false
 
+        // MARK: Live scroll
+        //
+        // Rows report no hover while the sidebar is live-scrolling, as Finder's do. A still
+        // cursor otherwise hovers every row that passes under it, and each one built and
+        // tore down its ellipsis button and Menu overlay and re-laid its title — SwiftUI
+        // work on every frame of the scroll. Hover is re-derived once the scroll ends.
+
+        /// The sidebar's scroll view. Scroll notifications from any other scroll view in
+        /// the app (the gallery, the list view, sheets) are ignored.
+        private static weak var sidebarScrollView: NSScrollView?
+        private static var isLiveScrolling = false
+        /// Proxies currently serving a row — the ones re-derived when a scroll ends.
+        private static let activeProxies = NSHashTable<RowDragProxyView>.weakObjects()
+
         private var isHoverReported = false
 
         private func setHovered(_ hovering: Bool) {
+            let hovering = hovering && !Self.isLiveScrolling
             if hovering {
                 if let other = Self.hoveredProxy, other !== self { other.setHovered(false) }
                 Self.hoveredProxy = self
@@ -1060,6 +1224,13 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             hoveredProxy?.reconcileHover()
         }
 
+        /// Whether a notification's object (passed as its identity, which is Sendable) is
+        /// the sidebar's scroll view.
+        private static func isSidebar(_ object: ObjectIdentifier?) -> Bool {
+            guard let object, let sidebarScrollView else { return false }
+            return object == ObjectIdentifier(sidebarScrollView)
+        }
+
         private static func installObserversIfNeeded() {
             guard !observersInstalled else { return }
             observersInstalled = true
@@ -1068,8 +1239,6 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
                 NSApplication.didResignActiveNotification,
                 NSApplication.didBecomeActiveNotification,
                 NSMenu.didEndTrackingNotification,
-                NSScrollView.didLiveScrollNotification,
-                NSScrollView.didEndLiveScrollNotification,
                 NSWindow.didResignKeyNotification,
             ]
             for name in names {
@@ -1077,11 +1246,31 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
                     MainActor.assumeIsolated { reconcileCurrent() }
                 }
             }
+            center.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: nil, queue: .main) { note in
+                let object = (note.object as AnyObject?).map(ObjectIdentifier.init)
+                MainActor.assumeIsolated {
+                    guard isSidebar(object) else { return }
+                    isLiveScrolling = true
+                    hoveredProxy?.setHovered(false)
+                }
+            }
+            center.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: nil, queue: .main) { note in
+                let object = (note.object as AnyObject?).map(ObjectIdentifier.init)
+                MainActor.assumeIsolated {
+                    guard isSidebar(object) else { return }
+                    isLiveScrolling = false
+                    // The row under the cursor now is not the one it was over when the
+                    // scroll began, so every row serving one is asked; only the one the
+                    // cursor is in reports hover.
+                    for proxy in activeProxies.allObjects { proxy.reconcileHover() }
+                }
+            }
         }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             Self.installObserversIfNeeded()
+            if let scrollView = enclosingScrollView { Self.sidebarScrollView = scrollView }
             if unsafe window == nil { setHovered(false) }
         }
 

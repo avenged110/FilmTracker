@@ -2808,6 +2808,13 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
     enum Item: Equatable {
         case option(tag: Value, title: String, isEnabled: Bool = true)
         case separator
+        /// A label for the rows below it, in the style of the app's other menu headers
+        /// ("Sort By:" in SortFilterMenu): secondary color, and never selectable.
+        case header(String)
+        /// The collapsed title shown while `tag` (a value meaning "nothing chosen yet") is
+        /// the selection — "Select…". A hidden row: it is never in the open menu, so once
+        /// the menu opens, a real option has to be chosen.
+        case placeholder(tag: Value, title: String)
     }
 
     /// Layout height of the button at the regular control size.
@@ -2832,8 +2839,10 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
     /// selectable-away-from rather than rendering as a blank menu.
     private var effectiveItems: [Item] {
         let hasTag = items.contains { item in
-            if case .option(let tag, _, _) = item { return tag == selection }
-            return false
+            switch item {
+            case .option(let tag, _, _), .placeholder(let tag, _): return tag == selection
+            default: return false
+            }
         }
         return hasTag ? items : items + [.option(tag: selection, title: String(describing: selection))]
     }
@@ -2912,6 +2921,23 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
                 case .separator:
                     menu.addItem(.separator())
                     tags.append(nil)
+                case .header(let title):
+                    // Disabled so it cannot be chosen; the attributed title keeps the
+                    // secondary color rather than the disabled gray, as SortFilterMenu's
+                    // SwiftUI headers do.
+                    let menuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                    menuItem.attributedTitle = NSAttributedString(string: title, attributes: [
+                        .foregroundColor: NSColor.secondaryLabelColor,
+                        .font: button.font ?? NSFont.menuFont(ofSize: 0),
+                    ])
+                    menuItem.isEnabled = false
+                    menu.addItem(menuItem)
+                    tags.append(nil)
+                case .placeholder(let tag, let title):
+                    let menuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                    menuItem.isHidden = true
+                    menu.addItem(menuItem)
+                    tags.append(tag)
                 }
             }
         }

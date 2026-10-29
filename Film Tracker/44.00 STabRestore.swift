@@ -65,6 +65,7 @@ private struct BackupInfoBox: View {
                     HStack(spacing: 16) {
                         item("Films:", "\(info.filmCount)")
                         item("Lists:", "\(info.listCount)")
+                        item("Saved Searches:", "\(info.savedSearchCount)")
                         item("Releases:", "\(info.releaseCount)")
                         Spacer(minLength: 0)
                     }
@@ -302,6 +303,7 @@ final class RestoreViewModel: Loggable {
         let version: Int
         let filmCount: Int
         let listCount: Int
+        let savedSearchCount: Int
         let releaseCount: Int
         let posterCount: Int
         let created: String
@@ -414,6 +416,7 @@ final class RestoreViewModel: Loggable {
                 // Count objects by type.
                 var filmCount = 0
                 var listCount = 0
+                var savedSearchCount = 0
                 var releaseCount = 0
                 var hasSettings = false
                 
@@ -421,6 +424,7 @@ final class RestoreViewModel: Loggable {
                     switch obj.entityName {
                     case "Film": filmCount += 1
                     case "ListObject": listCount += 1
+                    case "SavedSearchObject": savedSearchCount += 1
                     case "Release": releaseCount += 1
                     case "SettingsObject": hasSettings = true
                     default: break
@@ -452,6 +456,7 @@ final class RestoreViewModel: Loggable {
                     version: version,
                     filmCount: filmCount,
                     listCount: listCount,
+                    savedSearchCount: savedSearchCount,
                     releaseCount: releaseCount,
                     posterCount: posterCount,
                     created: backup.createdISO8601,

@@ -208,61 +208,66 @@ struct Preferences: Loggable {
     
     // MARK: - Keys
     // Keys used for UserDefaults.
+    //
+    // Every block from here to the end of the accessors lists the preferences in the order
+    // the Settings sheet shows them, tab by tab. A key with no control of its own sits
+    // beside the preference it belongs with.
     private enum Keys {
-        static let loggingEnabled =
-            "preferences.loggingEnabled"
+        // Settings: General tab
+        static let iCalIntegration =
+            "preferences.iCalIntegration"
+        static let defaultRotationThreshold =
+            "preferences.defaultRotationThreshold"
         static let confirmGalleryDelete =
             "preferences.confirmGalleryDelete"
+        static let confirmReleaseDelete =
+            "preferences.confirmReleaseDelete"
         static let confirmListEdits =
             "preferences.confirmListEdits"
         static let listEditScope =
             "preferences.listEditScope"
-        static let confirmReleaseDelete =
-            "preferences.confirmReleaseDelete"
+        static let confirmFilmQueueAdd =
+            "preferences.confirmFilmQueueAdd"
+        static let notifyAboutNewReleases =
+            "preferences.notifyAboutNewReleases"
+        static let onlyNotifyForWishlisted =
+            "preferences.onlyNotifyForWishlisted"
         static let largeGalleryGrid =
             "preferences.largeGalleryGrid"
         static let showStatusBar =
             "preferences.showStatusBar"
-        static let rememberRightSidebarTab =
-            "preferences.rememberRightSidebarTab"
-        static let rememberRightSidebarReleasesFilter =
-            "preferences.rememberRightSidebarReleasesFilter"
-        static let autoExpandRightSidebarTables =
-            "preferences.autoExpandRightSidebarTables"
-        static let additionalCalTableDetails =
-            "preferences.additionalCalTableDetails"
-        static let showReleasesSummaryTable =
-            "preferences.showReleasesSummaryTable"
-        static let iCalIntegration =
-            "preferences.iCalIntegration"
-        static let manualExtQuery =
-            "preferences.manualExtQuery"
         static let smartLists =
             "preferences.smartLists"
         static let excludeQueuedFromUpForRotation =
             "preferences.excludeQueuedFromUpForRotation"
-        static let maintainSelectionOnSearchExit =
-            "preferences.maintainSelectionOnSearchExit"
+        // Internal state, not a user-facing preference. See the accessor below.
+        static let knownUpForRotationFilmIDs =
+            "preferences.knownUpForRotationFilmIDs"
+        // Internal state, not a user-facing preference. See the accessor below.
+        static let expandedSmartListFamilies =
+            "preferences.expandedSmartListFamilies"
+        static let queueIsDropTarget =
+            "preferences.queueIsDropTarget"
+        static let queueSectionOnDrop =
+            "preferences.queueSectionOnDrop"
+        static let manualExtQuery =
+            "preferences.manualExtQuery"
+        static let rememberRightSidebarTab =
+            "preferences.rememberRightSidebarTab"
+        static let autoExpandRightSidebarTables =
+            "preferences.autoExpandRightSidebarTables"
+        static let additionalCalTableDetails =
+            "preferences.additionalCalTableDetails"
+        static let rememberRightSidebarReleasesFilter =
+            "preferences.rememberRightSidebarReleasesFilter"
+        static let showReleasesSummaryTable =
+            "preferences.showReleasesSummaryTable"
         static let showSearchSuggestions =
             "preferences.showSearchSuggestions"
         static let showRecentSearches =
             "preferences.showRecentSearches"
-        static let showInfoComplete =
-            "preferences.showInfoComplete"
-        static let importScanSubfolders =
-            "preferences.importScanSubfolders"
-        static let fuzzyImportMatching =
-            "preferences.fuzzyImportMatching"
-        static let fuzzyImportYearMatching =
-            "preferences.fuzzyImportYearMatching"
-        static let overrideSortNameField =
-            "preferences.overrideSortNameField"
-        static let allowUpdatesForDuplicateImports =
-            "preferences.allowUpdatesForDuplicateImports"
-        static let allowUpdatesForDuplicateRatings =
-            "preferences.allowUpdatesForDuplicateRatings"
-        static let selectedSortOptions =
-            "preferences.selectedSortOptions"
+        static let maintainSelectionOnSearchExit =
+            "preferences.maintainSelectionOnSearchExit"
         static let maintainScrollPositionOnViewSwitch =
             "preferences.maintainScrollPositionOnViewSwitch"
         static let rememberTabSelection =
@@ -277,46 +282,54 @@ struct Preferences: Loggable {
             "preferences.rememberImportsTab"
         static let lastImportsCategory =
             "preferences.lastImportsCategory"
-        static let prunePosterImages =
-            "preferences.prunePosterImages"
-        static let performBackupAtLaunch =
-            "preferences.performBackupAtLaunch"
-        static let exportPosterImages =
-            "preferences.exportPosterImages"
-        static let exportUserSettings =
-            "preferences.exportUserSettings"
-        static let defaultRotationThreshold =
-            "preferences.defaultRotationThreshold"
-        static let exportPathBookmark =
-            "preferences.exportPathBookmark"
-        static let ignoredDuplicatePairs =
-            "preferences.ignoredDuplicatePairs"
         static let rememberSortFilterSelections =
             "preferences.rememberSortFilterSelections"
-        static let confirmFilmQueueAdd =
-            "preferences.confirmFilmQueueAdd"
-        static let notifyAboutNewReleases =
-            "preferences.notifyAboutNewReleases"
-        static let onlyNotifyForWishlisted =
-            "preferences.onlyNotifyForWishlisted"
-        static let queueIsDropTarget =
-            "preferences.queueIsDropTarget"
-        static let queueSectionOnDrop =
-            "preferences.queueSectionOnDrop"
-        static let strictFramesTableChecking =
-            "preferences.strictFramesTableChecking"
+        static let selectedSortOptions =
+            "preferences.selectedSortOptions"
+        static let performBackupAtLaunch =
+            "preferences.performBackupAtLaunch"
+
+        // Settings: Import tab
+        static let importScanSubfolders =
+            "preferences.importScanSubfolders"
+        static let fuzzyImportMatching =
+            "preferences.fuzzyImportMatching"
+        static let fuzzyImportYearMatching =
+            "preferences.fuzzyImportYearMatching"
+        static let overrideSortNameField =
+            "preferences.overrideSortNameField"
+        static let allowUpdatesForDuplicateImports =
+            "preferences.allowUpdatesForDuplicateImports"
+        static let allowUpdatesForDuplicateRatings =
+            "preferences.allowUpdatesForDuplicateRatings"
+
+        // Settings: Export tab
+        static let exportPathBookmark =
+            "preferences.exportPathBookmark"
+        static let exportUserSettings =
+            "preferences.exportUserSettings"
+        static let exportPosterImages =
+            "preferences.exportPosterImages"
+
+        // Settings: Restore tab — no preferences.
+
+        // Settings: Advanced tab
+        static let showInfoComplete =
+            "preferences.showInfoComplete"
         static let showWatchDetailsAnnotationGlyphs =
             "preferences.showWatchDetailsAnnotationGlyphs"
-        static let atvq =
-            "preferences.atvq"
+        static let ignoredDuplicatePairs =
+            "preferences.ignoredDuplicatePairs"
         static let overrideDateClamp =
             "preferences.overrideDateClamp"
-        // Internal state, not a user-facing preference. See the accessor below.
-        static let knownUpForRotationFilmIDs =
-            "preferences.knownUpForRotationFilmIDs"
-        // Internal state, not a user-facing preference. See the accessor below.
-        static let expandedSmartListFamilies =
-            "preferences.expandedSmartListFamilies" }
+        static let strictFramesTableChecking =
+            "preferences.strictFramesTableChecking"
+        static let prunePosterImages =
+            "preferences.prunePosterImages"
+        static let loggingEnabled =
+            "preferences.loggingEnabled"
+        static let atvq =
+            "preferences.atvq" }
 
     // Expose the key strings for use by other modules that need to post/update.
     // (This keeps a single canonical definition of the key names.)
@@ -324,56 +337,56 @@ struct Preferences: Loggable {
     // string literals from the private Keys enum and are immutable by nature. `let`
     // allows the compiler to inline them; computed `var` would add a getter call site
     // on every access with no benefit.
-    static let loggingEnabledKey                     = Keys.loggingEnabled
+    static let iCalIntegrationKey                    = Keys.iCalIntegration
+    static let defaultRotationThresholdKey           = Keys.defaultRotationThreshold
     static let confirmGalleryDeleteKey               = Keys.confirmGalleryDelete
+    static let confirmReleaseDeleteKey               = Keys.confirmReleaseDelete
     static let confirmListEditsKey                   = Keys.confirmListEdits
     static let listEditScopeKey                      = Keys.listEditScope
-    static let confirmReleaseDeleteKey               = Keys.confirmReleaseDelete
+    static let confirmFilmQueueAddKey                = Keys.confirmFilmQueueAdd
+    static let notifyAboutNewReleasesKey             = Keys.notifyAboutNewReleases
+    static let onlyNotifyForWishlistedKey            = Keys.onlyNotifyForWishlisted
     static let largeGalleryGridKey                   = Keys.largeGalleryGrid
     static let showStatusBarKey                      = Keys.showStatusBar
-    static let rememberRightSidebarTabKey            = Keys.rememberRightSidebarTab
-    static let rememberRightSidebarReleasesFilterKey = Keys.rememberRightSidebarReleasesFilter
-    static let autoExpandRightSidebarTablesKey       = Keys.autoExpandRightSidebarTables
-    static let additionalCalTableDetailsKey          = Keys.additionalCalTableDetails
-    static let showReleasesSummaryTableKey           = Keys.showReleasesSummaryTable
-    static let iCalIntegrationKey                    = Keys.iCalIntegration
-    static let manualExtQueryKey                     = Keys.manualExtQuery
     static let smartListsKey                         = Keys.smartLists
     static let excludeQueuedFromUpForRotationKey     = Keys.excludeQueuedFromUpForRotation
-    static let maintainSelectionOnSearchExitKey      = Keys.maintainSelectionOnSearchExit
+    static let queueIsDropTargetKey                  = Keys.queueIsDropTarget
+    static let queueSectionOnDropKey                 = Keys.queueSectionOnDrop
+    static let manualExtQueryKey                     = Keys.manualExtQuery
+    static let rememberRightSidebarTabKey            = Keys.rememberRightSidebarTab
+    static let autoExpandRightSidebarTablesKey       = Keys.autoExpandRightSidebarTables
+    static let additionalCalTableDetailsKey          = Keys.additionalCalTableDetails
+    static let rememberRightSidebarReleasesFilterKey = Keys.rememberRightSidebarReleasesFilter
+    static let showReleasesSummaryTableKey           = Keys.showReleasesSummaryTable
     static let showSearchSuggestionsKey              = Keys.showSearchSuggestions
     static let showRecentSearchesKey                 = Keys.showRecentSearches
-    static let showInfoCompleteKey                   = Keys.showInfoComplete
+    static let maintainSelectionOnSearchExitKey      = Keys.maintainSelectionOnSearchExit
+    static let maintainScrollPositionOnViewSwitchKey = Keys.maintainScrollPositionOnViewSwitch
+    static let rememberTabSelectionKey               = Keys.rememberTabSelection
+    static let tabRememberScopeKey                   = Keys.tabRememberScope
+    static let rememberSortFilterSelectionsKey       = Keys.rememberSortFilterSelections
+    static let performBackupAtLaunchKey              = Keys.performBackupAtLaunch
     static let importScanSubfoldersKey               = Keys.importScanSubfolders
     static let fuzzyImportMatchingKey                = Keys.fuzzyImportMatching
     static let fuzzyImportYearMatchingKey            = Keys.fuzzyImportYearMatching
     static let overrideSortNameFieldKey              = Keys.overrideSortNameField
     static let allowUpdatesForDuplicateImportsKey    = Keys.allowUpdatesForDuplicateImports
     static let allowUpdatesForDuplicateRatingsKey    = Keys.allowUpdatesForDuplicateRatings
-    static let maintainScrollPositionOnViewSwitchKey = Keys.maintainScrollPositionOnViewSwitch
-    static let rememberTabSelectionKey               = Keys.rememberTabSelection
-    static let tabRememberScopeKey                   = Keys.tabRememberScope
-    static let prunePosterImagesKey                  = Keys.prunePosterImages
-    static let performBackupAtLaunchKey              = Keys.performBackupAtLaunch
-    static let defaultRotationThresholdKey           = Keys.defaultRotationThreshold
-    static let rememberSortFilterSelectionsKey       = Keys.rememberSortFilterSelections
-    static let confirmFilmQueueAddKey                = Keys.confirmFilmQueueAdd
-    static let notifyAboutNewReleasesKey             = Keys.notifyAboutNewReleases
-    static let onlyNotifyForWishlistedKey            = Keys.onlyNotifyForWishlisted
-    static let queueIsDropTargetKey                  = Keys.queueIsDropTarget
-    static let queueSectionOnDropKey                 = Keys.queueSectionOnDrop
-    // Unlike overrideDateClampKey below, this one IS a durable preference: it
-    // describes how the user wants to enter data, not a one-session escape
-    // hatch, so it participates in SettingsManager's export/restore pipeline and
-    // in SettingsObject's persisted schema exactly like every key above it.
-    static let strictFramesTableCheckingKey          = Keys.strictFramesTableChecking
+    static let showInfoCompleteKey                   = Keys.showInfoComplete
     static let showWatchDetailsAnnotationGlyphsKey   = Keys.showWatchDetailsAnnotationGlyphs
-    static let atvqKey                               = Keys.atvq
     // NOTE: overrideDateClampKey is intentionally NOT included in SettingsManager's
     // export/restore pipeline or SettingsObject's persisted schema. See the
     // overrideDateClamp property below for the full rationale — this preference
     // always resets to false on quit, so persisting its state would be pointless.
-    static let overrideDateClampKey            = Keys.overrideDateClamp
+    static let overrideDateClampKey                  = Keys.overrideDateClamp
+    // Unlike overrideDateClampKey above, this one IS a durable preference: it
+    // describes how the user wants to enter data, not a one-session escape
+    // hatch, so it participates in SettingsManager's export/restore pipeline and
+    // in SettingsObject's persisted schema exactly like every other key here.
+    static let strictFramesTableCheckingKey          = Keys.strictFramesTableChecking
+    static let prunePosterImagesKey                  = Keys.prunePosterImages
+    static let loggingEnabledKey                     = Keys.loggingEnabled
+    static let atvqKey                               = Keys.atvq
 
     // Sane defaults for every key — THE master list. Registered by the `defaults`
     // initializer above so no caller needs special 'nil' checks, and read back through
@@ -382,53 +395,53 @@ struct Preferences: Loggable {
     // shared mutable state; it is called exactly once, by `registered`.
     private static func registeredDefaults() -> [String: Any] {
         return [
-            Keys.loggingEnabled: false,
+            Keys.iCalIntegration: false,
+            Keys.defaultRotationThreshold: 24,
             Keys.confirmGalleryDelete: true,
+            Keys.confirmReleaseDelete: true,
             Keys.confirmListEdits: true,
             Keys.listEditScope: ListEditScope.both.rawValue,
-            Keys.confirmReleaseDelete: true,
+            Keys.confirmFilmQueueAdd: true,
+            Keys.notifyAboutNewReleases: false,
+            Keys.onlyNotifyForWishlisted: false,
             Keys.largeGalleryGrid: true,
             Keys.showStatusBar: true,
-            Keys.rememberRightSidebarTab: true,
-            Keys.rememberRightSidebarReleasesFilter: true,
-            Keys.autoExpandRightSidebarTables: false,
-            Keys.additionalCalTableDetails: false,
-            Keys.showReleasesSummaryTable: false,
-            Keys.iCalIntegration: false,
-            Keys.manualExtQuery: true,
             Keys.smartLists: true,
             Keys.excludeQueuedFromUpForRotation: true,
-            Keys.maintainSelectionOnSearchExit: true,
+            Keys.queueIsDropTarget: true,
+            Keys.queueSectionOnDrop: QueueDropSection.upNext.rawValue,
+            Keys.manualExtQuery: true,
+            Keys.rememberRightSidebarTab: true,
+            Keys.autoExpandRightSidebarTables: false,
+            Keys.additionalCalTableDetails: false,
+            Keys.rememberRightSidebarReleasesFilter: true,
+            Keys.showReleasesSummaryTable: false,
             Keys.showSearchSuggestions: true,
             Keys.showRecentSearches: true,
-            Keys.showInfoComplete: false,
+            Keys.maintainSelectionOnSearchExit: true,
+            Keys.maintainScrollPositionOnViewSwitch: false,
+            Keys.rememberTabSelection: false,
+            Keys.tabRememberScope: TabRememberScope.both.rawValue,
+            Keys.rememberImportsTab: false,
+            Keys.rememberSortFilterSelections: true,
+            Keys.selectedSortOptions: [String: [String]](),
+            Keys.performBackupAtLaunch: true,
             Keys.importScanSubfolders: true,
             Keys.fuzzyImportMatching: true,
             Keys.fuzzyImportYearMatching: true,
             Keys.overrideSortNameField: false,
             Keys.allowUpdatesForDuplicateImports: false,
             Keys.allowUpdatesForDuplicateRatings: true,
-            Keys.selectedSortOptions: [String: [String]](),
-            Keys.maintainScrollPositionOnViewSwitch: false,
-            Keys.rememberTabSelection: false,
-            Keys.tabRememberScope: TabRememberScope.both.rawValue,
-            Keys.rememberImportsTab: false,
-            Keys.prunePosterImages: true,
-            Keys.performBackupAtLaunch: true,
-            Keys.exportPosterImages: true,
             Keys.exportUserSettings: true,
-            Keys.defaultRotationThreshold: 24,
-            Keys.ignoredDuplicatePairs: [],
-            Keys.rememberSortFilterSelections: true,
-            Keys.confirmFilmQueueAdd: true,
-            Keys.notifyAboutNewReleases: false,
-            Keys.onlyNotifyForWishlisted: false,
-            Keys.queueIsDropTarget: true,
-            Keys.queueSectionOnDrop: QueueDropSection.upNext.rawValue,
-            Keys.strictFramesTableChecking: true,
+            Keys.exportPosterImages: true,
+            Keys.showInfoComplete: false,
             Keys.showWatchDetailsAnnotationGlyphs: false,
-            Keys.atvq: false,
-            Keys.overrideDateClamp: false ] }
+            Keys.ignoredDuplicatePairs: [],
+            Keys.overrideDateClamp: false,
+            Keys.strictFramesTableChecking: true,
+            Keys.prunePosterImages: true,
+            Keys.loggingEnabled: false,
+            Keys.atvq: false ] }
 
     /// Forces the `defaults` static — and with it the registration — to initialize.
     /// Registration is a property of `defaults` itself now, so every accessor is covered
@@ -437,27 +450,49 @@ struct Preferences: Loggable {
     static func ensureDefaultsRegistered() { _ = defaults }
 
     // MARK: - Toggles
-    static var loggingEnabled: Bool {
-        get {
-            // A sandbox run starts from a fresh defaults suite, where this would be false —
-            // leaving a harness run with no application log at all, which removes most of
-            // its diagnostic value. Forced on instead. The log lands in the sandbox's own
-            // folder (LoggerCore derives its path from dataFolderURL), so the user's
-            // FilmTracker.log is neither read nor appended to.
-            #if DEBUG
-            if DebugSandbox.isActive { return true }
-            #endif
-            return defaults.bool(forKey: Keys.loggingEnabled)
-        }
+    static var iCalIntegration: Bool {
+        get { return defaults.bool(forKey: Keys.iCalIntegration) }
         set {
-            setIfChanged(newValue, forKey: Keys.loggingEnabled,
-                logMessage: "loggingEnabled set to \(newValue)") } }
+            setIfChanged(newValue, forKey: Keys.iCalIntegration,
+                logMessage: "iCalIntegration set to \(newValue)") } }
+
+    // MARK: - Rotation Threshold
+    /// All valid rotation threshold options in months.
+    static let rotationThresholdOptions: [Int] = [12, 18, 24, 36, 48, 60]
+
+    /// The registered threshold. Its fallback — the first option — is reached only if the
+    /// master list lost the key, which DEBUG stops on.
+    private static var registeredRotationThreshold: Int {
+        registeredDefault(Keys.defaultRotationThreshold, orFallback: rotationThresholdOptions[0])
+    }
+    
+    static var defaultRotationThreshold: Int {
+        get {
+            let value = defaults.integer(forKey: Keys.defaultRotationThreshold)
+            // Validate that the value is one of the allowed options.
+            if rotationThresholdOptions.contains(value) {
+                return value }
+            // Fall back to the registered default if invalid.
+            return registeredRotationThreshold }
+        set {
+            // Only allow values in rotationThresholdOptions; anything else stores the
+            // registered default.
+            let validValue = rotationThresholdOptions.contains(newValue)
+                ? newValue : registeredRotationThreshold
+            setIfChanged(validValue, forKey: Keys.defaultRotationThreshold,
+                logMessage: "defaultRotationThreshold set to \(validValue)") } }
 
     static var confirmGalleryDelete: Bool {
         get { return defaults.bool(forKey: Keys.confirmGalleryDelete) }
         set {
             setIfChanged(newValue, forKey: Keys.confirmGalleryDelete,
                 logMessage: "confirmGalleryDelete set to \(newValue)") } }
+
+    static var confirmReleaseDelete: Bool {
+        get { return defaults.bool(forKey: Keys.confirmReleaseDelete) }
+        set {
+            setIfChanged(newValue, forKey: Keys.confirmReleaseDelete,
+                logMessage: "confirmReleaseDelete set to \(newValue)") } }
 
     static var confirmListEdits: Bool {
         get { return defaults.bool(forKey: Keys.confirmListEdits) }
@@ -503,12 +538,6 @@ struct Preferences: Loggable {
         case .both, .contentsOnly: return true
         case .listOnly:            return false } }
 
-    static var confirmReleaseDelete: Bool {
-        get { return defaults.bool(forKey: Keys.confirmReleaseDelete) }
-        set {
-            setIfChanged(newValue, forKey: Keys.confirmReleaseDelete,
-                logMessage: "confirmReleaseDelete set to \(newValue)") } }
-
     // Governs whether the user is shown a confirmation alert before adding a film that
     // carries a special sorting parameter (e.g. "Ignore", "Blacklisted") to the Up Next
     // Queue via the FilmSheet Details tab's segmented Picker. When false, films are added
@@ -534,6 +563,110 @@ struct Preferences: Loggable {
         set {
             setIfChanged(newValue, forKey: Keys.onlyNotifyForWishlisted,
                 logMessage: "onlyNotifyForWishlisted set to \(newValue)") } }
+
+    // MARK: - Gallery Sorting Sections
+    // NOTE: there is no preference here any more. Whether a gallery inserts labeled
+    // divider bands derived from its active sort option — alphabetical letters for Title,
+    // one band per year for Year, runtime brackets for Duration, relative-age brackets for
+    // the three date sorts, and one band per discrete step for Rating and Recorded View
+    // Count (see GallerySections.swift for the per-option derivation) — is per-view state,
+    // stored as ViewState.showSectionDividers in the viewSortStates dictionary below and
+    // chosen from each view's own Sort menu. The global `showGallerySortingSections`
+    // preference this replaced is gone entirely, including from the backup schema; a
+    // restored pre-change backup simply carries no value for it, and every view starts
+    // from the same `false` default it always shipped with.
+
+    static var largeGalleryGrid: Bool {
+        get { return defaults.bool(forKey: Keys.largeGalleryGrid) }
+        set {
+            setIfChanged(newValue, forKey: Keys.largeGalleryGrid,
+                logMessage: "largeGalleryGrid set to \(newValue)") } }
+
+    static var showStatusBar: Bool {
+        get { return defaults.bool(forKey: Keys.showStatusBar) }
+        set {
+            setIfChanged(newValue, forKey: Keys.showStatusBar,
+                logMessage: "showStatusBar set to \(newValue)") } }
+
+    static var smartLists: Bool {
+        get { return defaults.bool(forKey: Keys.smartLists) }
+        set {
+            setIfChanged(newValue, forKey: Keys.smartLists,
+                logMessage: "smartLists set to \(newValue)") } }
+
+    // Governs whether films that are already present on any of the three internal Film
+    // Queue lists (Up Next, Soon, Later) are hidden from the "Up for Rotation" smart list.
+    // This is purely a presentation-layer filter — it has no effect on whether a film
+    // actually qualifies as up for rotation, nor on its Film Queue membership. Has no
+    // effect when Preferences.smartLists is false, since the smart list itself is hidden
+    // in that case.
+    static var excludeQueuedFromUpForRotation: Bool {
+        get { return defaults.bool(forKey: Keys.excludeQueuedFromUpForRotation) }
+        set {
+            setIfChanged(newValue, forKey: Keys.excludeQueuedFromUpForRotation,
+                logMessage: "excludeQueuedFromUpForRotation set to \(newValue)") } }
+
+    // MARK: - Known "Up for Rotation" Membership (internal state)
+    //
+    // The set of film IDs that were already up for rotation the last time SmartLists
+    // evaluated the library. This is NOT a user-facing preference and is deliberately
+    // excluded from the settings export/restore pipeline and from the registered defaults.
+    //
+    // It exists so that "newly up for rotation" means genuinely newly up for rotation
+    // ACROSS LAUNCHES, not merely "present in a freshly populated in-memory set". Without
+    // it, every launch treated the entire rotation list as new and re-ran auto-enqueue over
+    // the whole library — silently undoing any Film Queue placement the user had made by
+    // hand in a previous session.
+    //
+    // `nil` (key absent) is meaningful and distinct from an empty set: it means "no baseline
+    // has been established", which happens on the first launch after this feature was added
+    // and after a database restore. In that state SmartLists adopts whatever it computes
+    // without auto-enqueueing anything, because it has no prior state to legitimately
+    // compare against and must not act on a difference it cannot verify.
+    static var knownUpForRotationFilmIDs: Set<UUID>? {
+        get {
+            guard let raw = defaults.array(forKey: Keys.knownUpForRotationFilmIDs) as? [String] else {
+                return nil
+            }
+            return Set(raw.compactMap { UUID(uuidString: $0) })
+        }
+        set {
+            guard let newValue else {
+                defaults.removeObject(forKey: Keys.knownUpForRotationFilmIDs)
+                return
+            }
+            // Written directly rather than through setIfChanged() on purpose: this is
+            // high-frequency internal bookkeeping, and setIfChanged() posts
+            // preferencesChanged, which SmartLists itself subscribes to. Routing this
+            // through that path would feed SmartLists' own writes back into its listener.
+            defaults.set(newValue.map(\.uuidString), forKey: Keys.knownUpForRotationFilmIDs)
+        }
+    }
+
+    /// Clears the rotation baseline, returning it to the "not established" state.
+    /// Called after a database restore: the restored library's film IDs bear no relationship
+    /// to the ones recorded against the previous library, so the stale baseline would report
+    /// large numbers of false "newly up for rotation" films and auto-enqueue over the queue
+    /// state that was itself just restored from the backup.
+    static func resetKnownUpForRotationFilmIDs() {
+        defaults.removeObject(forKey: Keys.knownUpForRotationFilmIDs)
+        log("Reset known Up for Rotation baseline") }
+
+    // MARK: - Expanded Smart List Families
+    // Which smart list families are expanded in the left sidebar, by their parent's raw
+    // value. Internal state, not a user-facing preference: never shown in Settings, not in
+    // the registered defaults (absent means all collapsed), and not exported or restored.
+    // Written directly rather than through setIfChanged() for the same reason as the
+    // rotation baseline above — it is UI bookkeeping, and nothing listens for it.
+    static var expandedSmartListFamilies: Set<SmartListType> {
+        get {
+            let raw = defaults.array(forKey: Keys.expandedSmartListFamilies) as? [String] ?? []
+            return Set(raw.compactMap(SmartListType.init(rawValue:)))
+        }
+        set {
+            defaults.set(newValue.map(\.rawValue).sorted(), forKey: Keys.expandedSmartListFamilies)
+        }
+    }
 
     // Governs whether the "Film Queue" sidebar item accepts film drops. When true,
     // dragging a selection of films onto the sidebar's "Film Queue" row adds them to
@@ -572,41 +705,17 @@ struct Preferences: Loggable {
             setIfChanged(newValue.rawValue, forKey: Keys.queueSectionOnDrop,
                 logMessage: "queueSectionOnDrop set to \(newValue.rawValue)") } }
 
-    // MARK: - Gallery Sorting Sections
-    // NOTE: there is no preference here any more. Whether a gallery inserts labeled
-    // divider bands derived from its active sort option — alphabetical letters for Title,
-    // one band per year for Year, runtime brackets for Duration, relative-age brackets for
-    // the three date sorts, and one band per discrete step for Rating and Recorded View
-    // Count (see GallerySections.swift for the per-option derivation) — is per-view state,
-    // stored as ViewState.showSectionDividers in the viewSortStates dictionary below and
-    // chosen from each view's own Sort menu. The global `showGallerySortingSections`
-    // preference this replaced is gone entirely, including from the backup schema; a
-    // restored pre-change backup simply carries no value for it, and every view starts
-    // from the same `false` default it always shipped with.
-
-    static var largeGalleryGrid: Bool {
-        get { return defaults.bool(forKey: Keys.largeGalleryGrid) }
+    static var manualExtQuery: Bool {
+        get { return defaults.bool(forKey: Keys.manualExtQuery) }
         set {
-            setIfChanged(newValue, forKey: Keys.largeGalleryGrid,
-                logMessage: "largeGalleryGrid set to \(newValue)") } }
-
-    static var showStatusBar: Bool {
-        get { return defaults.bool(forKey: Keys.showStatusBar) }
-        set {
-            setIfChanged(newValue, forKey: Keys.showStatusBar,
-                logMessage: "showStatusBar set to \(newValue)") } }
+            setIfChanged(newValue, forKey: Keys.manualExtQuery,
+                logMessage: "manualExtQuery set to \(newValue)") } }
 
     static var rememberRightSidebarTab: Bool {
         get { return defaults.bool(forKey: Keys.rememberRightSidebarTab) }
         set {
             setIfChanged(newValue, forKey: Keys.rememberRightSidebarTab,
                 logMessage: "rememberRightSidebarTab set to \(newValue)") } }
-
-    static var rememberRightSidebarReleasesFilter: Bool {
-        get { return defaults.bool(forKey: Keys.rememberRightSidebarReleasesFilter) }
-        set {
-            setIfChanged(newValue, forKey: Keys.rememberRightSidebarReleasesFilter,
-                logMessage: "rememberRightSidebarReleasesFilter set to \(newValue)") } }
 
     static var autoExpandRightSidebarTables: Bool {
         get { return defaults.bool(forKey: Keys.autoExpandRightSidebarTables) }
@@ -620,6 +729,12 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.additionalCalTableDetails,
                 logMessage: "additionalCalTableDetails set to \(newValue)") } }
 
+    static var rememberRightSidebarReleasesFilter: Bool {
+        get { return defaults.bool(forKey: Keys.rememberRightSidebarReleasesFilter) }
+        set {
+            setIfChanged(newValue, forKey: Keys.rememberRightSidebarReleasesFilter,
+                logMessage: "rememberRightSidebarReleasesFilter set to \(newValue)") } }
+
     // Governs whether the right sidebar's "Releases" tab prepends the summary table
     // (DiscReleasesTable) above the release cards. The table is an addition to that
     // tab, not a replacement for anything in it: when this is false the section is
@@ -630,42 +745,6 @@ struct Preferences: Loggable {
         set {
             setIfChanged(newValue, forKey: Keys.showReleasesSummaryTable,
                 logMessage: "showReleasesSummaryTable set to \(newValue)") } }
-
-    static var iCalIntegration: Bool {
-        get { return defaults.bool(forKey: Keys.iCalIntegration) }
-        set {
-            setIfChanged(newValue, forKey: Keys.iCalIntegration,
-                logMessage: "iCalIntegration set to \(newValue)") } }
-
-    static var manualExtQuery: Bool {
-        get { return defaults.bool(forKey: Keys.manualExtQuery) }
-        set {
-            setIfChanged(newValue, forKey: Keys.manualExtQuery,
-                logMessage: "manualExtQuery set to \(newValue)") } }
-
-    static var smartLists: Bool {
-        get { return defaults.bool(forKey: Keys.smartLists) }
-        set {
-            setIfChanged(newValue, forKey: Keys.smartLists,
-                logMessage: "smartLists set to \(newValue)") } }
-
-    // Governs whether films that are already present on any of the three internal Film
-    // Queue lists (Up Next, Soon, Later) are hidden from the "Up for Rotation" smart list.
-    // This is purely a presentation-layer filter — it has no effect on whether a film
-    // actually qualifies as up for rotation, nor on its Film Queue membership. Has no
-    // effect when Preferences.smartLists is false, since the smart list itself is hidden
-    // in that case.
-    static var excludeQueuedFromUpForRotation: Bool {
-        get { return defaults.bool(forKey: Keys.excludeQueuedFromUpForRotation) }
-        set {
-            setIfChanged(newValue, forKey: Keys.excludeQueuedFromUpForRotation,
-                logMessage: "excludeQueuedFromUpForRotation set to \(newValue)") } }
-
-    static var maintainSelectionOnSearchExit: Bool {
-        get { return defaults.bool(forKey: Keys.maintainSelectionOnSearchExit) }
-        set {
-            setIfChanged(newValue, forKey: Keys.maintainSelectionOnSearchExit,
-                logMessage: "maintainSelectionOnSearchExit set to \(newValue)") } }
 
     /// Library-based suggestions in the search field's drop-down, and the search
     /// heuristics that rank them. The "#field" suggestions are shown regardless.
@@ -683,47 +762,11 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.showRecentSearches,
                 logMessage: "showRecentSearches set to \(newValue)") } }
 
-    static var showInfoComplete: Bool {
-        get { return defaults.bool(forKey: Keys.showInfoComplete) }
+    static var maintainSelectionOnSearchExit: Bool {
+        get { return defaults.bool(forKey: Keys.maintainSelectionOnSearchExit) }
         set {
-            setIfChanged(newValue, forKey: Keys.showInfoComplete,
-                logMessage: "showInfoComplete set to \(newValue)") } }
-
-    static var importScanSubfolders: Bool {
-        get { return defaults.bool(forKey: Keys.importScanSubfolders) }
-        set {
-            setIfChanged(newValue, forKey: Keys.importScanSubfolders,
-                logMessage: "importScanSubfolders set to \(newValue)") } }
-
-    static var fuzzyImportMatching: Bool {
-        get { return defaults.bool(forKey: Keys.fuzzyImportMatching) }
-        set {
-            setIfChanged(newValue, forKey: Keys.fuzzyImportMatching,
-                logMessage: "fuzzyImportMatching set to \(newValue)") } }
-
-    static var fuzzyImportYearMatching: Bool {
-        get { return defaults.bool(forKey: Keys.fuzzyImportYearMatching) }
-        set {
-            setIfChanged(newValue, forKey: Keys.fuzzyImportYearMatching,
-                logMessage: "fuzzyImportYearMatching set to \(newValue)") } }
-
-    static var overrideSortNameField: Bool {
-        get { return defaults.bool(forKey: Keys.overrideSortNameField) }
-        set {
-            setIfChanged(newValue, forKey: Keys.overrideSortNameField,
-                logMessage: "overrideSortNameField set to \(newValue)") } }
-
-    static var allowUpdatesForDuplicateImports: Bool {
-        get { return defaults.bool(forKey: Keys.allowUpdatesForDuplicateImports) }
-        set {
-            setIfChanged(newValue, forKey: Keys.allowUpdatesForDuplicateImports,
-                logMessage: "allowUpdatesForDuplicateImports set to \(newValue)") } }
-
-    static var allowUpdatesForDuplicateRatings: Bool {
-        get { return defaults.bool(forKey: Keys.allowUpdatesForDuplicateRatings) }
-        set {
-            setIfChanged(newValue, forKey: Keys.allowUpdatesForDuplicateRatings,
-                logMessage: "allowUpdatesForDuplicateRatings set to \(newValue)") } }
+            setIfChanged(newValue, forKey: Keys.maintainSelectionOnSearchExit,
+                logMessage: "maintainSelectionOnSearchExit set to \(newValue)") } }
 
     static var maintainScrollPositionOnViewSwitch: Bool {
         get { return defaults.bool(forKey: Keys.maintainScrollPositionOnViewSwitch) }
@@ -852,56 +895,26 @@ struct Preferences: Loggable {
             } else {
                 defaults.removeObject(forKey: Keys.lastImportsCategory)
                 defaults.synchronize() } } }
-    
-    static var prunePosterImages: Bool {
-        get { return defaults.bool(forKey: Keys.prunePosterImages) }
-        set {
-            setIfChanged(newValue, forKey: Keys.prunePosterImages,
-                logMessage: "prunePosterImages set to \(newValue)") } }
 
-    static var performBackupAtLaunch: Bool {
-        get { return defaults.bool(forKey: Keys.performBackupAtLaunch) }
-        set {
-            setIfChanged(newValue, forKey: Keys.performBackupAtLaunch,
-                logMessage: "performBackupAtLaunch set to \(newValue)") } }
-
-    static var exportPosterImages: Bool {
-        get { return defaults.bool(forKey: Keys.exportPosterImages) }
-        set {
-            setIfChanged(newValue, forKey: Keys.exportPosterImages,
-                logMessage: "exportPosterImages set to \(newValue)") } }
-
-    static var exportUserSettings: Bool {
-        get { return defaults.bool(forKey: Keys.exportUserSettings) }
-        set {
-            setIfChanged(newValue, forKey: Keys.exportUserSettings,
-                logMessage: "exportUserSettings set to \(newValue)") } }
-
-    // MARK: - Rotation Threshold
-    /// All valid rotation threshold options in months.
-    static let rotationThresholdOptions: [Int] = [12, 18, 24, 36, 48, 60]
-
-    /// The registered threshold. Its fallback — the first option — is reached only if the
-    /// master list lost the key, which DEBUG stops on.
-    private static var registeredRotationThreshold: Int {
-        registeredDefault(Keys.defaultRotationThreshold, orFallback: rotationThresholdOptions[0])
-    }
-    
-    static var defaultRotationThreshold: Int {
+    // MARK: - Remember Sort/Filter Selections
+    // Controls whether user-selected sort and filter options for the All Films, Recents,
+    // and smart list views are persisted across application launches.
+    //
+    // When true (default): runtime changes are written to selectedSortOptions as usual.
+    // When false: writes to selectedSortOptions are skipped for all affected views, so
+    //   upon the next launch those views return to their built-in default selections.
+    //   Additionally, the existing selectedSortOptions data is cleared immediately when
+    //   the preference is set to false so that current runtime state becomes ephemeral.
+    //
+    // When re-enabled from false: the caller (STabGeneral) is responsible for capturing
+    //   the live runtime state from ViewStateManager and writing it back into
+    //   selectedSortOptions so the current session's selections survive the next restart.
+    static var rememberSortFilterSelections: Bool {
         get {
-            let value = defaults.integer(forKey: Keys.defaultRotationThreshold)
-            // Validate that the value is one of the allowed options.
-            if rotationThresholdOptions.contains(value) {
-                return value }
-            // Fall back to the registered default if invalid.
-            return registeredRotationThreshold }
+            return defaults.bool(forKey: Keys.rememberSortFilterSelections) }
         set {
-            // Only allow values in rotationThresholdOptions; anything else stores the
-            // registered default.
-            let validValue = rotationThresholdOptions.contains(newValue)
-                ? newValue : registeredRotationThreshold
-            setIfChanged(validValue, forKey: Keys.defaultRotationThreshold,
-                logMessage: "defaultRotationThreshold set to \(validValue)") } }
+            setIfChanged(newValue, forKey: Keys.rememberSortFilterSelections,
+                logMessage: "rememberSortFilterSelections set to \(newValue)") } }
 
     // MARK: - View Sort States Dictionary
     // Consolidated sort/filter state for all non-user-generated-list views that persist
@@ -941,6 +954,105 @@ struct Preferences: Loggable {
         }
     }
 
+    // Removes all persisted sort/filter state from selectedSortOptions, effectively
+    // making any runtime selections ephemeral. Called when the user disables the
+    // rememberSortFilterSelections preference.
+    static func clearViewSortStates() {
+        defaults.removeObject(forKey: Keys.selectedSortOptions)
+        log("Cleared all persisted view sort states (rememberSortFilterSelections disabled)")
+        postPreferenceChangedEvent() }
+
+    static var performBackupAtLaunch: Bool {
+        get { return defaults.bool(forKey: Keys.performBackupAtLaunch) }
+        set {
+            setIfChanged(newValue, forKey: Keys.performBackupAtLaunch,
+                logMessage: "performBackupAtLaunch set to \(newValue)") } }
+
+    static var importScanSubfolders: Bool {
+        get { return defaults.bool(forKey: Keys.importScanSubfolders) }
+        set {
+            setIfChanged(newValue, forKey: Keys.importScanSubfolders,
+                logMessage: "importScanSubfolders set to \(newValue)") } }
+
+    static var fuzzyImportMatching: Bool {
+        get { return defaults.bool(forKey: Keys.fuzzyImportMatching) }
+        set {
+            setIfChanged(newValue, forKey: Keys.fuzzyImportMatching,
+                logMessage: "fuzzyImportMatching set to \(newValue)") } }
+
+    static var fuzzyImportYearMatching: Bool {
+        get { return defaults.bool(forKey: Keys.fuzzyImportYearMatching) }
+        set {
+            setIfChanged(newValue, forKey: Keys.fuzzyImportYearMatching,
+                logMessage: "fuzzyImportYearMatching set to \(newValue)") } }
+
+    static var overrideSortNameField: Bool {
+        get { return defaults.bool(forKey: Keys.overrideSortNameField) }
+        set {
+            setIfChanged(newValue, forKey: Keys.overrideSortNameField,
+                logMessage: "overrideSortNameField set to \(newValue)") } }
+
+    static var allowUpdatesForDuplicateImports: Bool {
+        get { return defaults.bool(forKey: Keys.allowUpdatesForDuplicateImports) }
+        set {
+            setIfChanged(newValue, forKey: Keys.allowUpdatesForDuplicateImports,
+                logMessage: "allowUpdatesForDuplicateImports set to \(newValue)") } }
+
+    static var allowUpdatesForDuplicateRatings: Bool {
+        get { return defaults.bool(forKey: Keys.allowUpdatesForDuplicateRatings) }
+        set {
+            setIfChanged(newValue, forKey: Keys.allowUpdatesForDuplicateRatings,
+                logMessage: "allowUpdatesForDuplicateRatings set to \(newValue)") } }
+
+    // MARK: - Export Location
+    // User-selected export location (bookmark-backed).
+    static var exportPathURL: URL? {
+        get { return resolveBookmark(forKey: Keys.exportPathBookmark) }
+        set {
+            if let url = newValue {
+                saveBookmark(url, forKey: Keys.exportPathBookmark,
+                    logMessage: "lastFolder set to \(url.path(percentEncoded: false))")
+            } else {
+                defaults.removeObject(forKey: Keys.exportPathBookmark)
+                postPreferenceChangedEvent() } } }
+
+    static var exportUserSettings: Bool {
+        get { return defaults.bool(forKey: Keys.exportUserSettings) }
+        set {
+            setIfChanged(newValue, forKey: Keys.exportUserSettings,
+                logMessage: "exportUserSettings set to \(newValue)") } }
+
+    static var exportPosterImages: Bool {
+        get { return defaults.bool(forKey: Keys.exportPosterImages) }
+        set {
+            setIfChanged(newValue, forKey: Keys.exportPosterImages,
+                logMessage: "exportPosterImages set to \(newValue)") } }
+
+    static var showInfoComplete: Bool {
+        get { return defaults.bool(forKey: Keys.showInfoComplete) }
+        set {
+            setIfChanged(newValue, forKey: Keys.showInfoComplete,
+                logMessage: "showInfoComplete set to \(newValue)") } }
+
+    // MARK: - Show Watch Details Glyphs
+    // Draws an inline SF Symbol ahead of the value and annotation rows in the RightSidebar's
+    // "Watch Details" module — the Last Watched, Next Up for Rotation, Recorded View Count,
+    // Duration and Source for Viewing values, the special-sorting and Film Queue notes, and
+    // the purchase-availability note. When false those rows render as text alone.
+    //
+    // Purely presentational: it changes no stored value and nothing downstream reads it, so
+    // it is safe to toggle at any time. Views observe it through @AppStorage rather than this
+    // accessor, which is what makes a change in Settings redraw an open sidebar immediately.
+    //
+    // Was an internal testing constant before it was promoted here; see
+    // Preferences.purchasedDiscGlyphVisibilityOverride, which still governs whether the
+    // "Source for Viewing" disc glyph answers to this preference at all.
+    static var showWatchDetailsAnnotationGlyphs: Bool {
+        get { return defaults.bool(forKey: Keys.showWatchDetailsAnnotationGlyphs) }
+        set {
+            setIfChanged(newValue, forKey: Keys.showWatchDetailsAnnotationGlyphs,
+                logMessage: "showWatchDetailsAnnotationGlyphs set to \(newValue)") } }
+
     // MARK: - Ignored Duplicate Pairs
     // Array of ignored duplicate film pairs, stored as "UUID1-UUID2" strings
     // where UUID1 < UUID2 alphabetically for consistent ordering.
@@ -963,95 +1075,23 @@ struct Preferences: Loggable {
         log("Reset all ignored duplicate pairs")
         postPreferenceChangedEvent() }
 
-    // MARK: - Known "Up for Rotation" Membership (internal state)
+    // MARK: - Override Date Clamp
+    // Temporarily allows a user to enter a past viewing event dated prior to a film's
+    // release date. The CustomDateStepper instances in CalendarPopover and
+    // ViewingDatesTable's add/edit popovers normally clamp their lower bound to the
+    // film's release date; when this preference is true, that clamp is skipped.
     //
-    // The set of film IDs that were already up for rotation the last time SmartLists
-    // evaluated the library. This is NOT a user-facing preference and is deliberately
-    // excluded from the settings export/restore pipeline and from the registered defaults.
-    //
-    // It exists so that "newly up for rotation" means genuinely newly up for rotation
-    // ACROSS LAUNCHES, not merely "present in a freshly populated in-memory set". Without
-    // it, every launch treated the entire rotation list as new and re-ran auto-enqueue over
-    // the whole library — silently undoing any Film Queue placement the user had made by
-    // hand in a previous session.
-    //
-    // `nil` (key absent) is meaningful and distinct from an empty set: it means "no baseline
-    // has been established", which happens on the first launch after this feature was added
-    // and after a database restore. In that state SmartLists adopts whatever it computes
-    // without auto-enqueueing anything, because it has no prior state to legitimately
-    // compare against and must not act on a difference it cannot verify.
-    static var knownUpForRotationFilmIDs: Set<UUID>? {
-        get {
-            guard let raw = defaults.array(forKey: Keys.knownUpForRotationFilmIDs) as? [String] else {
-                return nil
-            }
-            return Set(raw.compactMap { UUID(uuidString: $0) })
-        }
+    // IMPORTANT — this preference always resets to false on application quit
+    // (see FilmTrackerApp.applicationShouldTerminate). It is a session-only,
+    // "at your own risk" override, not a persistent setting: it deliberately does
+    // NOT appear in SettingsObject's schema or SettingsManager's export/restore
+    // pipeline, since there would be no point in saving a value that is guaranteed
+    // to be false again the next time the app launches.
+    static var overrideDateClamp: Bool {
+        get { return defaults.bool(forKey: Keys.overrideDateClamp) }
         set {
-            guard let newValue else {
-                defaults.removeObject(forKey: Keys.knownUpForRotationFilmIDs)
-                return
-            }
-            // Written directly rather than through setIfChanged() on purpose: this is
-            // high-frequency internal bookkeeping, and setIfChanged() posts
-            // preferencesChanged, which SmartLists itself subscribes to. Routing this
-            // through that path would feed SmartLists' own writes back into its listener.
-            defaults.set(newValue.map(\.uuidString), forKey: Keys.knownUpForRotationFilmIDs)
-        }
-    }
-
-    // MARK: - Expanded Smart List Families
-    // Which smart list families are expanded in the left sidebar, by their parent's raw
-    // value. Internal state, not a user-facing preference: never shown in Settings, not in
-    // the registered defaults (absent means all collapsed), and not exported or restored.
-    // Written directly rather than through setIfChanged() for the same reason as the
-    // rotation baseline above — it is UI bookkeeping, and nothing listens for it.
-    static var expandedSmartListFamilies: Set<SmartListType> {
-        get {
-            let raw = defaults.array(forKey: Keys.expandedSmartListFamilies) as? [String] ?? []
-            return Set(raw.compactMap(SmartListType.init(rawValue:)))
-        }
-        set {
-            defaults.set(newValue.map(\.rawValue).sorted(), forKey: Keys.expandedSmartListFamilies)
-        }
-    }
-
-    /// Clears the rotation baseline, returning it to the "not established" state.
-    /// Called after a database restore: the restored library's film IDs bear no relationship
-    /// to the ones recorded against the previous library, so the stale baseline would report
-    /// large numbers of false "newly up for rotation" films and auto-enqueue over the queue
-    /// state that was itself just restored from the backup.
-    static func resetKnownUpForRotationFilmIDs() {
-        defaults.removeObject(forKey: Keys.knownUpForRotationFilmIDs)
-        log("Reset known Up for Rotation baseline") }
-
-    // MARK: - Remember Sort/Filter Selections
-    // Controls whether user-selected sort and filter options for the All Films, Recents,
-    // and smart list views are persisted across application launches.
-    //
-    // When true (default): runtime changes are written to selectedSortOptions as usual.
-    // When false: writes to selectedSortOptions are skipped for all affected views, so
-    //   upon the next launch those views return to their built-in default selections.
-    //   Additionally, the existing selectedSortOptions data is cleared immediately when
-    //   the preference is set to false so that current runtime state becomes ephemeral.
-    //
-    // When re-enabled from false: the caller (STabGeneral) is responsible for capturing
-    //   the live runtime state from ViewStateManager and writing it back into
-    //   selectedSortOptions so the current session's selections survive the next restart.
-    static var rememberSortFilterSelections: Bool {
-        get {
-            return defaults.bool(forKey: Keys.rememberSortFilterSelections) }
-        set {
-            setIfChanged(newValue, forKey: Keys.rememberSortFilterSelections,
-                logMessage: "rememberSortFilterSelections set to \(newValue)") } }
-
-    // Removes all persisted sort/filter state from selectedSortOptions, effectively
-    // making any runtime selections ephemeral. Called when the user disables the
-    // rememberSortFilterSelections preference.
-    static func clearViewSortStates() {
-        defaults.removeObject(forKey: Keys.selectedSortOptions)
-        log("Cleared all persisted view sort states (rememberSortFilterSelections disabled)")
-        postPreferenceChangedEvent() }
+            setIfChanged(newValue, forKey: Keys.overrideDateClamp,
+                logMessage: "overrideDateClamp set to \(newValue)") } }
 
     // MARK: - Strict Frames Table Checking
     // Governs how the FilmSheet Notes tab's frames table (ReorderableFramesList)
@@ -1071,24 +1111,27 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.strictFramesTableChecking,
                 logMessage: "strictFramesTableChecking set to \(newValue)") } }
 
-    // MARK: - Show Watch Details Glyphs
-    // Draws an inline SF Symbol ahead of the value and annotation rows in the RightSidebar's
-    // "Watch Details" module — the Last Watched, Next Up for Rotation, Recorded View Count,
-    // Duration and Source for Viewing values, the special-sorting and Film Queue notes, and
-    // the purchase-availability note. When false those rows render as text alone.
-    //
-    // Purely presentational: it changes no stored value and nothing downstream reads it, so
-    // it is safe to toggle at any time. Views observe it through @AppStorage rather than this
-    // accessor, which is what makes a change in Settings redraw an open sidebar immediately.
-    //
-    // Was an internal testing constant before it was promoted here; see
-    // Preferences.purchasedDiscGlyphVisibilityOverride, which still governs whether the
-    // "Source for Viewing" disc glyph answers to this preference at all.
-    static var showWatchDetailsAnnotationGlyphs: Bool {
-        get { return defaults.bool(forKey: Keys.showWatchDetailsAnnotationGlyphs) }
+    static var prunePosterImages: Bool {
+        get { return defaults.bool(forKey: Keys.prunePosterImages) }
         set {
-            setIfChanged(newValue, forKey: Keys.showWatchDetailsAnnotationGlyphs,
-                logMessage: "showWatchDetailsAnnotationGlyphs set to \(newValue)") } }
+            setIfChanged(newValue, forKey: Keys.prunePosterImages,
+                logMessage: "prunePosterImages set to \(newValue)") } }
+
+    static var loggingEnabled: Bool {
+        get {
+            // A sandbox run starts from a fresh defaults suite, where this would be false —
+            // leaving a harness run with no application log at all, which removes most of
+            // its diagnostic value. Forced on instead. The log lands in the sandbox's own
+            // folder (LoggerCore derives its path from dataFolderURL), so the user's
+            // FilmTracker.log is neither read nor appended to.
+            #if DEBUG
+            if DebugSandbox.isActive { return true }
+            #endif
+            return defaults.bool(forKey: Keys.loggingEnabled)
+        }
+        set {
+            setIfChanged(newValue, forKey: Keys.loggingEnabled,
+                logMessage: "loggingEnabled set to \(newValue)") } }
 
     // MARK: - ATVQ Integration
     // Dispatches the "Up Next" Queue to the ATVQ app on an Apple TV (or its Deployer
@@ -1100,36 +1143,7 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.atvq,
                 logMessage: "atvq set to \(newValue)") } }
 
-    // MARK: - Override Date Clamp
-    // Temporarily allows a user to enter a past viewing event dated prior to a film's
-    // release date. The CustomDateStepper instances in CalendarPopover and
-    // ViewingDatesTable's add/edit popovers normally clamp their lower bound to the
-    // film's release date; when this preference is true, that clamp is skipped.
-    //
-    // IMPORTANT — this preference always resets to false on application quit
-    // (see FilmTrackerApp.applicationShouldTerminate). It is a session-only,
-    // "at your own risk" override, not a persistent setting: it deliberately does
-    // NOT appear in SettingsObject's schema or SettingsManager's export/restore
-    // pipeline, since there would be no point in saving a value that is guaranteed
-    // to be false again the next time the app launches.
-    static var overrideDateClamp: Bool {
-        get { return defaults.bool(forKey: Keys.overrideDateClamp) }
-        set {
-            setIfChanged(newValue, forKey: Keys.overrideDateClamp,
-                logMessage: "overrideDateClamp set to \(newValue)") } }
-
     // MARK: - Stored properties
-    // User-selected export location (bookmark-backed).
-    static var exportPathURL: URL? {
-        get { return resolveBookmark(forKey: Keys.exportPathBookmark) }
-        set {
-            if let url = newValue {
-                saveBookmark(url, forKey: Keys.exportPathBookmark,
-                    logMessage: "lastFolder set to \(url.path(percentEncoded: false))")
-            } else {
-                defaults.removeObject(forKey: Keys.exportPathBookmark)
-                postPreferenceChangedEvent() } } }
-
     // Persistent "Application Support" folder (fixed sandbox path).
     static var dataFolderURL: URL? { computedApplicationSupportURL }
 

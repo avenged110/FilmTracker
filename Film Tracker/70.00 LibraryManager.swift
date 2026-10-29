@@ -519,15 +519,22 @@ final class ListManager: Loggable {
     private static func generateUniqueName(baseName: String,
         existingNames: [String]) -> String {
         let lowerExisting = existingNames.map { $0.lowercased() }
+        // A saved search's name is a #list name too. ListManagerSheet refuses one as typed,
+        // but Duplicate List never shows the sheet, so a numbered suffix must not land on
+        // one either ("Noir" duplicating to a saved search's "Noir 1").
+        let savedSearchKeys = Set(SavedSearchStore.shared.nameClaims().map(\.key))
+        func isTaken(_ name: String) -> Bool {
+            lowerExisting.contains(name.lowercased()) || savedSearchKeys.contains(SearchText.key(name))
+        }
 
-        // If the base name doesn't exist (case-insensitive), use it as-is.
-        if !lowerExisting.contains(baseName.lowercased()) { return baseName }
+        // If the base name is free (case-insensitive), use it as-is.
+        if !isTaken(baseName) { return baseName }
 
         // Find the next available numbered suffix.
         var counter = 1
         var candidateName = "\(baseName) \(counter)"
 
-        while lowerExisting.contains(candidateName.lowercased()) {
+        while isTaken(candidateName) {
             counter += 1
             candidateName = "\(baseName) \(counter)"
         }
@@ -588,7 +595,10 @@ struct ListManagerSheet: View, Loggable {
     /// Two Set lookups, so it is cheap enough to evaluate on every keystroke.
     private var collidesWithSmartList: Bool {
         let trimmed = listName.trimmingCharacters(in: .whitespaces)
+        // Saved searches share the #list namespace, so a list may not take one's name either.
+        let key = SearchText.key(trimmed)
         return SmartListType.isReservedName(trimmed) || FilmQueue.isReservedName(trimmed)
+            || SavedSearchStore.shared.nameClaims().contains { $0.key == key }
     }
 
     /// True when the entry, trimmed as `ListManager.updateListName` trims it, is still
@@ -681,7 +691,7 @@ struct ListManagerSheet: View, Loggable {
 
             // Smart list name constraint notice — turns red while the entry is a
             // reserved name.
-            Text("Note: Name must not match that of any smart lists.")
+            Text("Note: Name must not match that of any smart list or saved search.")
                 .font(.system(size: 11))
                 .foregroundStyle(showsCollision ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                 .frame(width: 280, alignment: .leading)

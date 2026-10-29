@@ -2597,27 +2597,29 @@ private struct PosterThumbnailView: View {
 
 // MARK: - UpNextResultsTable
 
-/// The "Up Next" slot sheet's result list (UpNextSlots.swift). It cannot be the gallery's
-/// own GalleryListView: that view is wired to the library's film set, the shared selection,
-/// the scroll-position handoffs and the drag engine. It is instead the same table — the
-/// same `.inset` style, alternating stripes, row height, stock row views and ListRowHostCell
-/// rows — with none of that wiring, so colors, stripes and the selection highlight come
-/// from the same AppKit drawing. No drag source, no contextual menu.
+/// The sheets' result list: the "Up Next" slot sheet (UpNextSlots.swift) and the Saved
+/// Search sheet (SavedSearchSheet.swift), each inside `sheetBoxChrome`. It cannot be the
+/// gallery's own GalleryListView: that view is wired to the library's film set, the shared
+/// selection, the scroll-position handoffs and the drag engine. It is instead the same
+/// table — the same `.inset` style, alternating stripes, row height, stock row views and
+/// ListRowHostCell rows — with none of that wiring, so colors, stripes and the selection
+/// highlight come from the same AppKit drawing. No drag source, no contextual menu.
 ///
-/// Selection commits on mouse-down, as NSTableView does natively. The table refuses first
-/// responder so the sheet's search field keeps the keyboard, and its rows always draw the
-/// emphasized (accent) selection, which a table that is not first responder would otherwise
-/// show gray.
+/// Rows are selectable only when `onSelect` is given. Selection then commits on mouse-down,
+/// as NSTableView does natively. The table refuses first responder so a sheet's search field
+/// keeps the keyboard, and its rows always draw the emphasized (accent) selection, which a
+/// table that is not first responder would otherwise show gray.
 struct UpNextResultsTable: NSViewRepresentable {
     let films: [FilmSnapshot]
-    let selectedID: UUID?
-    let onSelect: (UUID?) -> Void
-    let onActivate: (UUID) -> Void
+    var selectedID: UUID? = nil
+    var onSelect: ((UUID?) -> Void)? = nil
+    var onActivate: ((UUID) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
+        scrollView.automaticallyAdjustsContentInsets = false
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -2625,7 +2627,7 @@ struct UpNextResultsTable: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.scrollerStyle = .overlay
 
-        let tableView = NSTableView()
+        let tableView = SheetResultsTableView()
         tableView.style = .inset
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.backgroundColor = NSColor.alternatingContentBackgroundColors[0]
@@ -2647,7 +2649,6 @@ struct UpNextResultsTable: NSViewRepresentable {
         tableView.delegate = coordinator
         tableView.dataSource = coordinator
         tableView.target = coordinator
-        tableView.doubleAction = #selector(Coordinator.doubleClicked(_:))
         scrollView.documentView = tableView
         return scrollView
     }
@@ -2657,6 +2658,7 @@ struct UpNextResultsTable: NSViewRepresentable {
         guard let tableView = coordinator.tableView else { return }
         coordinator.onSelect = onSelect
         coordinator.onActivate = onActivate
+        tableView.doubleAction = onActivate == nil ? nil : #selector(Coordinator.doubleClicked(_:))
 
         coordinator.isSyncing = true
         defer { coordinator.isSyncing = false }
@@ -2681,8 +2683,8 @@ struct UpNextResultsTable: NSViewRepresentable {
     final class Coordinator: NSObject, NSTableViewDelegate, NSTableViewDataSource {
         weak var tableView: NSTableView?
         var films: [FilmSnapshot] = []
-        var onSelect: (UUID?) -> Void = { _ in }
-        var onActivate: (UUID) -> Void = { _ in }
+        var onSelect: ((UUID?) -> Void)?
+        var onActivate: ((UUID) -> Void)?
         /// True while updateNSView drives the table, so its own selection changes are not
         /// echoed back as user selections.
         var isSyncing = false
@@ -2709,8 +2711,13 @@ struct UpNextResultsTable: NSViewRepresentable {
             return rowView
         }
 
+        /// A read-only list (no `onSelect`) never takes a click as a selection.
+        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+            onSelect != nil
+        }
+
         func tableViewSelectionDidChange(_ notification: Notification) {
-            guard !isSyncing, let tableView else { return }
+            guard !isSyncing, let tableView, let onSelect else { return }
             let row = tableView.selectedRow
             onSelect(row >= 0 && row < films.count ? films[row].id : nil)
         }
@@ -2718,8 +2725,30 @@ struct UpNextResultsTable: NSViewRepresentable {
         @objc func doubleClicked(_ sender: NSTableView) {
             let row = sender.clickedRow
             guard row >= 0, row < films.count else { return }
-            onActivate(films[row].id)
+            onActivate?(films[row].id)
         }
+    }
+}
+
+/// The sheets' table, with room below the last row as wide as the `.inset` style's side
+/// margins. The room is part of the document itself — not a scroll-view content inset,
+/// which shortened the scroller — so the scroller spans the whole box. The stripes run on
+/// through the band unchanged, as AppKit draws them below any striped table's rows:
+/// painting the band plain cut short the stripe that follows it during overscroll.
+private final class SheetResultsTableView: NSTableView {
+    /// The `.inset` style's side margin around the stripes (10 pt, measured on an offscreen
+    /// render), so the band below the rows reads as the same margin.
+    static let bottomPadding: CGFloat = 10
+
+    /// The rows' bottom edge, or nil with no rows.
+    private var rowsMaxY: CGFloat? {
+        numberOfRows > 0 ? rect(ofRow: numberOfRows - 1).maxY : nil
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        var size = newSize
+        if let rowsMaxY { size.height = max(size.height, rowsMaxY + Self.bottomPadding) }
+        super.setFrameSize(size)
     }
 }
 
@@ -2729,5 +2758,25 @@ private final class UpNextResultRowView: NSTableRowView {
     override var isEmphasized: Bool {
         get { true }
         set { }
+    }
+}
+
+// MARK: - Sheet Box Chrome
+
+extension View {
+    /// The FilmSheet and right-sidebar tables' outline (`listContainerChrome`), for a box of
+    /// any content in a sheet — UpNextResultsTable, its placeholders, the Saved Search rules:
+    /// fill, the content clipped one border-width inside the outline — so scrolled rows never
+    /// paint into the translucent stroke — then the stroke and shadow.
+    func sheetBoxChrome(fill: Color) -> some View {
+        let shape = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
+        return self
+            .background(fill)
+            .clipShape(shape.inset(by: FieldEdgeTreatment.borderWidth))
+            .overlay(shape.strokeBorder(FieldEdgeTreatment.borderGradient,
+                                        lineWidth: FieldEdgeTreatment.borderWidth)
+                .allowsHitTesting(false))
+            .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
+                    radius: FieldEdgeTreatment.shadowRadius, x: 0, y: FieldEdgeTreatment.shadowOffsetY)
     }
 }

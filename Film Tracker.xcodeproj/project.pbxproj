@@ -7,6 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		5A5E5E000000000000000001 /* 50.30 SavedSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */; };
+		5A5E5E000000000000000003 /* 50.31 SavedSearchStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000002 /* 50.31 SavedSearchStore.swift */; };
+		5A5E5E000000000000000005 /* 50.32 SavedSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000004 /* 50.32 SavedSearchSheet.swift */; };
+		5A5E5E000000000000000007 /* 23.73 SavedSearchControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000006 /* 23.73 SavedSearchControls.swift */; };
+		5A5E5E000000000000000009 /* 67.00 SavedSearchObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000008 /* 67.00 SavedSearchObj.swift */; };
+		5A5E5E00000000000000000B /* 50.33 SavedSearchRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E00000000000000000A /* 50.33 SavedSearchRules.swift */; };
 		83D7EC01B3C36BA5CE592EE9 /* 29.10 UpNextSlots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */; };
 		8DEE0C7CB2A20E44A3DF7CBF /* COPYING in Resources */ = {isa = PBXBuildFile; fileRef = 2317EABA733A9F7CD5E801C9 /* COPYING */; };
 		A71200000000000000000002 /* 70.10 ReleaseNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */; };
@@ -159,6 +165,12 @@
 
 /* Begin PBXFileReference section */
 		2317EABA733A9F7CD5E801C9 /* COPYING */ = {isa = PBXFileReference; lastKnownFileType = text; path = COPYING; sourceTree = "<group>"; };
+		5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.30 SavedSearch.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000002 /* 50.31 SavedSearchStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.31 SavedSearchStore.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000004 /* 50.32 SavedSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.32 SavedSearchSheet.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000006 /* 23.73 SavedSearchControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.73 SavedSearchControls.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000008 /* 67.00 SavedSearchObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "67.00 SavedSearchObj.swift"; sourceTree = "<group>"; };
+		5A5E5E00000000000000000A /* 50.33 SavedSearchRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.33 SavedSearchRules.swift"; sourceTree = "<group>"; };
 		83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.10 UpNextSlots.swift"; sourceTree = "<group>"; };
 		A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "70.10 ReleaseNotifications.swift"; sourceTree = "<group>"; };
 		CCF2D4EABC0E20861B227B83 /* 29.20 ATVQIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.20 ATVQIntegration.swift"; sourceTree = "<group>"; };
@@ -427,6 +439,11 @@
 				CE40BABC2EC340D9009A4ECA /* 50.00 SearchController.swift */,
 				CE42AD5F2EEC135A0096D62D /* 50.10 SearchToken.swift */,
 				CE42AD5F2EEC135A0096D7A1 /* 50.20 SearchSuggestions.swift */,
+				5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */,
+				5A5E5E000000000000000002 /* 50.31 SavedSearchStore.swift */,
+				5A5E5E000000000000000004 /* 50.32 SavedSearchSheet.swift */,
+				5A5E5E00000000000000000A /* 50.33 SavedSearchRules.swift */,
+				5A5E5E000000000000000006 /* 23.73 SavedSearchControls.swift */,
 				CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */,
 				CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */,
 				CE2A1F382E96277600EB1C02 /* 61.00 FilmObj.swift */,
@@ -435,6 +452,7 @@
 				CECF3DEE2EBC0AFD00D7897A /* 64.00 ListMembershipObj.swift */,
 				CEF877CF2ECE6836002D7E45 /* 65.00 ImportSessionObj.swift */,
 				CE42AD992F1CF34C0096D62D /* 66.00 SettingsObj.swift */,
+				5A5E5E000000000000000008 /* 67.00 SavedSearchObj.swift */,
 				CE0EAE9E2ED85F37005C6F4D /* 70.00 LibraryManager.swift */,
 				A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */,
 				CE42AD912F1090430096D62D /* 71.00 SmartLists.swift */,
@@ -586,6 +604,12 @@
 				CE2A1F782E98587300EB1C02 /* 84.10 DBImporter.swift in Sources */,
 				CE42AD602EEC135A0096D62D /* 50.10 SearchToken.swift in Sources */,
 				CE42AD602EEC135A0096D7A2 /* 50.20 SearchSuggestions.swift in Sources */,
+				5A5E5E000000000000000001 /* 50.30 SavedSearch.swift in Sources */,
+				5A5E5E000000000000000003 /* 50.31 SavedSearchStore.swift in Sources */,
+				5A5E5E000000000000000005 /* 50.32 SavedSearchSheet.swift in Sources */,
+				5A5E5E00000000000000000B /* 50.33 SavedSearchRules.swift in Sources */,
+				5A5E5E000000000000000007 /* 23.73 SavedSearchControls.swift in Sources */,
+				5A5E5E000000000000000009 /* 67.00 SavedSearchObj.swift in Sources */,
 				CE40BAD32EC88BC7009A4ECA /* 11.00 DataCoordinator.swift in Sources */,
 				CE2A1F4A2E96343700EB1C02 /* 23.00 GalleryView.swift in Sources */,
 				CED4BA062F850CB300DE89EF /* 30.01 FilmSheetView.swift in Sources */,
@@ -849,7 +873,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 49;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -878,7 +902,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.0.2;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.FilmTracker;
 				PRODUCT_NAME = "Film Tracker";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -900,7 +924,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 40;
+				CURRENT_PROJECT_VERSION = 49;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -929,7 +953,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.0.2;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.FilmTracker;
 				PRODUCT_NAME = "Film Tracker";
 				SWIFT_EMIT_LOC_STRINGS = YES;

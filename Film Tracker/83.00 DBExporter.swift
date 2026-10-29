@@ -98,7 +98,7 @@ public final class DBExporter: Loggable {
     // to the database by SettingsManager, so they're always current at export time.
     public static var allModelTypes: [any ExportableModel.Type] {
         return [Film.self,  ListObject.self, ListMembership.self, Release.self,
-            ImportSession.self, SettingsObject.self] }
+            ImportSession.self, SettingsObject.self, SavedSearchObject.self] }
 
     // The exporter is constructed from the ModelContainer rather than a long-lived
     // ModelContext. A fresh ModelContext is created per export inside createBackup so

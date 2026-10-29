@@ -19,6 +19,8 @@ enum SheetContent {
     case listManager(mode: ListManagerSheet.Mode, editID: UUID?, filmIDs: Set<UUID>?, prefillName: String? = nil)
     /// The "Up Next" slot picker, opened by clicking an empty slot (UpNextSlots.swift).
     case upNextSlot
+    /// The saved-search builder: create, edit or duplicate a saved search.
+    case savedSearch(SavedSearchSheet.Mode)
 }
 
 /// Unified sheet wrapper with stable ID
@@ -38,6 +40,7 @@ struct AppSheet: Identifiable, Equatable {
         case .duplicates: return "Duplicate Finder"
         case .listManager: return "List Manager"
         case .upNextSlot: return "Up Next Slot"
+        case .savedSearch: return "Saved Search"
         }
     }
     
@@ -66,6 +69,10 @@ struct AppSheet: Identifiable, Equatable {
     
     static func listManager(mode: ListManagerSheet.Mode, editID: UUID?, filmIDs: Set<UUID>? = nil, prefillName: String? = nil) -> AppSheet {
         AppSheet(id: "listManager", content: .listManager(mode: mode, editID: editID, filmIDs: filmIDs, prefillName: prefillName))
+    }
+
+    static func savedSearch(_ mode: SavedSearchSheet.Mode) -> AppSheet {
+        AppSheet(id: "savedSearch", content: .savedSearch(mode))
     }
 
     static var upNextSlot: AppSheet {
@@ -192,7 +199,10 @@ struct SheetHostView: View, Loggable {
             // The pendingTerminationAfterSheetDismiss guard makes this a no-op for normal sheet
             // dismissals; it only acts when the quit-from-locked-restore path staged a pending
             // termination.
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { note in
+                // An alert closing on a sheet (SavedSearchSheet's, FilmSheet's) posts this
+                // too, with the sheet's window as its object; the sheet is still on screen.
+                if let window = note.object as? NSWindow, window.sheetParent != nil { return }
                 // Clear the physical-presence flag when AppKit confirms the sheet window
                 // has fully detached. This is the authoritative "sheet is gone" signal —
                 // more reliable than sheetCoordinator.activeSheet (which clears when the
@@ -278,6 +288,11 @@ struct SheetHostView: View, Loggable {
             UpNextSlotSheet()
                 .environment(dataCoordinator)
                 .environment(sheetCoordinator)
+
+        case .savedSearch(let mode):
+            SavedSearchSheet(mode: mode, coordinator: dataCoordinator)
+                .environment(dataCoordinator)
+                .environment(sheetCoordinator)
         }
     }
     
@@ -314,6 +329,8 @@ struct SheetHostView: View, Loggable {
             present(.settings(selectedTab: .restore, lockedToRestore: true))
         case .openUpNextSlot:
             present(.upNextSlot)
+        case .showSavedSearchSheet(let mode):
+            present(.savedSearch(mode))
         // Other commands handled elsewhere
         default:
             break

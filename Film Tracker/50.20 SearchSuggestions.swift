@@ -409,42 +409,23 @@ nonisolated enum SearchSuggestionRanker {
             let group: Int
             let prefix: String
         }
-        var candidates: [String: Candidate] = [:]
-        if field == .list {
-            for list in request.lists {
-                let key = SearchText.key(list.name)
-                // A user list sharing a smart list's name keeps the first group's row.
-                if candidates[key] == nil {
-                    candidates[key] = Candidate(display: list.name, key: key,
-                                                initials: SearchVocabulary.initials(of: key), count: 0,
-                                                taste: 0, films: [], group: list.kind.rawValue,
-                                                prefix: prefix(for: list.kind))
-                }
-            }
-        } else {
-            for term in vocabulary.terms[field] ?? [] {
-                candidates[term.key] = Candidate(display: term.display, key: term.key,
-                                                 initials: term.initials, count: term.count,
-                                                 taste: term.taste, films: term.films, group: 0, prefix: "")
-            }
-            for (key, entry) in learned where candidates[key] == nil {
-                candidates[key] = Candidate(display: entry.display, key: key,
-                                            initials: SearchVocabulary.initials(of: key), count: 0,
-                                            taste: 0, films: [], group: 0, prefix: "")
-            }
-        }
-
         // Films the context points at, each with the weight of the strongest value
         // pointing at it.
         let contextFilms = SearchVocabulary.libraryFields.contains(field)
             ? Self.contextFilms(request.context, vocabulary: vocabulary) : [:]
 
         var scored: [(candidate: Candidate, score: Double)] = []
-        for candidate in candidates.values {
+        var considered = 0
+        // Scores one candidate, or passes over it. False once the request is superseded —
+        // the next keystroke's — so a run over a field of ten thousand names stops there
+        // instead of finishing for nothing.
+        func consider(_ candidate: Candidate) -> Bool {
+            considered += 1
+            if considered % 1024 == 0, Task.isCancelled { return false }
             // A value holding "#" would read as a new token once it is in the field.
             guard !candidate.display.contains("#"), !present.contains(candidate.key),
                   let quality = matchQuality(key: candidate.key, initials: candidate.initials,
-                                                      typed: typed, words: typedWords) else { continue }
+                                                      typed: typed, words: typedWords) else { return true }
             var related = 0.0
             if !contextFilms.isEmpty && !candidate.films.isEmpty {
                 let sum = candidate.films.reduce(0.0) { $0 + (contextFilms[$1] ?? 0) }
@@ -458,6 +439,35 @@ nonisolated enum SearchSuggestionRanker {
                 + Weight.taste * candidate.taste
                 + Weight.count * min(2.5, log1p(Double(candidate.count)))
             scored.append((candidate, score))
+            return true
+        }
+
+        // Each key is a candidate once. The vocabulary's are unique per field already, so
+        // they are read straight from it rather than gathered into a dictionary first.
+        if field == .list {
+            var seen: Set<String> = []
+            for list in request.lists {
+                let key = SearchText.key(list.name)
+                // A user list sharing a smart list's name keeps the first group's row.
+                guard seen.insert(key).inserted else { continue }
+                guard consider(Candidate(display: list.name, key: key,
+                                         initials: SearchVocabulary.initials(of: key), count: 0,
+                                         taste: 0, films: [], group: list.kind.rawValue,
+                                         prefix: prefix(for: list.kind))) else { return [] }
+            }
+        } else {
+            for term in vocabulary.terms[field] ?? [] {
+                guard consider(Candidate(display: term.display, key: term.key,
+                                         initials: term.initials, count: term.count,
+                                         taste: term.taste, films: term.films, group: 0, prefix: ""))
+                else { return [] }
+            }
+            let termIndex = vocabulary.termIndex[field] ?? [:]
+            for (key, entry) in learned where termIndex[key] == nil {
+                guard consider(Candidate(display: entry.display, key: key,
+                                         initials: SearchVocabulary.initials(of: key), count: 0,
+                                         taste: 0, films: [], group: 0, prefix: "")) else { return [] }
+            }
         }
         scored.sort {
             if $0.candidate.group != $1.candidate.group { return $0.candidate.group < $1.candidate.group }
@@ -486,8 +496,17 @@ nonisolated enum SearchSuggestionRanker {
         if typed.isEmpty { return 0 }
         if key == typed { return 4 }
         if key.hasPrefix(typed) { return 2 }
-        if let range = key.range(of: typed) {
-            return key[key.index(before: range.lowerBound)] == " " ? 1 : 0.5
+        // Bytewise when both are ASCII (see SearchText.contains), where the byte before the
+        // match is the Character before it. The match is not at the start: hasPrefix failed.
+        switch SearchText.offset(of: typed, in: key) {
+        case .some(.some(let offset)):
+            return offset > 0 && key.utf8.dropFirst(offset - 1).first == UInt8(ascii: " ") ? 1 : 0.5
+        case .some(.none):
+            break
+        case .none:
+            if let range = key.range(of: typed) {
+                return key[key.index(before: range.lowerBound)] == " " ? 1 : 0.5
+            }
         }
         if words.count > 1 {
             let keyWords = key.split(separator: " ")
@@ -527,6 +546,7 @@ nonisolated enum SearchSuggestionRanker {
         case .report: return "Report: "
         case .recents: return "Recents: "
         case .smart: return "Smart List: "
+        case .saved: return "Saved Search: "
         case .user: return ""
         }
     }

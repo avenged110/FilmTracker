@@ -516,22 +516,26 @@ struct UpNextSlotSheet: View {
         }
     }
 
-    @ViewBuilder
+    /// One box whatever it holds, so the table and its placeholders occupy the same filled
+    /// shape, as the Saved Search sheet's results.
     private var results: some View {
-        if !model.hasQuery {
-            placeholder("Search for films to add to your \"Up Next\" Queue.")
-        } else if model.results.isEmpty {
-            placeholder("No results.")
-        } else {
-            UpNextResultsTable(films: model.results,
-                               selectedID: model.selectedFilmID,
-                               onSelect: { model.selectedFilmID = $0 },
-                               onActivate: { add($0) })
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color(nsColor: .separatorColor)))
-                .padding(10)
+        Group {
+            if !model.hasQuery {
+                placeholder("Search for films to add to your \"Up Next\" Queue.")
+            } else if model.results.isEmpty {
+                placeholder("No results.")
+            } else {
+                UpNextResultsTable(films: model.results,
+                                   selectedID: model.selectedFilmID,
+                                   onSelect: { model.selectedFilmID = $0 },
+                                   onActivate: { add($0) })
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheetBoxChrome(fill: Color(nsColor: NSColor.alternatingContentBackgroundColors[0]))
+        // The search field's inset, so the box lines up with it.
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     private func placeholder(_ text: String) -> some View {
@@ -624,7 +628,8 @@ final class UpNextSlotSearchModel {
         query = trimmed
         hasQuery = !trimmed.isEmpty
         results = trimmed.isEmpty ? []
-            : pool.filter { $0.name.contains(trimmed) || $0.alternate.contains(trimmed) }.map(\.film)
+            : pool.filter { SearchText.contains($0.name, trimmed) || SearchText.contains($0.alternate, trimmed) }
+                .map(\.film)
         if let id = selectedFilmID, !results.contains(where: { $0.id == id }) {
             selectedFilmID = nil
         }

@@ -78,6 +78,8 @@ enum ViewGlyphs {
     // MARK: - Search
     /// The search view and its "No Results" placeholder.
     static let search = Glyph.uniform("magnifyingglass")
+    /// A saved search: its sidebar row and its view's title bar.
+    static let savedSearch = Glyph.uniform("text.magnifyingglass")
     /// The "No Results" placeholder shown when filters — rather than a query — are what
     /// emptied the gallery.
     static let activeFilters = Glyph("line.3.horizontal.decrease.circle")

@@ -94,7 +94,7 @@ extension DebugHarness {
     /// and `DBExporter.allModelTypes`; `schemaCoverageScenario` asserts the latter.
     static var backupHarnessSchema: Schema {
         Schema([Film.self, ListObject.self, ListMembership.self,
-                Release.self, ImportSession.self, SettingsObject.self])
+                Release.self, ImportSession.self, SettingsObject.self, SavedSearchObject.self])
     }
 
     static var backupHarnessStoreURL: URL? {
@@ -250,7 +250,8 @@ extension DebugHarness {
             ("ListMembership", { self.probeMembership().extractExportValues().properties }),
             ("Release", { self.probeRelease().extractExportValues().properties }),
             ("ImportSession", { self.probeImportSession().extractExportValues().properties }),
-            ("SettingsObject", { self.probeSettings().extractExportValues().properties })
+            ("SettingsObject", { self.probeSettings().extractExportValues().properties }),
+            ("SavedSearchObject", { self.probeSavedSearch().extractExportValues().properties })
         ]
         for (entityName, produce) in extractorSources {
             let attributeNames = Set(backupHarnessSchema.entities
@@ -281,7 +282,8 @@ extension DebugHarness {
         // the extractor layer above and, for the restore direction, by
         // `settings-restore-covers-every-field` in `backup-integrity`, which uses a
         // hand-written file no live code can touch.
-        let fileCoverageEntities = ["Film", "ListObject", "ListMembership", "Release", "ImportSession"]
+        let fileCoverageEntities = ["Film", "ListObject", "ListMembership", "Release", "ImportSession",
+                                    "SavedSearchObject"]
         for entityName in fileCoverageEntities {
             let attributeNames = Set(backupHarnessSchema.entities
                 .first { $0.name == entityName }?.attributes.map(\.name) ?? [])
@@ -384,6 +386,14 @@ extension DebugHarness {
                       updatedCount: 1, notFoundCount: 1, errorFileNames: ["a"],
                       addedTitles: ["a"], updatedTitles: ["a"], duplicateTitles: ["a"],
                       isCompleted: true, isCanceled: true)
+    }
+
+    @MainActor
+    static func probeSavedSearch() -> SavedSearchObject {
+        SavedSearchObject(SavedSearch(name: "Probe", query: SavedSearchQuery(
+            tokens: [SearchToken(field: .flags, value: "owned 4k"),
+                     SearchToken(field: .year, value: "1990s", isInverted: true)],
+            text: "alien"), displayOrder: 3))
     }
 
     @MainActor
@@ -690,6 +700,9 @@ extension DebugHarness {
             duplicateTitles: ["Dupe One", "Dupe Two"],
             isCompleted: true, isCanceled: false)
         context.insert(session)
+
+        // One saved search, so the file layer has a SavedSearchObject to check.
+        context.insert(probeSavedSearch())
 
         let settings = SettingsObject(snapshotID: SettingsObject.singletonID,
                                       version: SettingsObject.currentVersion,

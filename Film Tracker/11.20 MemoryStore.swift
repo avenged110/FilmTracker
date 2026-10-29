@@ -569,7 +569,11 @@ final class MemoryStore: Loggable {
             return []
         }
 
-        let cacheKey = CacheKey(viewID: viewID, sortOption: sortOption, direction: direction,
+        // A saved search's base is the whole library in the requested order — exactly All
+        // Films' array — so it shares that cache entry rather than holding one copy per search.
+        let cacheViewID: ViewIdentifier
+        if case .savedSearch = viewID { cacheViewID = .allFilms } else { cacheViewID = viewID }
+        let cacheKey = CacheKey(viewID: cacheViewID, sortOption: sortOption, direction: direction,
                                filterOptions: filterOptions)
         
         if let cached = cachedViews[cacheKey] {
@@ -590,7 +594,7 @@ final class MemoryStore: Loggable {
             // The Film Queue orders films by section (Up Next → Soon → Later) via the
             // grouped path below, not by a flat union sort; Imports shows no films.
             baseFilmIDs = []
-        case .allFilms, .smartList, .unwatched, .recents, .reports, .search:
+        case .allFilms, .smartList, .unwatched, .recents, .reports, .search, .savedSearch:
             baseFilmIDs = Array(films.keys)
         }
         
@@ -1019,7 +1023,9 @@ final class MemoryStore: Loggable {
         // no full-dictionary copy, and no new dictionary allocation.
         let keysToRemove = cachedViews.keys.filter { key in
             switch key.viewID {
-            case .allFilms, .smartList, .unwatched, .recents, .reports, .imports, .search, .filmQueue:
+            case .allFilms, .smartList, .unwatched, .recents, .reports, .imports, .search, .filmQueue,
+                 .savedSearch:
+                // (.savedSearch never keys a cache entry — getFilms maps it to .allFilms.)
                 // .filmQueue is a cross-cutting membership view whose ordering can shift
                 // when any film's sort-key fields change, so it is invalidated alongside
                 // the other whole-library views. .unwatched is included for the same

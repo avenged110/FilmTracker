@@ -62,6 +62,11 @@ extension ViewIdentifier {
                 return .set(Set(allFilms.filter { $0.userRating == 0 }.map(\.id)))
             }
 
+        case .savedSearch(let id):
+            // A saved search's films are its query's answer across the whole library, worked
+            // out afresh on every load — the query may name dates relative to today.
+            return .set(SavedSearchStore.shared.filmIDs(for: id))
+
         case .allFilms, .list, .filmQueue, .reports, .imports, .search:
             return .unrestricted
         }
@@ -614,6 +619,18 @@ final class DataCoordinator: Loggable {
             await ensureFilmQueueListsExist()
         }
 
+        // Saved searches: a handful of rows, read here so the sidebar section appears with the
+        // lists. A failed read leaves the section empty for the session; the rows are untouched.
+        let savedSearches: (searches: [SavedSearch], needingReview: Set<UUID>)
+        do { savedSearches = try await dataManager.fetchSavedSearches() }
+        catch { Self.log("WARNING: Could not read saved searches: \(error)"); savedSearches = ([], []) }
+        SavedSearchStore.shared.attach(.init(
+            track: { [weak self] rollback, work in self?.trackOperation(rollback: rollback, work) },
+            writer: dataManager,
+            evaluate: { [weak self] query in self?.filmIDs(matching: query) ?? [] },
+            didChange: { [weak self] change in self?.savedSearchDidChange(change) }),
+            searches: savedSearches.searches, needingReview: savedSearches.needingReview)
+
         let allFilms = memoryStore.totalFilmCount
         totalFilmCount = allFilms
 
@@ -1086,7 +1103,94 @@ final class DataCoordinator: Loggable {
                 .filter { $0.releases.contains { $0.wishlist > 0 && $0.isTopLevel } }
                 .map(\.id) ?? [])
         })
+        // Saved searches, under their names. Each resolves by running its query — the store's
+        // guard stops a #list loop between them (SavedSearchStore.filmIDs(for:)).
+        entries += SavedSearchStore.shared.searches.map { search in
+            let id = search.id
+            return .init(name: search.name, kind: .saved) { SavedSearchStore.shared.filmIDs(for: id) }
+        }
         return SearchListCatalog(entries: entries)
+    }
+
+    // MARK: - Saved Searches
+
+    /// The films `query` matches across the whole library.
+    func filmIDs(matching query: SavedSearchQuery) -> Set<UUID> {
+        SearchController.shared.filmIDs(matching: query, in: memoryStore.getAllFilms(), lists: searchListCatalog())
+    }
+
+    /// Every name a saved search may not take — everything a #list token can already name —
+    /// less `excluded`'s own.
+    func savedSearchNameClaims(excluding excluded: UUID?) -> [SavedSearchName.Claim] {
+        listNameClaims() + SavedSearchStore.shared.nameClaims(excluding: excluded)
+    }
+
+    /// Every name a #list token can name that is not a saved search's: the user lists (unless
+    /// `includingUserLists` is false — a restore claims the ones it restores instead) and
+    /// every built-in target. Smart-list names are claimed even while smart lists are off.
+    /// Read from searchListCatalog(), so a new #list target is claimed as soon as a token can
+    /// name it; the switch makes a new kind of target choose its noun.
+    func listNameClaims(includingUserLists: Bool = true) -> [SavedSearchName.Claim] {
+        // Not in the catalog: smart lists while they are off, and the Queue sections.
+        var claims: [SavedSearchName.Claim] = SmartListType.allCases.map { .init(name: $0.rawValue, kind: .smartList) }
+        claims += FilmQueueSection.allCases.map { .init(name: $0.rawValue, kind: .filmQueue) }
+        for entry in searchListCatalog().entries {
+            let kind: SavedSearchName.ClaimKind
+            switch entry.kind {
+            case .smart, .saved: continue  // Claimed above, and by the store.
+            case .user:
+                guard includingUserLists else { continue }
+                kind = .userList
+            case .recents: kind = .recents
+            case .report: kind = .report
+            }
+            claims += ([entry.name] + entry.aliases).map { .init(name: $0, kind: kind) }
+        }
+        return claims
+    }
+
+    /// Whether saved search `id` is the view loaded and its rules matched no films, before any
+    /// filter narrowed them. The gallery's empty state reads it to tell "these rules find
+    /// nothing" from "the filters leave nothing".
+    func savedSearchMatchedNothing(_ id: UUID) -> Bool {
+        guard currentViewID == .savedSearch(id), case .set(let members) = currentMembership else { return false }
+        return members.isEmpty
+    }
+
+    /// The names (and aliases) of every #list target that is not a saved search.
+    func savedSearchOtherListNames() -> [String] {
+        searchListCatalog().entries.filter { $0.kind != .saved }.flatMap { [$0.name] + $0.aliases }
+    }
+
+    /// The store's change hook. Deleting the saved search on screen leaves it for All Films.
+    /// Any saved search can depend on any other through #list, so a change reloads a shown
+    /// saved-search view or an active search.
+    private func savedSearchDidChange(_ change: SavedSearchChange) {
+        if case .deleted(let id) = change {
+            if let key = ViewIdentifier.savedSearch(id).persistenceKey {
+                Preferences.viewSortStates.removeValue(forKey: key)
+            }
+            if let appState = AppDelegate.appState, appState.selectedSidebarItem == .savedSearch(id) {
+                appState.navigate(to: .libraryItem(.allFilms))
+            }
+        }
+        switch currentViewID {
+        case .savedSearch: reloadCurrentView()
+        case .search where SearchController.shared.hasContent: reloadCurrentView()
+        default: break
+        }
+    }
+
+    /// A saved search on screen resolves its films when it loads, so a list change made
+    /// beside it — a film dropped on a list, a list created, renamed or deleted — changes
+    /// what its `#list` tokens find without reloading it; the list views' own refreshes do
+    /// not reach it. Any saved search it names is reached through one of those tokens, so a
+    /// search with none is left alone.
+    private func reloadSavedSearchIfListDependent() {
+        guard case .savedSearch(let id) = currentViewID,
+              SavedSearchStore.shared.search(id)?.query.tokens.contains(where: { $0.field == .list }) == true
+        else { return }
+        reloadCurrentView()
     }
 
     /// Every smart list whose computed set currently contains `filmID`, in
@@ -2146,6 +2250,7 @@ final class DataCoordinator: Loggable {
             // than move to its new section.
             refreshFilms()
         }
+        reloadSavedSearchIfListDependent()
 
         // One tracked operation for the whole move: one background write, one rollback
         // surface, and at most one persistence alert per user gesture.
@@ -2173,6 +2278,7 @@ final class DataCoordinator: Loggable {
             // addFilmsToList for the same view.
             refreshFilms()
         }
+        reloadSavedSearchIfListDependent()
 
         // Use DataManager for batch list operations (background processing)
         trackOperation(rollback: { [weak self] in
@@ -2189,6 +2295,7 @@ final class DataCoordinator: Loggable {
     func createList(name: String, displayOrder: Int) -> UUID {
         let listID = memoryStore.createList(name: name, displayOrder: displayOrder)
         syncListsCache()
+        reloadSavedSearchIfListDependent()
 
         trackOperation(rollback: { [weak self] in
             guard let self else { return }
@@ -2210,6 +2317,7 @@ final class DataCoordinator: Loggable {
         memoryStore.updateList(listID: listID, name: name, displayOrder: displayOrder,
             sortFilterOptions: sortFilterOptions)
         syncListsCache()
+        if name != nil { reloadSavedSearchIfListDependent() }
 
         trackOperation(rollback: { [weak self] in
             guard let self, let preList else { return }
@@ -2248,6 +2356,7 @@ final class DataCoordinator: Loggable {
         if case .list(let currentList) = currentViewID, currentList == listID {
             currentViewID = .allFilms
             refreshFilms() }
+        reloadSavedSearchIfListDependent()
 
         trackOperation(rollback: { [weak self] in
             guard let self else { return }

@@ -204,6 +204,12 @@ enum UICommand: Equatable, Sendable {
     /// Clears any existing search state, applies the specified token, and switches
     /// the main content area to the search view — all as a single atomic action.
     case activateTokenSearch(field: SearchField, value: String)
+
+    // MARK: Saved Searches
+    /// Present the saved-search builder: create, edit or duplicate a saved search.
+    case showSavedSearchSheet(SavedSearchSheet.Mode)
+    /// Open a saved search in the search field for editing.
+    case openSavedSearchInField(UUID)
 }
 
 // MARK: - Alert Commands
@@ -212,6 +218,8 @@ enum AlertCommand: Equatable, Sendable {
     // MARK: List Deletion Alerts
     /// Confirm removal of the list itself (its films stay in the library)
     case confirmRemoveList(listID: UUID, listName: String)
+    /// Confirm deleting a saved search (its films are unaffected)
+    case confirmDeleteSavedSearch(id: UUID, name: String)
     /// Confirm deletion of the list's films from the library
     case confirmDeleteContents(listID: UUID, listName: String)
     /// Confirm clearing list contents (remove from list, not delete)

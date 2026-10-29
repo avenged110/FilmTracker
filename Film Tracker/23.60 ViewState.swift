@@ -384,6 +384,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     case imports(ImportsCategory)
     case smartList(SmartListType)
     case search
+    case savedSearch(UUID)
 
     // NOTE: There is deliberately no `listID` accessor here. The sibling accessors
     // below (recentsCategory, unwatchedCategory, smartListType) each have live
@@ -438,6 +439,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .smartList: return ViewGlyphs.smartList.filled
         case .list: return ViewGlyphs.userList.outline
         case .search: return ViewGlyphs.search.outline
+        case .savedSearch: return ViewGlyphs.savedSearch.outline
         case .recents(let category): return category.glyph
         case .filmQueue: return ViewGlyphs.filmQueue.outline
         case .unwatched: return ViewGlyphs.unwatched.filled
@@ -469,6 +471,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .recents(let category): return "recents.\(category.rawValue)"
         case .smartList(let type): return "smartList.\(type.rawValue)"
         case .filmQueue: return "filmQueue"
+        case .savedSearch(let id): return "savedSearch.\(id.uuidString)"
         case .list, .reports, .imports, .search: return nil
         }
     }
@@ -493,7 +496,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     /// compiler forces an update whenever a new ViewIdentifier case is introduced.
     var treatsEmptyAsValidState: Bool {
         switch self {
-        case .recents, .smartList, .filmQueue, .unwatched:
+        case .recents, .smartList, .filmQueue, .unwatched, .savedSearch:
             return true
         case .allFilms, .list, .reports, .imports, .search:
             return false
@@ -511,6 +514,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .imports(let category): return "Imports(\(category.rawValue))"
         case .smartList(let type): return "SmartList(\(type.rawValue))"
         case .search: return "Search"
+        case .savedSearch(let id): return "SavedSearch(\(id.uuidString.prefix(8)))"
         }
     }
 
@@ -534,6 +538,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .libraryItem(.imports):    return .imports(ImportsState.shared.selectedCategory)
         case .libraryItem(.filmQueue): return .filmQueue
         case .list(let id):             return .list(id)
+        case .savedSearch(let id):      return .savedSearch(id)
         case .smartList(let type):
             // The sidebar row names the family; its state names the variant on screen.
             // A type with no variants of its own is its own family, so this resolves to
@@ -699,6 +704,9 @@ extension SidebarItem {
 
         case .libraryItem(.search):
             return ViewCapabilities(isValidSearchExitDestination: false)
+
+        case .savedSearch:
+            return ViewCapabilities()
 
         case .libraryItem(.unwatched):
             return ViewCapabilities()
@@ -2027,7 +2035,7 @@ final class ViewStateManager: Loggable {
             // always transient (in-session changes are allowed but never persisted).
             return ViewState()
 
-        case .allFilms, .unwatched, .smartList, .filmQueue:
+        case .allFilms, .unwatched, .smartList, .filmQueue, .savedSearch:
             // Persisted per-view (allFilms), per-tab (unwatched, filmQueue), or per-type
             // (smartList) in the consolidated view-sort-states dictionary, via the shared
             // ViewStateKey.persistenceKey. Membership for unwatched/smartList is always
@@ -2090,7 +2098,7 @@ final class ViewStateManager: Loggable {
             // Search state is always transient and is never persisted.
             Self.log("Skipping save for search view (transient state)")
 
-        case .allFilms, .unwatched, .recents, .smartList, .filmQueue:
+        case .allFilms, .unwatched, .recents, .smartList, .filmQueue, .savedSearch:
             // All five view kinds persist to the consolidated view-sort-states
             // dictionary via the shared persistenceKey, governed uniformly by
             // rememberSortFilterSelections. (Recents only has filter options and

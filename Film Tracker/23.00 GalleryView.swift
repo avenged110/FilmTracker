@@ -253,8 +253,20 @@ struct GalleryView: View, Loggable {
         let hasSearchQuery = hasSearchContent
         let isListView = cachedListID != nil
         
-        // Check if we're on a recents view
-        if case .recents(let category) = viewStateManager.activeView {
+        // A saved search stored with rules this version cannot read shows no films until
+        // it is saved again (SavedSearchStore.needsReview) — this, not a "No Results", is
+        // what says so, whatever filters are on.
+        if case .savedSearch(let id) = viewStateManager.activeView, SavedSearchStore.shared.needsReview(id) {
+            StandardPlaceholder(
+                glyph: "exclamationmark.triangle.fill",
+                title: "Search Configuration Changed",
+                message: "There was an issue restoring this saved search\u{2019}s configuration and it needs to be updated.",
+                actionTitle: "Edit Saved Search\u{2026}",
+                action: { SavedSearchActions.edit(id) }
+            )
+        } else if case .savedSearch(let id) = viewStateManager.activeView {
+            savedSearchPlaceholder(for: id, hasFilters: hasFilters)
+        } else if case .recents(let category) = viewStateManager.activeView {
             recentsCategoryPlaceholder(for: category)
         } else if case .unwatched(let category) = viewStateManager.activeView {
             unwatchedCategoryPlaceholder(for: category)
@@ -271,13 +283,7 @@ struct GalleryView: View, Loggable {
                 action: clearFiltersAndSearch
             )
         } else if hasFilters {
-            StandardPlaceholder(
-                glyph: ViewGlyphs.activeFilters.filled,
-                title: "No Results",
-                message: "Try adjusting your filters.",
-                actionTitle: "Clear Filters",
-                action: clearFiltersOnly
-            )
+            filtersPlaceholder
         } else if isListView && dataCoordinator.hasDatabaseFilms {
             StandardPlaceholder(
                 glyph: ViewGlyphs.userList.outline,
@@ -285,10 +291,44 @@ struct GalleryView: View, Loggable {
                 message: "Add films to this list to get started."
             )
         } else {
+            emptyLibraryPlaceholder
+        }
+    }
+
+    private var filtersPlaceholder: some View {
+        StandardPlaceholder(
+            glyph: ViewGlyphs.activeFilters.filled,
+            title: "No Results",
+            message: "Try adjusting your filters.",
+            actionTitle: "Clear Filters",
+            action: clearFiltersOnly
+        )
+    }
+
+    private var emptyLibraryPlaceholder: some View {
+        StandardPlaceholder(
+            glyph: ViewGlyphs.allFilms.filled,
+            title: "Add Films to Get Started",
+            message: "Import films, or add them manually."
+        )
+    }
+
+    /// An empty saved search, by cause: an empty library, rules that match no film, or
+    /// filters that leave none of the films the rules match. Rules that match nothing win
+    /// over filters — clearing the filters would not help.
+    @ViewBuilder
+    private func savedSearchPlaceholder(for id: UUID, hasFilters: Bool) -> some View {
+        if !dataCoordinator.hasDatabaseFilms {
+            emptyLibraryPlaceholder
+        } else if hasFilters && !dataCoordinator.savedSearchMatchedNothing(id) {
+            filtersPlaceholder
+        } else {
             StandardPlaceholder(
-                glyph: ViewGlyphs.allFilms.filled,
-                title: "Add Films to Get Started",
-                message: "Import films, or add them manually."
+                glyph: ViewGlyphs.savedSearch.outline,
+                title: "No Results",
+                message: "No films in your library match this saved search\u{2019}s rules.",
+                actionTitle: "Edit Saved Search\u{2026}",
+                action: { SavedSearchActions.edit(id) }
             )
         }
     }
@@ -506,8 +546,12 @@ struct GalleryView: View, Loggable {
         AppEventBus.shared.viewEvents
             .filter { if case .smartListsRecalculated = $0 { return true } else { return false } }
             .sink { [weak dataCoordinator] _ in
-                guard let dataCoordinator, case .smartList = ViewStateManager.shared.activeView else { return }
-                Self.log("Smart lists recalculated - refreshing active smart list view")
+                guard let dataCoordinator else { return }
+                switch ViewStateManager.shared.activeView {
+                case .smartList, .savedSearch: break
+                default: return
+                }
+                Self.log("Smart lists recalculated - refreshing active membership view")
                 handler.noteChange(coordinator: dataCoordinator, flush: flushChanges)
             }
             .store(in: &handler.cancellables)

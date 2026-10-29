@@ -31,6 +31,7 @@ enum HostAlert {
     /// The file itself is held in AlertHostView's `backupFile`, not here — see there.
     case backupRestore
     case removeList(listID: UUID, listName: String)
+    case deleteSavedSearch(id: UUID, name: String)
     case deleteListContents(listID: UUID, listName: String, filmIDs: [UUID])
     case clearListContents(listID: UUID, listName: String, filmCount: Int)
     // `clearingSelection` carries the sender's FilmRemoval choice through the alert, so a
@@ -65,7 +66,7 @@ enum HostAlert {
     /// Which alert this is, payload aside — what coalescing and the one-at-a-time rules
     /// compare.
     enum Kind {
-        case backupRestore, removeList, deleteListContents, clearListContents, removeFromList
+        case backupRestore, removeList, deleteSavedSearch, deleteListContents, clearListContents, removeFromList
         case removeFromAllLists, deleteFromLibrary, removeFromHallOfFame, removeFromFilmQueue
         case filmQueueAdd, persistenceFailure, databaseError, libraryReadFailure
         case newLibraryResult, duplicateViewingDate, calendarEventFailure, notice
@@ -76,6 +77,7 @@ enum HostAlert {
         switch self {
         case .backupRestore: .backupRestore
         case .removeList: .removeList
+        case .deleteSavedSearch: .deleteSavedSearch
         case .deleteListContents: .deleteListContents
         case .clearListContents: .clearListContents
         case .removeFromList: .removeFromList
@@ -99,6 +101,7 @@ enum HostAlert {
         switch self {
         case .backupRestore: "Restore from Backup"
         case .removeList: "Remove List"
+        case .deleteSavedSearch: "Delete Saved Search?"
         case .deleteListContents: "Delete List Contents"
         case .clearListContents: "Clear List Contents"
         // The Film Queue removal shares the list wording: to the user the queue sections
@@ -285,6 +288,8 @@ struct AlertHostView: View, Loggable {
             }
         case .confirmRemoveList(let listID, let listName):
             enqueue(.removeList(listID: listID, listName: listName))
+        case .confirmDeleteSavedSearch(let id, let name):
+            enqueue(.deleteSavedSearch(id: id, name: name))
         case .confirmDeleteContents(let listID, let listName):
             // The film IDs are not carried on the event, so they are read here, once.
             if let list = dataCoordinator.getList(listID) {
@@ -388,6 +393,10 @@ struct AlertHostView: View, Loggable {
                     }
                 }
             }
+
+        case .deleteSavedSearch(let id, _):
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) { SavedSearchStore.shared.delete(id) }
 
         case .deleteListContents(let listID, _, let filmIDs):
             Button("Cancel", role: .cancel) { }
@@ -589,6 +598,8 @@ struct AlertHostView: View, Loggable {
             Text("Do you want to open Settings to restore from this backup? Completing the restore there will replace all existing data with the backup contents.")
         case .removeList(_, let listName):
             Text("Are you sure you want to remove \"\(truncateListName(listName, maxLength: 42))\"? This action cannot be undone.")
+        case .deleteSavedSearch(_, let name):
+            Text("\"\(truncateListName(name, maxLength: 42))\" will be removed from the sidebar. Films are not affected.")
         case .deleteListContents(_, let listName, let filmIDs):
             DeleteContentsMessage(listName: listName, filmCount: filmIDs.count)
         case .clearListContents(_, let listName, let filmCount):

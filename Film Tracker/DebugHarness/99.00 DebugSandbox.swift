@@ -130,7 +130,7 @@ enum DebugSandbox {
     /// the bundle identifier with the user's copy. Redirecting *within* the container
     /// is therefore both sufficient and the only option that needs no entitlement
     /// changes: everything the app writes is reachable from the three `Preferences`
-    /// folder accessors and the SwiftData store URL, and all four are covered.
+    /// folder accessors and the store URL, and all four are covered.
     ///
     /// The directory is created here, in the lazy initializer, rather than left to
     /// `AppDelegate.ensureRequiredDirectoriesExist()`. LoggerCore resolves its log file
@@ -155,11 +155,10 @@ enum DebugSandbox {
         return url
     }()
 
-    /// The SwiftData store location for the sandbox, or nil when inactive.
-    /// `default.store` matches the filename SwiftData chooses for an unnamed
-    /// configuration, so the sandbox container is laid out exactly like the real one and
-    /// a store from either can be copied into the other for reproduction work.
-    static let storeURL: URL? = rootURL?.appendingPathComponent("default.store")
+    /// The store location for the sandbox, or nil when inactive. Named like the real one
+    /// (LibraryStore.storeFileName), so the sandbox container is laid out exactly like the
+    /// real one and a store from either can be copied into the other for reproduction work.
+    static let storeURL: URL? = rootURL?.appendingPathComponent(LibraryStore.storeFileName)
 
     /// The `UserDefaults` suite backing preferences in the sandbox, or nil when
     /// inactive. Suite-backed defaults land in the app container's own Preferences

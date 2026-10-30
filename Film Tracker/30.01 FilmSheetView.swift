@@ -1112,7 +1112,7 @@ private struct DetailsScrollTab: View, Equatable {
 /// no intrinsic size. It is active (shielded) when the tab is not currently selected,
 /// and inactive (transparent to events) when the tab is selected.
 @MainActor
-private struct TabEventShield: NSViewRepresentable {
+struct TabEventShield: NSViewRepresentable {
     let isShielded: Bool
 
     func makeNSView(context: Context) -> _ShieldView {
@@ -1172,7 +1172,8 @@ private struct TabEventShield: NSViewRepresentable {
 // MARK: - FilmSheetFocusSink
 // An invisible, zero-height focus trap placed as the first child of a tab's VStack in
 // FilmSheetTabContent.content(for:). One parameterized type backs all five tabs' sinks,
-// differing only in whether Return is forwarded to AppKit.
+// differing only in whether Return is forwarded to AppKit. The MultiFilmSheet's two tabs
+// use it the same way (MultiFilmTabContent, 52_10), as they do TabEventShield.
 //
 // PURPOSE: When a tab is first built, AppKit assigns first-responder status to the
 // first focusable NSView it finds — normally the tab's first TextField — showing a
@@ -1215,7 +1216,7 @@ private struct TabEventShield: NSViewRepresentable {
 // first in AppKit's key-view loop, so Tab from the sink advances to the first real
 // control in natural top-to-bottom order.
 @MainActor
-private struct FilmSheetFocusSink: NSViewRepresentable {
+struct FilmSheetFocusSink: NSViewRepresentable {
     let swallowReturn: Bool
     /// Also claims focus whenever this flips from false to true — see RE-CLAIM ON
     /// ACTIVATION above. Every call site passes `selectedTab == <its own tab>`.
@@ -1271,7 +1272,7 @@ private struct FilmSheetFocusSink: NSViewRepresentable {
 // Return is forwarded to super so AppKit's responder chain can dispatch it to
 // the window's default-action button; when true, Return is silently consumed.
 // Tab navigation (keyCode 48) is always handled by super.
-private final class FilmSheetSinkButton: NSButton {
+final class FilmSheetSinkButton: NSButton {
     private let swallowReturn: Bool
 
     init(swallowReturn: Bool) {

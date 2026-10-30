@@ -366,7 +366,7 @@ struct DuplicateCardView: View {
     let onReconcile: () -> Void
     
     /// Retrieve film snapshots using IDs from the coordinator's memory store.
-    /// Returns value types — no live SwiftData object references.
+    /// Returns value types — no live model-object references.
     @MainActor
     private var films: [FilmSnapshot] {
         [duplicate.film1ID, duplicate.film2ID].compactMap { id in
@@ -576,7 +576,7 @@ struct DuplicateCardView: View {
         var differences: [FieldDifference] = []
         
         // Retrieve film snapshots from the coordinator's memory store.
-        // getFilm() returns a FilmSnapshot value type — no SwiftData objects involved.
+        // getFilm() returns a FilmSnapshot value type — no model objects involved.
         guard let film1 = dataCoordinator.getFilm(duplicate.film1ID),
               let film2 = dataCoordinator.getFilm(duplicate.film2ID) else {
             return differences
@@ -877,7 +877,7 @@ final class DuplicateSheetViewModel: Loggable {
         let pair = duplicates[currentIndex]
         
         // Retrieve film snapshots from the memory store using IDs.
-        // DataCoordinator.getFilm returns a FilmSnapshot value type — no SwiftData involved.
+        // DataCoordinator.getFilm returns a FilmSnapshot value type — no store involved.
         guard let coordinator = dataCoordinator,
               let film1 = coordinator.getFilm(pair.film1ID),
               let film2 = coordinator.getFilm(pair.film2ID) else {

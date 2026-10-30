@@ -2,25 +2,24 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // The Imports view's in-memory copy of every ImportSession, as values, kept current from
-// SwiftData's save notifications.
+// Core Data's save notifications.
 //
 // Why it exists: ImportsView used to read its sessions through `@Query`, which fetches every
 // ImportSession of every type each time the view is built — on every visit and every
-// Metadata ⟷ Ratings switch — and SwiftData materializes each one in full, JSON-decoding
+// Metadata ⟷ Ratings switch — and SwiftData materialized each one in full, JSON-decoding
 // its four title arrays, on the main thread. Measured by `imports-switch-perf` (99.55): 129 ms
 // for 1,000 sessions, whatever the predicate, and `propertiesToFetch` saved nothing. The view
 // now reads this index instead, which costs nothing to read; the only fetch is one full load
 // in the background after launch.
 //
 // How it stays current: every ImportSession write in the app is saved, and every save posts
-// `ModelContext.didSave` with the identifiers it touched.
+// `NSManagedObjectContext.didSaveObjectIDsNotification` with the object IDs it touched.
 //   • Saves on the main context — ImportProgress creating, updating, canceling and completing
 //     its session; the harness seeding — are applied synchronously, inside the notification,
-//     from the very objects saved (captured at `willSave`: the identifiers `didSave` names
-//     for just-inserted objects are their new permanent ones, which the context cannot look
-//     up yet). So by the time `save()` returns, the index already says what the store says:
-//     nothing that reads it afterward (ImportsView showing a just-canceled session, say)
-//     can see an older copy.
+//     from the very objects saved (still registered in the main context, under the permanent
+//     IDs the notification names). So by the time `save()` returns, the index already says
+//     what the store says: nothing that reads it afterward (ImportsView showing a
+//     just-canceled session, say) can see an older copy.
 //   • Deletions from any context (DataManager's "Clear This Item" / "Clear All") are removed
 //     by identifier.
 //   • Anything else — an insert or update saved by another context, which nothing in the app
@@ -30,7 +29,7 @@
 // to follow.
 
 import Foundation
-import SwiftData
+import CoreData
 
 // MARK: - Import Session Record
 
@@ -40,7 +39,7 @@ struct ImportSessionRecord: Identifiable, Equatable, Sendable {
     let id: UUID
     /// The model's store identity, which deletion notifications name it by. nil only for
     /// a stand-in that was never stored (ImportCardShape's measuring template).
-    let persistentID: PersistentIdentifier?
+    let persistentID: NSManagedObjectID?
     let sessionDate: Date
     let importType: String
     let totalItems: Int
@@ -63,7 +62,7 @@ struct ImportSessionRecord: Identifiable, Equatable, Sendable {
 extension ImportSessionRecord {
     init(_ session: ImportSession) {
         id = session.id
-        persistentID = session.persistentModelID
+        persistentID = session.objectID
         sessionDate = session.sessionDate
         importType = session.importType
         totalItems = session.totalItems
@@ -93,10 +92,8 @@ final class ImportHistory: Loggable {
     /// them is invalidated exactly when they change.
     private var revision = 0
 
-    @ObservationIgnored private var container: ModelContainer?
+    @ObservationIgnored private var container: NSPersistentContainer?
     @ObservationIgnored private var saveObservers: [any NSObjectProtocol] = []
-    /// The ImportSessions a main-context save is writing, captured at `willSave`.
-    @ObservationIgnored private var mainContextSaving: [ImportSession] = []
     /// Newest first, keyed by `importType`. nil until the first load lands.
     @ObservationIgnored private var byType: [String: [ImportSessionRecord]]?
     /// Changes saved while a full load is in flight, replayed over its result (which may or may
@@ -107,28 +104,22 @@ final class ImportHistory: Loggable {
 
     private enum Change {
         case upsert(ImportSessionRecord)
-        case delete(PersistentIdentifier)
+        case delete(NSManagedObjectID)
     }
 
-    nonisolated private static let entityName = Schema.entityName(for: ImportSession.self)
+    nonisolated private static let entityName = ImportSession.entityName
 
     /// Starts following `container`: subscribes to its saves and loads the index in the
     /// background. Idempotent. Called once the app's main view is up.
-    func attach(_ container: ModelContainer) {
+    func attach(_ container: NSPersistentContainer) {
         guard self.container == nil else { return }
         self.container = container
-        let mainContextID = ObjectIdentifier(container.mainContext)
+        let mainContextID = ObjectIdentifier(container.viewContext)
         // queue: nil runs the block on the posting thread, synchronously inside `save()`. A
         // main-context save is posted on the main thread, so it is applied before `save()`
         // returns; other contexts' saves hop to the main actor.
-        let willSave = NotificationCenter.default.addObserver(
-            forName: ModelContext.willSave, object: container.mainContext, queue: nil
-        ) { [weak self] _ in
-            guard Thread.isMainThread else { return }
-            MainActor.assumeIsolated { self?.mainContextWillSave() }
-        }
         let didSave = NotificationCenter.default.addObserver(
-            forName: ModelContext.didSave, object: nil, queue: nil
+            forName: NSManagedObjectContext.didSaveObjectIDsNotification, object: nil, queue: nil
         ) { [weak self] note in
             let event = SaveEvent(note, entityName: Self.entityName)
             guard event.isRelevant else { return }
@@ -139,7 +130,7 @@ final class ImportHistory: Loggable {
                 Task { @MainActor in self?.didSave(event, onMainContext: false) }
             }
         }
-        saveObservers = [willSave, didSave]
+        saveObservers = [didSave]
         reload()
     }
 
@@ -148,7 +139,7 @@ final class ImportHistory: Loggable {
     /// Before the background load has landed (a visit within moments of launch), this loads
     /// synchronously from the main context instead, once. That mutates only unobserved
     /// storage, so it is safe from inside a view's body.
-    func records(for category: ImportsCategory, in container: ModelContainer) -> [ImportSessionRecord] {
+    func records(for category: ImportsCategory, in container: NSPersistentContainer) -> [ImportSessionRecord] {
         _ = revision
         if self.container == nil { attach(container) }
         if byType == nil {
@@ -156,42 +147,34 @@ final class ImportHistory: Loggable {
             // every later change applies directly.
             loadGeneration += 1
             changesDuringLoad = nil
-            byType = Self.group(Self.fetchRecords(container.mainContext) ?? [])
+            byType = Self.group(Self.fetchRecords(container.viewContext) ?? [])
         }
         return byType?[category.rawValue] ?? []
     }
 
     // MARK: Saves
 
-    /// The ImportSession identifiers one save touched. Sendable, so it can leave the posting
+    /// The ImportSession object IDs one save touched. Sendable, so it can leave the posting
     /// thread.
     private struct SaveEvent: Sendable {
-        var changed: [PersistentIdentifier] = []
-        var deleted: [PersistentIdentifier] = []
+        var changed: [NSManagedObjectID] = []
+        var deleted: [NSManagedObjectID] = []
         var invalidatedAll = false
 
         init(_ note: Notification, entityName: String) {
             let info = note.userInfo ?? [:]
-            func ids(_ key: ModelContext.NotificationKey) -> [PersistentIdentifier] {
-                ((info[key.rawValue] as? [PersistentIdentifier]) ?? []).filter { $0.entityName == entityName }
+            func ids(_ key: String) -> [NSManagedObjectID] {
+                ((info[key] as? Set<NSManagedObjectID>) ?? []).filter { $0.entity.name == entityName }
             }
-            changed = ids(.insertedIdentifiers) + ids(.updatedIdentifiers)
-            deleted = ids(.deletedIdentifiers)
-            invalidatedAll = info[ModelContext.NotificationKey.invalidatedAllIdentifiers.rawValue] != nil
+            changed = ids(NSInsertedObjectIDsKey) + ids(NSUpdatedObjectIDsKey)
+            deleted = ids(NSDeletedObjectIDsKey)
+            invalidatedAll = info[NSInvalidatedAllObjectsKey] != nil
         }
 
         var isRelevant: Bool { !changed.isEmpty || !deleted.isEmpty || invalidatedAll }
     }
 
-    private func mainContextWillSave() {
-        guard let context = container?.mainContext else { return }
-        mainContextSaving = (context.insertedModelsArray + context.changedModelsArray)
-            .compactMap { $0 as? ImportSession }
-    }
-
     private func didSave(_ event: SaveEvent, onMainContext: Bool) {
-        let saving = onMainContext ? mainContextSaving : []
-        if onMainContext { mainContextSaving = [] }
         guard let container else { return }
         if event.invalidatedAll {
             reload()
@@ -199,11 +182,10 @@ final class ImportHistory: Loggable {
         }
         var changes = event.deleted.map(Change.delete)
         if !event.changed.isEmpty {
-            // The main context's own objects, just saved: reading them is not a fetch. Their
-            // identifiers are permanent by now, so they match the notification's.
-            let saved = Dictionary(saving.map { ($0.persistentModelID, $0) }) { first, _ in first }
+            // The main context's own objects, just saved and still registered there: reading
+            // them is not a fetch.
             let models: [ImportSession]? = onMainContext
-                ? event.changed.compactMap { saved[$0] ?? container.mainContext.registeredModel(for: $0) }
+                ? event.changed.compactMap { container.viewContext.registeredObject(for: $0) as? ImportSession }
                 : nil
             if let models, models.count == event.changed.count {
                 changes += models.map { .upsert(ImportSessionRecord($0)) }
@@ -253,7 +235,7 @@ final class ImportHistory: Loggable {
         let generation = loadGeneration
         changesDuringLoad = []
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
-            let records = Self.fetchRecords(ModelContext(container))
+            let records = Self.fetchRecords(container.makeBackgroundContext())
             Task { @MainActor in self?.finishLoad(records, generation: generation) }
         }
     }
@@ -277,9 +259,11 @@ final class ImportHistory: Loggable {
     func debugReload() { reload() }
     #endif
 
-    nonisolated private static func fetchRecords(_ context: ModelContext) -> [ImportSessionRecord]? {
-        let descriptor = FetchDescriptor<ImportSession>(sortBy: [SortDescriptor(\.sessionDate, order: .reverse)])
-        return (try? context.fetch(descriptor))?.map(ImportSessionRecord.init)
+    nonisolated private static func fetchRecords(_ context: NSManagedObjectContext) -> [ImportSessionRecord]? {
+        context.performAndWait {
+            let descriptor = ImportSession.request(sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)])
+            return (try? context.fetch(descriptor))?.map(ImportSessionRecord.init)
+        }
     }
 
     nonisolated private static func group(_ records: [ImportSessionRecord]) -> [String: [ImportSessionRecord]] {

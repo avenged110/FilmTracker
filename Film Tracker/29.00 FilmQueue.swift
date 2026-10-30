@@ -132,6 +132,17 @@ enum FilmQueue {
         return "Are you sure you want to add this film to the Queue? "
             + "It is flagged with the special sorting parameter\(isPlural ? "s" : "") \(quoted)."
     }
+
+    /// The confirmation message for adding `adding` films, `flagged` of them carrying
+    /// special-sorting tags. Shared by AlertHostView's multi-film drop/menu alert and the
+    /// MultiFilmSheet's Queue Membership picker.
+    static func addConfirmationMessage(adding: Int, flagged: Int) -> String {
+        let isPluralTotal = adding != 1
+        let isPluralFlagged = flagged != 1
+        return "Add \(adding) film\(isPluralTotal ? "s" : "") to the Queue? " +
+            "\(flagged) of \(isPluralTotal ? "them" : "it") " +
+            "\(isPluralFlagged ? "are" : "is") flagged with a special sorting parameter."
+    }
 }
 
 // MARK: - Up Next Capacity

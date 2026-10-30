@@ -775,7 +775,7 @@ extension DebugHarness {
             r.check("tab-first-pass-computes", noPrevious?.stats.totalFilms == films.count, "")
         }
 
-        let appState = AppState(modelContainer: coordinator.modelContainer, dataCoordinator: coordinator)
+        let appState = AppState(persistentContainer: coordinator.persistentContainer, dataCoordinator: coordinator)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1148, height: 700),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

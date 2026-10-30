@@ -16,6 +16,12 @@
 		83D7EC01B3C36BA5CE592EE9 /* 29.10 UpNextSlots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */; };
 		8DEE0C7CB2A20E44A3DF7CBF /* COPYING in Resources */ = {isa = PBXBuildFile; fileRef = 2317EABA733A9F7CD5E801C9 /* COPYING */; };
 		A71200000000000000000002 /* 70.10 ReleaseNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */; };
+		B0E0ED0000000000000000D2 /* 99.57 DHBulkEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */; };
+		B0E0ED000000000000000101 /* 30.25 FSSharedFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000001 /* 30.25 FSSharedFields.swift */; };
+		B0E0ED000000000000000102 /* 52.00 MultiFilmSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */; };
+		B0E0ED000000000000000103 /* 52.10 MultiFilmSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000003 /* 52.10 MultiFilmSheetView.swift */; };
+		B0E0ED000000000000000104 /* 52.20 BulkFilmEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */; };
+		C0DA7A000000000000000002 /* 11.05 LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA7A000000000000000001 /* 11.05 LibraryStore.swift */; };
 		CE0EAE952ED44979005C6F4D /* 23.71 SortFilterMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE942ED44979005C6F4D /* 23.71 SortFilterMenu.swift */; };
 		CE0EAE972ED44979005C6F4D /* 23.72 SelectionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE962ED44979005C6F4D /* 23.72 SelectionMenu.swift */; };
 		CE0EAE972ED5103C005C6F4D /* 23.60 ViewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE962ED5103C005C6F4D /* 23.60 ViewState.swift */; };
@@ -173,6 +179,12 @@
 		5A5E5E00000000000000000A /* 50.33 SavedSearchRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.33 SavedSearchRules.swift"; sourceTree = "<group>"; };
 		83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.10 UpNextSlots.swift"; sourceTree = "<group>"; };
 		A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "70.10 ReleaseNotifications.swift"; sourceTree = "<group>"; };
+		B0E0ED000000000000000001 /* 30.25 FSSharedFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "30.25 FSSharedFields.swift"; sourceTree = "<group>"; };
+		B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.00 MultiFilmSheet.swift"; sourceTree = "<group>"; };
+		B0E0ED000000000000000003 /* 52.10 MultiFilmSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.10 MultiFilmSheetView.swift"; sourceTree = "<group>"; };
+		B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.20 BulkFilmEdit.swift"; sourceTree = "<group>"; };
+		B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.57 DHBulkEdit.swift"; sourceTree = "<group>"; };
+		C0DA7A000000000000000001 /* 11.05 LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.05 LibraryStore.swift"; sourceTree = "<group>"; };
 		CCF2D4EABC0E20861B227B83 /* 29.20 ATVQIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.20 ATVQIntegration.swift"; sourceTree = "<group>"; };
 		CE0EAE942ED44979005C6F4D /* 23.71 SortFilterMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.71 SortFilterMenu.swift"; sourceTree = "<group>"; };
 		CE0EAE962ED44979005C6F4D /* 23.72 SelectionMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.72 SelectionMenu.swift"; sourceTree = "<group>"; };
@@ -357,6 +369,7 @@
 				CE42AD7B2EF63E700096D62D /* 10.30 KeyboardManager.swift */,
 				CE40BAD22EC88BC7009A4ECA /* 11.00 DataCoordinator.swift */,
 				CE40BAD02EC88925009A4ECA /* 11.10 DataManager.swift */,
+				C0DA7A000000000000000001 /* 11.05 LibraryStore.swift */,
 				CE0EAE9C2ED66B11005C6F4D /* 11.20 MemoryStore.swift */,
 				CEB5008D2F4B0071006A3232 /* 11.21 MemStoreCache.swift */,
 				CEF877C92ECC6EA2002D7E45 /* 11.30 PosterCache.swift */,
@@ -418,6 +431,7 @@
 				CED4BA052F850CB300DE89EF /* 30.01 FilmSheetView.swift */,
 				CE42AD4F2EE03B410096D62D /* 30.10 FSTextHelpers.swift */,
 				CE79C2EF2FCE628900162C62 /* 30.20 FSControlHelpers.swift */,
+				B0E0ED000000000000000001 /* 30.25 FSSharedFields.swift */,
 				CEC720B6301F4EDD00A5FE7F /* 30.30 FSStringList.swift */,
 				CEC720B8301F4EE600A5FE7F /* 30.40 FSFramesList.swift */,
 				CEC720BA3021C30700A5FE7F /* 30.50 FSTextList.swift */,
@@ -445,6 +459,9 @@
 				5A5E5E00000000000000000A /* 50.33 SavedSearchRules.swift */,
 				5A5E5E000000000000000006 /* 23.73 SavedSearchControls.swift */,
 				CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */,
+				B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */,
+				B0E0ED000000000000000003 /* 52.10 MultiFilmSheetView.swift */,
+				B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */,
 				CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */,
 				CE2A1F382E96277600EB1C02 /* 61.00 FilmObj.swift */,
 				CECF3DDC2EB5437800D7897A /* 62.00 ListObj.swift */,
@@ -513,6 +530,7 @@
 				CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */,
 				CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */,
 				CEFE00000000000000000B52 /* 99.56 DHReleasesFilter.swift */,
+				B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */,
 				CEFE00000000000000000011 /* 99.60 DHResizeProfiler.swift */,
 				CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */,
 			);
@@ -591,9 +609,13 @@
 				CE42AD742EF00C050096D62D /* 20.00 MainView.swift in Sources */,
 				CEDB2E9D2EA3876400E06F23 /* 32.00 FSTabMetadata.swift in Sources */,
 				CE79C2F02FCE628900162C62 /* 30.20 FSControlHelpers.swift in Sources */,
+				B0E0ED000000000000000101 /* 30.25 FSSharedFields.swift in Sources */,
 				CECF3DD72EB3325400D7897A /* 82.00 FilmComparison.swift in Sources */,
 				CE2A1F922E9C4C0A00EB1C02 /* 24.11 Header.swift in Sources */,
 				CE0EAEA52EDDA206005C6F4D /* 51.00 DuplicateSheet.swift in Sources */,
+				B0E0ED000000000000000102 /* 52.00 MultiFilmSheet.swift in Sources */,
+				B0E0ED000000000000000103 /* 52.10 MultiFilmSheetView.swift in Sources */,
+				B0E0ED000000000000000104 /* 52.20 BulkFilmEdit.swift in Sources */,
 				CECF3DC22EACDC5700D7897A /* 28.10 ImportProgress.swift in Sources */,
 				CEFE00000000000000000B61 /* 28.20 ImportHistory.swift in Sources */,
 				CEF877D02ECE6836002D7E45 /* 65.00 ImportSessionObj.swift in Sources */,
@@ -665,6 +687,7 @@
 				CECF3DEB2EB9D8BA00D7897A /* 24.02 RSBHelpers.swift in Sources */,
 				CE2A1F902E98FC2200EB1C02 /* 43.00 STabExport.swift in Sources */,
 				CE40BAD12EC88925009A4ECA /* 11.10 DataManager.swift in Sources */,
+				C0DA7A000000000000000002 /* 11.05 LibraryStore.swift in Sources */,
 				CE40BACF2EC804D6009A4ECA /* 28.00 ImportsView.swift in Sources */,
 				CE79C2F22FCF5A2100162C62 /* 23.30 GalleryListView.swift in Sources */,
 				CE55EE0000000000000055AA /* 23.55 PosterEdgeSheen.swift in Sources */,
@@ -710,6 +733,7 @@
 				CEFE00000000000000000B41 /* 99.54 DHImportsRemoval.swift in Sources */,
 				CEFE00000000000000000B51 /* 99.55 DHImportsSwitch.swift in Sources */,
 				CEFE00000000000000000B53 /* 99.56 DHReleasesFilter.swift in Sources */,
+				B0E0ED0000000000000000D2 /* 99.57 DHBulkEdit.swift in Sources */,
 				CEFE00000000000000000012 /* 99.60 DHResizeProfiler.swift in Sources */,
 				CEFE00000000000000000022 /* 99.51 DHFocusProbe.swift in Sources */,
 				CEFE00000000000000000024 /* 99.50 DHCardProfile.swift in Sources */,
@@ -873,7 +897,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 49;
+				CURRENT_PROJECT_VERSION = 55;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -924,7 +948,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 49;
+				CURRENT_PROJECT_VERSION = 55;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;

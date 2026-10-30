@@ -4,7 +4,7 @@
 // Manages background import progress tracking for ImportsView.swift
 
 import SwiftUI
-import SwiftData
+import CoreData
 
 @MainActor
 @Observable
@@ -46,7 +46,7 @@ final class ImportProgress: Loggable {
     var importStartDate: Date?
 
     private weak var dataCoordinator: DataCoordinator?
-    private weak var modelContext: ModelContext?
+    private weak var modelContext: NSManagedObjectContext?
     private var metaImporter: MetaImporter?
     private var ratingsImporter: RatingsImporter?
     var activeImportType: ImportsCategory?
@@ -75,7 +75,7 @@ final class ImportProgress: Loggable {
     private init() {}
 
     // Allow modelContext to be attached; idempotent after first assignment.
-    func attachContext(_ context: ModelContext) {
+    func attachContext(_ context: NSManagedObjectContext) {
         guard modelContext == nil else { return }
         self.modelContext = context
     }
@@ -90,9 +90,9 @@ final class ImportProgress: Loggable {
     // Single canonical resolver used by all session-management methods.
     // Prefers the directly-attached modelContext; falls back to the coordinator's
     // main context, which is equivalent when both originate from the same container.
-    private var resolvedContext: ModelContext? {
+    private var resolvedContext: NSManagedObjectContext? {
         if let ctx = modelContext { return ctx }
-        if let coordinator = dataCoordinator { return coordinator.modelContainer.mainContext }
+        if let coordinator = dataCoordinator { return coordinator.persistentContainer.viewContext }
         return nil
     }
     
@@ -212,10 +212,9 @@ final class ImportProgress: Loggable {
     // Centralizing this removes three copies of the same descriptor-construction
     // and context-resolution boilerplate; each call site keeps its own do/catch
     // so error logging stays specific to what was being attempted.
-    private func fetchCurrentSession(context: ModelContext) throws -> ImportSession? {
+    private func fetchCurrentSession(context: NSManagedObjectContext) throws -> ImportSession? {
         guard let sessionID = currentSessionID else { return nil }
-        let descriptor = FetchDescriptor<ImportSession>(
-            predicate: #Predicate { $0.id == sessionID })
+        let descriptor = ImportSession.request(.equals("id", sessionID))
         return try context.fetch(descriptor).first
     }
 

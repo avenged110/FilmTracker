@@ -4,7 +4,7 @@
 // FilmTracker.app settings window: "Export" tab.
 
 import SwiftUI
-import SwiftData
+import CoreData
 
 // MARK: - Tab Description
 
@@ -479,14 +479,14 @@ final class ExportViewModel: Loggable {
     private var isConfigured = false
     private weak var dataCoordinator: DataCoordinator?
 
-    func configure(modelContainer: ModelContainer?,
+    func configure(persistentContainer: NSPersistentContainer?,
                    dataCoordinator: DataCoordinator? = nil) {
         guard !isConfigured else { return }
-        // The exporter is built from the ModelContainer, never from a long-lived
-        // ModelContext: DBExporter creates a fresh ModelContext per export internally, so
+        // The exporter is built from the NSPersistentContainer, never from a long-lived
+        // NSManagedObjectContext: DBExporter creates a fresh NSManagedObjectContext per export internally, so
         // each backup reflects the current persisted state rather than a stale snapshot.
-        guard let container = modelContainer else { return }
-        self.exporter = DBExporter(modelContainer: container)
+        guard let container = persistentContainer else { return }
+        self.exporter = DBExporter(persistentContainer: container)
         self.dataCoordinator = dataCoordinator
         isConfigured = true }
 
@@ -561,7 +561,7 @@ final class ExportViewModel: Loggable {
                 await self.dataCoordinator?.commitPendingWritesForExport()
 
                 // Collect posterUIDs from MemoryStore for orphan poster pruning.
-                // In-memory read on MainActor — near-instant, no ModelContext access required.
+                // In-memory read on MainActor — near-instant, no NSManagedObjectContext access required.
                 //
                 // Passed through as-is, including when it is EMPTY, so that this call agrees
                 // with the automatic launch backup, which has always passed the set through

@@ -27,7 +27,6 @@
 // materialized eagerly on every body evaluation.
 
 import SwiftUI
-import SwiftData
 import AppKit
 
 // MARK: - Filter Menu Blocks

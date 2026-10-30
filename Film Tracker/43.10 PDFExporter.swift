@@ -88,7 +88,7 @@ enum LibraryPDFExporter: Loggable {
     /// - Parameters:
     ///   - dataCoordinator: The live in-memory store every section is derived from. All
     ///     reads are `MemoryStore` dictionary copies, so this is a synchronous snapshot of
-    ///     the library with no I/O and no `ModelContext` access.
+    ///     the library with no I/O and no `NSManagedObjectContext` access.
     ///   - destinationFolder: A security-scoped folder URL, as returned by
     ///     `OpenPanelPresenter`.
     ///   - sections: The sheets to include, in `LibraryPDFSection.allCases` order regardless

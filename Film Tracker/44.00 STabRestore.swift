@@ -4,7 +4,7 @@
 // FilmTracker.app settings window: "Restore" tab.
 
 import SwiftUI
-import SwiftData
+import CoreData
 import UniformTypeIdentifiers
 
 // MARK: - Backup Info Box
@@ -189,12 +189,12 @@ struct RestoreSettingsView: View {
         }
         // "Restore Error" alert.
         //
-        // Two shapes, chosen by how far the restore got. A failure BEFORE the persistent
-        // store was rebuilt left the existing database untouched, so the session carries on
-        // and the alert simply dismisses. A failure AFTER it cannot be carried on from —
-        // the old store's files are already gone — so the alert offers the same forced
-        // relaunch the success path does, and no way to dismiss back into a session whose
-        // writes would land in an unlinked file. See DBRestorer.storeWasRebuilt.
+        // Two shapes, chosen by how far the restore got. A failure BEFORE the restored
+        // library was committed left the existing database untouched, so the session carries
+        // on and the alert simply dismisses. A failure AFTER it (settings, posters) cannot be
+        // dismissed back into the session, because the restored library replaces this one at
+        // the next launch, so the alert offers the same forced relaunch the success path
+        // does. See DBRestorer.requiresRestart.
         .alert("Restoration Failed", isPresented: $viewModel.showRestoreError) {
             if viewModel.restoreFailureRequiresRestart {
                 Button("Quit and Restart") {
@@ -295,7 +295,7 @@ final class RestoreViewModel: Loggable {
     
     // MARK: - Dependencies
     private weak var dataCoordinator: DataCoordinator?
-    private var modelContainer: ModelContainer?
+    private var persistentContainer: NSPersistentContainer?
     
     struct BackupFileInfo {
         let url: URL
@@ -336,9 +336,9 @@ final class RestoreViewModel: Loggable {
     
     // MARK: - Configuration
     
-    func configure(dataCoordinator: DataCoordinator, modelContainer: ModelContainer) {
+    func configure(dataCoordinator: DataCoordinator, persistentContainer: NSPersistentContainer) {
         self.dataCoordinator = dataCoordinator
-        self.modelContainer = modelContainer
+        self.persistentContainer = persistentContainer
     }
     
     // MARK: - File Selection
@@ -484,7 +484,7 @@ final class RestoreViewModel: Loggable {
     
     func performRestore() {
         guard let info = backupInfo,
-              let container = modelContainer else { return }
+              let container = persistentContainer else { return }
         
         // Start the restore state
         isRestoring = true
@@ -524,18 +524,11 @@ final class RestoreViewModel: Loggable {
                     }
                 } catch {
                     // Record how far the restore got BEFORE the error is classified below.
-                    // Past the store rebuild there is no live database left to return to,
-                    // so the failure alert must force a relaunch rather than dismiss.
-                    self.restoreFailureRequiresRestart = restorer.storeWasRebuilt
+                    // Once the restored library is committed it replaces this one at the
+                    // next launch, so the failure alert must force a relaunch rather than
+                    // dismiss.
+                    self.restoreFailureRequiresRestart = restorer.requiresRestart
                     throw error
-                }
-                
-                // If the database restore succeeded but the settings-apply step
-                // failed (non-fatal), append a note to the completion message so the
-                // user knows to verify preferences after relaunch.
-                if let failureMessage = restorer.settingsApplyFailure {
-                    self.restoreCompletionMessage =
-                        "The database was restored successfully, but restored preferences could not be applied to the current session (\(failureMessage)). Preferences will be reloaded from the database the next time the application launches."
                 }
                 
                 // Mark complete and do not refresh any data here. The application
@@ -558,8 +551,8 @@ final class RestoreViewModel: Loggable {
     private func finishWithFailure(_ message: String) {
         isRestoring = false
         restoreErrorMessage = restoreFailureRequiresRestart
-            ? message + "\n\nThe previous database has already been replaced and cannot be "
-                + "recovered in this session. The application must be restarted."
+            ? message + "\n\nThe restored library is already saved and replaces this one when "
+                + "Film Tracker restarts. The application must be restarted."
             : message
         showRestoreError = true
         Self.log("WARNING: Restore failed (requiresRestart=\(restoreFailureRequiresRestart)): \(message)")

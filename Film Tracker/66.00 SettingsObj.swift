@@ -1,81 +1,217 @@
 // MARK: - SettingsObj.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// SwiftData model to persist user preferences for backup/restore functionality.
+// Core Data model to persist user preferences for backup/restore functionality.
 
 import Foundation
-import SwiftData
+import CoreData
 
-@Model
-final class SettingsObject {
+@objc(SettingsObject)
+final class SettingsObject: LibraryObject {
     // MARK: - Metadata
-    @Attribute(.unique) var snapshotID: UUID
-    var version: Int
-    var lastSyncDate: Date
+    var snapshotID: UUID { get { requiredUUID("snapshotID") } set { setValue(newValue, forKey: "snapshotID") } } // See requiredUUID.
+    @NSManaged var version: Int
+    @NSManaged var lastSyncDate: Date
     
     // MARK: - General Preferences
-    var confirmGalleryDelete: Bool?
-    var confirmListEdits: Bool?
-    var listEditScope: Int?
-    var confirmReleaseDelete: Bool?
-    var largeGalleryGrid: Bool?
-    var showStatusBar: Bool?
-    var rememberRightSidebarTab: Bool?
-    var rememberRightSidebarReleasesFilter: Bool?
-    var autoExpandRightSidebarTables: Bool?
-    var additionalCalTableDetails: Bool?
-    var showReleasesSummaryTable: Bool?
-    var iCalIntegration: Bool?
-    var manualExtQuery: Bool?
-    var smartLists: Bool?
-    var excludeQueuedFromUpForRotation: Bool?
-    var maintainSelectionOnSearchExit: Bool?
-    var showSearchSuggestions: Bool?
-    var showRecentSearches: Bool?
-    var showInfoComplete: Bool?
-    var performBackupAtLaunch: Bool?
-    var defaultRotationThreshold: Int?
+    var confirmGalleryDelete: Bool? {
+        get { optionalBool("confirmGalleryDelete") }
+        set { setOptionalBool(newValue, "confirmGalleryDelete") }
+    }
+    var confirmListEdits: Bool? {
+        get { optionalBool("confirmListEdits") }
+        set { setOptionalBool(newValue, "confirmListEdits") }
+    }
+    var listEditScope: Int? {
+        get { optionalInt("listEditScope") }
+        set { setOptionalInt(newValue, "listEditScope") }
+    }
+    var confirmReleaseDelete: Bool? {
+        get { optionalBool("confirmReleaseDelete") }
+        set { setOptionalBool(newValue, "confirmReleaseDelete") }
+    }
+    var largeGalleryGrid: Bool? {
+        get { optionalBool("largeGalleryGrid") }
+        set { setOptionalBool(newValue, "largeGalleryGrid") }
+    }
+    var showStatusBar: Bool? {
+        get { optionalBool("showStatusBar") }
+        set { setOptionalBool(newValue, "showStatusBar") }
+    }
+    var rememberRightSidebarTab: Bool? {
+        get { optionalBool("rememberRightSidebarTab") }
+        set { setOptionalBool(newValue, "rememberRightSidebarTab") }
+    }
+    var rememberRightSidebarReleasesFilter: Bool? {
+        get { optionalBool("rememberRightSidebarReleasesFilter") }
+        set { setOptionalBool(newValue, "rememberRightSidebarReleasesFilter") }
+    }
+    var autoExpandRightSidebarTables: Bool? {
+        get { optionalBool("autoExpandRightSidebarTables") }
+        set { setOptionalBool(newValue, "autoExpandRightSidebarTables") }
+    }
+    var additionalCalTableDetails: Bool? {
+        get { optionalBool("additionalCalTableDetails") }
+        set { setOptionalBool(newValue, "additionalCalTableDetails") }
+    }
+    var showReleasesSummaryTable: Bool? {
+        get { optionalBool("showReleasesSummaryTable") }
+        set { setOptionalBool(newValue, "showReleasesSummaryTable") }
+    }
+    var iCalIntegration: Bool? {
+        get { optionalBool("iCalIntegration") }
+        set { setOptionalBool(newValue, "iCalIntegration") }
+    }
+    var manualExtQuery: Bool? {
+        get { optionalBool("manualExtQuery") }
+        set { setOptionalBool(newValue, "manualExtQuery") }
+    }
+    var smartLists: Bool? {
+        get { optionalBool("smartLists") }
+        set { setOptionalBool(newValue, "smartLists") }
+    }
+    var excludeQueuedFromUpForRotation: Bool? {
+        get { optionalBool("excludeQueuedFromUpForRotation") }
+        set { setOptionalBool(newValue, "excludeQueuedFromUpForRotation") }
+    }
+    var maintainSelectionOnSearchExit: Bool? {
+        get { optionalBool("maintainSelectionOnSearchExit") }
+        set { setOptionalBool(newValue, "maintainSelectionOnSearchExit") }
+    }
+    var showSearchSuggestions: Bool? {
+        get { optionalBool("showSearchSuggestions") }
+        set { setOptionalBool(newValue, "showSearchSuggestions") }
+    }
+    var showRecentSearches: Bool? {
+        get { optionalBool("showRecentSearches") }
+        set { setOptionalBool(newValue, "showRecentSearches") }
+    }
+    var showInfoComplete: Bool? {
+        get { optionalBool("showInfoComplete") }
+        set { setOptionalBool(newValue, "showInfoComplete") }
+    }
+    var performBackupAtLaunch: Bool? {
+        get { optionalBool("performBackupAtLaunch") }
+        set { setOptionalBool(newValue, "performBackupAtLaunch") }
+    }
+    var defaultRotationThreshold: Int? {
+        get { optionalInt("defaultRotationThreshold") }
+        set { setOptionalInt(newValue, "defaultRotationThreshold") }
+    }
     
     // MARK: - Import Preferences
-    var importScanSubfolders: Bool?
-    var fuzzyImportMatching: Bool?
-    var fuzzyImportYearMatching: Bool?
-    var overrideSortNameField: Bool?
-    var allowUpdatesForDuplicateImports: Bool?
-    var allowUpdatesForDuplicateRatings: Bool?
+    var importScanSubfolders: Bool? {
+        get { optionalBool("importScanSubfolders") }
+        set { setOptionalBool(newValue, "importScanSubfolders") }
+    }
+    var fuzzyImportMatching: Bool? {
+        get { optionalBool("fuzzyImportMatching") }
+        set { setOptionalBool(newValue, "fuzzyImportMatching") }
+    }
+    var fuzzyImportYearMatching: Bool? {
+        get { optionalBool("fuzzyImportYearMatching") }
+        set { setOptionalBool(newValue, "fuzzyImportYearMatching") }
+    }
+    var overrideSortNameField: Bool? {
+        get { optionalBool("overrideSortNameField") }
+        set { setOptionalBool(newValue, "overrideSortNameField") }
+    }
+    var allowUpdatesForDuplicateImports: Bool? {
+        get { optionalBool("allowUpdatesForDuplicateImports") }
+        set { setOptionalBool(newValue, "allowUpdatesForDuplicateImports") }
+    }
+    var allowUpdatesForDuplicateRatings: Bool? {
+        get { optionalBool("allowUpdatesForDuplicateRatings") }
+        set { setOptionalBool(newValue, "allowUpdatesForDuplicateRatings") }
+    }
     
     // MARK: - Export Preferences
-    var exportPosterImages: Bool?
-    var prunePosterImages: Bool?
-    var exportUserSettings: Bool?
+    var exportPosterImages: Bool? {
+        get { optionalBool("exportPosterImages") }
+        set { setOptionalBool(newValue, "exportPosterImages") }
+    }
+    var prunePosterImages: Bool? {
+        get { optionalBool("prunePosterImages") }
+        set { setOptionalBool(newValue, "prunePosterImages") }
+    }
+    var exportUserSettings: Bool? {
+        get { optionalBool("exportUserSettings") }
+        set { setOptionalBool(newValue, "exportUserSettings") }
+    }
     
     // MARK: - UI State Preferences
-    var maintainScrollPositionOnViewSwitch: Bool?
-    var rememberTabSelection: Bool?
-    var tabRememberScope: Int?
-    var lastRecentsCategory: String?
-    var lastReportsCategory: String?
-    var rememberImportsTab: Bool?
-    var lastImportsCategory: String?
-    var rememberSortFilterSelections: Bool?
-    var confirmFilmQueueAdd: Bool?
-    var notifyAboutNewReleases: Bool?
-    var onlyNotifyForWishlisted: Bool?
-    var queueIsDropTarget: Bool?
-    var queueSectionOnDrop: Int?
-    var strictFramesTableChecking: Bool?
-    var showWatchDetailsAnnotationGlyphs: Bool?
-    var atvq: Bool?
+    var maintainScrollPositionOnViewSwitch: Bool? {
+        get { optionalBool("maintainScrollPositionOnViewSwitch") }
+        set { setOptionalBool(newValue, "maintainScrollPositionOnViewSwitch") }
+    }
+    var rememberTabSelection: Bool? {
+        get { optionalBool("rememberTabSelection") }
+        set { setOptionalBool(newValue, "rememberTabSelection") }
+    }
+    var tabRememberScope: Int? {
+        get { optionalInt("tabRememberScope") }
+        set { setOptionalInt(newValue, "tabRememberScope") }
+    }
+    @NSManaged var lastRecentsCategory: String?
+    @NSManaged var lastReportsCategory: String?
+    var rememberImportsTab: Bool? {
+        get { optionalBool("rememberImportsTab") }
+        set { setOptionalBool(newValue, "rememberImportsTab") }
+    }
+    @NSManaged var lastImportsCategory: String?
+    var rememberSortFilterSelections: Bool? {
+        get { optionalBool("rememberSortFilterSelections") }
+        set { setOptionalBool(newValue, "rememberSortFilterSelections") }
+    }
+    var confirmFilmQueueAdd: Bool? {
+        get { optionalBool("confirmFilmQueueAdd") }
+        set { setOptionalBool(newValue, "confirmFilmQueueAdd") }
+    }
+    var notifyAboutNewReleases: Bool? {
+        get { optionalBool("notifyAboutNewReleases") }
+        set { setOptionalBool(newValue, "notifyAboutNewReleases") }
+    }
+    var onlyNotifyForWishlisted: Bool? {
+        get { optionalBool("onlyNotifyForWishlisted") }
+        set { setOptionalBool(newValue, "onlyNotifyForWishlisted") }
+    }
+    var queueIsDropTarget: Bool? {
+        get { optionalBool("queueIsDropTarget") }
+        set { setOptionalBool(newValue, "queueIsDropTarget") }
+    }
+    var queueSectionOnDrop: Int? {
+        get { optionalInt("queueSectionOnDrop") }
+        set { setOptionalInt(newValue, "queueSectionOnDrop") }
+    }
+    var strictFramesTableChecking: Bool? {
+        get { optionalBool("strictFramesTableChecking") }
+        set { setOptionalBool(newValue, "strictFramesTableChecking") }
+    }
+    var showWatchDetailsAnnotationGlyphs: Bool? {
+        get { optionalBool("showWatchDetailsAnnotationGlyphs") }
+        set { setOptionalBool(newValue, "showWatchDetailsAnnotationGlyphs") }
+    }
+    var atvq: Bool? {
+        get { optionalBool("atvq") }
+        set { setOptionalBool(newValue, "atvq") }
+    }
     
     // MARK: - Advanced Preferences
-    var loggingEnabled: Bool?
+    var loggingEnabled: Bool? {
+        get { optionalBool("loggingEnabled") }
+        set { setOptionalBool(newValue, "loggingEnabled") }
+    }
     
     // MARK: - Complex Preferences (stored as JSON strings)
-    var selectedSortOptionsJSON: String?
-    var ignoredDuplicatePairsJSON: String?
+    @NSManaged var selectedSortOptionsJSON: String?
+    @NSManaged var ignoredDuplicatePairsJSON: String?
     
     // MARK: - Initialization
-    init(snapshotID: UUID = UUID(), version: Int = 1, lastSyncDate: Date = Date()) {
+    /// Every default; see LibraryObject.init(detached:).
+    convenience init() { self.init(snapshotID: UUID()) }
+
+    convenience init(snapshotID: UUID = UUID(), version: Int = 1, lastSyncDate: Date = Date()) {
+        self.init(detached: ())
         self.snapshotID = snapshotID
         self.version = version
         self.lastSyncDate = lastSyncDate
@@ -94,8 +230,7 @@ extension SettingsObject: ExportableModel {
         return snapshotID.uuidString
     }
     
-    // Override extractExportValues() to explicitly export all properties
-    // The default Mirror-based implementation doesn't properly handle SwiftData optional properties
+    // Exports every property explicitly; an unset optional is left out.
     func extractExportValues() -> (properties: [String: Any], relationships: [String: [Any]]) {
         var props: [String: Any] = [:]
         

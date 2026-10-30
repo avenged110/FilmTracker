@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Reusable utilities for normalizing poster images and pruning orphaned posters.
 
-import SwiftData
+import CoreData
 import Foundation
 import os
 import AppKit
@@ -264,7 +264,7 @@ enum PosterReservations {
 // Prunes orphaned poster images from Preferences.posterImagesFolderURL.
 // ARCHITECTURE: PosterPruner is a pure file-system utility. It accepts a Set of valid
 // posterUIDs (sourced from MemoryStore via DataCoordinator) and compares them against
-// files on disk. It never touches the database or ModelContext directly, which means:
+// files on disk. It never touches the database or NSManagedObjectContext directly, which means:
 //   1. No @MainActor requirement - it can run freely on any thread.
 //   2. No thread-safety concerns - it operates on value types (Set<String>) and file I/O.
 //   3. No isolation boundary crossings - the data it needs is already Sendable.
@@ -287,7 +287,7 @@ enum PosterPruner: Loggable {
     // Prunes poster images that do not correspond to a known posterUID.
     //
     // IMPORTANT: This method accepts pre-collected posterUIDs from MemoryStore (via
-    // DataCoordinator.getAllPosterUIDs()). It does NOT access ModelContext or the database.
+    // DataCoordinator.getAllPosterUIDs()). It does NOT access NSManagedObjectContext or the database.
     // All data it needs is passed in as Sendable value types, so it can safely run on
     // any thread without isolation concerns.
     //
@@ -316,8 +316,8 @@ enum PosterPruner: Loggable {
         //   1. The library genuinely contains no films (or no films with posters). Every file
         //      in the folder is an orphan, so aborting leaves some dead files behind until the
         //      next prune that runs with at least one valid UID — cosmetic and fully recoverable.
-        //   2. The library could not be read (a SwiftData fetch failure leaves MemoryStore
-        //      empty, and an @Model-layer failure is exactly the kind of transient problem that
+        //   2. The library could not be read (a store fetch failure leaves MemoryStore
+        //      empty, and an model-layer failure is exactly the kind of transient problem that
         //      resolves on the next launch). Proceeding here would delete EVERY poster image
         //      the user owns, irreversibly, with the source films still intact in the database.
         //

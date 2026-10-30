@@ -182,7 +182,7 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     }
 
     // MARK: - Configuration
-    /// Accepts a FilmSnapshot value type -- no live SwiftData object references.
+    /// Accepts a FilmSnapshot value type -- no live model-object references.
     ///
     /// `subtitleProvider`, when non-nil, is queried for this film's subtitle text on every
     /// call. GallerySubview's Coordinator pushes the actual provider closure here explicitly

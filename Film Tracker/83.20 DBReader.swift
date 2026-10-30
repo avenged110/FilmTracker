@@ -1,14 +1,14 @@
 // MARK: - DBReader.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Reads SwiftData ModelContext contents and exposes a normalized export structure.
+// Reads NSManagedObjectContext contents and exposes a normalized export structure.
 //
 // Usage summary:
 //   1. Make your model types conform to `ExportableModel` (examples below).
 //   2. Create DBReader and call exportAll(types:progress:).
 
 import Foundation
-import SwiftData
+import CoreData
 
 // Shared ISO 8601 style ("2026-09-27T12:34:56Z", UTC) — reused by AnyCodable and DBReader.
 // A Sendable value, so it is usable from Codable's nonisolated requirements with no escape.
@@ -122,16 +122,15 @@ extension ExportPackage: @unchecked Sendable {}
 
 // MARK: - ExportableModel protocol
 /// Types must provide a fetch method and property extraction.
-/// Default convenience implementation is supplied if your type is a SwiftData @Model and has `id: UUID` property.
 public protocol ExportableModel: AnyObject {
     static var entityName: String { get }
-    /// Fetch all objects of this type from the supplied ModelContext.
+    /// Fetch all objects of this type from the supplied NSManagedObjectContext.
     ///
     /// Nonisolated and synchronous, so it runs wherever the context lives: on the
     /// MainActor for a manual export, on `BackgroundExportReader`'s own executor for the
-    /// automatic one. ModelContext is not Sendable, so the caller must be the context's
+    /// automatic one. NSManagedObjectContext is not Sendable, so the caller must be the context's
     /// own isolation — which a synchronous call from that isolation always is.
-    static func fetchAll(in context: ModelContext) throws -> [Self]
+    static func fetchAll(in context: NSManagedObjectContext) throws -> [Self]
     /// Extract properties (scalars) and relationships (names -> [related objects]) for an instance.
     /// Conforming types can implement a custom extractor; a Mirror-based default extractor is provided.
     func extractExportValues() -> (properties: [String: Any], relationships: [String: [Any]])
@@ -143,133 +142,11 @@ public enum DBReaderError: Error {
     case fetchFailed(entity: String, underlying: any Error)
 }
 
-/// Default implementations
-public extension ExportableModel where Self: PersistentModel {
-    static var entityName: String { String(describing: Self.self) }
-
-    /// A naive default fetch implementation. It will compile only for concrete SwiftData model classes
-    /// that conform to `@Model` and for which `ModelContext`'s fetch(_:predicate:limit:sortDescriptors:) works.
-    /// Because ModelContext.fetch requires a typed request, we provide a default using `context.fetch(Self.fetchRequest())`
-    static func fetchAll(in context: ModelContext) throws -> [Self] {
-        // Use FetchDescriptor for the model type. ModelContext.fetch is synchronous; it's fine to call from async context.
-        let descriptor = FetchDescriptor<Self>()
-        return try context.fetch(descriptor)
-    }
-
-    func extractExportValues() -> (properties: [String: Any], relationships: [String: [Any]]) {
-        // Mirror-based generic extractor with SwiftData internal filtering:
-        var props: [String: Any] = [:]
-        var rels: [String: [Any]] = [:]
-
-        let mirror = Mirror(reflecting: self)
-        
-        // Collect all property names to help filter SwiftData internals
-        var propertyNames: Set<String> = []
-        for child in mirror.children {
-            guard let label = child.label else { continue }
-            // Skip SwiftData observation internals
-            if label.hasPrefix("_$") { continue }
-            // If it starts with _, extract the base name
-            if label.hasPrefix("_") {
-                let baseName = String(label.dropFirst())
-                propertyNames.insert(baseName)
-            } else {
-                propertyNames.insert(label)
-            }
-        }
-        
-        for child in mirror.children {
-            guard let label = child.label else { continue }
-            let value = child.value
-            
-            // Skip SwiftData observation internals (e.g., _$observationRegistrar, _$backingData)
-            if label.hasPrefix("_$") {
-                continue
-            }
-            
-            // Skip SwiftData internal storage if the public property exists
-            // (e.g., skip "_id" if we have "id" or will process it)
-            if label.hasPrefix("_") {
-                let baseName = String(label.dropFirst())
-                // If this is SwiftData backing storage for a public property, skip it
-                if propertyNames.contains(baseName) && baseName != label {
-                    continue
-                }
-            }
-            
-            // Skip _SwiftDataNoType() values - these are internal placeholders
-            let valueString = String(describing: value)
-            if valueString.contains("_SwiftDataNoType") {
-                continue
-            }
-
-            // Quick heuristics:
-            if value is String || value is Int || value is Double || value is Bool || value is Date || value is UUID {
-                props[label] = value
-            } else if let optional = value as? any OptionalProtocol {
-                if optional.isNil {
-                    props[label] = NSNull()
-                } else {
-                    let unwrapped = optional.wrappedValue
-                    if unwrapped is String || unwrapped is Int || unwrapped is Double || unwrapped is Bool || unwrapped is Date || unwrapped is UUID {
-                        props[label] = unwrapped
-                    } else {
-                        // Treat as relationship
-                        rels[label] = [unwrapped]
-                    }
-                }
-            } else if let seq = value as? (any Sequence) {
-                // relationships may show as collections
-                var ids: [Any] = []
-                for element in seq {
-                    ids.append(element)
-                }
-                rels[label] = ids
-            } else {
-                // fallback — push a description into props
-                props[label] = String(describing: value)
-            }
-        }
-
-        return (properties: props, relationships: rels)
-    }
-
-    func exportStableID() -> String? {
-        // Look for common properties named "id", "uuid", "identifier"
-        let mirror = Mirror(reflecting: self)
-        for child in mirror.children {
-            if let label = child.label?.lowercased(), ["id", "uuid", "identifier"].contains(label) {
-                if let val = child.value as? UUID {
-                    return val.uuidString
-                } else if let s = child.value as? String {
-                    return s
-                } else if let i = child.value as? Int {
-                    return String(i)
-                }
-            }
-        }
-        return nil
-    }
-}
-
-// Helper protocol to check optionals generically (Mirror doesn't unwrap)
-fileprivate protocol OptionalProtocol {
-    var isNil: Bool { get }
-    var wrappedValue: Any { get }
-}
-extension Optional: OptionalProtocol {
-    var isNil: Bool { self == nil }
-    var wrappedValue: Any {
-        switch self {
-        case .some(let v): return v
-        // Callers must check isNil before accessing wrappedValue. Returning NSNull()
-        // here (rather than crashing) is a defensive fallback: the surrounding
-        // exportProperties logic already handles NSNull by writing it into props as a
-        // null marker, which DBPackager serializes as an empty string — a safe no-op.
-        // Using fatalError would crash the entire export if this branch were ever
-        // reached by a future refactor that bypasses the isNil guard.
-        case .none: return NSNull()
-        }
+/// Default implementation: every row of the entity, unsorted. Every model supplies its own
+/// `extractExportValues()` and `exportStableID()`.
+extension ExportableModel where Self: LibraryObject {
+    static func fetchAll(in context: NSManagedObjectContext) throws -> [Self] {
+        try context.fetch(Self.request())
     }
 }
 
@@ -280,13 +157,24 @@ extension Optional: OptionalProtocol {
 /// Not bound to any actor: `exportAll` runs in whatever isolation calls it (its `isolation`
 /// parameter), which must be the isolation that owns `context`. A manual export calls it
 /// from the MainActor with a main-thread context; the automatic backup calls it from
-/// `BackgroundExportReader`, a `@ModelActor` with its own context, so the whole read —
+/// `BackgroundExportReader`, a context actor (ContextExecutor), so the whole read —
 /// the fetches and every object's conversion — stays off the main thread.
 public final class DBReader {
-    private let context: ModelContext
+    private let context: NSManagedObjectContext
 
-    public init(context: ModelContext) {
+    public init(context: NSManagedObjectContext) {
         self.context = context
+    }
+
+    /// Whether every store behind `context` supports query generations: SQLite, writable,
+    /// and in WAL mode (Core Data's default unless a journal_mode pragma says otherwise).
+    private static func canPinQueryGeneration(_ context: NSManagedObjectContext) -> Bool {
+        guard let stores = context.persistentStoreCoordinator?.persistentStores, !stores.isEmpty else { return false }
+        return stores.allSatisfy { store in
+            guard store.type == NSSQLiteStoreType, !store.isReadOnly else { return false }
+            let pragmas = store.options?[NSSQLitePragmasOption] as? [String: Any]
+            return ((pragmas?["journal_mode"] as? String) ?? "WAL").uppercased() == "WAL"
+        }
     }
 
     /// Export all provided types. `types` is an array of ExportableModel metatypes.
@@ -309,6 +197,18 @@ public final class DBReader {
         // allocations on a large library. exportAll runs entirely on the MainActor, so
         // reusing one encoder across the loop is safe (no concurrent access).
         let jsonEncoder = JSONEncoder()
+
+        // One moment for the whole backup. Each entity is a separate fetch, and a write
+        // committed between two of them (a film added after the Film fetch, its releases
+        // fetched after) would otherwise put two moments in one file. Pinning the context to
+        // the store's current query generation makes every fetch read the same snapshot.
+        // Both callers pass a fresh context used only for this read, so nothing else is
+        // frozen. Only on a writable WAL store: on any other (read-only, rollback-journal,
+        // in-memory) the pin is accepted but every fetch after it fails, so those read as
+        // they always did.
+        if Self.canPinQueryGeneration(context) {
+            try? context.setQueryGenerationFrom(.current)
+        }
 
         // Single pass: fetch all entities once and cache results.
         // Previously this was two passes (count then export), doubling database I/O.
@@ -502,22 +402,26 @@ public final class DBReader {
 // MARK: - BackgroundExportReader
 
 /// Runs `DBReader.exportAll` for the automatic backup on a background executor with its own
-/// ModelContext.
+/// NSManagedObjectContext.
 ///
-/// The context is created by `@ModelActor`'s initializer, fresh and empty, so every fetch
-/// materializes from the persistent store — the same guarantee the manual export gets from
-/// the fresh MainActor context DBExporter creates for it.
-///
-/// Must be INITIALIZED off the main thread. SwiftData's default model executor serves its
-/// context on the queue it was created on, so an instance created on the main thread would
-/// run its whole read there and undo the point of it. DBExporter constructs it inside a
-/// detached task for that reason.
-@ModelActor
+/// The context is created by the initializer, fresh and empty, so every fetch materializes
+/// from the persistent store — the same guarantee the manual export gets from the fresh
+/// main-queue context DBExporter creates for it. Its jobs run on that context's private
+/// queue (ContextExecutor), wherever the actor was created.
 actor BackgroundExportReader {
+    // A context actor, as DataManager is: a fresh private-queue context whose queue runs
+    // this actor's jobs (ContextExecutor).
+    private nonisolated let executor: ContextExecutor
+    nonisolated var unownedExecutor: UnownedSerialExecutor { unsafe executor.asUnownedSerialExecutor() }
+
+    init(persistentContainer: NSPersistentContainer) {
+        executor = ContextExecutor(context: persistentContainer.makeBackgroundContext())
+    }
+
     func exportAll(types: ExportModelTypes,
                    appVersion: String?,
                    progress: (@Sendable (Double) -> Void)?) async throws -> ExportPackage {
-        try await DBReader(context: modelContext).exportAll(
+        try await DBReader(context: executor.context).exportAll(
             types: types.types, appVersion: appVersion, isBackgroundExport: true, progress: progress)
     }
 }

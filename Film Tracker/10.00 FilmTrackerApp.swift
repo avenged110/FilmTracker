@@ -1,10 +1,10 @@
 // MARK: - FilmTrackerApp.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Main application entry point with SwiftData model container initialization.
+// Main application entry point with Core Data persistent container initialization.
 
 import SwiftUI
-import SwiftData
+import CoreData
 import Combine
 import Observation
 
@@ -20,7 +20,7 @@ struct FilmTrackerApp: App, Loggable {
     @State private var selectionState = SelectionState.shared
     @State private var dataCoordinator: DataCoordinator
 
-    private let modelContainer: ModelContainer
+    private let persistentContainer: NSPersistentContainer
 
     // Set to true when createModelContainer() falls back to an in-memory store.
     // initializeApp() reads this flag and fires the "Library Unavailable" alert,
@@ -32,7 +32,7 @@ struct FilmTrackerApp: App, Loggable {
     // afterwards. SwiftUI App structs can be recreated between body evaluations in some
     // framework versions; a mutable stored property on an App struct has no guaranteed
     // persistence across such recreations, whereas an immutable 'let' set during init
-    // coincides with the single process-wide ModelContainer creation and is safe.
+    // coincides with the single process-wide NSPersistentContainer creation and is safe.
     private let persistentContainerFailed: Bool
 
     init() {
@@ -48,16 +48,20 @@ struct FilmTrackerApp: App, Loggable {
         // folder. Does not return if another instance already holds it.
         Self.acquireInstanceLockOrExit()
 
+        // A restore (or Create New Library) committed last session is swapped in now, while
+        // nothing has the store open. See PendingRestore.
+        Self.applyPendingRestore()
+
         let result = Self.createModelContainer()
         LaunchTimeline.mark("containerOpen")
-        self.modelContainer = result.container
+        self.persistentContainer = result.container
         self.persistentContainerFailed = result.failed
 
-        let coordinator = DataCoordinator(modelContainer: result.container,
+        let coordinator = DataCoordinator(persistentContainer: result.container,
                                           usingFallbackStore: result.failed)
         _dataCoordinator = State(initialValue: coordinator)
         
-        let state = AppState(modelContainer: result.container, dataCoordinator: coordinator)
+        let state = AppState(persistentContainer: result.container, dataCoordinator: coordinator)
         _appState = State(initialValue: state)
 
         ViewStateManager.shared.setCoordinator(coordinator)
@@ -85,7 +89,7 @@ struct FilmTrackerApp: App, Loggable {
         WindowGroup(id: "main") {
             ZStack {
                 MainView()
-                    .modelContainer(modelContainer)
+                    .environment(\.managedObjectContext, persistentContainer.viewContext)
                     .environment(selectionState)
                     .environment(appState)
                     .environment(dataCoordinator)
@@ -197,58 +201,56 @@ struct FilmTrackerApp: App, Loggable {
         exit(2)
     }
 
-    // MARK: - Model Container Setup
-    private static func createModelContainer() -> (container: ModelContainer, failed: Bool) {
-        let schema = Schema([
-            Film.self,
-            ListObject.self,
-            ListMembership.self,
-            Release.self,
-            ImportSession.self,
-            SettingsObject.self,
-            SavedSearchObject.self
-        ])
+    // MARK: - Pending Restore
+    /// Swaps in a restored library staged by the previous session. On failure the previous
+    /// library stays (or its copy does — see PendingRestore.saveRollback), and the user is
+    /// told before the window opens, since they were expecting the restored one.
+    private static func applyPendingRestore() {
+        switch PendingRestore.applyIfPending() {
+        case .nothingPending:
+            break
+        case .swapped:
+            // Belt and braces: the restore already deleted these, and the session that
+            // staged it suspended their writes before relaunching.
+            MemoryStoreCache.shared.invalidateOnDisk()
+            log("Launched into a restored library")
+        case .failed(let reason):
+            log("ERROR: Pending restore was not applied: \(reason)")
+            #if DEBUG
+            // No one is at the keyboard for a harness run; the log line above is the report.
+            if DebugHarness.isRequested { return }
+            #endif
+            let alert = NSAlert()
+            alert.messageText = "Restoration Could Not Be Completed"
+            alert.informativeText = "The restored library could not be put in place, so Film Tracker has opened your previous library instead. Try restoring the backup again.\n\n(\(reason))"
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
 
-        // Debug sandbox: open the store at an explicit throwaway URL inside the sandbox
-        // container instead of the default location. This is the ONLY writable path in
-        // the app that is not derived from Preferences' folder accessors, so it is the
-        // one place that needs its own branch; everything else is redirected by
-        // Preferences.computedApplicationSupportURL. `storeURL` is always nil outside
-        // DEBUG (DebugSandbox.name is hard-wired to nil there), so a Release build always
-        // takes the default branch.
-        let modelConfiguration: ModelConfiguration
-        if let sandboxStoreURL = DebugSandbox.storeURL {
-            log("Debug sandbox: opening SwiftData store at \(sandboxStoreURL.path(percentEncoded: false))")
-            modelConfiguration = ModelConfiguration(
-                schema: schema,
-                url: sandboxStoreURL,
-                allowsSave: true,
-                cloudKitDatabase: .none
-            )
-        } else {
-            modelConfiguration = ModelConfiguration(
-                schema: schema,
-                isStoredInMemoryOnly: false,
-                allowsSave: true,
-                cloudKitDatabase: .none
-            )
+    // MARK: - Persistent Container Setup
+    private static func createModelContainer() -> (container: NSPersistentContainer, failed: Bool) {
+        // Debug sandbox: LibraryStore.storeURL resolves to the sandbox's own store file.
+        // This is the ONLY writable path in the app that is not derived from Preferences'
+        // folder accessors; everything else is redirected by
+        // Preferences.computedApplicationSupportURL. `DebugSandbox.storeURL` is always nil
+        // outside DEBUG (DebugSandbox.name is hard-wired to nil there), so a Release build
+        // always opens the store in Application Support.
+        let storeURL = LibraryStore.storeURL
+        if DebugSandbox.storeURL != nil, let storeURL {
+            log("Debug sandbox: opening Core Data store at \(storeURL.path(percentEncoded: false))")
         }
 
         do {
-            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
-            container.mainContext.autosaveEnabled = true
-            container.mainContext.undoManager = nil
-            return (container, false)
+            guard let storeURL else { throw CocoaError(.fileNoSuchFile) }
+            return (try LibraryStore.makeContainer(at: storeURL), false)
         } catch {
             log("Failed to create persistent container: \(error)")
             do {
-                let memoryConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-                let container = try ModelContainer(for: schema, configurations: [memoryConfig])
-                container.mainContext.autosaveEnabled = false
-                container.mainContext.undoManager = nil
-                return (container, true)
+                return (try LibraryStore.makeContainer(at: nil), true)
             } catch {
-                fatalError("Could not create ModelContainer: \(error)")
+                fatalError("Could not create NSPersistentContainer: \(error)")
             }
         }
     }
@@ -256,11 +258,11 @@ struct FilmTrackerApp: App, Loggable {
     // MARK: - Initialization
     // STARTUP: Three-phase overlapped initialization with render yield.
     // 1. Cache disk I/O runs on background threads (Task.detached inside load methods)
-    // 2. On the common fast path (MemoryStoreCache hit) MainActor does no SwiftData work at
+    // 2. On the common fast path (MemoryStoreCache hit) MainActor does no store work at
     //    all: the snapshot cache's validity fingerprint is computed inside DataManager's
-    //    background ModelActor, and the payload read and decode are detached. Only the
+    //    background context actor, and the payload read and decode are detached. The
     //    slow-path fetch (first launch, or the library changed since the last quit) runs on
-    //    MainActor, because mainContext is MainActor-bound and cannot be moved off it.
+    //    a background context too (MemoryStore.loadAllDataFromStore).
     // 3. Cache validation uses incremental update (O(delta) not O(N))
     // 4. SmartLists calculated once, deferred to background after UI ready
     @MainActor
@@ -298,7 +300,7 @@ struct FilmTrackerApp: App, Loggable {
         // Start all three operations concurrently.
         // MetadataCache.load() and PosterCache.loadMetadata() dispatch their heavy
         // disk I/O to background threads via Task.detached, then suspend on MainActor
-        // while waiting for results. This frees MainActor to run the SwiftData fetch
+        // while waiting for results. This frees MainActor to run the store fetch
         // in loadDatabasePhase() during that suspension window.
         log("Starting parallel initialization: cache I/O + database fetch...")
         async let metadataCacheLoad: Void = MetadataCache.shared.load()
@@ -801,7 +803,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
 
     // MARK: - Background Export
     // ARCHITECTURE: The background export is initiated on MainActor to ensure proper
-    // access to ModelContext and MemoryStore. DBExporter is @MainActor and handles the
+    // access to NSManagedObjectContext and MemoryStore. DBExporter is @MainActor and handles the
     // phase split internally:
     //   Phase 1 (data collection via DBReader) — runs on MainActor (fast, in-memory reads)
     //   Phase 1.5 (poster pruning) — runs on background thread (pure file I/O)
@@ -810,7 +812,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
     //
     // The posterUIDs for pruning are sourced from MemoryStore (via DataCoordinator),
     // not from a database fetch. This eliminates the thread-safety issue that existed
-    // when ModelContext was passed into background Tasks.
+    // when NSManagedObjectContext was passed into background Tasks.
     private func scheduleBackgroundExportIfNeeded() async {
         // A sandbox run's automatic backup would only ever package synthetic data into
         // the sandbox's own Backups folder — harmless, but it is pure noise in a harness
@@ -853,14 +855,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         // Guard against the pathological (but theoretically possible) case where the
         // 30-second sleep elapses before initialization completes — e.g., an extremely
         // large library with a cold cache miss on a slow disk. The export reads the
-        // persistent store (via the exporter's own fresh ModelContext) and getAllPosterUIDs(),
+        // persistent store (via the exporter's own fresh NSManagedObjectContext) and getAllPosterUIDs(),
         // both of which require MemoryStore to be fully loaded. Running the export against an
         // uninitialized coordinator would produce an empty or partial backup.
         guard coordinator.isInitialized else {
             Self.log("Background export skipped: coordinator not yet initialized")
             return
         }
-        
+
+        // An empty library has nothing to back up, and an empty auto-backup does harm: it
+        // becomes the newest one, and retainRecentBackups below deletes a real one to make
+        // room. A fresh Core Data store before its first restore, or a library that failed
+        // to load, is exactly this case; a few such launches would leave only empty backups.
+        guard !coordinator.getAllFilms().isEmpty else {
+            Self.log("Background export skipped: the library is empty")
+            return
+        }
+
         Self.log("Initiating background database export...")
         
         backgroundExportTask = Task(priority: .low) {
@@ -873,7 +884,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
 
                 // Collect posterUIDs from MemoryStore on MainActor BEFORE creating the
                 // exporter. This is a near-instant in-memory read that provides the data
-                // PosterPruner needs without any ModelContext involvement.
+                // PosterPruner needs without any NSManagedObjectContext involvement.
                 let posterUIDsTakenAt = Date()
                 let posterUIDs: Set<String> = await MainActor.run {
                     Set(coordinator.getAllPosterUIDs())
@@ -881,10 +892,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
                 
                 // Create and run the exporter. DBExporter is @MainActor, so Swift
                 // concurrency automatically hops to MainActor for these calls.
-                // The exporter creates a fresh ModelContext per export internally, so
+                // The exporter creates a fresh NSManagedObjectContext per export internally, so
                 // the backup reflects the current persisted state. The internal phase
                 // split offloads packaging/writing to background threads.
-                let exporter = DBExporter(modelContainer: coordinator.modelContainer)
+                let exporter = DBExporter(persistentContainer: coordinator.persistentContainer)
                 let result = try await exporter.createCompleteBackup(
                     filename: filename,
                     destinationURL: backupFolder,
@@ -983,7 +994,7 @@ enum SidebarItem: Hashable {
 final class AppState: Loggable {
     nonisolated static let logTag = "[AppState]"
 
-    let modelContainer: ModelContainer
+    let persistentContainer: NSPersistentContainer
     
     // The active sidebar item. Read-only from the outside: every change must go through
     // navigate(to:), which is the single choke point that clears the selection in the same
@@ -1161,15 +1172,15 @@ final class AppState: Loggable {
         return "\(v) (\(b))"
     }()
 
-    init(modelContainer: ModelContainer, dataCoordinator: DataCoordinator) {
-        self.modelContainer = modelContainer
+    init(persistentContainer: NSPersistentContainer, dataCoordinator: DataCoordinator) {
+        self.persistentContainer = persistentContainer
         self.dataCoordinator = dataCoordinator
         log("Film Tracker \(appVersionBuild) launched")
     }
 
     // MARK: - Deferred Maintenance
     // PosterPruner receives posterUIDs from MemoryStore (via DataCoordinator) as a
-    // pure value-type Set<String>. It never touches ModelContext or the database.
+    // pure value-type Set<String>. It never touches NSManagedObjectContext or the database.
     // This means it can safely run on a background thread with zero isolation concerns.
 
     /// Handle kept so AppDelegate can cancel in-flight maintenance on shutdown,
@@ -1223,7 +1234,7 @@ final class AppState: Loggable {
 
 // Marks along the launch path, each stamped in milliseconds since the kernel started the
 // process, so the stretch before `initializeApp()` (dyld, the App struct's init and its
-// ModelContainer, the first window) can be taken apart instead of read as one `preInit`
+// NSPersistentContainer, the first window) can be taken apart instead of read as one `preInit`
 // number. Every launch, Debug or Release, logs the timeline once its first gallery frame is
 // committed (when logging is on); the DEBUG `launch-timeline` scenario reports it as metrics.
 // Each mark is one clock read and an array append, so it costs nothing worth gating.

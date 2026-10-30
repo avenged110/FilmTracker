@@ -145,7 +145,7 @@ enum GalleryContextMenu: Loggable {
     /// Returns the contextual menu for `filmIDs`, or nil when no menu should be shown.
     ///
     /// Structure (matching the MenuBar "Film" menu and the GalleryTitleBar buttons):
-    ///   • Edit Metadata… / Edit Releases… / divider   — single selection only
+    ///   • Edit Metadata… (any selection) / Edit Releases… (one film only) / divider
     ///   • Add to Queue ▸ (Up Next / Soon / Later)
     ///   • Add to List ▸  (Create New List from Selection… / divider / the lists)
     ///   • Show in List ▸
@@ -175,22 +175,22 @@ enum GalleryContextMenu: Loggable {
         // override every isEnabled value set below via the validateMenuItem(_:) protocol.
         menu.autoenablesItems = false
 
-        // MARK: Edit section (single selection only)
+        // MARK: Edit section
         //
-        // Both commands are resolved by SheetHostView against
-        // SelectionState.selectedFilmID rather than an explicitly passed ID. That is
-        // safe here precisely because the calling coordinator guarantees the clicked
-        // film is part of the live selection before this menu is built, and because
-        // these two items only ever appear when that selection is exactly one film.
+        // Both commands are resolved by SheetHostView against SelectionState rather than an
+        // explicitly passed ID. That is safe here because the calling coordinator makes the
+        // menu's films the live selection before this menu is built. As in the menu bar,
+        // Edit Metadata… takes any selection — more than one film opens the MultiFilmSheet —
+        // while Edit Releases… is for exactly one film (SelectionState.selectedFilmID).
+        menu.addItem(actionItem(titled: "Edit Metadata…") {
+            AppEventBus.shared.sendCommand(.editFilm)
+        })
         if isSingleSelection {
-            menu.addItem(actionItem(titled: "Edit Metadata…") {
-                AppEventBus.shared.sendCommand(.editFilm)
-            })
             menu.addItem(actionItem(titled: "Edit Releases…") {
                 AppEventBus.shared.sendCommand(.editFilmReleases())
             })
-            menu.addItem(.separator())
         }
+        menu.addItem(.separator())
 
         // MARK: List membership section
         //

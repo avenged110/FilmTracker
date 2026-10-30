@@ -5,7 +5,6 @@
 // sort/filter menu buttons and context-sensitive menus with film/list operations.
 
 import SwiftUI
-import SwiftData
 import AppKit
 
 struct GalleryTitleBar: View {

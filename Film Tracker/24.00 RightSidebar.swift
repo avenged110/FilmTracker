@@ -1488,7 +1488,7 @@ struct RightSidebar: View, Loggable {
             return
         }
 
-        // Fetch snapshot from DataCoordinator (reads from MemoryStore — no SwiftData touch).
+        // Fetch snapshot from DataCoordinator (reads from MemoryStore — no store touch).
         if let snapshot = dataCoordinator.getFilm(id) {
             selectedFilm = snapshot
             setSelectionFlags(hasSelection: true, isMultiSelection: false)

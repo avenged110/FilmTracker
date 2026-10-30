@@ -8,7 +8,7 @@
 // ImportHistory (28_20), an in-memory index of value records, not from a fetch.
 
 import SwiftUI
-import SwiftData
+import CoreData
 import UniformTypeIdentifiers
 import AppKit
 
@@ -230,7 +230,7 @@ struct ImportsView: View {
     // same storage on every pass rather than a copy.
     private var filteredSessions: [ImportSessionRecord] {
         let records = importHistory.records(for: importsState.selectedCategory,
-                                            in: dataCoordinator.modelContainer)
+                                            in: dataCoordinator.persistentContainer)
         guard isImportBusy, let currentID = importProgress.currentSessionID else { return records }
         return records.filter { $0.id != currentID } }
 

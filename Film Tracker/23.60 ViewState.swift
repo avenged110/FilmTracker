@@ -7,7 +7,6 @@
 
 import Foundation
 import CoreGraphics
-import SwiftData
 import Combine
 
 // MARK: - Sort Options

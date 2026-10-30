@@ -573,7 +573,7 @@ final class FSTabDetails {
     // MARK: - DTO Support
     // Collects all details tab fields into a plain Sendable struct for FilmChangeset assembly.
     // Called by FilmSheet.confirm() when building the DTO-based save path.
-    // Does NOT require a live Film @Model – all data is drawn from local tracked properties.
+    // Does NOT require a live Film managed object – all data is drawn from local tracked properties.
     func collectFilmFields() -> FilmDetailsFields {
         let durationStr: String
         if hasDuration {

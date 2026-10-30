@@ -545,7 +545,7 @@ private enum RSBReleaseCardBuilder {
             let currencyLocked = release.isChild
                 || (ReleaseIndependence.isComboPack(release.independence)
                     && release.format != ReleaseFormat.uhd4K.rawValue)
-            // A cost of exactly 0 means the field was never filled in — SwiftData's
+            // A cost of exactly 0 means the field was never filled in — Core Data's
             // Double default, not a user-entered "free" — so the whole line is
             // suppressed rather than printing "$0.00, $0.00 spent", which reads as
             // asserting a price rather than the absence of one. Amount spent alone

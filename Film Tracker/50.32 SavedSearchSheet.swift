@@ -378,23 +378,18 @@ struct SavedSearchSheet: View, Loggable {
             rules = RuleSet(query: query)
             if rules.rules.isEmpty { rules.rules = [.blank()] }
             name = suggestedName
-        case .edit(let id):
+        case .edit(let id), .editFromField(let id, _):
             guard let search = store.search(id) else { return sheetCoordinator.dismissSheet() }
             candidateID = id
-            rules = RuleSet(query: search.query)
+            // From the field, its rules; either way compared with what is saved.
+            if case .editFromField(_, let query) = mode {
+                rules = RuleSet(query: query)
+            } else {
+                rules = RuleSet(query: search.query)
+            }
             name = search.name
             nameEdited = true
             originalName = search.name
-            originalQuery = rules.query
-            showsDroppedRulesNotice = store.needsReview(id)
-        case .editFromField(let id, let query):
-            guard let search = store.search(id) else { return sheetCoordinator.dismissSheet() }
-            candidateID = id
-            rules = RuleSet(query: query)
-            name = search.name
-            nameEdited = true
-            originalName = search.name
-            // What is saved, not the field's rules.
             originalQuery = RuleSet(query: search.query).query
             showsDroppedRulesNotice = store.needsReview(id)
         case .duplicate(let id):
@@ -402,6 +397,8 @@ struct SavedSearchSheet: View, Loggable {
             rules = RuleSet(query: search.query)
             name = SavedSearchName.duplicate(of: search.name, claims: coordinator.savedSearchNameClaims(excluding: nil))
             nameEdited = true
+            // A copy of a search missing rules would be missing them too, unflagged.
+            showsDroppedRulesNotice = store.needsReview(id)
         }
         // A search left with no rules (every stored one unreadable) starts as a new one does.
         if rules.rules.isEmpty { rules.rules = [.blank()] }

@@ -747,7 +747,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         // The O(N) ordered-ID scan is only reached in this ambiguous branch and is negligible
         // next to the reloadData() it gates. On a genuine no-op re-render (identical order —
         // e.g. a status-bar toggle) it returns false, preserving the existing skip-reload
-        // behavior. Identity comparison on FilmSnapshot value types only; no @Model access.
+        // behavior. Identity comparison on FilmSnapshot value types only; no managed-object access.
         //
         // `==` first: Array equality is O(1) when the buffers are identical, which is every
         // pass where dataCoordinator.films was not reassigned (selection, status-bar toggle,
@@ -1234,7 +1234,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         fileprivate var lastFilmQueueFilter: FilmQueueFilter?
 
         // Property observer auto-rebuilds index map.
-        // Films are stored as FilmSnapshot value types — no live SwiftData references.
+        // Films are stored as FilmSnapshot value types — no live model-object references.
         var films: [FilmSnapshot] = [] { didSet { rebuildFilmIndexMap() } }
         let selectionState: SelectionState
 

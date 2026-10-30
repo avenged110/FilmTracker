@@ -127,8 +127,7 @@ final class KeyboardManager {
                keyWindow.sheetParent?.isSheet != true,
                !hasVisibleChildWindow(on: keyWindow),
                let activeSheet = appState?.sheetCoordinator.activeSheet,
-               case .film(_, let filmSheet) = activeSheet.content,
-               filmSheet.canConfirm, !filmSheet.isConfirming {
+               let confirm = Self.returnConfirmAction(for: activeSheet) {
                 // Pass through whenever ANY text is being edited — the first responder is
                 // an NSTextView in both cases below. The sheet's rule is that an active
                 // field takes Return first; the field finishes editing (or, for a table
@@ -144,7 +143,7 @@ final class KeyboardManager {
                 if keyWindow.firstResponder is NSTextView {
                     return false
                 }
-                filmSheet.confirm()
+                confirm()
                 return true // Consume — confirm() was fired directly.
             }
         }
@@ -597,9 +596,9 @@ final class KeyboardManager {
     private func handleEditFilm(isInSheet: Bool) -> Bool {
         guard !isInSheet else { return false }
         
-        // Only work when exactly one film is selected
+        // One film opens its FilmSheet; more than one, the MultiFilmSheet.
         guard let selectionState = selectionState,
-              selectionState.selectedFilmIDs.count == 1 else {
+              !selectionState.selectedFilmIDs.isEmpty else {
             return false
         }
         
@@ -690,6 +689,13 @@ final class KeyboardManager {
         case .settings(_, _, _):
             AppEventBus.shared.sendCommand(.changeSettingsSheetTab(tab: tabNumber))
             return true
+        case .multiFilm(let sheet):
+            // Set directly: the sheet object is at hand, and it has only two tabs, so a
+            // number past them passes through as it does with no tab to go to.
+            let tabs = MultiFilmTab.allCases
+            guard tabNumber <= tabs.count else { return false }
+            sheet.selectedTab = tabs[tabNumber - 1]
+            return true
         default:
             // Other sheets don't support tab navigation
             return false
@@ -706,6 +712,11 @@ final class KeyboardManager {
             return true
         case .settings(_, _, _):
             AppEventBus.shared.sendCommand(.cycleSettingsSheetTab(forward: forward))
+            return true
+        case .multiFilm(let sheet):
+            let tabs = MultiFilmTab.allCases
+            let index = tabs.firstIndex(of: sheet.selectedTab) ?? 0
+            sheet.selectedTab = tabs[(index + (forward ? 1 : -1) + tabs.count) % tabs.count]
             return true
         default:
             return false
@@ -893,9 +904,10 @@ final class KeyboardManager {
             return false
         }
         
-        // Requires exactly one film to be selected (matches the Edit Metadata menu item)
+        // Requires a selection (matches the Edit Metadata menu item); more than one film
+        // opens the MultiFilmSheet, which has no tabs.
         guard let selectionState = selectionState,
-              selectionState.selectedFilmIDs.count == 1 else {
+              !selectionState.selectedFilmIDs.isEmpty else {
             return false
         }
         
@@ -924,6 +936,21 @@ final class KeyboardManager {
     }
     
     // MARK: - Helper Methods
+
+    /// What a bare Return saves in `sheet`, when it may save now: the FilmSheet's or the
+    /// MultiFilmSheet's confirm, nil for any other sheet or while saving is not allowed.
+    private static func returnConfirmAction(for sheet: AppSheet) -> (() -> Void)? {
+        switch sheet.content {
+        case .film(_, let filmSheet):
+            guard filmSheet.canConfirm, !filmSheet.isConfirming else { return nil }
+            return { filmSheet.confirm() }
+        case .multiFilm(let multiFilmSheet):
+            guard multiFilmSheet.canConfirm else { return nil }
+            return { multiFilmSheet.confirm() }
+        default:
+            return nil
+        }
+    }
 
     /// The open FilmSheet, when one is on screen showing `tab`.
     private func activeFilmSheet(showing tab: FilmTab) -> FilmSheet? {

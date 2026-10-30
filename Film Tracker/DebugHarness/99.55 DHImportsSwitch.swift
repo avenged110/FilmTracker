@@ -29,7 +29,7 @@
 
 import AppKit
 import SwiftUI
-import SwiftData
+import CoreData
 
 /// The harness's handle on ImportSessionList's card counts. Set while the list is on
 /// screen; nil otherwise.
@@ -54,8 +54,8 @@ extension DebugHarness {
         }
     }
 
-    private static func clearImportSessions(_ context: ModelContext) {
-        for s in (try? context.fetch(FetchDescriptor<ImportSession>())) ?? [] { context.delete(s) }
+    private static func clearImportSessions(_ context: NSManagedObjectContext) {
+        for s in (try? context.fetch(ImportSession.request())) ?? [] { context.delete(s) }
         try? context.save()
     }
 
@@ -63,7 +63,7 @@ extension DebugHarness {
     /// newest first; every ninth canceled, every seventh with errors, each naming the films
     /// it touched. Returns how many are metadata.
     @discardableResult
-    private static func seedImportSessions(_ count: Int, _ context: ModelContext) -> Int {
+    private static func seedImportSessions(_ count: Int, _ context: NSManagedObjectContext) -> Int {
         clearImportSessions(context)
         let now = Date()
         for i in 0..<count {
@@ -94,7 +94,7 @@ extension DebugHarness {
             return r
         }
         if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
-        let context = coordinator.modelContainer.mainContext
+        let context = coordinator.persistentContainer.viewContext
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
 
         let sizes = (UserDefaults.standard.string(forKey: "FTDebugImportsSizes") ?? "0,1,20,1000")
@@ -151,30 +151,29 @@ extension DebugHarness {
                 }
                 r.metric("fetch \(label) (\(n))", stats(samples).median, "ms")
             }
-            time("full") { (try? context.fetch(FetchDescriptor<ImportSession>(sortBy: [SortDescriptor(\.sessionDate, order: .reverse)])))?.count ?? -1 }
+            time("full") { (try? context.fetch(ImportSession.request(sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)])))?.count ?? -1 }
             time("full+filter") {
-                let all = (try? context.fetch(FetchDescriptor<ImportSession>(sortBy: [SortDescriptor(\.sessionDate, order: .reverse)]))) ?? []
+                let all = (try? context.fetch(ImportSession.request(sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)]))) ?? []
                 return all.filter { $0.importType == type }.count
             }
             time("predicate") {
-                (try? context.fetch(FetchDescriptor<ImportSession>(predicate: #Predicate { $0.importType == type },
-                                                                   sortBy: [SortDescriptor(\.sessionDate, order: .reverse)])))?.count ?? -1
+                (try? context.fetch(ImportSession.request(.equals("importType", type),
+                                                           sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)])))?.count ?? -1
             }
             time("predicate+scalars") {
-                var d = FetchDescriptor<ImportSession>(predicate: #Predicate { $0.importType == type },
-                                                       sortBy: [SortDescriptor(\.sessionDate, order: .reverse)])
-                d.propertiesToFetch = [\.id, \.sessionDate, \.importType, \.totalItems, \.successCount, \.errorCount,
-                                       \.duplicateCount, \.updatedCount, \.notFoundCount, \.isCompleted, \.isCanceled]
+                let d = ImportSession.request(.equals("importType", type),
+                                              sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)])
+                d.propertiesToFetch = ["id", "sessionDate", "importType", "totalItems", "successCount", "errorCount",
+                                       "duplicateCount", "updatedCount", "notFoundCount", "isCompleted", "isCanceled"]
                 return (try? context.fetch(d))?.count ?? -1
             }
             time("predicate+limit12") {
-                var d = FetchDescriptor<ImportSession>(predicate: #Predicate { $0.importType == type },
-                                                       sortBy: [SortDescriptor(\.sessionDate, order: .reverse)])
-                d.fetchLimit = 12
+                let d = ImportSession.request(.equals("importType", type),
+                                              sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)], limit: 12)
                 return (try? context.fetch(d))?.count ?? -1
             }
             time("count") {
-                (try? context.fetchCount(FetchDescriptor<ImportSession>(predicate: #Predicate { $0.importType == type }))) ?? -1
+                (try? context.count(for: ImportSession.request(.equals("importType", type)))) ?? -1
             }
             clearStore()
             return r
@@ -280,8 +279,8 @@ extension DebugHarness {
             return r
         }
         if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
-        let container = coordinator.modelContainer
-        let context = container.mainContext
+        let container = coordinator.persistentContainer
+        let context = container.viewContext
         let history = ImportHistory.shared
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
         defer { ImportsListDebug.windows = true }
@@ -294,8 +293,8 @@ extension DebugHarness {
 
         /// What a fresh context reads from the store, as the index would group it.
         func stored() -> [String: [ImportSessionRecord]] {
-            let all = (try? ModelContext(container).fetch(
-                FetchDescriptor<ImportSession>(sortBy: [SortDescriptor(\.sessionDate, order: .reverse)]))) ?? []
+            let all = (try? container.makeMainContext().fetch(
+                ImportSession.request(sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)]))) ?? []
             return Dictionary(grouping: all.map(ImportSessionRecord.init), by: \.importType)
         }
         func indexed() -> [String: [ImportSessionRecord]] {
@@ -324,7 +323,7 @@ extension DebugHarness {
         // Inserts and an update saved on the main context are in the index before save() returns.
         seedImportSessions(120, context)
         r.check("index-after-insert", indexed() == stored(), "index \(describe(indexed())); store \(describe(stored()))")
-        let target = (try? context.fetch(FetchDescriptor<ImportSession>(sortBy: [SortDescriptor(\.sessionDate, order: .reverse)])))?[4]
+        let target = (try? context.fetch(ImportSession.request(sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)])))?[4]
         target?.errorCount = 3
         target?.errorFileNames = ["A.m4v", "B.m4v", "C.m4v"]
         target?.isCanceled = false
@@ -514,7 +513,7 @@ extension DebugHarness {
 extension DebugHarness {
     private static func importsQoSScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "imports-qos")
-        let context = coordinator.modelContainer.mainContext
+        let context = coordinator.persistentContainer.viewContext
         // `-FTDebugImportsQoSSize none` keeps the container's own sessions (a copy of a real
         // library, say); otherwise this many are seeded (default 1000).
         let sizeArgument = UserDefaults.standard.string(forKey: "FTDebugImportsQoSSize")
@@ -567,8 +566,8 @@ extension DebugHarness {
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
         // `-FTDebugImportsScrollSeed N` replaces the container's sessions with N seeded ones.
         let seeded = UserDefaults.standard.integer(forKey: "FTDebugImportsScrollSeed")
-        if seeded > 0 { seedImportSessions(seeded, coordinator.modelContainer.mainContext) }
-        defer { if seeded > 0 { clearImportSessions(coordinator.modelContainer.mainContext) } }
+        if seeded > 0 { seedImportSessions(seeded, coordinator.persistentContainer.viewContext) }
+        defer { if seeded > 0 { clearImportSessions(coordinator.persistentContainer.viewContext) } }
         ImportsState.shared.selectCategory(.metadata, persist: false)
         appState.navigate(to: .libraryItem(.imports))
         await settle(1200)

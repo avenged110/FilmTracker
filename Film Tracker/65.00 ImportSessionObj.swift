@@ -4,37 +4,37 @@
 // Data model for tracking individual import sessions.
 
 import Foundation
-import SwiftData
+import CoreData
 
-@Model
-final class ImportSession {
-    var id: UUID
-    var sessionDate: Date
+@objc(ImportSession)
+final class ImportSession: LibraryObject {
+    var id: UUID { get { requiredUUID("id") } set { setValue(newValue, forKey: "id") } } // See requiredUUID.
+    @NSManaged var sessionDate: Date
     // Type of import: "metadata" or "ratings".
-    var importType: String
-    var totalItems: Int
-    var successCount: Int
-    var errorCount: Int
-    var duplicateCount: Int
+    @NSManaged var importType: String
+    @NSManaged var totalItems: Int
+    @NSManaged var successCount: Int
+    @NSManaged var errorCount: Int
+    @NSManaged var duplicateCount: Int
     // Items whose information was updated (duplicate matched with differing fields).
-    var updatedCount: Int
+    @NSManaged var updatedCount: Int
     // For ratings imports: Films not in library.
-    var notFoundCount: Int
-    var errorFileNames: [String]
+    @NSManaged var notFoundCount: Int
+    @NSManaged var errorFileNames: [String]
     // Titles (the value written to the imported Film model object's "name" field) for
     // films newly added during this session. Populated by MetaImporter/RatingsImporter
     // via ImportProgress and surfaced in the ImportsView "Details" popover's "Added" tab.
-    var addedTitles: [String]
+    @NSManaged var addedTitles: [String]
     // Titles of films whose existing library entry was updated during this session.
     // Surfaced in the "Updated" tab of the Details popover.
-    var updatedTitles: [String]
+    @NSManaged var updatedTitles: [String]
     // Titles of films that were matched as duplicates and skipped during this session.
     // Surfaced in the "Duplicates" tab of the Details popover.
-    var duplicateTitles: [String]
-    var isCompleted: Bool
-    var isCanceled: Bool
+    @NSManaged var duplicateTitles: [String]
+    @NSManaged var isCompleted: Bool
+    @NSManaged var isCanceled: Bool
 
-    init(
+    convenience init(
         id: UUID = UUID(),
         sessionDate: Date = Date(),
         importType: String,
@@ -50,6 +50,7 @@ final class ImportSession {
         duplicateTitles: [String] = [],
         isCompleted: Bool = false,
         isCanceled: Bool = false) {
+        self.init(detached: ())
         self.id = id
         self.sessionDate = sessionDate
         self.importType = importType
@@ -100,7 +101,7 @@ extension ImportSession: ExportableModel {
     func extractExportValues() -> (properties: [String: Any], relationships: [String: [Any]]) {
         var properties: [String: Any] = [:]
         
-        // Explicitly export each property to avoid SwiftData backing storage issues.
+        // Explicitly export each property.
         properties["id"] = id
         properties["sessionDate"] = sessionDate
         properties["importType"] = importType

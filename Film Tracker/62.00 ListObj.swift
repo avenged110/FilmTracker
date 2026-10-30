@@ -1,42 +1,41 @@
 // MARK: - ListObj.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Defines the SwiftData model for a List object in the user's library.
+// Defines the Core Data model for a List object in the user's library.
 
 import Foundation
-import SwiftData
+import CoreData
 
-@Model
-final class ListObject: Identifiable {
-    // Index on the custom UUID primary key.
-    // ListObject.listID is the target of every predicate-based fetch that
-    // resolves a list in DataManager. The index converts those lookups from
-    // full-table scans to O(log n), with the same non-destructive migration
-    // semantics as the corresponding index on Film.id.
-    #Index<ListObject>([\.listID])
+@objc(ListObject)
+final class ListObject: LibraryObject {
+    // listID is indexed (LibraryModel): it is the target of every predicate-based fetch
+    // that resolves a list in DataManager.
 
     // Primary stable id for the list.
-    var listID: UUID
+    var listID: UUID { get { requiredUUID("listID") } set { setValue(newValue, forKey: "listID") } } // See requiredUUID.
 
     // MARK: - List Properties
-    var listName: String
-    var viewStyle: String
-    var sortFilterOptions: [String]
-    var displayOrder: Int
+    @NSManaged var listName: String
+    @NSManaged var viewStyle: String
+    @NSManaged var sortFilterOptions: [String]
+    @NSManaged var displayOrder: Int
 
     // MARK: - Film Membership Relationship
-    @Relationship(deleteRule: .cascade, inverse: \ListMembership.list)
-    var memberships: [ListMembership] = []
+    @NSManaged var memberships: Set<ListMembership>
 
     var id: UUID { listID }
 
     // MARK: - Initialization
-    init(
+    /// Every default; see LibraryObject.init(detached:).
+    convenience init() { self.init(listID: UUID()) }
+
+    convenience init(
         listID: UUID = UUID(),
         listName: String = "",
         viewStyle: String = "",
         sortFilterOptions: [String] = [],
         displayOrder: Int = 0) {
+        self.init(detached: ())
         self.listID = listID
         self.listName = listName
         self.viewStyle = viewStyle
@@ -56,10 +55,9 @@ final class ListObject: Identifiable {
 
 // MARK: - ExportableModel Conformance for ListObject
 extension ListObject: ExportableModel {
-    static var entityName: String { "ListObject" }
 
-    static func fetchAll(in context: ModelContext) throws -> [ListObject] {
-        let desc = FetchDescriptor<ListObject>(sortBy: [SortDescriptor(\.listName)])
+    static func fetchAll(in context: NSManagedObjectContext) throws -> [ListObject] {
+        let desc = ListObject.request(sortedBy: [NSSortDescriptor(key: "listName", ascending: true)])
         return try context.fetch(desc) }
 
     func extractExportValues() -> (properties: [String: Any], relationships: [String : [Any]]) {

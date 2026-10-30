@@ -35,7 +35,7 @@
 #if DEBUG
 
 import Foundation
-import SwiftData
+import CoreData
 import SwiftUI
 
 // MARK: - Report Model
@@ -216,10 +216,10 @@ enum DebugHarness: Loggable {
     private static func scenarios(for suite: String) -> [String] {
         switch suite {
         // Every scenario in `pipelineScenarios` from `restore-endtoend` onward, and every
-        // scenario in `backupScenarios`, destroys and rebuilds the store. They therefore run
+        // scenario in `backupScenarios`, replaces the store's contents. They therefore run
         // after everything that needs the seeded library, and `backupScenarios` runs after
-        // `pipelineScenarios` because it does not use the coordinator's container at all —
-        // by that point that container addresses an unlinked inode (see DHBackup.swift).
+        // `pipelineScenarios` because it does not use the coordinator's container at all
+        // (see DHBackup.swift).
         case "all":
             let parts: [[String]] = [coreScenarios, libraryOrderScenarios, viewStateScenarios, cardScenarios, storeScenarios, pdfScenarios, dataVizScenarios, pipelineScenarios, backupScenarios]
             return parts.flatMap { $0 }
@@ -327,6 +327,11 @@ enum DebugHarness: Loggable {
             value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
             return value
         }
+        if let bulkEditResult = await runBulkEditScenario(scenario, coordinator: coordinator) {
+            var value = bulkEditResult
+            value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
+            return value
+        }
         switch scenario {
         case "launch-timeline":   result = await launchTimelineScenario(coordinator: coordinator)
         case "sandbox-integrity": result = sandboxIntegrityScenario()
@@ -412,8 +417,12 @@ enum DebugHarness: Loggable {
                     url.path(percentEncoded: false))
         }
 
-        // The derived-cache files the app actually writes.
+        // The store and the restore's files beside it (LibraryStore.storeURL is resolved on
+        // its own, not from Preferences' folders), and the derived-cache files the app writes.
         for (name, url) in [
+            ("store", LibraryStore.storeURL),
+            ("restore-staged-store", PendingRestore.stagedStoreURL),
+            ("restore-rollback-store", PendingRestore.rollbackStoreURL),
             ("metadata-cache", Preferences.dataFolderURL?.appendingPathComponent("metadata-cache.bin")),
             ("memorystore-cache", Preferences.dataFolderURL?.appendingPathComponent("memorystore-cache.bin")),
         ] {
@@ -434,7 +443,7 @@ enum DebugHarness: Loggable {
         // make every check above pass vacuously.
         if let production = DebugSandbox.productionApplicationSupportURL {
             r.check("containment-rejects-production",
-                    !DebugSandbox.contains(production.appendingPathComponent("default.store")),
+                    !DebugSandbox.contains(production.appendingPathComponent(LibraryStore.storeFileName)),
                     "production store correctly reported as outside the container")
             r.check("containment-rejects-parent",
                     !DebugSandbox.contains(root.deletingLastPathComponent()),
@@ -553,16 +562,18 @@ enum DebugHarness: Loggable {
     ///
     /// Caveat, stated in the detail text rather than hidden: it detects change from ANY
     /// source, including the user's own copy of the app running concurrently. A difference
-    /// means "investigate", not automatically "the sandbox leaked". Only the main store and
-    /// the two derived caches are asserted on; `-wal` and `-shm` are reported as metrics
-    /// because SQLite rewrites them routinely.
+    /// means "investigate", not automatically "the sandbox leaked". Only the main store, the
+    /// pending-restore marker and the two derived caches are asserted on; `-wal` and `-shm`
+    /// are left out because SQLite rewrites them routinely.
     private static func productionFingerprintChecks(sandboxRoot: URL) -> [HarnessCheck] {
         guard let production = DebugSandbox.productionApplicationSupportURL else {
             return [HarnessCheck(name: "production-fingerprint", passed: false,
                                  detail: "could not resolve production Application Support")]
         }
 
-        let tracked = ["default.store", "metadata-cache.bin", "memorystore-cache.bin"]
+        // The Core Data store, the marker a leaked restore would leave, and the two caches.
+        let tracked = [LibraryStore.storeFileName, "FilmTracker.pending-restore",
+                       "metadata-cache.bin", "memorystore-cache.bin"]
         var current: [String: String] = [:]
         for filename in tracked {
             let url = production.appendingPathComponent(filename)
@@ -2084,8 +2095,7 @@ extension DebugHarness {
             return result
         }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let context = ModelContext(coordinator.modelContainer)
-        context.autosaveEnabled = false
+        let context = coordinator.persistentContainer.makeMainContext()
         var generator = SeededGenerator(seed: 0x4E80_0024)
         for (index, entry) in films.enumerated() {
             let (title, year, genre, director, stars, views) = entry

@@ -33,8 +33,13 @@ enum SavedSearchActions {
 
     /// Whether the field's search differs from `search` — what it held when opened there.
     static func fieldDiffers(from search: SavedSearch) -> Bool {
-        let query = SearchController.shared.currentQuery
-        return query.tokens != search.query.tokens || query.text != search.query.text
+        SearchController.shared.currentQuery != search.query
+    }
+
+    /// Whether the field holds a search that can be saved. Not while a "#" token is
+    /// half-typed: filtering is paused, so what would be saved is not what the gallery shows.
+    static var canSaveCurrentSearch: Bool {
+        SearchController.shared.isActive && !SearchController.shared.currentQuery.isEmpty
     }
 
     /// The builder sheet on saved search `id`, holding the search now in the field; its
@@ -84,12 +89,8 @@ enum SavedSearchActions {
 /// new search, as the plain button does, leaving the saved one alone; "Update Saved
 /// Search…" opens the builder on the saved one with the field's rules.
 struct SaveSearchButton: View {
-    private var search: SearchController { .shared }
-
     var body: some View {
-        // Not while a "#" token is half-typed: filtering is paused, so what would be
-        // saved is not what the gallery shows.
-        let canSave = !search.currentQuery.isEmpty && search.isActive
+        let canSave = SavedSearchActions.canSaveCurrentSearch
         if let origin = SavedSearchActions.fieldOrigin, SavedSearchActions.fieldDiffers(from: origin) {
             Menu {
                 Button("Save New Search\u{2026}") { SavedSearchActions.saveCurrentSearch() }

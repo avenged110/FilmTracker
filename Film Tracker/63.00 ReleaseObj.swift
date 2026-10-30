@@ -5,7 +5,7 @@
 // associated with a Film object.
 
 import Foundation
-import SwiftData
+import CoreData
 
 // MARK: - Independence Vocabulary
 /// The stored vocabulary for `Release.independence`, plus the rules that derive
@@ -526,7 +526,7 @@ enum ReleaseVideoFormat {
 ///
 /// Earlier builds stored ONE abbreviated tag that folded both components together ("OOP
 /// (cheap)", "Temp. N/A", "Import only (OOP)"). `migrated` rewrites those to the current form;
-/// it runs wherever stored values enter the app — the SwiftData-to-snapshot conversion, the
+/// it runs wherever stored values enter the app — the model-to-snapshot conversion, the
 /// startup store pass (DataManager.migrateLegacyMarketAvailability) and DBRestorer — so no
 /// other code needs to know the old spellings. Like every vocabulary in this file the field is
 /// open: a value matching neither list (a hand-edited backup) is kept untouched.
@@ -1402,79 +1402,78 @@ struct ReleaseDateValue: Hashable, Sendable {
 }
 
 // MARK: - Release Model Object Definition
-@Model
-final class Release {
+@objc(Release)
+final class Release: LibraryObject {
     // Primary stable id for the release.
-    var id: UUID
+    var id: UUID { get { requiredUUID("id") } set { setValue(newValue, forKey: "id") } } // See requiredUUID.
 
     // MARK: - Basic Information
-    var studio: String
+    @NSManaged var studio: String
     /// "yyyy.MM.dd", "yyyy" for a release known only by its year, or "" — see
     /// ReleaseDateValue, which every reader goes through. Stored as `releaseYear` until full
-    /// dates were introduced; `originalName` lets SwiftData's lightweight migration carry
-    /// every existing value across the rename unchanged (each is a valid year-only value).
-    @Attribute(originalName: "releaseYear") var releaseDate: String
+    /// dates were introduced (each old value is a valid year-only value).
+    @NSManaged var releaseDate: String
     /// A year only, "" when unset. Kept strictly before releaseDate's year.
-    var baseReleaseYear: String
-    var purchased: Bool
+    @NSManaged var baseReleaseYear: String
+    @NSManaged var purchased: Bool
     /// Wishlist position (0 = not on wishlist, ≥1 = wishlist display order).
     /// Stored as `Int` rather than `Bool` so the display ordering is persisted in-model
     /// and survives the backup/restore cycle without any separate order storage.
-    var wishlist: Int
-    var format: String // Values: "4K UHD", "Blu-ray", "DVD"
-    var includedVersions: [String]
+    @NSManaged var wishlist: Int
+    @NSManaged var format: String // Values: "4K UHD", "Blu-ray", "DVD"
+    @NSManaged var includedVersions: [String]
     // Values: "Standalone", "Combo-pack", "Combo-pack (dual BD)", "Combo-pack (multi-pack)",
     // "Multi-pack". See ReleaseIndependence for the vocabulary and the child-count rules
     // derived from it. "Combo-pack (dual BD)" and "Combo-pack (multi-pack)" only ever
     // appear on a 4K UHD parent.
-    var independence: String
+    @NSManaged var independence: String
 
     // MARK: - Technical Details
     //
     // Every String field below holds an OPEN vocabulary — see the enum named beside it for
     // the tags, the rules, and the reason none of them is a closed Swift type. Write and
     // compare through those enums; never spell a tag out at a call site.
-    var videoFormat: String // Blu-ray and DVD-only. See ReleaseVideoFormat.
-    var releaseAspectRatio: [String]
-    var scanningMethod: String // Blu-ray only. See ReleaseScanningMethod.
-    var audioFormat: String // See ReleaseAudioFormat.
-    var audioChannels: String // See ReleaseAudioChannels.
-    var hasSubtitles: Bool
-    var numberOfDiscs: Int
-    var discMultiPack: Bool
-    var hasArtwork: String // See ReleaseArtwork.
-    var remastered: Bool
-    var nationalOrigin: String
-    var replicationType: String // See ReleaseReplicationType.
-    var discCapacity: [String]
+    @NSManaged var videoFormat: String // Blu-ray and DVD-only. See ReleaseVideoFormat.
+    @NSManaged var releaseAspectRatio: [String]
+    @NSManaged var scanningMethod: String // Blu-ray only. See ReleaseScanningMethod.
+    @NSManaged var audioFormat: String // See ReleaseAudioFormat.
+    @NSManaged var audioChannels: String // See ReleaseAudioChannels.
+    @NSManaged var hasSubtitles: Bool
+    @NSManaged var numberOfDiscs: Int
+    @NSManaged var discMultiPack: Bool
+    @NSManaged var hasArtwork: String // See ReleaseArtwork.
+    @NSManaged var remastered: Bool
+    @NSManaged var nationalOrigin: String
+    @NSManaged var replicationType: String // See ReleaseReplicationType.
+    @NSManaged var discCapacity: [String]
 
     // MARK: - Format-Specific Items
-    var hasHDR: String // 4K-only. See ReleaseHDR.
-    var masterType: String // 4K-only. See ReleaseMasterType.
-    var regionLock: String // Blu-ray and DVD-only. See ReleaseRegionRules.
+    @NSManaged var hasHDR: String // 4K-only. See ReleaseHDR.
+    @NSManaged var masterType: String // 4K-only. See ReleaseMasterType.
+    @NSManaged var regionLock: String // Blu-ray and DVD-only. See ReleaseRegionRules.
     /// Mirrors `regionLock == ReleaseRegionRules.looselyLockedTag`; written by the card's
     /// region cascade. Blu-ray only.
-    var regionLockBypass: Bool
+    @NSManaged var regionLockBypass: Bool
 
     // MARK: - Purchase Information
-    var marketAvailability: [String] // See ReleaseMarketAvailability.
-    var numberOfCopies: Int
-    var cost: Double
-    var amountSpent: Double
-    var purchaseDate: String
-    var lowestPrice: Double
-    var lowestPriceDate: String
-    var condition: String // See ReleaseCondition.
+    @NSManaged var marketAvailability: [String] // See ReleaseMarketAvailability.
+    @NSManaged var numberOfCopies: Int
+    @NSManaged var cost: Double
+    @NSManaged var amountSpent: Double
+    @NSManaged var purchaseDate: String
+    @NSManaged var lowestPrice: Double
+    @NSManaged var lowestPriceDate: String
+    @NSManaged var condition: String // See ReleaseCondition.
 
     // MARK: - Additional Notes
-    var notes: String
+    @NSManaged var notes: String
 
     // MARK: - Metadata
-    var dateAdded: Date
-    var sortOrder: Int
+    @NSManaged var dateAdded: Date
+    @NSManaged var sortOrder: Int
 
     // MARK: - Relationship to Film
-    var film: Film?
+    @NSManaged var film: Film?
 
     // MARK: - Release Hierarchy
     // A release may optionally be a "child" of another release belonging to the same film.
@@ -1482,20 +1481,18 @@ final class Release {
     // child release cannot itself have children. This constraint is enforced by
     // DataCoordinator at the business-logic layer, not in the schema itself.
     //
-    // SwiftData requires both sides of a self-referential relationship to be declared.
-    // The inverse linkage is handled via the explicit @Relationship annotations below.
+    // Both sides of the self-referential relationship are declared, as inverses of each
+    // other (LibraryModel), so Core Data keeps childReleases in step with parentRelease.
     //
     // Delete rule: .nullify — deleting a parent release clears the parentRelease pointer
     // on its children, making them independent top-level releases rather than cascading
     // deletion through to them. This is the safe default that preserves child release data.
-    @Relationship(deleteRule: .nullify, inverse: \Release.childReleases)
-    var parentRelease: Release?
+    @NSManaged var parentRelease: Release?
 
-    @Relationship(deleteRule: .nullify)
-    var childReleases: [Release] = []
+    @NSManaged var childReleases: Set<Release>
 
     // MARK: - Initialization
-    init(
+    convenience init(
         id: UUID = UUID(),
         studio: String = "",
         releaseDate: String = "",
@@ -1535,6 +1532,9 @@ final class Release {
         sortOrder: Int = 0,
         film: Film? = nil,
         parentRelease: Release? = nil) {
+        self.init(detached: ())
+        // Joined to the film's context before the relationships are set; see ListMembership.
+        unsafe (film?.managedObjectContext ?? parentRelease?.managedObjectContext)?.insert(self)
         self.id = id
         self.studio = studio
         self.releaseDate = releaseDate
@@ -1578,10 +1578,9 @@ final class Release {
 
 // MARK: - ExportableModel Conformance
 extension Release: ExportableModel {
-    static var entityName: String { "Release" }
 
-    static func fetchAll(in context: ModelContext) throws -> [Release] {
-        let desc = FetchDescriptor<Release>(sortBy: [SortDescriptor(\.dateAdded)])
+    static func fetchAll(in context: NSManagedObjectContext) throws -> [Release] {
+        let desc = Release.request(sortedBy: [NSSortDescriptor(key: "dateAdded", ascending: true)])
         return try context.fetch(desc) }
 
     func extractExportValues() -> (properties: [String: Any], relationships: [String: [Any]]) {

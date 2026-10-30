@@ -571,7 +571,7 @@ final class MetaParser: Loggable {
                 case .failure(let error): continuation.resume(throwing: error) } } } }
 
     // MARK: - Snapshot Creation
-    /// Builds a Sendable FilmSnapshot DTO from parsed metadata. No SwiftData context required.
+    /// Builds a Sendable FilmSnapshot DTO from parsed metadata. No context required.
     private func createSnapshot(id: UUID, posterUID: String, metadata: ParsedMetadata) -> FilmSnapshot {
         // Normalize the raw tag value into the app's canonical
         // "yyyy-MM-dd'T'12:00:00'Z'" releaseDate storage format up front, so both

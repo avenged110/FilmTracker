@@ -5,7 +5,6 @@
 // Uses category picker in GalleryTitleBar and date subtitles via GallerySubtitleProvider.
 
 import SwiftUI
-import SwiftData
 
 // MARK: - Recents State
 

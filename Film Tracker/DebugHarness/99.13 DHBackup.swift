@@ -23,9 +23,9 @@
 // back off disk — never by inspecting the source:
 //
 //   1. IS EVERYTHING WRITTEN?  `backup-schema-coverage` derives the persisted field list
-//      from the live SwiftData `Schema` — not from a hand-maintained list that would rot —
+//      from the live Core Data model (LibraryModel) — not from a hand-maintained list that would rot —
 //      and requires every attribute to appear in the produced XML. A field added to a
-//      @Model but forgotten in its `extractExportValues()` is invisible to every other
+//      model class but forgotten in its `extractExportValues()` is invisible to every other
 //      check in the suite: it exports cleanly, restores cleanly, and is simply gone.
 //
 //   2. DOES IT ALL COME BACK?  `backup-graph-roundtrip` seeds one fully-populated instance
@@ -42,24 +42,22 @@
 //
 //   4. WHAT HAPPENS WHEN IT GOES WRONG?  `backup-integrity` damages a real package in the
 //      four ways a real one can be damaged and asserts the property that matters more than
-//      any error message: that the restore refuses BEFORE it deletes the user's database.
-//      Everything after `destroyAndRecreatePersistentStore` is unrecoverable, so "rejected
-//      late" and "not rejected" are the same outcome to the user.
+//      any error message: that the restore refuses BEFORE it commits its staged store, so
+//      the user's library is left as it was (see PendingRestore).
 //
 // STORE OWNERSHIP — why these scenarios never touch the coordinator's container
 //
-// `restore-endtoend` runs before this file and destroys the sandbox store, which orphans
-// `DataCoordinator.modelContainer`: its SQLite connection still addresses the unlinked
-// inode, so anything seeded through it after that point is written to a file nothing will
-// ever open. Every scenario here therefore opens its OWN container at the store URL, and
-// starts by deleting the store files so it begins from a known-empty library regardless of
+// The coordinator's container holds the library this session loaded, and a restore's result
+// is only read after the swap the relaunch would do (applyRestoreAsRelaunchWould), into a
+// separate store. Every scenario here therefore opens its OWN container at the store URL,
+// and starts by erasing the store so it begins from a known-empty library regardless of
 // what ran before it. That also makes each scenario individually runnable via
 // `-FTDebugHarness backup`.
 
 #if DEBUG
 
 import Foundation
-import SwiftData
+import CoreData
 
 extension DebugHarness {
 
@@ -90,29 +88,45 @@ extension DebugHarness {
 
     // MARK: - Store Ownership Helpers
 
-    /// The full model set, spelled once. Must match `DBRestorer.destroyAndRecreatePersistentStore`
-    /// and `DBExporter.allModelTypes`; `schemaCoverageScenario` asserts the latter.
-    static var backupHarnessSchema: Schema {
-        Schema([Film.self, ListObject.self, ListMembership.self,
-                Release.self, ImportSession.self, SettingsObject.self, SavedSearchObject.self])
+    /// The full model set, read from LibraryModel. Must match `DBExporter.allModelTypes`;
+    /// `schemaCoverageScenario` asserts it.
+    static var backupHarnessSchema: HarnessSchema {
+        HarnessSchema(entities: LibraryModel.shared.model.entities.map {
+            HarnessSchema.Entity(name: $0.name ?? "", attributes: Array($0.attributesByName.values))
+        })
     }
 
-    static var backupHarnessStoreURL: URL? {
-        Preferences.dataFolderURL?.appendingPathComponent("default.store")
+    /// The live model's entities and attributes (LibraryModel), read as names.
+    struct HarnessSchema {
+        struct Entity {
+            let name: String
+            let attributes: [NSAttributeDescription]
+        }
+        let entities: [Entity]
     }
+
+    /// The library's store, or after a harness restore the store the relaunch would open
+    /// (see applyRestoreAsRelaunchWould). Reset by resetBackupStore.
+    static var backupHarnessStoreURL: URL? {
+        restoredStoreInUse ? harnessRestoredStoreURL : LibraryStore.storeURL
+    }
+
+    /// Where applyRestoreAsRelaunchWould swaps a restore in: beside the library's store, and
+    /// open in no connection, as the launch's swap target is.
+    static var harnessRestoredStoreURL: URL? {
+        LibraryStore.storeURL?.deletingLastPathComponent().appendingPathComponent("harness-restored.sqlite")
+    }
+    @MainActor static var restoredStoreInUse = false
 
     /// Opens a container at the sandbox store URL. `allowsSave: false` is used for every
     /// verification read, so a check can never accidentally write to the store it is
     /// measuring.
     @MainActor
-    static func openBackupStore(allowsSave: Bool) throws -> ModelContainer {
+    static func openBackupStore(allowsSave: Bool) throws -> NSPersistentContainer {
         guard let url = backupHarnessStoreURL else {
             throw DBRestorerError.storeRebuildFailed("no store URL in this sandbox")
         }
-        let schema = backupHarnessSchema
-        let configuration = ModelConfiguration(schema: schema, url: url,
-                                               allowsSave: allowsSave, cloudKitDatabase: .none)
-        return try ModelContainer(for: schema, configurations: [configuration])
+        return try LibraryStore.makeContainer(at: url, readOnly: !allowsSave)
     }
 
     /// Deletes the store files and opens a fresh writable container, so a scenario starts
@@ -120,30 +134,30 @@ extension DebugHarness {
     /// deletion `DBRestorer` performs: leaving a -wal behind would carry rows from the
     /// previous scenario into this one and make every count check meaningless.
     @MainActor
-    static func resetBackupStore() throws -> ModelContainer {
+    static func resetBackupStore() throws -> NSPersistentContainer {
+        // Back to the library's own store, before its URL is read below.
+        restoredStoreInUse = false
         guard let url = backupHarnessStoreURL else {
             throw DBRestorerError.storeRebuildFailed("no store URL in this sandbox")
         }
-        let fm = FileManager.default
-        for suffix in ["", "-wal", "-shm"] {
-            let target = URL(fileURLWithPath: url.path(percentEncoded: false) + suffix)
-            if fm.fileExists(atPath: target.path(percentEncoded: false)) {
-                try? fm.removeItem(at: target)
-            }
+        // Erased in place, not unlinked: the app's own container has this file open, and
+        // deleting it from under that connection is what SQLite reports as error 6922.
+        PendingRestore.discard()
+        if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+            try LibraryStore.destroyStore(at: url)
         }
         let container = try openBackupStore(allowsSave: true)
-        container.mainContext.autosaveEnabled = false
         return container
     }
 
     /// Runs a real export against a caller-supplied container and returns the package URL.
     @MainActor
-    static func exportBackupPackage(container: ModelContainer,
+    static func exportBackupPackage(container: NSPersistentContainer,
                                     filename: String,
                                     includePosters: Bool = false,
                                     includeSettings: Bool = true,
                                     posterUIDs: Set<String> = []) async -> URL? {
-        let exporter = DBExporter(modelContainer: container)
+        let exporter = DBExporter(persistentContainer: container)
         do {
             let result = try await exporter.createCompleteBackup(
                 filename: filename,
@@ -165,33 +179,57 @@ extension DebugHarness {
     /// to the live Preferences as well would mutate state later scenarios depend on.
     @MainActor
     static func restoreBackupPackage(_ url: URL,
-                                     container: ModelContainer) async -> (error: (any Error)?, rebuilt: Bool) {
+                                     container: NSPersistentContainer) async -> (error: (any Error)?, rebuilt: Bool) {
         let restorer = DBRestorer(container: container, dataCoordinator: nil)
         do {
             try await restorer.restoreFromBackup(at: url) { _, _ in }
-            return (nil, restorer.storeWasRebuilt)
+            applyRestoreAsRelaunchWould()
+            return (nil, restorer.requiresRestart)
         } catch {
-            return (error, restorer.storeWasRebuilt)
+            if restorer.requiresRestart { applyRestoreAsRelaunchWould() }
+            return (error, restorer.requiresRestart)
+        }
+    }
+
+    /// Runs the swap the post-restore relaunch would (PendingRestore.applyIfPending), into
+    /// `harnessRestoredStoreURL` rather than the library's store: the app's container has
+    /// that one open, which the launch's swap never faces, and a copy into a file under open
+    /// connections reads back inconsistently. Later reads go there (backupHarnessStoreURL).
+    @MainActor
+    @discardableResult
+    static func applyRestoreAsRelaunchWould() -> Bool {
+        guard let target = harnessRestoredStoreURL else { return false }
+        for file in LibraryStore.storeFiles(target) { try? FileManager.default.removeItem(at: file) }
+        switch PendingRestore.applyIfPending(into: target) {
+        case .swapped:
+            restoredStoreInUse = true
+            return true
+        case .nothingPending:
+            log("Harness: no staged restore to swap in")
+            return false
+        case .failed(let reason):
+            log("Harness: staged restore failed to swap in: \(reason)")
+            return false
         }
     }
 
     // MARK: - Scenario: Schema Coverage
 
-    /// Every attribute SwiftData persists must appear in the exported XML.
+    /// Every attribute store persists must appear in the exported XML.
     ///
     /// The expected field list is read from the live `Schema` rather than written down here,
     /// which is the only form of this check worth having: a hand-maintained list is updated
     /// by the same edit that would have updated the extractor, so it fails exactly never.
     ///
     /// This is the check that catches the quietest possible data-loss bug — a field added to
-    /// a @Model and to the UI but not to that model's `extractExportValues()`. Such a field
+    /// a model class and to the UI but not to that model's `extractExportValues()`. Such a field
     /// exports without error, restores without error, and is simply absent from every backup
     /// the user has ever taken. No round-trip comparison can see it, because the value it
     /// would compare against is the model default on both sides.
     private static func schemaCoverageScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "backup-schema-coverage")
 
-        let container: ModelContainer
+        let container: NSPersistentContainer
         do {
             container = try resetBackupStore()
         } catch {
@@ -241,7 +279,7 @@ extension DebugHarness {
         //
         // Asked of a fully-populated instance held in memory, so the answer depends on
         // nothing but the extractor itself. This is the layer that actually catches the bug
-        // the scenario exists for — a field added to a @Model and forgotten in its
+        // the scenario exists for — a field added to a model class and forgotten in its
         // `extractExportValues()` — and it is deterministic, which the file layer below is
         // not for `SettingsObject` (see the note there).
         let extractorSources: [(String, () -> [String: Any])] = [
@@ -570,10 +608,9 @@ extension DebugHarness {
     /// (parent with two children, the "Combo-pack (dual BD)" shape), a standalone release,
     /// an import session, and a settings object.
     @MainActor
-    static func seedFullGraph(container: ModelContainer) async throws -> SeededGraph {
+    static func seedFullGraph(container: NSPersistentContainer) async throws -> SeededGraph {
         var graph = SeededGraph()
-        let context = ModelContext(container)
-        context.autosaveEnabled = false
+        let context = container.makeMainContext()
 
         // FilmSnapshot.id is a `let`, so the harness-chosen identity is stamped on the model
         // object after conversion. Doing it this way rather than through the snapshot keeps
@@ -721,7 +758,7 @@ extension DebugHarness {
     private static func graphRoundTripScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "backup-graph-roundtrip")
 
-        let container: ModelContainer
+        let container: NSPersistentContainer
         let graph: SeededGraph
         do {
             container = try resetBackupStore()
@@ -748,15 +785,20 @@ extension DebugHarness {
 
         let films: [Film], lists: [ListObject], memberships: [ListMembership]
         let releases: [Release], sessions: [ImportSession], settingsRows: [SettingsObject]
+        // Held for the rest of the scenario: a managed object whose context is gone reads
+        // every attribute as nil, and the checks below read these long after the fetch.
+        var keepAlive: [AnyObject] = []
+        defer { withExtendedLifetime(keepAlive) {} }
         do {
             let verify = try openBackupStore(allowsSave: false)
-            let context = ModelContext(verify)
-            films = try context.fetch(FetchDescriptor<Film>())
-            lists = try context.fetch(FetchDescriptor<ListObject>())
-            memberships = try context.fetch(FetchDescriptor<ListMembership>())
-            releases = try context.fetch(FetchDescriptor<Release>())
-            sessions = try context.fetch(FetchDescriptor<ImportSession>())
-            settingsRows = try context.fetch(FetchDescriptor<SettingsObject>())
+            let context = verify.makeMainContext()
+            keepAlive = [verify, context]
+            films = try context.fetch(Film.request())
+            lists = try context.fetch(ListObject.request())
+            memberships = try context.fetch(ListMembership.request())
+            releases = try context.fetch(Release.request())
+            sessions = try context.fetch(ImportSession.request())
+            settingsRows = try context.fetch(SettingsObject.request())
         } catch {
             r.check("restored-store-readable", false, "\(error)")
             return r
@@ -1147,7 +1189,7 @@ extension DebugHarness {
         }
         let fm = FileManager.default
 
-        let container: ModelContainer
+        let container: NSPersistentContainer
         do {
             container = try resetBackupStore()
             _ = try await seedFullGraph(container: container)
@@ -1445,25 +1487,25 @@ extension DebugHarness {
     /// A canonical serialization of the STORE, so two restores can be compared directly
     /// rather than only through the files they were restored from.
     @MainActor
-    static func storeContentDigest(_ container: ModelContainer) throws -> String {
-        let context = ModelContext(container)
+    static func storeContentDigest(_ container: NSPersistentContainer) throws -> String {
+        let context = container.makeMainContext()
         var lines: [String] = []
-        for film in try context.fetch(FetchDescriptor<Film>()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+        for film in try context.fetch(Film.request()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             lines.append("Film|\(film.id)|\(film.name)|\(film.releaseYear)|\(film.userRating)|"
                 + "\(film.viewCount)|\(film.hofPosition)|\(film.watched)|\(film.notes)|"
                 + "\(film.numberOfDiscs)|\(film.aspectRatio)|\(film.cast)|\(film.calendarTable)|"
                 + "\(String(describing: film.rotationThresholdOverride))")
         }
-        for list in try context.fetch(FetchDescriptor<ListObject>()).sorted(by: { $0.listID.uuidString < $1.listID.uuidString }) {
+        for list in try context.fetch(ListObject.request()).sorted(by: { $0.listID.uuidString < $1.listID.uuidString }) {
             lines.append("List|\(list.listID)|\(list.listName)|\(list.viewStyle)|\(list.displayOrder)|"
                 + "\(list.sortFilterOptions)|\(list.filmIDs.map(\.uuidString))")
         }
-        for membership in try context.fetch(FetchDescriptor<ListMembership>()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+        for membership in try context.fetch(ListMembership.request()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             lines.append("Membership|\(membership.id)|\(String(describing: membership.film?.id))|"
                 + "\(String(describing: membership.list?.listID))|\(membership.sortOrder)|"
                 + "\(Int(membership.dateAdded.timeIntervalSince1970))")
         }
-        for release in try context.fetch(FetchDescriptor<Release>()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+        for release in try context.fetch(Release.request()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             lines.append("Release|\(release.id)|\(String(describing: release.film?.id))|\(release.studio)|"
                 + "\(release.releaseDate)|\(release.baseReleaseYear)|\(release.format)|\(release.independence)|"
                 + "\(release.audioChannels)|\(release.numberOfDiscs)|\(release.cost)|\(release.amountSpent)|"
@@ -1473,7 +1515,7 @@ extension DebugHarness {
                 + "children=\(release.childReleases.map(\.id.uuidString).sorted())|"
                 + "\(Int(release.dateAdded.timeIntervalSince1970))")
         }
-        for session in try context.fetch(FetchDescriptor<ImportSession>()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+        for session in try context.fetch(ImportSession.request()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
             lines.append("Session|\(session.id)|\(session.importType)|\(session.totalItems)|"
                 + "\(session.successCount)|\(session.addedTitles)|\(session.isCompleted)|"
                 + "\(Int(session.sessionDate.timeIntervalSince1970))")
@@ -1505,14 +1547,13 @@ extension DebugHarness {
     private static func repeatabilityScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "backup-repeatability")
 
-        let container: ModelContainer
+        let container: NSPersistentContainer
         do {
             container = try resetBackupStore()
             _ = try await seedFullGraph(container: container)
             // The type-ambiguous film corpus as well: those are the values most likely to be
             // reformatted on a pass, which is exactly what the fixed-point check is for.
-            let context = ModelContext(container)
-            context.autosaveEnabled = false
+            let context = container.makeMainContext()
             for film in adversarialBackupCorpus() { context.insert(film) }
             try context.save()
         } catch {
@@ -1562,7 +1603,7 @@ extension DebugHarness {
         }
         r.check("first-restore-completes", true, "")
 
-        let restoredContainer: ModelContainer
+        let restoredContainer: NSPersistentContainer
         let digestAfterFirstRestore: String
         do {
             restoredContainer = try openBackupStore(allowsSave: false)
@@ -1657,12 +1698,10 @@ extension DebugHarness {
     /// What happens when the file is wrong.
     ///
     /// The property under test is not the error message. It is this: a restore that is going
-    /// to fail must fail BEFORE `destroyAndRecreatePersistentStore` deletes the user's
-    /// database. Everything past that point is unrecoverable in-session — the original
-    /// container's connection addresses an unlinked inode — so "detected the corruption
-    /// late" and "did not detect it" have exactly the same consequence for the user. Each
-    /// case below therefore checks three things: that the restore threw, that it threw the
-    /// right error, and that the library is still there afterwards.
+    /// to fail must fail BEFORE it commits its staged store (PendingRestore.commit), which
+    /// queues the restored library to replace the user's at the next launch. Each case below
+    /// therefore checks three things: that the restore threw, that it threw the right error,
+    /// and that the library is still there afterwards.
     private static func backupIntegrityScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "backup-integrity")
 
@@ -1672,7 +1711,7 @@ extension DebugHarness {
         try? fm.removeItem(at: scratch)
         try? fm.createDirectory(at: scratch, withIntermediateDirectories: true)
 
-        var container: ModelContainer
+        var container: NSPersistentContainer
         var graph: SeededGraph
         do {
             container = try resetBackupStore()
@@ -1713,8 +1752,8 @@ extension DebugHarness {
                         : "the store was never touched")
             var survived = false
             if let verify = try? openBackupStore(allowsSave: false) {
-                let context = ModelContext(verify)
-                survived = ((try? context.fetch(FetchDescriptor<Film>()))?.contains { $0.id == graph.filmA }) ?? false
+                let context = verify.makeMainContext()
+                survived = ((try? context.fetch(Film.request()))?.contains { $0.id == graph.filmA }) ?? false
             }
             r.check("\(label):library-intact", survived,
                     survived ? "the seeded library is still readable"
@@ -1818,8 +1857,8 @@ extension DebugHarness {
                     error.map { "\($0)" } ?? "restored despite a manifest count of 999 vs 2 actual — "
                         + "the mismatch is logged as a warning by design")
             if let verify = try? openBackupStore(allowsSave: false) {
-                let context = ModelContext(verify)
-                let films = (try? context.fetch(FetchDescriptor<Film>())) ?? []
+                let context = verify.makeMainContext()
+                let films = (try? context.fetch(Film.request())) ?? []
                 r.check("manifest-mismatch:objects-still-restored", films.count == 2,
                         "\(films.count) film(s) restored")
             }
@@ -1844,8 +1883,8 @@ extension DebugHarness {
             let (error, _) = await restoreBackupPackage(emptyPackage, container: container)
             r.check("empty-library:restores", error == nil, error.map { "\($0)" } ?? "")
             if let verify = try? openBackupStore(allowsSave: false) {
-                let context = ModelContext(verify)
-                let films = (try? context.fetch(FetchDescriptor<Film>())) ?? []
+                let context = verify.makeMainContext()
+                let films = (try? context.fetch(Film.request())) ?? []
                 r.check("empty-library:restores-to-an-empty-library", films.isEmpty, "\(films.count) film(s)")
             }
         } catch {
@@ -1876,9 +1915,9 @@ extension DebugHarness {
             let (error, _) = await restoreBackupPackage(noSettings, container: container)
             r.check("no-settings:restores", error == nil, error.map { "\($0)" } ?? "")
             if let verify = try? openBackupStore(allowsSave: false) {
-                let context = ModelContext(verify)
-                let rows = (try? context.fetch(FetchDescriptor<SettingsObject>())) ?? []
-                let films = (try? context.fetch(FetchDescriptor<Film>())) ?? []
+                let context = verify.makeMainContext()
+                let rows = (try? context.fetch(SettingsObject.request())) ?? []
+                let films = (try? context.fetch(Film.request())) ?? []
                 r.check("no-settings:library-restored-without-settings",
                         films.count == 2 && rows.isEmpty,
                         "\(films.count) film(s), \(rows.count) settings row(s) — the store is rebuilt "
@@ -1943,7 +1982,7 @@ extension DebugHarness {
             r.check("settings-restore:completes", error == nil, error.map { "\($0)" } ?? "")
 
             let verify = try openBackupStore(allowsSave: false)
-            let rows = try ModelContext(verify).fetch(FetchDescriptor<SettingsObject>())
+            let rows = try verify.makeMainContext().fetch(SettingsObject.request())
             guard let settings = rows.first else {
                 r.check("settings-restore-covers-every-field", false, "no SettingsObject restored")
                 return r
@@ -2031,9 +2070,9 @@ extension DebugHarness {
             try Data(xml.utf8).write(to: packageURL.appendingPathComponent("backup.xml"))
             let (error, rebuilt) = await restoreBackupPackage(packageURL, container: container)
             let verify = try openBackupStore(allowsSave: false)
-            let context = ModelContext(verify)
-            let films = (try? context.fetch(FetchDescriptor<Film>())) ?? []
-            let rows = (try? context.fetch(FetchDescriptor<SettingsObject>())) ?? []
+            let context = verify.makeMainContext()
+            let films = (try? context.fetch(Film.request())) ?? []
+            let rows = (try? context.fetch(SettingsObject.request())) ?? []
             // The outcome that would be a genuine data-loss defect is: the save throws, the
             // restore reports failure, and the library is NOT in the store — because by then
             // the previous database has already been deleted and there is nothing to go back
@@ -2129,7 +2168,7 @@ extension DebugHarness {
         try? fm.removeItem(at: scratch)
         try? fm.createDirectory(at: scratch, withIntermediateDirectories: true)
 
-        var container: ModelContainer
+        var container: NSPersistentContainer
         do {
             container = try resetBackupStore()
         } catch {
@@ -2159,12 +2198,12 @@ extension DebugHarness {
             guard let verify = try? openBackupStore(allowsSave: false) else {
                 return (error, [], [], [], [])
             }
-            let context = ModelContext(verify)
+            let context = verify.makeMainContext()
             return (error,
-                    (try? context.fetch(FetchDescriptor<Film>())) ?? [],
-                    (try? context.fetch(FetchDescriptor<Release>())) ?? [],
-                    (try? context.fetch(FetchDescriptor<ListObject>())) ?? [],
-                    (try? context.fetch(FetchDescriptor<ListMembership>())) ?? [])
+                    (try? context.fetch(Film.request())) ?? [],
+                    (try? context.fetch(Release.request())) ?? [],
+                    (try? context.fetch(ListObject.request())) ?? [],
+                    (try? context.fetch(ListMembership.request())) ?? [])
         }
 
         func filmXML(_ id: String, _ name: String) -> String {
@@ -2317,8 +2356,7 @@ extension DebugHarness {
         // unusable package behind under a plausible name.
         do {
             container = try resetBackupStore()
-            let context = ModelContext(container)
-            context.autosaveEnabled = false
+            let context = container.makeMainContext()
             let big = makeSnapshot(name: "Oversized Notes").toFilm()
             big.id = UUID()
             big.notes = String(repeating: "x", count: 4 * 1024 * 1024 + 1024)
@@ -2328,7 +2366,7 @@ extension DebugHarness {
             context.insert(small)
             try context.save()
 
-            let exporter = DBExporter(modelContainer: container)
+            let exporter = DBExporter(persistentContainer: container)
             var exportError: (any Error)?
             var producedURL: URL?
             do {
@@ -2372,7 +2410,7 @@ extension DebugHarness {
         //
         // 100 000 objects in `DBImporter`, again with no export-side counterpart. A library of
         // 33 000 films with one release and one membership each would cross it. The file is
-        // written by hand rather than exported because seeding 100 000 rows through SwiftData
+        // written by hand rather than exported because seeding 100 000 rows through Core Data
         // would dominate the suite's runtime, and the ceiling under test belongs to the READER.
         do {
             let packageURL = scratch.appendingPathComponent("object-ceiling.ftbackup", isDirectory: true)
@@ -2443,14 +2481,13 @@ extension DebugHarness {
         var r = HarnessScenarioResult(scenario: "backup-scale")
 
         let filmCount = 1200
-        let container: ModelContainer
+        let container: NSPersistentContainer
         var expectedNames: [UUID: String] = [:]
         var expectedRatings: [UUID: Int] = [:]
         let listID = UUID()
         do {
             container = try resetBackupStore()
-            let context = ModelContext(container)
-            context.autosaveEnabled = false
+            let context = container.makeMainContext()
             let list = ListObject(listID: listID, listName: "Scale List",
                                   viewStyle: "list", sortFilterOptions: [], displayOrder: 1)
             context.insert(list)
@@ -2526,10 +2563,10 @@ extension DebugHarness {
 
         do {
             let verify = try openBackupStore(allowsSave: false)
-            let context = ModelContext(verify)
-            let films = try context.fetch(FetchDescriptor<Film>())
-            let releases = try context.fetch(FetchDescriptor<Release>())
-            let memberships = try context.fetch(FetchDescriptor<ListMembership>())
+            let context = verify.makeMainContext()
+            let films = try context.fetch(Film.request())
+            let releases = try context.fetch(Release.request())
+            let memberships = try context.fetch(ListMembership.request())
             r.check("scale:film-count-restored", films.count == filmCount, "\(films.count) of \(filmCount)")
             r.check("scale:release-count-restored", releases.count == filmCount, "\(releases.count) of \(filmCount)")
             r.check("scale:membership-count-restored", memberships.count == filmCount, "\(memberships.count) of \(filmCount)")
@@ -2605,7 +2642,7 @@ extension DebugHarness {
             return ((try? fm.contentsOfDirectory(atPath: root.path(percentEncoded: false))) ?? []).isEmpty
         }
 
-        let container: ModelContainer
+        let container: NSPersistentContainer
         do {
             container = try resetBackupStore()
             _ = try await seedFullGraph(container: container)
@@ -2626,7 +2663,7 @@ extension DebugHarness {
             return r
         }
 
-        let exporter = DBExporter(modelContainer: container)
+        let exporter = DBExporter(persistentContainer: container)
         func export(to dest: URL) async -> Result<URL, any Error> {
             do {
                 return .success(try await exporter.createCompleteBackup(
@@ -2759,7 +2796,7 @@ extension DebugHarness {
         for item in (try? fm.contentsOfDirectory(at: backups, includingPropertiesForKeys: nil)) ?? [] {
             try? fm.removeItem(at: item) }
 
-        let container: ModelContainer
+        let container: NSPersistentContainer
         do {
             container = try resetBackupStore()
             _ = try await seedFullGraph(container: container)
@@ -2785,7 +2822,7 @@ extension DebugHarness {
         fakePackage(filename, daysAgo: 100)
         fakePackage("FilmTrackerBackup-2020-01-04T00-00-00-05-00.ftbackup", daysAgo: 500)
 
-        let exporter = DBExporter(modelContainer: container)
+        let exporter = DBExporter(persistentContainer: container)
         let delivered: URL
         do {
             delivered = try await exporter.createCompleteBackup(
@@ -2842,13 +2879,12 @@ extension DebugHarness {
         // The content and restore checks hold at any size; the latency metrics only mean
         // something at the real library's scale, which `full` keeps.
         let filmCount = isThorough ? 3000 : 400
-        let container: ModelContainer
+        let container: NSPersistentContainer
         let seededDigest: String
         do {
             container = try resetBackupStore()
             _ = try await seedFullGraph(container: container)
-            let context = ModelContext(container)
-            context.autosaveEnabled = false
+            let context = container.makeMainContext()
             for film in adversarialBackupCorpus() { context.insert(film) }
             let list = ListObject(listID: UUID(), listName: "Background List",
                                   viewStyle: "list", sortFilterOptions: [], displayOrder: 50)
@@ -2895,7 +2931,7 @@ extension DebugHarness {
         let backgroundStart = ContinuousClock.now
         let background: URL
         do {
-            background = try await DBExporter(modelContainer: container).createCompleteBackup(
+            background = try await DBExporter(persistentContainer: container).createCompleteBackup(
                 filename: "bg-auto", destinationURL: DebugSandbox.rootURL, isBackgroundExport: true,
                 posterUIDs: [], progress: nil).packageURL
         } catch {

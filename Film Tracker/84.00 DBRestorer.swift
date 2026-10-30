@@ -1,10 +1,10 @@
 // MARK: - DBRestorer.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Restores SwiftData database from a parsed backup file package.
+// Restores the Core Data database from a parsed backup file package.
 
 import Foundation
-import SwiftData
+import CoreData
 
 public enum DBRestorerError: Error {
     case invalidBackupStructure(String)
@@ -26,34 +26,27 @@ final class DBRestorer: Loggable {
     /// the same backup can never come back sharing one name. See `resolveListName`.
     private var claimedListNames: Set<String> = []
 
-    private let container: ModelContainer
+    private let container: NSPersistentContainer
     private let importer: DBImporter
     private let dataCoordinator: DataCoordinator?
     private var settingsWereRestored = false
 
-    /// Non-fatal warning surfaced after a successful restore when settings were
-    /// restored to the database but could not be applied to UserDefaults. The DB
-    /// contents are intact; only the in-memory Preferences state is stale, which
-    /// the user's post-restore relaunch will normally resolve. UI layers may inspect
-    /// this after `restoreFromBackup` returns to include an informational note in
-    /// the completion alert. `nil` means no warning was raised.
-    public private(set) var settingsApplyFailure: String?
-
-    /// True once `restoreFromBackup` has destroyed the app's persistent store and opened a
-    /// fresh one in its place.
+    /// True once the restored library is committed (PendingRestore.commit): the next launch
+    /// swaps it in, so the session must relaunch.
     ///
-    /// The point of no return. Everything the restore does BEFORE this flag is raised —
-    /// package validation, XML parsing, structural checks — leaves the existing database
-    /// untouched, so a failure there is recoverable and the session can simply carry on.
-    /// Everything AFTER it runs against a store whose files have already been unlinked
-    /// from under the app's original ModelContainer: that container's SQLite connection
-    /// now addresses a deleted inode, so any subsequent save in this session writes into a
-    /// file nothing will ever open again. A failure past this point is therefore NOT
-    /// recoverable in-session however harmless its message reads, and the UI must require
-    /// the same restart a successful restore does rather than offering a plain "OK".
-    public private(set) var storeWasRebuilt = false
+    /// Everything the restore does BEFORE this — parsing, building and checking the staged
+    /// store — leaves the library's own store untouched, so a failure there is recoverable
+    /// and the session simply carries on. A failure AFTER it (applying settings, copying
+    /// posters) still needs the relaunch, because the restored library is already queued to
+    /// replace the running one; the UI offers the same restart a success does.
+    public private(set) var requiresRestart = false
 
-    init(container: ModelContainer, dataCoordinator: DataCoordinator? = nil,
+    /// The backup's settings, read from the staged store before it is closed, for applying
+    /// to UserDefaults in this session. The app's own container still holds the old library
+    /// until the relaunch, so it cannot supply them.
+    private var restoredSettings: SettingsSnapshot?
+
+    init(container: NSPersistentContainer, dataCoordinator: DataCoordinator? = nil,
         importer: DBImporter = DBImporter()) {
         self.container = container
         self.dataCoordinator = dataCoordinator
@@ -61,19 +54,15 @@ final class DBRestorer: Loggable {
 
     // Restore database from backup package with progress reporting.
     //
-    // DELIBERATELY NOT CANCELLABLE. Past `destroyAndRecreatePersistentStore()` the user's
-    // old database no longer exists, so there is no state to return to: an abort part-way
-    // through the three population passes would leave a store holding an arbitrary prefix
-    // of the backup — films without their releases, memberships pointing at lists that were
-    // never created — which is strictly worse than either finishing or failing outright.
-    // The UI reflects this: the confirmation alert is the last decision point, and the
-    // progress sheet that follows is an indeterminate spinner with no Cancel button.
+    // The restored library is built in a staged store beside the library's own (see
+    // PendingRestore) and swapped in at the next launch, so nothing here writes to the store
+    // the app has open. A failure before the commit discards the staged store and leaves
+    // the library as it was.
     //
-    // The passes below therefore carry no `Task.checkCancellation()` calls. They used to,
-    // and nothing ever canceled the enclosing task — which made them both dead and
-    // misleading, since they advertised a safe abort at exactly the points where aborting
-    // is least safe. A genuine hard failure (power loss, kill) is covered by the same
-    // recovery the UI already offers: relaunch, and run the restore again.
+    // Not cancellable: the UI's confirmation alert is the last decision point, and the
+    // progress sheet that follows has no Cancel button. A hard failure (power loss, kill)
+    // before the commit leaves only a staged store, which the next restore discards; after
+    // it, the next launch completes the swap.
     @MainActor
     public func restoreFromBackup(
         at packageURL: URL,
@@ -83,8 +72,8 @@ final class DBRestorer: Loggable {
         missingFieldsDetected.removeAll()
         schemaEvolutionOccurred = false
         settingsWereRestored = false
-        settingsApplyFailure = nil
-        storeWasRebuilt = false
+        requiresRestart = false
+        restoredSettings = nil
 
         // Validate it's a .ftbackup package.
         guard packageURL.pathExtension == "ftbackup" else {
@@ -111,39 +100,98 @@ final class DBRestorer: Loggable {
 
         progress?(0.2, "Preparing restoration...")
 
-        // Phase 2: Destroy and recreate the persistent store (20-30%).
-        //
-        // Rather than deleting rows entity-by-entity inside the existing store, we
-        // physically delete the SwiftData store files and open a brand-new, empty store
-        // at the same location. This unconditionally resolves schema-mismatch errors that
-        // arise when a new model field is added without a versioned migration: the old
-        // .store file carries the previous schema and cannot be safely cleared or written
-        // to by the current app binary, so the entity-deletion approach would fail even
-        // after the files are replaced unless the store itself is rebuilt from scratch.
-        //
-        // A post-restore application restart is already mandatory (enforced by the UI),
-        // so the original ModelContainer held by the app is intentionally orphaned for
-        // the remainder of this session. All subsequent restore operations use the fresh
-        // container returned by this call.
+        // Phase 2: Open an empty staged store (20-30%). Always a brand-new store with the
+        // current model, so a backup restores whatever state the library's own store is in.
         progress?(0.25, "Rebuilding database store...")
-        let restoreContainer: ModelContainer
+        let restoreContainer: NSPersistentContainer
         do {
-            restoreContainer = try await destroyAndRecreatePersistentStore()
-            Self.log("Persistent store destroyed and recreated successfully")
-        } catch let error as DBRestorerError {
-            throw error
+            restoreContainer = try PendingRestore.makeStagingContainer()
+            Self.log("Staged store opened at: \(restoreContainer.storeURL?.lastPathComponent ?? "?")")
         } catch {
             throw DBRestorerError.storeRebuildFailed(
-                "Failed to rebuild persistent store: \(error.localizedDescription)")
+                "Failed to create the restore's store: \(error.localizedDescription)")
         }
 
+        // Anything that fails from here until the commit discards the staged store.
+        do {
+            try await populateAndCommit(backup, into: restoreContainer, progress: progress)
+        } catch {
+            PendingRestore.discard()
+            throw error
+        }
+        requiresRestart = true
+
+        // The derived caches on disk describe the store about to be replaced, and the live
+        // MemoryStore still holds it in memory. Silence the latter first so no throttled
+        // save can recreate the files, then delete them so the relaunch reads the new store
+        // in full rather than validating a cache the fingerprint cannot tell apart from it.
+        // See MemoryStoreCache.invalidateOnDisk.
+        (dataCoordinator ?? AppDelegate.dataCoordinator)?
+            .suspendCachePersistence(reason: "a restored library replaces this one at relaunch")
+        MemoryStoreCache.shared.invalidateOnDisk()
+
+        progress?(0.8, "Database restoration complete")
+
+        // The library's film identities have just been wholesale replaced. The "known up for
+        // rotation" baseline in UserDefaults describes the PREVIOUS library, so measured
+        // against the restored one it would report a large set of false "newly up for
+        // rotation" films and auto-enqueue them into the Film Queue — overwriting the queue
+        // arrangement that was itself just restored from this very backup.
+        //
+        // Clearing it returns SmartLists to its unestablished state, where the first full
+        // recalculation after the mandatory post-restore relaunch adopts the computed
+        // membership as the new baseline without enqueueing anything.
+        //
+        // Done here rather than alongside the settings restore below because that block is
+        // conditional on the backup actually containing settings — a settings-less backup
+        // still replaces every film, and would otherwise leave the stale baseline in place.
+        Preferences.resetKnownUpForRotationFilmIDs()
+        Self.log("Cleared Up for Rotation baseline — restored library has new film identities")
+
+        // Log schema evolution summary if detected
+        if schemaEvolutionOccurred {
+            Self.log("Schema evolution detected during restoration - older backup successfully migrated")
+            Self.log("Missing fields populated with defaults: \(missingFieldsDetected.sorted().joined(separator: ", "))")
+        }
+
+        // Apply restored settings to UserDefaults, from the staged store's own settings row
+        // (read before it was closed). UserDefaults survive the relaunch, and the launch-time
+        // sync writes them back into the swapped-in store.
+        if let restoredSettings {
+            if let coordinator = dataCoordinator {
+                progress?(0.85, "Applying restored settings...")
+                coordinator.applyRestoredSettings(restoredSettings)
+                Self.log("Settings restored and applied to UserDefaults")
+            } else {
+                Self.log("NOTE: Settings were restored to the staged store; no coordinator to apply them to UserDefaults")
+            }
+        } else {
+            Self.log("NOTE: No settings found in backup or settings were malformed - current settings unchanged")
+        }
+
+        // Phase 5: Restore poster images if present (80-100%)
+        if hasPosters {
+            try await restorePosterImages(from: postersURL, progress: progress)
+        }
+
+        progress?(1.0, "Restoration complete!")
+    }
+
+    /// Phases 3 and 4: fills the staged store from the parsed backup, saves it, checks what
+    /// landed against what was inserted, reads the settings back, and commits it.
+    private func populateAndCommit(_ backup: ParsedBackup, into restoreContainer: NSPersistentContainer,
+                                   progress: (@Sendable (Double, String) -> Void)?) async throws {
         progress?(0.3, "Creating new objects...")
 
         // Phase 3: Create new context and insert objects (30-70%)
-        // The context is opened against the freshly-created store, guaranteeing a clean
+        // The context is opened against the empty staged store, guaranteeing a clean
         // schema and no residual data from the previous database.
-        let context = ModelContext(restoreContainer)
-        context.autosaveEnabled = false  // Disable autosave during bulk operations
+        // Main-queue, as this method is MainActor: the population passes below use it
+        // directly. Nothing is saved until the single save in Phase 4. Its merge policy
+        // resolves SettingsObject's uniqueness constraint: a backup carrying two settings
+        // rows restores as one, as the SwiftData model's unique attribute did.
+        let context = restoreContainer.makeMainContext()
+        context.mergePolicy = NSMergePolicy.mergeByPropertyObjectTrump
 
         // Lookup dictionaries keyed directly by the model's own UUID. The second pass
         // reads the filmID / listID properties off ParsedObjects, which are UUIDs —
@@ -369,22 +417,18 @@ final class DBRestorer: Loggable {
                 continue
             }
 
+            // Core Data fills in the inverse, parentRelease.childReleases, which the
+            // FilmSheet's combo-pack logic reads. (The SwiftData build had to append to it
+            // by hand: there the inverse could come back empty after a batch of links to
+            // unsaved objects.)
             childRelease.parentRelease = parentRelease
-            // Populate the inverse explicitly rather than relying on SwiftData to do it.
-            // Every link in a restore is applied to freshly inserted, unsaved objects in
-            // one batch before a single context.save(), which is precisely the shape in
-            // which an inverse array has been observed to come back empty — leaving each
-            // child correctly naming its parent while no parent claims any child. The
-            // FilmSheet's combo-pack logic reads the parent side, so a restore in that
-            // state silently disables the child-deletion confirmation and the combined
-            // parent/child carousel card across the whole restored library. The contains
-            // check keeps this a no-op whenever the inverse did follow.
-            if !parentRelease.childReleases.contains(where: { $0.id == childRelease.id }) {
-                parentRelease.childReleases.append(childRelease)
-            }
         }
 
         progress?(0.7, "Saving restored data...")
+
+        // What the passes above inserted, per entity, for the check after the save.
+        var inserted: [String: Int] = [:]
+        for object in context.insertedObjects { inserted[object.entity.name ?? "", default: 0] += 1 }
 
         // Phase 4: Save the new data (70-80%)
         do {
@@ -394,211 +438,55 @@ final class DBRestorer: Loggable {
             throw DBRestorerError.restorationFailed("Failed to save restored data: \(error.localizedDescription)")
         }
 
-        progress?(0.8, "Database restoration complete")
-
-        // The library's film identities have just been wholesale replaced. The "known up for
-        // rotation" baseline in UserDefaults describes the PREVIOUS library, so measured
-        // against the restored one it would report a large set of false "newly up for
-        // rotation" films and auto-enqueue them into the Film Queue — overwriting the queue
-        // arrangement that was itself just restored from this very backup.
-        //
-        // Clearing it returns SmartLists to its unestablished state, where the first full
-        // recalculation after the mandatory post-restore relaunch adopts the computed
-        // membership as the new baseline without enqueueing anything.
-        //
-        // Done here rather than alongside the settings restore below because that block is
-        // conditional on the backup actually containing settings — a settings-less backup
-        // still replaces every film, and would otherwise leave the stale baseline in place.
-        Preferences.resetKnownUpForRotationFilmIDs()
-        Self.log("Cleared Up for Rotation baseline — restored library has new film identities")
-
-        // Log schema evolution summary if detected
-        if schemaEvolutionOccurred {
-            Self.log("Schema evolution detected during restoration - older backup successfully migrated")
-            Self.log("Missing fields populated with defaults: \(missingFieldsDetected.sorted().joined(separator: ", "))")
-        }
-        
-        // Apply restored settings to UserDefaults if settings were restored AND DataCoordinator available
-        if settingsWereRestored {
-            if let coordinator = dataCoordinator {
-                progress?(0.85, "Applying restored settings...")
-                do {
-                    try await coordinator.loadSettingsFromDatabase()
-                    Self.log("Settings restored and applied to UserDefaults")
-                } catch {
-                    // Record the failure so the UI layer can surface a non-fatal
-                    // notice in the completion alert. We intentionally do not throw:
-                    // the database restore itself already succeeded, and failing the
-                    // whole operation here would be disproportionate — the user's
-                    // post-restore relaunch will normally pick up the new settings
-                    // from the database on next launch.
-                    let message = error.localizedDescription
-                    settingsApplyFailure = message
-                    Self.log("WARNING: Failed to apply restored settings: \(message)")
-                }
-            } else {
-                Self.log("NOTE: Settings were restored to database. Caller should call dataCoordinator.loadSettingsFromDatabase()")
+        // Read back through a fresh context: every inserted row must be in the store.
+        // SettingsObject may come back with fewer, by its uniqueness constraint.
+        let verify = restoreContainer.makeMainContext()
+        for (entity, expected) in inserted {
+            let request = NSFetchRequest<any NSFetchRequestResult>(entityName: entity)
+            let stored = (try? verify.count(for: request)) ?? -1
+            let ok = entity == SettingsObject.entityName ? (1...expected).contains(stored) : stored == expected
+            guard ok else {
+                throw DBRestorerError.restorationFailed(
+                    "The restored library is incomplete: \(stored) of \(expected) \(entity) row(s) were saved.")
             }
-        } else {
-            Self.log("NOTE: No settings found in backup or settings were malformed - current settings unchanged")
+        }
+        if settingsWereRestored,
+           let row = try? verify.fetch(SettingsObject.request(.equals("snapshotID", SettingsObject.singletonID))).first {
+            restoredSettings = SettingsSnapshot(from: row)
         }
 
-        // Phase 5: Restore poster images if present (80-100%)
-        if hasPosters {
-            try await restorePosterImages(from: postersURL, progress: progress)
+        do {
+            try PendingRestore.commit(restoreContainer)
+        } catch {
+            throw DBRestorerError.restorationFailed(
+                "The restored library could not be finalized: \(error.localizedDescription)")
         }
-
-        progress?(1.0, "Restoration complete!")
     }
 
     // MARK: - Create Fresh Database (Public Entry Point)
-    /// Destroys the existing persistent store and creates a fresh, empty one. This is the
+    /// Stages a fresh, empty store to replace the library's at the next launch. This is the
     /// public entry point used by the "Create New Library" recovery flow when the database
-    /// is broken at launch. After this returns successfully the app must restart — the
-    /// in-memory container that was opened as a fallback is orphaned, and the next launch
-    /// will open the newly created persistent store cleanly.
+    /// is broken at launch. After this returns successfully the app must restart, which swaps
+    /// the empty store in (the broken one is kept as the rollback copy, or moved there).
     ///
-    /// - Throws: `DBRestorerError.storeRebuildFailed` if the store cannot be rebuilt.
+    /// - Throws: `DBRestorerError.storeRebuildFailed` if the empty store cannot be staged.
     @MainActor
     public func createFreshDatabase() async throws {
-        storeWasRebuilt = false
-        _ = try await destroyAndRecreatePersistentStore()
+        requiresRestart = false
+        do {
+            try PendingRestore.commit(try PendingRestore.makeStagingContainer())
+        } catch {
+            PendingRestore.discard()
+            throw DBRestorerError.storeRebuildFailed(
+                "Failed to create a new library: \(error.localizedDescription)")
+        }
+        requiresRestart = true
+        (dataCoordinator ?? AppDelegate.dataCoordinator)?
+            .suspendCachePersistence(reason: "a new library replaces this one at relaunch")
+        MemoryStoreCache.shared.invalidateOnDisk()
         // No films exist any more, so any retained rotation baseline is entirely phantom IDs.
         Preferences.resetKnownUpForRotationFilmIDs()
-        Self.log("Fresh empty database created via createFreshDatabase()")
-    }
-
-    // MARK: - Store Destruction and Recreation
-    /// Destroys the existing SwiftData persistent store files on disk and opens a fresh,
-    /// empty store at the same location by constructing a new ModelContainer.
-    ///
-    /// This is the correct clearing strategy for restore operations because it handles
-    /// both the healthy-store case (row-level deletion would also work) and the
-    /// broken-schema case. When the schema has changed without a versioned migration,
-    /// `createModelContainer()` in `FilmTrackerApp` fails to open the persistent store
-    /// and silently falls back to an in-memory container for the current session.
-    /// `container.configurations.first?.url` therefore yields a null or meaningless URL
-    /// (as confirmed by log output "Could not delete null"), so the store files would
-    /// never be touched. The fix is to resolve the store path independently — directly
-    /// from the app's known Application Support directory — which is always correct
-    /// regardless of whether the active container is persistent or in-memory.
-    ///
-    /// The caller (`restoreFromBackup` and `createFreshDatabase`) uses the returned
-    /// ModelContainer for all subsequent insert and save operations. The original
-    /// container is orphaned for the remainder of the session, which is safe because
-    /// a mandatory application restart follows every operation that calls this method.
-    ///
-    /// - Returns: A new, empty `ModelContainer` opened at the correct store URL.
-    /// - Throws: `DBRestorerError.storeRebuildFailed` if the store path cannot be
-    ///   resolved, the files cannot be deleted, or the new container cannot be opened.
-    @MainActor
-    private func destroyAndRecreatePersistentStore() async throws -> ModelContainer {
-        // Step 0: let tracked writes finish first. They run off the main thread (see
-        // DataCoordinator.runOffMainActor), so without this one could be mid-commit against
-        // the old store at the moment its files are unlinked below. Nothing between the
-        // last check and the unlink suspends, and only the main actor dispatches tracked
-        // work, so none can start in between. Bounded like the shutdown drain.
-        if let coordinator = dataCoordinator ?? AppDelegate.dataCoordinator,
-           coordinator.hasPendingOperations {
-            Self.log("Waiting for pending database writes before rebuilding the store")
-            let deadline = ContinuousClock.now + .seconds(10)
-            while coordinator.hasPendingOperations, ContinuousClock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            if coordinator.hasPendingOperations {
-                Self.log("WARNING: Pending writes still running after 10s — rebuilding the store anyway")
-            }
-        }
-
-        // Step 1: Resolve the store path from the app's known Application Support
-        // directory. SwiftData's default store name is "default.store" and it lives
-        // directly inside Application Support (not in a subdirectory), which is exactly
-        // what Preferences.dataFolderURL points to. This path is always correct whether
-        // or not the current session's ModelContainer opened the store successfully —
-        // critically, it is correct even when the app fell back to an in-memory container
-        // due to a schema migration failure, in which case container.configurations would
-        // give a null URL and the store files would never be found or deleted.
-        guard let appSupportURL = Preferences.dataFolderURL else {
-            throw DBRestorerError.storeRebuildFailed(
-                "Could not resolve Application Support directory — cannot locate store files.")
-        }
-
-        let storeName = "default.store"
-        let storeURL  = appSupportURL.appendingPathComponent(storeName)
-        let walURL    = appSupportURL.appendingPathComponent("\(storeName)-wal")
-        let shmURL    = appSupportURL.appendingPathComponent("\(storeName)-shm")
-
-        Self.log("Targeting store files at: \(appSupportURL.path(percentEncoded: false))")
-
-        // Step 2: Delete the three SQLite store files.
-        // SwiftData (via Core Data) creates:
-        //   • default.store      — the main SQLite database
-        //   • default.store-wal  — the write-ahead log (in-flight transactions)
-        //   • default.store-shm  — the shared memory file (WAL index)
-        // All three must be removed so the new ModelContainer opens a truly empty store
-        // with no uncommitted WAL entries from the previous session.
-        // Sidecar files may legitimately be absent if WAL mode was not active, so
-        // individual deletion failures are logged but do not abort the operation.
-        // A failure to delete the main .store file will surface naturally when Step 3
-        // attempts to open a new ModelContainer at the same path.
-        // Raised BEFORE the first unlink, not after the new container opens: the moment
-        // the main .store file is gone the session is committed to a restart, including
-        // when Step 3 below then fails to reopen it. See `storeWasRebuilt`.
-        storeWasRebuilt = true
-
-        // The derived caches on disk describe the store about to be deleted, and the live
-        // MemoryStore still holds it in memory. Silence the latter first so no throttled
-        // save can recreate the files, then delete them so the relaunch reads the new store
-        // in full rather than validating a cache the fingerprint cannot tell apart from it.
-        // See MemoryStoreCache.invalidateOnDisk.
-        (dataCoordinator ?? AppDelegate.dataCoordinator)?
-            .suspendCachePersistence(reason: "persistent store is being replaced")
-        MemoryStoreCache.shared.invalidateOnDisk()
-
-        let fm = FileManager.default
-        for fileURL in [storeURL, walURL, shmURL] {
-            if fm.fileExists(atPath: fileURL.path(percentEncoded: false)) {
-                do {
-                    try fm.removeItem(at: fileURL)
-                    Self.log("Deleted store file: \(fileURL.lastPathComponent)")
-                } catch {
-                    Self.log("WARNING: Could not delete \(fileURL.lastPathComponent): \(error.localizedDescription)")
-                }
-            }
-        }
-
-        // Step 3: Open a new ModelContainer at the same store URL.
-        // Because the store files were just deleted, SwiftData creates a fresh, empty
-        // store at the configured URL with the current model schema. This container is
-        // used exclusively by the restore operation; the app-level container is
-        // intentionally orphaned for the remainder of this session.
-        let schema = Schema([
-            Film.self,
-            ListObject.self,
-            ListMembership.self,
-            Release.self,
-            ImportSession.self,
-            SettingsObject.self,
-            SavedSearchObject.self
-        ])
-
-        let freshConfig = ModelConfiguration(
-            schema: schema,
-            url: storeURL,
-            allowsSave: true,
-            cloudKitDatabase: .none
-        )
-
-        do {
-            let freshContainer = try ModelContainer(for: schema, configurations: [freshConfig])
-            freshContainer.mainContext.autosaveEnabled = false
-            freshContainer.mainContext.undoManager = nil
-            Self.log("Fresh ModelContainer opened at: \(storeURL.lastPathComponent)")
-            return freshContainer
-        } catch {
-            throw DBRestorerError.storeRebuildFailed(
-                "Failed to open fresh ModelContainer after store deletion: \(error.localizedDescription)")
-        }
+        Self.log("Fresh empty database staged via createFreshDatabase()")
     }
 
     // MARK: - Poster Restoration
@@ -730,7 +618,7 @@ final class DBRestorer: Loggable {
     }
 
     // MARK: - Object Creation
-    private func createFilm(from parsed: ParsedObject, context: ModelContext) throws -> Film {
+    private func createFilm(from parsed: ParsedObject, context: NSManagedObjectContext) throws -> Film {
         let props = parsed.properties
         
         // Create safe parser with entity context
@@ -820,7 +708,7 @@ final class DBRestorer: Loggable {
         return film
     }
 
-    private func createListObject(from parsed: ParsedObject, context: ModelContext) throws -> ListObject {
+    private func createListObject(from parsed: ParsedObject, context: NSManagedObjectContext) throws -> ListObject {
         let props = parsed.properties
         
         var parser = SafeValueParser(
@@ -904,7 +792,7 @@ final class DBRestorer: Loggable {
         return resolved
     }
 
-    private func createImportSession(from parsed: ParsedObject, context: ModelContext) throws -> ImportSession {
+    private func createImportSession(from parsed: ParsedObject, context: NSManagedObjectContext) throws -> ImportSession {
         let props = parsed.properties
         
         var parser = SafeValueParser(
@@ -950,12 +838,10 @@ final class DBRestorer: Loggable {
     /// The stored query is kept exactly as backed up, rules this version cannot read
     /// included: they are logged here, and the search needs review (SavedSearchStore) at
     /// every launch until the user saves it, which is what replaces them.
-    private func createSavedSearches(from objects: [ParsedObject], lists: [ListObject], context: ModelContext) {
+    private func createSavedSearches(from objects: [ParsedObject], lists: [ListObject], context: NSManagedObjectContext) {
         guard !objects.isEmpty else { return }
         let coordinator = dataCoordinator ?? AppDelegate.dataCoordinator
-        var claims = coordinator?.listNameClaims(includingUserLists: false)
-            ?? SmartListType.allCases.map { .init(name: $0.rawValue, kind: .smartList) }
-                + FilmQueueSection.allCases.map { .init(name: $0.rawValue, kind: .filmQueue) }
+        var claims = coordinator?.listNameClaims(includingUserLists: false) ?? DataCoordinator.builtInNameClaims
         claims += lists.map { .init(name: $0.listName, kind: .userList) }
         var restoredIDs: Set<UUID> = []
 
@@ -974,7 +860,7 @@ final class DBRestorer: Loggable {
     /// The restored row, or nil (logged) when its ID is in `restoredIDs` already.
     private func createSavedSearch(from parsed: ParsedObject, claims: [SavedSearchName.Claim],
                                    skipping restoredIDs: Set<UUID>,
-                                   context: ModelContext) throws -> SavedSearchObject? {
+                                   context: NSManagedObjectContext) throws -> SavedSearchObject? {
         let props = parsed.properties
         var parser = SafeValueParser(
             properties: props,
@@ -1016,7 +902,7 @@ final class DBRestorer: Loggable {
     // Creates a SettingsObject from parsed backup data with robust error handling.
     // This method handles schema evolution gracefully - missing fields get defaults,
     // extra fields are ignored, malformed data is caught and logged.
-    private func createSettingsObject(from obj: ParsedObject, context: ModelContext) throws -> SettingsObject {
+    private func createSettingsObject(from obj: ParsedObject, context: NSManagedObjectContext) throws -> SettingsObject {
         let props = obj.properties
         
         var parser = SafeValueParser(
@@ -1108,7 +994,7 @@ final class DBRestorer: Loggable {
 
     private func createListMembership(
         from parsed: ParsedObject,
-        context: ModelContext,
+        context: NSManagedObjectContext,
         filmByID: [UUID: Film],
         listByID: [UUID: ListObject]
     ) throws -> ListMembership? {
@@ -1156,7 +1042,7 @@ final class DBRestorer: Loggable {
 
     private func createRelease(
         from parsed: ParsedObject,
-        context: ModelContext,
+        context: NSManagedObjectContext,
         filmByID: [UUID: Film]
     ) throws -> Release? {
         let props = parsed.properties
@@ -1786,29 +1672,31 @@ final class DBRestorer: Loggable {
     /// Relaunches the application and exits the current process immediately via exit(0).
     ///
     /// Used by both the "Restore from Backup" completion flow (`RestoreViewModel`) and the
-    /// "Create New Library" completion flow (`DatabaseErrorAlertModifier`) after writing a
-    /// new persistent store to disk. The `exit(0)` bypass is intentional — the normal
-    /// AppKit termination path would attempt to save stale SwiftData objects and flush
-    /// caches that reference the old, now-replaced store, which is both incorrect and
-    /// potentially harmful. Spawning a new instance via `open` before exit ensures the
-    /// application reopens cleanly against the freshly written store.
+    /// "Create New Library" completion flow (`DatabaseErrorAlertModifier`) after staging a
+    /// new store; the relaunch swaps it in (PendingRestore.applyIfPending). The `exit(0)`
+    /// bypass is intentional — the normal AppKit termination path would flush caches that
+    /// describe the library about to be replaced. Spawning a new instance via `open` before
+    /// exit ensures the application reopens cleanly against the restored store.
     @MainActor
     static func restartApplication() {
         let bundlePath = Bundle.main.bundlePath
+        // `open` only activates an app that is still running, so the relaunch waits for this
+        // process to be gone (up to 10 s) rather than guessing how long exit takes.
+        let pid = ProcessInfo.processInfo.processIdentifier
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/bash")
-        task.arguments = ["-c", "sleep 0.1; open \"\(bundlePath)\""]
+        task.arguments = ["-c", "for _ in $(seq 200); do kill -0 \(pid) 2>/dev/null || break; sleep 0.05; done; open \"\(bundlePath)\""]
         do {
             try task.run()
         } catch {
             log("Failed to initiate relaunch: \(error)")
         }
-        // Again, immediately before exit: both callers replaced the store, and a cache write
-        // already in flight when destroyAndRecreatePersistentStore invalidated could have
-        // landed since. Suspension there guarantees no new one has started.
+        // Again, immediately before exit: both callers staged a replacement store, and a cache
+        // write already in flight when they invalidated could have landed since. Suspension
+        // there guarantees no new one has started.
         MemoryStoreCache.shared.invalidateOnDisk()
         // Bypass the normal AppKit termination flow, which would attempt to access
-        // stale SwiftData objects and flush caches against the replaced store.
+        // stale model objects and flush caches against the replaced store.
         exit(0)
     }
 }

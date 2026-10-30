@@ -2,15 +2,15 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // Persists MemoryStore's snapshot dictionaries as JSON so subsequent launches
-// can skip the SwiftData fetch entirely on a cache hit. Validates on load by computing a
+// can skip the store fetch entirely on a cache hit. Validates on load by computing a
 // lightweight fingerprint (film count, UUID XOR, max lastModified, list/membership counts)
-// from cheap SwiftData queries and comparing it against the stored fingerprint; a mismatch
+// from cheap store queries and comparing it against the stored fingerprint; a mismatch
 // triggers a full re-read and rewrites the cache. MemoryStore supplies its dictionaries as
 // save() arguments at flush time, so this class never retains a long-lived second reference
 // to them (which would defeat copy-on-write on every subsequent MemoryStore mutation).
 
 import Foundation
-import SwiftData
+import CoreData
 
 // MARK: - Cache Payload
 
@@ -120,7 +120,7 @@ private struct SpeculativePayloadLoad: Sendable {
 
 // MARK: - Store Fingerprint
 
-/// A lightweight descriptor of the SwiftData store's state, used to decide whether the
+/// A lightweight descriptor of the store's state, used to decide whether the
 /// on-disk snapshot cache still matches the database.
 ///
 /// Film-layer fields (detects all film adds/deletes/edits):
@@ -140,7 +140,7 @@ private struct SpeculativePayloadLoad: Sendable {
 /// the computed value and a private `StoredFingerprint` for the persisted one) that had to
 /// be transcribed field-by-field at both the save and the compare site. They are unified
 /// here because the value must now cross an isolation boundary — it is computed inside
-/// DataManager's background ModelActor and returned to MainActor — which requires a single
+/// DataManager's background context actor and returned to MainActor — which requires a single
 /// `Sendable` type. `Equatable` conformance also replaces the hand-written five-clause
 /// comparison in `load()`, so adding a field to the fingerprint can no longer silently
 /// leave it out of the validity check.
@@ -215,7 +215,7 @@ struct StoreFingerprint: Codable, Sendable, Equatable {
     /// `load()`, and for a reason worth stating: it does not self-correct. `MemoryStore`
     /// is authoritative in memory, so the next throttled save writes the stale values
     /// back over the cache, and nothing ever re-reads `hofPosition` or `userRating` from
-    /// SwiftData to notice the divergence. The stale value silently becomes the truth
+    /// the store to notice the divergence. The stale value silently becomes the truth
     /// and is what the next backup exports.
     ///
     /// WHY A SUM WOULD NOT WORK. The obvious cheap digest — the sum of all `hofPosition`
@@ -252,7 +252,7 @@ struct StoreFingerprint: Codable, Sendable, Equatable {
     /// film differently.
     ///
     /// `nonisolated` by nature (a static method on a plain `Sendable` struct), so it is
-    /// callable from `DataManager`'s `@ModelActor` isolation without a hop.
+    /// callable from `DataManager`'s context-actor isolation without a hop.
     static func rankMix(_ idHash: UInt64, _ value: Int) -> UInt64 {
         var z = idHash &+ (UInt64(bitPattern: Int64(value)) &* 0x9E37_79B9_7F4A_7C15)
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
@@ -266,7 +266,7 @@ struct StoreFingerprint: Codable, Sendable, Equatable {
 enum MemoryStoreCacheResult {
     /// Cache hit: use these pre-built dictionaries directly.
     case hit(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], filmToLists: [UUID: Set<UUID>])
-    /// Cache miss: caller must do the full SwiftData fetch.
+    /// Cache miss: caller must do the full store fetch.
     case miss
 }
 
@@ -422,7 +422,7 @@ final class MemoryStoreCache: Loggable {
 
     // MARK: - Invalidate
 
-    /// Deletes the cache from disk so the next launch reads SwiftData in full.
+    /// Deletes the cache from disk so the next launch reads the store in full.
     ///
     /// For a store that was replaced wholesale (restore, fresh library). The fingerprint
     /// cannot be trusted to notice: it covers film identities, `lastModified`, ranks,
@@ -450,15 +450,15 @@ final class MemoryStoreCache: Loggable {
     // MARK: - Load
 
     /// Attempts to load MemoryStore data from the snapshot cache.
-    /// Validates the cache by comparing a lightweight SwiftData fingerprint against
+    /// Validates the cache by comparing a lightweight store fingerprint against
     /// the stored fingerprint. Returns .hit if valid, .miss otherwise.
     ///
     /// The fingerprint query fetches only Film.id and Film.lastModified — no relationship
-    /// faults — making it far cheaper than the full SwiftData fetch it's guarding against.
+    /// faults — making it far cheaper than the full store fetch it's guarding against.
     /// It nonetheless still instantiates one managed object per film, which is why it runs
-    /// inside DataManager's background ModelActor rather than against mainContext (see
+    /// inside DataManager's background context actor rather than against the view context (see
     /// `DataManager.computeStoreFingerprint()`); this is the whole reason the caller now
-    /// hands a `DataManager` in instead of a `ModelContainer`.
+    /// hands a `DataManager` in instead of a `NSPersistentContainer`.
     ///
     /// ## Read ordering is load-bearing
     ///
@@ -475,14 +475,14 @@ final class MemoryStoreCache: Loggable {
     /// The payload read is therefore started only once the fingerprint read has resolved —
     /// but deliberately *before* the comparison verdict is known, so it can still overlap
     /// the live fingerprint computation, which is the long pole here by an order of
-    /// magnitude (an O(N) SwiftData fetch versus a ~200-byte file read). That keeps the
+    /// magnitude (an O(N) store fetch versus a ~200-byte file read). That keeps the
     /// payload read off the serial critical path, which is the entire point: it is a
     /// multi-megabyte read on a large library, and paying for it only after validation
     /// added its full latency to the window the launch progress indicator is on screen.
     ///
     /// Only the payload *read* is speculative, not its decode. Reading is pure I/O and
     /// costs one discarded `Data` on a fingerprint mismatch; decoding is the CPU-expensive
-    /// half, and on a mismatch the caller immediately begins a full SwiftData fetch that
+    /// half, and on a mismatch the caller immediately begins a full store fetch that
     /// should not be competing with a decode whose result is already known to be useless.
     ///
     /// This is called exactly once per launch, from Phase 1, before any mutation can have
@@ -549,7 +549,7 @@ final class MemoryStoreCache: Loggable {
         // Step 4: compare. Equatable conformance covers every field, so a field added to
         // StoreFingerprint cannot be left out of the check.
         guard let liveFP = liveFPResult else {
-            Self.log("Cache miss: could not compute live fingerprint from SwiftData")
+            Self.log("Cache miss: could not compute live fingerprint from the store")
             return .miss
         }
 
@@ -586,7 +586,7 @@ final class MemoryStoreCache: Loggable {
             // The cause is always the same and is always benign to recover from: a rank or
             // rating mutation that never reached the snapshot cache because the process was
             // killed inside MemoryStore's 2s save throttle. The slow path that follows
-            // reads the correct values straight from SwiftData, so this is self-correcting
+            // reads the correct values straight from the store, so this is self-correcting
             // in one launch — but it should be rare, and repetition means normal shutdown
             // is not running saveImmediately().
             if filmIdentityMatches,
@@ -605,7 +605,7 @@ final class MemoryStoreCache: Loggable {
                     + "snapshot cache — almost certainly a force quit or crash inside "
                     + "MemoryStore's 2s save throttle, bypassing the saveImmediately() "
                     + "flush in performGracefulShutdown. The slow path below reads the "
-                    + "correct values from SwiftData, so this resolves in one launch. "
+                    + "correct values from the store, so this resolves in one launch. "
                     + "Recurrence on consecutive normal quits is a real defect in the "
                     + "shutdown flush and should be investigated. (\(detail))")
                 return .miss
@@ -774,8 +774,9 @@ final class MemoryStoreCache: Loggable {
     }
 
     /// Steps 1–3 of `load()`. Nonisolated, and called from a detached task when started
-    /// early: SwiftData's model executor runs a DataManager call on the thread that awaits
-    /// it, so the live fingerprint must be awaited from here rather than from MainActor.
+    /// early. (Under SwiftData the model executor ran a DataManager call on the thread that
+    /// awaited it, so the live fingerprint had to be awaited from here rather than from
+    /// MainActor; DataManager now runs on its own context's queue either way.)
     private nonisolated static func runPipeline(payloadURL: URL, fingerprintURL: URL,
                                                 dataManager: DataManager) async -> CachePipeline {
         guard FileManager.default.fileExists(atPath: payloadURL.path(percentEncoded: false)),
@@ -785,10 +786,10 @@ final class MemoryStoreCache: Loggable {
         let pipelineStart = LaunchTimeline.now()
 
         // Step 1: stored fingerprint read (background thread) and live fingerprint
-        // computation (DataManager's background ModelActor), started together. MainActor is
+        // computation (DataManager's background context actor), started together. MainActor is
         // free for the whole of this window, so the launch progress indicator keeps
         // animating and the concurrently-running MetadataCache/PosterCache metadata loads
-        // can resume their MainActor continuations without waiting behind a SwiftData fetch.
+        // can resume their MainActor continuations without waiting behind a store fetch.
         // Each background segment times itself and returns the measurement alongside its
         // result, rather than logging from inside the detached closure. Two reasons: the
         // segments overlap, so measuring them from the outside would report waiting time
@@ -826,7 +827,7 @@ final class MemoryStoreCache: Loggable {
         // ~130ms decode later, toward initializeApp(), for no gain.
         //
         // The objection that a wasted decode would compete with the slow-path SwiftData
-        // fetch on a mismatch does not hold either: a mismatch rebuilds from SwiftData,
+        // fetch on a mismatch does not hold either: a mismatch rebuilds from the store,
         // which costs far more than the decode, and it runs on another core.
         //
         // Integrity is unaffected. Decoding early is not the same as trusting early: the
@@ -917,7 +918,7 @@ final class MemoryStoreCache: Loggable {
 
     /// Builds the fingerprint from MemoryStore's dictionaries (used during save).
     /// List-layer counts are derived from the in-memory MemoryList data —
-    /// no SwiftData access required.
+    /// no store access required.
     ///
     /// The film layer is accumulated by `FilmLayerDigest`, the same type
     /// `DataManager.computeStoreFingerprint` feeds from the store, so the stored and live
@@ -932,7 +933,7 @@ final class MemoryStoreCache: Loggable {
         }
 
         // Membership count mirrors the total filmIDs across all lists,
-        // matching what SwiftData reports via fetchCount(FetchDescriptor<ListMembership>()).
+        // matching what Core Data reports via fetchCount(ListMembership.request()).
         let membershipCount = lists.values.reduce(0) { $0 + $1.filmIDs.count }
 
         return StoreFingerprint(

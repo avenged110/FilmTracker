@@ -329,7 +329,7 @@ final class FilmSheet: Identifiable, Loggable {
     // Confirms and saves all changes to the film via the Sendable DTO / changeset path.
     //
     // Flow:
-    //   1. Process poster (async file I/O, no Film @Model needed)
+    //   1. Process poster (async file I/O, no Film managed object needed)
     //   2. Collect all form data from tabs as plain Sendable values
     //   3. Derive lastWatched, viewCount, lastModified
     //   4. Preserve fields that tabs do not own (dateAdded, hofPosition)
@@ -340,8 +340,8 @@ final class FilmSheet: Identifiable, Loggable {
     //   8. Handle Hall of Fame changes via dedicated coordinator methods
     //   9. Dismiss
     //
-    // No mainContext access or context.save() calls occur here — persistence is owned entirely
-    // by DataManager via the background ModelContext in DataCoordinator.saveFilmChangeset().
+    // No viewContext access or context.save() calls occur here — persistence is owned entirely
+    // by DataManager via the background NSManagedObjectContext in DataCoordinator.saveFilmChangeset().
     func confirm() {
         // Re-entrancy guard: a confirm Task is already in flight (e.g. slow poster
         // file-write polling), so ignore this invocation entirely.
@@ -374,7 +374,7 @@ final class FilmSheet: Identifiable, Loggable {
                 // ── Step 1: Process poster ──────────────────────────────────────────────
                 // Must happen first — it's async (file I/O) and we need the final UID
                 // before building the snapshot. processPendingPoster() handles cache updates
-                // and returns the final posterUID without touching any @Model object.
+                // and returns the final posterUID without touching any managed object.
                 let existingFilm: FilmSnapshot? = isEditMode ? coordinator.getFilm(id) : nil
                 let originalPosterUID = existingFilm?.posterUID ?? ""
 
@@ -429,7 +429,7 @@ final class FilmSheet: Identifiable, Loggable {
 
                 // ── Step 8: Dispatch FilmChangeset ──────────────────────────────────────
                 // saveFilmChangeset() is synchronous on MainActor:
-                //   • Immediately applies snapshot to MemoryStore (Film @Model in mainContext)
+                //   • Immediately applies snapshot to MemoryStore (Film managed object in the view context)
                 //   • Immediately applies list membership deltas to MemoryStore indices
                 //   • Reloads the gallery view
                 //   • Posts .film(.added / .updated) and .film(.releaseChanged) events

@@ -263,7 +263,7 @@ enum AlertCommand: Equatable, Sendable {
     case showPersistenceFailure(error: String?)
 
     // MARK: Database Error Alert
-    /// Notify user that the persistent ModelContainer could not be opened at launch.
+    /// Notify user that the persistent NSPersistentContainer could not be opened at launch.
     /// Forces an immediate decision: Quit, Restore from Backup, or Create New Library.
     /// The app is running against a temporary in-memory store for this session only.
     case showDatabaseError

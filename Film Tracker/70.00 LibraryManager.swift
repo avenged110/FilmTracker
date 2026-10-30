@@ -9,7 +9,6 @@
 // background persistence.
 
 import SwiftUI
-import SwiftData
 import AppKit
 
 // MARK: - Film Manager

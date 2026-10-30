@@ -4,7 +4,7 @@
 // SwiftUI-based settings sheet coordinator for FilmTracker.app
 
 import SwiftUI
-import SwiftData
+import CoreData
 import Combine
 
 struct SettingsSheet: View, Loggable {
@@ -355,13 +355,13 @@ final class SettingsCoordinator {
 
     func configure(appState: AppState, dataCoordinator: DataCoordinator) {
         // Pre-configure export view model to avoid lag on first tab switch.
-        exportViewModel.configure(modelContainer: appState.modelContainer,
+        exportViewModel.configure(persistentContainer: appState.persistentContainer,
             dataCoordinator: dataCoordinator)
         exportViewModel.loadSavedBookmarkIfNeeded()
         
         // Pre-configure restore view model with necessary dependencies.
         restoreViewModel.configure(dataCoordinator: dataCoordinator,
-            modelContainer: appState.modelContainer)
+            persistentContainer: appState.persistentContainer)
         
         // With @Observable, isBlockingOperationInProgress is a computed property that
         // reads exportViewModel.isExporting and restoreViewModel.isRestoring directly.

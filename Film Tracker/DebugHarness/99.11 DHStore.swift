@@ -47,7 +47,7 @@
 #if DEBUG
 
 import Foundation
-import SwiftData
+import CoreData
 import SQLite3
 
 extension DebugHarness {
@@ -919,7 +919,7 @@ extension DebugHarness {
 // MARK: - Scenario: Snapshot ↔ Model Mapping
 
 /// Proves the note at the top of 60.00 Snapshots.swift — "FilmSnapshot, ReleaseSnapshot, and
-/// SettingsSnapshot must be kept in sync with their corresponding @Model counterparts" — for
+/// SettingsSnapshot must be kept in sync with their corresponding model counterparts" — for
 /// every field, rather than leaving it a comment.
 ///
 /// The compiler checks the snapshot's own initializer, but not `apply(to:)` or
@@ -942,12 +942,9 @@ extension DebugHarness {
     static func snapshotMappingScenario() -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "store-snapshot-mapping")
 
-        let context: ModelContext
+        let context: NSManagedObjectContext
         do {
-            let schema = backupHarnessSchema
-            let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true,
-                                                   cloudKitDatabase: .none)
-            context = ModelContext(try ModelContainer(for: schema, configurations: [configuration]))
+            context = try LibraryStore.makeContainer(at: nil).viewContext
         } catch {
             r.check("in-memory-container", false, "\(error)")
             return r
@@ -1058,7 +1055,7 @@ extension DebugHarness {
 // MARK: - Fingerprint direct read
 
 // `store-fingerprint-direct`: the snapshot-cache fingerprint's film layer, read straight from
-// the store file by DirectStoreReader, must equal the SwiftData fetch it stands in for — on an
+// the store file by DirectStoreReader, must equal the store fetch it stands in for — on an
 // empty store, after seeding, after each kind of change the fingerprint exists to see, and
 // after a delete. The duplicate-release probe must answer no, then yes once a same-UUID row
 // exists, then no after cleanupDuplicateReleases removes it; and the reader must decline (so
@@ -1080,17 +1077,15 @@ extension DebugHarness {
         removeStoreFiles()
         defer { removeStoreFiles() }
 
-        let schema = backupHarnessSchema
-        let container: ModelContainer
+        let container: NSPersistentContainer
         do {
-            container = try ModelContainer(for: schema, configurations: [
-                ModelConfiguration(schema: schema, url: url, allowsSave: true, cloudKitDatabase: .none)])
+            container = try LibraryStore.makeContainer(at: url)
         } catch {
             r.check("open-store", false, "\(error)")
             return r
         }
-        let manager = DataManager(modelContainer: container)
-        let context = ModelContext(container)
+        let manager = DataManager(persistentContainer: container)
+        let context = container.makeMainContext()
 
         func agree(_ label: String) async -> FilmLayerDigest? {
             let (direct, fetched) = await manager.filmLayerDigestsForTesting()
@@ -1117,7 +1112,7 @@ extension DebugHarness {
         // Every field the digest covers, including the values most likely to trip a direct
         // decode: the empty "never modified" sentinel, a non-ASCII string, negative and
         // 64-bit extreme integers, and both lastModified spellings the writers use.
-        let films = (try? context.fetch(FetchDescriptor<Film>(sortBy: [SortDescriptor(\.name)]))) ?? []
+        let films = (try? context.fetch(Film.request(sortedBy: [NSSortDescriptor(key: "name", ascending: true)]))) ?? []
         guard films.count >= 10 else {
             r.check("fetch-films", false, "\(films.count)")
             return r
@@ -1153,7 +1148,7 @@ extension DebugHarness {
             context.insert(Release(format: "Blu-ray", independence: "Standalone", film: film))
         }
         guard save("releases") else { return r }
-        let releases = (try? context.fetch(FetchDescriptor<Release>())) ?? []
+        let releases = (try? context.fetch(Release.request())) ?? []
         r.check("corpus-has-releases", !releases.isEmpty, "\(releases.count)")
         if let existing = releases.first {
             let before = releases.count
@@ -1161,7 +1156,7 @@ extension DebugHarness {
             do { try await manager.cleanupDuplicateReleases() } catch {
                 r.check("cleanup-clean-store", false, "\(error)")
             }
-            let untouched = (try? context.fetchCount(FetchDescriptor<Release>())) ?? -1
+            let untouched = (try? context.count(for: Release.request())) ?? -1
             r.check("cleanup-leaves-clean-store", untouched == before, "\(untouched) vs \(before)")
 
             context.insert(Release(id: existing.id, independence: "Standalone"))
@@ -1171,7 +1166,7 @@ extension DebugHarness {
                     r.check("cleanup-duplicate", false, "\(error)")
                 }
                 r.check("probe-clear-after-cleanup", await manager.duplicateReleaseProbeForTesting() == false)
-                let after = (try? ModelContext(container).fetchCount(FetchDescriptor<Release>())) ?? -1
+                let after = (try? container.makeMainContext().count(for: Release.request())) ?? -1
                 r.check("cleanup-removed-one", after == before, "\(after) vs \(before)")
             }
         }
@@ -1210,20 +1205,21 @@ extension DebugHarness {
         unsafe sqlite3_close(integrityDB)
         r.check("stress-integrity", integrity == "ok", integrity)
         _ = await agree("after-stress")
-        r.check("stress-fetch-works", ((try? ModelContext(container).fetchCount(FetchDescriptor<Film>())) ?? -1) == 199)
+        r.check("stress-fetch-works", ((try? container.makeMainContext().count(for: Film.request())) ?? -1) == 199)
 
-        // Production builds the configuration with no URL; the reader depends on SwiftData
-        // resolving it to the store in Application Support. Constructing it opens nothing.
-        let production = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false,
-                                            allowsSave: true, cloudKitDatabase: .none)
-        let expected = DebugSandbox.productionApplicationSupportURL?.appendingPathComponent("default.store")
-        r.check("production-store-url", production.url.standardizedFileURL == expected?.standardizedFileURL,
-                "\(production.url.path(percentEncoded: false)) vs \(expected?.path(percentEncoded: false) ?? "nil")")
+        // The direct reader reads the file the container reports, so that must be the file
+        // this scenario opened; and production's store must resolve to Application Support
+        // under LibraryStore's name, which the launch opens and the restore swap targets.
+        r.check("store-url-resolves", container.storeURL?.standardizedFileURL == url.standardizedFileURL,
+                "\(container.storeURL?.path(percentEncoded: false) ?? "nil") vs \(url.path(percentEncoded: false))")
+        let production = DebugSandbox.productionApplicationSupportURL?.appendingPathComponent(LibraryStore.storeFileName)
+        r.check("production-store-url", production?.lastPathComponent == LibraryStore.storeFileName
+                    && production?.deletingLastPathComponent().lastPathComponent != DebugSandbox.name,
+                production?.path(percentEncoded: false) ?? "nil")
 
-        // Declines, each leaving the SwiftData fetch to answer.
-        if let memory = try? ModelContainer(for: schema, configurations: [
-            ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]) {
-            let (direct, fetched) = await DataManager(modelContainer: memory).filmLayerDigestsForTesting()
+        // Declines, each leaving the fetch to answer.
+        if let memory = try? LibraryStore.makeContainer(at: nil) {
+            let (direct, fetched) = await DataManager(persistentContainer: memory).filmLayerDigestsForTesting()
             r.check("in-memory-declines", direct == nil && fetched != nil)
         }
         r.check("missing-file-declines",
@@ -1231,9 +1227,9 @@ extension DebugHarness {
         r.check("non-store-file-declines",
                 DirectStoreReader.filmLayerDigest(storeURL: root.appendingPathComponent("FilmTracker.log")) == nil)
 
-        // A row outside the expected shape — here a NULL lastModified, which SwiftData never
+        // A row outside the expected shape — here a NULL lastModified, which the app never
         // writes — makes the reader decline rather than guess. Written with raw SQL, last,
-        // because it leaves this throwaway store in a state SwiftData does not produce.
+        // because it leaves this throwaway store in a state the app does not produce.
         var db: OpaquePointer?
         if unsafe sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
             let rc = unsafe sqlite3_exec(db, "UPDATE ZFILM SET ZLASTMODIFIED = NULL WHERE Z_PK = (SELECT MIN(Z_PK) FROM ZFILM)", nil, nil, nil)
@@ -1319,14 +1315,13 @@ extension DebugHarness {
         // from a detached task, through the coordinator. An orphan is planted first so the
         // pass has something to delete: a canceled pass must leave it (shutdown cancels
         // maintenance), and an uncanceled one must remove it.
-        let container = coordinator.modelContainer
+        let container = coordinator.persistentContainer
         func orphanCount() -> Int {
-            (try? ModelContext(container).fetchCount(FetchDescriptor<ListMembership>(
-                predicate: #Predicate<ListMembership> { $0.film == nil }))) ?? -1
+            (try? container.makeMainContext().count(for: ListMembership.request(NSPredicate(format: "film == nil")))) ?? -1
         }
-        let plant = ModelContext(container)
-        if let film = try? plant.fetch(FetchDescriptor<Film>()).first,
-           let list = try? plant.fetch(FetchDescriptor<ListObject>()).first {
+        let plant = container.makeMainContext()
+        if let film = try? plant.fetch(Film.request()).first,
+           let list = try? plant.fetch(ListObject.request()).first {
             let membership = ListMembership(film: film, list: list)
             plant.insert(membership)
             membership.film = nil
@@ -1341,9 +1336,9 @@ extension DebugHarness {
         await Task.detached { await coordinator.cleanupOrphanedAndDuplicateMemberships() }.value
         r.check("cleanup-removes-orphan", orphanCount() == 0, "\(orphanCount()) left")
 
-        // Mutual exclusion: SwiftData's executor runs a job on the thread that enqueued it,
-        // so prove calls arriving from several threads at once still never overlap.
-        let manager = DataManager(modelContainer: coordinator.modelContainer)
+        // Mutual exclusion: prove calls arriving from several threads at once never overlap
+        // on DataManager's context executor.
+        let manager = DataManager(persistentContainer: coordinator.persistentContainer)
         let detached = (0..<6).map { _ in
             Task.detached { await manager.exclusionProbeForTesting(milliseconds: 30) }
         }

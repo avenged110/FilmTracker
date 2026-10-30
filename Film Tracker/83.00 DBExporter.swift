@@ -1,13 +1,13 @@
 // MARK: - DBExporter.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Produces .ftbackup packages containing an XML export of all SwiftData model types and
+// Produces .ftbackup packages containing an XML export of all model types and
 // optionally the posters folder. A manual export reads the database on the MainActor; the
 // automatic background backup reads it on a background model actor. Packaging, poster
 // pruning, and delivery to the destination run in background tasks via Task.detached.
 
 import Foundation
-import SwiftData
+import CoreData
 import UniformTypeIdentifiers
 
 /// A backup that was written but could not be read back.
@@ -90,7 +90,7 @@ public final class DBExporter: Loggable {
         // Whether the package was delivered to a destination.
         public let didCopyToDestination: Bool }
 
-    private let modelContainer: ModelContainer
+    private let persistentContainer: NSPersistentContainer
     private let packager: DBPackager
 
     // Returns all exportable model types in the FilmTracker.app database.
@@ -100,21 +100,21 @@ public final class DBExporter: Loggable {
         return [Film.self,  ListObject.self, ListMembership.self, Release.self,
             ImportSession.self, SettingsObject.self, SavedSearchObject.self] }
 
-    // The exporter is constructed from the ModelContainer rather than a long-lived
-    // ModelContext. A fresh ModelContext is created per export inside createBackup so
+    // The exporter is constructed from the NSPersistentContainer rather than a long-lived
+    // NSManagedObjectContext. A fresh NSManagedObjectContext is created per export inside createBackup so
     // that every read reflects the current persisted state. See the read phase below
     // for the full rationale.
-    public init(modelContainer: ModelContainer, packager: DBPackager = DBPackager()) {
-        self.modelContainer = modelContainer
+    public init(persistentContainer: NSPersistentContainer, packager: DBPackager = DBPackager()) {
+        self.persistentContainer = persistentContainer
         self.packager = packager }
 
     // MARK: - Public API
-    // NOTE: This function runs on the MainActor to keep ModelContext fetches safe.
+    // NOTE: This function runs on the MainActor to keep NSManagedObjectContext fetches safe.
     // Packaging (writing into the sandbox) is executed off the MainActor in a detached Task.
     //
     // posterUIDs: Optional set of valid poster UIDs for orphan pruning. When provided,
     // PosterPruner uses these directly (sourced from MemoryStore) instead of querying
-    // the database. This eliminates unnecessary ModelContext access and allows the pruner
+    // the database. This eliminates unnecessary NSManagedObjectContext access and allows the pruner
     // to run without thread-safety concerns. Callers should provide this from
     // DataCoordinator.getAllPosterUIDs() when poster pruning is enabled.
     //
@@ -153,13 +153,13 @@ public final class DBExporter: Loggable {
         // whatever SettingsObject is in the database.
         
         // reader.exportAll runs on MainActor because this function is @MainActor.
-        // Read through a freshly created ModelContext (created here, on the MainActor)
-        // rather than the app's long-lived mainContext. A brand-new context has no
+        // Read through a freshly created NSManagedObjectContext (created here, on the MainActor)
+        // rather than the app's long-lived viewContext. A brand-new context has no
         // previously-registered objects, so each fetch materializes every object
         // directly from the persistent store. This guarantees the export reflects the
         // current persisted state — including in-session scalar edits applied through
         // DataManager's background context — independent of any cross-context merge
-        // behavior. Reusing the launch-loaded mainContext could otherwise return stale
+        // behavior. Reusing the launch-loaded viewContext could otherwise return stale
         // snapshots for objects that were registered at load time and later edited in
         // the background context. The context is read-only here (never saved) and is
         // discarded when this method returns.
@@ -169,14 +169,14 @@ public final class DBExporter: Loggable {
         // here on the MainActor like the manual one: each entity's fetch materialized the
         // whole table in one blocking call — seconds on a large library, during which the
         // UI could not respond — and every object's conversion followed on the main thread
-        // too. Created inside a detached task because SwiftData serves a model actor's
-        // context on the queue it was created on.
+        // too. (Created inside a detached task, which the SwiftData build needed because it
+        // served a model actor's context on the queue it was created on.)
         let exportPackage: ExportPackage
         if isBackgroundExport {
-            let container = modelContainer
+            let container = persistentContainer
             let modelTypes = ExportModelTypes(types: types)
             let read = Task.detached(priority: .low) {
-                try await BackgroundExportReader(modelContainer: container).exportAll(
+                try await BackgroundExportReader(persistentContainer: container).exportAll(
                     types: modelTypes, appVersion: appVersion) { @Sendable p in progress?(p * 0.35) }
             }
             // A detached task does not inherit cancellation, and quitting cancels the
@@ -188,7 +188,7 @@ public final class DBExporter: Loggable {
                 read.cancel()
             }
         } else {
-            let reader = DBReader(context: ModelContext(modelContainer))
+            let reader = DBReader(context: persistentContainer.makeMainContext())
             // Pass a progress callback (safe since we're already on MainActor)
             exportPackage = try await reader.exportAll(
                 types: types, appVersion: appVersion, isBackgroundExport: false) { @Sendable p in
@@ -203,7 +203,7 @@ public final class DBExporter: Loggable {
         // --------------------
         // PHASE 1.5: Prune posters AFTER data export (if enabled)
         // PosterPruner is a pure file-system utility that accepts a Set<String> of valid
-        // posterUIDs. It does NOT access ModelContext. The posterUIDs are sourced from
+        // posterUIDs. It does NOT access NSManagedObjectContext. The posterUIDs are sourced from
         // MemoryStore (via the caller) or, if not provided, pruning is skipped.
         // --------------------
         if shouldPrunePosters {

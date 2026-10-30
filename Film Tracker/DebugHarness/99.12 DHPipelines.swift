@@ -27,7 +27,7 @@
 //
 // WHAT THE ROUND-TRIP SCENARIOS ARE FOR
 //
-// The export pipeline reflects @Model objects into an untyped [String: Any] bag, writes it
+// The export pipeline reflects managed objects into an untyped [String: Any] bag, writes it
 // as XML, and the import pipeline guesses each value's type back from its text. That guess
 // is the interesting part: nothing in the file records whether a field was a String or an
 // Int, so a string-typed field whose CONTENT looks numeric, boolean, or array-shaped is
@@ -41,7 +41,7 @@
 #if DEBUG
 
 import Foundation
-import SwiftData
+import CoreData
 
 extension DebugHarness {
 
@@ -62,6 +62,9 @@ extension DebugHarness {
         case "film-field-merge":   return await filmFieldMergeScenario(coordinator: coordinator)
         case "restore-endtoend":   return await restoreEndToEndScenario(coordinator: coordinator)
         case "release-date-rules": return releaseDateRulesScenario()
+        // By name only, not in any suite: the cross-build restore parity test.
+        case "parity-export":      return await parityExportScenario(coordinator: coordinator)
+        case "parity-restore":     return await parityRestoreScenario(coordinator: coordinator)
         default:                   return nil
         }
     }
@@ -170,7 +173,7 @@ extension DebugHarness {
     // MARK: - Persisted List Membership
 
     /// The film IDs actually stored as `ListMembership` rows for `listID`, read through a
-    /// fresh `ModelContext` on the coordinator's own container.
+    /// fresh `NSManagedObjectContext` on the coordinator's own container.
     ///
     /// Deliberately a whole-table fetch filtered in Swift, rather than the targeted
     /// ListObject fetch `DataManager.batchRemoveFilmsFromLists` performs: the check must not
@@ -180,8 +183,8 @@ extension DebugHarness {
     @MainActor
     private static func persistedMembershipFilmIDs(_ coordinator: DataCoordinator,
                                                    listID: UUID) -> [UUID] {
-        let context = ModelContext(coordinator.modelContainer)
-        let rows = (try? context.fetch(FetchDescriptor<ListMembership>())) ?? []
+        let context = coordinator.persistentContainer.makeMainContext()
+        let rows = (try? context.fetch(ListMembership.request())) ?? []
         return rows.compactMap { $0.list?.listID == listID ? $0.film?.id : nil }
     }
 
@@ -385,12 +388,12 @@ extension DebugHarness {
         // A fresh context per read, so every value comes from the store rather than from
         // objects some earlier fetch registered.
         func persistedFilm(_ id: UUID) -> Film? {
-            let context = ModelContext(coordinator.modelContainer)
-            return try? context.fetch(FetchDescriptor<Film>(predicate: #Predicate { $0.id == id })).first
+            let context = coordinator.persistentContainer.makeMainContext()
+            return try? context.fetch(Film.request(.equals("id", id))).first
         }
         func persistedRelease(_ id: UUID) -> Release? {
-            let context = ModelContext(coordinator.modelContainer)
-            return try? context.fetch(FetchDescriptor<Release>(predicate: #Predicate { $0.id == id })).first
+            let context = coordinator.persistentContainer.makeMainContext()
+            return try? context.fetch(Release.request(.equals("id", id))).first
         }
         func saveNew(_ film: FilmSnapshot) {
             var film = film
@@ -681,7 +684,7 @@ extension DebugHarness {
 
         // --- Persisted list membership -------------------------------------------------
         // Runs BEFORE any fault is injected, and is the only part of this scenario that
-        // reads SwiftData rather than MemoryStore.
+        // reads the store rather than MemoryStore.
         //
         // Every other list assertion in this harness compares MemoryStore against itself
         // or against the coordinator's published copies of it. That is the right shape for
@@ -995,9 +998,8 @@ extension DebugHarness {
     /// reads exactly what the app would have written.
     @MainActor
     private static func seedStore(_ films: [FilmSnapshot],
-                                  container: ModelContainer) throws -> ModelContext {
-        let context = ModelContext(container)
-        context.autosaveEnabled = false
+                                  container: NSPersistentContainer) throws -> NSManagedObjectContext {
+        let context = container.makeMainContext()
         for film in films { context.insert(film.toFilm()) }
         try context.save()
         return context
@@ -1007,7 +1009,7 @@ extension DebugHarness {
     @MainActor
     private static func runExport(coordinator: DataCoordinator,
                                   filename: String) async -> URL? {
-        let exporter = DBExporter(modelContainer: coordinator.modelContainer)
+        let exporter = DBExporter(persistentContainer: coordinator.persistentContainer)
         do {
             let result = try await exporter.createCompleteBackup(
                 filename: filename,
@@ -1032,7 +1034,7 @@ extension DebugHarness {
 
         let corpus = adversarialExportCorpus()
         do {
-            _ = try seedStore(corpus, container: coordinator.modelContainer)
+            _ = try seedStore(corpus, container: coordinator.persistentContainer)
         } catch {
             r.check("seed-store", false, "\(error)")
             return r
@@ -1403,7 +1405,7 @@ extension DebugHarness {
 
         let corpus = adversarialExportCorpus()
         do {
-            _ = try seedStore(corpus, container: coordinator.modelContainer)
+            _ = try seedStore(corpus, container: coordinator.persistentContainer)
         } catch {
             r.check("seed-store", false, "\(error)")
             return r
@@ -1418,8 +1420,7 @@ extension DebugHarness {
         // moment the app can correct this quietly; the checks after the restore below are
         // what hold it to that.
         do {
-            let context = ModelContext(coordinator.modelContainer)
-            context.autosaveEnabled = false
+            let context = coordinator.persistentContainer.makeMainContext()
             for (index, name) in ["Collision", "Collision", "collision",
                                   SmartListType.purchased.rawValue,
                                   FilmQueueSection.upNext.displayName].enumerated() {
@@ -1442,9 +1443,8 @@ extension DebugHarness {
         let deletedID = corpus[0].id
         let editedID = corpus[1].id
         do {
-            let context = ModelContext(coordinator.modelContainer)
-            context.autosaveEnabled = false
-            let films = try context.fetch(FetchDescriptor<Film>())
+            let context = coordinator.persistentContainer.makeMainContext()
+            let films = try context.fetch(Film.request())
             for film in films where film.id == deletedID { context.delete(film) }
             for film in films where film.id == editedID { film.name = "Edited After Backup" }
             try context.save()
@@ -1470,10 +1470,11 @@ extension DebugHarness {
         r.check("restore-cache/seeded-before-restore", cacheExists().allSatisfy { $0 },
                 "cache files present: \(cacheExists())")
 
-        let restorer = DBRestorer(container: coordinator.modelContainer, dataCoordinator: coordinator)
+        let restorer = DBRestorer(container: coordinator.persistentContainer, dataCoordinator: coordinator)
         do {
             try await restorer.restoreFromBackup(at: packageURL) { _, _ in }
             r.check("restore-completes", true, "")
+            r.check("restore-swaps-in-at-relaunch", applyRestoreAsRelaunchWould(), "")
         } catch {
             r.check("restore-completes", false, "\(error)")
             return r
@@ -1486,25 +1487,24 @@ extension DebugHarness {
         await coordinator.saveImmediately()
         r.check("restore-cache/not-rewritten-by-session", !cacheExists().contains(true),
                 "cache files present after a post-restore flush: \(cacheExists())")
-        r.check("restore-reports-no-settings-failure", restorer.settingsApplyFailure == nil,
-                restorer.settingsApplyFailure ?? "settings applied without error")
 
         // --- Re-read the rebuilt store --------------------------------------------------------
-        guard let storeURL = Preferences.dataFolderURL?.appendingPathComponent("default.store") else {
+        guard let storeURL = backupHarnessStoreURL else {
             r.check("restored-store-readable", false, "could not resolve store URL")
             return r
         }
         let restored: [Film]
         let restoredLists: [ListObject]
+        // Held for the rest of the scenario: a managed object whose context is gone reads
+        // every attribute as nil, and the checks below read these long after the fetch.
+        var keepAlive: [AnyObject] = []
+        defer { withExtendedLifetime(keepAlive) {} }
         do {
-            let schema = Schema([Film.self, ListObject.self, ListMembership.self,
-                                 Release.self, ImportSession.self, SettingsObject.self])
-            let configuration = ModelConfiguration(schema: schema, url: storeURL,
-                                                   allowsSave: false, cloudKitDatabase: .none)
-            let container = try ModelContainer(for: schema, configurations: [configuration])
-            let context = ModelContext(container)
-            restored = try context.fetch(FetchDescriptor<Film>())
-            restoredLists = try context.fetch(FetchDescriptor<ListObject>())
+            let container = try LibraryStore.makeContainer(at: storeURL, readOnly: true)
+            let context = container.makeMainContext()
+            keepAlive = [container, context]
+            restored = try context.fetch(Film.request())
+            restoredLists = try context.fetch(ListObject.request())
         } catch {
             r.check("restored-store-readable", false, "\(error)")
             return r
@@ -1616,20 +1616,15 @@ extension DebugHarness {
                 appliedThreshold == backupThreshold
                     ? "Preferences carries the backup's value (\(backupThreshold))"
                     : "Preferences carries \(appliedThreshold), the backup carried \(backupThreshold) — "
-                        + "the settings applied after a restore are read through DataCoordinator's "
-                        + "ORIGINAL container, whose store files this restore just deleted, not "
-                        + "through the freshly restored store")
+                        + "the settings applied after a restore must come from the staged store "
+                        + "(DBRestorer.restoredSettings), not the app's container")
 
         // And the value that actually landed in the restored database, which is what the
         // mandatory post-restore relaunch will read.
         do {
-            let schema = Schema([Film.self, ListObject.self, ListMembership.self,
-                                 Release.self, ImportSession.self, SettingsObject.self])
-            let configuration = ModelConfiguration(schema: schema, url: storeURL,
-                                                   allowsSave: false, cloudKitDatabase: .none)
-            let container = try ModelContainer(for: schema, configurations: [configuration])
-            let context = ModelContext(container)
-            let settings = try context.fetch(FetchDescriptor<SettingsObject>())
+            let container = try LibraryStore.makeContainer(at: storeURL, readOnly: true)
+            let context = container.makeMainContext()
+            let settings = try context.fetch(SettingsObject.request())
             r.check("restored-database-carries-backup-settings",
                     settings.first?.defaultRotationThreshold == backupThreshold,
                     "database holds \(String(describing: settings.first?.defaultRotationThreshold)), "
@@ -1677,18 +1672,15 @@ extension DebugHarness {
             try FileManager.default.createDirectory(at: legacyURL, withIntermediateDirectories: true)
             try legacyXML.write(to: legacyURL.appendingPathComponent("backup.xml"),
                                 atomically: true, encoding: .utf8)
-            let legacyRestorer = DBRestorer(container: coordinator.modelContainer,
+            let legacyRestorer = DBRestorer(container: coordinator.persistentContainer,
                                             dataCoordinator: nil)
             try await legacyRestorer.restoreFromBackup(at: legacyURL) { _, _ in }
+            applyRestoreAsRelaunchWould()
             r.check("legacy-backup-restores", true, "a pre-attribute backup still restores")
 
-            let schema = Schema([Film.self, ListObject.self, ListMembership.self,
-                                 Release.self, ImportSession.self, SettingsObject.self])
-            let configuration = ModelConfiguration(schema: schema, url: storeURL,
-                                                   allowsSave: false, cloudKitDatabase: .none)
-            let container = try ModelContainer(for: schema, configurations: [configuration])
-            let context = ModelContext(container)
-            let films = try context.fetch(FetchDescriptor<Film>())
+            let container = try LibraryStore.makeContainer(at: storeURL, readOnly: true)
+            let context = container.makeMainContext()
+            let films = try context.fetch(Film.request())
             guard let film = films.first(where: { $0.id == legacyID }) else {
                 r.check("legacy-film-present", false, "\(films.count) film(s) restored, none matching")
                 return r
@@ -1798,17 +1790,14 @@ extension DebugHarness {
             try FileManager.default.createDirectory(at: guardURL, withIntermediateDirectories: true)
             try guardXML.write(to: guardURL.appendingPathComponent("backup.xml"),
                                atomically: true, encoding: .utf8)
-            let guardRestorer = DBRestorer(container: coordinator.modelContainer,
+            let guardRestorer = DBRestorer(container: coordinator.persistentContainer,
                                            dataCoordinator: nil)
             try await guardRestorer.restoreFromBackup(at: guardURL) { _, _ in }
+            applyRestoreAsRelaunchWould()
 
-            let schema = Schema([Film.self, ListObject.self, ListMembership.self,
-                                 Release.self, ImportSession.self, SettingsObject.self])
-            let configuration = ModelConfiguration(schema: schema, url: storeURL,
-                                                   allowsSave: false, cloudKitDatabase: .none)
-            let container = try ModelContainer(for: schema, configurations: [configuration])
-            let context = ModelContext(container)
-            let releases = try context.fetch(FetchDescriptor<Release>())
+            let container = try LibraryStore.makeContainer(at: storeURL, readOnly: true)
+            let context = container.makeMainContext()
+            let releases = try context.fetch(Release.request())
             let byID = Dictionary(releases.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
             r.check("base-year-guard-releases-restored", byID.count >= 6,
@@ -2116,8 +2105,8 @@ extension DebugHarness {
 
         // --- e2e: the real FilmSheet against the store ------------------------------------
         func persistedFilm(_ id: UUID) -> FilmSnapshot? {
-            let context = ModelContext(coordinator.modelContainer)
-            return (try? context.fetch(FetchDescriptor<Film>(predicate: #Predicate { $0.id == id })).first)
+            let context = coordinator.persistentContainer.makeMainContext()
+            return (try? context.fetch(Film.request(.equals("id", id))).first)
                 .map { FilmSnapshot(from: $0) }
         }
         func save(_ sheet: FilmSheet) async -> Bool {
@@ -2286,9 +2275,9 @@ extension DebugHarness {
         //    MemoryStore's back) survives a save that did not change that field, while
         //    the edited field and lastModified are written.
         do {
-            let context = ModelContext(coordinator.modelContainer)
+            let context = coordinator.persistentContainer.makeMainContext()
             let id = fDelta.id
-            if let film = try? context.fetch(FetchDescriptor<Film>(predicate: #Predicate { $0.id == id })).first {
+            if let film = try? context.fetch(Film.request(.equals("id", id))).first {
                 film.comments = "store-only"
                 film.numberOfDiscs = "42"
                 try? context.save()
@@ -2606,6 +2595,45 @@ extension DebugHarness {
                 && SmartListType.upcomingReleases.familyVariants == [.upcomingReleases])
         r.check("smart/cmd-9", TopLevelSidebarShortcut(smartListType: .upcomingReleases)?.rawValue == 9
                 && TopLevelSidebarShortcut(smartListType: .alternateVersions) == nil)
+        return r
+    }
+}
+
+// MARK: - Restore Parity (by name only)
+
+extension DebugHarness {
+
+    /// Exports the sandbox's library, posters included, to `<sandbox>/parity-export.ftbackup`
+    /// with the real exporter. The package is the input to the cross-build parity test.
+    fileprivate static func parityExportScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "parity-export")
+        guard let packageURL = await runExport(coordinator: coordinator, filename: "parity-export") else {
+            r.check("export-succeeds", false, "createCompleteBackup threw")
+            return r
+        }
+        r.check("export-succeeds", true, packageURL.path(percentEncoded: false))
+        return r
+    }
+
+    /// Restores the package named by `FT_PARITY_PACKAGE` with the real restorer. It stages
+    /// the restore and commits it, exactly as the Settings restore does; the sandbox's NEXT
+    /// launch (any run, e.g. `parity-export`) swaps it into the sandbox store through
+    /// PendingRestore, so the parity test also covers the real launch swap.
+    fileprivate static func parityRestoreScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "parity-restore")
+        guard let path = ProcessInfo.processInfo.environment["FT_PARITY_PACKAGE"] else {
+            r.check("package-named", false, "FT_PARITY_PACKAGE is not set")
+            return r
+        }
+        let restorer = DBRestorer(container: coordinator.persistentContainer, dataCoordinator: coordinator)
+        do {
+            try await restorer.restoreFromBackup(at: URL(fileURLWithPath: path)) { _, _ in }
+            r.check("restore-completes", true, path)
+            r.check("restore-committed", restorer.requiresRestart && PendingRestore.isPending,
+                    "a staged restore waits for the next launch")
+        } catch {
+            r.check("restore-completes", false, "\(error)")
+        }
         return r
     }
 }

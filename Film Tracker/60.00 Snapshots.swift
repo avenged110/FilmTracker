@@ -2,10 +2,10 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // Canonical Sendable value-type DTOs (FilmSnapshot, ReleaseSnapshot, FilmChangeset,
-// SettingsSnapshot) used by MemoryStore and all read paths. SwiftData @Model objects
+// SettingsSnapshot) used by MemoryStore and all read paths. model objects
 // are confined to DataManager and are never exposed beyond the persistence layer.
 // NOTE: FilmSnapshot, ReleaseSnapshot, and SettingsSnapshot must be kept in sync with
-// their corresponding @Model counterparts whenever properties are added or renamed.
+// their corresponding model counterparts whenever properties are added or renamed.
 
 import Foundation
 
@@ -21,7 +21,7 @@ import Foundation
 //
 // KEY INVARIANT: 'releases' is always kept in sync with the persisted Release records.
 // DataCoordinator is responsible for rebuilding and re-storing the FilmSnapshot in
-// MemoryStore after any release mutation (create / update / delete) commits to mainContext.
+// MemoryStore after any release mutation (create / update / delete) commits to viewContext.
 
 struct FilmSnapshot: Sendable, Codable, Equatable {
     // MARK: - Identity (immutable)
@@ -86,7 +86,7 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
 
     // MARK: - Release Snapshots
     /// Snapshot of every Release associated with this Film.
-    /// Updated by DataCoordinator after any release mutation commits to mainContext.
+    /// Updated by DataCoordinator after any release mutation commits to viewContext.
     var releases: [ReleaseSnapshot]
 
     // MARK: - Computed Properties
@@ -108,7 +108,7 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
     }
 
     /// Effective rotation threshold: the per-film override if set, otherwise the global default.
-    /// Mirrors Film.rotationThreshold without requiring a live @Model object.
+    /// Mirrors Film.rotationThreshold without requiring a live managed object.
     var rotationThreshold: Int {
         rotationThresholdOverride ?? Preferences.defaultRotationThreshold
     }
@@ -131,10 +131,9 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
     }
 
     // MARK: - Initialization from Film
-    /// Creates a snapshot from a Film @Model object, capturing all scalar properties
+    /// Creates a snapshot from a Film model object, capturing all scalar properties
     /// and converting its Release relationships to ReleaseSnapshot value types.
-    /// Must be called on MainActor where the Film and its context live.
-    @MainActor
+    /// Must be called on the queue of the context the Film lives in.
     init(from film: Film) {
         self.id = film.id
         self.posterUID = film.posterUID
@@ -195,12 +194,12 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
         // Capture all Release relationships as value-type snapshots, with the parent→child
         // side of the hierarchy rebuilt from the authoritative child→parent pointers.
         // See ReleaseSnapshot.reconcilingHierarchy(_:).
-        self.releases = ReleaseSnapshot.reconcilingHierarchy(film.releases)
+        self.releases = ReleaseSnapshot.reconcilingHierarchy(Array(film.releases))
     }
 
     // MARK: - Manual Initialization
     /// Creates a snapshot from individual values. Used by FilmSheet.confirm() to build a
-    /// FilmChangeset from tab form data without requiring a live Film @Model object.
+    /// FilmChangeset from tab form data without requiring a live Film managed object.
     /// All parameters match Film model properties exactly.
     /// `releases` defaults to empty; populate separately when known.
     init(
@@ -322,7 +321,7 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
     }
 
     // MARK: - Apply to Film
-    /// Applies scalar snapshot values to an existing Film @Model object — every
+    /// Applies scalar snapshot values to an existing Film managed object — every
     /// `FilmField`, so a field added there is written here too.
     /// Called within DataManager's actor context after fetching the film by ID.
     /// NOTE: Does NOT apply releases — release mutations are handled separately
@@ -332,7 +331,7 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
     }
 
     // MARK: - Create New Film
-    /// Creates a new Film @Model object from this snapshot's scalar properties.
+    /// Creates a new Film managed object from this snapshot's scalar properties.
     /// Used for insert operations where no existing film exists in the target context.
     /// NOTE: Does NOT attach releases — those are created separately by DataManager.
     func toFilm() -> Film {
@@ -346,8 +345,8 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
 /// A Sendable struct that captures all Release properties for safe transfer across actor
 /// boundaries. Analogous to FilmSnapshot but for Release objects.
 ///
-/// SwiftData @Model classes are not Sendable because they are reference types tied to a
-/// specific ModelContext. ReleaseSnapshot allows Release data to be packaged as a value
+/// Model classes (NSManagedObject subclasses) are not Sendable because they are reference types tied to a
+/// specific NSManagedObjectContext. ReleaseSnapshot allows Release data to be packaged as a value
 /// type, transferred to the background actor, where a new Release is either created or an
 /// existing one is fetched by ID and updated.
 
@@ -398,7 +397,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     // Flat UUID references — avoids circular nesting while keeping the snapshot Sendable/Codable.
     // parentReleaseID: nil when this release has no parent (it is top-level).
     // childReleaseIDs: empty when this release has no children.
-    // These are read-only descriptors; hierarchy mutations are applied to the @Model layer
+    // These are read-only descriptors; hierarchy mutations are applied to the model layer
     // exclusively through DataCoordinator and DataManager.
     let parentReleaseID: UUID?
     /// `private(set) var` rather than `let` only so `withChildReleaseIDs(_:)` can
@@ -509,7 +508,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// The hierarchy is stored twice: as `Release.parentRelease` (the to-one side, which
     /// the export/restore pipeline writes and reads as `parentReleaseID`, and which
     /// `DataManager` step 6.5 assigns on save) and as `Release.childReleases` (the to-many
-    /// side, which nothing ever assigns directly — it exists only as SwiftData's inverse of
+    /// side, which nothing ever assigns directly — it exists only as Core Data's inverse of
     /// the first). Every writer in this project sets the child's pointer and trusts the
     /// inverse to follow. When it does not — a restored backup whose links were applied in
     /// bulk before a single `save()`, an inverse array that comes back empty on a later
@@ -524,7 +523,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// suppresses the combined parent/child carousel card, and lets a combo-pack parent be
     /// retyped with its children left behind as locked, undeletable orphans.
     ///
-    /// Deriving the parent side here, at the single boundary where @Model objects become
+    /// Deriving the parent side here, at the single boundary where managed objects become
     /// snapshots, repairs every consumer at once and cannot drift: the child pointer is the
     /// only side that is actually written, so it is the only side that can be authoritative.
     ///
@@ -532,7 +531,6 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// `FSTabReleases.comboChildren(of:)` so "the first child" means the same thing in both.
     /// A child naming a parent that is absent from this film, or naming a parent that is
     /// itself a child, contributes no link — the one-level-depth constraint is preserved.
-    @MainActor
     static func reconcilingHierarchy(_ releases: [Release]) -> [ReleaseSnapshot] {
         let raw = releases.map { ReleaseSnapshot(from: $0) }
         guard raw.contains(where: { $0.parentReleaseID != nil })
@@ -574,9 +572,8 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     }
 
     // MARK: - Initialization from Release
-    /// Creates a snapshot from a Release @Model object.
-    /// Must be called on MainActor where the Release lives.
-    @MainActor
+    /// Creates a snapshot from a Release model object.
+    /// Must be called on the queue of the context the Release lives in.
     init(from release: Release) {
         self.id = release.id
         self.studio = release.studio
@@ -706,7 +703,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     }
 
     // MARK: - Apply to Release
-    /// Applies snapshot values to an existing Release @Model object.
+    /// Applies snapshot values to an existing Release managed object.
     /// Called within DataManager's actor context after fetching the release by ID.
     func apply(to release: Release) {
         release.studio = studio
@@ -745,15 +742,15 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         release.notes = notes
         release.dateAdded = dateAdded
         release.sortOrder = sortOrder
-        // parentRelease and childReleases are NOT applied here — they are SwiftData object-graph
+        // parentRelease and childReleases are NOT applied here — they are object-graph
         // relationships that require live Release references. Hierarchy mutations are managed
         // exclusively by DataCoordinator / DataManager using the parentReleaseID / childReleaseIDs
         // UUID fields on this snapshot as lookup keys.
     }
 
     // MARK: - Create New Release
-    /// Creates a new Release @Model object from this snapshot and links it to the given Film.
-    /// Used by DataCoordinator (mainContext) and DataManager (background context) to
+    /// Creates a new Release managed object from this snapshot and links it to the given Film.
+    /// Used by DataCoordinator (view context) and DataManager (background context) to
     /// materialize a new release into whatever context they're operating in.
     func toRelease(film: Film) -> Release {
         return Release(

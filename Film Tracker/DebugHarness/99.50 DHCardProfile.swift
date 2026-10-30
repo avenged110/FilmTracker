@@ -1780,7 +1780,7 @@ extension DebugHarness {
     static func pickerDismissalScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "picker-dismissal")
         coordinator.importFilms(reportsCorpus())
-        let appState = AppState(modelContainer: coordinator.modelContainer, dataCoordinator: coordinator)
+        let appState = AppState(persistentContainer: coordinator.persistentContainer, dataCoordinator: coordinator)
         let state = ReportsState.shared
         state.selectCategory(.costTracker, persist: false)
 
@@ -1974,7 +1974,7 @@ extension DebugHarness {
         var r = HarnessScenarioResult(scenario: "reports-tab-perf")
         coordinator.importFilms(reportsCorpus())
         r.metric("films", Double(coordinator.totalFilmCount), "films")
-        let appState = AppState(modelContainer: coordinator.modelContainer, dataCoordinator: coordinator)
+        let appState = AppState(persistentContainer: coordinator.persistentContainer, dataCoordinator: coordinator)
         let state = ReportsState.shared
         state.selectCategory(.costTracker, persist: false, immediate: true)
 

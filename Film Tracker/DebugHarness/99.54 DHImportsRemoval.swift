@@ -31,7 +31,7 @@
 
 import AppKit
 import SwiftUI
-import SwiftData
+import CoreData
 import Synchronization
 
 /// The harness's handle on ImportSessionList's removal entry point. Set while the list is on
@@ -278,7 +278,7 @@ extension DebugHarness {
             r.check("capture-available", false, "CGWindowListCreateImage did not resolve")
             return r
         }
-        let context = coordinator.modelContainer.mainContext
+        let context = coordinator.persistentContainer.viewContext
         let savedFrame = window.frame
         // As tall as the screen allows, up to 1100 pt: a frame the window server would
         // shrink to fit is one it keeps re-placing, and steadyWindow would fight it.
@@ -314,7 +314,7 @@ extension DebugHarness {
         r.check("window-steady", await steadyWindow(), "\(window.frame)")
 
         func clearStore() {
-            for s in (try? context.fetch(FetchDescriptor<ImportSession>())) ?? [] { context.delete(s) }
+            for s in (try? context.fetch(ImportSession.request())) ?? [] { context.delete(s) }
             try? context.save()
         }
 
@@ -355,7 +355,7 @@ extension DebugHarness {
         }
 
         func storedIDs() -> Set<UUID> {
-            Set(((try? context.fetch(FetchDescriptor<ImportSession>())) ?? []).map(\.id))
+            Set(((try? context.fetch(ImportSession.request())) ?? []).map(\.id))
         }
 
         func scroll(_ sv: NSScrollView, to spot: ScrollSpot) {
@@ -708,8 +708,8 @@ extension DebugHarness {
     /// same container can then be opened without `-FTDebugHarness` and cleared by hand.
     private static func importsSeedScenario(coordinator: DataCoordinator) -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "imports-seed")
-        let context = coordinator.modelContainer.mainContext
-        for s in (try? context.fetch(FetchDescriptor<ImportSession>())) ?? [] { context.delete(s) }
+        let context = coordinator.persistentContainer.viewContext
+        for s in (try? context.fetch(ImportSession.request())) ?? [] { context.delete(s) }
         let now = Date()
         func add(_ i: Int, type: String, canceled: Bool = false, errors: Int = 0) {
             let total = 12 + i * 5
@@ -723,7 +723,7 @@ extension DebugHarness {
         for i in 0..<110 { add(i, type: "metadata", canceled: i % 9 == 3, errors: i % 7 == 5 ? 2 : 0) }
         for i in 0..<12 { add(i, type: "ratings", canceled: i % 5 == 2) }
         r.check("seeded", (try? context.save()) != nil,
-                "\((try? context.fetchCount(FetchDescriptor<ImportSession>())) ?? -1) sessions")
+                "\((try? context.count(for: ImportSession.request())) ?? -1) sessions")
         return r
     }
 

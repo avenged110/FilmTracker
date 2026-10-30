@@ -438,7 +438,7 @@ final class RatingsImporter: Loggable {
             Self.log("Import canceled before completion event - aborting")
             return }
 
-        // Give SwiftData time (300ms) to complete all operations.
+        // Give the store time (300ms) to complete all operations.
         try? await Task.sleep(for: .milliseconds(300))
 
         // applyImportedRatingUpdate already mutates MemoryStore and fires AppEventBus

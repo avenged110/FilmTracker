@@ -122,7 +122,7 @@ final class ReleaseCardModel {
     let dateAdded: Date
 
     // MARK: - Release Hierarchy (in-session)
-    // Mirrors the SwiftData relationship on ReleaseObj, propagated into ReleaseSnapshot at save
+    // Mirrors the Core Data relationship on ReleaseObj, propagated into ReleaseSnapshot at save
     // time. NOT in contentHash or ReleaseCardState — structural identity, not editable field
     // content, so it does not participate in field-level change detection.
     //
@@ -131,7 +131,7 @@ final class ReleaseCardModel {
     // count is derivable from the parent's independence, and reconcileComboChildren holds the
     // two in agreement.
     //
-    // Array ORDER is not authoritative — it comes from the SwiftData relationship, whose
+    // Array ORDER is not authoritative — it comes from the Core Data relationship, whose
     // element order is unspecified. Anything needing a stable ordering of a parent's children
     // must go through comboChildren(of:).
     //
@@ -629,7 +629,7 @@ extension ReleaseCardModel {
     /// stable — so without a total order two cards could swap places between one body
     /// evaluation and the next.
     ///
-    /// `ReleaseSnapshot.reconcilingHierarchy` applies the identical rule at the @Model→snapshot
+    /// `ReleaseSnapshot.reconcilingHierarchy` applies the identical rule at the model→snapshot
     /// boundary. It cannot share this function (it orders snapshots, not models), so it is the
     /// single deliberate restatement, and its doc comment names this one.
     static func precedes(_ lhs: ReleaseCardModel, _ rhs: ReleaseCardModel) -> Bool {
@@ -833,7 +833,7 @@ final class FSTabReleases {
     //
     // So the repaired IDs are recorded explicitly and force-included in `toUpdate`. For a
     // cleared parent link, DataManager step 6.5's `parentReleaseID == nil` branch clears the
-    // stale SwiftData relationship; for the field repairs, the snapshot carries the values.
+    // stale relationship; for the field repairs, the snapshot carries the values.
     //
     // Cosmetic normalizations (vocabulary canonicalization, `condition` capitalization) are
     // deliberately NOT recorded: they change no meaning, and forcing a write for them would
@@ -1152,7 +1152,7 @@ final class FSTabReleases {
         // `parentReleaseID` is written everywhere — by createComboChildren in-session, by
         // DataManager's step 6.5 on save, by DBRestorer on restore, and by the export format,
         // which has no field for the parent side at all. `childReleaseIDs` is derived from
-        // SwiftData's inverse relationship and is the side that can come back empty while the
+        // the inverse relationship and is the side that can come back empty while the
         // child pointers survive.
         //
         // Pruning-only repair could not see that failure: with the parent claiming no children
@@ -1162,7 +1162,7 @@ final class FSTabReleases {
         // and so reads the surviving side).
         //
         // ReleaseSnapshot.reconcilingHierarchy now performs the same derivation at the
-        // @Model→snapshot boundary, so in normal operation this finds nothing to do. It is kept
+        // model→snapshot boundary, so in normal operation this finds nothing to do. It is kept
         // because this is the last point before the models are handed to the confirmation and
         // reconciliation logic, and because MemoryStore snapshots written by the sheet's own
         // save path do not pass through that boundary.
@@ -1395,7 +1395,7 @@ final class FSTabReleases {
         // `childReleaseIDs` IN PLACE, and mutating a model does not touch the array.
         //
         // The repair this most matters for is the one that restores a parent's
-        // `childReleaseIDs` when SwiftData's inverse relationship came back empty: without this
+        // `childReleaseIDs` when the inverse relationship came back empty: without this
         // call the carousel would keep the pre-repair grouping for the life of the sheet.
         updateCarouselCache()
 
@@ -1699,7 +1699,7 @@ final class FSTabReleases {
             if absorbed.contains(model.id) { return nil }
             // The segment order on the card must agree with the order the delete and
             // type-change alerts name the same discs in, and `childReleaseIDs`' own element
-            // order is not authoritative (it comes from a SwiftData to-many relationship,
+            // order is not authoritative (it comes from a Core Data to-many relationship,
             // whose element order is unspecified). See ReleaseCardModel.precedes.
             let children = (childrenByParent[model.id] ?? []).sorted(by: ReleaseCardModel.precedes)
             return ReleaseCarouselEntry(parent: model, children: children)
@@ -2854,7 +2854,7 @@ final class FSTabReleases {
     /// The children of `parent` actually present in this session, in a stable order.
     ///
     /// Ordered by `ReleaseCardModel.precedes` rather than by `childReleaseIDs`' element order,
-    /// which is unspecified because it is populated from a SwiftData to-many relationship.
+    /// which is unspecified because it is populated from a Core Data to-many relationship.
     /// Every decision that distinguishes "the first child" from "the second" reads through
     /// here, so those decisions survive a save/reload cycle.
     func comboChildren(of parent: ReleaseCardModel) -> [ReleaseCardModel] {

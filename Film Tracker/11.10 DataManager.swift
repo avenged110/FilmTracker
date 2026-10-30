@@ -1,16 +1,29 @@
 // MARK: - DataManager.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Background actor for SwiftData persistence operations.
+// Background actor for Core Data persistence operations.
 
 import Foundation
-import SwiftData
+import CoreData
 import SQLite3
 import os
 
-@ModelActor
 actor DataManager: Loggable {
     nonisolated static let logTag = "[DataManager]"
+
+    // MARK: - Context
+    // What `@ModelActor` synthesized in the SwiftData build: one long-lived private-queue context, and
+    // an executor that runs this actor's jobs on that context's queue (ContextExecutor), so
+    // every method uses `context` directly.
+    nonisolated let persistentContainer: NSPersistentContainer
+    private nonisolated let executor: ContextExecutor
+    nonisolated var unownedExecutor: UnownedSerialExecutor { unsafe executor.asUnownedSerialExecutor() }
+    private var context: NSManagedObjectContext { executor.context }
+
+    init(persistentContainer: NSPersistentContainer) {
+        self.persistentContainer = persistentContainer
+        self.executor = ContextExecutor(context: persistentContainer.makeBackgroundContext())
+    }
 
     // MARK: - Error Types
     enum PersistenceError: Error, LocalizedError {
@@ -31,7 +44,7 @@ actor DataManager: Loggable {
 
     /// Saves the actor's context, discarding every staged change if the save fails.
     ///
-    /// This `ModelContext` is long-lived and shared by every operation on the actor. A
+    /// This context is long-lived and shared by every operation on the actor. A
     /// failed `save()` leaves its inserts, deletes, and property writes pending, so without
     /// the rollback they would ride along on the next unrelated operation's save — and if
     /// the save failed *because of* them, every later save in the session would fail too,
@@ -43,12 +56,7 @@ actor DataManager: Loggable {
     /// are unaffected in their documented partial-commit behavior: a rollback here discards
     /// only the batch that failed, and the batches already committed stay committed.
     private func commit() throws {
-        do {
-            try modelContext.save()
-        } catch {
-            modelContext.rollback()
-            throw error
-        }
+        try context.commit()
     }
 
     // MARK: - Startup Fingerprint
@@ -59,12 +67,12 @@ actor DataManager: Loggable {
     ///
     /// Three queries are issued:
     ///   1. Film.id, lastModified, hofPosition and userRating — read directly from the
-    ///      store file by `DirectStoreReader`, or through a SwiftData fetch when it declines
+    ///      store file by `DirectStoreReader`, or through a fetch when it declines
     ///   2. ListObject count only (no properties, no relationships)
     ///   3. ListMembership count only (no properties, no relationships)
     ///
-    /// This lives here, in the background ModelActor, rather than in MemoryStoreCache where
-    /// it used to run against `modelContainer.mainContext`. The two count queries really are
+    /// This lives here, in the background context actor, rather than in MemoryStoreCache where
+    /// it used to run against `persistentContainer.viewContext`. The two count queries really are
     /// negligible, but the film query is not: `propertiesToFetch` avoids faulting the
     /// `releases` relationship, yet SwiftData still instantiates one managed object per
     /// Film. On a large library that is tens of milliseconds of synchronous main-thread work
@@ -74,25 +82,25 @@ actor DataManager: Loggable {
     /// metadata loads that are supposed to be running in parallel with it. Nothing about the
     /// computation needs the main context, so the whole cost moves off the critical path.
     ///
-    /// Correctness note: this reads through the ModelActor's own `ModelContext`, so it sees
-    /// the committed store rather than any unsaved changes pending in `mainContext`. That is
+    /// Correctness note: this reads through the actor's own `NSManagedObjectContext`, so it sees
+    /// the committed store rather than any unsaved changes pending in `viewContext`. That is
     /// equivalent at the only point it is called — the first phase of launch, before any
     /// user action or background writer has had the opportunity to mutate anything — and the
     /// fingerprint's whole purpose is to describe what is on disk, which is precisely what
     /// the snapshot cache it validates was written from.
     ///
-    /// Two consequences of the fetch landing in this context rather than `mainContext` were
+    /// Two consequences of the fetch landing in this context rather than `viewContext` were
     /// considered and are benign:
     ///
     ///   - Object registration. `allFilms` is released when this method returns and nothing
     ///     retains the objects, so they do not accumulate in this long-lived context; a
-    ///     `ModelContext` does not retain unmodified fetched objects. No properties are
-    ///     mutated either, so the context is left clean and a later `modelContext.save()`
+    ///     `NSManagedObjectContext` does not retain unmodified fetched objects. No properties are
+    ///     mutated either, so the context is left clean and a later `context.save()`
     ///     from any write operation has nothing extra to flush. This is the same lifecycle
-    ///     the fetch previously had inside `mainContext`.
+    ///     the fetch previously had inside `viewContext`.
     ///
     ///   - Slow-path warmth. When the fingerprint mismatches, MemoryStore follows up with
-    ///     the full `mainContext` fetch, which no longer inherits registered objects from
+    ///     the full `viewContext` fetch, which no longer inherits registered objects from
     ///     the fingerprint pass. The shared row cache below the contexts still applies, the
     ///     slow path is already seconds long, and it gains this fetch's duration back on the
     ///     main thread — so the trade is favorable in the case that matters and immaterial
@@ -101,7 +109,7 @@ actor DataManager: Loggable {
         let start = ContinuousClock.now
 
         // The film layer is read straight from the store file when possible (~5ms), and
-        // through SwiftData only when that read declines (see DirectStoreReader). Both feed
+        // through a fetch only when that read declines (see DirectStoreReader). Both feed
         // the same FilmLayerDigest, so the two paths cannot mix a film differently.
         let filmLayer: FilmLayerDigest
         let filmSource: String
@@ -111,12 +119,12 @@ actor DataManager: Loggable {
         } else {
             guard let fetched = fetchFilmLayerDigest() else { return nil }
             filmLayer = fetched
-            filmSource = "SwiftData fetch"
+            filmSource = "fetch"
         }
         let fetchElapsed = ContinuousClock.now - start
 
         // List count: no properties or relationships fetched.
-        guard let listCount = try? modelContext.fetchCount(FetchDescriptor<ListObject>()) else { return nil }
+        guard let listCount = try? context.count(for: ListObject.request()) else { return nil }
 
         // Membership count: no properties or relationships fetched.
         //
@@ -149,13 +157,13 @@ actor DataManager: Loggable {
         // translate at runtime, degrading to today's behavior — a possible mismatch,
         // the slow path, and correct data — is the right failure mode; returning nil
         // would convert a recoverable condition into a guaranteed cache miss.
-        let validMembershipDescriptor = FetchDescriptor<ListMembership>(
-            predicate: #Predicate<ListMembership> { $0.film != nil && $0.list != nil })
+        let validMembershipDescriptor = ListMembership.request(
+            NSPredicate(format: "film != nil AND list != nil"))
 
         let membershipCount: Int
-        if let filtered = try? modelContext.fetchCount(validMembershipDescriptor) {
+        if let filtered = try? context.count(for: validMembershipDescriptor) {
             membershipCount = filtered
-        } else if let unfiltered = try? modelContext.fetchCount(FetchDescriptor<ListMembership>()) {
+        } else if let unfiltered = try? context.count(for: ListMembership.request()) {
             log("WARNING: Filtered membership count unavailable — falling back to unfiltered count")
             membershipCount = unfiltered
         } else {
@@ -179,11 +187,7 @@ actor DataManager: Loggable {
     }
 
     /// The SQLite file behind this container, or nil for an in-memory one.
-    private var persistentStoreURL: URL? {
-        guard let configuration = modelContainer.configurations.first,
-              !configuration.isStoredInMemoryOnly else { return nil }
-        return configuration.url
-    }
+    private nonisolated var persistentStoreURL: URL? { persistentContainer.storeURL }
 
     #if DEBUG
     /// Both film-layer paths, for the harness's equivalence check.
@@ -206,7 +210,7 @@ actor DataManager: Loggable {
     }
     #endif
 
-    /// The film layer through SwiftData: the fallback when the direct read declines.
+    /// The film layer through a fetch: the fallback when the direct read declines.
     private func fetchFilmLayerDigest() -> FilmLayerDigest? {
         // MEASURED: this fetch is ~980ms for 1,369 films and is roughly 77% of the launch
         // progress indicator's on-screen time. Attribution probing established why, and it is
@@ -214,7 +218,7 @@ actor DataManager: Loggable {
         //
         //   - It is NOT store-open cost. A trivial count against another table issued first
         //     completes in 2.0ms, so SQLite is open and the schema validated almost instantly.
-        //   - `fetchCount(FetchDescriptor<Film>())` over the same 1,369 rows takes 2.0ms, so
+        //   - `fetchCount(Film.request())` over the same 1,369 rows takes 2.0ms, so
         //     the cost is entirely in materializing objects, not in reading the table.
         //   - `propertiesToFetch` below is NOT honored. The identical fetch with the line
         //     removed measured 716ms against 743ms with it — within noise, and marginally
@@ -225,7 +229,7 @@ actor DataManager: Loggable {
         // The line is kept because it is harmless and documents intent, but it is buying
         // nothing. Any real fix has to avoid instantiating Film objects at all — which is
         // what DirectStoreReader does, reading the same four columns from the store file
-        // without going through SwiftData. This fetch remains as its fallback. The cheap
+        // without going through Core Data. This fetch remains as its fallback. The cheap
         // substitutes that do not enumerate film UUIDs do not work here:
         //
         //   - (count, max-lastModified) is permanently unsafe for FilmTracker, not merely
@@ -236,7 +240,7 @@ actor DataManager: Loggable {
         //     imports carry the file's own date, not Date().
         //   - A generation counter or dirty flag would be cheap but fails UNSAFE, and there
         //     is no interception point that would make it reliable: writes reach the store
-        //     from 24 save() sites here, from DBRestorer's own context, and from mainContext
+        //     from 24 save() sites here, from DBRestorer's own context, and from viewContext
         //     with autosaveEnabled = true, which commits with no save() call to hook at all.
         //   - Store-file mtime/size fails safe but degenerates to a permanent miss, because
         //     SQLite checkpoints on close and changes the file after the cache is written.
@@ -251,15 +255,20 @@ actor DataManager: Loggable {
         // Film by the time this loop runs. Reading two more Ints off objects that are
         // already fully faulted in is free, which is what makes closing the
         // lastModified blind spot (see StoreFingerprint) affordable at all.
-        var filmDescriptor = FetchDescriptor<Film>()
-        filmDescriptor.propertiesToFetch = [\Film.id, \Film.lastModified,
-                                            \Film.hofPosition, \Film.userRating]
-        guard let allFilms = try? modelContext.fetch(filmDescriptor) else { return nil }
+        //
+        // Core Data note: unlike SwiftData, a dictionary-result fetch here really reads only
+        // the four columns and builds no Film objects, so this fallback is cheap too.
+        let filmDescriptor = NSFetchRequest<NSDictionary>(entityName: Film.entityName)
+        filmDescriptor.resultType = .dictionaryResultType
+        filmDescriptor.propertiesToFetch = ["id", "lastModified", "hofPosition", "userRating"]
+        guard let rows = try? context.fetch(filmDescriptor) else { return nil }
 
         var digest = FilmLayerDigest()
-        for film in allFilms {
-            digest.add(id: film.id, lastModified: film.lastModified,
-                       hofPosition: film.hofPosition, userRating: film.userRating)
+        for row in rows {
+            guard let id = row["id"] as? UUID else { return nil }
+            digest.add(id: id, lastModified: row["lastModified"] as? String ?? "",
+                       hofPosition: (row["hofPosition"] as? NSNumber)?.intValue ?? 0,
+                       userRating: (row["userRating"] as? NSNumber)?.intValue ?? 0)
         }
         return digest
     }
@@ -281,7 +290,7 @@ actor DataManager: Loggable {
 
     /// Removes duplicate Release records from the persistent store.
     /// Duplicates (same UUID) were caused by a prior dual-write bug where both
-    /// mainContext and DataManager created releases for the same operation.
+    /// viewContext and DataManager created releases for the same operation.
     /// Keeps the first occurrence of each UUID and deletes the rest.
     func cleanupDuplicateReleases() async throws {
         // Runs every launch, and the fetch below materializes every Release (~590ms for
@@ -290,7 +299,7 @@ actor DataManager: Loggable {
         // answer falls through to the full pass exactly as before.
         if DirectStoreReader.hasDuplicateReleaseIDs(storeURL: persistentStoreURL) == false { return }
 
-        let allReleases = try modelContext.fetch(FetchDescriptor<Release>())
+        let allReleases = try context.fetch(Release.request())
         var seen = Set<UUID>()
         var duplicates: [Release] = []
         for release in allReleases {
@@ -303,7 +312,7 @@ actor DataManager: Loggable {
         guard !duplicates.isEmpty else { return }
 
         log("Removing \(duplicates.count) duplicate Release record(s)")
-        for release in duplicates { modelContext.delete(release) }
+        for release in duplicates { context.delete(release) }
         try commit()
         log("Duplicate Release cleanup complete")
     }
@@ -317,7 +326,7 @@ actor DataManager: Loggable {
     /// MemoryStore saw a legacy tag during load, since the fetch materializes every Release.
     /// Film.lastModified is not touched, so the snapshot-cache fingerprint is unaffected.
     func migrateLegacyMarketAvailability() async throws {
-        let allReleases = try modelContext.fetch(FetchDescriptor<Release>())
+        let allReleases = try context.fetch(Release.request())
         var count = 0
         for release in allReleases
         where ReleaseMarketAvailability.needsMigration(release.marketAvailability) {
@@ -334,7 +343,7 @@ actor DataManager: Loggable {
     /// (film, list) pair that is already represented (duplicates).
     ///
     /// Called once at startup by DataCoordinator, deferred until after the UI is
-    /// interactive. Runs entirely in the background context — no mainContext
+    /// interactive. Runs entirely in the background context — no viewContext
     /// involvement. Returns the number of each kind removed.
     ///
     /// Both classes are safe to delete by definition rather than by assumption. An
@@ -370,14 +379,14 @@ actor DataManager: Loggable {
     ///
     /// Deleting a ListMembership directly is sufficient to keep the object graph
     /// consistent: both `Film.memberships` and `ListObject.memberships` declare it as
-    /// their inverse, so SwiftData removes the deleted row from each parent's array.
+    /// their inverse, so Core Data removes the deleted row from each parent's set.
     func cleanupOrphanedAndDuplicateMemberships() async throws -> (orphans: Int, duplicates: Int) {
         #if DEBUG
         let threadProbe = DataManagerThreadProbe.begin("cleanupOrphanedAndDuplicateMemberships")
         defer { threadProbe?.end() }
         #endif
 
-        let allMemberships = try modelContext.fetch(FetchDescriptor<ListMembership>())
+        let allMemberships = try context.fetch(ListMembership.request())
 
         var orphaned: [ListMembership] = []
         var valid: [ListMembership] = []
@@ -440,7 +449,7 @@ actor DataManager: Loggable {
         var removedOrphans = 0
         var removedDuplicates = 0
 
-        // `modelContext != nil` mirrors the guard already used at the membership-delete
+        // `context != nil` mirrors the guard already used at the membership-delete
         // site in saveFilmChangeset. Nothing can invalidate these objects between the
         // fetch above and here — this method contains no suspension point, so it runs as
         // one atomic unit on the actor — but a restore running against its own separate
@@ -448,12 +457,12 @@ actor DataManager: Loggable {
         // the one thing worth being defensive about. Counting actual deletions rather
         // than candidate counts keeps the returned numbers truthful if the guard ever
         // does skip one.
-        for membership in orphaned where membership.modelContext != nil {
-            modelContext.delete(membership)
+        for membership in orphaned where unsafe membership.managedObjectContext != nil {
+            context.delete(membership)
             removedOrphans += 1
         }
-        for membership in duplicates where membership.modelContext != nil {
-            modelContext.delete(membership)
+        for membership in duplicates where unsafe membership.managedObjectContext != nil {
+            context.delete(membership)
             removedDuplicates += 1
         }
 
@@ -464,7 +473,7 @@ actor DataManager: Loggable {
         // preferable, so an all-or-nothing transaction is the correct granularity.
         //
         // On failure the staged deletions must be discarded rather than left pending.
-        // This ModelContext is long-lived and shared by every subsequent DataManager
+        // This NSManagedObjectContext is long-lived and shared by every subsequent DataManager
         // operation, so uncommitted deletions would otherwise ride along on the next
         // unrelated `save()` — and, in the case that matters, if the save failed
         // *because of* these deletions, every later save in the session would fail too,
@@ -488,7 +497,7 @@ actor DataManager: Loggable {
         for batch in snapshots.chunked(into: batchSize) {
             try Task.checkCancellation()
 
-            for snapshot in batch { modelContext.insert(snapshot.toFilm()) }
+            for snapshot in batch { context.insert(snapshot.toFilm()) }
             try commit() } }
 
     func updateFilm(_ snapshot: FilmSnapshot) async throws {
@@ -498,9 +507,9 @@ actor DataManager: Loggable {
         #endif
 
         let filmID = snapshot.id
-        let descriptor = FetchDescriptor<Film>(predicate: #Predicate<Film> { $0.id == filmID })
+        let descriptor = Film.request(.equals("id", filmID))
 
-        guard let film = try modelContext.fetch(descriptor).first else {
+        guard let film = try context.fetch(descriptor).first else {
             throw PersistenceError.filmNotFound(filmID) }
 
         snapshot.apply(to: film)
@@ -510,8 +519,8 @@ actor DataManager: Loggable {
     ///
     /// Used by the multi-film persistence paths (Hall of Fame add/remove/reorder) where
     /// several FilmSnapshots must be committed together. A single fetch + single
-    /// modelContext.save() guarantees all-or-nothing semantics: if the save fails, the
-    /// background context is discarded and nothing is committed, so SwiftData never ends
+    /// context.save() guarantees all-or-nothing semantics: if the save fails, the
+    /// background context is discarded and nothing is committed, so the store never ends
     /// up in a partial state that the rollback closure (which restores MemoryStore in full)
     /// would silently diverge from.
     ///
@@ -526,12 +535,38 @@ actor DataManager: Loggable {
         defer { threadProbe?.end() }
         #endif
 
+        try writeFetchedFilms(snapshots, operation: "updateFilms") { snapshot, film in
+            snapshot.apply(to: film)
+        }
+    }
+
+    /// Writes `fields` of each snapshot to its film, in one transaction.
+    ///
+    /// updateFilms' all-or-nothing batch, narrowed to the fields a bulk edit set, so a
+    /// field it did not set keeps whatever an earlier operation committed (the FilmSheet's
+    /// changedFields rule, applyFilmChangeset). A film deleted in the meantime is skipped.
+    func applyFilmFields(_ snapshots: [FilmSnapshot], fields: Set<FilmField>) async throws {
+        #if DEBUG
+        let threadProbe = DataManagerThreadProbe.begin("applyFilmFields")
+        defer { threadProbe?.end() }
+        #endif
+
+        guard !fields.isEmpty else { return }
+        try writeFetchedFilms(snapshots, operation: "applyFilmFields") { snapshot, film in
+            for field in fields { field.apply(snapshot, to: film) }
+        }
+    }
+
+    /// updateFilms' and applyFilmFields' shared body: one fetch for every snapshot's film,
+    /// `write` on each one found, one commit. A film no longer in the database is skipped
+    /// and logged under `operation`; nothing is committed when none was found.
+    private func writeFetchedFilms(_ snapshots: [FilmSnapshot], operation: String,
+                                   _ write: (FilmSnapshot, Film) -> Void) throws {
         guard !snapshots.isEmpty else { return }
 
         let ids = Set(snapshots.map { $0.id })
-        let descriptor = FetchDescriptor<Film>(
-            predicate: #Predicate<Film> { ids.contains($0.id) })
-        let films = try modelContext.fetch(descriptor)
+        let descriptor = Film.request(.in("id", ids))
+        let films = try context.fetch(descriptor)
 
         // Build a UUID → Film lookup. uniquingKeysWith guards against the (impossible
         // under the unique-id constraint, but defensively handled) case of duplicate keys.
@@ -540,10 +575,10 @@ actor DataManager: Loggable {
         var appliedCount = 0
         for snapshot in snapshots {
             guard let film = filmByID[snapshot.id] else {
-                log("WARNING: updateFilms — film \(snapshot.id) not found in database (likely deleted); skipping")
+                log("WARNING: \(operation) — film \(snapshot.id) not found in database (likely deleted); skipping")
                 continue
             }
-            snapshot.apply(to: film)
+            write(snapshot, film)
             appliedCount += 1
         }
 
@@ -561,10 +596,10 @@ actor DataManager: Loggable {
         guard !ids.isEmpty else { return }
 
         // Explicitly delete ListMembership objects before deleting films.
-        // SwiftData's cascade delete is unreliable for objects created within the same
-        // session. Explicit pre-deletion ensures no orphaned memberships remain regardless
+        // Kept from the SwiftData build, whose cascade delete was unreliable for objects
+        // created within the same session. Explicit pre-deletion ensures no orphaned memberships remain regardless
         // of when the films were originally created.
-        let allMemberships = try modelContext.fetch(FetchDescriptor<ListMembership>())
+        let allMemberships = try context.fetch(ListMembership.request())
         let membershipsToDelete = allMemberships.filter { membership in
             guard let filmID = membership.film?.id else {
                 return true // also purge pre-existing orphans
@@ -572,22 +607,21 @@ actor DataManager: Loggable {
             return ids.contains(filmID)
         }
         for membership in membershipsToDelete {
-            modelContext.delete(membership)
+            context.delete(membership)
         }
 
         // Delete the films themselves.
-        let descriptor = FetchDescriptor<Film>(
-            predicate: #Predicate<Film> { ids.contains($0.id) })
-        let films = try modelContext.fetch(descriptor)
+        let descriptor = Film.request(.in("id", ids))
+        let films = try context.fetch(descriptor)
 
-        for film in films { modelContext.delete(film) }
+        for film in films { context.delete(film) }
         try commit() }
     
     /// Resets rotation threshold overrides to nil for the specified film IDs.
     ///
     /// Accepts the exact set of IDs pre-identified by DataCoordinator so the fetch
     /// is targeted rather than a full-table scan.  Operates exclusively on the
-    /// background ModelContext - never touches mainContext.
+    /// background NSManagedObjectContext - never touches viewContext.
     ///
     /// ONE TRANSACTION, deliberately. This used to commit in `batchSize` chunks, each a
     /// separate `save()`, on the theory that it kept memory pressure low — but the fetch
@@ -619,10 +653,8 @@ actor DataManager: Loggable {
     private func resetFilms(_ ids: Set<UUID>, _ reset: (Film) -> Void) throws {
         guard !ids.isEmpty else { return }
 
-        let descriptor = FetchDescriptor<Film>(
-            predicate: #Predicate<Film> { ids.contains($0.id) }
-        )
-        let films = try modelContext.fetch(descriptor)
+        let descriptor = Film.request(.in("id", ids))
+        let films = try context.fetch(descriptor)
         guard !films.isEmpty else { return }
 
         // Nothing destructive is staged before this check, so a cancellation can never
@@ -637,7 +669,7 @@ actor DataManager: Loggable {
 
     /// Applies a complete FilmChangeset atomically in the background context.
     /// This is the single persistence entry point for all FilmSheet save operations.
-    /// All @Model objects are fetched and created within this context - no cross-context access.
+    /// All model objects are fetched and created within this context - no cross-context access.
     ///
     /// Operations performed (in order):
     ///   1. Fetch or create the Film
@@ -650,8 +682,8 @@ actor DataManager: Loggable {
     ///   8. Add list memberships
     ///   9. Save context (single atomic transaction)
     ///
-    /// Thread safety: This method runs entirely within DataManager's @ModelActor context.
-    /// All @Model objects are fetched locally - no objects cross actor boundaries.
+    /// Thread safety: This method runs entirely on DataManager's own context.
+    /// All model objects are fetched locally - no objects cross actor boundaries.
     func applyFilmChangeset(_ changeset: FilmChangeset) async throws {
         #if DEBUG
         let threadProbe = DataManagerThreadProbe.begin("applyFilmChangeset")
@@ -663,25 +695,24 @@ actor DataManager: Loggable {
         // Step 1: Fetch or create the Film in this context.
         // For new films, DataCoordinator.saveFilmChangeset adds the film to MemoryStore
         // (optimistic update) and then dispatches this changeset via trackOperation.
-        // DataManager is therefore the first (and only) place the Film @Model object is
+        // DataManager is therefore the first (and only) place the Film managed object is
         // created in the persistent store — it is inserted here in the background context
-        // and never touches mainContext.
+        // and never touches viewContext.
         //
         // For existing films the fetch will always find the record (it was created in a
         // prior session). The else-if branch below handles the hypothetical case where an
         // in-flight new-film operation is received before a previous session's records are
         // fully flushed, which in practice should not occur.
         let film: Film
-        let descriptor = FetchDescriptor<Film>(
-            predicate: #Predicate<Film> { $0.id == filmID })
-        if let existingFilm = try modelContext.fetch(descriptor).first {
+        let descriptor = Film.request(.equals("id", filmID))
+        if let existingFilm = try context.fetch(descriptor).first {
             film = existingFilm
         } else if changeset.isNewFilm {
             // New film: insert directly into this background context.
             // This is the primary (not fallback) path for new film persistence.
             film = Film()
             film.id = filmID
-            modelContext.insert(film)
+            context.insert(film)
         } else {
             throw PersistenceError.filmNotFound(filmID)
         }
@@ -702,7 +733,7 @@ actor DataManager: Loggable {
             let existingReleases = film.releases
             for releaseID in changeset.releasesToDelete {
                 if let release = existingReleases.first(where: { $0.id == releaseID }) {
-                    modelContext.delete(release)
+                    context.delete(release)
                 }
             }
         }
@@ -717,26 +748,26 @@ actor DataManager: Loggable {
         // Step 6: Create new releases.
         for snapshot in changeset.releasesToCreate {
             let release = snapshot.toRelease(film: film)
-            modelContext.insert(release)
+            context.insert(release)
         }
 
         // Step 6.5: Link release parent-child hierarchy.
         //
         // ReleaseSnapshot.apply(to:) and toRelease(film:) intentionally do not touch
-        // parentRelease / childReleases because those are SwiftData object-graph
+        // parentRelease / childReleases because those are object-graph
         // relationships that require live Release references, not scalar values.
         // All new and updated snapshots that carry a parentReleaseID must have their
-        // SwiftData relationship established here, after every Release @Model object
+        // relationship established here, after every Release object
         // for this film is guaranteed to exist in the context.
         //
         // The approach:
         //   1. Build a UUID → Release lookup over the film's current releases.
         //   2. For each created or updated snapshot that has a parentReleaseID, resolve
         //      the parent Release and set childRelease.parentRelease = parentRelease.
-        //      SwiftData's inverse maintenance automatically populates parentRelease.childReleases.
+        //      Core Data's inverse maintenance populates parentRelease.childReleases.
         //   3. For each snapshot whose parentReleaseID is nil (i.e., newly promoted to
         //      top-level because the user changed independence away from Combo-pack and
-        //      already removed the link in-session), clear the SwiftData relationship so
+        //      already removed the link in-session), clear the relationship so
         //      the DB stays in sync with the in-memory model.
         //
         // The one-level-depth constraint (no grandchildren) is already enforced at the
@@ -752,23 +783,13 @@ actor DataManager: Loggable {
 
                 if let parentID = snapshot.parentReleaseID {
                     // Link to parent (no-op if the relationship is already correct, e.g. on a
-                    // subsequent save without hierarchy changes — SwiftData does not dirty-track
+                    // subsequent save without hierarchy changes — Core Data does not dirty-track
                     // a relationship assignment that doesn't change the value).
                     if let parentRelease = releaseByID[parentID] {
+                        // Core Data adds the child to `parentRelease.childReleases`, the
+                        // inverse the FilmSheet's combo-pack logic reads (see
+                        // FSTabReleases.comboChildren).
                         childRelease.parentRelease = parentRelease
-                        // Inverse maintenance, explicitly. Assigning the to-one side is
-                        // supposed to populate `parentRelease.childReleases` on its own,
-                        // and normally does — but the FilmSheet's combo-pack logic reads
-                        // the parent side (see FSTabReleases.comboChildren) and a store
-                        // in which the inverse did not follow presents as a combo-pack
-                        // parent with no children: no deletion confirmation, no combined
-                        // card, and children strandable as locked orphans. The check is
-                        // idempotent (skipped whenever the array already agrees), so when
-                        // SwiftData does its job this costs one array scan of two or three
-                        // elements and writes nothing.
-                        if !parentRelease.childReleases.contains(where: { $0.id == childRelease.id }) {
-                            parentRelease.childReleases.append(childRelease)
-                        }
                     } else {
                         // Parent UUID not found in this film's releases — log and skip.
                         // This would indicate a data integrity problem upstream; restoring as
@@ -781,13 +802,9 @@ actor DataManager: Loggable {
                     // This handles the case where a user reverted a Combo-pack parent
                     // and the child was removed in-session, but the existing DB record
                     // still carries the old parentRelease pointer from a previous save.
-                    if let formerParent = childRelease.parentRelease {
+                    // Core Data removes it from the former parent's childReleases as well.
+                    if childRelease.parentRelease != nil {
                         childRelease.parentRelease = nil
-                        // Same inverse maintenance as the link branch above, in the other
-                        // direction: a stale entry left in the former parent's array would
-                        // make it read as still owning a release that no longer names it,
-                        // inflating its apparent child count.
-                        formerParent.childReleases.removeAll { $0.id == childRelease.id }
                     }
                 }
             }
@@ -798,10 +815,10 @@ actor DataManager: Loggable {
             let allMemberships = Array(film.memberships)
             for membership in allMemberships {
                 // Guard against accessing deleted/detached objects
-                guard membership.modelContext != nil,
+                guard unsafe membership.managedObjectContext != nil,
                       let listID = membership.list?.listID else { continue }
                 if changeset.listsToRemove.contains(listID) {
-                    modelContext.delete(membership)
+                    context.delete(membership)
                 }
             }
         }
@@ -809,9 +826,8 @@ actor DataManager: Loggable {
         // Step 8: Add list memberships.
         if !changeset.listsToAdd.isEmpty {
             let listsToAdd = changeset.listsToAdd
-            let listDescriptor = FetchDescriptor<ListObject>(
-                predicate: #Predicate<ListObject> { listsToAdd.contains($0.listID) })
-            let lists = try modelContext.fetch(listDescriptor)
+            let listDescriptor = ListObject.request(.in("listID", listsToAdd))
+            let lists = try context.fetch(listDescriptor)
             let currentDate = Date()
             // The lists the film already belongs to, extended as rows are inserted below, so
             // two ListObject records sharing a listID (a corrupted or partial restore) can
@@ -825,7 +841,7 @@ actor DataManager: Loggable {
                 let membership = ListMembership(
                     film: film, list: list, dateAdded: currentDate,
                     sortOrder: maxSortOrder + 1)
-                modelContext.insert(membership)
+                context.insert(membership)
             }
         }
 
@@ -839,8 +855,8 @@ actor DataManager: Loggable {
     ///
     /// Used by the wishlist reorder persistence path, where every reordered release must be
     /// committed together. Releases are grouped by film so each Film is fetched exactly once,
-    /// all snapshots are applied, and a single modelContext.save() commits the batch — giving
-    /// all-or-nothing semantics. If the save fails, nothing is committed, so SwiftData never
+    /// all snapshots are applied, and a single context.save() commits the batch — giving
+    /// all-or-nothing semantics. If the save fails, nothing is committed, so the store never
     /// diverges from the MemoryStore state that the rollback closure restores in full.
     ///
     /// Films or releases that no longer exist (deleted between the in-memory reorder and this
@@ -861,9 +877,8 @@ actor DataManager: Loggable {
         }
 
         let filmIDs = Set(snapshotsByFilm.keys)
-        let descriptor = FetchDescriptor<Film>(
-            predicate: #Predicate<Film> { filmIDs.contains($0.id) })
-        let films = try modelContext.fetch(descriptor)
+        let descriptor = Film.request(.in("id", filmIDs))
+        let films = try context.fetch(descriptor)
         let filmByID = Dictionary(films.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         var appliedCount = 0
@@ -917,9 +932,8 @@ actor DataManager: Loggable {
 
         let currentDate = Date()
 
-        let listDescriptor = FetchDescriptor<ListObject>(
-            predicate: #Predicate<ListObject> { listIDs.contains($0.listID) })
-        let lists = try modelContext.fetch(listDescriptor)
+        let listDescriptor = ListObject.request(.in("listID", listIDs))
+        let lists = try context.fetch(listDescriptor)
 
         guard !lists.isEmpty else { return }
 
@@ -938,9 +952,8 @@ actor DataManager: Loggable {
         // This is critical because the filmIDs passed in might reference films that
         // have been deleted between when this operation was scheduled and when it
         // actually runs. We must verify existence before creating relationships.
-        let filmDescriptor = FetchDescriptor<Film>(
-            predicate: #Predicate<Film> { filmIDs.contains($0.id) })
-        let films = try modelContext.fetch(filmDescriptor)
+        let filmDescriptor = Film.request(.in("id", filmIDs))
+        let films = try context.fetch(filmDescriptor)
         
         // Log if any films were not found (indicates they were deleted)
         if films.count != filmIDs.count {
@@ -957,7 +970,7 @@ actor DataManager: Loggable {
         var operationCount = 0
 
         // Existing memberships come from the ListObjects already fetched above, not from a
-        // full-table FetchDescriptor<ListMembership>(). `ListObject.memberships` is the
+        // full-table ListMembership.request(). `ListObject.memberships` is the
         // declared inverse of `ListMembership.list`, so a list's membership array IS exactly
         // the set of rows a whole-table scan would have kept for that listID — and the array
         // is already faulted in, because `listDict` computes each list's `maxSort` from it
@@ -989,7 +1002,7 @@ actor DataManager: Loggable {
                 
                 // Additional safety: Double-check film is still valid before creating membership.
                 // This guards against the film being deleted during this batch operation.
-                guard film.modelContext != nil else {
+                guard unsafe film.managedObjectContext != nil else {
                     log("SAFETY: Film \(film.id) no longer has valid context, skipping")
                     continue
                 }
@@ -997,7 +1010,7 @@ actor DataManager: Loggable {
                 currentMaxSorts[listID] = (currentMaxSorts[listID] ?? -1) + 1
                 let membership = ListMembership(film: film, list: listInfo.object,
                     dateAdded: currentDate, sortOrder: currentMaxSorts[listID]!)
-                modelContext.insert(membership)
+                context.insert(membership)
 
                 operationCount += 1
 
@@ -1020,16 +1033,15 @@ actor DataManager: Loggable {
 
         var operationCount = 0
 
-        // Targeted rather than a full-table FetchDescriptor<ListMembership>() scan: fetch
+        // Targeted rather than a full-table ListMembership.request() scan: fetch
         // only the named lists, then walk their `memberships` inverse arrays. The rows this
         // reaches are exactly the rows the old whole-library scan kept — its filter required
         // `membership.list?.listID` to be in `listIDs`, which is the same predicate as "hangs
         // off one of these ListObjects", and a row with a nil `list` appeared in neither.
         // Snapshotted into `toDelete` before any delete so the relationship arrays are never
         // mutated mid-iteration.
-        let listDescriptor = FetchDescriptor<ListObject>(
-            predicate: #Predicate<ListObject> { listIDs.contains($0.listID) })
-        let lists = try modelContext.fetch(listDescriptor)
+        let listDescriptor = ListObject.request(.in("listID", listIDs))
+        let lists = try context.fetch(listDescriptor)
 
         var toDelete: [ListMembership] = []
         for list in lists {
@@ -1040,7 +1052,7 @@ actor DataManager: Loggable {
         }
 
         for membership in toDelete {
-            modelContext.delete(membership)
+            context.delete(membership)
             operationCount += 1
 
             if operationCount >= batchSize {
@@ -1084,9 +1096,8 @@ actor DataManager: Loggable {
 
         // Resolve the target and every source list in one fetch.
         let involvedListIDs = removalListIDs.union([targetListID])
-        let listDescriptor = FetchDescriptor<ListObject>(
-            predicate: #Predicate<ListObject> { involvedListIDs.contains($0.listID) })
-        let lists = try modelContext.fetch(listDescriptor)
+        let listDescriptor = ListObject.request(.in("listID", involvedListIDs))
+        let lists = try context.fetch(listDescriptor)
 
         guard let target = lists.first(where: { $0.listID == targetListID }) else {
             Self.log("SAFETY: target list \(targetListID) not found, skipping moveFilmsBetweenLists")
@@ -1095,9 +1106,8 @@ actor DataManager: Loggable {
 
         // Same existence validation batchAddFilmsToLists performs: a film deleted between
         // this operation being scheduled and running must not gain a membership row.
-        let filmDescriptor = FetchDescriptor<Film>(
-            predicate: #Predicate<Film> { filmIDs.contains($0.id) })
-        let films = try modelContext.fetch(filmDescriptor)
+        let filmDescriptor = Film.request(.in("id", filmIDs))
+        let films = try context.fetch(filmDescriptor)
         if films.count != filmIDs.count {
             let missing = filmIDs.subtracting(Set(films.map { $0.id }))
             Self.log("WARNING: \(missing.count) film(s) not found in database (likely deleted): \(missing)")
@@ -1120,7 +1130,7 @@ actor DataManager: Loggable {
                 }
             }
             for membership in toDelete {
-                modelContext.delete(membership)
+                context.delete(membership)
                 removed += 1
             }
         }
@@ -1149,12 +1159,12 @@ actor DataManager: Loggable {
         var inserted = 0
         for film in films {
             if existingFilmIDs.contains(film.id) { continue }
-            guard film.modelContext != nil else {
+            guard unsafe film.managedObjectContext != nil else {
                 log("SAFETY: Film \(film.id) no longer has valid context, skipping")
                 continue
             }
             maxSort += 1
-            modelContext.insert(ListMembership(film: film, list: target,
+            context.insert(ListMembership(film: film, list: target,
                                                dateAdded: currentDate, sortOrder: maxSort))
             inserted += 1
         }
@@ -1170,10 +1180,9 @@ actor DataManager: Loggable {
 
     /// Deletes a single ImportSession by its UUID.
     func deleteImportSession(id: UUID) async throws {
-        let descriptor = FetchDescriptor<ImportSession>(
-            predicate: #Predicate { $0.id == id })
-        guard let session = try modelContext.fetch(descriptor).first else { return }
-        modelContext.delete(session)
+        let descriptor = ImportSession.request(.equals("id", id))
+        guard let session = try context.fetch(descriptor).first else { return }
+        context.delete(session)
         try commit()
     }
 
@@ -1182,18 +1191,17 @@ actor DataManager: Loggable {
     ///
     /// In-progress sessions (`isCompleted == false && isCanceled == false`) are
     /// intentionally skipped. ImportProgress writes the active session's final state
-    /// through mainContext after the import finishes; deleting its record here would
+    /// through viewContext after the import finishes; deleting its record here would
     /// cause completeSession()/updateSessionAsCanceled() to silently find nothing and
     /// produce no persistent record for the completed run.
     func deleteAllImportSessions(ofType importType: String) async throws {
-        let descriptor = FetchDescriptor<ImportSession>(
-            predicate: #Predicate { $0.importType == importType })
-        let sessions = try modelContext.fetch(descriptor)
+        let descriptor = ImportSession.request(.equals("importType", importType))
+        let sessions = try context.fetch(descriptor)
         guard !sessions.isEmpty else { return }
         // Skip any session that is still in progress to protect the active import record.
         let toDelete = sessions.filter { $0.isCompleted || $0.isCanceled }
         guard !toDelete.isEmpty else { return }
-        for session in toDelete { modelContext.delete(session) }
+        for session in toDelete { context.delete(session) }
         try commit()
     }
 
@@ -1202,9 +1210,8 @@ actor DataManager: Loggable {
         guard !updates.isEmpty else { return }
 
         let updateIDs = Set(updates.map { $0.listID })
-        let descriptor = FetchDescriptor<ListObject>(
-            predicate: #Predicate<ListObject> { updateIDs.contains($0.listID) })
-        let lists = try modelContext.fetch(descriptor)
+        let descriptor = ListObject.request(.in("listID", updateIDs))
+        let lists = try context.fetch(descriptor)
 
         // Last value wins for a repeated listID, matching the order in which
         // DataCoordinator applied the same updates to MemoryStore. uniqueKeysWithValues
@@ -1226,16 +1233,15 @@ actor DataManager: Loggable {
         let newList = ListObject(listID: listID, listName: name, viewStyle: "",
             sortFilterOptions: [], displayOrder: displayOrder)
 
-        modelContext.insert(newList)
+        context.insert(newList)
         try commit() }
 
     func updateList(listID: UUID, name: String?, displayOrder: Int?,
         sortFilterOptions: [String]?) async throws {
 
-        let descriptor = FetchDescriptor<ListObject>(
-            predicate: #Predicate<ListObject> { $0.listID == listID })
+        let descriptor = ListObject.request(.equals("listID", listID))
 
-        guard let list = try modelContext.fetch(descriptor).first else {
+        guard let list = try context.fetch(descriptor).first else {
             throw PersistenceError.listNotFound(listID) }
 
         if let name = name { list.listName = name }
@@ -1246,19 +1252,18 @@ actor DataManager: Loggable {
 
     func deleteList(listID: UUID) async throws {
 
-        let descriptor = FetchDescriptor<ListObject>(
-            predicate: #Predicate<ListObject> { $0.listID == listID })
+        let descriptor = ListObject.request(.equals("listID", listID))
 
-        guard let list = try modelContext.fetch(descriptor).first else {
+        guard let list = try context.fetch(descriptor).first else {
             throw PersistenceError.listNotFound(listID) }
 
         // Memberships are deleted explicitly rather than left to the cascade rule, for the
         // reason deleteFilms gives: the cascade is unreliable for rows created in the same
         // session, and a missed one survives as an orphan with a nil list.
         for membership in Array(list.memberships) {
-            modelContext.delete(membership)
+            context.delete(membership)
         }
-        modelContext.delete(list)
+        context.delete(list)
         try commit() }
 
 }
@@ -1289,21 +1294,21 @@ struct FilmLayerDigest: Equatable, Sendable {
 
 // MARK: - Direct Store Reader
 
-/// Read-only SQL against the SwiftData store file, for the two launch-time questions
-/// SwiftData can only answer by materializing every object: the fingerprint's film layer
+/// Read-only SQL against the store file, for the two launch-time questions
+/// a fetch can only answer by materializing every object: the fingerprint's film layer
 /// (~820ms through a fetch for 1,384 films in a Debug build, ~5ms here) and whether any
 /// Release UUID repeats (~590ms through a fetch of 2,297 releases).
 ///
 /// Every method returns nil when it cannot answer exactly — no file, a table or column
 /// that is not where Core Data's naming puts it, a value of an unexpected type, a busy
-/// store — and the caller takes its SwiftData path instead. A schema change can therefore
+/// store — and the caller takes its fetch path instead. A schema change can therefore
 /// cost speed, never correctness.
 ///
-/// Safe beside the open ModelContainer:
+/// Safe beside the open NSPersistentContainer:
 ///   - SQLITE_OPEN_READONLY: the connection never writes, never checkpoints the WAL, and
 ///     closing it never removes the WAL.
 ///   - It reads through the WAL like any reader, so it sees the committed state a fresh
-///     ModelContext fetch would see — which is all the SwiftData fetch it replaces saw,
+///     NSManagedObjectContext fetch would see — which is all the fetch it replaces saw,
 ///     since that ran in DataManager's own context before anything had written.
 ///   - It uses the same system libsqlite3 as Core Data, whose unix VFS shares POSIX lock
 ///     state between connections to one file in a process, so closing this connection
@@ -1384,8 +1389,8 @@ enum DirectStoreReader {
 
 #if DEBUG
 /// DEBUG-only record of which thread each probed DataManager method ran on, and what it
-/// cost there. SwiftData's model executor runs a call on the thread that awaited it, so a
-/// write awaited from MainActor occupies the main thread for its whole fetch-mutate-save.
+/// cost there. Under SwiftData a call ran on the thread that awaited it; under Core Data it
+/// runs on the context's queue (ContextExecutor), which the probe can confirm.
 /// Inert (nil tokens, no locking) unless a harness scenario sets `isEnabled`.
 final class DataManagerThreadProbe: @unchecked Sendable {
     struct Record: Sendable {
@@ -1447,7 +1452,7 @@ extension DataManager {
     func fetchSavedSearches() throws -> (searches: [SavedSearch], needingReview: Set<UUID>) {
         var searches: [SavedSearch] = []
         var needingReview: Set<UUID> = []
-        for row in try SavedSearchObject.fetchAll(in: modelContext) {
+        for row in try SavedSearchObject.fetchAll(in: context) {
             let (search, dropped, isUnreadable) = row.decoded
             if isUnreadable {
                 Self.log("WARNING: Saved search \"\(row.name)\" (\(row.searchID)) has an unreadable query — it needs review", level: .warning)
@@ -1462,7 +1467,7 @@ extension DataManager {
     }
 
     func insertSavedSearch(_ search: SavedSearch) async throws {
-        modelContext.insert(SavedSearchObject(search))
+        context.insert(SavedSearchObject(search))
         try commit()
     }
 
@@ -1472,7 +1477,7 @@ extension DataManager {
     }
 
     func deleteSavedSearch(id: UUID) async throws {
-        modelContext.delete(try savedSearchRow(id))
+        context.delete(try savedSearchRow(id))
         try commit()
     }
 
@@ -1480,8 +1485,7 @@ extension DataManager {
     func updateSavedSearchOrders(_ orders: [UUID: Int]) async throws {
         guard !orders.isEmpty else { return }
         let ids = Set(orders.keys)
-        let rows = try modelContext.fetch(FetchDescriptor<SavedSearchObject>(
-            predicate: #Predicate { ids.contains($0.searchID) }))
+        let rows = try context.fetch(SavedSearchObject.request(.in("searchID", ids)))
         for row in rows {
             if let order = orders[row.searchID] { row.displayOrder = order }
         }
@@ -1489,8 +1493,7 @@ extension DataManager {
     }
 
     private func savedSearchRow(_ id: UUID) throws -> SavedSearchObject {
-        let rows = try modelContext.fetch(FetchDescriptor<SavedSearchObject>(
-            predicate: #Predicate { $0.searchID == id }))
+        let rows = try context.fetch(SavedSearchObject.request(.equals("searchID", id)))
         guard let row = rows.first else { throw PersistenceError.savedSearchNotFound(id) }
         return row
     }

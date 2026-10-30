@@ -10,6 +10,8 @@ import SwiftUI
 /// Sheet content type
 enum SheetContent {
     case film(filmID: UUID?, sheet: FilmSheet)
+    /// The bulk editor, for a selection of more than one film.
+    case multiFilm(MultiFilmSheet)
     /// Settings sheet. `lockedToRestore` forces the sheet to open on the Restore tab
     /// and disables the tab bar and Close button for database-error recovery.
     /// `backupURL` carries a pre-selected backup file URL to load automatically when
@@ -36,6 +38,7 @@ struct AppSheet: Identifiable, Equatable {
     var displayName: String {
         switch content {
         case .film: return "Film Sheet"
+        case .multiFilm: return "Multi-Film Sheet"
         case .settings: return "Settings"
         case .duplicates: return "Duplicate Finder"
         case .listManager: return "List Manager"
@@ -59,6 +62,10 @@ struct AppSheet: Identifiable, Equatable {
         AppSheet(id: filmSheetID(for: filmID), content: .film(filmID: filmID, sheet: sheet))
     }
     
+    static func multiFilm(_ sheet: MultiFilmSheet) -> AppSheet {
+        AppSheet(id: "multiFilm", content: .multiFilm(sheet))
+    }
+
     static func settings(selectedTab: SettingsTab, lockedToRestore: Bool = false, backupURL: URL? = nil) -> AppSheet {
         AppSheet(id: "settings", content: .settings(selectedTab: selectedTab, lockedToRestore: lockedToRestore, backupURL: backupURL))
     }
@@ -266,6 +273,9 @@ struct SheetHostView: View, Loggable {
         switch sheet.content {
         case .film(_, let filmSheet):
             FilmSheetView(owner: filmSheet)
+
+        case .multiFilm(let sheet):
+            MultiFilmSheetView(owner: sheet)
             
         case .settings(let selectedTab, let lockedToRestore, let backupURL):
             SettingsSheet(initialTab: selectedTab, lockedToRestore: lockedToRestore, backupURL: backupURL)
@@ -436,6 +446,11 @@ struct SheetHostView: View, Loggable {
     }
 
     private func handleEditFilm(initialTab: FilmTab = .details) {
+        // More than one film: the bulk editor, whatever tab was asked for (it has none).
+        if selectionState.selectedFilmIDs.count > 1 {
+            handleEditFilms(selectionState.selectedFilmIDs)
+            return
+        }
         guard let selectedID = selectionState.selectedFilmID else {
             log("No film selected for editing")
             return
@@ -453,6 +468,25 @@ struct SheetHostView: View, Loggable {
         presentFilmSheet(FilmSheet(coordinator: dataCoordinator, filmID: selectedID,
                                    initialTab: initialTab),
                          filmID: selectedID)
+    }
+
+    /// Opens the MultiFilmSheet on `filmIDs`, listed in the gallery's order — what the user
+    /// was looking at when they selected them. Selected films the gallery is not showing
+    /// (none, normally) follow, by title.
+    private func handleEditFilms(_ filmIDs: Set<UUID>) {
+        guard sheetCoordinator.canPresentSheet(id: "multiFilm") else {
+            log("Cannot open MultiFilmSheet - another sheet is active")
+            return
+        }
+        let shown = dataCoordinator.films.map(\.id).filter(filmIDs.contains)
+        let rest = filmIDs.subtracting(shown).compactMap { dataCoordinator.getFilm($0) }
+            .sorted { $0.name.englishStandardCompare($1.name) == .orderedAscending }
+            .map(\.id)
+        let sheet = MultiFilmSheet(coordinator: dataCoordinator, filmIDs: shown + rest)
+        sheet.dismissHandler = { [weak sheetCoordinator] in
+            sheetCoordinator?.dismissSheet()
+        }
+        present(.multiFilm(sheet))
     }
 
     private func handleEditFilmReleases(format: String?) {

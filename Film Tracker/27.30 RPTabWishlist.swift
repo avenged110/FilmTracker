@@ -317,7 +317,7 @@ struct ReleaseWishlistView: View {
     // MARK: - Persistence
 
     /// Pushes the current display order back into the model via DataCoordinator,
-    /// which updates MemoryStore immediately and debounces the SwiftData write.
+    /// which updates MemoryStore immediately and debounces the store write.
     private func persistCurrentOrder() {
         let orderedPairs = releases.map { (filmID: $0.filmID, releaseID: $0.releaseID) }
         dataCoordinator.reorderWishlist(orderedPairs)

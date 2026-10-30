@@ -5,7 +5,6 @@
 // All database operations are routed through DataCoordinator/DataManager abstraction.
 
 import Foundation
-import SwiftData
 import Combine
 
 @MainActor
@@ -147,17 +146,10 @@ final class SettingsManager: Loggable {
         }
     }
     
-    /// Loads settings from the database and applies every stored preference to
-    /// UserDefaults. Used after a restore, which replaces the user's settings wholesale.
-    func loadFromDatabase() async throws {
-        guard let dataCoordinator = dataCoordinator else {
-            Self.log("ERROR: DataCoordinator is nil, cannot load")
-            return
-        }
-        
-        Self.log("Loading settings from database...")
-        
-        let snapshot = try await dataCoordinator.loadSettings()
+    /// Applies every preference in a restored backup's settings to UserDefaults. The
+    /// restorer reads them from its staged store, since the app's own store still holds the
+    /// library being replaced until the relaunch.
+    func applyRestored(_ snapshot: SettingsSnapshot) {
         applySnapshotToPreferences(snapshot)
 
         // A restore rewrites Preferences wholesale. Drop the baseline so the next
@@ -165,7 +157,7 @@ final class SettingsManager: Loggable {
         // restore — the database and UserDefaults have both moved underneath it.
         lastSynced = nil
 
-        Self.log("Settings loaded successfully")
+        Self.log("Restored settings applied")
     }
     
     // MARK: - Conversion: Preferences → SettingsSnapshot

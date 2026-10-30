@@ -445,16 +445,9 @@ final class SearchController: Loggable {
     /// The session's recent searches, newest first. Never written to disk.
     private(set) var recentSearches: [RecentSearch] = []
     
-    /// A search as the user left it: its pills and its freeform text.
-    struct RecentSearch: Hashable {
-        let tokens: [SearchToken]
-        let text: String
-        
-        var label: String {
-            (tokens.map(\.displayName) + (text.isEmpty ? [] : ["\u{201C}\(text)\u{201D}"]))
-                .joined(separator: ", ")
-        }
-    }
+    /// A search as the user left it: its pills and its freeform text — the same two things a
+    /// saved search keeps, so the same type (whose `label` the drop-down shows).
+    typealias RecentSearch = SavedSearchQuery
     
     static var recentSearchesEnabled: Bool {
         Preferences.showSearchSuggestions && Preferences.showRecentSearches
@@ -648,7 +641,7 @@ final class SearchController: Loggable {
     
     /// Notes the search in progress, once it holds still, as the one to record when it ends.
     private func scheduleSettle() {
-        let state = RecentSearch(tokens: currentTokens, text: getCleanSearchText())
+        let state = currentQuery
         lastActiveSearch = state
         settleHandle = TaskHandle(Task { [weak self] in
             do { try await Task.sleep(for: Self.settleDelay) } catch { return }
@@ -666,7 +659,7 @@ final class SearchController: Loggable {
         defer { settledSearch = nil; lastActiveSearch = nil }
         let search: RecentSearch
         if isActive && hasContent {
-            search = RecentSearch(tokens: currentTokens, text: getCleanSearchText())
+            search = currentQuery
         } else if let last = lastActiveSearch {
             if let settled = settledSearch, last.tokens.allSatisfy(settled.tokens.contains),
                settled.text.hasPrefix(last.text) {
@@ -805,7 +798,7 @@ final class SearchController: Loggable {
     /// Puts a saved search in the field, exactly as applyRecentSearch restores a recent one,
     /// and remembers where it came from.
     func applySavedSearch(_ search: SavedSearch) {
-        applyRecentSearch(RecentSearch(tokens: search.query.tokens, text: search.query.text))
+        applyRecentSearch(search.query)
         editingSavedSearchID = search.id
     }
 
@@ -945,7 +938,7 @@ final class SearchController: Loggable {
     }
 
     /// Apply a single token filter to a set of film snapshots.
-    /// 'lists' resolves a `#list` token to its films without accessing SwiftData objects.
+    /// 'lists' resolves a `#list` token to its films without accessing model objects.
     private func applyTokenFilter(
         token: SearchToken,
         to films: [FilmSnapshot],

@@ -2058,13 +2058,13 @@ extension Duration {
 enum AlertErrorDetail {
     /// Longest detail string an alert will show. Long enough for the message and the
     /// leading type information that identifies the fault; short enough that a verbose
-    /// SwiftData error cannot grow the alert past the screen.
+    /// Core Data error cannot grow the alert past the screen.
     static let maxLength = 200
 
     /// Renders an error as the full, uncapped detail string carried in alert payloads.
     ///
     /// Uses `String(describing:)` rather than `localizedDescription` deliberately. For
-    /// SwiftData and CoreData errors `localizedDescription` is routinely the useless
+    /// Core Data errors `localizedDescription` is routinely the useless
     /// "The operation couldn't be completed"; the interpolated form is what carries the
     /// underlying type and reason, and is what the log statements at these call sites
     /// already capture.

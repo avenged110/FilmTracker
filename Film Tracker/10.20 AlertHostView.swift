@@ -667,21 +667,16 @@ struct AlertHostView: View, Loggable {
             return FilmQueue.addConfirmationMessage(flaggedWith: onlyFlagged.specialSorting)
         }
 
-        let isPluralTotal = totalCount != 1
-        let isPluralFlagged = flaggedFilms.count != 1
-        return "Add \(totalCount) film\(isPluralTotal ? "s" : "") to the Queue? " +
-            "\(flaggedFilms.count) of \(isPluralTotal ? "them" : "it") " +
-            "\(isPluralFlagged ? "are" : "is") flagged with a special sorting parameter."
+        return FilmQueue.addConfirmationMessage(adding: totalCount, flagged: flaggedFilms.count)
     }
 
     // MARK: Create New Library
-    // Traverses the same store-destruction pathway used by the restore flow, but without
-    // importing any data — the result is a fresh, empty persistent store. A restart is
-    // required because the app's current ModelContainer is an in-memory fallback opened at
-    // launch; the new persistent store is on disk and will only be opened cleanly by the
-    // next launch.
+    // Takes the same staged-store pathway as the restore flow, but without importing any
+    // data: an empty store is staged, and the relaunch swaps it in (PendingRestore). A
+    // restart is required because the app's current NSPersistentContainer is an in-memory
+    // fallback opened at launch.
     private func createNewLibrary() async {
-        let restorer = DBRestorer(container: dataCoordinator.modelContainer)
+        let restorer = DBRestorer(container: dataCoordinator.persistentContainer)
         do {
             try await restorer.createFreshDatabase()
             enqueue(.newLibraryResult(success: true, message:

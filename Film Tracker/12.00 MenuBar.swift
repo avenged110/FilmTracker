@@ -261,10 +261,11 @@ struct MenuBar: Commands {
 
                 Divider()
                 
+                // With more than one film selected this opens the MultiFilmSheet.
                 Button("Edit Metadata…") {
                     AppEventBus.shared.sendCommand(.editFilm) }
                 .keyboardShortcut("e", modifiers: .command)
-                .disabled(selectionCount != 1 || isSheetActive)
+                .disabled(selectionCount == 0 || isSheetActive)
                 
                 Button("Edit Releases…") {
                     AppEventBus.shared.sendCommand(.editFilmReleases()) }
@@ -523,8 +524,7 @@ struct SaveSearchMenuItem: View {
     let isSheetActive: Bool
 
     var body: some View {
-        let canSave = !isSheetActive && SearchController.shared.isActive
-            && !SearchController.shared.currentQuery.isEmpty
+        let canSave = !isSheetActive && SavedSearchActions.canSaveCurrentSearch
         let origin = SavedSearchActions.fieldOrigin
         let originChanged = origin.map(SavedSearchActions.fieldDiffers(from:)) ?? false
         Button("Save Search…") { SavedSearchActions.saveCurrentSearch() }
@@ -1600,7 +1600,7 @@ struct ShowInListMenuItems: View {
         // Resolved through SelectionMenuModel, matching GalleryContextMenu's and
         // GalleryTitleBar's "Show in List" submenus rather than restating their rule.
         // The shared helper reads the same in-memory MemoryStore relationships (so no
-        // stale SwiftData fetch is involved) and excludes the internal Film Queue lists,
+        // stale store fetch is involved) and excludes the internal Film Queue lists,
         // which are not navigable user lists and must not appear in this menu.
         containingLists = SelectionMenuModel.listsContaining(filmID: filmID,
                                                              coordinator: dataCoordinator)

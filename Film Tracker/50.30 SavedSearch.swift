@@ -4,15 +4,15 @@
 // A search the user has named and kept: its value type, the form it is stored in, the
 // rules its name must meet, and the #list references between saved searches.
 //
-// Pure Foundation — no SwiftUI, SwiftData or app singletons — so it compiles alongside
+// Pure Foundation — no SwiftUI, Core Data or app singletons — so it compiles alongside
 // 50.10 SearchToken.swift alone and can be tested without the app.
 
 import Foundation
 
 // MARK: - Saved Search Query
 
-/// What a saved search searches for: the pills and the freeform text beside them — the
-/// same two things SearchController.RecentSearch holds.
+/// What a saved search searches for: the pills and the freeform text beside them. Also
+/// what a recent search records (SearchController.RecentSearch is this type).
 ///
 /// Only what this build can run. A stored rule this build cannot read (one a newer version
 /// wrote) is left out when the search loads, and the search needs review until it is saved
@@ -30,7 +30,8 @@ struct SavedSearchQuery: Hashable, Sendable {
     /// normalizes to "" and narrows nothing (SearchController.applyFilters).
     var isEmpty: Bool { tokens.isEmpty && SearchText.key(text).isEmpty }
 
-    /// The one-line form the store logs: the pill labels, then the quoted text.
+    /// The one-line form the store logs and the recent searches show: the pill labels, then
+    /// the quoted text.
     var label: String {
         let pills = tokens.map(\.displayName)
         return (pills + (text.isEmpty ? [] : ["\u{201C}\(text)\u{201D}"])).joined(separator: ", ")
@@ -114,7 +115,7 @@ struct StoredToken: Codable, Hashable, Sendable {
 }
 
 /// A query's stored form: a JSON string in SavedSearchObject.queryJSON, and so in every
-/// backup as a plain string property — no relationship, no Codable attribute for SwiftData
+/// backup as a plain string property — no relationship, no Codable attribute for Core Data
 /// to migrate. Keys are sorted so one query always encodes to the same bytes.
 ///
 /// `version` is written for a future change of shape. Nothing reads it yet: version 1 is

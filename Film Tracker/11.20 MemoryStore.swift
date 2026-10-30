@@ -2,11 +2,11 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // In-memory store and UI source of truth for all film and list data, held exclusively as value
-// types (FilmSnapshot, MemoryList). @Model objects are accessed only during the startup load
-// and immediately converted to snapshots; no SwiftData types are retained afterward.
+// types (FilmSnapshot, MemoryList). managed objects are accessed only during the startup load
+// and immediately converted to snapshots; no model types are retained afterward.
 
 import Foundation
-import SwiftData
+import CoreData
 
 struct MemoryList: Codable {
     let listID: UUID
@@ -51,7 +51,7 @@ struct MemoryList: Codable {
 final class MemoryStore: Loggable {
     nonisolated static let logTag = "[MemoryStore]"
     
-    // MARK: - Storage (value types only — no SwiftData @Model objects)
+    // MARK: - Storage (value types only — no model objects)
     private var films: [UUID: FilmSnapshot] = [:] { didSet { contentVersion = Self.nextContentVersion() } }
     private var lists: [UUID: MemoryList] = [:] { didSet { contentVersion = Self.nextContentVersion() } }
     private var filmToLists: [UUID: Set<UUID>] = [:]
@@ -78,7 +78,7 @@ final class MemoryStore: Loggable {
     /// load and overwrite the dictionaries it had already built.
     private var hasLoadedFromDatabase = false
 
-    /// Set to true when the slow-path SwiftData fetch threw. The films/lists dictionaries
+    /// Set to true when the slow-path store fetch threw. The films/lists dictionaries
     /// are then empty or partial and MUST NOT be treated as an authoritative picture of the
     /// library: derived-cache writes are suspended (see suspendCachePersistence) and
     /// DataCoordinator skips the post-startup work that would act on the empty state.
@@ -88,14 +88,14 @@ final class MemoryStore: Loggable {
     /// throttled path and the immediate shutdown flush.
     ///
     /// The snapshot cache and metadata cache are pure derived data whose sole purpose is to
-    /// let the next launch skip the SwiftData read. Writing them from a MemoryStore that does
+    /// let the next launch skip the store read. Writing them from a MemoryStore that does
     /// not faithfully mirror the persistent store is strictly worse than not writing them at
     /// all: the caches would be replaced by a smaller, wrong payload, and the correct payload
     /// (which is still reconstructible from the database) would be gone. Two situations
     /// trigger this, both set by DataCoordinator:
     ///   • the persistent container failed to open and the app is running against the empty
     ///     in-memory fallback purely to present the "Library Unavailable" recovery alert;
-    ///   • the Phase 1 SwiftData fetch threw (loadFailed above).
+    ///   • the Phase 1 store fetch threw (loadFailed above).
     private var cachePersistenceSuspended = false
 
     /// Identifies the current contents of `films` and `lists` — everything the snapshot
@@ -123,7 +123,7 @@ final class MemoryStore: Loggable {
         Self.log("Derived-cache persistence suspended for this session: \(reason)")
     }
 
-    /// Set to true when Phase 1 used the slow SwiftData path.
+    /// Set to true when Phase 1 used the slow store path.
     /// validateCacheAndFinalize() reads this to decide whether to write
     /// a fresh MemoryStore snapshot cache after startup completes.
     private var snapshotCacheNeedsRebuild = false
@@ -142,18 +142,18 @@ final class MemoryStore: Loggable {
     // MARK: - Initialization
     
     // STARTUP: Initialization is split into two phases so that the
-    // SwiftData fetch (Phase 1) can overlap with MetadataCache disk I/O on
+    // store fetch (Phase 1) can overlap with MetadataCache disk I/O on
     // background threads. Phase 2 runs after MetadataCache finishes loading.
     //
-    //   Phase 1 - loadFromDatabase(): SwiftData fetch + snapshot conversion + HoF rebuild.
-    //             @Model objects are converted to snapshots and released immediately.
+    //   Phase 1 - loadFromDatabase(): store fetch + snapshot conversion + HoF rebuild.
+    //             managed objects are converted to snapshots and released immediately.
     //             No MetadataCache dependency. Runs while cache I/O is on BG threads.
     //
     //   Phase 2 - validateCacheAndFinalize(): Checks cache integrity, does incremental
     //             update if needed, sets isInitialized. Requires MetadataCache loaded.
     
-    /// Phase 1: Load all data from SwiftData into memory as FilmSnapshots.
-    /// @Model objects are converted to value types during this call and not retained.
+    /// Phase 1: Load all data from the store into memory as FilmSnapshots.
+    /// managed objects are converted to value types during this call and not retained.
     /// Has no dependency on MetadataCache, so it can run concurrently with cache disk I/O.
     ///
     /// Reentrancy: guarded by hasLoadedFromDatabase, claimed synchronously at entry with
@@ -162,13 +162,13 @@ final class MemoryStore: Loggable {
     /// until Phase 2, so a second Phase 1 call arriving in between would sail past it.
     ///
     /// - Parameters:
-    ///   - modelContainer: Used only by the slow path, whose SwiftData fetch must run
-    ///     against `mainContext`.
+    ///   - persistentContainer: Used only by the slow path, whose store fetch runs on a
+    ///     fresh background context (see `loadAllDataFromStore`).
     ///   - dataManager: Used only by the fast path's cache validation, whose fingerprint
-    ///     query runs inside this actor's background `ModelContext` so that the O(N) film
+    ///     query runs inside this actor's background `NSManagedObjectContext` so that the O(N) film
     ///     fetch it performs never occupies MainActor during launch. See
     ///     `DataManager.computeStoreFingerprint()`.
-    func loadFromDatabase(modelContainer: ModelContainer, dataManager: DataManager) async {
+    func loadFromDatabase(persistentContainer: NSPersistentContainer, dataManager: DataManager) async {
         guard !isInitialized, !hasLoadedFromDatabase else {
             Self.log("Phase 1 already completed — skipping")
             return
@@ -180,8 +180,8 @@ final class MemoryStore: Loggable {
 
         // Fast path: try to restore from the on-disk MemoryStore snapshot.
         // MemoryStoreCache stores the full [UUID: FilmSnapshot] + list data serialized
-        // as JSON, validated by a fingerprint derived from the SwiftData DB.
-        // On a cache hit the entire SwiftData fetch + snapshot conversion is skipped —
+        // as JSON, validated by a fingerprint derived from the store.
+        // On a cache hit the entire store fetch + snapshot conversion is skipped —
         // reducing Phase 1 from O(N × relationships) to a single JSON decode.
         var cacheResult = await MemoryStoreCache.shared.load(dataManager: dataManager)
 
@@ -191,7 +191,7 @@ final class MemoryStore: Loggable {
         if case .hit(let cachedFilms, _, _) = cacheResult,
            cachedFilms.values.contains(where: { $0.releases.contains {
                ReleaseMarketAvailability.needsMigration($0.marketAvailability) } }) {
-            Self.log("Snapshot cache holds legacy market availability tags — reading SwiftData")
+            Self.log("Snapshot cache holds legacy market availability tags — reading the store")
             hasLegacyMarketAvailability = true
             cacheResult = .miss
         }
@@ -215,14 +215,14 @@ final class MemoryStore: Loggable {
             Self.log("Phase 1 fast-path: \(self.films.count) films from snapshot cache in \(Fmt.fixed(duration, 2))s")
 
         case .miss:
-            // Slow path: full SwiftData fetch + snapshot conversion.
+            // Slow path: full store fetch + snapshot conversion.
             // Runs on first launch (no cache) or when DB fingerprint has changed
             // (films added/deleted/modified since last save). The cache is rebuilt
             // at the end of finalizeInitialization() via scheduleThrottledSave().
-            Self.log("Phase 1 slow-path: snapshot cache miss, reading SwiftData...")
+            Self.log("Phase 1 slow-path: snapshot cache miss, reading the store...")
             self.snapshotCacheNeedsRebuild = true
             do {
-                let loadedData = try await loadAllDataFromMainContext(modelContainer: modelContainer)
+                let loadedData = try await loadAllDataFromStore(persistentContainer: persistentContainer)
                 self.films = loadedData.films
                 self.lists = loadedData.lists
                 self.filmToLists = loadedData.filmToLists
@@ -236,7 +236,7 @@ final class MemoryStore: Loggable {
                 // otherwise act on an empty library (poster pruning, orphaned-membership
                 // cleanup, internal list bootstrapping, settings sync).
                 loadFailed = true
-                suspendCachePersistence(reason: "Phase 1 SwiftData fetch failed")
+                suspendCachePersistence(reason: "Phase 1 store fetch failed")
                 Self.log("ERROR: Failed to load from database: \(error) — treating this session's in-memory state as non-authoritative")
             }
             let duration = Date().timeIntervalSince(startTime)
@@ -259,13 +259,13 @@ final class MemoryStore: Loggable {
         
         let cacheCount = MetadataCache.shared.metadata.count
 
-        // If Phase 1 took the slow path (SwiftData fetch), film snapshots are guaranteed
+        // If Phase 1 took the slow path (store fetch), film snapshots are guaranteed
         // to be fresher than anything on disk. Force a full MetadataCache rebuild so
         // derived sort keys, rotation dates, and search strings are always consistent
         // with the newly-loaded snapshot data. This closes the narrow window where
         // MetadataCache could be stale: both caches are normally written together in the
         // same throttled save, but a crash between writes could leave MetadataCache out
-        // of sync with the SwiftData state that triggered the slow-path load.
+        // of sync with the store state that triggered the slow-path load.
         if snapshotCacheNeedsRebuild {
             Self.log("Slow-path load — forcing full MetadataCache rebuild...")
             let rebuildStart = Date()
@@ -320,86 +320,74 @@ final class MemoryStore: Loggable {
     
     // MARK: - Data Loading
     
-    /// Loads all Films and Lists from mainContext, immediately converting @Model objects
-    /// to value-type snapshots. The @Model objects are not retained after this method returns.
+    /// Loads all Films and Lists from the store, converting each model object to a
+    /// value-type snapshot as it is read. The model objects are not retained after this
+    /// method returns.
     ///
-    /// This is the only point in the application where Film @Model objects are accessed
+    /// This is the only point in the application where Film model objects are accessed
     /// from inside MemoryStore. After this call, MemoryStore holds exclusively FilmSnapshots.
     ///
-    /// IMPORTANT: The conversion loop yields to the run loop every `yieldInterval` films.
-    /// Without these yields, the entire fetch + conversion runs as a single synchronous
-    /// block on MainActor — no events can be processed, causing the beach ball cursor.
-    /// SwiftData's mainContext is MainActor-bound and cannot be moved to a background
-    /// thread, so cooperative yielding is the only mechanism available.
-    private func loadAllDataFromMainContext(modelContainer: ModelContainer) async throws -> LoadedData {
-        let context = modelContainer.mainContext
-        
-        // Fetch all films with relationship prefetching so SwiftData loads every Film's
-        // releases array in a single batched query rather than faulting each one lazily
-        // when FilmSnapshot.init(from:) accesses film.releases. Without prefetching,
-        // a 1,300-film library triggers ~1,300 additional SQL round-trips on MainActor —
-        // the dominant source of startup latency after the architectural migration.
-        var filmDescriptor = FetchDescriptor<Film>()
-        filmDescriptor.relationshipKeyPathsForPrefetching = [\Film.releases]
-        let allFilms = try context.fetch(filmDescriptor)
-        
-        var filmDict: [UUID: FilmSnapshot] = [:]
-        filmDict.reserveCapacity(allFilms.count)
-        
-        // With releases prefetched, each FilmSnapshot.init(from:) is pure property access —
-        // no I/O — so the per-film cost is far lower. Yield every 200 films rather than 50
-        // to reduce Task.yield() overhead while still keeping the run loop responsive
-        // for very large libraries (2,600+ films would still yield ~13 times).
-        let yieldInterval = 200
-        for (index, film) in allFilms.enumerated() {
-            if !hasLegacyMarketAvailability,
-               film.releases.contains(where: {
-                   ReleaseMarketAvailability.needsMigration($0.marketAvailability) }) {
-                hasLegacyMarketAvailability = true
+    /// Runs on a fresh private-queue context, off the main thread. (The SwiftData build ran
+    /// this on mainContext, which SwiftData bound to the MainActor, and could only yield to
+    /// the run loop every 200 films to keep the beach ball away.)
+    private func loadAllDataFromStore(persistentContainer: NSPersistentContainer) async throws -> LoadedData {
+        let context = persistentContainer.makeBackgroundContext()
+        let loaded = try await context.perform {
+            // Releases are prefetched so that FilmSnapshot.init(from:) reading film.releases
+            // is pure property access, not one SQL round trip per film.
+            let filmDescriptor = Film.request()
+            filmDescriptor.relationshipKeyPathsForPrefetching = ["releases"]
+            filmDescriptor.returnsObjectsAsFaults = false
+            let allFilms = try context.fetch(filmDescriptor)
+
+            var filmDict: [UUID: FilmSnapshot] = [:]
+            filmDict.reserveCapacity(allFilms.count)
+            var sawLegacyMarketAvailability = false
+            for film in allFilms {
+                if !sawLegacyMarketAvailability,
+                   film.releases.contains(where: {
+                       ReleaseMarketAvailability.needsMigration($0.marketAvailability) }) {
+                    sawLegacyMarketAvailability = true
+                }
+                filmDict[film.id] = FilmSnapshot(from: film)
             }
-            filmDict[film.id] = FilmSnapshot(from: film)
-            if index % yieldInterval == yieldInterval - 1 {
-                await Task.yield()
+
+            // Lists with their memberships and each membership's film prefetched, so that
+            // reading membership.film below does not fault per row.
+            let listDescriptor = ListObject.request(
+                sortedBy: [NSSortDescriptor(key: "displayOrder", ascending: true)])
+            listDescriptor.relationshipKeyPathsForPrefetching = ["memberships", "memberships.film"]
+            let allLists = try context.fetch(listDescriptor)
+
+            var listDict: [UUID: MemoryList] = [:]
+            var filmToListsDict: [UUID: Set<UUID>] = [:]
+
+            for list in allLists {
+                let filmIDs = Set(list.memberships.compactMap { $0.film?.id })
+
+                let memoryList = MemoryList(
+                    listID: list.listID,
+                    listName: list.listName,
+                    displayOrder: list.displayOrder,
+                    sortFilterOptions: list.sortFilterOptions,
+                    filmIDs: filmIDs
+                )
+
+                listDict[list.listID] = memoryList
+
+                for filmID in filmIDs {
+                    filmToListsDict[filmID, default: []].insert(list.listID)
+                }
             }
+
+            return (LoadedData(films: filmDict, lists: listDict, filmToLists: filmToListsDict),
+                    sawLegacyMarketAvailability)
         }
-        // allFilms array goes out of scope here — @Model objects are released.
-        
-        // Fetch all lists with membership and film relationships prefetched so that
-        // accessing list.memberships and membership.film below does not trigger
-        // per-membership SQL faults. A typical library has many list membership records,
-        // and faulting each one individually on MainActor adds measurable latency.
-        var listDescriptor = FetchDescriptor<ListObject>(
-            sortBy: [SortDescriptor(\.displayOrder)]
-        )
-        listDescriptor.relationshipKeyPathsForPrefetching = [\ListObject.memberships]
-        let allLists = try context.fetch(listDescriptor)
-        
-        var listDict: [UUID: MemoryList] = [:]
-        var filmToListsDict: [UUID: Set<UUID>] = [:]
-        
-        for list in allLists {
-            let filmIDs = Set(list.memberships.compactMap { $0.film?.id })
-            
-            let memoryList = MemoryList(
-                listID: list.listID,
-                listName: list.listName,
-                displayOrder: list.displayOrder,
-                sortFilterOptions: list.sortFilterOptions,
-                filmIDs: filmIDs
-            )
-            
-            listDict[list.listID] = memoryList
-            
-            for filmID in filmIDs {
-                filmToListsDict[filmID, default: []].insert(list.listID)
-            }
-        }
-        
-        return LoadedData(films: filmDict, lists: listDict, filmToLists: filmToListsDict)
+        if loaded.1 { hasLegacyMarketAvailability = true }
+        return loaded.0
     }
-    
-    /// Container for data loaded during startup.
-    private struct LoadedData {
+
+    private struct LoadedData: Sendable {
         let films: [UUID: FilmSnapshot]
         let lists: [UUID: MemoryList]
         let filmToLists: [UUID: Set<UUID>]
@@ -407,7 +395,7 @@ final class MemoryStore: Loggable {
     
     // Throttled save to prevent multiple rapid disk I/O operations.
     // Saves both MetadataCache (derived sort/search data) and MemoryStoreCache
-    // (the full snapshot, so the next launch can skip the SwiftData fetch). This is the
+    // (the full snapshot, so the next launch can skip the store fetch). This is the
     // sole throttled-save owner in the app — MetadataCache deliberately does not maintain
     // its own throttle, so there is exactly one timer and no cross-file write races.
     //
@@ -489,7 +477,7 @@ final class MemoryStore: Loggable {
         }
         // A quit during launch, before this store and MetadataCache hold the library: what
         // they hold then is nothing, or a part, and writing it would replace caches on disk
-        // that are at least as good (an empty snapshot meant a full SwiftData read on the
+        // that are at least as good (an empty snapshot meant a full store read on the
         // next launch, an empty MetadataCache a rebuild). Nothing is lost by not writing —
         // the store is the record; these files only spare the next launch work.
         guard isInitialized else {
@@ -721,7 +709,7 @@ final class MemoryStore: Loggable {
     
     /// Registers a FilmSnapshot in MemoryStore and updates MetadataCache.
     /// This is the canonical entry point for adding a film to the in-memory store.
-    /// The corresponding @Model object is managed separately by DataCoordinator (mainContext)
+    /// The corresponding managed object is managed separately by DataCoordinator (view context)
     /// and DataManager (background context).
     func addFilm(_ snapshot: FilmSnapshot) {
         films[snapshot.id] = snapshot
@@ -797,6 +785,37 @@ final class MemoryStore: Loggable {
         Self.log("Updated film: \(snapshot.name)")
     }
     
+    /// Batch counterpart of updateFilm(_:), for many films changed at once (the MultiFilmSheet's
+    /// save): the same writes, with the derived state repaired once for the batch rather than
+    /// once per film — one MetadataCache store (so one library-order repair, which a large
+    /// batch turns into a background rebuild), one round of view-cache invalidation, one Hall
+    /// of Fame rebuild if a rank moved, one save scheduled. Measured by the `bulk-edit-perf`
+    /// harness scenario, per-film updates were about two thirds of a 1,600-film save's
+    /// main-thread time.
+    func updateFilms(_ snapshots: [FilmSnapshot]) {
+        var stored: [FilmSnapshot] = []
+        stored.reserveCapacity(snapshots.count)
+        var listsToInvalidate: Set<UUID> = []
+        var ranksMoved = false
+        for snapshot in snapshots {
+            guard let existing = films[snapshot.id] else {
+                Self.log("WARNING: Tried to update non-existent film: \(snapshot.id)")
+                continue
+            }
+            films[snapshot.id] = snapshot
+            stored.append(snapshot)
+            if let listIDs = filmToLists[snapshot.id] { listsToInvalidate.formUnion(listIDs) }
+            if snapshot.hofPosition != existing.hofPosition { ranksMoved = true }
+        }
+        guard !stored.isEmpty else { return }
+        MetadataCache.shared.updateFilms(stored)
+        invalidateCacheForAllFilms()
+        for listID in listsToInvalidate { invalidateCacheForList(listID) }
+        if ranksMoved { rebuildHallOfFame() }
+        scheduleThrottledSave()
+        Self.log("Updated \(stored.count) film(s)")
+    }
+
     /// Deletes films from the store, pruning their list memberships and — when any of them
     /// held a Hall of Fame position — rebuilding and compacting the Hall of Fame.
     ///
@@ -1130,7 +1149,10 @@ final class MemoryStore: Loggable {
     
     // MARK: - Hall of Fame Management
     
-    var hallOfFameIsFull: Bool { return hallOfFameFilms.count >= 200 }
+    /// The most films the Hall of Fame holds.
+    static let hallOfFameCapacity = 200
+
+    var hallOfFameIsFull: Bool { return hallOfFameFilms.count >= Self.hallOfFameCapacity }
     
     /// The next free 1-based slot. Private because the only correct way to occupy a slot is
     /// `addToHallOfFame(_:)`; exposing the value invited callers to write positions directly
@@ -1183,6 +1205,34 @@ final class MemoryStore: Loggable {
         scheduleThrottledSave()
         Self.log("Added film \(filmID) to hall of fame at position \(position)")
         return position
+    }
+
+    /// Adds films to the Hall of Fame at the next positions, in the order given, rebuilding
+    /// the ranking once. Skips each film the single-film add would refuse — unknown, already
+    /// ranked — and stops when the Hall of Fame is full.
+    ///
+    /// - Returns: The films ranked, in rank order; empty when nothing was written.
+    @discardableResult
+    func addToHallOfFame(_ filmIDs: [UUID]) -> [UUID] {
+        var added: [UUID] = []
+        var nextPosition = getNextHallOfFamePosition()
+        for filmID in filmIDs {
+            guard nextPosition <= Self.hallOfFameCapacity else {
+                Self.log("addToHallOfFame — hall of fame is full; \(filmIDs.count - added.count) film(s) not added")
+                break
+            }
+            guard var snapshot = films[filmID], snapshot.hofPosition == 0,
+                  !added.contains(filmID) else { continue }
+            snapshot.hofPosition = nextPosition
+            films[filmID] = snapshot
+            added.append(filmID)
+            nextPosition += 1
+        }
+        guard !added.isEmpty else { return [] }
+        rebuildHallOfFame()
+        scheduleThrottledSave()
+        Self.log("Added \(added.count) film(s) to hall of fame at positions \(nextPosition - added.count)…\(nextPosition - 1)")
+        return added
     }
     
     /// Removes a film from the Hall of Fame by clearing its position, then compacts
@@ -1354,7 +1404,7 @@ final class MemoryStore: Loggable {
     // MARK: - Debug Harness Support
 
     #if DEBUG
-    /// Builds a store directly from value types, with no SwiftData involvement.
+    /// Builds a store directly from value types, with no store involvement.
     ///
     /// The same rationale as `MetadataCache(isolatedForTesting:)`: a scenario that loaded its
     /// corpus into the live store would mutate state the running app is reading, so its result

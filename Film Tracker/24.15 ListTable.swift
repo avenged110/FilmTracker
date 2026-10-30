@@ -5,7 +5,6 @@
 // List table displaying list membership.
 
 import SwiftUI
-import SwiftData
 
 struct ListTable: View {
     @Environment(\.sidebarFilm) private var film: FilmSnapshot?

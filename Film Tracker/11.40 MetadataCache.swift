@@ -2,7 +2,7 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // Persistent cache for derived film metadata: sorting keys, parsed dates, and recent-activity
-// data. Sourced exclusively from FilmSnapshot value types; does not reference SwiftData.
+// data. Sourced exclusively from FilmSnapshot value types; does not reference Core Data.
 
 import Foundation
 import os
@@ -75,7 +75,7 @@ struct FilmMetadata: Codable {
     let textSearchKeys: FilmTextSearchKeys
 
     /// Creates a FilmMetadata entry from a FilmSnapshot.
-    /// All data is sourced from value types; no SwiftData @Model objects are accessed.
+    /// All data is sourced from value types; no model objects are accessed.
     init(from snapshot: FilmSnapshot) {
         self.id = snapshot.id
         
@@ -897,6 +897,26 @@ final class MetadataCache: Loggable {
         }
     }
 
+    /// The synchronous counterpart of `buildEntries`, for a batch its caller needs in place
+    /// before it returns: MemoryStore.updateFilms, whose caller reloads the view next. The
+    /// same pure construction, spread across the cores with `concurrentPerform`, which
+    /// blocks the calling thread only for the parallel span (it also works a chunk itself).
+    /// Below 128 films it is built inline, where the hand-off would cost more than it saves.
+    /// Measured by the `bulk-edit-perf` harness scenario: building 1,600 entries one at a
+    /// time was about 330 ms of a bulk save's main-thread time in a Debug build.
+    nonisolated private static func buildEntriesNow(_ snapshots: [FilmSnapshot]) -> [FilmMetadata] {
+        guard snapshots.count >= 128 else { return snapshots.map { FilmMetadata(from: $0) } }
+        let chunkCount = min(ProcessInfo.processInfo.activeProcessorCount, snapshots.count / 64)
+        let chunkSize = (snapshots.count + chunkCount - 1) / chunkCount
+        let chunks = OSAllocatedUnfairLock<[[FilmMetadata]]>(initialState: Array(repeating: [], count: chunkCount))
+        DispatchQueue.concurrentPerform(iterations: chunkCount) { chunk in
+            let range = (chunk * chunkSize)..<min((chunk + 1) * chunkSize, snapshots.count)
+            let built = snapshots[range].map { FilmMetadata(from: $0) }
+            chunks.withLock { $0[chunk] = built }
+        }
+        return chunks.withLock { $0.flatMap { $0 } }
+    }
+
     /// Incremental update: adds missing entries and removes stale ones.
     /// Much faster than a full rebuild when only a small delta has changed.
     ///
@@ -976,6 +996,12 @@ final class MetadataCache: Loggable {
     
     func updateFilm(_ snapshot: FilmSnapshot) {
         store([FilmMetadata(from: snapshot)])
+    }
+
+    /// Batch counterpart of updateFilm(_:): one library-order repair for the whole batch
+    /// (MemoryStore.updateFilms), with the entries built across the cores.
+    func updateFilms(_ snapshots: [FilmSnapshot]) {
+        store(Self.buildEntriesNow(snapshots))
     }
     
     /// Stores entries built elsewhere, for rare batch refreshes whose inputs live outside

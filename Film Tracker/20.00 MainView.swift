@@ -4,13 +4,13 @@
 // Primary window construction for FilmTracker.app with DataCoordinator integration.
 
 import SwiftUI
-import SwiftData
+import CoreData
 import Combine
 
 struct MainView: View, Loggable {
     nonisolated static let logTag = "[MainView]"
 
-    @Environment(\.modelContext) private var modelContext
+    @Environment(\.managedObjectContext) private var modelContext
     @Environment(AppState.self) private var appState
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
@@ -162,7 +162,7 @@ struct MainView: View, Loggable {
         ImportProgress.shared.attachCoordinator(dataCoordinator)
         // Loads the Imports view's session index in the background, so the first visit
         // to Imports reads it rather than fetching. See ImportHistory.
-        ImportHistory.shared.attach(dataCoordinator.modelContainer)
+        ImportHistory.shared.attach(dataCoordinator.persistentContainer)
         
         Self.log("MainView initialized - ImportProgress attached")
     }

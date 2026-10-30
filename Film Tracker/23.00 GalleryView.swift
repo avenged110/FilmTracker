@@ -7,7 +7,6 @@
 // narrow ObservableObject proxy classes that were previously needed.
 
 import SwiftUI
-import SwiftData
 import Combine
 
 struct GalleryView: View, Loggable {

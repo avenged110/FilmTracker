@@ -4,7 +4,7 @@
 // Defines the primary data model for a single film entry in the user's library.
 
 import Foundation
-import SwiftData
+import CoreData
 
 // MARK: - Special Sorting Vocabulary
 /// The stored vocabulary for `Film.specialSorting`, plus the combination rules that govern
@@ -170,65 +170,64 @@ enum FilmSubtitles {
     }
 }
 
-@Model
-final class Film {
-    // Composite index on the custom UUID primary key.
-    // Film.id is the target of every predicate-based fetch in DataManager
-    // (both equality lookups and multi-ID contains queries). Adding a B-tree
-    // index converts those fetches from full-table scans to O(log n) lookups,
-    // which is particularly impactful during batch operations and import.
-    // #Index is a non-destructive schema change: SwiftData adds the index to
-    // the existing SQLite store without requiring a manual VersionedSchema migration.
-    #Index<Film>([\.id])
+@objc(Film)
+final class Film: LibraryObject {
+    // Film.id is indexed (LibraryModel): it is the target of every predicate-based fetch
+    // in DataManager, both equality lookups and multi-ID IN queries, which the index turns
+    // from full-table scans into O(log n) lookups — most of all in batch operations.
 
     // Primary stable id for exports and restores.
-    var id: UUID
+    var id: UUID { get { requiredUUID("id") } set { setValue(newValue, forKey: "id") } } // See requiredUUID.
 
     // MARK: - Details
-    var posterUID: String
-    var name: String
-    var releaseYear: String
-    var userRating: Int
-    var lastWatched: String
-    var duration: String
-    var viewCount: Int
-    var calendarTable: [String]
+    @NSManaged var posterUID: String
+    @NSManaged var name: String
+    @NSManaged var releaseYear: String
+    @NSManaged var userRating: Int
+    @NSManaged var lastWatched: String
+    @NSManaged var duration: String
+    @NSManaged var viewCount: Int
+    @NSManaged var calendarTable: [String]
     // Per-film flag governing whether this film should be automatically added to the
     // Film Queue when it next comes up for rotation. nil (default) means the feature is
     // disabled for this film; 0/1/2 means enabled, identifying the target section (Up
     // Next / Soon / Later, matching FilmQueueSection.queueOrder) it should be added to.
     // Set on a per-film basis via the FilmSheet Details tab's "Automatically add to…"
     // checkbox row. Mirrors the nil-means-unset convention used by rotationThresholdOverride.
-    var autoAddToQueueOnRotation: Int?
+    var autoAddToQueueOnRotation: Int? {
+        get { optionalInt("autoAddToQueueOnRotation") }
+        set { setOptionalInt(newValue, "autoAddToQueueOnRotation") }
+    }
 
     // MARK: - Rotation Threshold Override System
     // Stores the user's per-film override value (nil means use global default).
     // Only the override is stored in the database; the effective value is computed.
-    var rotationThresholdOverride: Int?
+    var rotationThresholdOverride: Int? {
+        get { optionalInt("rotationThresholdOverride") }
+        set { setOptionalInt(newValue, "rotationThresholdOverride") }
+    }
 
     // MARK: - ListMembership Relationship
-    @Relationship(deleteRule: .cascade, inverse: \ListMembership.film)
-    var memberships: [ListMembership] = []
+    @NSManaged var memberships: Set<ListMembership>
 
     // MARK: - Release Relationship
-    @Relationship(deleteRule: .cascade, inverse: \Release.film)
-    var releases: [Release] = []
+    @NSManaged var releases: Set<Release>
 
     // MARK: - Library Information
-    var digitalSource: String // Composite; see FilmDigitalSource.compose/decompose.
-    var digitalVersion: String
-    var subtitles: String // See FilmSubtitles.
-    var notes: String
-    var numberOfDiscs: String
-    var aspectRatio: String
-    var color: Bool
-    var edited: Bool
-    var editedDuration: String
-    var frameRate: Double
+    @NSManaged var digitalSource: String // Composite; see FilmDigitalSource.compose/decompose.
+    @NSManaged var digitalVersion: String
+    @NSManaged var subtitles: String // See FilmSubtitles.
+    @NSManaged var notes: String
+    @NSManaged var numberOfDiscs: String
+    @NSManaged var aspectRatio: String
+    @NSManaged var color: Bool
+    @NSManaged var edited: Bool
+    @NSManaged var editedDuration: String
+    @NSManaged var frameRate: Double
 
-    var tags: [String]
-    var externalIdentifiers: [String]
-    var dateAdded: String
+    @NSManaged var tags: [String]
+    @NSManaged var externalIdentifiers: [String]
+    @NSManaged var dateAdded: String
 
     // Empty string means "never modified since it entered the library" and is a deliberate
     // sentinel, not a missing value. Films created by MetaParser are stored with "" so the
@@ -245,45 +244,48 @@ final class Film {
     // contents differ, silently accepting a stale cache. Measured during startup profiling;
     // see DataManager.computeStoreFingerprint for the full reasoning and the alternatives
     // that were ruled out.
-    var lastModified: String
-    var watched: Bool
-    var specialSorting: [String] // See FilmSpecialSorting.
-    var alternateTitle: [String]
-    var hofPosition: Int
-    var infoComplete: Bool
+    @NSManaged var lastModified: String
+    @NSManaged var watched: Bool
+    @NSManaged var specialSorting: [String] // See FilmSpecialSorting.
+    @NSManaged var alternateTitle: [String]
+    @NSManaged var hofPosition: Int
+    @NSManaged var infoComplete: Bool
 
     // MARK: - Metadata
-    var comments: String
-    var genre: String
-    var releaseDate: String
-    var descriptionText: String
-    var rating: String
-    var studio: [String]
-    var cast: [String]
-    var directors: [String]
-    var producers: [String]
-    var executiveProducers: [String]
-    var screenwriters: [String]
-    var encodingTool: [String]
-    var libraryHBRFValue: Int
-    var composer: [String]
-    var sortName: String
+    @NSManaged var comments: String
+    @NSManaged var genre: String
+    @NSManaged var releaseDate: String
+    @NSManaged var descriptionText: String
+    @NSManaged var rating: String
+    @NSManaged var studio: [String]
+    @NSManaged var cast: [String]
+    @NSManaged var directors: [String]
+    @NSManaged var producers: [String]
+    @NSManaged var executiveProducers: [String]
+    @NSManaged var screenwriters: [String]
+    @NSManaged var encodingTool: [String]
+    @NSManaged var libraryHBRFValue: Int
+    @NSManaged var composer: [String]
+    @NSManaged var sortName: String
 
     // MARK: - Notes → Custom Edit Notes
-    var releaseUsed: String
-    var tools: [String]
-    var editedHBRFValue: Int
-    var editDate: String
-    var warning: [String]
-    var descriptionNotes: String
-    var notesOnAudioTiming: [String]
-    var specialAudioNotes: [String]
-    var notesArray: [String]
-    var handbrakeFrames: [String]
-    var correspondingTimecodes: [String]
+    @NSManaged var releaseUsed: String
+    @NSManaged var tools: [String]
+    @NSManaged var editedHBRFValue: Int
+    @NSManaged var editDate: String
+    @NSManaged var warning: [String]
+    @NSManaged var descriptionNotes: String
+    @NSManaged var notesOnAudioTiming: [String]
+    @NSManaged var specialAudioNotes: [String]
+    @NSManaged var notesArray: [String]
+    @NSManaged var handbrakeFrames: [String]
+    @NSManaged var correspondingTimecodes: [String]
 
     // MARK: - Initialization
-    init(
+    /// Every default; see LibraryObject.init(detached:).
+    convenience init() { self.init(id: UUID()) }
+
+    convenience init(
         id: UUID = UUID(),
         posterUID: String = "",
         name: String = "",
@@ -341,6 +343,7 @@ final class Film {
         handbrakeFrames: [String] = [],
         correspondingTimecodes: [String] = []
     ) {
+        self.init(detached: ())
         self.id = id
         self.posterUID = posterUID
         self.name = name
@@ -401,10 +404,9 @@ final class Film {
 
 // MARK: - ExportableModel Conformance for Film
 extension Film: ExportableModel {
-    static var entityName: String { "Film" }
 
-    static func fetchAll(in context: ModelContext) throws -> [Film] {
-        let desc = FetchDescriptor<Film>(sortBy: [SortDescriptor(\.name)])
+    static func fetchAll(in context: NSManagedObjectContext) throws -> [Film] {
+        let desc = Film.request(sortedBy: [NSSortDescriptor(key: "name", ascending: true)])
         return try context.fetch(desc) }
 
     func extractExportValues() -> (properties: [String: Any], relationships: [String : [Any]]) {

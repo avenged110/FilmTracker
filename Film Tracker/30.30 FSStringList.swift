@@ -467,7 +467,8 @@ struct ReorderableStringList: View {
     /// Upper bound on row count. The list does not scroll internally, so every
     /// row adds to the sheet's overall content height; 30 is well clear of the
     /// 1–10 these fields carry in practice while still bounding the worst case.
-    private static let maxItems = 30
+    /// Internal for BulkFilmEdit.tagLimit, which the MultiFilmSheet asserts against it.
+    static let maxItems = 30
 
     // MARK: - Editing State
     //

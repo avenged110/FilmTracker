@@ -279,7 +279,7 @@ final class FSTabPoster {
 
     // MARK: - DTO Support
     /// Processes any pending poster selection and returns the final posterUID for use in
-    /// FilmChangeset assembly. Does NOT require a live Film @Model object.
+    /// FilmChangeset assembly. Does NOT require a live Film managed object.
     ///
     /// - If a new image was selected (pendingPosterURL set): converts the image, writes it to
     ///   disk, updates PosterCache, clears pending state, and returns the new UID.

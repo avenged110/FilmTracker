@@ -1631,9 +1631,8 @@ extension Release: ExportableModel {
         // it handles legacy backups that predate this field — and emits no warning.
         //
         // The previous `self.parentRelease?.id as Any` form boxed Optional<UUID>.none for
-        // every parentless release. The export pipeline (DBReader) has no NSNull/optional
-        // case for that boxed value, so it fell through to its String(describing:) fallback
-        // and serialized the literal text "nil". On restore, parseOptionalUUID then logged
+        // every parentless release, which DBReader then serialized as the literal text "nil"
+        // (it now unwraps a boxed optional, but omitting the key stays the clean form). On restore, parseOptionalUUID then logged
         // that "nil" as a malformed UUID for every top-level release — i.e. the vast
         // majority — polluting both the backup file and the restore log. Guarding with
         // `if let` writes a clean UUID when a parent is present and nothing when it is not.

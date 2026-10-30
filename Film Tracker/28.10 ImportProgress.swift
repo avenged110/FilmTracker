@@ -172,7 +172,7 @@ final class ImportProgress: Loggable {
         context.insert(session)
         
         do {
-            try context.save()
+            try context.commit()
             currentSessionID = session.id
             Self.log("Created import session: \(session.id)")
         } catch {
@@ -251,7 +251,7 @@ final class ImportProgress: Loggable {
                 session.isCanceled = true
                 session.isCompleted = false
                 writeSessionCounts(session, zeroSuccessAndUpdated: true)
-                try context.save()
+                try context.commit()
                 Self.log("Session marked as canceled: processed \(currentFile) of \(totalFiles) items") }
         } catch { log("Failed to update session as canceled: \(error)") } }
 
@@ -260,7 +260,7 @@ final class ImportProgress: Loggable {
         do {
             if let session = try fetchCurrentSession(context: context) {
                 writeSessionCounts(session, zeroSuccessAndUpdated: false)
-                try context.save() }
+                try context.commit() }
         } catch { log("Failed to update session progress: \(error)") } }
 
     private func completeSession() {
@@ -269,7 +269,7 @@ final class ImportProgress: Loggable {
             if let session = try fetchCurrentSession(context: context) {
                 session.isCompleted = true
                 writeSessionCounts(session, zeroSuccessAndUpdated: false)
-                try context.save()
+                try context.commit()
                 Self.log("Session completed: \(successCount) imported, \(updatedCount) updated, \(errorFiles.count) errors") }
         } catch { log("Failed to complete session: \(error)") } }
 

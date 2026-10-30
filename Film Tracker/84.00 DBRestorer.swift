@@ -34,17 +34,12 @@ final class DBRestorer: Loggable {
     /// True once the restored library is committed (PendingRestore.commit): the next launch
     /// swaps it in, so the session must relaunch.
     ///
-    /// Everything the restore does BEFORE this — parsing, building and checking the staged
-    /// store — leaves the library's own store untouched, so a failure there is recoverable
-    /// and the session simply carries on. A failure AFTER it (applying settings, copying
-    /// posters) still needs the relaunch, because the restored library is already queued to
-    /// replace the running one; the UI offers the same restart a success does.
+    /// Everything the restore does BEFORE this — parsing, staging the posters, building and
+    /// checking the staged store — leaves the library untouched, so a failure there is
+    /// recoverable and the session simply carries on. Nothing after it can fail: the
+    /// settings, posters and rotation baseline are applied by the launch that swaps the
+    /// library in (PendingRestore.applyRestoredExtras), and only if that swap succeeds.
     public private(set) var requiresRestart = false
-
-    /// The backup's settings, read from the staged store before it is closed, for applying
-    /// to UserDefaults in this session. The app's own container still holds the old library
-    /// until the relaunch, so it cannot supply them.
-    private var restoredSettings: SettingsSnapshot?
 
     init(container: NSPersistentContainer, dataCoordinator: DataCoordinator? = nil,
         importer: DBImporter = DBImporter()) {
@@ -73,7 +68,7 @@ final class DBRestorer: Loggable {
         schemaEvolutionOccurred = false
         settingsWereRestored = false
         requiresRestart = false
-        restoredSettings = nil
+        claimedListNames.removeAll()
 
         // Validate it's a .ftbackup package.
         guard packageURL.pathExtension == "ftbackup" else {
@@ -100,25 +95,28 @@ final class DBRestorer: Loggable {
 
         progress?(0.2, "Preparing restoration...")
 
-        // Phase 2: Open an empty staged store (20-30%). Always a brand-new store with the
-        // current model, so a backup restores whatever state the library's own store is in.
-        progress?(0.25, "Rebuilding database store...")
-        let restoreContainer: NSPersistentContainer
-        do {
-            restoreContainer = try PendingRestore.makeStagingContainer()
-            Self.log("Staged store opened at: \(restoreContainer.storeURL?.lastPathComponent ?? "?")")
-        } catch {
-            throw DBRestorerError.storeRebuildFailed(
-                "Failed to create the restore's store: \(error.localizedDescription)")
+        // Phases 2-4, attempted twice. Every attempt starts from an empty staged store and
+        // the parsed backup, so a failure that was transient (a disk hiccup, a check that
+        // caught a bad write) heals on the second; one that repeats is reported, and either
+        // way nothing has touched the library.
+        var lastError: (any Error)?
+        for attempt in 1...2 {
+            if attempt > 1 {
+                Self.log("WARNING: Restore attempt \(attempt - 1) failed (\(lastError.map { "\($0)" } ?? "?")) — rebuilding the staged library from the backup")
+                missingFieldsDetected.removeAll()
+                schemaEvolutionOccurred = false
+                settingsWereRestored = false
+                claimedListNames.removeAll()
+            }
+            do {
+                try await stageAndCommit(backup, postersURL: hasPosters ? postersURL : nil, progress: progress)
+                lastError = nil
+                break
+            } catch {
+                lastError = error
+            }
         }
-
-        // Anything that fails from here until the commit discards the staged store.
-        do {
-            try await populateAndCommit(backup, into: restoreContainer, progress: progress)
-        } catch {
-            PendingRestore.discard()
-            throw error
-        }
+        if let lastError { throw lastError }
         requiresRestart = true
 
         // The derived caches on disk describe the store about to be replaced, and the live
@@ -130,55 +128,69 @@ final class DBRestorer: Loggable {
             .suspendCachePersistence(reason: "a restored library replaces this one at relaunch")
         MemoryStoreCache.shared.invalidateOnDisk()
 
-        progress?(0.8, "Database restoration complete")
-
-        // The library's film identities have just been wholesale replaced. The "known up for
-        // rotation" baseline in UserDefaults describes the PREVIOUS library, so measured
-        // against the restored one it would report a large set of false "newly up for
-        // rotation" films and auto-enqueue them into the Film Queue — overwriting the queue
-        // arrangement that was itself just restored from this very backup.
-        //
-        // Clearing it returns SmartLists to its unestablished state, where the first full
-        // recalculation after the mandatory post-restore relaunch adopts the computed
-        // membership as the new baseline without enqueueing anything.
-        //
-        // Done here rather than alongside the settings restore below because that block is
-        // conditional on the backup actually containing settings — a settings-less backup
-        // still replaces every film, and would otherwise leave the stale baseline in place.
-        Preferences.resetKnownUpForRotationFilmIDs()
-        Self.log("Cleared Up for Rotation baseline — restored library has new film identities")
-
         // Log schema evolution summary if detected
         if schemaEvolutionOccurred {
             Self.log("Schema evolution detected during restoration - older backup successfully migrated")
             Self.log("Missing fields populated with defaults: \(missingFieldsDetected.sorted().joined(separator: ", "))")
         }
 
-        // Apply restored settings to UserDefaults, from the staged store's own settings row
-        // (read before it was closed). UserDefaults survive the relaunch, and the launch-time
-        // sync writes them back into the swapped-in store.
-        if let restoredSettings {
-            if let coordinator = dataCoordinator {
-                progress?(0.85, "Applying restored settings...")
-                coordinator.applyRestoredSettings(restoredSettings)
-                Self.log("Settings restored and applied to UserDefaults")
-            } else {
-                Self.log("NOTE: Settings were restored to the staged store; no coordinator to apply them to UserDefaults")
-            }
-        } else {
-            Self.log("NOTE: No settings found in backup or settings were malformed - current settings unchanged")
-        }
-
-        // Phase 5: Restore poster images if present (80-100%)
-        if hasPosters {
-            try await restorePosterImages(from: postersURL, progress: progress)
-        }
-
         progress?(1.0, "Restoration complete!")
     }
 
+    /// Phase 2, then 3 and 4: opens an empty staged store, stages the posters, and fills,
+    /// proves and commits the store. Anything that fails discards the staged store and the
+    /// staged posters with it. Posters are staged first so that, once the commit has
+    /// happened, nothing is left that can fail.
+    private func stageAndCommit(_ backup: ParsedBackup, postersURL: URL?,
+                                progress: (@Sendable (Double, String) -> Void)?) async throws {
+        // Always a brand-new store with the current model, so a backup restores whatever
+        // state the library's own store is in.
+        progress?(0.25, "Rebuilding database store...")
+        let restoreContainer: NSPersistentContainer
+        do {
+            restoreContainer = try PendingRestore.makeStagingContainer()
+            Self.log("Staged store opened at: \(restoreContainer.storeURL?.lastPathComponent ?? "?")")
+        } catch {
+            PendingRestore.discard()
+            throw DBRestorerError.storeRebuildFailed(
+                "Failed to create the restore's store: \(error.localizedDescription)")
+        }
+        do {
+            if let postersURL {
+                try await stagePosterImages(from: postersURL, progress: progress)
+            }
+            try await populateAndCommit(backup, into: restoreContainer, progress: progress)
+        } catch {
+            PendingRestore.discard()
+            throw error
+        }
+    }
+
+    /// Deletes inserted list memberships missing their film or list and releases missing
+    /// their film, and unlinks a release whose parent belongs to another film or has a
+    /// parent of its own. Each is logged.
+    private func repairStructure(in context: NSManagedObjectContext) {
+        var removed = 0, unlinked = 0
+        for object in context.insertedObjects where !object.isDeleted {
+            if let membership = object as? ListMembership, membership.film == nil || membership.list == nil {
+                context.delete(membership); removed += 1
+            } else if let release = object as? Release, release.film == nil {
+                context.delete(release); removed += 1
+            }
+        }
+        for object in context.insertedObjects where !object.isDeleted {
+            guard let release = object as? Release, let parent = release.parentRelease else { continue }
+            if parent === release || parent.isDeleted || parent.parentRelease != nil || parent.film !== release.film {
+                release.parentRelease = nil; unlinked += 1
+            }
+        }
+        if removed + unlinked > 0 {
+            Self.log("WARNING: Repaired the restored library before saving: \(removed) object(s) without their film or list removed, \(unlinked) release link(s) cleared")
+        }
+    }
+
     /// Phases 3 and 4: fills the staged store from the parsed backup, saves it, checks what
-    /// landed against what was inserted, reads the settings back, and commits it.
+    /// landed against what was inserted, and commits it.
     private func populateAndCommit(_ backup: ParsedBackup, into restoreContainer: NSPersistentContainer,
                                    progress: (@Sendable (Double, String) -> Void)?) async throws {
         progress?(0.3, "Creating new objects...")
@@ -201,6 +213,9 @@ final class DBRestorer: Loggable {
         var listByID: [UUID: ListObject] = [:]
         // Populated during the second pass for use in the third-pass hierarchy link step.
         var releaseByID: [UUID: Release] = [:]
+        // The IDs restored so far of the entities nothing looks up by ID.
+        var sessionIDs: Set<UUID> = []
+        var membershipIDs: Set<UUID> = []
         // Created after the first pass, once every list has its final name: a saved
         // search's name must not be one a list already answers to (createSavedSearches).
         var savedSearchObjects: [ParsedObject] = []
@@ -214,6 +229,7 @@ final class DBRestorer: Loggable {
             case "Film":
                 do {
                     let film = try createFilm(from: obj, context: context)
+                    guard keepFirst(film, filmByID[film.id] == nil, film.id, context: context) else { continue }
                     filmByID[film.id] = film
                 } catch {
                     Self.log("WARNING: Skipping malformed Film object \(obj.exportID): \(error.localizedDescription)")
@@ -223,14 +239,21 @@ final class DBRestorer: Loggable {
             case "ListObject":
                 do {
                     let list = try createListObject(from: obj, context: context)
+                    guard keepFirst(list, listByID[list.listID] == nil, list.listID, context: context) else { continue }
                     listByID[list.listID] = list
+                    // Claimed only for a list that is kept: a repeated ID's copy, taken back
+                    // out above, must not push a later list's name to " 1".
+                    if FilmQueueSection(listID: list.listID) == nil {
+                        claimedListNames.insert(list.listName.lowercased())
+                    }
                 } catch {
                     Self.log("WARNING: Skipping malformed ListObject \(obj.exportID): \(error.localizedDescription)")
                 }
 
             case "ImportSession":
                 do {
-                    _ = try createImportSession(from: obj, context: context)
+                    let session = try createImportSession(from: obj, context: context)
+                    _ = keepFirst(session, sessionIDs.insert(session.id).inserted, session.id, context: context)
                 } catch {
                     Self.log("WARNING: Skipping malformed ImportSession \(obj.exportID): \(error.localizedDescription)")
                     // ImportSession is optional metadata, safe to skip
@@ -268,14 +291,17 @@ final class DBRestorer: Loggable {
             switch obj.entityName {
             case "ListMembership":
                 do {
-                    _ = try createListMembership(from: obj, context: context, filmByID: filmByID, listByID: listByID)
+                    if let membership = try createListMembership(from: obj, context: context, filmByID: filmByID, listByID: listByID) {
+                        _ = keepFirst(membership, membershipIDs.insert(membership.id).inserted, membership.id, context: context)
+                    }
                 } catch {
                     Self.log("WARNING: Skipping malformed ListMembership \(obj.exportID): \(error.localizedDescription)")
                 }
 
             case "Release":
                 do {
-                    if let release = try createRelease(from: obj, context: context, filmByID: filmByID) {
+                    if let release = try createRelease(from: obj, context: context, filmByID: filmByID),
+                       keepFirst(release, releaseByID[release.id] == nil, release.id, context: context) {
                         releaseByID[release.id] = release
                     }
                 } catch {
@@ -426,7 +452,14 @@ final class DBRestorer: Loggable {
 
         progress?(0.7, "Saving restored data...")
 
+        // Repairs what no valid library holds, before the save makes it permanent. The
+        // passes above already refuse to create these; this is the guarantee, so commit's
+        // structural check can only fail on something the store itself did.
+        repairStructure(in: context)
+
         // What the passes above inserted, per entity, for the check after the save.
+        // Processed first, so a repeated ID that keepFirst took back out is no longer counted.
+        context.processPendingChanges()
         var inserted: [String: Int] = [:]
         for object in context.insertedObjects { inserted[object.entity.name ?? "", default: 0] += 1 }
 
@@ -450,13 +483,18 @@ final class DBRestorer: Loggable {
                     "The restored library is incomplete: \(stored) of \(expected) \(entity) row(s) were saved.")
             }
         }
-        if settingsWereRestored,
-           let row = try? verify.fetch(SettingsObject.request(.equals("snapshotID", SettingsObject.singletonID))).first {
-            restoredSettings = SettingsSnapshot(from: row)
+        // Settings reach Preferences at the relaunch, after the swap, and only when a
+        // coordinator asked for this restore: the harness restores without one so that its
+        // live Preferences stay as later scenarios expect them.
+        let applySettings = settingsWereRestored && dataCoordinator != nil
+        if settingsWereRestored && !applySettings {
+            Self.log("NOTE: Settings were restored to the staged store; no coordinator, so they are not applied to Preferences")
+        } else if !settingsWereRestored {
+            Self.log("NOTE: No settings found in backup or settings were malformed - current settings unchanged")
         }
 
         do {
-            try PendingRestore.commit(restoreContainer)
+            try PendingRestore.commit(restoreContainer, filledBy: context, applySettings: applySettings)
         } catch {
             throw DBRestorerError.restorationFailed(
                 "The restored library could not be finalized: \(error.localizedDescription)")
@@ -484,20 +522,25 @@ final class DBRestorer: Loggable {
         (dataCoordinator ?? AppDelegate.dataCoordinator)?
             .suspendCachePersistence(reason: "a new library replaces this one at relaunch")
         MemoryStoreCache.shared.invalidateOnDisk()
-        // No films exist any more, so any retained rotation baseline is entirely phantom IDs.
-        Preferences.resetKnownUpForRotationFilmIDs()
+        // The rotation baseline is cleared by the launch that swaps the empty store in.
         Self.log("Fresh empty database staged via createFreshDatabase()")
     }
 
     // MARK: - Poster Restoration
+    /// Copies the backup's posters into PendingRestore's staging folder. The launch that
+    /// swaps the restored library in moves them into the posters folder; until then the
+    /// running library's posters are untouched, and a restore that fails discards them.
     @MainActor
-    private func restorePosterImages(
+    private func stagePosterImages(
         from sourceURL: URL,
         progress: (@Sendable (Double, String) -> Void)?
     ) async throws {
-        guard let destinationURL = Preferences.posterImagesFolderURL else {
+        guard Preferences.posterImagesFolderURL != nil else {
             Self.log("No poster images destination configured, skipping poster restoration")
             return
+        }
+        guard let destinationURL = PendingRestore.stagedPostersURL else {
+            throw DBRestorerError.storeRebuildFailed("Could not resolve the folder to stage posters in.")
         }
 
         // The enumeration and every copy run off the main actor: a full library is
@@ -559,7 +602,7 @@ final class DBRestorer: Loggable {
                   !filename.contains("\\") else {
                 Self.log("WARNING: Skipping poster file with unexpected name '\(filename)' — must be <UUID>.jpg")
                 skippedCount += 1
-                let fileProgress = 0.8 + (0.2 * Double(index + 1) / Double(totalFiles))
+                let fileProgress = 0.25 + (0.05 * Double(index + 1) / Double(totalFiles))
                 progress?(fileProgress, "Restoring poster images... \(index + 1)/\(totalFiles)")
                 continue
             }
@@ -583,7 +626,7 @@ final class DBRestorer: Loggable {
                 skippedCount += 1
             }
 
-            let fileProgress = 0.8 + (0.2 * Double(index + 1) / Double(totalFiles))
+            let fileProgress = 0.25 + (0.05 * Double(index + 1) / Double(totalFiles))
             progress?(fileProgress, "Restoring poster images... \(index + 1)/\(totalFiles)")
         }
 
@@ -754,7 +797,7 @@ final class DBRestorer: Loggable {
 
     /// Returns a list name that collides with nothing: not a smart list name, not an
     /// internal Film Queue name, and not a name already claimed by a list restored earlier
-    /// in this same pass.
+    /// in this same pass. The caller claims the result once the list is kept.
     ///
     /// The duplicate-name half matters because a backup is not a trusted input. It may have
     /// been written by a build that allowed duplicate names, hand-edited, or merged from
@@ -788,7 +831,6 @@ final class DBRestorer: Loggable {
             } while isTaken(resolved)
         }
 
-        claimedListNames.insert(resolved.lowercased())
         return resolved
     }
 
@@ -823,6 +865,19 @@ final class DBRestorer: Loggable {
 
         context.insert(session)
         return session
+    }
+
+    /// True when `object` is the first of its ID in this restore. Otherwise it is taken back
+    /// out of the context and false is returned: every ID is unique in the store, and a backup
+    /// written before that was enforced may repeat one. The first occurrence is restored, as
+    /// StoreDeduplicator keeps the first, and the restore's row-count check
+    /// then counts only what was kept.
+    private func keepFirst(_ object: NSManagedObject, _ isFirst: Bool, _ id: UUID,
+                           context: NSManagedObjectContext) -> Bool {
+        guard !isFirst else { return true }
+        Self.log("WARNING: Skipping \(object.entity.name ?? "object") \(id): the backup repeats this ID")
+        context.delete(object)
+        return false
     }
 
     /// Restores the saved searches, in backup order, once every list has its final name.
@@ -1318,8 +1373,11 @@ final class DBRestorer: Loggable {
                 return String(i64)
             }
             if let d = value as? Double {
-                if d.truncatingRemainder(dividingBy: 1) == 0 {
-                    return String(Int(d))
+                // `Int(exactly:)`, not `Int(_:)`: a legacy backup's text field holding a
+                // number too large for Int (a 20-digit serial in notes) reaches here as a
+                // Double, and `Int(_:)` traps on it.
+                if let i = Int(exactly: d) {
+                    return String(i)
                 }
                 return String(d)
             }
@@ -1377,9 +1435,10 @@ final class DBRestorer: Loggable {
                 return defaultValue
             }
             
-            // Handle double conversion (truncate)
-            if let d = value as? Double {
-                return Int(d)
+            // Handle double conversion (truncate). Out of Int's range, or NaN, is malformed
+            // rather than a trap.
+            if let d = value as? Double, let i = Int(exactly: d.rounded(.towardZero)) {
+                return i
             }
             
             // Malformed data - log and use default

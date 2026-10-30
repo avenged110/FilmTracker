@@ -122,7 +122,7 @@ extension ExportPackage: @unchecked Sendable {}
 
 // MARK: - ExportableModel protocol
 /// Types must provide a fetch method and property extraction.
-public protocol ExportableModel: AnyObject {
+public protocol ExportableModel: AnyObject, SendableMetatype {
     static var entityName: String { get }
     /// Fetch all objects of this type from the supplied NSManagedObjectContext.
     ///
@@ -280,7 +280,12 @@ public final class DBReader {
                     var propsEncoded: [String: AnyCodable] = [:]
                     // Declared types for the values that need one. See ExportedObject.propertyTypes.
                     var propTypes: [String: String] = [:]
-                    for (k,v) in props {
+                    for (k,boxed) in props {
+                        // An unset optional arrives boxed as `Optional.none` (FilmField's
+                        // `value(of:)` keeps optionals boxed). Unwrapped here, so it is
+                        // written as the empty value every reader takes as nil rather than
+                        // falling through to `String(describing:)` and writing the text "nil".
+                        let v = (boxed as? any OptionalBox).map { $0.unboxed ?? NSNull() } ?? boxed
                         if v is NSNull {
                             propsEncoded[k] = AnyCodable(NSNull())
                         } else if let d = v as? Date {
@@ -426,14 +431,17 @@ actor BackgroundExportReader {
     }
 }
 
-/// The model types to export, carried across to `BackgroundExportReader`.
-///
-/// `any ExportableModel.Type` is not Sendable because the protocol is not, but a metatype is
-/// an immutable reference to a type: it has no state for two threads to race on. Only the
-/// static requirements are ever used through it.
-struct ExportModelTypes: @unchecked Sendable {
+/// The model types to export, carried across to `BackgroundExportReader`. Sendable as
+/// checked: ExportableModel refines SendableMetatype, so its metatypes cross freely.
+struct ExportModelTypes: Sendable {
     let types: [any ExportableModel.Type]
 }
+
+// MARK: - Optional Unboxing
+
+/// Lets DBReader see through an `Optional` boxed in `Any`.
+private protocol OptionalBox { var unboxed: Any? { get } }
+extension Optional: OptionalBox { fileprivate var unboxed: Any? { map { $0 as Any } } }
 
 // MARK: - XML 1.0 Character Set
 

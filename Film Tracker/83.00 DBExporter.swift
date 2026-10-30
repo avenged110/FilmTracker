@@ -7,6 +7,7 @@
 // pruning, and delivery to the destination run in background tasks via Task.detached.
 
 import Foundation
+import Synchronization
 import CoreData
 import UniformTypeIdentifiers
 
@@ -60,18 +61,18 @@ nonisolated enum BackupFilename {
 // MARK: - Package Handoff
 
 /// Moves an `ExportPackage` into the packaging task so it is freed there (see createBackup).
-/// Taken exactly once, by that task; the lock only makes the single hand-over explicit.
-private final class ExportPackageHandoff: @unchecked Sendable {
-    private var package: ExportPackage?
-    private let lock = NSLock()
+/// Taken exactly once, by that task; the Mutex only makes the single hand-over explicit.
+private final class ExportPackageHandoff: Sendable {
+    private let package: Mutex<ExportPackage?>
 
-    init(_ package: consuming ExportPackage) { self.package = package }
+    init(_ package: consuming ExportPackage) { self.package = Mutex(package) }
 
     func take() -> ExportPackage {
-        lock.lock(); defer { lock.unlock() }
-        guard let package else { preconditionFailure("export package handed off twice") }
-        self.package = nil
-        return package
+        package.withLock { package in
+            guard let taken = package else { preconditionFailure("export package handed off twice") }
+            package = nil
+            return taken
+        }
     }
 }
 
@@ -169,24 +170,16 @@ public final class DBExporter: Loggable {
         // here on the MainActor like the manual one: each entity's fetch materialized the
         // whole table in one blocking call — seconds on a large library, during which the
         // UI could not respond — and every object's conversion followed on the main thread
-        // too. (Created inside a detached task, which the SwiftData build needed because it
-        // served a model actor's context on the queue it was created on.)
+        // too.
         let exportPackage: ExportPackage
         if isBackgroundExport {
-            let container = persistentContainer
-            let modelTypes = ExportModelTypes(types: types)
-            let read = Task.detached(priority: .low) {
-                try await BackgroundExportReader(persistentContainer: container).exportAll(
-                    types: modelTypes, appVersion: appVersion) { @Sendable p in progress?(p * 0.35) }
-            }
-            // A detached task does not inherit cancellation, and quitting cancels the
-            // automatic backup (applicationShouldTerminate). Forwarded explicitly so the read
-            // still stops at its next cancellation check, as it did on the MainActor.
-            exportPackage = try await withTaskCancellationHandler {
-                try await read.value
-            } onCancel: {
-                read.cancel()
-            }
+            // Awaited directly: the reader's jobs run on its context's queue, and quitting
+            // cancels this task (applicationShouldTerminate), so the read stops at its next
+            // cancellation check.
+            exportPackage = try await BackgroundExportReader(persistentContainer: persistentContainer)
+                .exportAll(types: ExportModelTypes(types: types), appVersion: appVersion) { @Sendable p in
+                    progress?(p * 0.35)
+                }
         } else {
             let reader = DBReader(context: persistentContainer.makeMainContext())
             // Pass a progress callback (safe since we're already on MainActor)

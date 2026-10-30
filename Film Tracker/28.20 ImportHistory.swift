@@ -227,7 +227,7 @@ final class ImportHistory: Loggable {
     /// connection, and this fetch holds it while it runs: a save made meanwhile — the launch
     /// settings sync on the main thread, DataManager's launch bootstrap — waits for it. At
     /// a lower QoS that wait is a priority inversion (it was, at `.utility`: Xcode's thread
-    /// performance checker flagged `saveSettings`' `context.save()`; `imports-qos` in 99.55
+    /// performance checker flagged a main-context `save()` (then `saveSettings`'; now ImportProgress's session saves are the main-thread ones); `imports-qos` in 99.55
     /// reproduces it under libRPAC). The load is a single fetch, once per launch.
     private func reload() {
         guard let container else { return }
@@ -255,7 +255,7 @@ final class ImportHistory: Loggable {
 
     #if DEBUG
     /// Starts a full background load, as after a save that invalidated every identifier —
-    /// for `imports-qos` (99.55), which saves on the main thread while it runs.
+    /// for `imports-qos` (99.55), which saves an import session on the main thread while it runs.
     func debugReload() { reload() }
     #endif
 

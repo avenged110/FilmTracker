@@ -4,8 +4,6 @@
 // Central coordinator for film data operations. Bridges MemoryStore (UI source of truth) and
 // DataManager (store persistence) using an optimistic-update + background-persist + rollback
 // pattern; all UI reads return value types (FilmSnapshot / MemoryList), never managed objects.
-// NOTE: saveSettings/loadSettings use viewContext directly so that changes are immediately
-// visible to DBExporter within the same session.
 
 import SwiftUI
 import CoreData
@@ -337,7 +335,11 @@ final class DataCoordinator: Loggable {
     //
     // THREADING: Task(priority:) inherits the caller's actor context (@MainActor), so the
     // ordering chain, the defer, the rollback and the alert all run on MainActor —
-    // pendingOperationCount access is safe. The work itself does not: see runOffMainActor.
+    // pendingOperationCount access is safe. The work itself does not: it is a nonisolated
+    // async closure, so it runs on the global executor, and DataManager runs its calls on its
+    // own context's queue (ContextExecutor). (The SwiftData build also had to detach the work:
+    // its model executor ran a DataManager call on the thread that awaited it, which held the
+    // main thread for the whole fetch-mutate-save.)
     // `work` is @Sendable so a closure literal passed here is nonisolated rather than
     // inheriting MainActor from the call site; anything it needs from MainActor it must
     // capture as a value or reach with `await`.
@@ -369,13 +371,13 @@ final class DataCoordinator: Loggable {
                     DebugPersistenceFault.injectedCount += 1
                     throw DebugPersistenceFault.Injected()
                 }
-                try await Self.runOffMainActor(work)
+                try await work()
                 if DebugPersistenceFault.mode == .afterWork {
                     DebugPersistenceFault.injectedCount += 1
                     throw DebugPersistenceFault.Injected()
                 }
                 #else
-                try await Self.runOffMainActor(work)
+                try await work()
                 #endif
             } catch {
                 Self.log("ERROR: Background persistence failed: \(error)")
@@ -386,26 +388,6 @@ final class DataCoordinator: Loggable {
                 AppEventBus.shared.sendAlert(.showPersistenceFailure(
                     error: AlertErrorDetail.full(error)))
             } } }
-
-    /// Runs a tracked operation's work away from the main thread and waits for it.
-    ///
-    /// Under SwiftData, the model executor ran a DataManager call on the thread that awaited it, so
-    /// work awaited from trackOperation's MainActor task held the main thread for its whole
-    /// fetch-mutate-save — measured by `datamanager-thread` on a 1,384-film library: ~350 ms
-    /// for a three-film delete, ~100 ms for a 60-film list add or remove, ~5 ms per FilmSheet
-    /// save. A detached task puts the await on the global executor whatever default isolation
-    /// nonisolated async closures get. The caller awaits the result, so trackOperation's
-    /// ordering and shutdown accounting are unchanged. `.userInitiated`, not `.background`:
-    /// these writes follow a user action and shutdown waits on them, and until they moved off
-    /// the main thread they ran at its priority; background QoS can be throttled for seconds.
-    /// Core Data build: DataManager now runs on its own context's queue (ContextExecutor)
-    /// whatever thread awaits it, so the detach is no longer load-bearing; it stays until
-    /// the harness confirms.
-    private nonisolated static func runOffMainActor(
-        _ work: @escaping @Sendable () async throws -> Void
-    ) async throws {
-        try await Task.detached(priority: .userInitiated) { try await work() }.value
-    }
 
     // MARK: - Current View State
     private var currentViewID: ViewIdentifier = .allFilms
@@ -573,6 +555,7 @@ final class DataCoordinator: Loggable {
         guard !usingFallbackStore else { return }
         MemoryStoreCache.shared.beginEarlyLoad(dataManager: dataManager)
         MetadataCache.shared.beginEarlyLoad()
+        PosterCache.shared.beginEarlyLaunchWarm()
     }
 
     /// Phase 1: Load all store content into memory.
@@ -731,12 +714,10 @@ final class DataCoordinator: Loggable {
         // Everything below writes to the persistent store. Skip it all when the library
         // state is unreliable: we could not read this store (or it is the empty in-memory
         // fallback), so mutating it is the one thing that could turn a recoverable,
-        // read-side fault into real data loss. The duplicate-release cleanup is the sharp
-        // edge — it issues deletes, and it would be issuing them against a store whose
-        // actual contents are unknown to us. Both tasks are idempotent and re-run on the
+        // read-side fault into real data loss. Both tasks are idempotent and re-run on the
         // next healthy launch, so nothing is permanently skipped by deferring them.
         guard !isLibraryStateUnreliable else {
-            Self.log("Skipping settings sync and duplicate-release cleanup — library state is unreliable this session")
+            Self.log("Skipping settings sync and market availability migration — library state is unreliable this session")
             return
         }
 
@@ -750,26 +731,16 @@ final class DataCoordinator: Loggable {
             Self.log("Settings synced to database (background)")
         }
 
-        // Clean up any duplicate Release records left by the prior dual-write bug.
-        // Runs once at startup; harmless no-op when no duplicates exist.
-        // Not routed through trackOperation — it is idempotent and safe to interrupt.
-        //
-        // Detached, not a plain Task: in the SwiftData build the model executor ran this call on
-        // the thread that awaited it, so from a MainActor-inherited Task the whole release
-        // pass ran on the main thread — ~590ms, landing between the first gallery data and
-        // the first gallery frame (measured with `sample` against a copy of a 1,384-film
-        // library).
+        // Memory is already in the new market-availability format; this rewrites the store
+        // to match, and only when MemoryStore saw a legacy tag. Not routed through
+        // trackOperation — it is idempotent and safe to interrupt. Duplicate Release IDs
+        // need no pass here: Release.id is a uniqueness constraint, and StoreDeduplicator
+        // removes any repeats before the store is migrated to it.
         let dataManager = self.dataManager
         let migrateAvailability = memoryStore.hasLegacyMarketAvailability
+        guard migrateAvailability else { return }
         Task.detached(priority: .background) { [weak self] in
             guard let self, await !self.isShuttingDown else { return }
-            do {
-                try await dataManager.cleanupDuplicateReleases()
-            } catch {
-                Self.log("WARNING: Duplicate release cleanup failed: \(error)")
-            }
-            // Memory is already in the new format; this rewrites the store to match.
-            guard migrateAvailability else { return }
             do {
                 try await dataManager.migrateLegacyMarketAvailability()
             } catch {
@@ -3060,20 +3031,12 @@ final class DataCoordinator: Loggable {
     /// makes that condition self-healing rather than permanent.
     func cleanupOrphanedAndDuplicateMemberships() async {
         do {
-            // Awaited from a detached task, not from here: in the SwiftData build the model
-            // executor ran a DataManager call on the thread that awaited it, and this method is MainActor —
-            // the pass held the main thread ~340ms just after every launch (1,384-film
-            // library, `datamanager-thread`). Shutdown cancels deferred maintenance, so the
-            // cancellation is forwarded to the detached task, whose checkCancellation throws.
-            let dataManager = self.dataManager
-            let pass = Task.detached(priority: .background) {
-                try await dataManager.cleanupOrphanedAndDuplicateMemberships()
-            }
-            let (orphans, duplicates) = try await withTaskCancellationHandler {
-                try await pass.value
-            } onCancel: {
-                pass.cancel()
-            }
+            // Runs on DataManager's own context queue, so awaiting it here does not hold the
+            // main thread. (The SwiftData build had to await it from a detached task: there
+            // the pass ran on the awaiting thread, ~340 ms on MainActor after every launch.)
+            // Shutdown cancels deferred maintenance; this task is the one canceled, so the
+            // pass's checkCancellation throws.
+            let (orphans, duplicates) = try await dataManager.cleanupOrphanedAndDuplicateMemberships()
             if orphans > 0 {
                 Self.log("Cleaned up \(orphans) orphaned membership(s) (background)")
             }
@@ -3107,93 +3070,37 @@ final class DataCoordinator: Loggable {
     /// Removes all import sessions of the given type ("metadata" or "ratings").
     /// Sessions of the other type are left untouched.
     func deleteAllImportSessions(ofType importType: String) {
+        // The session of an import still running (or lingering) is kept: ImportProgress
+        // writes its final state later. So is any session created after this request, since
+        // the delete waits its turn in trackOperation and an import may start meanwhile.
+        // Every other unfinished one is an interrupted import's, which nothing will finish.
+        let progress = ImportProgress.shared
+        let activeID = progress.isImporting || progress.isUILingering ? progress.currentSessionID : nil
+        let requestedAt = Date()
         trackOperation { [dataManager] in
-            try await dataManager.deleteAllImportSessions(ofType: importType)
+            try await dataManager.deleteAllImportSessions(ofType: importType, keeping: activeID,
+                                                          createdBefore: requestedAt)
             Self.log("Deleted all import sessions of type: \(importType)")
         }
     }
 
     // MARK: - Settings
-    // Apply a restored backup's settings to UserDefaults (DBRestorer, from its staged store).
-    func applyRestoredSettings(_ snapshot: SettingsSnapshot) {
-        settingsManager.applyRestored(snapshot) }
-
-    // Internal method used by SettingsManager - save settings to database
-    // - Parameter snapshot: The SettingsSnapshot to save (Sendable, can cross actor boundary)
-    // NOTE: Saves directly to viewContext instead of going through DataManager to ensure
-    // settings are immediately visible to exports. DataManager uses an isolated actor context
-    // that doesn't automatically sync changes to viewContext.
+    // Used by SettingsManager. Persisted on DataManager's context, awaited directly rather
+    // than through trackOperation: the caller needs the error (a failed sync stays pending
+    // and retries), and the quit path's flushPendingSettingsSync runs this before
+    // prepareForShutdown, when trackOperation would still accept it but nothing awaits
+    // the queue. No tracked operation touches SettingsObject, so ordering against the
+    // queue does not matter. Exports read through a fresh context, so they see it once
+    // this returns (commitPendingWritesForExport awaits it).
     func saveSettings(_ snapshot: SettingsSnapshot) async throws {
-        let context = persistentContainer.viewContext
-        
-        // Fetch all SettingsObjects without predicate filter to catch any stale objects
-        // with wrong UUIDs — a one-time recovery path from an earlier bug.
-        let allSettingsDescriptor = SettingsObject.request()
-        let allSettings = try context.fetch(allSettingsDescriptor)
-        
-        // Partition into the singleton we want to keep and any stale objects to purge.
-        var singletonObject: SettingsObject?
-        var objectsToDelete: [SettingsObject] = []
-        
-        for obj in allSettings {
-            if obj.snapshotID == SettingsObject.singletonID {
-                singletonObject = obj
-            } else {
-                objectsToDelete.append(obj)
-            }
+        #if DEBUG
+        // `settings-sync-order` (99.11): holds this write open so a second sync can overlap it.
+        if !Self.debugSettingsSaveDelays.isEmpty {
+            try? await Task.sleep(for: Self.debugSettingsSaveDelays.removeFirst())
         }
-        
-        // Delete all non-singleton objects (stale UUIDs from prior sessions).
-        for obj in objectsToDelete {
-            context.delete(obj)
-        }
-        if !objectsToDelete.isEmpty {
-            Self.log("Deleted \(objectsToDelete.count) stale SettingsObject(s) with wrong UUID(s)")
-        }
-        
-        // Upsert the singleton.
-        let settings: SettingsObject
-        if let existing = singletonObject {
-            settings = existing
-        } else {
-            Self.log("Creating new SettingsObject singleton")
-            settings = SettingsObject(
-                snapshotID: SettingsObject.singletonID,
-                version: SettingsObject.currentVersion,
-                lastSyncDate: Date()
-            )
-            context.insert(settings)
-        }
-        
-        // Belt-and-suspenders: explicitly ensure snapshotID is the canonical singleton
-        // value, even though snapshot.apply(to:) already sets it. This guards against
-        // any future SettingsSnapshot path that constructs a snapshot with a different
-        // snapshotID (e.g., from a restored backup) being silently persisted under the
-        // wrong UUID and orphaned in subsequent fetches.
-        settings.snapshotID = SettingsObject.singletonID
-        
-        // Apply snapshot data and save atomically.
-        snapshot.apply(to: settings)
-        try context.save()
+        #endif
+        try await dataManager.saveSettings(snapshot)
         Self.log("Settings saved")
-    }
-
-    // Internal method used by SettingsManager - load settings from database
-    // - Returns: A SettingsSnapshot from the database, or a new empty one if none exists
-    // NOTE: Loads directly from viewContext to match saveSettings() behavior
-    func loadSettings() async throws -> SettingsSnapshot {
-        let context = persistentContainer.viewContext
-        
-        let singletonID = SettingsObject.singletonID
-        let descriptor = SettingsObject.request(.equals("snapshotID", singletonID))
-        
-        guard let settings = try context.fetch(descriptor).first else {
-            // No settings in database - return empty snapshot
-            return SettingsSnapshot()
-        }
-        
-        // Convert to snapshot
-        return SettingsSnapshot(from: settings)
     }
 
     // MARK: - Debug Harness Support
@@ -3204,6 +3111,20 @@ final class DataCoordinator: Loggable {
     /// have no public accessor and should not acquire one for production code's sake.
     /// DEBUG-only, and reachable only from a process the sandbox already contains.
     var memoryStoreForTesting: MemoryStore { memoryStore }
+
+    /// One delay per upcoming saveSettings call, consumed in order, applied before the write.
+    static var debugSettingsSaveDelays: [Duration] = []
+
+    /// Queues a tracked operation that only waits, so work queued after it runs late —
+    /// for `imports-delete-all-queued` (99.11), which needs Delete All to run after a click.
+    func debugHoldQueue(for duration: Duration) {
+        trackOperation { try? await Task.sleep(for: duration) }
+    }
+
+    /// Waits for every tracked operation queued so far.
+    func awaitTrackedOperationsForTesting() async {
+        await lastTrackedOperation?.value
+    }
 
     /// Waits for the refresh the latest default-rotation-threshold change started, which
     /// runs off the main actor (see handleDefaultRotationThresholdChangeIfNeeded).

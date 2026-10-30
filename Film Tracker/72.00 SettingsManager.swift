@@ -36,8 +36,17 @@ final class SettingsManager: Loggable {
     /// `Preferences.setIfChanged`, but `preferencesChanged` is also posted by bulk resets
     /// and by high-frequency state such as `viewSortStates`, so the same blob can be
     /// presented repeatedly. Comparing against it skips the fetch/encode/save round trip
-    /// on the main context when nothing actually differs.
+    /// when nothing actually differs.
     private var lastSynced: SettingsSnapshot?
+
+    /// The newest sync, which every later one waits for. The write suspends (it runs on
+    /// DataManager), so without this two syncs could interleave: the older snapshot could
+    /// land last, and its completion could clear `hasPendingChanges` over a newer change.
+    private var syncChain: Task<Void, Never>?
+
+    /// Bumped by every observed change, so a sync clears `hasPendingChanges` only when no
+    /// change arrived while it was writing.
+    private var changeGeneration = 0
 
     // MARK: - Initialization
     init(dataCoordinator: DataCoordinator) {
@@ -73,6 +82,7 @@ final class SettingsManager: Loggable {
     /// previous `.debounce(for:scheduler:)` operator behaved.
     private func scheduleDebouncedSync() {
         hasPendingChanges = true
+        changeGeneration += 1
         debounceTask?.cancel()
         debounceTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -89,9 +99,9 @@ final class SettingsManager: Loggable {
     /// (FilmTrackerApp.applicationShouldTerminate), mirroring the existing
     /// `flushSmartListState()` treatment of the rotation baseline — and for the same
     /// reason: both are debounced writes that would otherwise be lost on a quit inside
-    /// their window. Awaited there BEFORE `prepareForShutdown()`, since this writes via
-    /// `saveSettings` on the main context rather than through `trackOperation` (which
-    /// silently discards work once shutdown has been signaled).
+    /// their window. Awaited there BEFORE `prepareForShutdown()`: `saveSettings` awaits
+    /// DataManager directly rather than going through `trackOperation` (which silently
+    /// discards work once shutdown has been signaled), so the write is done on return.
     func flushPendingSync() async {
         debounceTask?.cancel()
         debounceTask = nil
@@ -113,8 +123,21 @@ final class SettingsManager: Loggable {
 
     // MARK: - Synchronization
     
-    /// Sync current UserDefaults values to the database
+    /// Sync current UserDefaults values to the database. Runs after any sync already in
+    /// flight, and reads Preferences only once that one is done, so the newest values are
+    /// always the ones written last. A sync that has started finishes even if its caller
+    /// is canceled (the debounce task, by a newer change).
     func syncToDatabase() async {
+        let previous = syncChain
+        let sync = Task { @MainActor [weak self] in
+            await previous?.value
+            await self?.writeCurrentSettings()
+        }
+        syncChain = sync
+        await sync.value
+    }
+
+    private func writeCurrentSettings() async {
         guard let dataCoordinator = dataCoordinator else {
             Self.log("ERROR: DataCoordinator is nil, cannot sync")
             return
@@ -122,6 +145,7 @@ final class SettingsManager: Loggable {
 
         // Create SettingsSnapshot from current Preferences
         let snapshot = createSnapshotFromPreferences()
+        let generation = changeGeneration
 
         // Skip the write entirely when nothing has actually changed since the last
         // successful sync (lastSyncDate aside — see hasSameSettings).
@@ -138,7 +162,7 @@ final class SettingsManager: Loggable {
             try await dataCoordinator.saveSettings(snapshot)
 
             lastSynced = snapshot
-            hasPendingChanges = false
+            if changeGeneration == generation { hasPendingChanges = false }
             Self.log("Settings synced successfully")
         } catch {
             // Deliberately leaves hasPendingChanges set so a later flush retries.
@@ -146,19 +170,6 @@ final class SettingsManager: Loggable {
         }
     }
     
-    /// Applies every preference in a restored backup's settings to UserDefaults. The
-    /// restorer reads them from its staged store, since the app's own store still holds the
-    /// library being replaced until the relaunch.
-    func applyRestored(_ snapshot: SettingsSnapshot) {
-        applySnapshotToPreferences(snapshot)
-
-        // A restore rewrites Preferences wholesale. Drop the baseline so the next
-        // sync is never skipped as "unchanged" against one captured before the
-        // restore — the database and UserDefaults have both moved underneath it.
-        lastSynced = nil
-
-        Self.log("Restored settings applied")
-    }
     
     // MARK: - Conversion: Preferences → SettingsSnapshot
     
@@ -256,7 +267,11 @@ final class SettingsManager: Loggable {
     /// Order is kept deliberately: the setters post change events and some interact
     /// (rememberTabSelection / tabRememberScope), so they run in the same sequence the
     /// restore always used.
-    private func applySnapshotToPreferences(_ snapshot: SettingsSnapshot) {
+    ///
+    /// Static: it runs at launch, from PendingRestore, once a restored library has been
+    /// swapped in and before any SettingsManager exists. Applied any earlier, a swap that
+    /// then failed would leave the previous library running under the backup's settings.
+    static func applySnapshotToPreferences(_ snapshot: SettingsSnapshot) {
         func apply<T>(_ value: T?, _ set: (T) -> Void) {
             if let value { set(value) }
         }

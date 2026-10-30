@@ -1283,7 +1283,7 @@ enum LaunchTimeline: Loggable {
     }
 
     static var summary: String {
-        marks.sorted { $0.ms < $1.ms }.map { unsafe String(format: "%@ %.1f", $0.name, $0.ms) }.joined(separator: " | ")
+        marks.sorted { $0.ms < $1.ms }.map { "\($0.name) \(Fmt.fixed($0.ms, 1))" }.joined(separator: " | ")
     }
 
     /// Called with the launch view's first gallery data, before its first reloadData:

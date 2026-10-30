@@ -65,7 +65,7 @@ private enum MemoryStoreCacheCoding {
 /// no information gained:
 ///
 ///   1. `filmToLists` is no longer stored. It is purely the reverse index of `lists[].filmIDs`
-///      — `MemoryStore.loadAllDataFromMainContext` builds it in the same loop that builds
+///      — `MemoryStore.loadAllDataFromStore` builds it in the same loop that builds
 ///      `lists`, from nothing but those same memberships — so it carries no independent
 ///      information. Decoding it cost a UUID parse and a `Set` allocation per membership;
 ///      rebuilding it on load is a single hash insert per membership.
@@ -185,8 +185,8 @@ struct StoreFingerprint: Codable, Sendable, Equatable {
     /// cached `FilmSnapshot`; the live side is the `Release` table. Those two disagree in
     /// exactly the ways `DataManager.computeStoreFingerprint` already documents for
     /// memberships — orphaned rows (no parent film) and duplicate rows sharing a UUID,
-    /// the latter a real defect this store has seen before and which
-    /// `cleanupDuplicateReleases` exists to clean up. Either one makes the live digest
+    /// the latter a real defect this store saw before Release.id became a uniqueness
+    /// constraint. Either one makes the live digest
     /// differ from the stored one on every launch, forever, for a library that is
     /// otherwise perfectly healthy: a ~980ms penalty every single time. Closing it would
     /// require replicating the membership machinery — a `film != nil` predicate plus a
@@ -226,8 +226,7 @@ struct StoreFingerprint: Codable, Sendable, Equatable {
     /// WHY XOR. Accumulating by XOR keeps the digest commutative, so neither side has to
     /// sort — matching the existing `xorFingerprint` and preserving the property that the
     /// live computation adds no fetch cost (see `DataManager.computeStoreFingerprint`,
-    /// where SwiftData already materializes every stored property regardless of
-    /// `propertiesToFetch`, so reading two more `Int`s in a loop that already runs is free).
+    /// where reading two more `Int`s in a loop that already runs costs nothing).
     ///
     /// Both are computed over EVERY film, not only ranked or rated ones. A value of 0 is
     /// a perfectly good input to the mixer, and including all films removes any dependence
@@ -774,9 +773,8 @@ final class MemoryStoreCache: Loggable {
     }
 
     /// Steps 1–3 of `load()`. Nonisolated, and called from a detached task when started
-    /// early. (Under SwiftData the model executor ran a DataManager call on the thread that
-    /// awaited it, so the live fingerprint had to be awaited from here rather than from
-    /// MainActor; DataManager now runs on its own context's queue either way.)
+    /// early, so the stored-fingerprint read and payload decode run in parallel with the
+    /// rest of startup.
     private nonisolated static func runPipeline(payloadURL: URL, fingerprintURL: URL,
                                                 dataManager: DataManager) async -> CachePipeline {
         guard FileManager.default.fileExists(atPath: payloadURL.path(percentEncoded: false)),

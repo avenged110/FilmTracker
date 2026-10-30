@@ -305,8 +305,11 @@ public final class DBPackager: Loggable {
             // keep being reconstructed as arrays.
             let hasSignificantWhitespace =
                 cleanString != cleanString.trimmingCharacters(in: .whitespacesAndNewlines)
+            // A carriage return goes through CDATA too: in plain text the parser normalizes
+            // "\r\n" and a lone "\r" to "\n" (XML end-of-line handling), so notes pasted
+            // with Windows line endings lost them, while CDATA hands "\r" back intact.
             if cleanString.contains("<") || cleanString.contains("&") || cleanString.contains(">")
-                || hasSignificantWhitespace {
+                || cleanString.contains("\r") || hasSignificantWhitespace {
                 return wrapInCDATA(cleanString)
             } else {
                 return xmlEscape(cleanString)

@@ -34,6 +34,7 @@
 
 import AppKit
 import Network
+import Synchronization
 import SwiftUI
 import UserNotifications
 
@@ -638,44 +639,47 @@ final class ATVQClient: Loggable {
 
     /// Gathers deliver()'s attempts and resumes it exactly once. Lock-guarded: attempts
     /// finish on their connections' queues.
-    private final class Collector: @unchecked Sendable {
-        private let lock = NSLock()
-        private let expected: Int
-        private var attempts: [Attempt] = []
-        private var continuation: CheckedContinuation<(accepted: String?, attempts: [Attempt]), Never>?
-        private var resumed = false
+    private final class Collector: Sendable {
+        typealias Result = (accepted: String?, attempts: [Attempt])
+        private struct State: Sendable {
+            let expected: Int
+            var attempts: [Attempt] = []
+            var continuation: CheckedContinuation<Result, Never>?
+            var resumed = false
 
-        init(expected: Int) { self.expected = expected }
+            /// The result, the first time there is one to give.
+            mutating func settled() -> Result? {
+                guard !resumed else { return nil }
+                if let accepted = attempts.first(where: { $0.reply?.ok == true }) {
+                    resumed = true
+                    return (accepted.label, attempts)
+                }
+                guard attempts.count >= expected else { return nil }
+                resumed = true
+                return (nil, attempts)
+            }
+        }
+        private let state: Mutex<State>
 
-        func arm(_ continuation: CheckedContinuation<(accepted: String?, attempts: [Attempt]), Never>) {
-            lock.lock()
-            self.continuation = continuation
-            let ready = settled()
-            lock.unlock()
+        init(expected: Int) { state = Mutex(State(expected: expected)) }
+
+        func arm(_ continuation: CheckedContinuation<Result, Never>) {
+            let ready = state.withLock { state in
+                state.continuation = continuation
+                return state.settled()
+            }
             ready.map { continuation.resume(returning: $0) }
         }
 
         func add(_ attempt: Attempt) {
-            lock.lock()
-            attempts.append(attempt)
-            let late = resumed
-            let ready = continuation == nil ? nil : settled()
-            let continuation = ready == nil ? nil : self.continuation
-            lock.unlock()
+            let (late, ready, continuation) = state.withLock { state in
+                state.attempts.append(attempt)
+                let late = state.resumed
+                let ready = state.continuation == nil ? nil : state.settled()
+                return (late, ready, ready == nil ? nil : state.continuation)
+            }
             if late { ATVQClient.log("\(attempt.label) (after the dispatch was settled): \(attempt.summary)") }
             if let ready, let continuation { continuation.resume(returning: ready) }
-        }
-
-        /// Call with the lock held.
-        private func settled() -> (accepted: String?, attempts: [Attempt])? {
-            guard !resumed else { return nil }
-            if let accepted = attempts.first(where: { $0.reply?.ok == true }) {
-                resumed = true
-                return (accepted.label, attempts)
-            }
-            guard attempts.count >= expected else { return nil }
-            resumed = true
-            return (nil, attempts)
         }
     }
 
@@ -752,41 +756,42 @@ final class ATVQClient: Loggable {
     /// Runs its completion once, whichever of a send's callbacks — or a cancellation, which
     /// may arrive before the completion is even armed — gets there first. Lock-guarded:
     /// the callbacks run on the connection's queue, cancellation on any thread.
-    private final class Finisher: @unchecked Sendable {
-        private let lock = NSLock()
-        private var completion: ((SendOutcome, NWError?) -> Void)?
-        private var outcome: SendOutcome?
-        private var lastWaiting: NWError?
-        private var done = false
+    private final class Finisher: Sendable {
+        typealias Completion = @Sendable (SendOutcome, NWError?) -> Void
+        private struct State: Sendable {
+            var completion: Completion?
+            var outcome: SendOutcome?
+            var lastWaiting: NWError?
+            var done = false
+        }
+        private let state = Mutex(State())
 
-        func arm(_ completion: @escaping (SendOutcome, NWError?) -> Void) {
-            lock.lock()
-            if let outcome, !done {
-                done = true
-                let waiting = lastWaiting
-                lock.unlock()
-                completion(outcome, waiting)
-                return
+        func arm(_ completion: @escaping Completion) {
+            // The completion runs after the lock is released, never inside it.
+            let ready: (SendOutcome, NWError?)? = state.withLock { state in
+                if let outcome = state.outcome, !state.done {
+                    state.done = true
+                    return (outcome, state.lastWaiting)
+                }
+                state.completion = completion
+                return nil
             }
-            self.completion = completion
-            lock.unlock()
+            if let (outcome, waiting) = ready { completion(outcome, waiting) }
         }
 
         func note(_ error: NWError) {
-            lock.lock()
-            lastWaiting = error
-            lock.unlock()
+            state.withLock { $0.lastWaiting = error }
         }
 
         func finish(_ result: SendOutcome) {
-            lock.lock()
-            guard !done, outcome == nil else { lock.unlock(); return }
-            guard let completion else { outcome = result; lock.unlock(); return }
-            done = true
-            self.completion = nil
-            let waiting = lastWaiting
-            lock.unlock()
-            completion(result, waiting)
+            let ready: (Completion, NWError?)? = state.withLock { state in
+                guard !state.done, state.outcome == nil else { return nil }
+                guard let completion = state.completion else { state.outcome = result; return nil }
+                state.done = true
+                state.completion = nil
+                return (completion, state.lastWaiting)
+            }
+            if let (completion, waiting) = ready { completion(result, waiting) }
         }
     }
 }
@@ -985,12 +990,13 @@ extension ATVQClient {
     }
 
     /// Delivers one value, from whichever callback gets there first.
-    private final class Once<Value>: @unchecked Sendable {
-        private let lock = NSLock()
-        private var action: ((Value) -> Void)?
-        init(_ action: @escaping (Value) -> Void) { self.action = action }
+    private final class Once<Value>: Sendable {
+        private let action: Mutex<((Value) -> Void)?>
+        init(_ action: sending @escaping (Value) -> Void) { self.action = Mutex(action) }
         func fire(_ value: Value) {
-            lock.lock(); let action = self.action; self.action = nil; lock.unlock()
+            let action = self.action.withLock { action -> sending ((Value) -> Void)? in
+                let taken = action; action = nil; return taken
+            }
             action?(value)
         }
     }
@@ -1086,22 +1092,22 @@ extension ATVQClient {
         Date().timeIntervalSince(start).formatted(.number.precision(.fractionLength(2))) + "s"
     }
 
-    private final class ProbeBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var lines: [String] = []
-        private var found: [NWEndpoint] = []
-        func note(_ line: String) { lock.lock(); lines.append(line); lock.unlock() }
-        func set(_ endpoints: [NWEndpoint]) { lock.lock(); found = endpoints; lock.unlock() }
-        var notes: String { lock.lock(); defer { lock.unlock() }; return lines.joined(separator: " | ") }
-        var endpoints: [NWEndpoint] { lock.lock(); defer { lock.unlock() }; return found }
+    private final class ProbeBox: Sendable {
+        private let lines = Mutex<[String]>([])
+        private let found = Mutex<[NWEndpoint]>([])
+        func note(_ line: String) { lines.withLock { $0.append(line) } }
+        func set(_ endpoints: [NWEndpoint]) { found.withLock { $0 = endpoints } }
+        var notes: String { lines.withLock { $0.joined(separator: " | ") } }
+        var endpoints: [NWEndpoint] { found.withLock { $0 } }
     }
 
-    private final class ProbeOnce: @unchecked Sendable {
-        private let lock = NSLock()
-        private var action: ((Bool) -> Void)?
-        init(_ action: @escaping (Bool) -> Void) { self.action = action }
+    private final class ProbeOnce: Sendable {
+        private let action: Mutex<((Bool) -> Void)?>
+        init(_ action: sending @escaping (Bool) -> Void) { self.action = Mutex(action) }
         func fire(_ value: Bool) {
-            lock.lock(); let action = self.action; self.action = nil; lock.unlock()
+            let action = self.action.withLock { action -> sending ((Bool) -> Void)? in
+                let taken = action; action = nil; return taken
+            }
             action?(value)
         }
     }

@@ -1,0 +1,24 @@
+<!-- Copyright © 2026 avenged110. SPDX-License-Identifier: GPL-3.0-only -->
+<!-- DRAFT for Documentation/Sources/UserGuide.html, chapter 3 ("Adding and editing films").
+     1. Insert the block below after the "Poster" <div class="keep"> and before the chapter's
+        closing note.
+     2. In the chapter's lede, after "…for the selected one." add:
+        " With several films selected, the same commands open a sheet that edits them all at once."
+     3. In the Keyboard shortcuts table, change the ⌘E row's description to
+        "Edit Metadata (several films: edit them all at once)".
+     Rebuild the PDF afterward (Documentation's check script; it runs the guide-sync harness). -->
+
+  <div class="keep">
+  <h3>Editing several films at once</h3>
+  <p>Select more than one film and choose Edit Metadata&hellip; (<code>&#8984;E</code> or <code>&#8984;I</code>) to open <strong>Edit <em>N</em> Films</strong>. Its <strong>Details</strong> tab holds the fields that make sense for many films at once: Genre and MPAA rating, Queue Membership and automatic queueing, List Membership, Watched, Edited, Hall of Fame, Complete Data, Special Sorting, Rotation Threshold, Notes, and Tags. The <strong>Selected Films</strong> tab lists the films being edited. <code>&#8997;1</code> and <code>&#8997;2</code> switch between the tabs, as in the film sheet.</p>
+  </div>
+  <ul>
+    <li>Each field opens to the value the films share. Where they differ, it opens blank, and a checkbox shows a dash. A field you don&rsquo;t change is left as it is on every film.</li>
+    <li>A field you change is written to <em>every</em> film, replacing what each had. A blue arrow button appears at the end of its row; click it to leave that field unchanged again. Choosing the films&rsquo; shared value again also leaves it unchanged.</li>
+    <li>Clicking a checkbox with a dash checks it, then unchecks it, then returns it to the dash (unchanged).</li>
+    <li><strong>Tags</strong> are the exception: the tags you enter are added to each film&rsquo;s own, skipping any it already has.</li>
+    <li>List Membership sets exactly which lists the films are in: each film is taken out of any list you leave unchecked. To take the films out of every list, check a list and uncheck it again, so the field reads None.</li>
+    <li>If the films&rsquo; notes differ, Notes opens empty, and leaving it empty leaves every film&rsquo;s notes alone. If the films share the same notes, Notes shows them, and emptying it clears them. Either way, you are asked before any film&rsquo;s notes are replaced or cleared.</li>
+    <li>&ldquo;Up Next&rdquo; and the Hall of Fame have limits (8 and 200 films). If the films you selected would not fit, that choice is unavailable, and a note says how much room is left.</li>
+    <li>Blacklisting films sets their rotation threshold to 5 years, as it does for one film. Films that are already blacklisted keep that threshold when you change Rotation Threshold alone.</li>
+  </ul>

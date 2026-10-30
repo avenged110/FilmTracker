@@ -42,6 +42,7 @@
 
 import Foundation
 import CoreData
+import SQLite3
 
 extension DebugHarness {
 
@@ -49,7 +50,7 @@ extension DebugHarness {
     /// and rebuilds the sandbox store, orphaning the coordinator's container.
     static var pipelineScenarios: [String] {
         ["rollback-integrity", "export-roundtrip", "export-malformed", "audit-fixes",
-         "film-field-merge", "restore-endtoend", "release-date-rules"]
+         "film-field-merge", "membership-cascade", "restore-endtoend", "release-date-rules"]
     }
 
     static func runPipelineScenario(_ scenario: String,
@@ -62,6 +63,7 @@ extension DebugHarness {
         case "film-field-merge":   return await filmFieldMergeScenario(coordinator: coordinator)
         case "restore-endtoend":   return await restoreEndToEndScenario(coordinator: coordinator)
         case "release-date-rules": return releaseDateRulesScenario()
+        case "membership-cascade": return await membershipCascadeScenario()
         // By name only, not in any suite: the cross-build restore parity test.
         case "parity-export":      return await parityExportScenario(coordinator: coordinator)
         case "parity-restore":     return await parityRestoreScenario(coordinator: coordinator)
@@ -476,7 +478,7 @@ extension DebugHarness {
         // The setter posts preferencesChanged from a Task; let it arm the debounce.
         for _ in 0..<3 { await Task.yield() }
         await coordinator.commitPendingWritesForExport()
-        let storedFuzzy = (try? await coordinator.loadSettings())?.fuzzyImportMatching
+        let storedFuzzy = storedSettings(coordinator)?.fuzzyImportMatching
         r.check("export-flush/settings-committed", storedFuzzy == !originalFuzzy,
                 "stored fuzzyImportMatching is \(String(describing: storedFuzzy)), expected \(!originalFuzzy)")
         Preferences.fuzzyImportMatching = originalFuzzy
@@ -490,7 +492,7 @@ extension DebugHarness {
             let originalConfirm = Preferences.confirmReleaseDelete
             suite.set(!originalConfirm, forKey: Preferences.confirmReleaseDeleteKey)
             await coordinator.commitPendingWritesForExport()
-            let storedConfirm = (try? await coordinator.loadSettings())?.confirmReleaseDelete
+            let storedConfirm = storedSettings(coordinator)?.confirmReleaseDelete
             r.check("export-flush/silent-appstorage-write-committed", storedConfirm == !originalConfirm,
                     "stored confirmReleaseDelete is \(String(describing: storedConfirm)), expected \(!originalConfirm)")
             suite.set(originalConfirm, forKey: Preferences.confirmReleaseDeleteKey)
@@ -2633,6 +2635,509 @@ extension DebugHarness {
                     "a staged restore waits for the next launch")
         } catch {
             r.check("restore-completes", false, "\(error)")
+        }
+        return r
+    }
+}
+
+// MARK: - Scenario: Membership Cascade
+//
+// DataManager deletes a film's or a list's ListMembership rows by hand before it deletes the
+// film or list. The SwiftData build needed that: its cascade missed rows created in the same
+// session, and the misses survived as orphans. This scenario decides whether Core Data's
+// delete rules alone (Film.memberships and ListObject.memberships cascade; ListMembership.film
+// and .list nullify) can be trusted.
+//
+// The explicit deletes have since been removed, so this now guards the delete rules alone.
+// Every case runs on its own on-disk store (`cascade/…`). After every
+// step the store FILE is read with raw SQL, not through Core Data, so the audit does not trust
+// the layer it audits. It must match a shadow model of the films, lists and (film, list)
+// pairs that should exist: no orphan of either kind, no duplicate, no row lost and nothing
+// over-deleted. A control case first proves the audit catches each kind of orphan.
+
+extension DebugHarness {
+
+    struct MembershipPair: Hashable {
+        let film: UUID
+        let list: UUID
+    }
+
+    /// The membership tables as the SQLite file has them.
+    struct MembershipAudit {
+        var films: Set<UUID> = []
+        var lists: Set<UUID> = []
+        var pairs: Set<MembershipPair> = []
+        var rows = 0
+        var nullFilm = 0, nullList = 0, danglingFilm = 0, danglingList = 0
+        var orphanReleases = 0
+        var orphans: Int { nullFilm + nullList + danglingFilm + danglingList }
+        var summary: String {
+            "\(rows) row(s) for \(pairs.count) pair(s), \(films.count) film(s), \(lists.count) list(s); "
+                + "film nil \(nullFilm), list nil \(nullList), dangling film \(danglingFilm), "
+                + "dangling list \(danglingList), orphaned releases \(orphanReleases)"
+        }
+    }
+
+    static func membershipAudit(_ url: URL) -> MembershipAudit? {
+        var db: OpaquePointer?
+        defer { unsafe sqlite3_close(db) }
+        guard unsafe sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK
+        else { return nil }
+        func rows(_ sql: String, _ body: (OpaquePointer?) -> Void) -> Bool {
+            var statement: OpaquePointer?
+            defer { unsafe sqlite3_finalize(statement) }
+            guard unsafe sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return false }
+            while unsafe sqlite3_step(statement) == SQLITE_ROW { unsafe body(statement) }
+            return true
+        }
+        func count(_ sql: String) -> Int {
+            var value = -1
+            _ = unsafe rows(sql) { statement in value = Int(unsafe sqlite3_column_int64(statement, 0)) }
+            return value
+        }
+        func uuid(_ statement: OpaquePointer?, _ column: Int32) -> UUID? {
+            guard unsafe sqlite3_column_bytes(statement, column) == 16,
+                  let bytes = unsafe sqlite3_column_blob(statement, column) else { return nil }
+            return UUID(uuid: unsafe bytes.loadUnaligned(as: uuid_t.self))
+        }
+        var audit = MembershipAudit()
+        let read = unsafe rows("SELECT ZID FROM ZFILM") { statement in if let id = unsafe uuid(statement, 0) { audit.films.insert(id) } }
+            && rows("SELECT ZLISTID FROM ZLISTOBJECT") { statement in if let id = unsafe uuid(statement, 0) { audit.lists.insert(id) } }
+            && rows("""
+                SELECT f.ZID, l.ZLISTID FROM ZLISTMEMBERSHIP m
+                JOIN ZFILM f ON f.Z_PK = m.ZFILM JOIN ZLISTOBJECT l ON l.Z_PK = m.ZLIST
+                """) {
+                statement in
+                if let film = unsafe uuid(statement, 0), let list = unsafe uuid(statement, 1) {
+                    audit.pairs.insert(MembershipPair(film: film, list: list))
+                }
+            }
+        guard read else { return nil }
+        audit.rows = count("SELECT COUNT(*) FROM ZLISTMEMBERSHIP")
+        audit.nullFilm = count("SELECT COUNT(*) FROM ZLISTMEMBERSHIP WHERE ZFILM IS NULL")
+        audit.nullList = count("SELECT COUNT(*) FROM ZLISTMEMBERSHIP WHERE ZLIST IS NULL")
+        audit.danglingFilm = count("SELECT COUNT(*) FROM ZLISTMEMBERSHIP WHERE ZFILM IS NOT NULL AND ZFILM NOT IN (SELECT Z_PK FROM ZFILM)")
+        audit.danglingList = count("SELECT COUNT(*) FROM ZLISTMEMBERSHIP WHERE ZLIST IS NOT NULL AND ZLIST NOT IN (SELECT Z_PK FROM ZLISTOBJECT)")
+        audit.orphanReleases = count("""
+            SELECT COUNT(*) FROM ZRELEASE WHERE (ZFILM IS NULL AND ZPARENTRELEASE IS NULL)
+            OR (ZFILM IS NOT NULL AND ZFILM NOT IN (SELECT Z_PK FROM ZFILM))
+            """)
+        return audit
+    }
+
+    /// One probe store, the DataManager on it, and the shadow model of what it must hold.
+    @MainActor
+    final class CascadeProbe {
+        let url: URL
+        private(set) var container: NSPersistentContainer
+        private(set) var dataManager: DataManager
+        var films: Set<UUID> = []
+        var lists: Set<UUID> = []
+        var pairs: Set<MembershipPair> = []
+        /// Failed steps, as "step: detail".
+        var failures: [String] = []
+        var steps = 0
+
+        init(url: URL) throws {
+            self.url = url
+            if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+                try LibraryStore.destroyStore(at: url)
+            }
+            container = try LibraryStore.makeContainer(at: url)
+            dataManager = DataManager(persistentContainer: container)
+        }
+
+        /// A new coordinator, context and DataManager on the same file: nothing the old
+        /// stack had registered or cached carries over, as after a relaunch.
+        func relaunch() throws {
+            container = try LibraryStore.makeContainer(at: url)
+            dataManager = DataManager(persistentContainer: container)
+        }
+
+        /// Adopts whatever the store holds as the expected state (the real-library case).
+        func adoptStore() -> MembershipAudit? {
+            guard let audit = DebugHarness.membershipAudit(url) else { return nil }
+            films = audit.films; lists = audit.lists; pairs = audit.pairs
+            return audit
+        }
+
+        func insertFilms(_ count: Int, seed: UInt64) async throws -> [UUID] {
+            let corpus = DebugHarness.standardCorpus(count: count, seed: seed)
+            try await dataManager.batchInsertFilms(corpus)
+            films.formUnion(corpus.map(\.id))
+            return corpus.map(\.id)
+        }
+
+        func createLists(_ count: Int) async throws -> [UUID] {
+            var ids: [UUID] = []
+            for index in 0..<count {
+                let id = UUID()
+                try await dataManager.createList(listID: id, name: "Cascade Probe \(index)", displayOrder: 700 + index)
+                lists.insert(id); ids.append(id)
+            }
+            return ids
+        }
+
+        func add(_ filmIDs: some Sequence<UUID>, to listIDs: some Sequence<UUID>) async throws {
+            let f = Set(filmIDs), l = Set(listIDs)
+            try await dataManager.batchAddFilmsToLists(filmIDs: f, listIDs: l)
+            expectAdd(f, l)
+        }
+
+        func expectAdd(_ filmIDs: Set<UUID>, _ listIDs: Set<UUID>) {
+            for film in filmIDs where films.contains(film) {
+                for list in listIDs where lists.contains(list) { pairs.insert(MembershipPair(film: film, list: list)) }
+            }
+        }
+
+        func remove(_ filmIDs: some Sequence<UUID>, from listIDs: some Sequence<UUID>) async throws {
+            let f = Set(filmIDs), l = Set(listIDs)
+            try await dataManager.batchRemoveFilmsFromLists(filmIDs: f, listIDs: l)
+            pairs = pairs.filter { !(f.contains($0.film) && l.contains($0.list)) }
+        }
+
+        func move(_ filmIDs: Set<UUID>, from sources: Set<UUID>, to target: UUID) async throws {
+            try await dataManager.moveFilmsBetweenLists(filmIDs: filmIDs, removalFilmIDs: filmIDs,
+                                                        removalListIDs: sources, addingTo: target)
+            pairs = pairs.filter { !(filmIDs.contains($0.film) && sources.contains($0.list)) }
+            expectAdd(filmIDs, [target])
+        }
+
+        func deleteFilms(_ ids: some Sequence<UUID>) async throws {
+            let set = Set(ids)
+            try await dataManager.deleteFilms(withIDs: set)
+            expectFilmsDeleted(set)
+        }
+
+        func expectFilmsDeleted(_ ids: Set<UUID>) {
+            films.subtract(ids)
+            pairs = pairs.filter { !ids.contains($0.film) }
+        }
+
+        func deleteList(_ id: UUID) async throws {
+            try await dataManager.deleteList(listID: id)
+            expectListDeleted(id)
+        }
+
+        func expectListDeleted(_ id: UUID) {
+            lists.remove(id)
+            pairs = pairs.filter { $0.list != id }
+        }
+
+        /// Reads the file and compares it with the shadow model. Returns the audit.
+        @discardableResult
+        func verify(_ step: String) -> MembershipAudit? {
+            steps += 1
+            guard let audit = DebugHarness.membershipAudit(url) else {
+                failures.append("\(step): the store could not be read"); return nil
+            }
+            var problems: [String] = []
+            if audit.orphans > 0 || audit.orphanReleases > 0 { problems.append("orphans") }
+            if audit.rows != audit.pairs.count + audit.orphans { problems.append("duplicate rows") }
+            if audit.films != films { problems.append("films \(audit.films.count) vs \(films.count) expected") }
+            if audit.lists != lists { problems.append("lists \(audit.lists.count) vs \(lists.count) expected") }
+            if audit.pairs != pairs {
+                problems.append("pairs: \(pairs.subtracting(audit.pairs).count) missing, "
+                                + "\(audit.pairs.subtracting(pairs).count) unexpected")
+            }
+            if !problems.isEmpty {
+                failures.append("\(step): \(problems.joined(separator: "; ")) — \(audit.summary)")
+            }
+            return audit
+        }
+    }
+
+    private static func membershipCascadeScenario() async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "membership-cascade")
+        guard let folder = LibraryStore.storeURL?.deletingLastPathComponent()
+            .appendingPathComponent("cascade-probe", isDirectory: true) else {
+            r.check("store-folder", false, "no store URL in this sandbox"); return r
+        }
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        // --- Control: the audit must see each kind of orphan, or every pass below is vacuous.
+        do {
+            let probe = try CascadeProbe(url: folder.appendingPathComponent("control.sqlite"))
+            let filmIDs = try await probe.insertFilms(3, seed: 0xCA5C_0001)
+            let listIDs = try await probe.createLists(1)
+            try await probe.add(filmIDs, to: listIDs)
+            let context = probe.container.makeMainContext()
+            if let list = try context.fetch(ListObject.request(.equals("listID", listIDs[0]))).first,
+               let film = try context.fetch(Film.request(.equals("id", filmIDs[0]))).first {
+                let stray = ListMembership(film: film, list: list)
+                stray.film = nil       // a row with no film
+                try context.commit()
+            }
+            var db: OpaquePointer?
+            if unsafe sqlite3_open_v2(probe.url.path(percentEncoded: false), &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
+                // A film row removed underneath its membership: a dangling reference.
+                _ = unsafe sqlite3_exec(db, "DELETE FROM ZFILM WHERE Z_PK = (SELECT MIN(ZFILM) FROM ZLISTMEMBERSHIP WHERE ZFILM IS NOT NULL)", nil, nil, nil)
+            }
+            unsafe sqlite3_close(db)
+            let audit = membershipAudit(probe.url)
+            r.check("control/audit-sees-orphans", (audit?.nullFilm ?? 0) >= 1 && (audit?.danglingFilm ?? 0) >= 1,
+                    audit?.summary ?? "unreadable")
+        } catch {
+            r.check("control/audit-sees-orphans", false, "\(error)")
+        }
+
+        do {
+            let mode = "cascade"
+            var cases = 0
+            func run(_ name: String, _ body: (CascadeProbe) async throws -> Void) async {
+                cases += 1
+                do {
+                    let probe = try CascadeProbe(url: folder.appendingPathComponent("\(mode)-\(name).sqlite"))
+                    try await body(probe)
+                    r.check("\(mode)/\(name)", probe.failures.isEmpty,
+                            probe.failures.isEmpty ? "\(probe.steps) step(s) verified"
+                                : "\(probe.failures.count) of \(probe.steps) step(s) failed; first: \(probe.failures[0])")
+                } catch {
+                    r.check("\(mode)/\(name)", false, "threw: \(error)")
+                }
+            }
+
+            // Everything in one DataManager session: the rows were created by the context
+            // that deletes them. This is the SwiftData failure the explicit deletes guarded.
+            await run("same-session") { p in
+                let f = try await p.insertFilms(12, seed: 0xCA5C_0010)
+                let l = try await p.createLists(4)
+                try await p.add(f[0...9], to: [l[0], l[1]])
+                try await p.add(f[5...11], to: [l[2]])
+                p.verify("seeded")
+                try await p.deleteFilms([f[0], f[1], f[5], f[11]]); p.verify("films-deleted")
+                try await p.deleteList(l[1]); p.verify("list-deleted")
+                try await p.add([f[2], f[3]], to: [l[3]])
+                try await p.deleteFilms([f[2]]); p.verify("added-then-deleted")
+                try await p.deleteList(l[0]); try await p.deleteList(l[2]); p.verify("lists-deleted")
+                try await p.deleteFilms(f); p.verify("all-films-deleted")
+            }
+
+            // The rows were created by an earlier session; the deleting stack has never
+            // loaded them.
+            await run("after-relaunch") { p in
+                let f = try await p.insertFilms(10, seed: 0xCA5C_0020)
+                let l = try await p.createLists(3)
+                try await p.add(f, to: l)
+                try p.relaunch()
+                try await p.deleteFilms(f[0...3]); p.verify("films-deleted")
+                try p.relaunch()
+                try await p.deleteList(l[0]); p.verify("list-deleted")
+                try p.relaunch()
+                try await p.deleteFilms(f[4...]); try await p.deleteList(l[1]); p.verify("rest-deleted")
+            }
+
+            // Deleting one side must not over-delete: a list's delete leaves the film and its
+            // other memberships, a film's delete leaves every list.
+            await run("multi-list") { p in
+                let f = try await p.insertFilms(3, seed: 0xCA5C_0030)
+                let l = try await p.createLists(6)
+                try await p.add([f[0]], to: l)
+                try await p.add([f[1]], to: l[0...2])
+                try await p.deleteList(l[0]); p.verify("one-list-deleted")
+                try await p.deleteFilms([f[0]]); p.verify("film-deleted")
+                try await p.deleteList(l[1]); p.verify("second-list-deleted")
+            }
+
+            // Rows created by the FilmSheet save path, then deleted in the same session.
+            await run("changeset") { p in
+                let l = try await p.createLists(3)
+                let fresh = makeSnapshot(name: "Changeset Probe")
+                try await p.dataManager.applyFilmChangeset(FilmChangeset(
+                    filmID: fresh.id, isNewFilm: true, filmSnapshot: fresh,
+                    releasesToCreate: [], releasesToUpdate: [], releasesToDelete: [],
+                    listsToAdd: [l[0], l[2]], listsToRemove: []))
+                p.films.insert(fresh.id); p.expectAdd([fresh.id], [l[0], l[2]])
+                p.verify("created")
+                try await p.deleteFilms([fresh.id]); p.verify("deleted")
+            }
+
+            // Rows created by the Queue's move path, and rows removed then re-added.
+            await run("move-and-readd") { p in
+                let f = try await p.insertFilms(6, seed: 0xCA5C_0040)
+                let l = try await p.createLists(3)
+                try await p.add(f[0...2], to: [l[0]])
+                try await p.move([f[0], f[1]], from: [l[0]], to: l[1]); p.verify("moved")
+                try await p.remove([f[2]], from: [l[0]])
+                try await p.add([f[2]], to: [l[0]]); p.verify("readded")
+                try await p.deleteFilms([f[0], f[2]]); p.verify("films-deleted")
+                try await p.deleteList(l[1]); p.verify("list-deleted")
+            }
+
+            // Straight Core Data: insert and delete in one save, and objects turned back into
+            // faults or forgotten (reset) before the delete.
+            await run("raw-context") { p in
+                let f = try await p.insertFilms(4, seed: 0xCA5C_0050)
+                let l = try await p.createLists(2)
+                try await p.add(f, to: l)
+                let context = p.container.makeMainContext()
+                let list = try context.fetch(ListObject.request(.equals("listID", l[0]))).first!
+                let unsaved = Film(); context.insert(unsaved)
+                _ = ListMembership(film: unsaved, list: list)
+                context.delete(unsaved)
+                try context.commit(); p.verify("inserted-and-deleted-in-one-save")
+
+                let films = try context.fetch(Film.request(.in("id", [f[0], f[1]])))
+                _ = films.flatMap { $0.memberships }   // fire the relationship faults
+                context.refreshAllObjects()            // and turn everything back into faults
+                for film in films { context.delete(film) }
+                try context.commit(); p.expectFilmsDeleted([f[0], f[1]]); p.verify("deleted-as-faults")
+
+                context.reset()
+                let other = try context.fetch(ListObject.request(.equals("listID", l[1]))).first!
+                context.delete(other)
+                try context.commit(); p.expectListDeleted(l[1]); p.verify("deleted-after-reset")
+
+                // A delete that is rolled back must leave every row.
+                let survivor = try context.fetch(Film.request(.equals("id", f[2]))).first!
+                context.delete(survivor)
+                context.rollback()
+                try context.commit(); p.verify("rolled-back")
+
+                // A delete and an insert in the same save.
+                let doomed = try context.fetch(Film.request(.equals("id", f[3]))).first!
+                let replacement = Film(); context.insert(replacement)
+                let target = try context.fetch(ListObject.request(.equals("listID", l[0]))).first!
+                _ = ListMembership(film: replacement, list: target)
+                context.delete(doomed)
+                try context.commit()
+                p.expectFilmsDeleted([f[3]]); p.films.insert(replacement.id); p.expectAdd([replacement.id], [l[0]])
+                p.verify("delete-and-insert-in-one-save")
+            }
+
+            // The view context has the rows registered when DataManager deletes them; after
+            // the merge it must not see them, and a later view-context save must not bring
+            // them back.
+            await run("view-context-merge") { p in
+                let f = try await p.insertFilms(5, seed: 0xCA5C_0060)
+                let l = try await p.createLists(2)
+                try await p.add(f, to: l)
+                let view = p.container.viewContext
+                let registered = try view.fetch(ListMembership.request())
+                _ = registered.map { ($0.film?.id, $0.list?.listID) }
+                try await p.deleteFilms(f[0...1]); try await p.deleteList(l[0])
+                var seen = -1
+                for _ in 0..<100 {
+                    seen = try view.count(for: ListMembership.request())
+                    if seen == p.pairs.count { break }
+                    try? await Task.sleep(for: .milliseconds(20))
+                }
+                if seen != p.pairs.count { p.failures.append("merge: the view context counts \(seen), expected \(p.pairs.count)") }
+                view.insert(ImportSession(importType: "cascade-probe"))
+                try view.commit()
+                p.verify("after-view-save")
+            }
+
+            // Another context adds a row after the deleting context loaded the relationship.
+            // The app has no such writer (DataManager is the only one), so this is the edge
+            // where a stale relationship could hide a row from the cascade.
+            await run("foreign-insert") { p in
+                let f = try await p.insertFilms(4, seed: 0xCA5C_0070)
+                let l = try await p.createLists(3)
+                try await p.add([f[0], f[1]], to: [l[0]])   // DataManager now holds both relationships
+                let foreign = p.container.makeMainContext()
+                let film0 = try foreign.fetch(Film.request(.equals("id", f[0]))).first!
+                let film2 = try foreign.fetch(Film.request(.equals("id", f[2]))).first!
+                let list1 = try foreign.fetch(ListObject.request(.equals("listID", l[1]))).first!
+                let list0 = try foreign.fetch(ListObject.request(.equals("listID", l[0]))).first!
+                _ = ListMembership(film: film0, list: list1)
+                _ = ListMembership(film: film2, list: list0)
+                try foreign.commit()
+                p.expectAdd([f[0]], [l[1]]); p.expectAdd([f[2]], [l[0]])
+                p.verify("foreign-rows-added")
+                try await p.deleteFilms([f[0]]); p.verify("film-deleted")
+                try await p.deleteList(l[0]); p.verify("list-deleted")
+
+                // The same with the film's own relationship loaded first: an existing-film
+                // changeset that adds a list reads film.memberships.
+                let snapshot = makeSnapshot(name: "Foreign Probe")
+                try await p.dataManager.applyFilmChangeset(FilmChangeset(
+                    filmID: f[1], isNewFilm: false, filmSnapshot: snapshot,
+                    releasesToCreate: [], releasesToUpdate: [], releasesToDelete: [],
+                    listsToAdd: [l[2]], listsToRemove: [], changedFields: []))
+                p.expectAdd([f[1]], [l[2]])
+                let film1 = try foreign.fetch(Film.request(.equals("id", f[1]))).first!
+                let list1Again = try foreign.fetch(ListObject.request(.equals("listID", l[1]))).first!
+                _ = ListMembership(film: film1, list: list1Again)
+                try foreign.commit()
+                p.expectAdd([f[1]], [l[1]]); p.verify("second-foreign-row")
+                try await p.deleteFilms([f[1]]); p.verify("loaded-film-deleted")
+                try await p.deleteList(l[2]); try await p.deleteList(l[1]); p.verify("remaining-lists-deleted")
+            }
+
+            // Long random sequences of every operation, with relaunches, verified at every step.
+            for (index, fuzzSeed) in [UInt64(0xCA5C_F022), 0x5EED_0042, 0xB01D_FACE].enumerated() {
+            await run("fuzz-\(index + 1)") { p in
+                var rng = SeededGenerator(seed: fuzzSeed)
+                var seed: UInt64 = 0xCA5C_1000
+                _ = try await p.insertFilms(40, seed: seed)
+                _ = try await p.createLists(8)
+                for step in 0..<1_500 {
+                    let films = Array(p.films).sorted { $0.uuidString < $1.uuidString }
+                    let lists = Array(p.lists).sorted { $0.uuidString < $1.uuidString }
+                    func some<T>(_ from: [T], _ upTo: Int) -> [T] {
+                        guard !from.isEmpty else { return [] }
+                        return (0..<Int.random(in: 1...upTo, using: &rng)).map { _ in from[Int.random(in: 0..<from.count, using: &rng)] }
+                    }
+                    let roll = Int.random(in: 0..<100, using: &rng)
+                    var label = ""
+                    switch roll {
+                    case 0..<30: label = "add";    try await p.add(some(films, 6), to: some(lists, 3))
+                    case 30..<42: label = "remove"; try await p.remove(some(films, 4), from: some(lists, 2))
+                    case 42..<50:
+                        label = "move"
+                        if lists.count >= 2 {
+                            let target = lists[Int.random(in: 0..<lists.count, using: &rng)]
+                            try await p.move(Set(some(films, 3)), from: Set(lists.filter { $0 != target }.prefix(2)), to: target)
+                        }
+                    case 50..<64: label = "delete-films"; try await p.deleteFilms(some(films, 3))
+                    case 64..<70:
+                        label = "delete-list"
+                        if let list = some(lists, 1).first { try await p.deleteList(list) }
+                    case 70..<82: label = "insert-films"; seed += 1; _ = try await p.insertFilms(Int.random(in: 1...4, using: &rng), seed: seed)
+                    case 82..<88: label = "create-list"; _ = try await p.createLists(1)
+                    case 88..<97:
+                        label = "changeset"
+                        let fresh = makeSnapshot(name: "Fuzz \(step)")
+                        let targets = Set(some(lists, 2))
+                        try await p.dataManager.applyFilmChangeset(FilmChangeset(
+                            filmID: fresh.id, isNewFilm: true, filmSnapshot: fresh,
+                            releasesToCreate: [], releasesToUpdate: [], releasesToDelete: [],
+                            listsToAdd: targets, listsToRemove: []))
+                        p.films.insert(fresh.id); p.expectAdd([fresh.id], targets)
+                    default: label = "relaunch"; try p.relaunch()
+                    }
+                    p.verify("step \(step) (\(label))")
+                    if p.failures.count > 20 { break }
+                }
+            }
+            }
+
+            // The real library, when this sandbox holds a copy of it: every film that is in a
+            // list, then every list, then everything.
+            if let live = LibraryStore.storeURL,
+               let liveAudit = membershipAudit(live), liveAudit.films.count >= 500 {
+                await run("real-library") { p in
+                    try LibraryStore.replaceStore(at: p.url, withStoreAt: live)
+                    try p.relaunch()
+                    guard let start = p.adoptStore() else { p.failures.append("copy unreadable"); return }
+                    p.verify("copied")
+                    let listed = Array(Set(start.pairs.map(\.film))).sorted { $0.uuidString < $1.uuidString }
+                    for chunk in Array(listed.prefix(60)).chunked(into: 5) { try await p.deleteFilms(chunk); p.verify("listed-films \(chunk.count)") }
+                    try p.relaunch()
+                    for list in Array(p.lists).sorted(by: { $0.uuidString < $1.uuidString }).prefix(p.lists.count / 2) {
+                        try await p.deleteList(list); p.verify("list")
+                    }
+                    try p.relaunch()
+                    for chunk in Array(p.films).chunked(into: 200) { try await p.deleteFilms(chunk); p.verify("all-films") }
+                    for list in Array(p.lists) { try await p.deleteList(list) }
+                    p.verify("emptied")
+                    r.metric("\(mode)-real-library-start-rows", Double(start.rows), "rows")
+                }
+            } else {
+                r.skip("\(mode)/real-library", "this sandbox does not hold a copy of a real library")
+            }
+            r.metric("\(mode)-cases", Double(cases), "count")
         }
         return r
     }

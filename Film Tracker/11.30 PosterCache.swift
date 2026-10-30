@@ -6,6 +6,7 @@
 // and filled in the background via restoreCacheFromMetadata() and completeCache().
 
 import AppKit
+import Synchronization
 
 /// A poster freshly decoded off the main actor, on its way into the MainActor cache.
 ///
@@ -110,6 +111,7 @@ final class PosterCache: Loggable {
         // `cache[$0] == nil` filter would already reduce it to a no-op; retiring the flag makes
         // that explicit and also stops the per-pass array construction. The restore's priority
         // hint has likewise already been consumed, so nothing downstream still needs it.
+        earlyLaunchWarm = nil
         if !hasPerformedLaunchBlockingWarm {
             hasPerformedLaunchBlockingWarm = true
             log("Launch pre-paint warm retired unconsumed — the launch view held no posters")
@@ -174,17 +176,75 @@ final class PosterCache: Loggable {
         restorePriorityOrder = ordered
 
         guard let folderURL = Preferences.posterImagesFolderURL else { return }
-        let warmUIDs = ordered.prefix(Self.launchBlockingWarmCount).filter { cache[$0] == nil }
-        guard !warmUIDs.isEmpty else { return }
+        let leading = Array(ordered.prefix(Self.launchBlockingWarmCount))
+        saveLaunchWarmOrder(leading)
 
         let startTime = Date()
+        // Install what the early warm already decoded for this order (see beginEarlyLaunchWarm).
+        // The wait is normally zero: the early decode finished while the window was built.
+        var earlyHits = 0
+        if let early = earlyLaunchWarm {
+            earlyLaunchWarm = nil
+            early.group.wait()
+            let decoded = early.take()
+            for posterUID in leading where cache[posterUID] == nil {
+                guard let poster = decoded[posterUID] else { continue }
+                cache[posterUID] = poster.image
+                cachedPosterUIDs.insert(posterUID)
+                earlyHits += 1
+            }
+        }
+
+        let warmUIDs = leading.filter { cache[$0] == nil }
         let warmed = Self.loadImagesBlocking(warmUIDs, in: folderURL)
         for (posterUID, image) in warmed {
             cache[posterUID] = image
             cachedPosterUIDs.insert(posterUID)
         }
         let ms = Date().timeIntervalSince(startTime) * 1000
-        log("Launch pre-paint warm: \(warmed.count)/\(warmUIDs.count) poster(s) resident before first paint (\(Fmt.fixed(ms, 0)) ms)")
+        log("Launch pre-paint warm: \(earlyHits) from the early warm + \(warmed.count)/\(warmUIDs.count) decoded now, resident before first paint (\(Fmt.fixed(ms, 0)) ms)")
+    }
+
+    // MARK: - Early Launch Warm
+    //
+    // registerLaunchDisplayOrder can only run once the launch view has films, after the
+    // window is built, and its decode blocks the main thread. The posters it wants are almost
+    // always the ones the previous launch wanted: the launch view and its sort rarely change
+    // between sessions. So each launch records the UIDs it warmed, and the next launch decodes
+    // those on a background thread from FilmTrackerApp.init, while AppKit builds the window.
+    // registerLaunchDisplayOrder then installs whichever of them the real order still wants
+    // and decodes only the rest. A wrong guess costs only the background decode.
+    @ObservationIgnored private var earlyLaunchWarm: EarlyLaunchWarm?
+    @ObservationIgnored private let launchWarmOrderFileName = "poster_launch_order.json"
+
+    private var launchWarmOrderURL: URL? {
+        Preferences.dataFolderURL?.appendingPathComponent(launchWarmOrderFileName)
+    }
+
+    /// Starts decoding the previous launch's warmed posters in the background. Called once,
+    /// from DataCoordinator.beginEarlyCacheLoads.
+    func beginEarlyLaunchWarm() {
+        guard earlyLaunchWarm == nil, !hasPerformedLaunchBlockingWarm,
+              let folderURL = Preferences.posterImagesFolderURL,
+              let orderURL = launchWarmOrderURL else { return }
+        let warm = EarlyLaunchWarm()
+        earlyLaunchWarm = warm
+        let count = Self.launchBlockingWarmCount
+        DispatchQueue.global(qos: .userInitiated).async(group: warm.group) {
+            guard let data = try? Data(contentsOf: orderURL),
+                  let posterUIDs = try? JSONDecoder().decode([String].self, from: data) else { return }
+            warm.store(Self.loadImagesBlocking(Array(posterUIDs.prefix(count)), in: folderURL))
+        }
+    }
+
+    /// Records this launch's warmed UIDs for the next launch's early warm.
+    private func saveLaunchWarmOrder(_ posterUIDs: [String]) {
+        guard let url = launchWarmOrderURL,
+              let data = try? JSONEncoder().encode(posterUIDs) else { return }
+        DispatchQueue.global(qos: .utility).async {
+            do { try data.write(to: url, options: .atomic) }
+            catch { Self.log("Could not save the launch warm order: \(error)") }
+        }
     }
 
     /// Synchronous, parallel disk-load + decode of `posterUIDs`, fanned across all
@@ -199,24 +259,16 @@ final class PosterCache: Loggable {
         _ posterUIDs: [String], in folderURL: URL
     ) -> [(String, NSImage)] {
         guard !posterUIDs.isEmpty else { return [] }
-        let results = BlockingWarmResults()
+        // A Mutex rather than a lock-and-array box: the compiler checks that each image is
+        // handed in (`sending`) rather than shared, so no `@unchecked` is needed.
+        let results = Mutex<[(String, NSImage)]>([])
         DispatchQueue.concurrentPerform(iterations: posterUIDs.count) { index in
             let posterUID = posterUIDs[index]
             let url = folderURL.appendingPathComponent("\(posterUID).jpg")
             guard let image = Self.loadDecodedImage(from: url) else { return }
-            results.lock.lock()
-            results.pairs.append((posterUID, image))
-            results.lock.unlock()
+            results.withLock { $0.append((posterUID, image)) }
         }
-        return results.pairs
-    }
-
-    /// NSLock-guarded accumulator for loadImagesBlocking's concurrentPerform workers.
-    /// @unchecked Sendable: all mutation of `pairs` occurs strictly under `lock`, and
-    /// the instance never escapes the function that creates it.
-    private final class BlockingWarmResults: @unchecked Sendable {
-        let lock = NSLock()
-        var pairs: [(String, NSImage)] = []
+        return results.withLock { $0 }
     }
 
     /// Display-ordered restore priority hint, set by registerLaunchDisplayOrder.
@@ -973,3 +1025,18 @@ final class PosterCache: Loggable {
 
 // MARK: - Cache Metadata
 private struct CacheMetadata: Codable { let posterUIDs: [String] }
+
+/// The early launch warm's background results, handed to the main actor once.
+private final class EarlyLaunchWarm: Sendable {
+    let group = DispatchGroup()
+    private let decoded = Mutex<[String: DecodedPoster]>([:])
+
+    func store(_ images: [(String, NSImage)]) {
+        let posters = images.map { ($0.0, DecodedPoster(image: $0.1)) }
+        decoded.withLock { $0 = Dictionary(posters, uniquingKeysWith: { first, _ in first }) }
+    }
+
+    func take() -> [String: DecodedPoster] {
+        decoded.withLock { taken in defer { taken = [:] }; return taken }
+    }
+}

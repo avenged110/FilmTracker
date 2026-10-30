@@ -502,39 +502,75 @@ extension DebugHarness {
 
 // MARK: - Imports QoS
 
-// `imports-qos` (opt-in): saves settings on the main context — what
-// SettingsManager.syncToDatabase does at launch and after a preference change — while
-// ImportHistory's full load runs, over and over; the launch itself overlaps the first load
-// with DataManager's bootstrap saves. libRPAC does not print outside Xcode: run it under
-// lldb with /usr/lib/libRPAC.dylib in DYLD_INSERT_LIBRARIES and a breakpoint on libRPAC's
+// `imports-qos` (opt-in): saves an import session on the main context — what ImportProgress
+// does while an import runs, every 500 ms (updateSessionProgress) — while ImportHistory's
+// full load runs, over and over. Every context shares the store's one SQLite connection, so
+// a main-thread save waits for the load's fetch; at a lower QoS than the main thread that
+// wait is a priority inversion. (Settings once saved here too; they now save on
+// DataManager's queue.) The launch itself overlaps the first load with DataManager's
+// bootstrap saves. libRPAC does not print outside Xcode: run it under lldb with
+// /usr/lib/libRPAC.dylib in DYLD_INSERT_LIBRARIES and a breakpoint on libRPAC's
 // `generateCulledBacktrace`, which stops on every priority inversion it detects. While the
 // load ran at `.utility`, every run stopped in `NSSQLDefaultConnectionManager
 // _checkoutConnectionOfType:` under a save.
+//
+// Without libRPAC it still measures what an inversion costs: the worst main-thread save
+// (`worstSaveMs`), and checks that every save landed and the index followed the last one.
 extension DebugHarness {
     private static func importsQoSScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "imports-qos")
-        let context = coordinator.persistentContainer.viewContext
+        let container = coordinator.persistentContainer
+        let context = container.viewContext
         // `-FTDebugImportsQoSSize none` keeps the container's own sessions (a copy of a real
         // library, say); otherwise this many are seeded (default 1000).
         let sizeArgument = UserDefaults.standard.string(forKey: "FTDebugImportsQoSSize")
         let size = sizeArgument == "none" ? 0 : (sizeArgument.flatMap(Int.init) ?? 1000)
         if size > 0 { seedImportSessions(size, context) }
+
+        // The running import's session, as ImportProgress.createSession makes it.
+        let session = ImportSession(importType: ImportsCategory.metadata.rawValue, isCompleted: false, isCanceled: false)
+        context.insert(session)
+        try? context.commit()
+        let sessionID = session.id
+
         var saves = 0
+        var worst: Duration = .zero
         for i in 0..<12 {
             ImportHistory.shared.debugReload()
             for k in 0..<6 {
                 try? await Task.sleep(for: .milliseconds(5))
+                let n = i * 6 + k + 1
+                session.totalItems = 72
+                session.successCount = n
+                session.addedTitles = (1...n).map { "QoS Film \($0)" }
+                let start = ContinuousClock.now
                 do {
-                    try await coordinator.saveSettings(SettingsSnapshot(defaultRotationThreshold: (i * 6 + k) % 2 == 0 ? 18 : 48))
+                    try context.commit()
                     saves += 1
                 } catch {
                     r.check("save", false, "\(error)")
                 }
+                worst = max(worst, ContinuousClock.now - start)
             }
             try? await Task.sleep(for: .milliseconds(150))
         }
-        r.check("saves", saves == 72, "\(saves) main-context settings saves during background loads")
-        if size > 0 { clearImportSessions(context) }
+        r.check("saves", saves == 72, "\(saves) of 72 main-context session saves during background loads")
+        r.metric("worstSaveMs", Double(worst.components.attoseconds) / 1e15 + Double(worst.components.seconds) * 1000, "ms")
+
+        // The loads' results are folded with the saves made while they ran; the last one
+        // must win once every load has landed.
+        var latest = -1
+        for _ in 0..<60 {
+            latest = ImportHistory.shared.records(for: .metadata, in: container).first { $0.id == sessionID }?.successCount ?? -1
+            if latest == 72 { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        r.check("index-follows-last-save", latest == 72, "index shows \(latest) of 72 for the running session")
+
+        if size > 0 { clearImportSessions(context) } else {
+            context.delete(session)
+            try? context.commit()
+        }
         return r
     }
 }

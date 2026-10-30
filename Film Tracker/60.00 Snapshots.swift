@@ -510,10 +510,13 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// `DataManager` step 6.5 assigns on save) and as `Release.childReleases` (the to-many
     /// side, which nothing ever assigns directly — it exists only as Core Data's inverse of
     /// the first). Every writer in this project sets the child's pointer and trusts the
-    /// inverse to follow. When it does not — a restored backup whose links were applied in
-    /// bulk before a single `save()`, an inverse array that comes back empty on a later
-    /// fetch — the two sides disagree in one specific direction: children still name their
-    /// parent, but parents no longer claim their children.
+    /// inverse to follow. Under SwiftData it sometimes did not — a restored backup whose
+    /// links were applied in bulk before a single `save()`, an inverse array that came back
+    /// empty on a later fetch — and the two sides disagreed in one specific direction:
+    /// children still named their parent, but parents no longer claimed their children.
+    /// Core Data stores only the child's pointer and derives the parent's side from it, so
+    /// that disagreement cannot come from the store now. This stays because it also enforces
+    /// the one-level-depth rule below on whatever the store holds, at no cost.
     ///
     /// That asymmetry is invisible in most of the UI, because the RightSidebar's tables
     /// group on `parentReleaseID ?? id` and so read the surviving side. It is *not*
@@ -976,6 +979,22 @@ enum FilmField: String, CaseIterable, Sendable {
                                           _ f: ReferenceWritableKeyPath<Film, T>) {
             value = film[keyPath: f] as Any
         }
+    }
+
+    private struct SnapshotRead: Visitor {
+        let snapshot: FilmSnapshot
+        var value: Any = ()
+        mutating func visit<T: Equatable>(_ s: WritableKeyPath<FilmSnapshot, T>,
+                                          _ f: ReferenceWritableKeyPath<Film, T>) {
+            value = snapshot[keyPath: s] as Any
+        }
+    }
+
+    /// This field's value in `snapshot`, boxed as `Any`, as `value(of:)` reads a film.
+    func value(in snapshot: FilmSnapshot) -> Any {
+        var v = SnapshotRead(snapshot: snapshot)
+        accept(&v)
+        return v.value
     }
 
     /// Whether this field holds different values in `a` and `b`.

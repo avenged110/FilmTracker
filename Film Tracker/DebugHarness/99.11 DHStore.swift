@@ -55,7 +55,8 @@ extension DebugHarness {
     /// Scenario names owned by this file, in the order `all` runs them.
     static var storeScenarios: [String] {
         ["store-invariants", "store-hall-of-fame", "store-queue", "store-coordinator",
-         "store-snapshot-mapping", "store-fingerprint-direct"]
+         "store-snapshot-mapping", "store-fingerprint", "settings-sync-order",
+         "imports-delete-all-queued"]
     }
 
     /// Dispatch hook called by `DebugHarness.run(_:coordinator:)` before its own switch.
@@ -68,8 +69,10 @@ extension DebugHarness {
         case "store-queue":         return await queueScenario()
         case "store-coordinator":   return await coordinatorScenario(coordinator: coordinator)
         case "store-snapshot-mapping": return snapshotMappingScenario()
-        case "store-fingerprint-direct": return await fingerprintDirectReadScenario()
+        case "store-fingerprint": return await fingerprintFilmLayerScenario()
         case "datamanager-thread": return await dataManagerThreadScenario(coordinator: coordinator)
+        case "settings-sync-order": return await settingsSyncOrderScenario(coordinator: coordinator)
+        case "imports-delete-all-queued": return await importsDeleteAllQueuedScenario(coordinator: coordinator)
         default:                    return nil
         }
     }
@@ -883,7 +886,7 @@ extension DebugHarness {
         r.check("rotation-cache-follows-default:changed", after.0, after.1)
         await coordinator.flushPendingSettingsSync()
 
-        let flushed = try? await coordinator.loadSettings()
+        let flushed = storedSettings(coordinator)
         r.check("settings-flush-persists-pending-change",
                 flushed?.defaultRotationThreshold == probeThreshold,
                 "database holds \(String(describing: flushed?.defaultRotationThreshold)), "
@@ -896,7 +899,7 @@ extension DebugHarness {
         r.check("rotation-cache-follows-default:reverted", reverted.0, reverted.1)
         _ = store.deleteFilms(ids: [rotationProbe.id])
         await coordinator.flushPendingSettingsSync()
-        let restored = try? await coordinator.loadSettings()
+        let restored = storedSettings(coordinator)
         r.check("settings-flush-restores-session-value",
                 restored?.defaultRotationThreshold == originalThreshold,
                 "database holds \(String(describing: restored?.defaultRotationThreshold)), "
@@ -905,7 +908,7 @@ extension DebugHarness {
         // A flush with nothing pending must be a no-op rather than a redundant write —
         // this is the fingerprint dirty-check in syncToDatabase.
         await coordinator.flushPendingSettingsSync()
-        let idle = try? await coordinator.loadSettings()
+        let idle = storedSettings(coordinator)
         r.check("settings-flush-idle-is-stable",
                 idle?.defaultRotationThreshold == originalThreshold,
                 "an idle flush changed the persisted value")
@@ -1052,23 +1055,22 @@ extension DebugHarness {
     }
 }
 
-// MARK: - Fingerprint direct read
+// MARK: - Fingerprint film layer
 
-// `store-fingerprint-direct`: the snapshot-cache fingerprint's film layer, read straight from
-// the store file by DirectStoreReader, must equal the store fetch it stands in for — on an
-// empty store, after seeding, after each kind of change the fingerprint exists to see, and
-// after a delete. The duplicate-release probe must answer no, then yes once a same-UUID row
-// exists, then no after cleanupDuplicateReleases removes it; and the reader must decline (so
-// the fetch runs) for an in-memory container, a missing file, and a row it cannot read
-// exactly. Runs on its own store file, so the coordinator's library is untouched.
+// `store-fingerprint`: the snapshot-cache fingerprint's film layer must answer on an empty
+// store, count the films seeded, and change after each kind of edit the fingerprint exists
+// to see (rank swap included) and after a delete. A release inserted with an existing ID must
+// merge into that row (the uniqueness constraint). It must also answer for an in-memory
+// container, and a NULL lastModified (never written by the app) must change the digest, so
+// the fingerprint fails safe. Runs on its own store file, so the coordinator's library is untouched.
 extension DebugHarness {
-    static func fingerprintDirectReadScenario() async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "store-fingerprint-direct")
+    static func fingerprintFilmLayerScenario() async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "store-fingerprint")
         guard let root = Preferences.dataFolderURL else {
             r.check("data-folder", false, "no data folder")
             return r
         }
-        let url = root.appendingPathComponent("fingerprint-direct.store")
+        let url = root.appendingPathComponent("fingerprint.store")
         func removeStoreFiles() {
             for suffix in ["", "-wal", "-shm"] {
                 try? FileManager.default.removeItem(atPath: url.path(percentEncoded: false) + suffix)
@@ -1088,12 +1090,10 @@ extension DebugHarness {
         let context = container.makeMainContext()
 
         func agree(_ label: String) async -> FilmLayerDigest? {
-            let (direct, fetched) = await manager.filmLayerDigestsForTesting()
-            r.check("\(label)-direct-answers", direct != nil)
-            r.check("\(label)-matches-fetch", direct != nil && direct == fetched,
-                    "direct \(direct.map { "\($0.filmCount) films, max '\($0.maxLastModified)'" } ?? "nil"); "
-                    + "fetched \(fetched.map { "\($0.filmCount) films, max '\($0.maxLastModified)'" } ?? "nil")")
-            return direct
+            let digest = await manager.filmLayerDigestForTesting()
+            r.check("\(label)-answers", digest != nil,
+                    digest.map { "\($0.filmCount) films, max '\($0.maxLastModified)'" } ?? "nil")
+            return digest
         }
         func save(_ label: String) -> Bool {
             do { try context.save(); return true } catch {
@@ -1142,8 +1142,7 @@ extension DebugHarness {
         let deleted = await agree("deleted")
         r.check("deleted-count", deleted?.filmCount == 199, "\(deleted?.filmCount ?? -1)")
 
-        // Duplicate-release probe, and the cleanup it gates. The corpus carries no Release
-        // rows, so a few are attached here.
+        // Release.id uniqueness. The corpus carries no Release rows, so a few are attached here.
         for film in films[3..<10] {
             context.insert(Release(format: "Blu-ray", independence: "Standalone", film: film))
         }
@@ -1152,36 +1151,17 @@ extension DebugHarness {
         r.check("corpus-has-releases", !releases.isEmpty, "\(releases.count)")
         if let existing = releases.first {
             let before = releases.count
-            r.check("probe-no-duplicates", await manager.duplicateReleaseProbeForTesting() == false)
-            do { try await manager.cleanupDuplicateReleases() } catch {
-                r.check("cleanup-clean-store", false, "\(error)")
-            }
-            let untouched = (try? context.count(for: Release.request())) ?? -1
-            r.check("cleanup-leaves-clean-store", untouched == before, "\(untouched) vs \(before)")
-
+            // Release.id is a uniqueness constraint, so a second release with an existing ID
+            // can no longer be stored: the save merges it into the existing row.
             context.insert(Release(id: existing.id, independence: "Standalone"))
             if save("duplicate") {
-                r.check("probe-sees-duplicate", await manager.duplicateReleaseProbeForTesting() == true)
-                do { try await manager.cleanupDuplicateReleases() } catch {
-                    r.check("cleanup-duplicate", false, "\(error)")
-                }
-                r.check("probe-clear-after-cleanup", await manager.duplicateReleaseProbeForTesting() == false)
                 let after = (try? container.makeMainContext().count(for: Release.request())) ?? -1
-                r.check("cleanup-removed-one", after == before, "\(after) vs \(before)")
+                r.check("duplicate-id-merged", after == before, "\(after) vs \(before)")
             }
         }
 
-        // Concurrency: direct reads hammering the store from another thread while DataManager
-        // commits, as the duplicate-release probe can overlap a tracked write. The store must
-        // stay intact and the two paths must still agree afterwards.
-        let reader = Task.detached { () -> Int in
-            var answered = 0
-            for _ in 0..<150 {
-                if DirectStoreReader.filmLayerDigest(storeURL: url) != nil { answered += 1 }
-                _ = DirectStoreReader.hasDuplicateReleaseIDs(storeURL: url)
-            }
-            return answered
-        }
+        // Repeated commits through DataManager: the store must stay intact and the film
+        // layer must still answer afterwards.
         var stressSnapshots = films[20..<60].map { FilmSnapshot(from: $0) }
         for round in 0..<25 {
             for i in stressSnapshots.indices { stressSnapshots[i].userRating = round % 11 }
@@ -1190,8 +1170,6 @@ extension DebugHarness {
                 break
             }
         }
-        let answered = await reader.value
-        r.check("stress-reads-answered", answered > 0, "\(answered)/150 direct reads answered")
         var integrityDB: OpaquePointer?
         var integrity = "not run"
         if unsafe sqlite3_open_v2(url.path(percentEncoded: false), &integrityDB, SQLITE_OPEN_READONLY, nil) == SQLITE_OK {
@@ -1204,11 +1182,10 @@ extension DebugHarness {
         }
         unsafe sqlite3_close(integrityDB)
         r.check("stress-integrity", integrity == "ok", integrity)
-        _ = await agree("after-stress")
+        let afterStress = await agree("after-stress")
         r.check("stress-fetch-works", ((try? container.makeMainContext().count(for: Film.request())) ?? -1) == 199)
 
-        // The direct reader reads the file the container reports, so that must be the file
-        // this scenario opened; and production's store must resolve to Application Support
+        // The container must report the file this scenario opened; and production's store must resolve to Application Support
         // under LibraryStore's name, which the launch opens and the restore swap targets.
         r.check("store-url-resolves", container.storeURL?.standardizedFileURL == url.standardizedFileURL,
                 "\(container.storeURL?.path(percentEncoded: false) ?? "nil") vs \(url.path(percentEncoded: false))")
@@ -1217,26 +1194,25 @@ extension DebugHarness {
                     && production?.deletingLastPathComponent().lastPathComponent != DebugSandbox.name,
                 production?.path(percentEncoded: false) ?? "nil")
 
-        // Declines, each leaving the fetch to answer.
         if let memory = try? LibraryStore.makeContainer(at: nil) {
-            let (direct, fetched) = await DataManager(persistentContainer: memory).filmLayerDigestsForTesting()
-            r.check("in-memory-declines", direct == nil && fetched != nil)
+            let digest = await DataManager(persistentContainer: memory).filmLayerDigestForTesting()
+            r.check("in-memory-answers", digest?.filmCount == 0, "\(digest.map { "\($0.filmCount)" } ?? "nil")")
         }
-        r.check("missing-file-declines",
-                DirectStoreReader.filmLayerDigest(storeURL: root.appendingPathComponent("no-such.store")) == nil)
-        r.check("non-store-file-declines",
-                DirectStoreReader.filmLayerDigest(storeURL: root.appendingPathComponent("FilmTracker.log")) == nil)
 
-        // A row outside the expected shape — here a NULL lastModified, which the app never
-        // writes — makes the reader decline rather than guess. Written with raw SQL, last,
-        // because it leaves this throwaway store in a state the app does not produce.
+        // A NULL lastModified, which the app never writes: a dictionary fetch leaves that row
+        // out (measured), so the digest must differ from the one before — the fingerprint
+        // mismatches and the slow path runs, failing safe. The raw-SQLite reader this fetch
+        // replaced declined on such a row and fell back to the same fetch. Written with raw SQL, last, because it
+        // leaves this throwaway store in a state the app does not produce.
         var db: OpaquePointer?
         if unsafe sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
             let rc = unsafe sqlite3_exec(db, "UPDATE ZFILM SET ZLASTMODIFIED = NULL WHERE Z_PK = (SELECT MIN(Z_PK) FROM ZFILM)", nil, nil, nil)
             r.check("null-row-written", rc == SQLITE_OK, "rc \(rc)")
         }
         unsafe sqlite3_close(db)
-        r.check("unexpected-row-declines", DirectStoreReader.filmLayerDigest(storeURL: url) == nil)
+        let nullRow = await manager.filmLayerDigestForTesting()
+        r.check("null-row-fails-safe", afterStress != nil && nullRow != afterStress,
+                "\(nullRow.map { "\($0.filmCount)" } ?? "nil") film(s) read")
         return r
     }
 }
@@ -1374,6 +1350,141 @@ extension DebugHarness {
                 offenders.isEmpty ? "" : "ran on main: \(Array(Set(offenders)).sorted().joined(separator: ", ")) — \(Fmt.fixed(onMainTotal, 0)) ms")
         return r
     }
+}
+
+// MARK: - Settings Sync Order
+
+// `settings-sync-order`: two settings syncs that overlap. The write runs on DataManager, so
+// a sync suspends mid-write; a debug delay holds the first one open while the second starts.
+//   - newest-wins: the second sync's values must be the ones on disk, not the first's.
+//   - change-during-write: a change made while a sync is writing must stay pending, so the
+//     quit flush (which skips when nothing is pending) still writes it.
+extension DebugHarness {
+    fileprivate static func settingsSyncOrderScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "settings-sync-order")
+        let original = Preferences.fuzzyImportMatching
+        func set(_ value: Bool) async {
+            Preferences.fuzzyImportMatching = value
+            // The setter posts preferencesChanged from a Task; let it arm the debounce.
+            for _ in 0..<3 { await Task.yield() }
+        }
+        defer { DataCoordinator.debugSettingsSaveDelays = [] }
+
+        // A known starting row.
+        await coordinator.commitPendingWritesForExport()
+        r.check("baseline", storedSettings(coordinator)?.fuzzyImportMatching == original,
+                "stored \(String(describing: storedSettings(coordinator)?.fuzzyImportMatching)), expected \(original)")
+
+        // newest-wins: sync 1 snapshots !original and is held 400 ms; sync 2 starts 50 ms in.
+        DataCoordinator.debugSettingsSaveDelays = [.milliseconds(400)]
+        await set(!original)
+        let first = Task { @MainActor in await coordinator.commitPendingWritesForExport() }
+        try? await Task.sleep(for: .milliseconds(50))
+        await set(original)
+        await coordinator.commitPendingWritesForExport()
+        await first.value
+        let newest = storedSettings(coordinator)?.fuzzyImportMatching
+        r.check("newest-wins", newest == original,
+                "stored \(String(describing: newest)), expected \(original): the older sync's snapshot landed last")
+
+        // Back to a known row, whatever newest-wins left: the cached last-synced snapshot
+        // must match `original` too, or the next sync's write of !original could be skipped
+        // as unchanged and never overlap anything.
+        DataCoordinator.debugSettingsSaveDelays = []
+        await set(original)
+        await coordinator.commitPendingWritesForExport()
+        r.check("baseline-2", storedSettings(coordinator)?.fuzzyImportMatching == original,
+                "stored \(String(describing: storedSettings(coordinator)?.fuzzyImportMatching)), expected \(original)")
+
+        // change-during-write: the flush writes !original, held 400 ms; the change back to
+        // original arrives mid-write; a second flush must still see it pending.
+        DataCoordinator.debugSettingsSaveDelays = [.milliseconds(400)]
+        await set(!original)
+        let flush = Task { @MainActor in await coordinator.flushPendingSettingsSync() }
+        try? await Task.sleep(for: .milliseconds(50))
+        await set(original)
+        await flush.value
+        await coordinator.flushPendingSettingsSync()
+        let flushed = storedSettings(coordinator)?.fuzzyImportMatching
+        r.check("change-during-write-stays-pending", flushed == original,
+                "stored \(String(describing: flushed)), expected \(original): the change made mid-write was dropped")
+
+        // Nothing left pending or delayed for a later scenario.
+        DataCoordinator.debugSettingsSaveDelays = []
+        await set(original)
+        await coordinator.flushPendingSettingsSync()
+        return r
+    }
+}
+
+// MARK: - Delete All, Queued
+
+// `imports-delete-all-queued`: Delete All waits its turn in trackOperation, so it runs after
+// the click. A held queue stands in for whatever is ahead of it. Of one type's sessions:
+//   - an interrupted import's (unfinished, older than the click) is deleted,
+//   - a completed one is deleted,
+//   - the running import's (unfinished, older than the click) is kept,
+//   - one created after the click, by an import begun while the delete waited, is kept.
+// The other type's sessions are untouched.
+extension DebugHarness {
+    fileprivate static func importsDeleteAllQueuedScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "imports-delete-all-queued")
+        let context = coordinator.persistentContainer.viewContext
+        let progress = ImportProgress.shared
+        let saved = (progress.isImporting, progress.currentSessionID)
+        defer { progress.isImporting = saved.0; progress.currentSessionID = saved.1 }
+
+        let metadata = ImportsCategory.metadata.rawValue, ratings = ImportsCategory.ratings.rawValue
+        let past = Date().addingTimeInterval(-3_600)
+        func session(_ type: String, completed: Bool, at date: Date) -> ImportSession {
+            let s = ImportSession(sessionDate: date, importType: type, isCompleted: completed, isCanceled: false)
+            context.insert(s)
+            return s
+        }
+        let interrupted = session(metadata, completed: false, at: past)
+        let completed = session(metadata, completed: true, at: past)
+        let running = session(metadata, completed: false, at: past.addingTimeInterval(60))
+        let otherType = session(ratings, completed: false, at: past)
+        try? context.commit()
+        let ids = (interrupted: interrupted.id, completed: completed.id, running: running.id, other: otherType.id)
+
+        // The running import, then the click, while the queue is held.
+        progress.isImporting = true
+        progress.currentSessionID = ids.running
+        coordinator.debugHoldQueue(for: .milliseconds(400))
+        coordinator.deleteAllImportSessions(ofType: metadata)
+        // An import begun after the click, while the delete waits.
+        try? await Task.sleep(for: .milliseconds(20))
+        let later = session(metadata, completed: false, at: Date())
+        try? context.commit()
+        let laterID = later.id
+        await coordinator.awaitTrackedOperationsForTesting()
+
+        let fresh = coordinator.persistentContainer.makeMainContext()
+        let left = Set(((try? fresh.fetch(ImportSession.request())) ?? []).map(\.id))
+        r.check("interrupted-deleted", !left.contains(ids.interrupted), "an interrupted import's session survived Delete All")
+        r.check("completed-deleted", !left.contains(ids.completed), "a completed session survived Delete All")
+        r.check("running-kept", left.contains(ids.running), "the running import's session was deleted")
+        r.check("created-after-click-kept", left.contains(laterID), "a session created after the click was deleted")
+        r.check("other-type-untouched", left.contains(ids.other), "a session of the other type was deleted")
+
+        for s in (try? context.fetch(ImportSession.request())) ?? [] where [ids.running, laterID, ids.other].contains(s.id) {
+            context.delete(s)
+        }
+        try? context.commit()
+        return r
+    }
+}
+
+// MARK: - Stored Settings
+
+/// The settings row as it is on disk, read through a fresh context: what the app's write
+/// committed, independent of any context the app wrote it through. Nil when there is none.
+@MainActor
+func storedSettings(_ coordinator: DataCoordinator) -> SettingsSnapshot? {
+    let context = coordinator.persistentContainer.makeMainContext()
+    let request = SettingsObject.request(.equals("snapshotID", SettingsObject.singletonID))
+    return (try? context.fetch(request).first).flatMap { $0.map(SettingsSnapshot.init(from:)) }
 }
 
 #endif

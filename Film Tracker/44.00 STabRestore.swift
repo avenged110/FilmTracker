@@ -191,10 +191,11 @@ struct RestoreSettingsView: View {
         //
         // Two shapes, chosen by how far the restore got. A failure BEFORE the restored
         // library was committed left the existing database untouched, so the session carries
-        // on and the alert simply dismisses. A failure AFTER it (settings, posters) cannot be
-        // dismissed back into the session, because the restored library replaces this one at
-        // the next launch, so the alert offers the same forced relaunch the success path
-        // does. See DBRestorer.requiresRestart.
+        // on and the alert simply dismisses. Nothing after the commit can fail today (the
+        // settings and posters are applied by the relaunch), but should a later step ever
+        // throw, the restored library still replaces this one at the next launch, so the
+        // alert offers the same forced relaunch the success path does. See
+        // DBRestorer.requiresRestart.
         .alert("Restoration Failed", isPresented: $viewModel.showRestoreError) {
             if viewModel.restoreFailureRequiresRestart {
                 Button("Quit and Restart") {

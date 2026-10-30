@@ -5,7 +5,6 @@
 
 import Foundation
 import CoreData
-import SQLite3
 import os
 
 actor DataManager: Loggable {
@@ -66,16 +65,16 @@ actor DataManager: Loggable {
     /// Returns nil only if a fetch fails, which the caller treats as a cache miss.
     ///
     /// Three queries are issued:
-    ///   1. Film.id, lastModified, hofPosition and userRating — read directly from the
-    ///      store file by `DirectStoreReader`, or through a fetch when it declines
+    ///   1. Film.id, lastModified, hofPosition and userRating — a dictionary fetch of
+    ///      those four columns, which builds no Film objects
     ///   2. ListObject count only (no properties, no relationships)
     ///   3. ListMembership count only (no properties, no relationships)
     ///
     /// This lives here, in the background context actor, rather than in MemoryStoreCache where
     /// it used to run against `persistentContainer.viewContext`. The two count queries really are
-    /// negligible, but the film query is not: `propertiesToFetch` avoids faulting the
-    /// `releases` relationship, yet SwiftData still instantiates one managed object per
-    /// Film. On a large library that is tens of milliseconds of synchronous main-thread work
+    /// negligible, but the film query is not: under SwiftData it instantiated one managed
+    /// object per Film (the dictionary fetch above now avoids that). On a large library that
+    /// was tens of milliseconds of synchronous main-thread work
     /// — and it lands in the worst possible place, inside the first phase of startup, where
     /// it blocks the run loop while the launch progress indicator is the only thing on
     /// screen and stalls the MainActor continuations of the MetadataCache and PosterCache
@@ -108,19 +107,8 @@ actor DataManager: Loggable {
     func computeStoreFingerprint() -> StoreFingerprint? {
         let start = ContinuousClock.now
 
-        // The film layer is read straight from the store file when possible (~5ms), and
-        // through a fetch only when that read declines (see DirectStoreReader). Both feed
-        // the same FilmLayerDigest, so the two paths cannot mix a film differently.
-        let filmLayer: FilmLayerDigest
-        let filmSource: String
-        if let direct = DirectStoreReader.filmLayerDigest(storeURL: persistentStoreURL) {
-            filmLayer = direct
-            filmSource = "direct read"
-        } else {
-            guard let fetched = fetchFilmLayerDigest() else { return nil }
-            filmLayer = fetched
-            filmSource = "fetch"
-        }
+        // ~4 ms for 1,400 films in a Debug build, off the main thread.
+        guard let filmLayer = fetchFilmLayerDigest() else { return nil }
         let fetchElapsed = ContinuousClock.now - start
 
         // List count: no properties or relationships fetched.
@@ -171,7 +159,7 @@ actor DataManager: Loggable {
         }
 
         log("STARTUP BREAKDOWN (live fingerprint) — "
-            + "filmFetch: \(fetchElapsed.formattedMilliseconds) (\(filmSource)) | "
+            + "filmFetch: \(fetchElapsed.formattedMilliseconds) | "
             + "total: \((ContinuousClock.now - start).formattedMilliseconds) | "
             + "films: \(filmLayer.filmCount), lists: \(listCount), memberships: \(membershipCount)")
 
@@ -186,19 +174,9 @@ actor DataManager: Loggable {
         )
     }
 
-    /// The SQLite file behind this container, or nil for an in-memory one.
-    private nonisolated var persistentStoreURL: URL? { persistentContainer.storeURL }
-
     #if DEBUG
-    /// Both film-layer paths, for the harness's equivalence check.
-    func filmLayerDigestsForTesting() -> (direct: FilmLayerDigest?, fetched: FilmLayerDigest?) {
-        (DirectStoreReader.filmLayerDigest(storeURL: persistentStoreURL), fetchFilmLayerDigest())
-    }
-
-    /// The direct duplicate-release probe, for the harness.
-    func duplicateReleaseProbeForTesting() -> Bool? {
-        DirectStoreReader.hasDuplicateReleaseIDs(storeURL: persistentStoreURL)
-    }
+    /// The film layer, for the harness.
+    func filmLayerDigestForTesting() -> FilmLayerDigest? { fetchFilmLayerDigest() }
 
     /// Spins for `milliseconds` without suspending and returns when it held the actor, so
     /// the harness can prove calls from different threads never overlap.
@@ -210,54 +188,27 @@ actor DataManager: Loggable {
     }
     #endif
 
-    /// The film layer through a fetch: the fallback when the direct read declines.
+    /// The film layer: every film's ID, lastModified, hofPosition and userRating, folded into
+    /// a digest. A dictionary-result fetch reads only those four columns and builds no Film
+    /// objects. (Under SwiftData the same fetch materialized every Film, ~800 ms, which is
+    /// why a raw-SQLite reader once stood in for it.)
+    ///
+    /// The cheap substitutes that do not enumerate film UUIDs do not work here:
+    ///
+    ///   - (count, max-lastModified) is permanently unsafe for FilmTracker. An empty
+    ///     `lastModified` is the deliberate sentinel for "never modified since import", so an
+    ///     insert can carry a value lower than every existing one and a balanced
+    ///     add-and-delete leaves both count and maximum unchanged. Adding max-dateAdded does
+    ///     not close it either: imports carry the file's own date, not Date().
+    ///   - A generation counter or dirty flag would be cheap but fails UNSAFE: writes reach
+    ///     the store from many save() sites, DBRestorer's own context, and viewContext.
+    ///   - Store-file mtime/size fails safe but degenerates to a permanent miss, because
+    ///     SQLite checkpoints on close and changes the file after the cache is written.
+    ///
+    /// The property that makes the check worth having is that it is derived from the data
+    /// and therefore fails SAFE: anything unaccounted for produces a mismatch, the slow path
+    /// runs, and the result is correct. A row with no ID returns nil, which is a cache miss.
     private func fetchFilmLayerDigest() -> FilmLayerDigest? {
-        // MEASURED: this fetch is ~980ms for 1,369 films and is roughly 77% of the launch
-        // progress indicator's on-screen time. Attribution probing established why, and it is
-        // worth recording because the result is counterintuitive:
-        //
-        //   - It is NOT store-open cost. A trivial count against another table issued first
-        //     completes in 2.0ms, so SQLite is open and the schema validated almost instantly.
-        //   - `fetchCount(Film.request())` over the same 1,369 rows takes 2.0ms, so
-        //     the cost is entirely in materializing objects, not in reading the table.
-        //   - `propertiesToFetch` below is NOT honored. The identical fetch with the line
-        //     removed measured 716ms against 743ms with it — within noise, and marginally
-        //     FASTER. SwiftData materializes all 67 stored properties regardless, including
-        //     the 20 `[String]` arrays it persists as archived binary blobs. That is the
-        //     ~0.54ms per row.
-        //
-        // The line is kept because it is harmless and documents intent, but it is buying
-        // nothing. Any real fix has to avoid instantiating Film objects at all — which is
-        // what DirectStoreReader does, reading the same four columns from the store file
-        // without going through Core Data. This fetch remains as its fallback. The cheap
-        // substitutes that do not enumerate film UUIDs do not work here:
-        //
-        //   - (count, max-lastModified) is permanently unsafe for FilmTracker, not merely
-        //     unsafe today. An empty `lastModified` is the deliberate sentinel for "never
-        //     modified since import" (see 61_00_FilmObj.swift), so an insert can carry a
-        //     value lower than every existing one and a balanced add-and-delete leaves both
-        //     count and maximum unchanged. Adding max-dateAdded does not close it either:
-        //     imports carry the file's own date, not Date().
-        //   - A generation counter or dirty flag would be cheap but fails UNSAFE, and there
-        //     is no interception point that would make it reliable: writes reach the store
-        //     from 24 save() sites here, from DBRestorer's own context, and from viewContext
-        //     with autosaveEnabled = true, which commits with no save() call to hook at all.
-        //   - Store-file mtime/size fails safe but degenerates to a permanent miss, because
-        //     SQLite checkpoints on close and changes the file after the cache is written.
-        //
-        // The property that makes the check worth having is that it is derived from the
-        // data and therefore fails SAFE: anything unaccounted for produces a mismatch, the
-        // slow path runs, and the result is correct. Both paths keep that property.
-        //
-        // `hofPosition` and `userRating` are read in the same loop below and cost nothing
-        // extra for precisely the reason documented above: `propertiesToFetch` is not
-        // honored, so SwiftData has already materialized all 67 stored properties on every
-        // Film by the time this loop runs. Reading two more Ints off objects that are
-        // already fully faulted in is free, which is what makes closing the
-        // lastModified blind spot (see StoreFingerprint) affordable at all.
-        //
-        // Core Data note: unlike SwiftData, a dictionary-result fetch here really reads only
-        // the four columns and builds no Film objects, so this fallback is cheap too.
         let filmDescriptor = NSFetchRequest<NSDictionary>(entityName: Film.entityName)
         filmDescriptor.resultType = .dictionaryResultType
         filmDescriptor.propertiesToFetch = ["id", "lastModified", "hofPosition", "userRating"]
@@ -286,35 +237,6 @@ actor DataManager: Loggable {
     private struct MembershipPair: Hashable {
         let filmID: UUID
         let listID: UUID
-    }
-
-    /// Removes duplicate Release records from the persistent store.
-    /// Duplicates (same UUID) were caused by a prior dual-write bug where both
-    /// viewContext and DataManager created releases for the same operation.
-    /// Keeps the first occurrence of each UUID and deletes the rest.
-    func cleanupDuplicateReleases() async throws {
-        // Runs every launch, and the fetch below materializes every Release (~590ms for
-        // 2,297 in a Debug build). Asking the store directly whether any UUID repeats costs
-        // a few milliseconds; only a definite "no" skips the fetch, so a probe that cannot
-        // answer falls through to the full pass exactly as before.
-        if DirectStoreReader.hasDuplicateReleaseIDs(storeURL: persistentStoreURL) == false { return }
-
-        let allReleases = try context.fetch(Release.request())
-        var seen = Set<UUID>()
-        var duplicates: [Release] = []
-        for release in allReleases {
-            if seen.contains(release.id) {
-                duplicates.append(release)
-            } else {
-                seen.insert(release.id)
-            }
-        }
-        guard !duplicates.isEmpty else { return }
-
-        log("Removing \(duplicates.count) duplicate Release record(s)")
-        for release in duplicates { context.delete(release) }
-        try commit()
-        log("Duplicate Release cleanup complete")
     }
 
     /// Rewrites every Release still holding a legacy single-element `marketAvailability` tag
@@ -552,9 +474,70 @@ actor DataManager: Loggable {
         #endif
 
         guard !fields.isEmpty else { return }
+        if let values = Self.batchValues(fields, snapshots) {
+            try batchUpdateFilms(Set(snapshots.map(\.id)), values)
+            return
+        }
         try writeFetchedFilms(snapshots, operation: "applyFilmFields") { snapshot, film in
             for field in fields { field.apply(snapshot, to: film) }
         }
+    }
+
+    /// The common case of a bulk edit: every field set to one value on every film (a genre,
+    /// a flag, Watched). That is one UPDATE statement in the store, through NSBatchUpdateRequest,
+    /// instead of fetching each film, setting it and saving the object graph. Returns the
+    /// values by attribute name, or nil when the batch can't express the edit: a field whose
+    /// value differs between films (tags added to each film's own list), an array field
+    /// (archived, which a batch update can't write), or a field with no attribute of its name.
+    private static func batchValues(_ fields: Set<FilmField>, _ snapshots: [FilmSnapshot]) -> [String: Any]? {
+        #if DEBUG
+        // `-FTBulkEditObjectPath`: the object-graph write, for A/B runs.
+        if ProcessInfo.processInfo.arguments.contains("-FTBulkEditObjectPath") { return nil }
+        #endif
+        guard let first = snapshots.first else { return nil }
+        let attributes = LibraryModel.shared.entity(Film.entityName).attributesByName
+        var values: [String: Any] = [:]
+        for field in fields {
+            guard let attribute = attributes[field.rawValue],
+                  attribute.attributeType != .transformableAttributeType,
+                  !snapshots.contains(where: { field.differs($0, first) }) else { return nil }
+            let value = field.value(in: first)
+            if let some = Mirror(reflecting: value).displayStyle == .optional
+                ? Mirror(reflecting: value).children.first?.value : value {
+                values[field.rawValue] = some
+            } else {
+                values[field.rawValue] = NSExpression(forConstantValue: nil)
+            }
+        }
+        return values
+    }
+
+    /// Writes `values` to every film in `ids` in one statement. A film deleted in the meantime
+    /// simply isn't matched. All-or-nothing, like the save it replaces.
+    ///
+    /// The statement goes around every context, so the films a context has registered are
+    /// refreshed afterwards: this one's here, on its own queue, and the view context's on the
+    /// main queue, without waiting for it. Only registered films are touched. The general
+    /// `mergeChanges(fromRemoteContextSave:into:)` took 250–330 ms on the main thread for
+    /// 1,600 films even when the view context had none of them registered.
+    private func batchUpdateFilms(_ ids: Set<UUID>, _ values: [String: Any]) throws {
+        let request = NSBatchUpdateRequest(entityName: Film.entityName)
+        request.predicate = .in("id", ids)
+        request.propertiesToUpdate = values
+        request.resultType = .updatedObjectIDsResultType
+        let result = try context.execute(request) as? NSBatchUpdateResult
+        let updated = result?.result as? [NSManagedObjectID] ?? []
+        for id in updated {
+            if let film = context.registeredObject(for: id) { context.refresh(film, mergeChanges: false) }
+        }
+        let container = persistentContainer
+        Task { @MainActor in
+            let view = container.viewContext
+            for id in updated {
+                if let film = view.registeredObject(for: id) { view.refresh(film, mergeChanges: true) }
+            }
+        }
+        log("Batch-updated \(updated.count) of \(ids.count) film(s): \(values.keys.sorted().joined(separator: ", "))")
     }
 
     /// updateFilms' and applyFilmFields' shared body: one fetch for every snapshot's film,
@@ -595,26 +578,18 @@ actor DataManager: Loggable {
 
         guard !ids.isEmpty else { return }
 
-        // Explicitly delete ListMembership objects before deleting films.
-        // Kept from the SwiftData build, whose cascade delete was unreliable for objects
-        // created within the same session. Explicit pre-deletion ensures no orphaned memberships remain regardless
-        // of when the films were originally created.
-        let allMemberships = try context.fetch(ListMembership.request())
-        let membershipsToDelete = allMemberships.filter { membership in
-            guard let filmID = membership.film?.id else {
-                return true // also purge pre-existing orphans
-            }
-            return ids.contains(filmID)
-        }
-        for membership in membershipsToDelete {
-            context.delete(membership)
-        }
-
-        // Delete the films themselves.
+        // The delete rules remove each film's memberships (Film.memberships cascades); the
+        // membership-cascade harness scenario verifies this. Each film is refreshed first:
+        // this context is long-lived, and a memberships relationship it loaded earlier would
+        // not include a row another context saved since, which the cascade would then miss. Nothing is pending here
+        // (every method saves before it suspends), so the refresh discards nothing.
         let descriptor = Film.request(.in("id", ids))
         let films = try context.fetch(descriptor)
 
-        for film in films { context.delete(film) }
+        for film in films {
+            context.refresh(film, mergeChanges: false)
+            context.delete(film)
+        }
         try commit() }
     
     /// Resets rotation threshold overrides to nil for the specified film IDs.
@@ -1189,17 +1164,16 @@ actor DataManager: Loggable {
     /// Deletes all ImportSession records whose `importType` matches the given string
     /// (either "metadata" or "ratings"). Leaves sessions of the other type untouched.
     ///
-    /// In-progress sessions (`isCompleted == false && isCanceled == false`) are
-    /// intentionally skipped. ImportProgress writes the active session's final state
-    /// through viewContext after the import finishes; deleting its record here would
-    /// cause completeSession()/updateSessionAsCanceled() to silently find nothing and
-    /// produce no persistent record for the completed run.
-    func deleteAllImportSessions(ofType importType: String) async throws {
+    /// Kept: `activeID`, the session of an import still running, and any session dated at
+    /// or after `cutoff` (the request), which an import begun since may own. ImportProgress
+    /// writes such a session's final state through viewContext after the import finishes,
+    /// and deleting it here would leave completeSession()/updateSessionAsCanceled() nothing
+    /// to write. Every other unfinished session belongs to an import the app quit or
+    /// crashed during, and nothing will ever finish it, so it goes with the rest.
+    func deleteAllImportSessions(ofType importType: String, keeping activeID: UUID?,
+                                 createdBefore cutoff: Date) async throws {
         let descriptor = ImportSession.request(.equals("importType", importType))
-        let sessions = try context.fetch(descriptor)
-        guard !sessions.isEmpty else { return }
-        // Skip any session that is still in progress to protect the active import record.
-        let toDelete = sessions.filter { $0.isCompleted || $0.isCanceled }
+        let toDelete = try context.fetch(descriptor).filter { $0.id != activeID && $0.sessionDate < cutoff }
         guard !toDelete.isEmpty else { return }
         for session in toDelete { context.delete(session) }
         try commit()
@@ -1256,13 +1230,11 @@ actor DataManager: Loggable {
 
         guard let list = try context.fetch(descriptor).first else {
             throw PersistenceError.listNotFound(listID) }
+        // Refreshed so its memberships are read from the store, not from a relationship this
+        // long-lived context loaded earlier (see deleteFilms).
+        context.refresh(list, mergeChanges: false)
 
-        // Memberships are deleted explicitly rather than left to the cascade rule, for the
-        // reason deleteFilms gives: the cascade is unreliable for rows created in the same
-        // session, and a missed one survives as an orphan with a nil list.
-        for membership in Array(list.memberships) {
-            context.delete(membership)
-        }
+        // ListObject.memberships cascades, so its memberships go with it.
         context.delete(list)
         try commit() }
 
@@ -1292,99 +1264,6 @@ struct FilmLayerDigest: Equatable, Sendable {
     }
 }
 
-// MARK: - Direct Store Reader
-
-/// Read-only SQL against the store file, for the two launch-time questions
-/// a fetch can only answer by materializing every object: the fingerprint's film layer
-/// (~820ms through a fetch for 1,384 films in a Debug build, ~5ms here) and whether any
-/// Release UUID repeats (~590ms through a fetch of 2,297 releases).
-///
-/// Every method returns nil when it cannot answer exactly — no file, a table or column
-/// that is not where Core Data's naming puts it, a value of an unexpected type, a busy
-/// store — and the caller takes its fetch path instead. A schema change can therefore
-/// cost speed, never correctness.
-///
-/// Safe beside the open NSPersistentContainer:
-///   - SQLITE_OPEN_READONLY: the connection never writes, never checkpoints the WAL, and
-///     closing it never removes the WAL.
-///   - It reads through the WAL like any reader, so it sees the committed state a fresh
-///     NSManagedObjectContext fetch would see — which is all the fetch it replaces saw,
-///     since that ran in DataManager's own context before anything had written.
-///   - It uses the same system libsqlite3 as Core Data, whose unix VFS shares POSIX lock
-///     state between connections to one file in a process, so closing this connection
-///     cannot release the locks Core Data's connection holds.
-///
-/// Core Data's naming: entity `Film` is table `ZFILM`; attribute `id` is column `ZID`, a
-/// UUID stored as its 16 bytes; `lastModified` is text (the empty "never modified"
-/// sentinel is stored as ''); Int attributes are integer columns.
-enum DirectStoreReader {
-
-    /// The fingerprint's film layer, or nil if any row is not exactly the expected shape.
-    static func filmLayerDigest(storeURL: URL?) -> FilmLayerDigest? {
-        unsafe withReadOnlyConnection(storeURL) { db in
-            var statement: OpaquePointer?
-            guard unsafe sqlite3_prepare_v2(db, "SELECT ZID, ZLASTMODIFIED, ZHOFPOSITION, ZUSERRATING FROM ZFILM",
-                                     -1, &statement, nil) == SQLITE_OK,
-                  let statement = unsafe statement else { return nil }
-            defer { unsafe sqlite3_finalize(statement) }
-
-            var digest = FilmLayerDigest()
-            while true {
-                let step = unsafe sqlite3_step(statement)
-                if step == SQLITE_DONE { return digest }
-                guard step == SQLITE_ROW,
-                      unsafe sqlite3_column_type(statement, 0) == SQLITE_BLOB,
-                      let idBytes = unsafe sqlite3_column_blob(statement, 0),
-                      unsafe sqlite3_column_bytes(statement, 0) == 16,
-                      unsafe sqlite3_column_type(statement, 1) == SQLITE_TEXT,
-                      unsafe sqlite3_column_type(statement, 2) == SQLITE_INTEGER,
-                      unsafe sqlite3_column_type(statement, 3) == SQLITE_INTEGER else { return nil }
-
-                var uuidBytes: uuid_t = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-                unsafe withUnsafeMutableBytes(of: &uuidBytes) {
-                    unsafe $0.copyMemory(from: UnsafeRawBufferPointer(start: idBytes, count: 16))
-                }
-
-                let text = unsafe sqlite3_column_text(statement, 1)
-                let textLength = unsafe Int(sqlite3_column_bytes(statement, 1))
-                let lastModified = unsafe text.map {
-                    unsafe String(decoding: UnsafeBufferPointer(start: $0, count: textLength), as: UTF8.self)
-                } ?? ""
-
-                unsafe digest.add(id: UUID(uuid: uuidBytes),
-                           lastModified: lastModified,
-                           hofPosition: Int(sqlite3_column_int64(statement, 2)),
-                           userRating: Int(sqlite3_column_int64(statement, 3)))
-            }
-        }
-    }
-
-    /// Whether two Release rows share a UUID, or nil if the store could not be asked.
-    static func hasDuplicateReleaseIDs(storeURL: URL?) -> Bool? {
-        unsafe withReadOnlyConnection(storeURL) { db in
-            var statement: OpaquePointer?
-            guard unsafe sqlite3_prepare_v2(db, "SELECT EXISTS (SELECT 1 FROM ZRELEASE GROUP BY ZID HAVING COUNT(*) > 1)",
-                                     -1, &statement, nil) == SQLITE_OK,
-                  let statement = unsafe statement else { return nil }
-            defer { unsafe sqlite3_finalize(statement) }
-            guard unsafe sqlite3_step(statement) == SQLITE_ROW else { return nil }
-            return unsafe sqlite3_column_int(statement, 0) != 0
-        }
-    }
-
-    private static func withReadOnlyConnection<T>(_ url: URL?, _ body: (OpaquePointer) -> T?) -> T? {
-        guard let url else { return nil }
-        var db: OpaquePointer?
-        // sqlite3_close(nil) is a no-op, and a failed open still hands back a handle to close.
-        defer { unsafe sqlite3_close(db) }
-        guard unsafe sqlite3_open_v2(url.path(percentEncoded: false), &db,
-                              SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK,
-              let db = unsafe db else { return nil }
-        unsafe sqlite3_busy_timeout(db, 250)
-        return unsafe body(db)
-    }
-}
-
 // MARK: - Thread Probe
 
 #if DEBUG
@@ -1392,7 +1271,7 @@ enum DirectStoreReader {
 /// cost there. Under SwiftData a call ran on the thread that awaited it; under Core Data it
 /// runs on the context's queue (ContextExecutor), which the probe can confirm.
 /// Inert (nil tokens, no locking) unless a harness scenario sets `isEnabled`.
-final class DataManagerThreadProbe: @unchecked Sendable {
+final class DataManagerThreadProbe: Sendable {
     struct Record: Sendable {
         let method: String
         let onMainThread: Bool
@@ -1489,6 +1368,39 @@ extension DataManager {
         for row in rows {
             if let order = orders[row.searchID] { row.displayOrder = order }
         }
+        try commit()
+    }
+
+    // MARK: Settings
+
+    /// Upserts the singleton settings row from `snapshot`, deleting any row under another
+    /// snapshotID (a one-time recovery path from an earlier bug). One commit.
+    func saveSettings(_ snapshot: SettingsSnapshot) async throws {
+        var singleton: SettingsObject?
+        var stale = 0
+        for row in try context.fetch(SettingsObject.request()) {
+            if row.snapshotID == SettingsObject.singletonID, singleton == nil {
+                singleton = row
+            } else {
+                context.delete(row)
+                stale += 1
+            }
+        }
+        if stale > 0 { Self.log("Deleted \(stale) stale SettingsObject(s)") }
+
+        let settings: SettingsObject
+        if let singleton {
+            settings = singleton
+        } else {
+            Self.log("Creating new SettingsObject singleton")
+            settings = SettingsObject(snapshotID: SettingsObject.singletonID,
+                                      version: SettingsObject.currentVersion, lastSyncDate: Date())
+            context.insert(settings)
+        }
+        snapshot.apply(to: settings)
+        // After apply: a snapshot built with another snapshotID (a restored backup's) must
+        // still land on the singleton, or the next fetch would orphan it.
+        settings.snapshotID = SettingsObject.singletonID
         try commit()
     }
 

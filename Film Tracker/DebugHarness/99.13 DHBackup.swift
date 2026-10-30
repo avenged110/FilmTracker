@@ -2297,6 +2297,81 @@ extension DebugHarness {
                     "\(result.films.count) film(s), \(result.lists.count) list(s)")
         }
 
+        // --- A backup that repeats IDs --------------------------------------------------------------
+        // Every entity's ID is unique in the store. A backup written before that was enforced
+        // can repeat one (the old dual-write bug did for releases); the restore must keep the
+        // first of each, link everything to it, and still pass its own row-count check.
+        do {
+            let filmA = UUID().uuidString, filmB = UUID().uuidString
+            let releaseID = UUID().uuidString, childID = UUID().uuidString
+            let listID = UUID().uuidString, membershipID = UUID().uuidString
+            func release(_ id: String, studio: String, parent: String? = nil) -> String {
+                """
+                    <Object id="Release-\(id)" entity="Release">
+                      <Properties>
+                        <Property name="id" type="string">\(id)</Property>
+                        <Property name="studio" type="string">\(studio)</Property>
+                        <Property name="filmID" type="string">\(filmA)</Property>
+                        \(parent.map { "<Property name=\"parentReleaseID\" type=\"string\">\($0)</Property>" } ?? "")
+                      </Properties>
+                      <Relationships></Relationships>
+                    </Object>
+                """
+            }
+            func list(_ name: String) -> String {
+                """
+                    <Object id="ListObject-\(listID)" entity="ListObject">
+                      <Properties>
+                        <Property name="listID" type="string">\(listID)</Property>
+                        <Property name="listName" type="string">\(name)</Property>
+                        <Property name="displayOrder">2</Property>
+                      </Properties>
+                      <Relationships></Relationships>
+                    </Object>
+                """
+            }
+            func membership(_ id: String, film: String, order: Int) -> String {
+                """
+                    <Object id="ListMembership-\(id)" entity="ListMembership">
+                      <Properties>
+                        <Property name="id" type="string">\(id)</Property>
+                        <Property name="filmID" type="string">\(film)</Property>
+                        <Property name="listID" type="string">\(listID)</Property>
+                        <Property name="sortOrder">\(order)</Property>
+                      </Properties>
+                      <Relationships></Relationships>
+                    </Object>
+                """
+            }
+            let objects = [
+                filmXML(filmA, "First A"), filmXML(filmA, "Second A"), filmXML(filmB, "Only B"),
+                list("First L"), list("Second L"),
+                release(releaseID, studio: "First R"), release(releaseID, studio: "Second R"),
+                release(childID, studio: "Child", parent: releaseID),
+                membership(membershipID, film: filmA, order: 1), membership(membershipID, film: filmA, order: 2),
+                membership(UUID().uuidString, film: filmB, order: 3),
+            ].joined(separator: "\n")
+            let result = await restoreHandBuilt(
+                "repeated-ids", objects: objects,
+                manifest: "<Entity name=\"Film\" count=\"3\" /><Entity name=\"ListObject\" count=\"2\" />"
+                    + "<Entity name=\"Release\" count=\"3\" /><Entity name=\"ListMembership\" count=\"3\" />")
+            r.check("repeated-ids:restore-completes", result.error == nil, result.error.map { "\($0)" } ?? "")
+            r.check("repeated-ids:first-film-kept",
+                    result.films.map(\.name).sorted() == ["First A", "Only B"], "\(result.films.map(\.name))")
+            r.check("repeated-ids:first-list-kept",
+                    result.lists.map(\.listName) == ["First L"], "\(result.lists.map(\.listName))")
+            let child = result.releases.first { $0.studio == "Child" }
+            r.check("repeated-ids:first-release-kept-and-linked",
+                    result.releases.map(\.studio).sorted() == ["Child", "First R"]
+                        && child?.parentRelease?.studio == "First R"
+                        && result.releases.allSatisfy { $0.film?.name == "First A" },
+                    "\(result.releases.map { "\($0.studio) → \($0.film?.name ?? "nil"), parent \($0.parentRelease?.studio ?? "-")" })")
+            r.check("repeated-ids:first-membership-kept",
+                    result.memberships.map(\.sortOrder).sorted() == [1, 3]
+                        && result.memberships.allSatisfy { $0.film != nil && $0.list != nil },
+                    "\(result.memberships.map(\.sortOrder))")
+        }
+
         // --- A film whose id will not parse, sitting between two good ones -----------------------
         // The required-UUID parse throws, the film is skipped, and — the part that matters —
         // the loop keeps going. A `throw` that escaped here would abandon the restore with the
@@ -2325,9 +2400,8 @@ extension DebugHarness {
         }
 
         // --- The same film id twice in one file ---------------------------------------------------
-        // `Film.id` is not a unique attribute in the schema, so nothing at the store level
-        // rejects this. The check states whichever answer the pipeline gives; what must NOT
-        // happen is the restore failing outright, since the store is already gone by then.
+        // `Film.id` is a uniqueness constraint, so the restore keeps the first of the two (see
+        // `repeated-ids` for every entity). What must NOT happen is the restore failing outright.
         do {
             let duplicateID = UUID().uuidString
             let result = await restoreHandBuilt(
@@ -2336,11 +2410,9 @@ extension DebugHarness {
                 manifest: "<Entity name=\"Film\" count=\"2\" />")
             r.check("duplicate-film-id:restore-completes", result.error == nil,
                     result.error.map { "\($0)" } ?? "")
-            r.check("duplicate-film-id:both-rows-land-without-failing-the-restore",
-                    result.films.count == 2,
-                    "\(result.films.count) film(s) share one id: \(result.films.map(\.name).sorted()) — "
-                        + "Film.id is not a unique attribute, so a duplicated id produces duplicated "
-                        + "rows rather than an error; the library is intact either way")
+            r.check("duplicate-film-id:first-copy-kept",
+                    result.films.map(\.name) == ["First Copy"],
+                    "\(result.films.count) film(s): \(result.films.map(\.name).sorted())")
         }
 
         // --- The reader's per-text-node ceiling ----------------------------------------------------

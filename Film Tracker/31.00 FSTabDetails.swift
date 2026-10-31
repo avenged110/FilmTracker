@@ -262,7 +262,7 @@ final class FSTabDetails {
     
     // "Genre" field options (from FilterOption in ViewState)
     // Static: allocated once at class load time, never per-sheet-open.
-    static let genreOptions = ["", "Action and Adventure", "Comedy", "Drama", "Horror",
+    nonisolated static let genreOptions = ["", "Action and Adventure", "Comedy", "Drama", "Horror",
                         "Kids and Family", "Sci-Fi and Fantasy", "Thriller"]
     
     // "Rating" field options

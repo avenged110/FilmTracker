@@ -907,6 +907,7 @@ final class MemoryStoreCache: Loggable {
         }
 
         let liveFP = await liveFPLoad
+        LaunchReveal.recordSnapshotPrediction(hit: liveFP == storedFP)
         return .ready(stored: storedFP, readElapsed: storedFPResult.elapsed,
                       live: liveFP, payload: payloadTask,
                       startedAt: pipelineStart, fingerprintsAt: LaunchTimeline.now())

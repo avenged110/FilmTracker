@@ -48,9 +48,16 @@ struct MainView: View, Loggable {
     private let minimumHeight = Preferences.minimumHeight
 
     var body: some View {
+        let _ = LaunchTimeline.mark("mainViewBodyFirst")
         ZStack {
             NavigationSplitView(columnVisibility: $columnVisibility) {
-                LeftSidebar()
+                Group {
+                    if LaunchExperiment.noLeftSidebar {
+                        Color.clear
+                    } else {
+                        LeftSidebar()
+                    }
+                }
                     .navigationSplitViewColumnWidth(min: 220, ideal: 220, max: 220)
             } detail: {
                 mainContentArea
@@ -120,31 +127,22 @@ struct MainView: View, Loggable {
     private var mainContentArea: some View {
         MainContentSwitcher()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // One toolbar item holding all five buttons rather than five items: SwiftUI's
+            // toolbar bridge pays per item at launch (about 21 ms for these five). The
+            // buttons keep the toolbar button style inside the item and the HStack's 8 pt
+            // spacing reproduces the toolbar's own gaps exactly. The trailing 9 pt stands
+            // in for the former fixed-width spacer item, which doubled the gap before the
+            // search field; title bar renders of the two layouts are pixel-identical.
             .toolbar {
                 ToolbarItem(placement: .automatic) {
-                    AddNewToolbarButton()
-                }
-                ToolbarItem(placement: .automatic) {
-                    ImportToolbarMenu()
-                }
-                ToolbarItem(placement: .automatic) {
-                    AddNewListToolbarButton()
-                }
-                ToolbarItem(placement: .automatic) {
-                    NewSavedSearchToolbarButton()
-                }
-                ToolbarItem(placement: .automatic) {
-                    ScanDuplicatesToolbarButton()
-                }
-                // Doubles the automatically-inserted gap between the last toolbar
-                // button and the search field. macOS inserts a standard ~8pt gap
-                // between adjacent toolbar items by default; adding a second,
-                // matching fixed-width spacer item here inserts one additional
-                // gap's worth of space, doubling the total space to ~16pt without
-                // altering any other spacing, ordering, or toolbar behavior.
-                ToolbarItem(placement: .automatic) {
-                    Spacer()
-                        .frame(width: 8)
+                    HStack(spacing: 8) {
+                        AddNewToolbarButton()
+                        ImportToolbarMenu()
+                        AddNewListToolbarButton()
+                        NewSavedSearchToolbarButton()
+                        ScanDuplicatesToolbarButton()
+                    }
+                    .padding(.trailing, 9)
                 }
             }
             .modifier(NavigationTitleModifier())

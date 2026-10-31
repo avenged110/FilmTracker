@@ -136,22 +136,22 @@ extension MultiFilmSheetView {
 // MARK: - Header
 
 /// The fixed band under the tab bar, on both tabs: what the sheet does. Inset as the
-/// fields are, with an "info" badge beside the text — the reorderable lists' info button,
-/// drawn only.
+/// fields are, with an "info" badge beside the text (IndicatorBadge, the reorderable lists' info
+/// glyph).
 private struct MultiFilmHeader: View {
     static let description = "You are editing data for all of the selected films. Anything changed here will overwrite their existing values, which may differ from one another, with the exception of the \u{201C}Tags\u{201D} field, whose changes are simply appended."
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            ListCircleButton(
-                systemImage: "info",
-                fill: Color.gray.opacity(0.5),
-                diameter: 18,
-                glyphSize: 10,
-                glyphOffset: ListCircleButtonStyle.infoGlyphOffset,
-                action: {})
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+            // A badge, not a control: the app's IndicatorBadge, with the circle family's
+            // drop shadow so it matches the sheet's circular buttons.
+            IndicatorBadge(color: Color.gray.opacity(0.5), diameter: 18,
+                           circleShadow: (opacity: 0.35, radius: 1.5, offsetY: 1)) {
+                Image(systemName: "info")
+                    .font(.system(size: 10, weight: .bold))
+                    .offset(ListCircleButtonStyle.infoGlyphOffset)
+            }
+            .accessibilityHidden(true)
             Text(Self.description)
                 .font(.system(size: 12))
                 .fixedSize(horizontal: false, vertical: true)

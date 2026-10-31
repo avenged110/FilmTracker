@@ -668,6 +668,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         if PosterCache.shared.needsLaunchWarm, !newFilms.isEmpty {
             PosterCache.shared.registerLaunchDisplayOrder(newFilms.map(\.posterUID))
         }
+        if !newFilms.isEmpty { LaunchReveal.shared.galleryWillAppear(scrollView) }
 
         // Early exit if both empty
         guard !newFilms.isEmpty || !coordinator.films.isEmpty else {
@@ -886,6 +887,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 collectionView.selectionIndexPaths = []
                 collectionView.reloadData()
             }
+            if !newFilms.isEmpty { LaunchTimeline.mark("galleryReloadReturned") }
             coordinator.dividerBandsNeedRefresh = true
 
             // Decide how to handle scroll position after the reload.

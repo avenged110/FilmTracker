@@ -48,6 +48,8 @@ enum RuleConjunction: String, CaseIterable, Hashable, Sendable {
 enum RuleOperator: String, CaseIterable, Hashable, Sendable {
     // Text
     case contains, doesNotContain
+    // Genre: one of the app's fixed genres
+    case genreIs, genreIsNot
     // Year
     case yearIs, yearIsNot, yearAfter, yearBefore, yearBetween, yearNotBetween
     // Duration
@@ -71,12 +73,12 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
     /// What the operator's values are edited with.
     enum Editor: Hashable, Sendable {
         case text, number, numberRange, amountUnit, day, year, none
-        case listName, flagTerm, releaseKeyword, rotationValue, raw
+        case listName, genreName, flagTerm, releaseKeyword, rotationValue, raw
 
         /// Edited with a menu, so a new row's value starts unchosen ("Select…").
         var isMenu: Bool {
             switch self {
-            case .listName, .flagTerm, .releaseKeyword, .rotationValue: return true
+            case .listName, .genreName, .flagTerm, .releaseKeyword, .rotationValue: return true
             default: return false
             }
         }
@@ -86,8 +88,8 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .contains: return "contains"
         case .doesNotContain: return "does not contain"
-        case .yearIs, .ratingIs, .rotationIs, .flagIs: return "is"
-        case .yearIsNot, .rotationIsNot, .flagIsNot: return "is not"
+        case .yearIs, .ratingIs, .rotationIs, .flagIs, .genreIs, .inList: return "is"
+        case .yearIsNot, .rotationIsNot, .flagIsNot, .genreIsNot, .notInList: return "is not"
         case .yearAfter: return "is after"
         case .yearBefore: return "is before"
         case .yearBetween, .durationBetween, .ratingBetween: return "is between"
@@ -109,8 +111,6 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
         case .dateInYear: return "is in the year"
         case .noDate: return "has no date"
         case .hasDate: return "has a date"
-        case .inList: return "is in"
-        case .notInList: return "is not in"
         case .hasRelease: return "has a release that is"
         case .hasNoRelease: return "has no release that is"
         case .matches: return "matches"
@@ -121,7 +121,7 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
     /// The token this operator writes is inverted ("#!field").
     var isInverted: Bool {
         switch self {
-        case .doesNotContain, .yearIsNot, .yearNotBetween, .ratingRated, .notInTheLast, .hasDate,
+        case .doesNotContain, .genreIsNot, .yearIsNot, .yearNotBetween, .ratingRated, .notInTheLast, .hasDate,
              .notInList, .flagIsNot, .hasNoRelease, .rotationIsNot, .doesNotMatch:
             return true
         default:
@@ -141,6 +141,7 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
         case .dateAfter, .dateBefore, .dateOn: return .day
         case .dateInYear: return .year
         case .inList, .notInList: return .listName
+        case .genreIs, .genreIsNot: return .genreName
         case .flagIs, .flagIsNot: return .flagTerm
         case .hasRelease, .hasNoRelease: return .releaseKeyword
         case .rotationIs, .rotationIsNot: return .rotationValue
@@ -154,8 +155,10 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
         let specific: [RuleOperator]
         switch field {
         case .title, .crew, .cast, .directors, .producer, .executiveProducer, .screenwriter,
-             .composer, .genre, .studio, .tags, .notes, .synopsis:
+             .composer, .studio, .tags, .notes, .synopsis:
             specific = [.contains, .doesNotContain]
+        case .genre:
+            specific = [.genreIs, .genreIsNot]
         case .year:
             specific = [.yearIs, .yearIsNot, .yearAfter, .yearBefore, .yearBetween, .yearNotBetween]
         case .duration:
@@ -316,7 +319,7 @@ struct QueryRule: Identifiable, Hashable, Sendable {
     /// read their value exactly, so "2000 " would match nothing.
     var value: String {
         switch op {
-        case .contains, .doesNotContain, .inList, .notInList, .flagIs, .flagIsNot, .hasRelease,
+        case .contains, .doesNotContain, .genreIs, .genreIsNot, .inList, .notInList, .flagIs, .flagIsNot, .hasRelease,
              .hasNoRelease, .rotationIs, .rotationIsNot, .matches, .doesNotMatch:
             return text.trimmingCharacters(in: .whitespaces)
         case .yearIs, .yearIsNot, .durationAtLeast, .ratingIs: return "\(a)"
@@ -349,7 +352,7 @@ struct QueryRule: Identifiable, Hashable, Sendable {
         if !isOperatorChosen { return "\(field.displayName): Choose a condition." }
         if op.editor.isMenu, !isValueChosen { return "\(field.displayName): Choose a value." }
         switch op.editor {
-        case .text, .raw, .listName, .releaseKeyword, .rotationValue, .flagTerm:
+        case .text, .raw, .listName, .genreName, .releaseKeyword, .rotationValue, .flagTerm:
             return text.trimmingCharacters(in: .whitespaces).isEmpty
                 ? "\(field.displayName): Enter a value." : nil
         case .numberRange:
@@ -377,8 +380,12 @@ struct QueryRule: Identifiable, Hashable, Sendable {
 
         switch token.field {
         case .title, .crew, .cast, .directors, .producer, .executiveProducer, .screenwriter,
-             .composer, .genre, .studio, .tags, .notes, .synopsis:
+             .composer, .studio, .tags, .notes, .synopsis:
             op = inv ? .doesNotContain : .contains
+
+        case .genre:
+            // One of the fixed genres, exactly as the menu writes it.
+            if RuleValues.genres.contains(v) { op = inv ? .genreIsNot : .genreIs }
 
         case .list:
             op = inv ? .notInList : .inList
@@ -476,6 +483,9 @@ enum RuleValues {
         ("Region", ["region a", "region b", "region free", "region 1", "region 2", "region 3", "region 4", "region 5"]),
         ("Other", ["imported", "remastered", "combo-pack", "standalone", "multi-pack"]),
     ].flatMap { group, words in words.map { ReleaseKeyword(keyword: $0, group: group) } }
+
+    /// The app's fixed genres: the FilmSheet's genre menu, less its empty "Select" entry.
+    static var genres: [String] { FSTabDetails.genreOptions.filter { !$0.isEmpty } }
 
     /// Rotation threshold values: the two override keywords, then the six real thresholds.
     static let rotationValues = ["default", "override", "12 months", "18 months", "24 months",

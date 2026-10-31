@@ -193,16 +193,18 @@ final class MultiFilmSheet: Identifiable, Loggable {
     }
 
     /// What every film's threshold will be while Rotation Threshold is unchanged: the shared
-    /// threshold — except that films which all opened blacklisted, and which the edit
-    /// un-blacklists, go back to the default (BulkFilmEdit.applyFields).
+    /// threshold — except that the films the edit un-blacklists go back to the default
+    /// (BulkFilmEdit.applyFields), whatever other tags they opened with.
     var rotationBaseline: BulkSharedValue<Int?> {
-        let blacklisted = FilmSpecialSorting.blacklisted
-        if let sorting = specialSorting.value, !sorting.contains(blacklisted),
-           case .same(let opened) = shared.specialSorting, opened.contains(blacklisted) {
-            return .same(nil)
+        if let sorting = specialSorting.value, !sorting.contains(FilmSpecialSorting.blacklisted) {
+            return unblacklistedRotationBaseline
         }
         return shared.rotationThresholdOverride
     }
+
+    /// The films' thresholds once un-blacklisted: the default for the blacklisted, their
+    /// own for the rest. Read off the films as they opened, as `shared` is.
+    private let unblacklistedRotationBaseline: BulkSharedValue<Int?>
 
     // MARK: Lists
 
@@ -292,6 +294,9 @@ final class MultiFilmSheet: Identifiable, Loggable {
         hallOfFameIncoming = films.filter { $0.hofPosition == 0 }.count
         hallOfFameVacancies = max(0, BulkFilmEdit.hallOfFameCapacity - hallOfFameCount)
         blacklistedCount = films.filter { $0.specialSorting.contains(FilmSpecialSorting.blacklisted) }.count
+        unblacklistedRotationBaseline = BulkSharedValue(films.lazy.map {
+            $0.specialSorting.contains(FilmSpecialSorting.blacklisted) ? nil : $0.rotationThresholdOverride
+        })
 
         let queueIDs = FilmQueue.allListIDs
         var shared = Shared()
@@ -386,8 +391,12 @@ final class MultiFilmSheet: Identifiable, Loggable {
     /// The live "Up Next" overflow of the current queue choice; 0 unless it is "Up Next".
     func liveUpNextOverflow() -> Int {
         guard case .set(.upNext?) = queueSection else { return 0 }
-        return FilmQueue.upNextOverflow(adding: Set(filmIDs), coordinator: coordinator)
+        return FilmQueue.upNextOverflow(adding: Set(liveFilmIDs), coordinator: coordinator)
     }
+
+    /// The films still in the library: save() skips any deleted since the sheet opened, so
+    /// the capacity checks must not count them either.
+    private var liveFilmIDs: [UUID] { filmIDs.filter { coordinator.getFilm($0) != nil } }
 
     private func queueListsByFilm() -> [UUID: Set<UUID>] {
         Dictionary(uniqueKeysWithValues: filmIDs.map { ($0, coordinator.filmQueueListIDs(forFilm: $0)) })
@@ -396,8 +405,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
     // MARK: Gutter
 
     /// Films that cannot take every new tag (they would pass the per-film limit).
-    var filmsOverTagLimit: Int {
-        let edit = edit
+    private func filmsOverTagLimit(_ edit: BulkFilmEdit) -> Int {
         guard !edit.appendedTags.isEmpty else { return 0 }
         return films.filter { edit.tags(appendedTo: $0.tags).dropped > 0 }.count
     }
@@ -407,7 +415,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
         let edit = edit
         if edit.isEmpty { return "Change a field to update every selected film." }
         let fields = edit.changeCount == 1 ? "1 field" : "\(edit.changeCount) fields"
-        let over = filmsOverTagLimit
+        let over = filmsOverTagLimit(edit)
         if over > 0 {
             let films = over == 1 ? "1 film has" : "\(over) films have"
             return "\(fields) will change. \(films) too many tags to take them all."
@@ -438,13 +446,13 @@ final class MultiFilmSheet: Identifiable, Loggable {
         // "Up Next" can fill while the sheet is open (the midnight auto-enqueue); the add
         // is refused whole, as every other add to it is.
         if liveUpNextOverflow() > 0 {
-            pendingAlert = .upNextFull(message: FilmQueue.upNextFullDropMessage(Set(filmIDs), coordinator: coordinator))
+            pendingAlert = .upNextFull(message: FilmQueue.upNextFullDropMessage(Set(liveFilmIDs), coordinator: coordinator))
             Self.log("Refused: 'Up Next' has no room for the selection")
             return
         }
         if case .set(true) = inHallOfFame {
             let members = coordinator.getHallOfFameFilms().count
-            let incoming = filmIDs.filter { (coordinator.getFilm($0)?.hofPosition ?? 0) == 0 }.count
+            let incoming = filmIDs.compactMap { coordinator.getFilm($0) }.filter { $0.hofPosition == 0 }.count
             if BulkFilmEdit.hallOfFameOverflow(adding: incoming, memberCount: members) > 0 {
                 pendingAlert = .hallOfFameFull(message: Self.hallOfFameFullMessage(
                     incoming: incoming, vacancies: max(0, BulkFilmEdit.hallOfFameCapacity - members)))

@@ -875,6 +875,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             resetToEmpty()
             return
         }
+        LaunchTimeline.mark("layoutFirstPrepare")
 
         let scrollWidth = cv.enclosingScrollView?.bounds.width ?? cv.bounds.width
         let scale = unsafe cv.window?.backingScaleFactor ?? 2.0

@@ -726,6 +726,7 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         if PosterCache.shared.needsLaunchWarm, !newFilms.isEmpty {
             PosterCache.shared.registerLaunchDisplayOrder(newFilms.map(\.posterUID))
         }
+        if !newFilms.isEmpty { LaunchReveal.shared.galleryWillAppear(scrollView) }
 
         // MARK: Change Detection
         //
@@ -2767,16 +2768,21 @@ extension View {
     /// The FilmSheet and right-sidebar tables' outline (`listContainerChrome`), for a box of
     /// any content in a sheet — UpNextResultsTable, its placeholders, the Saved Search rules:
     /// fill, the content clipped one border-width inside the outline — so scrolled rows never
-    /// paint into the translucent stroke — then the stroke and shadow.
+    /// paint into the translucent stroke — then the stroke.
+    ///
+    /// The shadow is cast by the fill shape alone, behind the content. On the whole box it
+    /// was derived from the content's pixels, so a scrolling table under it re-rendered the
+    /// shadow offscreen on every frame of a scroll; the shape's never changes. The box is
+    /// opaque, so the two cast the same shadow.
     func sheetBoxChrome(fill: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
         return self
-            .background(fill)
             .clipShape(shape.inset(by: FieldEdgeTreatment.borderWidth))
+            .background(shape.inset(by: FieldEdgeTreatment.borderWidth).fill(fill)
+                .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
+                        radius: FieldEdgeTreatment.shadowRadius, x: 0, y: FieldEdgeTreatment.shadowOffsetY))
             .overlay(shape.strokeBorder(FieldEdgeTreatment.borderGradient,
                                         lineWidth: FieldEdgeTreatment.borderWidth)
                 .allowsHitTesting(false))
-            .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
-                    radius: FieldEdgeTreatment.shadowRadius, x: 0, y: FieldEdgeTreatment.shadowOffsetY)
     }
 }

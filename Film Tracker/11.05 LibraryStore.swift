@@ -609,7 +609,7 @@ enum PendingRestore: Loggable {
         defer { try? handle.close() }
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return StoreInspection.hex(hasher.finalize())
     }
 
     /// SQLite's `PRAGMA integrity_check` on a closed store file: "ok", or what it found.
@@ -653,8 +653,17 @@ enum StoreInspection {
             hasher.update(data: Data(name.utf8))
             hasher.update(data: hash)
         }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return StoreInspection.hex(hasher.finalize())
     }()
+
+    /// A digest as lowercase hex. Built with `String(_:radix:)`, not `String(format:)`,
+    /// whose C variadic arguments strict memory safety flags as unsafe.
+    static func hex(_ digest: SHA256.Digest) -> String {
+        digest.map { byte in
+            let text = String(byte, radix: 16)
+            return byte < 0x10 ? "0" + text : text
+        }.joined()
+    }
 
     /// Reads every row through `context` (a main-queue context, on the main actor). Faults
     /// nothing: relationships are read as object IDs.
@@ -696,7 +705,7 @@ enum StoreInspection {
             lines.sort()
             var hasher = SHA256()
             for line in lines { hasher.update(data: Data(line.utf8)); hasher.update(data: Data([0x0A])) }
-            report.digest[name] = "\(objects.count):" + hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            report.digest[name] = "\(objects.count):" + StoreInspection.hex(hasher.finalize())
         }
 
         report.problems = structuralProblems(rows)

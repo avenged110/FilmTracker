@@ -254,7 +254,7 @@ enum SavedSearchName {
         var noun: String {
             switch self {
             case .smartList: return "a smart list"
-            case .filmQueue: return "a Queue section"
+            case .filmQueue: return "the Queue"
             case .recents: return "a Recents tab"
             case .report: return "a report"
             case .userList: return "a list"

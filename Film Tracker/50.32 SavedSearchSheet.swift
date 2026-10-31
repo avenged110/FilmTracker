@@ -209,17 +209,25 @@ struct SavedSearchSheet: View, Loggable {
 
     /// The rows, scrolling once there are more than fit: about five show at once.
     private var rulesList: some View {
-        ScrollView(.vertical) {
-            VStack(spacing: 6) {
-                ForEach($rules.rules) { $rule in
-                    RuleRow(rule: $rule,
-                            showsConjunction: rules.mode == .custom,
-                            listChoices: listChoices,
-                            canRemove: rules.rules.count > 1,
-                            onRemove: { removeRule(rule.id) })
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                VStack(spacing: 6) {
+                    ForEach($rules.rules) { $rule in
+                        RuleRow(rule: $rule,
+                                showsConjunction: rules.mode == .custom,
+                                listChoices: listChoices,
+                                canRemove: rules.rules.count > 1,
+                                onRemove: { removeRule(rule.id) })
+                            .id(rule.id)
+                    }
                 }
+                .padding(8)
             }
-            .padding(8)
+            // A rule added below the fold is brought into view: "+" must show its result.
+            .onChange(of: rules.rules.count) { oldCount, newCount in
+                guard newCount > oldCount, let last = rules.rules.last?.id else { return }
+                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
+            }
         }
         .frame(height: 172)
         .sheetBoxChrome(fill: Color(nsColor: .controlBackgroundColor))
@@ -472,7 +480,7 @@ struct ListChoiceGroup: Identifiable, Hashable {
 
     static func groups(_ catalog: SearchListCatalog, excluding excluded: String?) -> [ListChoiceGroup] {
         let order: [(SearchListCatalog.Kind, String)] = [
-            (.user, "Lists"), (.saved, "Saved Searches"), (.smart, "Smart Lists"),
+            (.user, "Lists"), (.saved, "Saved Searches"), (.queue, "Queue"), (.smart, "Smart Lists"),
             (.recents, "Recents"), (.report, "Reports")]
         return order.compactMap { kind, title in
             let names = catalog.entries.filter { $0.kind == kind && $0.name != excluded }.map(\.name)
@@ -670,6 +678,9 @@ private struct RuleRow: View {
                 .fixedSize()
         case .none:
             EmptyView()
+        case .genreName:
+            menuValue(selection: $rule.text,
+                      items: RuleValues.genres.map { .option(tag: $0, title: $0) })
         case .flagTerm:
             menuValue(selection: $rule.text,
                       items: FilmFlag.terms.map { .option(tag: $0.display, title: $0.display) })
@@ -729,7 +740,7 @@ private struct RuleRow: View {
                                  placeholder: String) -> some View {
         let all = Set(groups.flatMap(\.1))
         let isOther = rule.isValueChosen && (rule.otherChosen ?? !all.contains(selection.wrappedValue))
-        let items = Self.grouped(groups.map { group in (group.0, group.1.map { (tag: $0, title: $0) }) })
+        let items = Self.grouped(groups.map { group in (group.0, group.1.map { (tag: $0, title: truncateListName($0)) }) })
             + [.separator, .option(tag: Self.otherTag, title: "Other…")]
         return HStack(spacing: 4) {
             menuValue(selection: Binding(

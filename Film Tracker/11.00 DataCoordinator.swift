@@ -1043,7 +1043,7 @@ final class DataCoordinator: Loggable {
     /// Membership is resolved per list rather than per film: the token asks for the films in
     /// one or two lists, so reading those lists' sets directly avoids asking every film in the
     /// library which of every smart list it belongs to. Internal Film Queue lists are left out
-    /// by getAllLists, so their names never surface in the field. Smart lists are left out
+    /// by getAllLists and added here by ID: the whole Queue and each section. Smart lists are left out
     /// while the feature is off — their sets are not maintained then and none is navigable.
     func searchListCatalog() -> SearchListCatalog {
         var entries: [SearchListCatalog.Entry] = getAllLists().map { list in
@@ -1057,6 +1057,19 @@ final class DataCoordinator: Loggable {
                 .init(name: type.rawValue, kind: .smart) { [weak self] in
                     self?.smartLists.filmIDs(for: type) ?? []
                 }
+            }
+        }
+        // The Film Queue, whole and by section, under the names the Queue view shows. Its
+        // internal lists are hidden from getAllLists, so they are added here by ID.
+        entries.append(.init(name: FilmQueue.searchName, kind: .queue, aliases: FilmQueue.searchAliases) { [weak self] in
+            guard let self else { return [] }
+            return FilmQueueSection.allCases.reduce(into: Set<UUID>()) {
+                $0.formUnion(self.memoryStore.getList($1.listID)?.filmIDs ?? [])
+            }
+        })
+        entries += FilmQueueSection.allCases.map { section in
+            .init(name: section.displayName, kind: .queue) { [weak self] in
+                self?.memoryStore.getList(section.listID)?.filmIDs ?? []
             }
         }
         // The Recents tabs, under the names they show, with the same (capped, ordered) film
@@ -1109,7 +1122,7 @@ final class DataCoordinator: Loggable {
         for entry in searchListCatalog().entries {
             let kind: SavedSearchName.ClaimKind
             switch entry.kind {
-            case .smart, .saved: continue  // Claimed by builtInNameClaims, and by the store.
+            case .smart, .saved, .queue: continue  // Claimed by builtInNameClaims, and by the store.
             case .user:
                 guard includingUserLists else { continue }
                 kind = .userList
@@ -1126,7 +1139,8 @@ final class DataCoordinator: Loggable {
     /// coordinator is at hand (DBRestorer.createSavedSearches).
     static var builtInNameClaims: [SavedSearchName.Claim] {
         SmartListType.allCases.map { .init(name: $0.rawValue, kind: .smartList) }
-            + FilmQueueSection.allCases.map { .init(name: $0.rawValue, kind: .filmQueue) }
+            + ([FilmQueue.searchName] + FilmQueue.searchAliases + FilmQueueSection.allCases.map(\.rawValue))
+                .map { .init(name: $0, kind: .filmQueue) }
     }
 
     /// Whether saved search `id` is the view loaded and its rules matched no films, before any

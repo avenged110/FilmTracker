@@ -8,6 +8,7 @@
 
 import SwiftUI
 import Combine
+import os
 
 struct GalleryView: View, Loggable {
     nonisolated static let logTag = "[GalleryView]"
@@ -80,9 +81,19 @@ struct GalleryView: View, Loggable {
                 
                 if shouldShowPlaceholder {
                     placeholderView
+                        .onAppear { LaunchReveal.shared.placeholderAppeared() }
                 }
                 
-                if shouldShowLoading {
+                // At launch the spinner belongs to LaunchReveal: absent on a warm launch, and
+                // on a cold one an AppKit overlay that stays mounted to fade out under the
+                // gallery's fade-in. After the reveal, the ordinary spinner below.
+                if LaunchReveal.shared.isActive {
+                    if LaunchReveal.shared.showsSpinner {
+                        LaunchSpinnerOverlay(dismissing: !shouldShowLoading)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .onAppear { LaunchTimeline.markLoadingIndicatorShown() }
+                    }
+                } else if shouldShowLoading {
                     Color(NSColor.controlBackgroundColor).opacity(0.5)
                         .overlay(ProgressView())
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -435,6 +446,7 @@ struct GalleryView: View, Loggable {
         #if DEBUG
         ViewSwitchProbe.record("gallery.appear sidebar=\(appState.selectedSidebarItem) active=\(ViewStateManager.shared.activeView)")
         #endif
+        LaunchReveal.shared.galleryViewAppeared()
         Self.log("GalleryView appeared (instance: \(viewID))")
 
         // NOTE: No singleton registration here — deliberately. The sub-category state
@@ -818,4 +830,274 @@ private final class SubscriptionHolder {
 struct FilmScrollRequest: Equatable {
     let filmID: UUID
     let token = UUID()
+}
+
+// MARK: - Launch Reveal
+
+/// How the gallery first appears at launch. The snapshot cache's fingerprint verdict is
+/// known ~175 ms into the process, well before the window paints, so the launch can pick
+/// its look up front. A warm launch (cache hit, ~200 ms from first paint to gallery at any
+/// library size) holds the main window transparent and shows it in the completion of the
+/// Core Animation transaction that carries the gallery's first content, so the window's
+/// first visible frame is the loaded gallery. A cold launch shows the spinner from first
+/// paint and crossfades it with the gallery; both fades are Core Animation opacity
+/// animations, run by the render server, so the main thread's post-launch work cannot
+/// stall them.
+@MainActor @Observable
+final class LaunchReveal {
+    static let shared = LaunchReveal()
+
+    static let fadeDuration: CFTimeInterval = 0.2
+
+    /// The early pipeline's verdict, written from its background task. nil until known,
+    /// which reads as cold: a spinner is the safe default.
+    private nonisolated static let prediction = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+
+    nonisolated static func recordSnapshotPrediction(hit: Bool) {
+        prediction.withLock { $0 = hit }
+    }
+
+    /// True until the launch reveal has finished; GalleryView then draws its ordinary spinner.
+    private(set) var isActive = true {
+        didSet { if !isActive { allowMenuRefresh() } }
+    }
+
+    /// False until the launch's gallery (or its placeholder) is on screen. MenuBar reads none
+    /// of the library-derived values that change as the first data lands until this flips,
+    /// so its re-render (~30 ms of rebuilt submenus) runs after the first frame instead of
+    /// in front of it. Nobody can open a menu before the window is visible.
+    private(set) var menuRefreshAllowed = LaunchExperiment.noMenuGate
+
+    /// Flips `menuRefreshAllowed` on a later main-queue turn than the one that shows the
+    /// window, so the window's commit is not held behind the menu work. Reached from every
+    /// path that ends the reveal (`isActive` going false) and from `showHeldWindow`; the
+    /// backstop in `initializationFinished` covers a reveal that never ends.
+    private func allowMenuRefresh() {
+        guard !menuRefreshScheduled else { return }
+        menuRefreshScheduled = true
+        DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    LaunchTimeline.mark("menuRefreshAllowed")
+                    self.allowMenuContent()
+                    self.menuRefreshAllowed = true
+                }
+            }
+        }
+    }
+
+    @ObservationIgnored private var menuRefreshScheduled = false
+
+    /// False while a warm launch holds its window hidden; true from the moment the window can
+    /// be seen (at once on a cold launch, whose window shows its spinner). MenuBar builds its
+    /// two costliest submenus' items (View ▸ Left Sidebar and Sort By, ~38 ms at launch) only
+    /// once this is true, so a warm launch builds them after its first frame. Neither has a
+    /// shortcut the menu actually delivers: KeyboardManager's key monitor handles ⌘0–⌘9 and
+    /// ⌥⌘S before menu key equivalents are matched, and Sort By has none.
+    private(set) var menuContentAllowed = LaunchExperiment.noMenuGate
+
+    private func allowMenuContent() {
+        guard !menuContentAllowed else { return }
+        LaunchTimeline.mark("menuContentAllowed")
+        menuContentAllowed = true
+    }
+
+    /// Decided on first read and then fixed, so the spinner never vanishes mid-launch. Only
+    /// a predicted hit that turns out a miss changes it, toward showing the spinner.
+    var showsSpinner: Bool {
+        if snapshotDidMiss { return true }
+        if let decided = spinnerDecision { return decided }
+        let decided = Self.prediction.withLock { $0 } != true
+        spinnerDecision = decided
+        return decided
+    }
+
+    @ObservationIgnored private var spinnerDecision: Bool?
+    private var snapshotDidMiss = false
+    @ObservationIgnored private var hasRevealed = false
+
+    /// The main window while a warm launch holds it transparent; nil once shown.
+    @ObservationIgnored private weak var heldWindow: NSWindow?
+    @ObservationIgnored private(set) var didHoldWindow = false
+    @ObservationIgnored private var galleryMounted = false
+
+    /// From LaunchWindowHold, as the main window's root view joins its window, before
+    /// the window's first frame. Holds it only on a predicted warm launch.
+    func windowWillAppear(_ window: NSWindow) {
+        guard isActive, !didHoldWindow, !showsSpinner else {
+            // Not held: the window is about to be seen as it is.
+            if !didHoldWindow { allowMenuContent() }
+            return
+        }
+        didHoldWindow = true
+        heldWindow = window
+        window.alphaValue = 0
+        LaunchTimeline.mark("windowHeld")
+    }
+
+    /// Shows the held window on the main queue's next turn, which runs after this turn's
+    /// Core Animation commit, so the window appears with whatever this update pass put in
+    /// it. Not a CATransaction completion block: that waits for every animation added in
+    /// the transaction to finish, and held the window ~470 ms past the commit.
+    private func showHeldWindowOnCommit() {
+        guard heldWindow != nil else { return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { self.showHeldWindow() }
+        }
+    }
+
+    private func showHeldWindow() {
+        guard let window = heldWindow else { return }
+        heldWindow = nil
+        window.alphaValue = 1
+        LaunchTimeline.mark("windowShown")
+        allowMenuRefresh()
+        LaunchTimeline.finalizeIfComplete()
+    }
+
+    /// A predicted hit that turned out a miss: show the window now, spinner and all.
+    func snapshotMissed() {
+        snapshotDidMiss = true
+        showHeldWindow()
+    }
+
+    func galleryViewAppeared() {
+        galleryMounted = true
+    }
+
+    /// GalleryView's launch view is empty and draws a placeholder instead of the gallery.
+    func placeholderAppeared() {
+        guard isActive, !showsSpinner else { return }
+        showHeldWindowOnCommit()
+        isActive = false
+    }
+
+    /// Initialization is done. A launch into a view without a gallery has nothing to wait
+    /// for, so its window shows with this update. The backstop shows the window if a
+    /// mounted gallery never reports (a bug, logged), so a launch can never stay invisible.
+    func initializationFinished() {
+        // A reveal that never ends (a gallery that never reports, a spinner never
+        // dismissed) must not leave the menu bar showing pre-load state.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            MainActor.assumeIsolated { self.allowMenuRefresh() }
+        }
+        guard heldWindow != nil else { return }
+        if !galleryMounted {
+            showHeldWindowOnCommit()
+            isActive = false
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            MainActor.assumeIsolated {
+                guard self.heldWindow != nil else { return }
+                GalleryView.log("LaunchReveal backstop: gallery never reported its first frame; showing the window", level: .warning)
+                self.showHeldWindow()
+                self.isActive = false
+            }
+        }
+    }
+
+    /// Called by the gallery style that draws first, in the update pass that loads its
+    /// first films, before its reloadData. Warm: the held window shows when this pass's
+    /// transaction commits. Cold: the fade-in is added to the scroll view's layer in this
+    /// transaction, so it starts when that first content commits.
+    func galleryWillAppear(_ scrollView: NSScrollView) {
+        guard isActive, !hasRevealed else { return }
+        hasRevealed = true
+        guard showsSpinner else {
+            showHeldWindowOnCommit()
+            isActive = false
+            return
+        }
+        scrollView.wantsLayer = true
+        if let layer = scrollView.layer {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = Self.fadeDuration
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer.add(fade, forKey: "launchReveal")
+        }
+        finishAfterFade()
+    }
+
+    /// Ends the reveal once the fades are done. Also reached by the spinner overlay when it
+    /// dismisses without a gallery (the launch view is empty and shows a placeholder).
+    func finishAfterFade() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.fadeDuration + 0.05) {
+            MainActor.assumeIsolated { self.isActive = false }
+        }
+    }
+}
+
+/// Placed in the main window's root view. Its view joining the window is the earliest
+/// point the window exists, before its first frame, and is where a warm launch hides it.
+struct LaunchWindowHold: NSViewRepresentable {
+    final class HoldView: NSView {
+        override func viewWillMove(toWindow newWindow: NSWindow?) {
+            super.viewWillMove(toWindow: newWindow)
+            if let newWindow { LaunchReveal.shared.windowWillAppear(newWindow) }
+        }
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> HoldView { HoldView() }
+    func updateNSView(_ view: HoldView, context: Context) {}
+}
+
+/// The launch spinner, in AppKit so its fade-out is a Core Animation animation like the
+/// gallery's fade-in. Matches the SwiftUI spinner: a regular spinning indicator centered
+/// on a half-opacity control background.
+private struct LaunchSpinnerOverlay: NSViewRepresentable {
+    let dismissing: Bool
+
+    final class OverlayView: NSView {
+        let indicator = NSProgressIndicator()
+        var didDismiss = false
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            indicator.style = .spinning
+            indicator.controlSize = .regular
+            indicator.isIndeterminate = true
+            indicator.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(indicator)
+            NSLayoutConstraint.activate([
+                indicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+                indicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+            ])
+            indicator.startAnimation(nil)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override var wantsUpdateLayer: Bool { true }
+
+        override func updateLayer() {
+            layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.5).cgColor
+        }
+
+        // Never takes clicks, including while it fades out over the gallery.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        func dismiss() {
+            guard !didDismiss, let layer else { return }
+            didDismiss = true
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 1
+            fade.toValue = 0
+            fade.duration = LaunchReveal.fadeDuration
+            fade.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            layer.opacity = 0
+            layer.add(fade, forKey: "launchReveal")
+            LaunchReveal.shared.finishAfterFade()
+        }
+    }
+
+    func makeNSView(context: Context) -> OverlayView { OverlayView() }
+
+    func updateNSView(_ view: OverlayView, context: Context) {
+        if dismissing { view.dismiss() }
+    }
 }

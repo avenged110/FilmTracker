@@ -14,7 +14,12 @@ struct MenuBar: Commands {
     @FocusedValue(\.selectedFilmID) private var selectedFilmID: UUID?
 
     var selectionCount: Int { selectedFilmIDs?.count ?? 0 }
-    var filmCount: Int { dataCoordinator.totalFilmCount }
+    /// Zero until LaunchReveal allows the menu to refresh — exactly the value it holds before
+    /// the library loads — so the load does not re-render the menu bar ahead of the first
+    /// gallery frame. See LaunchReveal.menuRefreshAllowed.
+    var filmCount: Int {
+        LaunchReveal.shared.menuRefreshAllowed ? dataCoordinator.totalFilmCount : 0
+    }
 
     /// "Manage Queue Membership" once any selected film already occupies a Film Queue
     /// section — the point at which the submenu's items can remove as well as add — and
@@ -47,6 +52,7 @@ struct MenuBar: Commands {
     }
 
     var body: some Commands {
+        let _ = LaunchTimeline.mark("menuBodyFirst")
         Group {
             // MARK: - "Application Name" Menu: Customize
             // "About <application>" menu item.
@@ -358,7 +364,12 @@ struct MenuBar: Commands {
                 FilterItemsMenu(filmCount: filmCount, isSheetActive: isSheetActive, selectedSidebarItem: appState.selectedSidebarItem,
                                 dataCoordinator: dataCoordinator)
                 Divider()
-                LeftSidebarMenu(appState: appState, isSheetActive: isSheetActive)
+                if LaunchReveal.shared.menuContentAllowed {
+                    LeftSidebarMenu(appState: appState, isSheetActive: isSheetActive)
+                } else {
+                    // Its items wait for the first frame; see LaunchReveal.menuContentAllowed.
+                    Menu("Left Sidebar") {}
+                }
                 RightSidebarMenu(isSheetActive: isSheetActive, selectionCount: selectionCount,
                                  notesTabEnabled: notesTabEnabled)
                 ListsMenu(appState: appState, dataCoordinator: dataCoordinator, isSheetActive: isSheetActive)
@@ -429,7 +440,7 @@ struct MenuBar: Commands {
         // Text field focused in main window: allow native text selection.
         if isTextFieldFocused() { return true }
         // Gallery-style view with at least one film: allow multi-select.
-        return appState.selectedSidebarItem.capabilities.supportsMultiSelection && dataCoordinator.totalFilmCount > 0
+        return appState.selectedSidebarItem.capabilities.supportsMultiSelection && filmCount > 0
     }
     
     /// Verify if text editing operations (Cut/Copy/Paste) should be enabled
@@ -583,10 +594,13 @@ struct ViewAsListMenu: View {
             syncFromViewStateManager()
         }
         .onViewStateChanged { syncFromViewStateManager() }
+        .onChange(of: LaunchReveal.shared.menuRefreshAllowed) { syncFromViewStateManager() }
     }
 
     @MainActor
     private func syncFromViewStateManager() {
+        // Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
+        guard LaunchReveal.shared.menuRefreshAllowed else { return }
         isListView = ViewStateManager.shared.activeState.isListView
     }
 }
@@ -635,7 +649,10 @@ struct SortByMenu: View {
     /// Computed property that determines if the menu is disabled
     @MainActor
     private var isMenuDisabled: Bool {
-        isSheetActive || SortMenuInputs.optionsLocked(coordinator: coordinator)
+        // Locked until LaunchReveal allows the refresh, as it is before the library loads
+        // (no films), without reading the coordinator that early.
+        isSheetActive || !LaunchReveal.shared.menuRefreshAllowed
+            || SortMenuInputs.optionsLocked(coordinator: coordinator)
     }
 
     /// True for views with no gallery at all (Reports, Imports): nothing in the menu applies,
@@ -657,6 +674,9 @@ struct SortByMenu: View {
                 // so the item is grayed and never opens.
                 Button("Sort By") {}
                     .disabled(true)
+            } else if !LaunchReveal.shared.menuContentAllowed {
+                // Its items wait for the first frame; see LaunchReveal.menuContentAllowed.
+                Menu("Sort By") {}
             } else {
                 sortMenu
             }
@@ -669,6 +689,7 @@ struct SortByMenu: View {
         // same viewStateChanged event the sort mirrors ride, which re-derives the jump
         // targets rather than merely re-rendering the existing ones.
         .onViewStateChanged { syncFromViewStateManager() }
+        .onChange(of: LaunchReveal.shared.menuRefreshAllowed) { syncFromViewStateManager() }
     }
 
     private var sortMenu: some View {
@@ -711,6 +732,8 @@ struct SortByMenu: View {
 
     @MainActor
     private func syncFromViewStateManager() {
+        // Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
+        guard LaunchReveal.shared.menuRefreshAllowed else { return }
         inputs = SortMenuInputs.current(coordinator: coordinator)
     }
 }
@@ -735,7 +758,10 @@ struct FilterItemsMenu: View {
     /// Computed property that determines if the menu is disabled
     @MainActor
     private var isMenuDisabled: Bool {
-        isSheetActive || FilterMenuInputs.menuDisabled(coordinator: dataCoordinator)
+        // Disabled until LaunchReveal allows the refresh, as it is before the library is
+        // initialized, without reading the coordinator that early.
+        isSheetActive || !LaunchReveal.shared.menuRefreshAllowed
+            || FilterMenuInputs.menuDisabled(coordinator: dataCoordinator)
     }
 
     /// True for views with no gallery at all (Reports, Imports), the same test SortByMenu's
@@ -763,6 +789,7 @@ struct FilterItemsMenu: View {
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
             syncFromViewStateManager() }
         .onViewStateChanged { syncFromViewStateManager() }
+        .onChange(of: LaunchReveal.shared.menuRefreshAllowed) { syncFromViewStateManager() }
     }
 
     private var filterMenu: some View {
@@ -787,6 +814,8 @@ struct FilterItemsMenu: View {
 
     @MainActor
     private func syncFromViewStateManager() {
+        // Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
+        guard LaunchReveal.shared.menuRefreshAllowed else { return }
         inputs = FilterMenuInputs.current()
     }
 }
@@ -1333,13 +1362,19 @@ struct ListsMenu: View {
         // Also refresh when the coordinator's database state changes (e.g., after initial load).
         // DataCoordinator is now @Observable; .onReceive($publisher) is no longer available.
         // .onChange(of:) uses SwiftUI's observation graph to deliver the same notification.
-        .onChange(of: dataCoordinator.hasDatabaseFilms) { _, _ in
+        // One onChange for both triggers, so the gate opening with films loaded reloads once,
+        // not twice. The `&&` reads hasDatabaseFilms only once the gate is open, so the
+        // library load does not re-render this menu ahead of the first frame.
+        .onChange(of: [LaunchReveal.shared.menuRefreshAllowed,
+                       LaunchReveal.shared.menuRefreshAllowed && dataCoordinator.hasDatabaseFilms]) {
             loadLists()
         }
     }
 
     @MainActor
     private func loadLists() {
+        // Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
+        guard LaunchReveal.shared.menuRefreshAllowed else { return }
         availableLists = dataCoordinator.getAllLists()
     }
     

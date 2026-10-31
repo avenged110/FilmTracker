@@ -84,6 +84,11 @@ enum FilmQueue {
     /// The set of all three internal list UUIDs, for fast membership tests.
     static let allListIDs: Set<UUID> = Set(FilmQueueSection.allCases.map { $0.listID })
 
+    /// The name a `#list` token gives the whole Queue (every section), as the sidebar row
+    /// shows it; the sections answer to their own names (DataCoordinator.searchListCatalog).
+    static let searchName = "Queue"
+    static let searchAliases = ["Film Queue"]
+
     /// Returns true if the supplied list UUID belongs to one of the internal Up Next lists.
     static func isInternalList(_ listID: UUID) -> Bool {
         allListIDs.contains(listID)

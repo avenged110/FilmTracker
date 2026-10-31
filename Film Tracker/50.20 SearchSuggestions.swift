@@ -546,6 +546,7 @@ nonisolated enum SearchSuggestionRanker {
         case .report: return "Report: "
         case .recents: return "Recents: "
         case .smart: return "Smart List: "
+        case .queue: return "Queue: "
         case .saved: return "Saved Search: "
         case .user: return ""
         }

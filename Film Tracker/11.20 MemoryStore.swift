@@ -220,6 +220,7 @@ final class MemoryStore: Loggable {
             // (films added/deleted/modified since last save). The cache is rebuilt
             // at the end of finalizeInitialization() via scheduleThrottledSave().
             Self.log("Phase 1 slow-path: snapshot cache miss, reading the store...")
+            LaunchReveal.shared.snapshotMissed()
             self.snapshotCacheNeedsRebuild = true
             do {
                 let loadedData = try await loadAllDataFromStore(persistentContainer: persistentContainer)

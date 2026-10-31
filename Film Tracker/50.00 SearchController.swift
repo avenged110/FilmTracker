@@ -17,7 +17,7 @@ import Observation
 struct SearchListCatalog {
     /// Where a list comes from, in the order the suggestion list groups them.
     enum Kind: Int, Comparable {
-        case report, recents, smart, saved, user
+        case report, recents, smart, queue, saved, user
         static func < (a: Kind, b: Kind) -> Bool { a.rawValue < b.rawValue }
     }
     struct Entry {

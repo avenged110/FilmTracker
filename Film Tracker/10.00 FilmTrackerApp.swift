@@ -41,6 +41,12 @@ struct FilmTrackerApp: App, Loggable {
         // through the shared logger's fallback configuration — a bundle-named file under
         // Library/Logs rather than FilmTracker.log in the data folder. Nothing may log
         // above this line.
+        #if DEBUG
+        // FT_LAUNCH_PAUSE=<seconds>: hold here so a profiler can attach before launch work.
+        if let pause = ProcessInfo.processInfo.environment["FT_LAUNCH_PAUSE"], let seconds = UInt32(pause) {
+            sleep(seconds)
+        }
+        #endif
         Self.bootstrapLogging()
         LaunchTimeline.mark("appInit")
 
@@ -75,6 +81,7 @@ struct FilmTrackerApp: App, Loggable {
         coordinator.beginEarlyCacheLoads()
 
         NSWindow.allowsAutomaticWindowTabbing = false
+        LaunchTimeline.installRunLoopProbe()
         LaunchTimeline.mark("appInitEnd")
     }
 
@@ -88,6 +95,7 @@ struct FilmTrackerApp: App, Loggable {
         // entry is keyed by the id and AppKit restores it before the window is shown.
         WindowGroup(id: "main") {
             ZStack {
+                LaunchWindowHold()
                 MainView()
                     .environment(\.managedObjectContext, persistentContainer.viewContext)
                     .environment(selectionState)
@@ -339,6 +347,7 @@ struct FilmTrackerApp: App, Loggable {
         await coordinator.finalizeInitialization()
         let finalizeElapsed = ContinuousClock.now - finalizeStart
         LaunchTimeline.mark("uiReady")
+        LaunchReveal.shared.initializationFinished()
 
         let duration = Date().timeIntervalSince(startTime)
         log("Application initialization complete in \(Fmt.fixed(duration, 2))s — UI ready")
@@ -524,13 +533,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         LaunchTimeline.mark("willFinishLaunching")
         NotificationCenter.default.addObserver(forName: NSApplication.didFinishLaunchingNotification,
                                                object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { LaunchTimeline.mark("didFinishLaunching") }
+            MainActor.assumeIsolated {
+                LaunchTimeline.mark("didFinishLaunching")
+                #if DEBUG
+                MenuDumpProbe.start()
+                ToolbarDumpProbe.start()
+                #endif
+            }
         }
         NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification,
                                                object: nil, queue: .main) { _ in
             MainActor.assumeIsolated { LaunchTimeline.mark("firstWindowKey") }
         }
 
+        LaunchTimeline.mark("willFinishWorkStart")
         // These two go to `.standard` rather than through Preferences because AppKit reads
         // them from the app's own standard domain — a suite would have no effect. That
         // makes them the only writes a sandbox run would otherwise make to the user's real
@@ -565,6 +581,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         // applicationShouldTerminate can cancel it (and the inner exportSleepTask)
         // before the export begins if the user quits during the wait window.
         startupTask = Task(priority: .background) { await self.scheduleBackgroundExportIfNeeded() }
+        LaunchTimeline.mark("willFinishWorkEnd")
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -1286,6 +1303,13 @@ enum LaunchTimeline: Loggable {
         marks.sorted { $0.ms < $1.ms }.map { "\($0.name) \(Fmt.fixed($0.ms, 1))" }.joined(separator: " | ")
     }
 
+    /// Called when the gallery's loading indicator first appears: marks its commit one
+    /// run-loop turn later, the launch's first paint of the gallery area.
+    static func markLoadingIndicatorShown() {
+        mark("loadingIndicatorAppear")
+        DispatchQueue.main.async { MainActor.assumeIsolated { mark("loadingIndicatorCommit") } }
+    }
+
     /// Called with the launch view's first gallery data, before its first reloadData:
     /// marks the commit one run-loop turn later and logs the whole timeline.
     static func markFirstGalleryFrame() {
@@ -1293,10 +1317,338 @@ enum LaunchTimeline: Loggable {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 mark("galleryFirstCommit")
-                guard !didLog else { return }
-                didLog = true
-                log("LAUNCH TIMELINE (ms since process start) — \(summary)")
+                finalizeIfComplete()
+            }
+        }
+    }
+
+    /// Logs the timeline once the launch is visible: at the gallery's first commit, or on a
+    /// warm launch that held its window, once the window is shown as well.
+    static func finalizeIfComplete() {
+        guard !didLog, milliseconds(for: "galleryFirstCommit") != nil else { return }
+        if LaunchReveal.shared.didHoldWindow, milliseconds(for: "windowShown") == nil { return }
+        didLog = true
+        log("LAUNCH TIMELINE (ms since process start) — \(summary)")
+        // Written a little later, so the record also covers the turns right after the
+        // window appears (the deferred menu refresh among them).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            MainActor.assumeIsolated {
+                recordClosed = true
+                LaunchExperiment.writeRecord(marks: marks, busy: busy)
+            }
+        }
+    }
+
+    private static var recordClosed = false
+
+    // Main run loop busy stretches until the timeline is logged: each runs from waking (or
+    // process start) to the next sleep, after Core Animation's commit, so a stretch is all
+    // the main thread did in that turn.
+    private static var busy: [(start: Double, end: Double)] = []
+    private static var busyStart: Double? = 0
+
+    static func installRunLoopProbe() {
+        guard LaunchExperiment.recordsLaunch else { return }
+        let wake = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue,
+                                                      true, Int.min) { _, _ in
+            MainActor.assumeIsolated { if !recordClosed { busyStart = now() } }
+        }
+        let sleep = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue,
+                                                       true, Int.max) { _, _ in
+            MainActor.assumeIsolated {
+                guard !recordClosed, let start = busyStart else { return }
+                busy.append((start, now()))
+                busyStart = nil
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), wake, .commonModes)
+        CFRunLoopAddObserver(CFRunLoopGetMain(), sleep, .commonModes)
+    }
+}
+
+// MARK: - Launch Experiments
+
+/// DEBUG launch-profiling switches, all off in Release. FT_LAUNCH_OUT=<path> appends one
+/// JSON line per launch (timeline marks and main run loop busy stretches) once the window
+/// is visible; FT_LAUNCH_EXIT=1 then quits, so a runner can launch repeatedly.
+@MainActor
+enum LaunchExperiment {
+    #if DEBUG
+    private static let arguments = ProcessInfo.processInfo.arguments
+    /// `-FTExpNoMenuGate`: the menu bar refreshes with the library load, as before.
+    static let noMenuGate = arguments.contains("-FTExpNoMenuGate")
+    /// `-FTExpNoLeftSidebar`: no left sidebar at all (measurement only).
+    static let noLeftSidebar = arguments.contains("-FTExpNoLeftSidebar")
+    private static let outPath = ProcessInfo.processInfo.environment["FT_LAUNCH_OUT"]
+    private static let exitValue = ProcessInfo.processInfo.environment["FT_LAUNCH_EXIT"]
+    private static let exitsAfterRecord = exitValue != nil
+    #else
+    private static let exitValue: String? = nil
+    static let noMenuGate = false
+    static let noLeftSidebar = false
+    private static let outPath: String? = nil
+    private static let exitsAfterRecord = false
+    #endif
+
+    static var recordsLaunch: Bool { outPath != nil }
+
+    static func writeRecord(marks: [(name: String, ms: Double)], busy: [(start: Double, end: Double)]) {
+        guard let outPath else { return }
+        #if DEBUG
+        let flags = arguments.filter { $0.hasPrefix("-FTExp") || $0.hasPrefix("-FTRSB") }
+        #else
+        let flags: [String] = []
+        #endif
+        let record: [String: Any] = [
+            "flags": flags,
+            "marks": Dictionary(marks.map { ($0.name, $0.ms) }, uniquingKeysWith: { a, _ in a }),
+            "busy": busy.map { [$0.start, $0.end] },
+        ]
+        guard var line = try? JSONSerialization.data(withJSONObject: record) else { return }
+        line.append(0x0A)
+        if !FileManager.default.fileExists(atPath: outPath) {
+            FileManager.default.createFile(atPath: outPath, contents: nil)
+        }
+        if let handle = FileHandle(forWritingAtPath: outPath) {
+            handle.seekToEndOfFile()
+            handle.write(line)
+            try? handle.close()
+        }
+        if exitsAfterRecord {
+            // FT_LAUNCH_EXIT=1 exits at once. FT_LAUNCH_EXIT=<n> > 1 quits normally after n
+            // seconds instead, which saves window restoration state.
+            let seconds = Double(exitValue ?? "1") ?? 1
+            if seconds <= 1 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { exit(0) }
+            } else {
+                // From a run-loop timer, not a main-queue block: shutdown awaits main-actor
+                // work, which a main-queue block calling terminate would keep from running.
+                Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in
+                    MainActor.assumeIsolated { NSApp.terminate(nil) }
+                }
             }
         }
     }
 }
+
+// MARK: - Menu Dump Probe (DEBUG)
+
+#if DEBUG
+/// FT_MENU_DUMP=<path>: walks the app through a fixed list of states and writes the whole
+/// main menu (titles, key equivalents, enabled, state, hidden) after each, then quits. A
+/// parity check for menu-bar changes: diff the output of two builds.
+@MainActor
+enum MenuDumpProbe {
+    private static let outPath = ProcessInfo.processInfo.environment["FT_MENU_DUMP"]
+
+    static func start() {
+        guard outPath != nil else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .seconds(1))
+            await run()
+        }
+    }
+
+    private static func run() async {
+        guard let appState = AppDelegate.appState, let coordinator = AppDelegate.dataCoordinator
+        else { return }
+        let selection = SelectionState.shared
+        var out = ""
+        let lists = coordinator.getAllLists().sorted { $0.displayOrder < $1.displayOrder }
+        let list = lists.first { $0.filmIDs.count >= 3 }
+        let films = Array(list?.filmIDs ?? []).sorted { $0.uuidString < $1.uuidString }
+
+        func dump(_ name: String) async {
+            try? await Task.sleep(for: .milliseconds(600))
+            for item in NSApp.mainMenu?.items ?? [] {
+                if let menu = item.submenu {
+                    NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification,
+                                                    object: menu)
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(300))
+            out += "### \(name) key=\(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "nil")\n"
+            if let main = NSApp.mainMenu { out += describe(main, depth: 0) }
+        }
+        func navigate(_ item: SidebarItem) async {
+            appState.navigate(to: item)
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+
+        await dump("allFilms-none")
+        if films.count >= 3 {
+            selection.select(films[0]); await dump("allFilms-one")
+            out += "### opened-allFilms-one\n"
+            for item in NSApp.mainMenu?.items ?? [] {
+                guard let menu = item.submenu else { continue }
+                out += "\(item.title)\n" + openedDump(menu)
+            }
+            selection.select(Set(films.prefix(3))); await dump("allFilms-three")
+        }
+        if let list {
+            await navigate(.list(list.listID)); await dump("list-none")
+            selection.select(films[0]); await dump("list-one")
+            selection.select(Set(films.prefix(3))); await dump("list-three")
+        }
+        if let search = SavedSearchStore.shared.searches.first {
+            await navigate(.savedSearch(search.id)); await dump("savedSearch")
+        }
+        for item: LibraryItem in [.unwatched, .recents, .reports, .imports, .filmQueue] {
+            await navigate(.libraryItem(item)); await dump("library-\(item)")
+        }
+        for type in SmartListType.allCases.prefix(4) {
+            await navigate(.smartList(type)); await dump("smart-\(type.rawValue)")
+        }
+        await navigate(.libraryItem(.allFilms))
+        if !films.isEmpty { selection.select(films[0]) }
+        AppEventBus.shared.sendCommand(.openSettingsToTab(tab: .general))
+        try? await Task.sleep(for: .seconds(1))
+        await dump("sheet")
+        appState.sheetCoordinator.dismissSheet()
+        try? await Task.sleep(for: .seconds(1))
+        NSApp.orderFrontStandardAboutPanel(nil)
+        await dump("aboutPanel")
+        NSApp.hide(nil)
+        try? await Task.sleep(for: .seconds(1))
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        try? await Task.sleep(for: .seconds(1))
+        NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first?.activate()
+        try? await Task.sleep(for: .seconds(1))
+        NSApp.activate(ignoringOtherApps: true)
+        try? await Task.sleep(for: .seconds(1))
+        await dump("afterActivation")
+
+        if let outPath { try? out.write(toFile: outPath, atomically: true, encoding: .utf8) }
+        exit(0)
+    }
+
+    /// Pops the menu up for real (so AppKit's open-time insertions happen), dumps it from
+    /// a tracking-mode timer and cancels the tracking.
+    /// The menu `openedDump` has open and its text, held here rather than captured by the
+    /// timer's closure, which is `@Sendable` and NSMenu is not.
+    private static var openedMenu: NSMenu?
+    private static var openedText = ""
+
+    private static func openedDump(_ menu: NSMenu) -> String {
+        openedMenu = menu
+        openedText = ""
+        let timer = Timer(timeInterval: 0.25, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                guard let menu = openedMenu else { return }
+                openedText = describe(menu, depth: 1, refresh: false)
+                menu.cancelTracking()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        menu.popUp(positioning: nil, at: NSPoint(x: 200, y: 600), in: nil)
+        // A timer that never fired must not fire inside the next menu's tracking.
+        timer.invalidate()
+        openedMenu = nil
+        return openedText
+    }
+
+    /// `U+XXXX` for a key equivalent's non-printing scalar.
+    private static func codePoint(_ scalar: Unicode.Scalar) -> String {
+        let hex = String(scalar.value, radix: 16, uppercase: true)
+        return "U+" + String(repeating: "0", count: max(0, 4 - hex.count)) + hex
+    }
+
+    private static func describe(_ menu: NSMenu, depth: Int, refresh: Bool = true) -> String {
+        if refresh {
+            menu.delegate?.menuNeedsUpdate?(menu)
+            menu.update()
+        }
+        var text = ""
+        let pad = String(repeating: "  ", count: depth)
+        for item in menu.items {
+            if item.isSeparatorItem { text += "\(pad)----\(item.isHidden ? " hidden" : "")\n"; continue }
+            var flags: [String] = []
+            if !item.keyEquivalent.isEmpty {
+                let mods = item.keyEquivalentModifierMask
+                let m = (mods.contains(.control) ? "^" : "") + (mods.contains(.option) ? "⌥" : "")
+                    + (mods.contains(.shift) ? "⇧" : "") + (mods.contains(.command) ? "⌘" : "")
+                let key = item.keyEquivalent.unicodeScalars.map { $0.value < 33 || $0.value > 126 ? codePoint($0) : String($0) }.joined()
+                flags.append("[\(m)\(key)]")
+            }
+            if !item.isEnabled { flags.append("disabled") }
+            if item.state == .on { flags.append("on") } else if item.state == .mixed { flags.append("mixed") }
+            if item.isHidden { flags.append("hidden") }
+            if item.isAlternate { flags.append("alternate") }
+            if item.indentationLevel > 0 { flags.append("indent\(item.indentationLevel)") }
+            if item.image != nil { flags.append("image") }
+            if item.attributedTitle != nil { flags.append("attributed") }
+            text += "\(pad)\(item.title) \(flags.joined(separator: " "))\n"
+            if let sub = item.submenu { text += describe(sub, depth: depth + 1, refresh: refresh) }
+        }
+        return text
+    }
+}
+#endif
+
+#if DEBUG
+/// FT_TOOLBAR_DUMP=<path>: writes the toolbar's accessibility elements (role, help, frame
+/// in window points) and renders the title bar to <path>.png, then quits. A parity check
+/// for toolbar changes: diff the output of two builds.
+@MainActor
+enum ToolbarDumpProbe {
+    private static let outPath = ProcessInfo.processInfo.environment["FT_TOOLBAR_DUMP"]
+
+    static func start() {
+        guard let outPath else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(4))
+            // The window's frame view, which holds the title bar and the content view: their
+            // common ancestor, found without `superview` (an `unowned(unsafe)` property).
+            guard let window = NSApp.windows.first(where: { $0.toolbar != nil }),
+                  let closeButton = window.standardWindowButton(.closeButton),
+                  let frameView = window.contentView?.ancestorShared(with: closeButton) else { exit(1) }
+            if let w = ProcessInfo.processInfo.environment["FT_TOOLBAR_WIDTH"].flatMap(Double.init) {
+                var f = window.frame; f.size.width = w; window.setFrame(f, display: true)
+                try? await Task.sleep(for: .seconds(1))
+            }
+            var lines = ["window \(window.frame.size) toolbar items \(window.toolbar?.items.map(\.itemIdentifier.rawValue) ?? [])"]
+            @MainActor func walk(_ element: Any, depth: Int) {
+                guard depth < 40, let el = element as? any NSAccessibilityProtocol else { return }
+                let frame = el.accessibilityFrame()
+                let rel = NSRect(x: frame.minX - window.frame.minX, y: window.frame.maxY - frame.maxY,
+                                 width: frame.width, height: frame.height)
+                let role = el.accessibilityRole()?.rawValue ?? "?"
+                let help = (element as? NSObject)?.value(forKey: "accessibilityHelp") as? String ?? ""
+                let label = el.accessibilityLabel() ?? ""
+                if rel.minY < 60, ["AXButton", "AXMenuButton", "AXTextField", "AXGroup", "AXPopUpButton", "AXToolbar"].contains(role) {
+                    lines.append("\(String(repeating: " ", count: depth))\(role) '\(label)' '\(help)' "
+                                 + "x=\(Fmt.fixed(rel.minX, 1)) y=\(Fmt.fixed(rel.minY, 1)) "
+                                 + "w=\(Fmt.fixed(rel.width, 1)) h=\(Fmt.fixed(rel.height, 1))")
+                }
+                for child in el.accessibilityChildren() ?? [] { walk(child, depth: depth + 1) }
+            }
+            walk(frameView, depth: 0)
+            try? lines.joined(separator: "\n").write(toFile: outPath, atomically: true, encoding: .utf8)
+
+            // FT_TOOLBAR_HEIGHT=<points> renders more of the window than the title bar.
+            let height = ProcessInfo.processInfo.environment["FT_TOOLBAR_HEIGHT"].flatMap(Double.init)
+                .map { CGFloat($0) } ?? 60
+            let scale = window.backingScaleFactor
+            // The bitmap comes from AppKit (at the window's backing scale) rather than a
+            // CGContext over a raw buffer, whose initializer takes an unsafe pointer. Its size is
+            // set to its pixel size so the context's units are pixels, as a CGContext's were.
+            let strip = NSRect(x: 0, y: frameView.bounds.height - height, width: frameView.bounds.width, height: height)
+            if let layer = frameView.layer, let rep = frameView.bitmapImageRepForCachingDisplay(in: strip) {
+                rep.size = NSSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+                if let ctx = NSGraphicsContext(bitmapImageRep: rep)?.cgContext {
+                    ctx.scaleBy(x: scale, y: scale)
+                    ctx.translateBy(x: 0, y: height - frameView.bounds.height)
+                    layer.render(in: ctx)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: outPath + ".png"))
+                }
+            }
+            exit(0)
+        }
+    }
+}
+#endif
+

@@ -1154,7 +1154,9 @@ final class SearchController: Loggable {
         let parts = query.split(separator: "-", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
         guard parts.count == 2, let low = Int(parts[0]), let high = Int(parts[1]) else { return nil }
-        return (low, high)
+        // A range typed high-to-low ("2010-2000") means the same span; returned as-is it
+        // matched nothing.
+        return (min(low, high), max(low, high))
     }
 
     /// Every word typed must appear in the film's synopsis, in any order, each as a
@@ -2243,7 +2245,9 @@ final class SearchController: Loggable {
         let parts = q.split(separator: "-", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
         if parts.count == 2, let low = year(Substring(parts[0])), let high = year(Substring(parts[1])) {
-            return { $0.year >= low && $0.year <= high }
+            // Either order: "2020-2015" names the same span as "2015-2020".
+            let (from, to) = (min(low, high), max(low, high))
+            return { $0.year >= from && $0.year <= to }
         }
 
         if let op = q.first, op == ">" || op == "<" {

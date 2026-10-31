@@ -1452,6 +1452,12 @@ final class MemoryStore: Loggable {
     #endif
 
     private func rebuildHallOfFame() {
+        // Every caller has just changed one or more films' `hofPosition`. The cached view
+        // arrays hold FilmSnapshot copies, so they must go too: the Hall of Fame paths
+        // (add, remove, reorder, restore, compaction) write `films` directly rather than
+        // through updateFilm, and without this the gallery's next reload would serve
+        // snapshots carrying the old ranks. Rank changes are rare, so a full clear is cheap.
+        cachedViews.removeAll()
         // The `id` tiebreak makes the ordering total. Sorting on `hofPosition` alone is a
         // strict weak ordering only while every position is unique, and Swift's sort is not
         // guaranteed stable — so any transient collision (a restore file with duplicate

@@ -1540,10 +1540,11 @@ final class DataCoordinator: Loggable {
         )
 
         // Optimistic MemoryStore update — makes the UI reflect the change instantly.
-        for var snapshot in filmsWithOverrides {
+        memoryStore.updateFilms(filmsWithOverrides.map { snapshot in
+            var snapshot = snapshot
             snapshot.rotationThresholdOverride = nil
-            memoryStore.updateFilm(snapshot)
-        }
+            return snapshot
+        })
         refreshFilms()
 
         // Rotation threshold overrides directly affect "Up for Rotation" membership.
@@ -1560,11 +1561,11 @@ final class DataCoordinator: Loggable {
         let rollback: () -> Void = { [weak self] in
             guard let self else { return }
             Self.log("Rolling back rotation threshold override reset for \(preOverrides.count) film(s)")
-            for (id, value) in preOverrides {
-                guard var current = self.memoryStore.getFilm(id) else { continue }
+            self.memoryStore.updateFilms(preOverrides.compactMap { id, value in
+                guard var current = self.memoryStore.getFilm(id) else { return nil }
                 current.rotationThresholdOverride = value
-                self.memoryStore.updateFilm(current)
-            }
+                return current
+            })
             self.refreshFilms()
             self.smartLists.forceFullRecalculation()
         }
@@ -1601,10 +1602,11 @@ final class DataCoordinator: Loggable {
         let targetIDs = Set(filmsWithFlag.map(\.id))
 
         // Optimistic MemoryStore update — makes the UI reflect the change instantly.
-        for var snapshot in filmsWithFlag {
+        memoryStore.updateFilms(filmsWithFlag.map { snapshot in
+            var snapshot = snapshot
             snapshot.infoComplete = false
-            memoryStore.updateFilm(snapshot)
-        }
+            return snapshot
+        })
         refreshFilms()
 
         // Rollback: set the flag back on every mutated film, and only the flag — see the
@@ -1612,11 +1614,11 @@ final class DataCoordinator: Loggable {
         let rollback: () -> Void = { [weak self] in
             guard let self else { return }
             Self.log("Rolling back infoComplete reset for \(targetIDs.count) film(s)")
-            for id in targetIDs {
-                guard var current = self.memoryStore.getFilm(id) else { continue }
+            self.memoryStore.updateFilms(targetIDs.compactMap { id in
+                guard var current = self.memoryStore.getFilm(id) else { return nil }
                 current.infoComplete = true
-                self.memoryStore.updateFilm(current)
-            }
+                return current
+            })
             self.refreshFilms()
         }
 
@@ -2424,7 +2426,9 @@ final class DataCoordinator: Loggable {
         var finalSnapshots: [UUID: FilmSnapshot] = [:]
 
         for update in updates {
-            guard var snapshot = memoryStore.getFilm(update.filmID) else {
+            // A film already updated earlier in this batch is read from the batch, so a
+            // repeated ID builds on its own latest value exactly as the per-film writes did.
+            guard var snapshot = finalSnapshots[update.filmID] ?? memoryStore.getFilm(update.filmID) else {
                 Self.log("WARNING: applyImportedRatingUpdates — film \(update.filmID) not found in MemoryStore")
                 continue
             }
@@ -2433,11 +2437,13 @@ final class DataCoordinator: Loggable {
             }
             guard snapshot.userRating != update.rating else { continue }
             snapshot.userRating = update.rating
-            memoryStore.updateFilm(snapshot)
             finalSnapshots[update.filmID] = snapshot
         }
 
         guard !finalSnapshots.isEmpty else { return }
+        // One batched write: a single cache invalidation and MetadataCache update for the
+        // whole import, rather than one per film.
+        memoryStore.updateFilms(Array(finalSnapshots.values))
 
         let snapshotsToPersist = Array(finalSnapshots.values)
         let rollbackRatings = preRatings.filter { finalSnapshots[$0.key] != nil }
@@ -2452,11 +2458,11 @@ final class DataCoordinator: Loggable {
         // refresh would keep. This matches the behavior of the per-film method this replaced.
         trackOperation(rollback: { [weak self] in
             guard let self else { return }
-            for (filmID, rating) in rollbackRatings {
-                guard var current = self.memoryStore.getFilm(filmID) else { continue }
+            self.memoryStore.updateFilms(rollbackRatings.compactMap { filmID, rating in
+                guard var current = self.memoryStore.getFilm(filmID) else { return nil }
                 current.userRating = rating
-                self.memoryStore.updateFilm(current)
-            }
+                return current
+            })
             // The same per-film events the forward path posts, for the same reason.
             //
             // Without them the rollback is invisible to everything downstream: the forward

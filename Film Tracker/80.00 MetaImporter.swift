@@ -209,11 +209,30 @@ final class MetaImporter: Loggable {
                 }
             }
 
+            // A second file of a film already queued earlier in THIS import (an .mp4 and an
+            // .m4v of the same title, say). `existingLibraryFilms` predates the import, so
+            // without this both copies were committed as separate films. The earlier file
+            // wins; this one is skipped as a duplicate, exactly like a library match with
+            // updates disabled.
+            var matchedPendingFilm = false
+            if matchedFilmID == nil,
+               FilmComparison.existingFilm(matchingTitle: newFilm.name, year: newFilm.releaseYear,
+                                           in: Array(pendingFilms.dropLast())) != nil {
+                matchedPendingFilm = true
+                duplicateCount += 1
+                parserRef?.removeLastPendingFilm()
+                if !newFilm.posterUID.isEmpty, let folderURL = Preferences.posterImagesFolderURL {
+                    let posterURL = folderURL.appendingPathComponent("\(newFilm.posterUID).jpg")
+                    try? FileManager.default.removeItem(at: posterURL)
+                }
+            }
+            let wasDuplicate = matchedFilmID != nil || matchedPendingFilm
+
             progressDelegate?.didUpdateProgress(
                 currentFile: index + 1,
-                success: matchedFilmID == nil,
+                success: !wasDuplicate,
                 failedFileName: nil,
-                wasDuplicate: matchedFilmID != nil,
+                wasDuplicate: wasDuplicate,
                 wasUpdated: itemWasUpdated,
                 title: newFilm.name)
         }

@@ -1484,12 +1484,15 @@ final class MetadataCache: Loggable {
                                      purchaseFormat: ReleaseFormat?,
                                      using metadata: [UUID: FilmMetadata]) -> [UUID] {
         return filmIDs.sorted { id1, id2 in
-            guard let data1 = metadata[id1], let data2 = metadata[id2] else {
-                // Degenerate path: an ID with no metadata entry. Ordered by UUID purely so
-                // the predicate stays a valid ordering rather than because the result means
-                // anything. Left outside the direction handling below deliberately — there
-                // is no meaningful "reverse" of an arbitrary tiebreak, and involving it
-                // would only make an already-impossible state harder to reason about.
+            let entry1 = metadata[id1], entry2 = metadata[id2]
+            guard let data1 = entry1, let data2 = entry2 else {
+                // Degenerate path: an ID with no metadata entry. Such IDs sort after every
+                // film that has one, and by UUID among themselves. Comparing only the two
+                // UUIDs whenever EITHER entry was missing mixed two unrelated orderings —
+                // not a strict weak ordering — so the sort could scatter them arbitrarily.
+                // Left outside the direction handling below deliberately — there is no
+                // meaningful "reverse" of an arbitrary tiebreak.
+                if (entry1 == nil) != (entry2 == nil) { return entry2 == nil }
                 return id1.uuidString < id2.uuidString
             }
 

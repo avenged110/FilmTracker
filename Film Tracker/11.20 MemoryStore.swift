@@ -739,6 +739,22 @@ final class MemoryStore: Loggable {
     /// (the change usually lands while a Settings picker is still animating closed). A film
     /// edited while they were being built keeps the entry its edit already produced, and a
     /// canceled caller (superseded by a newer change) applies nothing.
+    /// Batch counterpart of addFilm(_:) for imports: one MetadataCache store, one view-cache
+    /// invalidation and one throttled save for the whole batch, rather than one per film.
+    func addFilms(_ snapshots: [FilmSnapshot]) {
+        guard !snapshots.isEmpty else { return }
+        var ranked = false
+        for snapshot in snapshots {
+            films[snapshot.id] = snapshot
+            if snapshot.hofPosition > 0 { ranked = true }
+        }
+        MetadataCache.shared.updateFilms(snapshots)
+        invalidateCacheForAllFilms()
+        if ranked { rebuildHallOfFame() }
+        scheduleThrottledSave()
+        Self.log("Added \(snapshots.count) film(s)")
+    }
+
     func refreshRotationDerivedMetadata() async {
         let affected = films.values.filter { $0.rotationThresholdOverride == nil }
         guard !affected.isEmpty else { return }

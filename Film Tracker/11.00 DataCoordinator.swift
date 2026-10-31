@@ -2372,9 +2372,8 @@ final class DataCoordinator: Loggable {
         let importedIDs = Set(snapshots.map { $0.id })
 
         // Register snapshots directly with MemoryStore — no viewContext insertion needed.
-        for snapshot in snapshots {
-            memoryStore.addFilm(snapshot)
-        }
+        // One batched add: a single MetadataCache store and view-cache invalidation.
+        memoryStore.addFilms(snapshots)
 
         totalFilmCount = memoryStore.totalFilmCount
 

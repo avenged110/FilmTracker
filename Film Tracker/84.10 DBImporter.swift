@@ -266,7 +266,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?) {
-        elementStack.removeLast()
+        if !elementStack.isEmpty { elementStack.removeLast() }
         // Trim whitespace for regular text nodes only. CDATA content is never trimmed
         // because leading/trailing whitespace in notes, descriptions, etc. is intentional.
         let trimmed = currentPropertyHasCDATA ? currentText : currentText.trimmingCharacters(in: .whitespacesAndNewlines)

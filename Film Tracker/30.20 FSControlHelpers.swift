@@ -2642,7 +2642,10 @@ struct DurationHelpers {
     /// read the field their own way, together, because the bands must match the sort; see
     /// MetadataCache's `.duration` case.)
     nonisolated static func storedMinutes(_ milliseconds: String?) -> Int? {
-        guard let milliseconds, let value = Double(milliseconds), value > 0 else { return nil }
+        // `isFinite` and the upper bound keep a corrupt stored value ("inf", "1e300") from
+        // trapping in the Int conversion below.
+        guard let milliseconds, let value = Double(milliseconds), value > 0, value.isFinite,
+              value < 1e15 else { return nil }
         return Int(value / 1000 / 60)
     }
 

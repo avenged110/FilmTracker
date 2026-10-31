@@ -1572,6 +1572,9 @@ final class SearchController: Loggable {
     /// arithmetic; fractions of them are converted to days.
     private func naturalDate(_ date: Date, back amount: Double, _ unit: DateUnit) -> Date? {
         let cal = AppCalendar.current
+        // A typed amount like "1e300 days" is finite but far beyond Int's range; converting
+        // it below would trap. No real date lies that far back, so it names no span.
+        guard amount.isFinite, amount < 1_000_000 else { return nil }
         let days: Double
         let months: Double
         switch unit {
@@ -2351,7 +2354,8 @@ final class SearchController: Loggable {
             .replacingOccurrences(of: monthUnitPattern, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
 
-        guard let doubleVal = Double(stripped) else { return nil }
+        // Bounded so a typed "1e300" or "inf" cannot trap in the Int conversions below.
+        guard let doubleVal = Double(stripped), doubleVal.isFinite, abs(doubleVal) < 1_000_000 else { return nil }
 
         if hasYearUnit {
             // Unit was explicitly years — convert to months and validate.

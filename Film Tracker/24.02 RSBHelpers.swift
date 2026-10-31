@@ -834,9 +834,9 @@ struct RSBHelpers {
     }
 
     static func formatNumericalValue(_ value: Double?) -> String {
-        guard let value = value, value != 0 else { return "" }
+        guard let value = value, value != 0, value.isFinite else { return "" }
         // Display as integer if no decimal part.
-        let display = value.truncatingRemainder(dividingBy: 1) == 0
+        let display = value.truncatingRemainder(dividingBy: 1) == 0 && abs(value) < 1e15
             ? String(Int(value))
             : String(value)
         return display

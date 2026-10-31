@@ -456,17 +456,24 @@ final class FilmComparison: Loggable {
     // match, 0.5 for a moderate difference, 0.0 for a large difference.
     nonisolated private static func durationSimilarity(_ d1: String, _ d2: String) -> Double {
         func toMinutes(_ s: String) -> Int? {
+            // " mins" is stripped before " min": the other order turned "112 mins" into
+            // "112s", which then failed to parse.
             let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: " min", with: "")
                 .replacingOccurrences(of: " mins", with: "")
+                .replacingOccurrences(of: " min", with: "")
             // Handle H:MM:SS or HH:MM
             let parts = cleaned.components(separatedBy: ":")
             if parts.count == 3, let h = Int(parts[0]), let m = Int(parts[1]) {
                 return h * 60 + m
             } else if parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]) {
                 return h * 60 + m
-            } else if let mins = Int(cleaned) {
-                return mins
+            } else if let value = Double(cleaned), value.isFinite, value > 0 {
+                // The Film model stores runtimes as milliseconds ("6720000"). Reading those
+                // as minutes made any difference of even one second exceed the tolerance,
+                // so true duplicates scored as a large runtime mismatch. No film runs a
+                // thousand minutes, so a value that large is milliseconds.
+                if value >= 1000 { return DurationHelpers.storedMinutes(cleaned) }
+                return Int(value.rounded())
             }
             return nil
         }

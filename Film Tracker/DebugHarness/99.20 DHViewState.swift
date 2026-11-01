@@ -1,9 +1,8 @@
 // MARK: - DHViewState.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Harness coverage for per-view ViewState persistence, written for the move of the
-// section-dividers setting out of a single global preference and into each view's own
-// ViewState.
+// Harness coverage for per-view ViewState persistence, including the section-dividers
+// setting, which is stored in each view's own ViewState.
 //
 // Everything here drives the REAL ViewStateManager against the REAL Preferences store
 // inside a debug sandbox — no reimplementation of the codec, no test double. The codec
@@ -62,10 +61,10 @@ extension DebugHarness {
 
     /// Empties all three Film Queue sections, then fills them with the given films.
     ///
-    /// Every Queue scenario seeds on top of whatever the sandbox already holds — a real-library
+    /// Every Queue scenario seeds on top of whatever the sandbox already holds: a real-library
     /// copy, or an earlier scenario in the same run. "Up Next" refuses adds past
-    /// FilmQueue.upNextCapacity, so seeding without clearing first silently left it full and
-    /// failed checks that need a known vacancy (or a known count) for reasons unrelated to
+    /// FilmQueue.upNextCapacity, so seeding without clearing first can leave it full. Checks
+    /// that need a known vacancy or a known count would then fail for reasons unrelated to
     /// the code under test.
     static func seedFilmQueue(_ coordinator: DataCoordinator,
                               upNext: some Collection<UUID>,
@@ -128,19 +127,18 @@ extension DebugHarness {
             // A five-element entry with dividers explicitly OFF.
             "unwatched.\(UnwatchedCategory.unwatched.rawValue)":
                 ["year", "", "descending", "list", ""],
-            // A LEGACY four-element entry, exactly as every version before this change
-            // wrote it. Must decode with dividers off and must not trap on the missing
-            // element — this is the case that governs every existing user's first launch.
+            // A LEGACY four-element entry, the format without the dividers element. Must
+            // decode with dividers off and must not trap on the missing element. This is
+            // the case that governs stored state written before the element existed.
             "unwatched.\(UnwatchedCategory.notRated.rawValue)":
                 ["title", "", "ascending", "list"],
-            // A THREE-element entry, the even older format the codec also still claims to
-            // read. Both trailing fields must fall back to their struct defaults. Filed
+            // A THREE-element entry, the older format the codec still reads. Both trailing
+            // fields must fall back to their struct defaults. Filed
             // under the Queue's "Up Next" tab, which owns its slot like any other view.
             "filmQueue.upNext": ["duration", "", "descending"],
             // The Queue's "All" tab, seeded with dividers explicitly OFF. It must still
-            // resolve to ON: that tab's bands are structural and its pair is locked, so
-            // no stored value — including one written before the lock existed — may
-            // present it as anything else.
+            // resolve to ON: that tab's bands are structural and its pair is locked, so no
+            // stored value may present it as anything else.
             "filmQueue": ["title", "", "ascending", "", ""],
             // A malformed element [4]. Anything that is not exactly "dividers" means off;
             // it must not trap, and it must not be read as truthy for being non-empty.
@@ -200,7 +198,7 @@ extension DebugHarness {
 
         // MARK: Per-view isolation
 
-        // The whole point of the change: All Films is on from the mutation above, and a
+        // The purpose of the per-view setting: All Films is on from the mutation above, and a
         // different view must be entirely unaffected by it — both in memory and on disk.
         manager.switchToViewSync(.unwatched(.unwatched))
         r.check("isolation-other-view-unaffected", !manager.activeState.showSectionDividers,
@@ -291,14 +289,13 @@ extension DebugHarness {
 
         // MARK: Menu reachability
 
-        // Moving the control INTO the Sort menu makes the menu's own seal a correctness
-        // question, not just a cosmetic one: a view whose Sort menu is fully disabled and
-        // which currently has no bands would, under the old seal, offer no way to switch
-        // dividers back ON — the state in which the user most needs the control. The
-        // Recents tabs are exactly that shape (fixed sort, so the menu is always
-        // "disabled", and no jump targets while dividers are off), so this is a live trap
-        // rather than a hypothetical one. `supportsSectionDividers` is the third clause
-        // that defeats it, and it must be true for every gallery-backed view.
+        // The dividers pair lives inside the Sort menu, so the menu's own seal decides
+        // whether the control is reachable. A view whose Sort menu is fully disabled and
+        // which has no bands would offer no way to turn dividers back ON, which is the
+        // state in which the user most needs the control. The Recents tabs have that shape
+        // (fixed sort, so the menu is always "disabled", and no jump targets while dividers
+        // are off). `supportsSectionDividers` is the third clause that keeps the menu open,
+        // and it must be true for every gallery-backed view.
         for (label, item) in [
             ("allFilms", SidebarItem.libraryItem(.allFilms)),
             ("unwatched", SidebarItem.libraryItem(.unwatched)),
@@ -359,7 +356,7 @@ extension DebugHarness {
                     ReleaseStudio.shorthand(name) == name && ReleaseStudio.abbreviated(name) == name,
                     "'\(name)' was altered by a tier it has no spelling for")
         }
-        // Every entry's tiers get no longer as they descend.
+        // Each entry's tiers never get longer as they descend.
         let monotone = ReleaseStudio.entries.allSatisfy { e in
             let sh = e.shorthand ?? e.name
             let ab = e.abbreviated ?? sh
@@ -477,15 +474,12 @@ extension DebugHarness {
         }
     }
 
-    /// Mounts `content` in a fresh off-screen window, runs the display pass that fires
-    /// viewWillDraw, and reports the first responder that results.
+    /// Mounts `content` in a fresh off-screen window, runs display passes until `settled`
+    /// holds (up to 2 s), and reports the first responder that results. A view claims focus
+    /// in viewWillDraw and defers the claim a turn further, so the number of turns needed
+    /// varies. The claim cases therefore wait on the first responder itself. The intent is
+    /// consumed in makeNSView, so waiting on the intent alone stops at the three-turn minimum.
     @MainActor
-    /// Mounts `content`, then runs display passes until `settled` holds (up to 2 s). A view
-    /// claims focus in viewWillDraw and defers the claim a turn further, so how many turns
-    /// that takes varies; a fixed three turns made `list-claims-focus` fail intermittently.
-    /// The claim cases therefore wait on the first responder itself: the intent is consumed
-    /// in makeNSView, at mount, so waiting on it still left only the three-turn minimum and
-    /// failed the list case about one run in eight (measured 2026-09-25).
     private static func mountAndDraw<V: View>(_ content: V, until settled: (NSWindow) -> Bool = { _ in true })
         async -> (window: NSWindow, responder: NSResponder?) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
@@ -1107,9 +1101,9 @@ extension DebugHarness {
 // is the stand-in. It runs on the same concurrent scrolling behavior, overruns a
 // programmatic jump exactly as a coast does (the control checks prove the scenario sees
 // the bug), and ends on `_stopGestureScrollTracking` with didEndLiveScroll arriving after
-// the call — the stopper's deferred path. The synchronous path and real flicks were
-// verified by hand on 2026-10-04. The window must be on screen: the automation is driven
-// by the display link.
+// the call — the stopper's deferred path. The synchronous path and real flicks are not
+// covered here and are checked by hand. The window must be on screen: the automation is
+// driven by the display link.
 extension DebugHarness {
 
     /// Follows one scroll view's live-scroll notifications.
@@ -1267,24 +1261,25 @@ extension DebugHarness {
 #if DEBUG
 // MARK: - Scroll Memory
 //
-// `scroll-memory` (opt-in, real main window, 1,400-film reportsCorpus): the remembered-scroll-
-// position bugs found by the 2026-10-04 audit, each driven through real navigation with
-// maintainScrollPositionOnViewSwitch on. Every check failed before its fix:
+// `scroll-memory` (opt-in, real main window, 1,400-film reportsCorpus): remembered scroll
+// position through real navigation, with maintainScrollPositionOnViewSwitch on. Covered
+// behaviors:
 //
-//   • T1 Film Queue tab restore in LIST style (the list applied the incoming tab's origin to
-//     the outgoing tab's rows, then zeroed) — galleries now key by the loaded filter.
-//   • T2 Reports / Imports round trip after a wheel scroll to the top (stale deeper origin;
-//     raced on whether the outgoing GalleryView's onChange switched views) — navigate banks.
-//   • T3 search exit with a preserved selection puts the film's row at the top (as far as the
-//     content allows), wherever it stood — cut off at the bottom edge, mid-viewport, near the end.
-//   • T6 a filter that empties the gallery, then cleared (fresh remount restored a stale
-//     origin) — the emptying pass banks.
-//   • T7 an order-preserving Film Queue section move consumes its scroll intent in place.
-//   • T5 an empty Queue tab is not credited with the previous tab's position (guard).
-//   • T10/T11 restores are film-anchored: a narrower window (fewer columns) or a row of films
-//     inserted above while away still opens on the same top film (pixel restores did not).
-//   • T12 an anchor film that moved on its own does not drag the view after it.
-//   • T13 with maintainSelectionOnSearchExit off, a search exit preserves and scrolls nothing.
+//   • T1 A Film Queue tab restore in LIST style applies that tab's own origin. The list
+//     must not apply the incoming tab's origin to the outgoing tab's rows. Galleries key
+//     their origin by the loaded filter.
+//   • T2 A Reports / Imports round trip after a wheel scroll to the top returns to the
+//     banked origin. The navigation banks the origin before the switch.
+//   • T3 A search exit with a preserved selection puts the film's row at the top, as far as
+//     the content allows, wherever it stood: at the bottom edge, mid-viewport, or near the end.
+//   • T6 A filter that empties the gallery, then cleared, restores the banked origin. The
+//     emptying pass banks it.
+//   • T7 An order-preserving Film Queue section move consumes its scroll intent in place.
+//   • T5 An empty Queue tab does not take the previous tab's position.
+//   • T10/T11 Restores are film-anchored. A narrower window (fewer columns) or a row of films
+//     inserted above while away still opens on the same top film.
+//   • T12 An anchor film that moves on its own does not drag the view after it.
+//   • T13 With maintainSelectionOnSearchExit off, a search exit preserves and scrolls nothing.
 extension DebugHarness {
     @MainActor
     private final class OriginTrail: NSObject {
@@ -1447,8 +1442,7 @@ extension DebugHarness {
         // ---- T3: search exit with a preserved selection always puts the film's row at the
         // top of the viewport — as far as the content allows — wherever the film stood in the
         // view the user returns to: cut off at the bottom edge, fully visible mid-viewport, or
-        // near the end of the content. In a user list, in both styles. (Was: left alone when
-        // visible, which could return a film half outside the viewport.)
+        // near the end of the content. In a user list, in both styles.
         let probeListID = coordinator.createList(name: "Scroll Probe", displayOrder: 990)
         _ = coordinator.addFilmsToList(filmIDs: Set(coordinator.films.prefix(600).map(\.id)), listID: probeListID)
         // The film's content frame and the viewport, for whichever style is mounted.
@@ -1546,8 +1540,8 @@ extension DebugHarness {
             setY(6000); await settle(300)
             guard let before = topFilm() else { r.check("T11-top-film", false, ""); continue }
             appState.navigate(to: .libraryItem(.unwatched)); await settle(800)
-            // Titles beginning with a digit sort last; these sort ahead of every corpus title.
-            // One full grid row's worth, so a pixel restore would leave the top film a row down.
+            // The inserted titles sort ahead of every corpus title. The count is one full grid
+            // row, so a pixel restore would leave the top film a row down.
             let insertCount = listStyle ? 3 : max(1, columns())
             let names = (0..<insertCount).map { _ in inserted += 1; return "AAAA Inserted \(inserted)" }
             coordinator.importFilms(names.map { makeSnapshot(name: $0) })
@@ -1688,8 +1682,8 @@ extension DebugHarness {
                     "order unchanged \(sameOrder), intent still pending \(lingering)")
             fq.selectFilter(.soon); await settle(900)
             // Restores are film-anchored: a film added or removed above Soon's top film moves
-            // that film by one place, and the restore follows it. Intact = it is still the
-            // top row's film (the bug opened Soon at 0).
+            // that film by one place, and the restore follows it. The restore is intact when
+            // the saved top film is still in the top row.
             let topRowIDs = topRowFilmIDs()
             r.check("T7-\(label)-soon-restore-intact",
                     y() > 0 && soonTop.map { topRowIDs.contains($0.id) } == true,
@@ -1713,12 +1707,11 @@ extension DebugHarness {
 //
 // `queue-mixed-style` (opt-in, real main window): a Film Queue tab switch between two tabs of
 // DIFFERENT grid/list styles. Samples every committed frame (a run-loop observer after Core
-// Animation's commit) for the mounted style and its film count. Before the fix (2026-10-04)
-// the incoming style was built around the outgoing tab's films and committed that way — the
-// grid holding Up Next's 8 films under "All", the list holding All's 900 under "Up Next" —
-// then reloaded; and the outgoing style's last pass could commit the incoming films in the
-// outgoing style. GalleryView now presents ViewStateManager.displayedGalleryState, and both
-// styles skip a Queue pass whose presented style is not theirs.
+// Animation's commit) for the mounted style and its film count. A committed frame must never
+// pair one tab's style with another tab's films. The incoming style must not be built around
+// the outgoing tab's films, and the outgoing style's last pass must not commit the incoming
+// films. GalleryView presents ViewStateManager.displayedGalleryState, and both styles skip a
+// Queue pass whose presented style is not theirs.
 extension DebugHarness {
     static func queueMixedStyleScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "queue-mixed-style")
@@ -1776,8 +1769,8 @@ extension DebugHarness {
             r.check("\(label)-no-wrong-content-frame", wrong.isEmpty && frames.count >= 2,
                     "frames \(frames)")
             // The incoming style is built once, around the incoming films, and that is the only
-            // reload: the outgoing style skips the pass SwiftUI may still give it (its style
-            // guard), which otherwise reloaded it with the incoming films and could commit.
+            // reload. The outgoing style skips any pass SwiftUI still gives it, through its
+            // style guard, so it cannot reload with the incoming films or commit them.
             let makes = events.filter { $0.contains(".make") }
             let reloads = events.filter { $0.contains(".reload") }
             let targetCount = coordinator.films.count
@@ -2588,8 +2581,8 @@ extension DebugHarness {
             let mode = "\(configName)-\(appearanceName)"
             window.appearance = NSAppearance(named: appearance)
             await settle(600)
-            // The SwiftUI rows sit 24 pt above the AppKit list and are as tall as it should be;
-            // 4 pt of margin catches the shadows.
+            // The SwiftUI rows sit 24 pt above the AppKit list. A 4 pt margin around each
+            // capture catches the shadows.
             let margin: CGFloat = 4
             let appkitRect = listFrame.insetBy(dx: -margin, dy: -margin)
             let swiftRect = appkitRect.offsetBy(dx: 0, dy: listFrame.height + 24)
@@ -2803,7 +2796,7 @@ extension DebugHarness {
         if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         appState.navigate(to: .libraryItem(.allFilms))
         await settle(1500)
-        // Films whose crew sections differ in length, and one with no producers at all.
+        // Films whose crew sections differ in length, spread through the gallery order.
         let films = coordinator.films.filter { $0.cast.count >= 3 }
         guard films.count >= 4 else { r.check("films", false, "\(films.count)"); return r }
         let picks = [films[0], films[films.count / 3], films[2 * films.count / 3], films[films.count - 1]]
@@ -2932,10 +2925,9 @@ extension DebugHarness {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         ViewStateManager.shared.setRightSidebarTab(tab)
-        // App-wide, as a system appearance change reaches the app: the main window is
-        // SwiftUI's scene window, which ignores an appearance set on it, and the scene's
-        // content keeps the color scheme SwiftUI derived (an appearance set on the window left
-        // every "dark" capture light).
+        // App-wide, as a system appearance change reaches the app. The main window is SwiftUI's
+        // scene window, which ignores an appearance set on it, and the scene's content keeps
+        // the color scheme SwiftUI derived from the app.
         let saved = NSApp.appearance
         defer { NSApp.appearance = saved }
         /// The sidebar's visible tab: the scroll view in the window's right third that its own
@@ -3119,9 +3111,9 @@ extension DebugHarness {
 // `gallery-reload-economy` (opt-in, a measurement plus checks): how many film loads and gallery
 // update passes a film change costs while a gallery is on screen, read from ViewSwitchProbe.
 // One edit, a burst of per-film update events, an import and a deletion should each cost
-// exactly one load (and an edit or a burst at most one grid pass); a change to films the view does not show should cost no gallery pass;
-// an edit that takes a film out of the view should take it out in that one load; and
-// visiting an empty view should load it once. Also checks that grid selection rings stay
+// exactly one load (and an edit or a burst at most one grid pass). A change to films the view
+// does not show should cost no gallery pass. An edit that takes a film out of the view should
+// take it out in that one load, and visiting an empty view should load it once. Also checks that grid selection rings stay
 // right through in-place reconfigures and cell recycling, and counts how often they are
 // re-stroked.
 #if DEBUG
@@ -3303,7 +3295,8 @@ extension DebugHarness {
 // every tab in a sidebar-sized window of its own, captured through the window server at the
 // display's scale into `harness-reports/glyph-shot/`, light and dark. The PNGs carry the
 // display's DPI, so they open at on-screen size. Details and Notes are scrolled to the
-// bottom, where the crew rows and frames tables are; annotation glyphs are on. For comparing the sidebar's AppKit SF Symbol glyphs between two builds.
+// bottom, where the crew rows and frames tables are; annotation glyphs are on. The output
+// compares the sidebar's AppKit SF Symbol glyphs between two builds.
 #if DEBUG
 extension DebugHarness {
     static func rsbGlyphShotScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {

@@ -208,13 +208,10 @@ struct GeneralSettingsView: View, Loggable {
                 // @AppStorage writes directly to UserDefaults, bypassing Preferences'
                 // custom setter (and therefore its postPreferenceChangedEvent() call).
                 // Mirror the value through the Preferences setter and post the event
-                // manually — matching the excludeQueuedFromUpForRotation pattern above.
+                // manually — as the other mirrored toggles on this tab do.
                 //
-                // This is what lets SmartLists react to the master toggle at all. Without
-                // it, turning the feature off left the computed sets populated and the
-                // midnight rotation timer armed, and turning it back on never triggered a
-                // recalculation — so every film edit made while the feature was off stayed
-                // missing from the lists for the rest of the session.
+                // Without this mirror SmartLists would not react to the master toggle: its computed sets and
+                // midnight rotation timer would not update when the feature is turned off or back on.
                 Preferences.smartLists = newValue
                 AppEventBus.shared.send(.view(.preferencesChanged)) }
 
@@ -234,18 +231,12 @@ struct GeneralSettingsView: View, Loggable {
                 // @AppStorage writes directly to UserDefaults, bypassing Preferences'
                 // custom setter (and therefore its postPreferenceChangedEvent() call).
                 // Explicitly mirror the value through the Preferences setter and post
-                // the event manually — matching the loggingEnabled pattern above — so
+                // the event manually — as the other mirrored toggles on this tab do, so
                 // SmartLists' preferencesChanged listener picks up the change and
                 // refreshes any open "Up for Rotation" gallery in real time.
                 Preferences.excludeQueuedFromUpForRotation = newValue
                 AppEventBus.shared.send(.view(.preferencesChanged)) }
 
-            // NOTE: the "Show sorting-based gallery dividers" toggle that stood here is
-            // deliberately gone. Section dividers are per-view state now, chosen from the
-            // "Section Dividers:" Show/Hide pair in each view's own Sort menu and stored
-            // in that view's ViewState alongside its sort, filters, and view style — so
-            // the setting is governed by the "Remember the last-selected view options"
-            // preference below rather than being one global switch for every view at once.
 
             // Governs whether the sidebar's "Film Queue" item accepts dragged films
             // and, if so, which of the three internal Film Queue lists receives them.
@@ -429,7 +420,7 @@ struct GeneralSettingsView: View, Loggable {
         guard let backupURL,
               let files = try? FileManager.default.contentsOfDirectory(
                 at: backupURL, includingPropertiesForKeys: nil) else { return false }
-        return files.contains { $0.pathExtension == "ftbackup" } }
+        return files.contains { BackupFilename.isBackup($0) } }
 
     private func revealBackupsFolder() {
         guard let url = Preferences.backupFolderURL else { return }
@@ -458,7 +449,7 @@ struct GeneralSettingsView: View, Loggable {
             // Get all .ftbackup files.
             let files = try fileManager.contentsOfDirectory(
                 at: backupURL, includingPropertiesForKeys: nil)
-            let backupFiles = files.filter { $0.pathExtension == "ftbackup" }
+            let backupFiles = files.filter { BackupFilename.isBackup($0) }
 
             if backupFiles.isEmpty { log("No backup files to delete")
             } else {

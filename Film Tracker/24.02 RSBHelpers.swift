@@ -1,25 +1,19 @@
 // MARK: - RSBHelpers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Collection of generic UI-forming components and formatting helpers for use
-// throughout the right sidebar's modules. Also contains QueryHandoff, a
-// stateless helper that normalizes film titles and opens external Web queries,
-// and the "Releases Tab: Shared Derivations" section — the single definition of
-// everything the Releases tab's summary table (24.21) and its release cards
-// (24.20) must say identically about the same release.
+// Generic UI-forming components and formatting helpers for the right sidebar's modules. Also contains
+// QueryHandoff, which normalizes film titles and opens external web queries, and the "Releases Tab:
+// Shared Derivations" section. That section is the single definition of what the Releases summary
+// table (24.21) and release cards (24.20) say about a release.
 
 import SwiftUI
 import AppKit
 
 // MARK: - Conditional Text Selection
 extension View {
-    /// Enables or disables text selection based on a runtime flag.
-    /// Marked `nonisolated` so it can be invoked from non-actor-isolated
-    /// contexts (e.g. static helper builders like `RSBHelpers.textSection`).
-    /// The underlying `.textSelection(_:)` modifiers attach to a `View` and
-    /// are exercised by SwiftUI's rendering pipeline on the main actor at
-    /// draw time; the builder chain itself does not require main-actor
-    /// isolation to construct.
+    /// Enables or disables text selection at runtime. `nonisolated` lets static builders such as
+    /// `RSBHelpers.textSection` call it. SwiftUI applies the modifiers on the main actor at draw time, so
+    /// building the chain needs no main-actor isolation.
     @ViewBuilder
     nonisolated func conditionalTextSelection(enabled: Bool) -> some View {
         if enabled {
@@ -29,47 +23,31 @@ extension View {
         }
     }
 
-    /// Applies the sidebar's standard "value row" chrome: full available width,
-    /// leading-aligned, inset by the shared vertical/horizontal padding, on the
-    /// rounded `controlBackgroundColor` plate used by every value row in the
-    /// right sidebar.
+    /// Applies the sidebar's standard value-row chrome: full width, leading-aligned, inset by the shared
+    /// padding, on the rounded `controlBackgroundColor` plate used by every value row.
     ///
-    /// This exact chain was previously written out by hand in eight places
-    /// (`RSBHelpers.textSection`, `RSBHelpers.searchableItemSection`'s
-    /// placeholder row, `SearchableItemRow`, WatchDetails' rotation / duration /
-    /// source rows, and RTabNotes' frames and legend blocks). Centralizing it
-    /// means a change to the plate's corner radius, inset, or fill is made once.
+    /// Every sidebar value row uses this chain, so a change to the corner radius, inset, or fill is made once.
     ///
-    /// Callers whose content is wrapping text apply
-    /// `.fixedSize(horizontal: false, vertical: true)` *before* this modifier so
-    /// the row grows vertically to fit — identical in effect to the previous
-    /// frame-then-fixedSize ordering, since the width proposed to the text is the
-    /// same either way.
+    /// Callers with wrapping text apply `.fixedSize(horizontal: false, vertical: true)` before this modifier,
+    /// so the row grows vertically to fit. The proposed width is the same either way.
     ///
-    /// Marked `nonisolated` for the same reason as `conditionalTextSelection`
-    /// above: the builder chain is constructed without needing main-actor
-    /// isolation, and is exercised by SwiftUI on the main actor at draw time.
+    /// `nonisolated`, like `conditionalTextSelection`: SwiftUI evaluates the chain on the main actor at draw time.
     /// - Parameters:
-    ///   - glyph: An SF Symbol drawn in the row's leading margin, OUTSIDE the content: the
-    ///     content is inset by `RSBHelpers.glyphGutterWidth` and the symbol is overlaid into
-    ///     the space that opens up, centered in the margin horizontally and against the
-    ///     FIRST line of text vertically — see `RSBHelpers.singleLineRowHeight`. `nil`
-    ///     insets nothing and overlays nothing, rendering exactly what this
-    ///     did before the parameter existed. See `RSBHelpers.glyphLeadingMargin`.
-    ///   - glyphColor: Tint for the symbol. Callers pass whatever they want the glyph to
-    ///     take — usually their content's own color, so the glyph tracks its row, including a
-    ///     placeholder row's tertiary gray. (`valueRow` and `textSection` take it as an
-    ///     optional, where `nil` means "use the row's own text color".)
-    ///   - trailingInset: Space between the content and the plate's trailing fill edge.
-    ///     Defaults to `RSBHelpers.rowHorizontalPadding`, matching the leading side; a caller
-    ///     tightens it only to buy a specific value room it would otherwise wrap for. The
-    ///     fill itself is unaffected — it spans the full column either way — so this is
-    ///     invisible on any value that does not reach the edge.
+    ///   - glyph: An SF Symbol drawn in the row's leading margin, outside the content. The content is inset by
+    ///     `RSBHelpers.glyphGutterWidth`, and the symbol is overlaid into that space, centered horizontally and
+    ///     aligned to the first line of text (see `RSBHelpers.singleLineRowHeight`). `nil` insets nothing and
+    ///     overlays nothing. See `RSBHelpers.glyphLeadingMargin`.
+    ///   - glyphColor: Tint for the symbol. Callers usually pass their content's own color, so the glyph tracks
+    ///     its row, including a placeholder row's tertiary gray. (`valueRow` and `textSection` take an optional
+    ///     here, where `nil` means the row's own text color.)
+    ///   - trailingInset: Space between the content and the plate's trailing edge. Defaults to
+    ///     `RSBHelpers.rowHorizontalPadding`, matching the leading side. A caller tightens it only to fit a value
+    ///     it would otherwise wrap. The fill spans the full column either way, so this is invisible on any value
+    ///     that does not reach the edge.
     ///
-    /// The inset is applied HERE rather than by callers because a caller that measures its
-    /// own content must have that measurement see the reduced width: `fittingValueRow` runs
-    /// a `ViewThatFits` inside this, and inset applied outside it is exactly what narrows the
-    /// proposal its candidates are measured against.
+    /// The inset is applied here, not by callers, because a caller that measures its own content must see the
+    /// reduced width. `fittingValueRow` runs a `ViewThatFits` inside this, and an inset applied outside it would
+    /// not narrow the proposal its candidates are measured against.
     nonisolated func sidebarRowContainer(glyph: String? = nil,
                                          glyphColor: Color = .secondary,
                                          trailingInset: CGFloat = RSBHelpers.rowHorizontalPadding) -> some View {
@@ -86,10 +64,8 @@ extension View {
                         .font(.system(size: RSBHelpers.glyphPointSize(for: glyph),
                                       weight: RSBHelpers.glyphWeight(for: glyph)))
                         .foregroundStyle(glyphColor)
-                        // Top-aligned in a box exactly one single-line row tall, so the
-                        // glyph sits where it would on a one-line row and stays there
-                        // when the text wraps, rather than drifting down to the center
-                        // of the taller plate.
+                        // Top-aligned in a box one single-line row tall. The glyph stays where it would on a
+                        // one-line row when the text wraps, instead of drifting to the center of the taller plate.
                         .frame(width: RSBHelpers.glyphBoxWidth,
                                height: RSBHelpers.singleLineRowHeight)
                         .offset(x: RSBHelpers.glyphHorizontalOffset(for: glyph))
@@ -98,14 +74,13 @@ extension View {
             }
     }
 
-    /// The plate fill, outline, and drop shadow the sheet's reorderable tables wear
-    /// (`listContainerChrome`), drawn from the same `FieldEdgeTreatment` constants.
+    /// The plate fill, outline, and drop shadow of the sheet's reorderable tables (`listContainerChrome`),
+    /// from the same `FieldEdgeTreatment` constants.
     ///
-    /// The shadow is cast by the background SHAPE alone, not by the composited view. A
-    /// `.shadow` on the whole view makes SwiftUI render the row's text into an offscreen
-    /// layer and blur it every draw; a shadow on a solid rounded rect is a single-shape
-    /// blur Core Animation handles cheaply, and the text on top is untouched. Because the
-    /// fill is opaque the visible result is identical.
+    /// The shadow is cast by the background shape alone, not the whole view. A `.shadow` on the whole view
+    /// makes SwiftUI render the text into an offscreen layer and blur it on every draw. A shadow on a solid
+    /// rounded rect is a single-shape blur that Core Animation handles cheaply, and the text is untouched.
+    /// The fill is opaque, so the look is identical.
     nonisolated func sidebarFieldEdgeChrome(fill: Color = Color(NSColor.controlBackgroundColor)) -> some View {
         let shape = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
         return self
@@ -148,12 +123,9 @@ struct RSBHelpers {
                     glyph: glyph, glyphColor: glyphColor, rowFontSize: rowFontSize)
     }
 
-    /// Explicit-placeholder overload used when the caller has already resolved both
-    /// the display string and its placeholder status (e.g. values like "Blacklisted"
-    /// or "None recorded" that are non-empty yet should render with placeholder
-    /// styling). Centralizes the shared VStack/Text/rounded-background layout that
-    /// was previously duplicated across several per-section builders in WatchDetails,
-    /// RTabNotes, etc.
+    /// Overload for callers that have already resolved the display text and its placeholder status, such as
+    /// "Blacklisted" or "None recorded". Those values are non-empty but still styled as placeholders. It holds
+    /// the header-and-row layout shared by the section builders (WatchDetails, RTabNotes, and others).
     @ViewBuilder
     static func textSection(
         title: String,
@@ -175,16 +147,10 @@ struct RSBHelpers {
         }
     }
 
-    /// The standard value row — the rounded plate a sidebar field's content sits on,
-    /// without a header above it. `textSection` is exactly `sectionHeader` + this.
+    /// The standard value row: the rounded plate a sidebar field's content sits on, without a header.
+    /// `textSection` is `sectionHeader` plus this row.
     ///
-    /// Private, because that is the only thing that uses it. It was previously exposed
-    /// for "sections that stack SEVERAL rows under a single header" — WatchDetails'
-    /// rotation and source fields — but those fields moved to `fittingValueRow` for
-    /// their primary value and `annotationRow` for their subordinate notes, and neither
-    /// they nor anything else has called this since. Narrowing the access level retires
-    /// a sharing contract with no participants, and lets the compiler enforce that
-    /// rather than leaving a doc comment to assert it.
+    /// Private. Callers use `fittingValueRow` for a primary value and `annotationRow` for notes.
     @ViewBuilder
     private static func valueRow(
         _ displayValue: String,
@@ -194,9 +160,8 @@ struct RSBHelpers {
         trailingInset: CGFloat = RSBHelpers.rowHorizontalPadding,
         rowFontSize: CGFloat = RSBHelpers.rowFontSize
     ) -> some View {
-        // Row with adaptive, rounded background. The glyph takes the row's own resolved
-        // color, so a placeholder's tertiary gray reaches the symbol without the caller
-        // restating the rule.
+        // The glyph takes the row's resolved color, so a placeholder's tertiary gray reaches the symbol
+        // without callers restating the rule.
         let color: Color = isPlaceholder ? Color(nsColor: .tertiaryLabelColor) : .primary
         Text(displayValue)
             .foregroundStyle(color)
@@ -210,75 +175,53 @@ struct RSBHelpers {
 
     // MARK: - Overflow-Driven Abbreviation
 
-    /// A value row that shortens its own text, but only when the full spelling would
-    /// otherwise wrap to a second line.
+    /// A value row that shortens its own text, but only when the full spelling would wrap to a second line.
     ///
-    /// The measurement is `ViewThatFits`, deliberately, rather than a hand-rolled width
-    /// prediction. Predicting the wrap means mirroring three things exactly — the font
-    /// SwiftUI resolves for `.system(size:)`, the full padding chain down to the width
-    /// actually proposed to the text, and CoreText's line-breaking behavior. Each is a
-    /// silent coupling: change `sidebarRowContainer`'s inset or pass a different
-    /// `rowFontSize` at one call site and a predictor does not fail loudly, it simply
-    /// starts abbreviating strings that would have fit (or leaving strings that then wrap
-    /// anyway, which is the worst of both). `ViewThatFits` measures the real candidate
-    /// views with the real resolved font at the real proposed width, so it cannot drift.
+    /// The measurement uses `ViewThatFits`, not a width prediction. A prediction must mirror the resolved font,
+    /// the full padding chain, and CoreText's line breaking, and each is a silent coupling. Change
+    /// `sidebarRowContainer`'s inset, or pass a different `rowFontSize`, and a predictor starts abbreviating
+    /// strings that would have fit, or leaves strings that wrap anyway. `ViewThatFits` measures the real
+    /// candidates with the real font at the real width, so it cannot drift.
     ///
     /// Three candidates, in priority order:
     ///
-    ///   1. The full text on one line. Preferred whenever it fits — abbreviation is a cost,
-    ///      paid only when it buys something.
-    ///   2. The abbreviated text on one line. Reached only when 1 does not fit.
-    ///   3. The FULL text, wrapping. `ViewThatFits` falls back to its last candidate when
-    ///      none fit, so this is what renders when even the abbreviation needs two lines.
-    ///      Full rather than abbreviated on purpose: the abbreviation exists to buy a
-    ///      single line, so once a second line is unavoidable it has bought nothing and the
-    ///      more informative spelling should win. It also guarantees the row never
-    ///      truncates — the fallback wraps exactly as `valueRow` always has.
+    ///   1. The full text on one line. Preferred whenever it fits, since abbreviating costs information.
+    ///   2. The abbreviated text on one line. Used only when 1 does not fit.
+    ///   3. The full text, wrapping. `ViewThatFits` falls back to its last candidate when none fits. The full
+    ///      spelling is used here on purpose. Once a second line is unavoidable, the abbreviation has bought
+    ///      nothing, so the more informative text wins. This also means the row never truncates.
     ///
-    /// `.lineLimit(1)` on the first two candidates is load-bearing: `ViewThatFits` measures
-    /// each candidate's ideal size, and a `Text` that is free to wrap reports an ideal size
-    /// that always "fits", so candidate 1 would win unconditionally without it. For the same
-    /// reason the candidates must NOT carry `.fixedSize(horizontal: false, vertical: true)`
-    /// — that is the modifier that permits vertical growth, and it belongs only on the
-    /// wrapping fallback.
+    /// `.lineLimit(1)` on the first two candidates is required. `ViewThatFits` measures ideal size, and a `Text`
+    /// free to wrap reports an ideal size that always fits, so candidate 1 would win unconditionally. For the
+    /// same reason the first two must NOT carry `.fixedSize(horizontal: false, vertical: true)`, which permits
+    /// vertical growth and belongs only on the wrapping fallback.
     ///
-    /// `sidebarRowContainer`'s `.frame(maxWidth: .infinity)` stays OUTSIDE the
-    /// `ViewThatFits`, which is what makes the measurement meaningful: applied inside, every
-    /// candidate would claim the full width and the first would always be chosen.
+    /// `sidebarRowContainer`'s `.frame(maxWidth: .infinity)` stays OUTSIDE the `ViewThatFits`. Applied inside,
+    /// every candidate would claim the full width, and the first would always win.
     ///
-    /// The number of ladder steps the row can offer. Fixed because each must be spelled out
-    /// as its own `ViewThatFits` child (see the body). Seven covers every ladder in the module
-    /// — `sourceValueLadder` produces at most seven (three words, every combination), and
-    /// `dateValueLadder` at most three — and a longer array is simply not consulted past the
-    /// seventh, which degrades to "abbreviates less than it could", never to a wrong or
-    /// wrapped row.
+    /// The number of ladder steps the row can offer. It is fixed because each step must be its own
+    /// `ViewThatFits` child (see the body). Seven covers every ladder in the module: `sourceValueLadder`
+    /// produces at most seven (three words, every combination), and `dateValueLadder` at most three. A longer
+    /// array is not consulted past the seventh, which abbreviates less than it could but never produces a
+    /// wrong or wrapped row.
     ///
-    /// `fittingValueRow` reads this to bound the ladder it is handed, rather than leaving the
-    /// number stated here and enforced only by how many slots happen to be written out below.
-    /// Those two were previously independent: this constant had no reader at all, so it
-    /// documented a limit that nothing consulted and could have disagreed with the body
-    /// silently. It is still not a slot count the body can derive — each candidate must be a
-    /// separate literal child — so adding a slot means bumping this and writing the slot;
-    /// what the read buys is that the two can no longer say different things about how many
-    /// candidates a caller's array may contribute.
+    /// `fittingValueRow` reads this to bound the ladder it receives. The body cannot derive it, since each candidate
+    /// must be a literal child. Adding a slot therefore means bumping this constant and writing the slot, and the
+    /// read keeps the two in agreement.
     static let maxAbbreviationCandidates = 7
 
-    /// Cost is one extra measurement pass per row. The sidebar renders one film at a time,
-    /// so this is not a measurable expense.
+    /// Costs one extra measurement pass per row, which is negligible since the sidebar shows one film.
     ///
     /// - Parameters:
-    ///   - full: The complete text, already carrying its own font-independent styling
-    ///     (color, any inline image attachment). Callers build this as `Text` so a composed
-    ///     row — the source row's disc glyph plus its value — can use this path too.
-    ///   - abbreviations: Shortened spellings, in the order they should be tried — each a
-    ///     further step from `full`. An EMPTY array skips `ViewThatFits` entirely and renders
-    ///     exactly what `valueRow` would, so a value with nothing to shorten pays nothing.
-    ///     At most `maxAbbreviationCandidates` are offered; see that constant for why the
-    ///     count is fixed rather than arbitrary.
-    ///   - glyph: An SF Symbol for the row's leading margin, drawn outside the text by
-    ///     `sidebarRowContainer` — see there, and note that the gutter narrows what the
-    ///     candidates below are measured against, which is the correct behavior: a glyphed
-    ///     row genuinely has less room for its value and should abbreviate sooner.
+    ///   - full: The complete text, with its own font-independent styling (color, any image attachment).
+    ///     Callers build it as `Text`, so composed rows such as the source row's disc glyph plus value can
+    ///     use this path too.
+    ///   - abbreviations: Shortened spellings, in the order to try, each a further step from `full`. An empty
+    ///     array skips `ViewThatFits` and renders exactly what `valueRow` would, so a value with nothing to
+    ///     shorten costs nothing. At most `maxAbbreviationCandidates` are offered.
+    ///   - glyph: An SF Symbol for the leading margin, drawn by `sidebarRowContainer`. The gutter narrows what
+    ///     the candidates are measured against. That is correct, since a glyphed row has less room and should
+    ///     abbreviate sooner.
     ///   - glyphColor: Tint for that symbol, normally whatever `full` is already using.
     @ViewBuilder
     static func fittingValueRow(
@@ -289,22 +232,17 @@ struct RSBHelpers {
         glyphColor: Color = .primary,
         rowFontSize: CGFloat = RSBHelpers.rowFontSize
     ) -> some View {
-        // Bounded here so the body below and `maxAbbreviationCandidates` cannot disagree
-        // about how many steps are actually offered. A caller passing more simply has the
-        // surplus ignored — the documented degradation ("abbreviates less than it could"),
-        // now stated once instead of being an emergent property of the slot count.
+        // Bounded here, so the body and `maxAbbreviationCandidates` cannot disagree on how many steps are
+        // offered. Surplus candidates are ignored, which is the documented degradation.
         let offered = Array(abbreviations.prefix(Self.maxAbbreviationCandidates))
         Group {
             if offered.isEmpty {
                 full.font(.system(size: rowFontSize))
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                // Each candidate is written out as its own direct child of the ViewThatFits
-                // builder, deliberately. A ForEach over the array would read as the natural
-                // spelling and be wrong: ViewThatFits measures its builder's CHILDREN, and a
-                // ForEach is a single child containing many views — the whole ladder would be
-                // measured, and chosen or rejected, as one unit. Hence the fixed slots, and
-                // hence maxAbbreviationCandidates.
+                // Each candidate is its own direct child of ViewThatFits, on purpose. A ForEach would be one child
+                // containing many views, so ViewThatFits would accept or reject the whole ladder as one unit. Hence
+                // the fixed slots, and hence `maxAbbreviationCandidates`.
                 ViewThatFits(in: .horizontal) {
                     full.font(.system(size: rowFontSize)).lineLimit(1)
                     if offered.count > 0 {
@@ -337,56 +275,40 @@ struct RSBHelpers {
         .sidebarRowContainer(glyph: glyph, glyphColor: glyphColor)
     }
 
-    /// A subordinate annotation row: identical plate chrome to `valueRow`, carrying a
-    /// note ABOUT the value above it rather than a value of its own. Always stacked
-    /// directly beneath its parent row, inside the parent's section and under the
-    /// parent's header.
+    /// A subordinate note about the value above it, with the same plate chrome as `valueRow`. It is always
+    /// stacked directly beneath its parent row, inside the parent's section, under the parent's header.
     ///
     /// Defaults to `.secondary`, overridable for the one note that is not subordinate in
     /// emphasis — "Region B locked" describes a hard playback restriction on the disc
     /// named above it and stays `.primary`.
     ///
-    /// Not italicized. These notes were italic while they were still appended inline to
-    /// their parent value, where the slant was what separated the note from the value it
-    /// was spliced onto; sitting on its own plate, a note is already unmistakably
-    /// separate, and the italics only cost legibility at this size.
+    /// Not italicized: on their own plate the notes are already distinct, and italics cost legibility at this size.
     ///
-    /// An optional `glyph` is drawn in a fixed-width gutter at the row's leading edge,
-    /// OUTSIDE the text — the text is inset by exactly the gutter's width and the symbol is
-    /// overlaid into the space that opens up.
+    /// An optional `glyph` sits in a fixed-width gutter at the leading edge, outside the text. The text is
+    /// inset by the gutter's width, and the symbol is overlaid into that space.
     ///
-    /// This is deliberately not the inline `Text(Image(...))` attachment the source row uses.
-    /// An attachment is part of the text run, so its own width sets where the text starts and
-    /// its own height can raise the line's ascent: symbols of different sizes gave these rows
-    /// different text offsets and different heights, and normalizing that by compositing every
-    /// symbol onto a common canvas moved the glyphs off their natural position. A gutter fixes
-    /// both without touching the symbols: the inset is a constant, so the text starts in the
-    /// same place whatever the glyph is, and the overlay is sized by the row rather than
-    /// contributing to it, so no glyph can make a row taller.
+    /// Not an inline `Text(Image(...))` attachment. An attachment is part of the text run: its width moves where
+    /// the text starts, and its height can raise the line's ascent, so symbols of different sizes would give rows
+    /// different text offsets and heights. The gutter avoids that. The inset is constant, so text starts in the same
+    /// place whatever the glyph, and the overlay is sized by the row, so no glyph can make a row taller.
     ///
-    /// The symbol is centered in the whole leading MARGIN horizontally — the full run from
-    /// the plate's fill edge to where the text starts, `glyphLeadingMargin` — and vertically
-    /// against the first line of text, so on a wrapped note it stays exactly where a
-    /// one-line note would put it rather than sliding down to the plate's center. `color`
-    /// tints the glyph and the text together.
+    /// The symbol is centered horizontally in the whole leading margin (from the plate's fill edge to where the
+    /// text starts, `glyphLeadingMargin`). Vertically it is centered on the first line of text, so on a wrapped
+    /// note it stays where a one-line note would put it. `color` tints the glyph and the text together.
     ///
-    /// Centering on the margin rather than on the gutter alone is the distinction that makes
-    /// glyphs of different widths look placed the same. The frame is what centers them, and a
-    /// frame centers whatever it contains regardless of that content's intrinsic width, so a
-    /// narrow symbol and a wide one share one center point. Inset the overlay by the plate's
-    /// padding first — as if the glyph were text — and the center moves to the middle of the
-    /// gutter instead, which is off-center for the space the glyph actually occupies: it
-    /// crowds the text on a wide symbol and strands a narrow one too far from it.
+    /// Centering on the whole margin, not the gutter alone, makes glyphs of different widths look placed the same.
+    /// A frame centers its content regardless of that content's width, so a narrow symbol and a wide one share one
+    /// center point. Insetting the overlay by the plate's padding first (as if the glyph were text) would move the
+    /// center to the middle of the gutter, which is off-center for the space the glyph occupies: it crowds the text
+    /// on a wide symbol and strands a narrow one.
     ///
     /// See `glyphLeadingMargin` for how the margin is sized so that centering also leaves
     /// every symbol clear of both the fill's edge and the text.
     ///
-    /// The one thing the gutter gives up relative to an attachment is that a wrapped second
-    /// line now aligns under the first line's text rather than under the glyph. That is the
-    /// hanging-indent shape these subordinate rows want anyway.
+    /// A wrapped second line aligns under the first line's text, not under the glyph: a hanging indent, which these
+    /// rows want.
     ///
-    /// Passing `nil` applies no inset and no overlay, rendering exactly what this did before
-    /// the parameter existed.
+    /// Passing `nil` applies no inset and no overlay.
     @ViewBuilder
     static func annotationRow(
         _ text: String,
@@ -402,36 +324,25 @@ struct RSBHelpers {
             .sidebarRowContainer(glyph: glyph, glyphColor: color)
     }
 
-    /// Point size for a row's glyph — a little smaller than the row's text, which is what buys
-    /// the symbols room inside `glyphBoxWidth`. SF Symbols quantize to whole points, so nudging
-    /// this changes the rendered widths in steps rather than smoothly.
+    /// Point size for a row's glyph, a little smaller than the row's text. That leaves the symbols room inside
+    /// `glyphBoxWidth`. SF Symbols quantize to whole points, so changes to this value apply in steps.
     static let glyphPointSize: CGFloat = 10.5
 
-    /// Per-symbol point sizes, for symbols the standard size does not suit. The box is sized
-    /// to the widest symbol at `glyphPointSize`, so anything that fits within
-    /// `glyphBoxWidth` at its chosen size is free to differ — the constraint is width, not
-    /// uniform scale.
+    /// Per-symbol point sizes for symbols the standard size does not suit. The box is sized for the widest
+    /// symbol at `glyphPointSize`. Any symbol that fits `glyphBoxWidth` at its chosen size may differ, since the
+    /// constraint is width, not uniform scale.
     ///
-    /// `scissors` is 17pt wide at 10.5 against a 16pt box — the only symbol in use that
-    /// overflows, and only by a point. At 9.5 it is 15. Shrinking the outlier is the cheaper
-    /// correction: widening the box to admit it would push the text inset out on EVERY row,
-    /// for one glyph's sake.
+    /// `scissors` is 17pt wide at 10.5 against a 16pt box, the only symbol in use that overflows. At 9.5 it is
+    /// 15pt. Shrinking it is cheaper than widening the box, which would push the text inset out on every row.
     ///
     /// The rest go the other way, up to `rowFontSize`.
     ///
-    /// `opticaldisc.fill` is a restoration rather than a judgment. It is the one symbol here
-    /// that predates the gutter: the "Source for Viewing" row drew it inline at the row's own
-    /// font size long before the module had a glyph vocabulary, and moving that row into the
-    /// gutter silently adopted the smaller standard size for it. Pinning it to `rowFontSize`
-    /// keeps it at the size it has always rendered at. (The inline path itself is gone — that
-    /// row now uses the gutter in every state of every preference.)
+    /// `opticaldisc.fill` is pinned to `rowFontSize`, which keeps the Source row's disc at its established size.
     ///
-    /// The two hourglasses are a judgment: both are naturally narrow for their point size
-    /// (10pt and 12pt at 12, against a 16pt box), so at the standard size they read as
-    /// noticeably smaller than their neighbors rather than merely narrower. Sizing them up
-    /// restores the subjective match. They are listed separately rather than matched by
-    /// prefix — an override is a per-symbol decision, and a future `hourglass.*` variant
-    /// should have to be looked at rather than inherit this one.
+    /// The two hourglasses are a judgment call. Both are naturally narrow for their point size (10pt and 12pt at
+    /// 12, against a 16pt box), so at the standard size they read smaller than their neighbors. Sizing them up
+    /// restores the match. They are listed individually, not matched by prefix. A future `hourglass.*` variant
+    /// should be reviewed rather than inherit this one.
     ///
     /// Every entry here is still bounded by the box: at 12pt `opticaldisc.fill` is 14pt wide,
     /// `hourglass.and.lock` 12, and `hourglass` 10 — all inside 16.
@@ -441,7 +352,7 @@ struct RSBHelpers {
         "calendar": rowFontSize,
         "hourglass": rowFontSize,
         "hourglass.and.lock": rowFontSize,
-        "opticaldisc.fill": rowFontSize
+        ContentGlyphs.disc: rowFontSize
     ]
 
     /// The point size a given symbol renders at: its override if it has one, else the standard.
@@ -451,14 +362,12 @@ struct RSBHelpers {
 
     /// Per-symbol stroke weights. `.regular` unless listed.
     ///
-    /// `checkmark` and `xmark` are the two bare strokes in the vocabulary — no enclosing
-    /// shape, no fill — so at the standard weight they carry visibly less ink than the filled
-    /// and circled symbols they sit among and read as fainter rather than as lighter-weight.
-    /// Thickening them evens out the apparent density.
+    /// `checkmark` and `xmark` are bare strokes, with no enclosing shape or fill. At the standard weight they
+    /// carry less ink than the filled and circled symbols beside them and read as fainter. Thickening them
+    /// evens out the apparent density.
     ///
-    /// Weight changes width, so an entry here is bounded by `glyphBoxWidth` exactly as a point
-    /// size is. Neither of these approaches it: at `glyphPointSize` semibold, `checkmark` is
-    /// 13pt wide and `xmark` 11, against a 16pt box.
+    /// A weight change alters width, so entries are bounded by `glyphBoxWidth` as point sizes are. At
+    /// `glyphPointSize` semibold, `checkmark` is 13pt wide and `xmark` 11, against a 16pt box.
     private static let glyphWeightOverrides: [String: Font.Weight] = [
         "questionmark": .semibold,
         "checkmark": .semibold,
@@ -468,10 +377,9 @@ struct RSBHelpers {
         "forward.frame": .semibold
     ]
 
-    /// Glyphs resolved from Apple's private symbol set rather than the public one. A caller
-    /// names one through `privateGlyph(_:fallback:)`, which only hands the private name back
-    /// when it actually resolves on this system. Access lives in `PrivateSymbol`
-    /// (GlobalUtilities); this file only styles the result for the gutter.
+    /// Glyphs from Apple's private symbol set. `privateGlyph(_:fallback:)` returns the private name only when
+    /// it resolves on this system. Access lives in `PrivateSymbol` (GlobalUtilities). This file only styles the
+    /// result for the gutter.
     private static let privateGlyphNames: Set<String> = ["music.circle"]
 
     /// `name` when it resolves as a private symbol, else the public `fallback`.
@@ -497,18 +405,12 @@ struct RSBHelpers {
         glyphWeightOverrides[systemName] ?? .regular
     }
 
-    /// Per-symbol horizontal nudges, applied after centering. Optical corrections only: a
-    /// symbol whose visual weight sits off its geometric center reads as mis-aligned when it
-    /// is in fact centered exactly, and no amount of measuring fixes that — the eye centers
-    /// on mass, not on bounding box.
-    ///
-    /// `cart.fill.badge.questionmark` carries its badge up and to the right, which pulls its
-    /// apparent center that way; a point to the left settles it against its neighbors.
-    ///
-    /// Applied with `.offset`, so this shifts the drawn symbol without moving the box, the
-    /// gutter, or the text. A nudge here can therefore never affect layout — which is also
-    /// why it is bounded by taste rather than by `glyphBoxWidth`: a large enough value would
-    /// happily push a symbol outside its box.
+    /// Per-symbol horizontal nudges, applied after centering. They are optical corrections. A symbol whose
+    /// visual weight sits off its geometric center looks misaligned even when centered exactly, because the
+    /// eye centers on mass. `cart.fill.badge.questionmark` carries its badge up and to the right, which pulls
+    /// its apparent center that way, so a point to the left settles it against its neighbors. The nudge uses
+    /// `.offset`, so it moves the drawn symbol without moving the box, gutter, or text. It cannot affect
+    /// layout, but a large value could push a symbol outside its box, so keep it small.
     private static let glyphHorizontalOffsets: [String: CGFloat] = [
         "cart.fill.badge.questionmark": -1
     ]
@@ -518,65 +420,49 @@ struct RSBHelpers {
         glyphHorizontalOffsets[systemName] ?? 0
     }
 
-    /// The symbol marking a Film Queue membership, wherever the sidebar states one.
-    ///
-    /// Two modules say it, one tab apart: WatchDetails' "In the "<Section>" Queue"
-    /// annotation row under the rotation countdown, and ListTable's queue rows in the List
-    /// Membership table. They are the same mark meaning the same thing, and ListTable
-    /// already reaches into `glyphPointSize(for:)` so its inline attachment renders at the
-    /// size the gutter draws this symbol at — but the NAME itself was written out three
-    /// times across the two files, with a comment on each asking that they be kept
-    /// matched. Naming it once is what makes that structural: a change to the symbol
-    /// cannot now move one surface without the other.
-    ///
-    /// It is deliberately here rather than on either module: neither owns the other, and
-    /// this is the file both already share their row vocabulary through.
+    /// The symbol marking Film Queue membership, wherever the sidebar shows it. WatchDetails' "In the <Section>
+    /// Queue" annotation and ListTable's queue rows use the same mark. ListTable's inline attachment renders at
+    /// `glyphPointSize(for:)`, the size the gutter uses. Naming the symbol once here keeps the two surfaces in
+    /// step. It lives in this file because neither module owns the other, and this file is where both share
+    /// their row vocabulary.
     static let queueMembershipGlyph = "text.line.first.and.arrowtriangle.forward"
 
-    /// The fixed box every glyph is centered in, sized to the widest symbol in use at
-    /// `glyphPointSize` — 16pt (`cart.fill.badge.questionmark` and the queue arrow; the rest
-    /// run 9–15). Centering happens inside THIS, not inside the whole margin, which is what
-    /// lets the space on either side of the box be set independently below.
-    ///
-    /// A symbol wider than this would push its own row's text; that is what
-    /// `glyphPointSizeOverrides` exists to prevent.
+    /// The fixed box every glyph is centered in, sized for the widest symbol in use at `glyphPointSize` (16pt,
+    /// from `cart.fill.badge.questionmark` and the queue arrow; the rest run 9 to 15). Centering happens inside
+    /// this box, not the whole margin, so the space on either side can be set separately below. A wider symbol
+    /// would push its row's text, which `glyphPointSizeOverrides` prevents.
     static let glyphBoxWidth: CGFloat = 16
 
     /// Space between the plate's fill edge and the glyph box.
     static let glyphLeadingPadding: CGFloat = 8
 
-    /// The height of a value row whose text occupies one line: the row font's line height
-    /// plus the plate's vertical padding on both sides. The glyph overlay is boxed to
-    /// this height and top-aligned, which is what pins it against the first line of a
-    /// wrapped row — with no height it would center on the whole plate and move down as
-    /// the text grew.
+    /// The height of a value row whose text fits on one line: the row font's line height plus the plate's
+    /// vertical padding on both sides. The glyph overlay is boxed to this height and top-aligned, which pins it
+    /// to the first line of a wrapped row. Without a height, it would center on the whole plate and drift down
+    /// as the text grew.
     ///
-    /// `NSLayoutManager.defaultLineHeight(for:)` is used rather than the font's own
-    /// ascender/descender/leading sum because it is the rounded-up line height the text
-    /// system actually lays out with, and it matches what SwiftUI's `Text` reports for a
-    /// single line at this size (15pt at 12pt system, where the raw sum is 14.13). Rows
-    /// drawn at a font size other than `rowFontSize` do not carry a glyph.
+    /// Uses `NSLayoutManager.defaultLineHeight(for:)`, not the font's raw ascender, descender, and leading sum.
+    /// That is the rounded line height the text system lays out with, and it matches SwiftUI's single-line
+    /// `Text` height at this size (15pt at the 12pt system size, where the raw sum is 14.13). Rows drawn at
+    /// another font size do not carry a glyph.
     static let singleLineRowHeight: CGFloat =
         NSLayoutManager().defaultLineHeight(for: NSFont.systemFont(ofSize: rowFontSize))
         + rowFontBackgroundVerticalPadding * 2
 
-    /// Space between the glyph box and the text. Independent of the leading padding on
-    /// purpose: a glyph reads as belonging to the text beside it, so a little less room on
-    /// that side than against the plate's edge groups the two without crowding them.
+    /// Space between the glyph box and the text. It is set apart from the leading padding, because a glyph
+    /// reads as part of the text beside it. A little less room on that side groups the two without crowding
+    /// them.
     static let glyphTrailingPadding: CGFloat = 6
 
-    /// The distance from the plate's fill edge to the text's leading edge on a glyphed row —
-    /// the leading padding, the glyph box, and the trailing padding, in that order.
+    /// The distance from the plate's fill edge to the text's leading edge on a glyphed row: the leading padding,
+    /// the glyph box, and the trailing padding, in that order.
     ///
-    /// Derived rather than set, so the three parts always compose to exactly the inset the
-    /// text is given and no glyph placement can disagree with where the text starts. Tune the
-    /// three constants above; this follows.
+    /// Derived, not set, so the three parts always compose to exactly the text's inset, and no glyph placement
+    /// can disagree with where the text starts. Tune the three constants above, and this follows.
     ///
-    /// Centering happens within `glyphBoxWidth`, so symbols of different widths still share
-    /// one center — what changes here is that the space around that box need not be
-    /// symmetrical. Every glyph therefore sits `glyphLeadingPadding` from the fill's edge and
-    /// `glyphTrailingPadding` from the text, in the sense that the BOX does; a symbol narrower
-    /// than the box gains the difference on both sides equally.
+    /// Symbols of different widths still share one center, because they center within `glyphBoxWidth`. The
+    /// space around that box need not be symmetrical. A symbol narrower than the box gains the difference
+    /// equally on both sides.
     static var glyphLeadingMargin: CGFloat {
         glyphLeadingPadding + glyphBoxWidth + glyphTrailingPadding
     }
@@ -594,21 +480,15 @@ struct RSBHelpers {
     /// rather than `some View` because concatenation is what makes the glyph part of the run,
     /// and because the caller composes further before rendering.
     ///
-    /// This was the module's only glyph mechanism, shared by the "Source for Viewing" row and
-    /// ListTable. The sidebar's own rows have since moved to the fixed-width gutter that
-    /// `sidebarRowContainer(glyph:)` draws — an attachment's width and height vary with the
-    /// symbol, which moved the text and changed row heights — leaving ListTable as the sole
-    /// caller. It is kept because ListTable's glyph sits inside a table cell rather than on a
-    /// sidebar plate, which is not a row `sidebarRowContainer` builds.
-    /// - Parameter pointSize: Size for the attachment alone. `nil` lets it inherit the font
-    ///   of whatever renders the returned `Text`, which is what an inline attachment does by
-    ///   default and what this always did. Pass a size to hold the glyph to a fixed scale
-    ///   independent of its surrounding text — `RSBHelpers.glyphPointSize(for:)` gives the
-    ///   same scale the gutter draws that symbol at, so an inline glyph can be made to match
-    ///   its gutter-drawn twin elsewhere in the sidebar.
+    /// The inline alternative to the gutter. ListTable is its only caller, since its glyph sits in a table cell
+    /// rather than on a sidebar plate. The sidebar uses the gutter instead, since an attachment's width and height
+    /// move the text and change row heights.
+    /// - Parameter pointSize: Size for the attachment alone. `nil` inherits the font of the text it renders
+    ///   with, which is the default for inline attachments. A size holds the glyph to a fixed scale.
+    ///   `RSBHelpers.glyphPointSize(for:)` gives the scale the gutter uses for that symbol, so an inline glyph
+    ///   can match its gutter twin elsewhere in the sidebar.
     ///
-    ///   The size lands on the attachment's own run only. Concatenated `Text` runs each keep
-    ///   their own font, so the label beside it is untouched.
+    ///   The size applies only to the attachment's run. The label beside it keeps its own font.
     static func glyphPrefixedText(_ systemName: String,
                                   _ text: String,
                                   pointSize: CGFloat? = nil) -> Text {
@@ -623,15 +503,9 @@ struct RSBHelpers {
     ///
     /// Distinct from `sectionHeader` below, which labels a single FIELD inside a module
     /// (leading-aligned, secondary, rounded). The two are different sizes of heading and
-    /// deliberately stay separate builders; what they share is that neither should be
-    /// spelled out by hand any more.
+    /// deliberately stay separate builders.
     ///
-    /// This exact three-modifier chain was previously written out at six sites across
-    /// five files — CalendarTable, ListTable, Synopsis, Metadata's own `moduleHeader`,
-    /// RTabReleases' `allReleasesHeader`, and DiscReleasesTable's `.standard` layout —
-    /// with the last of those carrying a comment naming the other four and asking that
-    /// they be kept in step. Centralizing removes both the drift risk and the need for
-    /// that pointer.
+    /// The font and layout are defined only here, so every module header matches.
     ///
     /// Callers apply their own surrounding spacing: the Details modules sit in stacks
     /// that already supply it, while `allReleasesHeader` adds explicit padding at its use
@@ -643,12 +517,9 @@ struct RSBHelpers {
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    /// The sidebar's standard section-header label. Renders nothing at all for an
-    /// empty title, exactly as the inline `if !title.isEmpty` guards this replaces
-    /// did — callers such as `Synopsis` deliberately pass `""` when the enclosing
-    /// module header is sufficient. Shared by `textSection`,
-    /// `searchableItemSection`, WatchDetails' custom rows, and RTabNotes' frames
-    /// and legend blocks, all of which previously repeated this styling verbatim.
+    /// The sidebar's standard field-header label. Renders nothing for an empty title. Callers such as `Synopsis`
+    /// pass `""` when the module header is enough. Shared by `textSection`, `searchableItemSection`,
+    /// WatchDetails' custom rows, and RTabNotes' frames and legend blocks.
     @ViewBuilder
     static func sectionHeader(_ title: String) -> some View {
         if !title.isEmpty {
@@ -723,8 +594,8 @@ struct RSBHelpers {
         }
     }
 
-    // Convert a duration in milliseconds into an abbreviated format like "2 hr. 15 min."
-    // Used when two duration values must share a single line (e.g. edited + original).
+    // Abbreviated duration such as "2 hr. 15 min.", for when two durations share one line (for example,
+    // edited and original).
     static func formattedDurationAbbreviated(from millisecondsString: String?) -> String {
         guard let parts = hoursAndMinutes(from: millisecondsString) else { return "" }
         let hours = parts.hours
@@ -739,9 +610,8 @@ struct RSBHelpers {
     }
 
     // MARK: - ISO8601 Timestamp Formatting (for stored string timestamps)
-    // Primary ISO8601 parser for full timestamps (e.g., lastModified). Private, like
-    // the fallback parser below it: both exist solely to serve formatFullTimestamp(_:)
-    // in this file, and neither is read anywhere else in the project.
+    // Parsers for full timestamps (such as lastModified). Both are private, since they exist only for
+    // formatFullTimestamp(_:) in this file.
     @MainActor
     private static let isoTimestampParser: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -760,14 +630,9 @@ struct RSBHelpers {
         return formatter
     }()
 
-    // "Month Day, Year, at HH:MM AM/PM" for full timestamps (such as the "lastModified" field).
-    //
-    // Private and @MainActor for the same reason as the two parsers above, and stated the
-    // same way: this formatter exists solely to serve formatFullTimestamp(_:) — itself
-    // @MainActor — and is read nowhere else in the project. Leaving it internal and
-    // nonisolated left a mutable, non-Sendable Foundation object reachable from any
-    // isolation domain, an invariant that held only by convention while its two siblings
-    // enforced theirs.
+    // "Month Day, Year, at HH:MM AM/PM" for full timestamps. Private and @MainActor, like the parsers above. It is
+    // read only by formatFullTimestamp(_:). Nonisolated would expose this mutable, non-Sendable formatter to every
+    // isolation domain.
     @MainActor
     private static let fullTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -778,11 +643,9 @@ struct RSBHelpers {
         return formatter
     }()
 
-    // Formats a full ISO8601 timestamp string into "Month Day, Year, HH:MM AM/PM"
-    // in the user's current locale/timezone. On parsing failure, fall back to trying
-    // a non-fractional-seconds parser, then try YYYY.MM.DD format via formatDateString,
-    // and if that still fails, return the raw string so a real value is shown instead
-    // of the placeholder.
+    // Formats a full ISO8601 timestamp as "Month Day, Year, HH:MM AM/PM" in the user's locale and time zone.
+    // If parsing fails, it tries the non-fractional parser, then YYYY.MM.DD via formatDateString. If all of
+    // those fail, it returns the raw string so a real value shows rather than a placeholder.
     @MainActor
     static func formatFullTimestamp(_ raw: String?) -> String {
         guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -808,146 +671,98 @@ struct RSBHelpers {
         return value
     }
 
-    // Decomposes a millisecond duration (stored as a string) into whole hours and
-    // minutes. Returns nil for a missing, unparseable, or non-positive value — the
-    // single "no duration" signal both duration formatters above translate into an
-    // empty string. Shared so the parse/guard/divide logic exists in one place.
+    // Splits a millisecond duration (stored as a string) into whole hours and minutes. Returns nil for a
+    // missing, unparseable, or non-positive value. That nil is the single "no duration" signal both duration
+    // formatters translate into an empty string. Sharing this keeps the parse rule in one place.
     //
-    // Internal rather than private: GalleryListView's duration column renders the hour
-    // and minute components as two separately aligned items rather than one string, so
-    // it needs the decomposed values instead of a formatted result. Exposing this is
-    // what keeps the parse/guard/divide rule in one place — a second copy over there
-    // could silently disagree with the formatters above about, say, whether a
-    // non-positive value counts as "no duration."
+    // Internal, not private: GalleryListView's duration column draws hours and minutes as two aligned items,
+    // so it needs the components rather than a formatted string. A second copy of the rule there could
+    // disagree with the formatters about what counts as "no duration."
     static func hoursAndMinutes(from millisecondsString: String?) -> (hours: Int, minutes: Int)? {
         guard let totalMinutes = DurationHelpers.storedMinutes(millisecondsString) else { return nil }
         return (totalMinutes / 60, totalMinutes % 60)
     }
 
     // MARK: - Other Field Formatting
-    // Formats a numerical value so that nil or 0 is treated as "no value" (empty string)
-    // allowing the UI layer to show the tertiary "None provided" placeholder.
-    // Supports both integer and double values.
+    // Formats an integer so that nil or 0 becomes "no value" (empty string). The UI layer then shows the
+    // tertiary "None provided" placeholder.
     static func formatNumericalValue(_ value: Int?) -> String {
         guard let value = value, value != 0 else { return "" }
         return String(value)
     }
 
     static func formatNumericalValue(_ value: Double?) -> String {
-        guard let value = value, value != 0 else { return "" }
+        guard let value = value, value != 0, value.isFinite else { return "" }
         // Display as integer if no decimal part.
-        let display = value.truncatingRemainder(dividingBy: 1) == 0
+        let display = value.truncatingRemainder(dividingBy: 1) == 0 && abs(value) < 1e15
             ? String(Int(value))
             : String(value)
         return display
     }
 
     // MARK: - Source-Field Logic
-    // Computes the "Source for Viewing" display string for a given film snapshot.
+    // Computes the "Source for Viewing" display string for a film snapshot.
     //
     // Selection rules:
-    //   • Edited films: Blu-ray only (4K and DVD releases are skipped entirely).
+    //   • Edited films: a purchased Blu-ray, otherwise the digital source. 4K releases are skipped.
     //   • Non-edited films: 4K preferred, then Blu-ray, then DVD, then digitalSource.
-    //   • A purchased disc of any format is always promoted to its own display tier
-    //     ("4K disc", "Blu-ray disc", "DVD") and never shown with a " rip" suffix.
-    //     "Rip" suffixes are reserved for the digitalSource fallback, where no
-    //     purchased disc of the matching format exists.
-    //   • The best-scored purchased release (see ReleaseSnapshot.qualityScore) is
-    //     always selected for display; year, studio, remastered, and national origin
-    //     are drawn from that same release so they are never mixed across releases.
-    //   • Prefix rules evaluate ALL releases of the format (purchased or not),
-    //     so that the presence of any release — wishlist or owned — influences
-    //     whether a year, studio, or national origin is shown for disambiguation:
-    //       – Year prefix:   another release of the same format shares the same
-    //                        studio as the best purchased release AND that other
-    //                        release's effective base year (its baseReleaseYear,
-    //                        or its own releaseYear when baseReleaseYear is empty)
-    //                        differs from the best release's effective base year.
-    //                        Same-studio releases that share an effective base year
-    //                        are treated as variants of one underlying release (e.g.
-    //                        a 2014 Blu-ray and a 2016 repackaging of it with
-    //                        baseReleaseYear == "2014"), so no year is shown to
-    //                        distinguish them. When a year IS shown, it displays the
-    //                        best release's effective base year rather than its
-    //                        literal releaseYear, so a 2020 purchase of a disc whose
-    //                        baseReleaseYear is "2014" reads as "2014" (the year it
-    //                        was effectively released), not "2020" (the year it
-    //                        happened to be bought).
-    //       – Studio prefix: not all releases of the same format share the same
-    //                        studio as the best purchased release (at least one
-    //                        release, of any purchase status, differs).
-    //       – Origin prefix: sits between the year and the studio ("2022 AU Imprint
-    //                        remastered Blu-ray disc"). Shown for ANY import — a
-    //                        release whose origin is set and is not the domestic one —
-    //                        single release or not, since a foreign disc is inherently
-    //                        non-standard and its origin is part of what it is. A
-    //                        domestic release names it only for disambiguation: when
-    //                        all same-studio colliders share the best release's release
-    //                        year but differ in origin.
-    //       All three can apply simultaneously, producing "YEAR ORIGIN STUDIO …". With
-    //       a single domestic release of the format no prefix appears.
-    //   • "remastered" is inserted inline before the format label rather than
-    //     appended as a parenthetical suffix. It is always written in lowercase
-    //     internally; the final string is sentence-capitalized before return so
-    //     that "remastered" is only capitalized when it is the first word.
-    //   • For edited films using a Blu-ray disc digital fallback (no purchased
-    //     Blu-ray), "rip" is always appended and the remastered flag is honored
-    //     from any Blu-ray release in the pool (purchased or wishlist).
-    //   • The three companion outputs (disc glyph, "available for purchase" suffix,
-    //     "Region B locked" suffix) are returned alongside the string rather than
-    //     recomputed by separate functions. Each of them is a statement about *which
-    //     branch below was taken*, so deriving them anywhere else means re-deriving
-    //     this branch structure and keeping the copy in step by hand — which is
-    //     exactly how the glyph came to disagree with the value it decorates (see
-    //     `isPurchasedDiscSource`).
+    //   • A purchased disc always gets its own tier ("4K disc", "Blu-ray disc", "DVD") and never a " rip"
+    //     suffix. "Rip" is reserved for the digitalSource fallback, used when no purchased disc of that format exists.
+    //   • The best-scored purchased release (ReleaseSnapshot.qualityScore) is shown. Year, studio, remastered,
+    //     and origin all come from that one release, so they are never mixed across releases.
+    //   • Prefix rules check ALL releases of the format, purchased or not, so any release, wishlist or owned,
+    //     can add a disambiguating prefix:
+    //       – Year: another same-format release shares the best release's studio and has a different effective
+    //         base year (baseReleaseYear, or releaseYear when that is empty). Same-studio releases with one
+    //         effective base year are variants of one release (for example, a 2014 disc and a 2016 repackaging
+    //         with baseReleaseYear "2014"), so no year is shown. When a year is shown, it is the best release's
+    //         effective base year, not its releaseYear. A 2020 purchase of a disc with baseReleaseYear "2014"
+    //         reads "2014".
+    //       – Studio: at least one same-format release, of any purchase status, has a different studio from the
+    //         best purchased release.
+    //       – Origin: sits between year and studio ("2022 AU Imprint remastered Blu-ray disc"). It is shown for
+    //         ANY import, meaning a release with an origin set that is not domestic, since a foreign disc is
+    //         non-standard. A domestic release names its origin only to disambiguate: when all same-studio
+    //         colliders share the best release's year but differ in origin.
+    //       All three can apply together, giving "YEAR ORIGIN STUDIO ...". With one domestic release of the
+    //       format, no prefix appears.
+    //   • "remastered" goes before the format label, not in a parenthetical suffix. It is lowercase internally,
+    //     and the final string is sentence-capitalized, so it is capitalized only when it is the first word.
+    //   • An edited film using a Blu-ray digital fallback (no purchased Blu-ray) always gets "rip". Its remastered
+    //     flag comes from any Blu-ray release in the pool, purchased or wishlist.
+    //   • The three companion outputs (disc glyph, "available for purchase" suffix, "Region B locked" suffix) are
+    //     returned with the string, not recomputed elsewhere. Each describes which branch was taken, so deriving
+    //     them elsewhere would duplicate this structure and could drift (see `isPurchasedDiscSource`).
     struct SourceDisplay: Equatable {
         /// Sentence-capitalized display string; empty when the film has no source at all.
         var value: String = ""
-        /// `value` with the origin's compact form ("AU") in place of its demonym
-        /// ("Australian"), or nil when the two would be identical — no origin shown, or an
-        /// origin with no short form. Offered to `fittingValueRow` as an abbreviation
-        /// step, never displayed on its own account: the demonym is the standard spelling
-        /// and the short form is used only when it keeps the value on one line, exactly
-        /// as "rem." is for "remastered". Built here rather than by text substitution on
-        /// `value` because a demonym can legitimately occur elsewhere in the string — a
-        /// studio named "American Zoetrope" must not become "U.S. Zoetrope".
+        /// `value` with the origin's short form ("AU") in place of its demonym ("Australian"). Nil when the two are
+        /// identical, or when the origin has no short form. It is offered to `fittingValueRow` only as an
+        /// abbreviation step, and it appears only when it keeps the value on one line, as "rem." does for
+        /// "remastered". It is built here rather than by text substitution, because a demonym can also occur
+        /// elsewhere in the string. A studio named "American Zoetrope" must not become "U.S. Zoetrope".
         var originAbbreviatedValue: String? = nil
-        /// `value` with the studio's abbreviation ("Uni") in place of the shorthand
-        /// ("Universal") the value itself carries, or nil when the two would be identical
-        /// — no studio shown, or a studio with no tighter spelling. The same overflow-only
-        /// contract as `originAbbreviatedValue`: the shorthand is the standard spelling
-        /// for this field (`ReleaseStudio` explains the three tiers) and the abbreviation
-        /// is a retreat, never the default. Built here for the same reason — the studio
-        /// token is known by position, so no text substitution has to guess where it is.
+        /// `value` with the studio's abbreviation ("Uni") in place of the shorthand ("Universal") the value carries.
+        /// Nil when the two are identical. As with the origin, this is an overflow-only fallback. The shorthand is
+        /// the standard spelling (`ReleaseStudio` explains the three tiers). It is built here, where the studio
+        /// token's position is known, so no substitution has to guess where it is.
         var studioAbbreviatedValue: String? = nil
-        /// `value` with BOTH the origin and the studio compacted, or nil when identical
-        /// to `value`. The last step of the ladder, offered only after each single step.
+        /// `value` with both the origin and the studio compacted. Nil when identical to `value`. It is the last
+        /// ladder step, offered only after each single step.
         var originAndStudioAbbreviatedValue: String? = nil
-        /// True when the displayed value IS a disc the user owns, and therefore when the
-        /// "opticaldisc.fill" glyph should be shown.
-        ///
-        /// This is deliberately NOT "the film owns any disc". Those two questions have
-        /// different answers whenever the displayed value falls through to the digital
-        /// source while a purchased disc of some *other* format exists — an edited film
-        /// owning a purchased 4K but no purchased Blu-ray displays "Edited Blu-ray disc
-        /// rip", which is a rip, not a disc the user owns. Keying the glyph off
-        /// `film.purchasedReleases.isEmpty` put a disc glyph on that rip.
+        /// True when the displayed value is a disc the user owns, which is when the "opticaldisc.fill" glyph shows.
+        /// This is not "the film owns any disc". The two differ when the value falls through to the digital source
+        /// while a purchased disc of another format exists. For example, an edited film owning a purchased 4K but no
+        /// purchased Blu-ray shows "Edited Blu-ray disc rip", which is a rip, not an owned disc. Keying the glyph off
+        /// `film.purchasedReleases.isEmpty` would wrongly put a disc glyph on that rip.
         var isPurchasedDiscSource: Bool = false
-        /// "Available for purchase on <format>" — empty unless an unpurchased release
-        /// exists in a format the film owns no purchased disc of. Names only one
-        /// format, never a combined list. The 4K and Blu-ray notes can appear beside a
-        /// displayed purchased disc of a *different* format (e.g. a purchased Blu-ray
-        /// with an unpurchased 4K reads "Available for purchase on 4K UHD"); the 4K
-        /// note is suppressed entirely for edited films. The DVD note still requires
-        /// the displayed value not to be a purchased disc. See `sourceDisplay(for:)`.
-        ///
-        /// A complete, sentence-capitalized phrase rather than a fragment: it renders as
-        /// its own annotation row beneath the value row, not as an inline continuation
-        /// of the value. See `WatchDetails.sourceSection`.
-        ///
-        /// When the release backing the note has not come out yet on `today`, the note
-        /// reads "Upcoming <format> release on <date>" instead (or "… release in <year>"
-        /// for a year-only date), since it cannot be bought yet.
+        /// "Available for purchase on <format>", or empty. A complete, sentence-capitalized phrase, rendered as its
+        /// own annotation row under the value row (see `WatchDetails.sourceSection`). It appears only for a format
+        /// the film owns no purchased disc of, and names one format, never a list. The 4K and Blu-ray notes can
+        /// appear beside a displayed purchased disc of a different format, such as a purchased Blu-ray with an
+        /// unpurchased 4K. The 4K note is suppressed for edited films. The DVD note still requires that the displayed
+        /// value is not a purchased disc. If the backing release is not out on `today`, the note reads "Upcoming
+        /// <format> release on <date>" (or "… release in <year>" for a year-only date), since it cannot be bought yet.
         var availableForPurchaseNote: String = ""
         /// `availableForPurchaseNote` with the release date's month abbreviated, or nil
         /// when the two would be identical — every note but the upcoming form, and an
@@ -996,31 +811,25 @@ struct RSBHelpers {
         let best2K  = ReleaseSnapshot.best(from: purchased2K)
         let bestDVD = ReleaseSnapshot.best(from: purchasedDVD)
 
-        // film.digitalSource stores the remastered flag as a "Remastered " prefix
-        // (matching the FSTabMetadata.computedDigitalSource encoding). Strip that
-        // prefix before any format comparisons so that "Remastered Blu-ray disc"
-        // is treated identically to "Blu-ray disc" for branching purposes, and the
-        // remastered state is carried separately as a boolean.
+        // film.digitalSource stores the remastered flag as a "Remastered " prefix (the FSTabMetadata.computedDigitalSource
+        // encoding). Strip it before any format comparison, so "Remastered Blu-ray disc" branches like "Blu-ray disc",
+        // and the remastered state is carried separately as a boolean.
         let rawDigitalSource = film.digitalSource.trimmingCharacters(in: .whitespacesAndNewlines)
         let (digitalSource, digitalSourceIsRemastered) = FilmDigitalSource.decompose(rawDigitalSource)
         let hasDigitalSource = !digitalSource.isEmpty
 
-        // The value in every spelling the ladder can offer: the full form and the three
-        // with the origin, the studio, or both compacted. Every branch below fills all
-        // four; the ones that show no prefix fill them identically. See
+        // The value in every spelling the ladder can offer: the full form and the three with the origin, the studio,
+        // or both compacted. Every branch fills all four; branches with no prefix fill them identically. See
         // SourceDisplay.originAbbreviatedValue and its siblings.
         let raw: SourceValueForms
 
-        // Set by whichever branch below wins. `isPurchasedDisc` answers "is the value
-        // being displayed a disc the user owns?", which is a different question from
-        // "does the film own any disc?" — see SourceDisplay.isPurchasedDiscSource.
-        // `displayedBluRay` is non-nil only on the one branch the Region B suffix is
-        // scoped to (non-edited, purchased Blu-ray), so that suffix cannot drift out of
-        // step with the branch it describes.
+        // Set by whichever branch wins. `isPurchasedDisc` answers "is the value displayed a disc the user owns?", which
+        // differs from "does the film own any disc?" (see SourceDisplay.isPurchasedDiscSource). `displayedBluRay` is
+        // non-nil only on the branch the Region B suffix is scoped to (non-edited, purchased Blu-ray), so the suffix
+        // cannot drift from the branch it describes.
         var isPurchasedDisc = false
         var displayedBluRay: ReleaseSnapshot?
-        // The purchased release the value row names, when it names one; drives the
-        // pre-order note.
+        // The purchased release the value row names, if any. It drives the pre-order note.
         var displayedPurchased: ReleaseSnapshot?
 
         if isEdited {
@@ -1034,23 +843,19 @@ struct RSBHelpers {
                 // Deliberately no displayedBluRay: the Region B suffix is scoped to
                 // non-edited films only.
             } else if hasDigitalSource {
-                // No purchased Blu-ray. "rip" is appended for both "Blu-ray disc"
-                // and "DVD" digital sources (the disc itself was not purchased).
-                // A purchased DVD is the one exception: the disc was bought, so
-                // "rip" is omitted there, mirroring the purchased-disc paths above.
-                // Remastered is honored from the digitalSource prefix flag when the
-                // source is a Blu-ray disc; the release-pool flag is also checked as
-                // a fallback in case no release object exists but the source is flagged.
+                // No purchased Blu-ray. "rip" is appended for "Blu-ray disc" and "DVD" digital sources (the disc
+                // itself was not purchased). A purchased DVD is the exception: the disc was bought, so "rip" is omitted,
+                // mirroring the purchased-disc paths. Remastered comes from the digitalSource prefix flag for a Blu-ray
+                // source, with the release-pool flag as a fallback in case no release object exists.
                 let base: String
                 if digitalSource == FilmDigitalSource.dvd && !purchasedDVD.isEmpty {
                     base = "DVD"
                     displayedPurchased = bestDVD
-                    // The disc itself was bought — that is precisely why "rip" is
-                    // omitted here — so this branch does display a purchased disc.
+                    // The disc was bought, which is why "rip" is omitted, so this branch displays a purchased disc.
                     isPurchasedDisc = true
                 } else if digitalSource == FilmDigitalSource.blurayDisc {
-                    // Remastered: honor the stored digitalSource prefix flag first;
-                    // also check any Blu-ray release in the pool (purchased or wishlist).
+                    // Remastered: the stored digitalSource prefix flag first, then any Blu-ray release in the pool
+                    // (purchased or wishlist).
                     let anyBlurayRemastered = digitalSourceIsRemastered
                         || (ReleaseSnapshot.best(from: all2K)?.remastered ?? false)
                     base = anyBlurayRemastered ? "remastered Blu-ray disc rip" : "Blu-ray disc rip"
@@ -1118,34 +923,26 @@ struct RSBHelpers {
             return capitalized == value ? nil : capitalized
         }
 
-        // ── Companion notes, both derived from the branch taken above ───────────────
-        // Each is a standalone, sentence-capitalized phrase rendered on its own row
-        // beneath the value row — not a fragment spliced onto the end of `value`.
-        // The 4K and Blu-ray clauses are deliberately NOT gated on `!isPurchasedDisc`:
-        // a non-edited film that owns a purchased Blu-ray (so a Blu-ray disc IS the
-        // displayed source) still surfaces "Available for purchase on 4K UHD" when an
-        // unpurchased 4K release exists. Each format is advertised only when no
-        // purchased disc of that same format is already owned.
+        // ── Companion notes, each derived from the branch taken above ──
+        // Each is a standalone phrase on its own row beneath the value, not spliced onto `value`.
+        // The 4K and Blu-ray clauses are not gated on `!isPurchasedDisc`: a purchased Blu-ray still advertises
+        // an unpurchased 4K. Each format is advertised only when no purchased disc of that format is owned.
         //
-        //   • 4K UHD  — film is not edited, owns no purchased 4K, and a 4K release is
-        //               available to buy. Covers both "no purchased 4K or Blu-ray" and
-        //               "purchased Blu-ray plus an unpurchased 4K".
-        //   • Blu-ray — the 4K note did not fire, an unpurchased Blu-ray exists, and no
-        //               purchased Blu-ray is owned. A purchased 4K does not suppress it:
-        //               owning the 4K says nothing about owning the Blu-ray, and for an
-        //               edited film (Blu-ray only) the 4K is not a source at all.
-        //   • DVD     — shown only when the displayed value is not a purchased disc
-        //               (so no DVD or better is owned), nothing on Blu-ray is to buy, and
-        //               nothing on 4K is either — the 4K condition waived for edited films,
-        //               where 4K never applies, exactly as the Blu-ray rule waives it.
+        //   • 4K UHD: not edited, no purchased 4K, and a 4K release is buyable. Covers both "no purchased 4K or
+        //     Blu-ray" and "purchased Blu-ray plus an unpurchased 4K".
+        //   • Blu-ray: the 4K note did not fire, an unpurchased Blu-ray exists, and no purchased Blu-ray is owned.
+        //     A purchased 4K does not suppress it. Owning the 4K says nothing about the Blu-ray, and an edited film
+        //     (Blu-ray only) has no 4K source.
+        //   • DVD: shown only when the value is not a purchased disc, nothing on Blu-ray is buyable, and nothing on
+        //     4K is either. The 4K condition is waived for edited films, where 4K never applies, as the Blu-ray rule
+        //     waives it.
         let has4KToBuy  = all4K.contains  { !$0.purchased }
         let has2KToBuy  = all2K.contains  { !$0.purchased }
         let hasDVDToBuy = allDVD.contains { !$0.purchased }
 
-        // The release backing the claim is the best unpurchased one of that format; a foreign
-        // origin makes it foreign ("Available for purchase on foreign Blu-ray"). When that
-        // release is still to come it cannot be bought yet, so the note names its date
-        // instead: "Upcoming Blu-ray release on November 3, 2026".
+        // The backing release is the best unpurchased one of that format. A foreign origin makes the note say
+        // "foreign". If the release is still to come, the note names its date instead ("Upcoming Blu-ray release
+        // on November 3, 2026").
         func buyPhrase(_ format: String, _ pool: [ReleaseSnapshot]) -> String {
             let backing = ReleaseSnapshot.best(from: pool.filter { !$0.purchased })
             let foreign = backing.map { ReleaseOrigin.isImport($0.nationalOrigin) } ?? false
@@ -1162,11 +959,11 @@ struct RSBHelpers {
 
         var availableForPurchase = ""
         if !isEdited && has4KToBuy && purchased4K.isEmpty {
-            availableForPurchase = buyPhrase("4K UHD", all4K)
+            availableForPurchase = buyPhrase(ReleaseFormat.uhd4K.rawValue, all4K)
         } else if has2KToBuy && purchased2K.isEmpty {
-            availableForPurchase = buyPhrase("Blu-ray", all2K)
+            availableForPurchase = buyPhrase(ReleaseFormat.bluRay.rawValue, all2K)
         } else if !isPurchasedDisc && (isEdited || !has4KToBuy) && !has2KToBuy && hasDVDToBuy {
-            availableForPurchase = buyPhrase("DVD", allDVD)
+            availableForPurchase = buyPhrase(ReleaseFormat.dvd.rawValue, allDVD)
         }
 
         let regionBLock = (displayedBluRay?.regionLock == ReleaseRegionRules.regionB)
@@ -1198,8 +995,7 @@ struct RSBHelpers {
     }
 
     /// The format label: "remastered" when set, then the format — "remastered Blu-ray
-    /// disc". The four purchased-disc branches each build this, and each used to spell
-    /// the remastered/plain pair out by hand.
+    /// disc". The four purchased-disc branches each build this, so the remastered/plain pair is spelled once.
     private static func formatLabel(_ format: String, remastered: Bool) -> String {
         "\(remastered ? "remastered " : "")\(format)"
     }
@@ -1231,25 +1027,18 @@ struct RSBHelpers {
         }
     }
 
-    // The studio's spelling for the Source for Viewing field, in the two tiers the field
-    // uses (see ReleaseStudio for the three-tier scheme). Both are gated by
-    // Preferences.abbreviateSourceStudio: when the preference is disabled, the original
-    // studio string is returned unchanged at every tier, so the ladder finds nothing to
-    // retreat to and the full name is what is shown.
+    // The studio spelling for the Source for Viewing field, in two tiers (see ReleaseStudio for the three-tier
+    // scheme). Both are gated by Preferences.abbreviateSourceStudio. When that is off, every tier returns the
+    // original name, so the ladder has nothing to retreat to.
     //
-    //   • shorthandStudioName — what the field prints by default ("Universal").
-    //   • abbreviatedStudioName — what it retreats to when the shorthand would wrap
-    //     ("Uni"). Falls back to the shorthand for a studio with no tighter form, so the
-    //     ladder step it feeds compares equal to the default and is dropped.
+    //   • shorthandStudioName: the default spelling ("Universal").
+    //   • abbreviatedStudioName: the retreat when the shorthand would wrap ("Uni"). It falls back to the shorthand
+    //     when no tighter form exists, so that ladder step equals the default and is dropped.
     //
-    // Studios not present in the table are returned as-is at both tiers — only the
-    // studios listed there have shorter forms; everything else displays at full length.
+    // Studios not in the table display at full length at both tiers.
     //
-    // Free-text "Other" entries (anything not matching a known studio name) are not
-    // looked up in this table; instead they are truncated to a 30-character maximum
-    // with a trailing ellipsis when they exceed that length, regardless of whether
-    // abbreviateSourceStudio is enabled — truncation guards against unbounded layout
-    // growth from arbitrary user input and is therefore independent of the preference.
+    // Free-text "Other" entries (not matching a known studio) are not looked up. They are truncated to 30
+    // characters plus an ellipsis, whatever the preference, so arbitrary user input cannot grow the layout.
     private static func shorthandStudioName(_ studio: String) -> String {
         guard Preferences.abbreviateSourceStudio else { return studio }
         return ReleaseStudio.shorthand(studio)
@@ -1260,10 +1049,8 @@ struct RSBHelpers {
         return ReleaseStudio.abbreviated(studio)
     }
 
-    // Applies the 30-character truncation rule used for free-text ("Other") studio
-    // entries in the Source for Viewing field. Known studio names never reach this
-    // length in practice, but the guard is unconditional so any future long studio
-    // name (known or custom) is handled safely.
+    // The 30-character truncation for free-text studios. Known names never reach this length, but the guard
+    // is unconditional, so a future long name is handled safely.
     private static func truncatedStudioDisplayName(_ studio: String) -> String {
         let maxLength = 30
         guard studio.count > maxLength else { return studio }
@@ -1271,10 +1058,7 @@ struct RSBHelpers {
         return "\(truncated)…"
     }
 
-    // Resolves the display strings for a studio name in the Source for Viewing field:
-    // known studios are shortened to the requested tier (when enabled), then the
-    // 30-character truncation rule is applied as a final safety net for any remaining
-    // long value.
+    // Display string for a studio: shortened to the tier when enabled, then truncated as a final safety net.
     private static func displayStudioName(_ studio: String) -> String {
         return truncatedStudioDisplayName(shorthandStudioName(studio))
     }
@@ -1285,32 +1069,23 @@ struct RSBHelpers {
 
     // Builds the disambiguation prefix for a disc-format pool.
     //
-    // `best`          — the best-scored *purchased* release (the one being displayed).
-    // `allOfFormat`   — ALL releases of this format, regardless of purchase status.
-    //                   Prefix rules are evaluated against this full set so that
-    //                   wishlist releases influence disambiguation just as owned ones do.
+    // `best`        — the best-scored purchased release (the one displayed).
+    // `allOfFormat` — every release of the format, purchased or not. Prefix rules use this full set, so
+    //                 wishlist releases disambiguate as owned ones do.
     //
-    // Rules (only applied when allOfFormat contains 2+ releases):
-    //   showYear:   another release in allOfFormat shares the best release's studio
-    //               exactly (same-studio collision requires a year to distinguish),
-    //               AND that collider's effective base year (baseReleaseYear, or its
-    //               own releaseYear when baseReleaseYear is empty) differs from the
-    //               best release's effective base year. Colliders that share the
-    //               same effective base year are variants of the same underlying
-    //               release, so a year adds no genuine disambiguation and is
-    //               suppressed. When shown, the year token itself is the best
-    //               release's effective base year (not its literal releaseYear).
-    //   showStudio: at least one release in allOfFormat has a different studio from
-    //               the best release (studio name identifies which release is shown).
-    //   showOrigin: fires when same-studio colliders that share the best release's
-    //               effective base year also differ in national origin. Evaluated
-    //               INDEPENDENTLY of showYear, which is the whole point of the rule:
-    //               the same-year group is precisely the group a year token cannot
-    //               separate, so origin is exactly what is needed when no
-    //               different-year collider exists. (Deriving showOrigin from
-    //               showYear — as this previously did — made the "ORIGIN " form
-    //               below unreachable, since showYear requires a different-year
-    //               collider and origin's own trigger requires a same-year one.)
+    // Rules (applied only when allOfFormat has 2+ releases):
+    //   showYear:   another release in allOfFormat shares the best release's studio, and that collider's
+    //               effective base year (baseReleaseYear, or its releaseYear when that is empty) differs from the
+    //               best's. Colliders with the same effective base year are variants of one release, so a year
+    //               would not disambiguate and is suppressed. When shown, the year is the best release's effective
+    //               base year, not its releaseYear.
+    //   showStudio: at least one release in allOfFormat has a different studio from the best. The studio name
+    //               identifies the release shown.
+    //   showOrigin: same-studio colliders that share the best's effective base year differ in national origin.
+    //               This is evaluated INDEPENDENTLY of showYear. The same-year group is exactly what a year cannot
+    //               separate, so origin is needed when no different-year collider exists. Do not derive it from
+    //               showYear: the "ORIGIN " form would then be unreachable, since showYear needs a different-year
+    //               collider and origin needs a same-year one.
     //               The two tokens then compose naturally: a different-year collider
     //               contributes the year, a same-year origin difference contributes
     //               the origin, and a pool containing both contributes both — the
@@ -1325,11 +1100,9 @@ struct RSBHelpers {
     //               when there is nothing to tell it apart from. An empty origin is
     //               unset, not foreign, and stays silent.
     //
-    // Resulting prefix forms — the three tokens are independent, so this is simply
-    // every combination of them, always emitted in YEAR ORIGIN STUDIO order. The origin
-    // precedes the studio wherever it appears, whatever caused it to appear: it is a
-    // fact about the disc's provenance, and "English Criterion Blu-ray disc" reads as
-    // the nation's edition of that studio's disc, which is what it is.
+    // The three tokens are independent, so each combination is emitted in YEAR ORIGIN STUDIO order. The origin
+    // precedes the studio whenever it appears, since it describes the disc's provenance. "English Criterion
+    // Blu-ray disc" reads as the nation's edition of that studio's disc, which is what it is.
     //   ""                       — single domestic release; or 2+ releases sharing
     //                              studio, effective base year, and origin
     //   "YEAR "                  — 2+ releases, all same studio, years differ
@@ -1341,17 +1114,12 @@ struct RSBHelpers {
     //   "ORIGIN STUDIO "         — mixed studios plus either origin trigger
     //   "YEAR ORIGIN STUDIO "    — all three
     //
-    // The prefix comes in four spellings that differ only in their proper-name tokens.
-    // `full` carries the origin's demonym ("Australian") and the studio's shorthand
-    // ("Universal"); `originAbbreviated` compacts the origin ("AU",
-    // `ReleaseOrigin.shortForm`), `studioAbbreviated` compacts the studio ("Uni",
-    // `ReleaseStudio.abbreviated`), and `originAndStudioAbbreviated` compacts both. The
-    // demonym and the shorthand are the standard spellings; the compact forms exist so
-    // `fittingValueRow` can fall back to them when that is what keeps the value on one
-    // line — the same overflow-only rule as "rem." for "remastered". A spelling is
-    // identical to `full` whenever the token it compacts is not shown or has no compact
-    // form. Each has a trailing space so the caller can concatenate the format label
-    // directly.
+    // Four spellings differ only in their proper-name tokens. `full` uses the origin's demonym ("Australian")
+    // and the studio's shorthand ("Universal"). `originAbbreviated` uses the origin's short form ("AU",
+    // `ReleaseOrigin.shortForm`). `studioAbbreviated` uses the studio's abbreviation ("Uni",
+    // `ReleaseStudio.abbreviated`), and `originAndStudioAbbreviated` uses both. The compact forms are
+    // overflow-only fallbacks, like "rem." for "remastered". A spelling equals `full` when its token is not
+    // shown or has no compact form. Each ends with a space, so the format label can be concatenated directly.
     struct SourcePrefix {
         var full: String = ""
         var originAbbreviated: String = ""
@@ -1372,12 +1140,10 @@ struct RSBHelpers {
         let originShortToken = bestOrigin.isEmpty ? "" : "\(ReleaseOrigin.shortForm(for: bestOrigin)) "
         let isImport = ReleaseOrigin.isImport(bestOrigin)
 
-        // Only one release of this format: nothing to disambiguate, so no year or
-        // studio. The import rule is the one thing that does not depend on the pool.
-        // Every spelling is filled: no studio is shown here, so the studio-compacted forms
-        // are the full and origin-compacted ones. Left at their empty defaults, they read as
-        // ladder steps with the origin dropped altogether ("Blu-ray disc" for an Australian
-        // disc), which the row could pick whenever the full value overflowed.
+        // One release of the format: nothing to disambiguate, so no year or studio. Only the import rule
+        // applies. All four spellings are filled, since no studio is shown. Left empty, they would read as
+        // ladder steps that drop the origin ("Blu-ray disc" for an Australian disc), which the row could pick
+        // on overflow.
         guard allOfFormat.count >= 2 else {
             return isImport ? SourcePrefix(full: originToken,
                                            originAbbreviated: originShortToken,
@@ -1389,16 +1155,12 @@ struct RSBHelpers {
         // Same-studio colliders: other releases that share the best release's studio.
         let sameStudioOthers = allOfFormat.filter { $0.id != best.id && $0.studio == bestStudio }
 
-        // The "effective base year" identifies which original release a given disc is a
-        // variant of: when baseReleaseYear is populated (the release is a re-issue/repack
-        // of an earlier release), that value is used; otherwise the year of the release's
-        // own releaseDate stands in as its own base. Two releases sharing the same effective
-        // base year are variants of the same underlying release (e.g. a 2014 Blu-ray and
-        // its 2016 repackaging, baseReleaseYear == "2014"), so distinguishing them by year
-        // would be misleading rather than helpful.
+        // The effective base year identifies which original release a disc is a variant of. It is baseReleaseYear
+        // when set (a re-issue or repack of an earlier release), otherwise the year of the release's own date.
+        // Releases sharing one effective base year are variants of one release (for example, a 2014 Blu-ray and
+        // its 2016 repackaging with baseReleaseYear "2014"), so a year would mislead rather than help.
         //
-        // Years throughout, never the full release date: the base year has no month or
-        // day, and the token built from this is a year.
+        // Years only, never the full date. The base year has no month or day.
         func effectiveBaseYear(_ release: ReleaseSnapshot) -> String {
             release.baseReleaseYear.isEmpty
                 ? ReleaseDateValue.yearText(of: release.releaseDate, format: release.format)
@@ -1406,20 +1168,14 @@ struct RSBHelpers {
         }
         let bestEffectiveBaseYear = effectiveBaseYear(best)
 
-        // showYear fires when any same-studio collider exists (requires year to
-        // distinguish among them, unless all share the same year — see showOrigin).
+        // showYear needs a same-studio collider to tell apart, unless all share the year (then showOrigin applies).
         //
-        // For formats where requiresNotableDifference is true (currently 4K), year is
-        // additionally suppressed unless at least one same-studio collider differs
-        // notably from the best release. "Notable" means any difference in: remastered,
-        // videoFormat, audioFormat, audioChannels, hasSubtitles, or releaseAspectRatio.
-        // Two releases that are otherwise identical (e.g., the same disc purchased
-        // twice) carry no meaningful distinction, so the year adds no useful information.
+        // For requiresNotableDifference formats (currently 4K), the year is shown only if a same-studio collider
+        // differs notably from the best: remastered, videoFormat, audioFormat, audioChannels, hasSubtitles, or
+        // releaseAspectRatio. Otherwise, such as the same disc bought twice, the year adds nothing.
         //
-        // Additionally, year is suppressed entirely when every same-studio collider
-        // shares the best release's effective base year — those releases are variants
-        // of the same underlying release rather than genuinely distinct releases, so a
-        // year would only manufacture a false disambiguation.
+        // The year is also suppressed when every same-studio collider shares the best's effective base year. Those
+        // are variants of one release, so a year would only create a false distinction.
         let hasSameStudioColliders = !sameStudioOthers.isEmpty
         let hasNotableCollider: Bool = {
             guard requiresNotableDifference else { return true }
@@ -1440,50 +1196,25 @@ struct RSBHelpers {
         // showStudio fires when at least one release carries a different studio.
         let showStudio = allOfFormat.contains { $0.studio != bestStudio }
 
-        // showOrigin fires when there are same-studio colliders that also share
-        // the best release's *effective* year AND at least one of those same-year
-        // entries carries a different national origin. Grouping uses effective base
-        // year (not the raw releaseYear) so that a re-issue/repack — which is already
-        // treated as a variant of its original release for the year-suppression rule
-        // above — is likewise treated as belonging to the same year-group here, rather
-        // than being misclassified into a spurious "different year" bucket. This
-        // handles both the all-same-year case (origin fully replaces the year token)
-        // and the mixed-year case (origin supplements the year token, narrowing
-        // further within the same effective-year sub-group).
+        // showOrigin fires when a same-studio collider shares the best's effective base year (a re-issue counts as
+        // its original, as above) and differs in national origin. That covers two cases: all same-year (origin
+        // replaces the year token) and mixed years (origin narrows within the effective-year group).
         //
-        // Deliberately NOT predicated on showYear. It previously read
-        // `showYear && …`, which made the all-same-year case — the very case origin
-        // disambiguation exists for — impossible to reach: showYear requires
-        // hasDistinctBaseYearCollider, and "all same-studio colliders share the best
-        // release's year" is precisely that flag being false. Two same-studio,
-        // same-year releases differing only in national origin therefore received no
-        // prefix at all. The notable-difference gate is still applied (it answers the
-        // separate question of whether the colliders are meaningfully distinct discs
-        // rather than duplicate copies of one), but the year-specific term is not.
+        // Not predicated on showYear: that would make the all-same-year case unreachable, since showYear needs a
+        // different-year collider. The notable-difference gate still applies, since it separates distinct discs from copies.
         let sameStudioSameYearOthers = sameStudioOthers.filter { effectiveBaseYear($0) == bestEffectiveBaseYear }
         let originDiffersAmongSameYearGroup = sameStudioSameYearOthers.contains { $0.nationalOrigin != bestOrigin }
         let showOrigin = hasNotableCollider && !sameStudioSameYearOthers.isEmpty && originDiffersAmongSameYearGroup
 
-        // Build the three tokens. Each is emitted independently by the flags resolved
-        // above. The year token displays the best release's
-        // *effective* base year rather than its literal releaseYear: when the best
-        // release is itself a re-issue/repack (baseReleaseYear populated), the
-        // effective base year is the year that correctly describes when the release
-        // was effectively made available (e.g. a disc purchased in 2020 with
-        // baseReleaseYear "2014" is effectively a 2014 release, and should read
-        // "2014" here, not "2020").
+        // Build the tokens. Each is emitted independently by the flags above. The year token is the best release's
+        // effective base year, not its releaseYear. A 2020 purchase of a disc with baseReleaseYear "2014" is
+        // effectively a 2014 release, so it reads "2014".
         let yearToken        = bestEffectiveBaseYear.isEmpty  ? "" : "\(bestEffectiveBaseYear) "
         let studioToken      = bestStudio.isEmpty ? "" : "\(displayStudioName(bestStudio)) "
         let studioShortToken = bestStudio.isEmpty ? "" : "\(displayStudioAbbreviation(bestStudio)) "
 
-        // The tokens are independent and always appear in this order, so the prefix is
-        // simply the concatenation of whichever ones fired. This replaces a four-way
-        // switch that enumerated the combinations by hand; that switch had a dedicated
-        // "year still needed alongside origin" discriminator which was provably
-        // identical to showOrigin itself, leaving two of its arms unreachable, and it
-        // documented one arm as "logically unreachable" that was in fact reached by
-        // every all-same-studio/all-same-year pool. Composing the tokens directly
-        // produces every documented form with no unreachable states to keep correct.
+        // The tokens are independent and always appear in this order, so the prefix is their concatenation. This
+        // covers every documented form with no unreachable states.
         let showOriginToken = showOrigin || isImport
         func compose(_ origin: String, _ studio: String) -> String {
             "\(showYear ? yearToken : "")\(showOriginToken ? origin : "")\(showStudio ? studio : "")"
@@ -1518,20 +1249,14 @@ struct RSBHelpers {
 
 // MARK: - Releases Tab: Shared Derivations
 // ═══════════════════════════════════════════════════════════════════════════════════════
-// The Releases tab draws the same release set twice: as rows in the optional summary table
-// (DiscReleasesTable, 24.21) and as cards beneath it (RTabReleases, 24.20). A row and the
-// card below it describe the same disc, so everything about *what they say* — which mark a
-// region resolves to and how it is colored, how the video line is composed, and what order
-// the releases come in — must be identical in both.
+// The Releases tab shows each release twice: as a row in the summary table (DiscReleasesTable, 24.21) and as a
+// card (RTabReleases, 24.20). A row and its card describe the same disc, so the derivations that define what
+// they say must match: the region mark and its color, the video line, and the release order.
 //
-// EVERY such derivation lives in this section, and this section is the only place any of
-// them lives. Each was previously written out in full in both files with a comment on each
-// copy telling the reader to keep it in step with the other; the region badging had
-// already drifted on character size and weight despite that.
+// Every derivation lives here only, so the table and the cards cannot drift apart.
 //
-// What is deliberately NOT here is chrome and geometry, which genuinely differ by context —
-// the cards draw into a fixed slot on an opaque gray pill, the table into a column on the
-// row background. Those differences are intentional, not drift, and stay at their sites.
+// Chrome and geometry are not shared. They differ by context on purpose: the cards draw into a fixed slot on an
+// opaque gray pill, and the table draws into a column on the row background.
 // ═══════════════════════════════════════════════════════════════════════════════════════
 
 // MARK: Region Lock Badging
@@ -1542,21 +1267,15 @@ enum RSBRegionIndicator: Equatable {
     /// A filled disc carrying one character. `playable` is whether the disc runs on this
     /// library's hardware, which is what selects the fill.
     case character(String, playable: Bool)
-    /// The Region Free globe. Carries no symbol name: this is the only glyph the
-    /// vocabulary produces, so naming it at each site was a degree of freedom with exactly
-    /// one legal value.
+    /// The Region Free globe. It carries no symbol name, since it is the only glyph in this vocabulary.
     case globe
-    /// A stored value outside the recognized vocabulary, shown as itself rather than
-    /// silently swallowed. Reachable only from hand-edited or legacy data — the FilmSheet's
-    /// region pickers are closed vocabularies.
+    /// A stored value outside the vocabulary, shown as-is. This happens only with hand-edited or legacy data,
+    /// since the FilmSheet's region pickers are closed lists.
     case raw(String)
 
-    /// The region a release displays as, applying 4K UHD's default: a 4K disc with nothing
-    /// recorded is Region Free, since the format has no region coding at all.
-    ///
-    /// Exposed separately from `resolve` because the card needs the string as well as the
-    /// mark — it spells the region out in the badge's tooltip — so returning only an
-    /// indicator would have left the default to be reapplied there.
+    /// The region a release displays as, with 4K UHD's default: a 4K disc with nothing recorded is Region Free,
+    /// since the format has no region coding. It is separate from `resolve` because the card also needs the
+    /// string for its tooltip.
     static func displayValue(_ stored: String, format: String) -> String {
         format == ReleaseFormat.uhd4K.rawValue && stored.isEmpty
             ? ReleaseRegionRules.regionFree : stored
@@ -1590,10 +1309,9 @@ enum RSBRegionIndicator: Equatable {
         }
     }
 
-    /// The 1…8 region number in `value`, or nil when `value` is not exactly "Region N" for
-    /// such an N. Read from `ReleaseRegionRules`, which also composes the tag, so the
-    /// prefix cannot drift between the two directions. Wider than the DVD picker's 1…5 on
-    /// purpose — see `ReleaseRegionRules.regionNumber(in:)`.
+    /// The region number 1 to 8 in `value`, or nil unless `value` is exactly "Region N". It is read from
+    /// `ReleaseRegionRules`, which also composes the tag, so the two directions cannot drift. It is wider than the
+    /// DVD picker's 1 to 5 on purpose; see `ReleaseRegionRules.regionNumber(in:)`.
     private static func dvdRegionDigit(_ value: String) -> Int? {
         ReleaseRegionRules.regionNumber(in: value)
     }
@@ -1606,12 +1324,9 @@ enum RSBRegionIndicator: Equatable {
 /// it should read as neutral.
 ///
 /// That leaves the locked fill as the only color here that means anything, and it is
-/// `Preferences.orange` rather than red for the same reason the playable case is not green.
-/// Red and green are the purchase state's pair — the card's header band, the table's "Pur."
-/// column — and a red region disc beside them read as a second remark about the purchase.
-/// Orange belongs to neither end of that scale, so it separates cleanly while still being
-/// the most saturated mark in view: a disc that will not play is the one thing here worth
-/// interrupting a glance for.
+/// `Preferences.orange` rather than red. Red and green are the purchase state's pair, the card's header band and
+/// the table's "Pur." column, and a red region disc beside them would read as a second purchase remark. Orange
+/// belongs to neither end of that scale and is the most saturated mark in view, so a disc that will not play stands out.
 enum RSBRegionBadge {
     static func fill(playable: Bool) -> Color { playable ? .white : Preferences.orange }
 
@@ -1623,9 +1338,8 @@ enum RSBRegionBadge {
     /// maximal and a shadow would only muddy the letter.
     static func inkNeedsShadow(playable: Bool) -> Bool { !playable }
 
-    /// The character's type. One size and one weight for every region disc in the sidebar:
-    /// both renderers draw into a 14pt circle, so a difference of even a point here made
-    /// one of them sit visibly large in its disc and read as off-center beside the other.
+    /// One size and weight for every region disc. Both renderers draw into a 14 pt circle, and even a one-point
+    /// difference would make one disc look large or off-center beside the other.
     static let characterFont = Font.system(size: 10, weight: .semibold)
 }
 
@@ -1641,9 +1355,8 @@ enum RSBRegionBadge {
 ///     format does not imply one.
 ///   • DVD → always "MPEG2 (Interlaced)", which the format fixes.
 ///
-/// Only the two picker-valid master types are appended. Any other stored value — an empty
-/// string, a legacy placeholder, a corrupt import artifact — is ignored so the codec
-/// displays alone rather than trailing an parenthesized fragment of bad data.
+/// Only the two known master types are appended. Any other stored value (an empty string, a legacy placeholder,
+/// or a corrupt import) is ignored, so the codec shows alone rather than with a broken fragment in parentheses.
 func releaseVideoDisplay(for release: ReleaseSnapshot) -> String {
     switch ReleaseFormat(rawValue: release.format) {
     case .uhd4K:
@@ -1662,13 +1375,10 @@ func releaseVideoDisplay(for release: ReleaseSnapshot) -> String {
 
 // MARK: Ordering
 
-/// The four visible sort keys — format group (4K UHD → Blu-ray → DVD, read from
-/// `ReleaseFormat` so this list, the releases table and the FilmSheet carousel cannot drift
-/// into different orders), then descending release date, then descending
-/// purchase date, then studio — expressed once so every ordering uses exactly the same
-/// rules. Returns `nil` when all four tie, letting each caller decide the tiebreak: the
-/// table's flat `.standard` sort keeps its historical `false` (no further ordering), while
-/// the grouped ordering below falls through to a unique ID so its result is total.
+/// The four sort keys for visible ordering: format group (4K UHD, Blu-ray, DVD, read from `ReleaseFormat` so
+/// every list agrees), then descending release date, then descending purchase date, then studio. Returns nil when
+/// all four tie. Each caller decides the tiebreak. The table's flat `.standard` sort treats a tie as `false`,
+/// and the grouped ordering below falls back to a unique ID so its result is total.
 func releaseSortKeysPrecede(_ lhs: ReleaseSnapshot, _ rhs: ReleaseSnapshot) -> Bool? {
     // Primary: format group (4K → Blu-ray → DVD)
     let lhsOrder = ReleaseFormat.displayRank(for: lhs.format)
@@ -1704,39 +1414,28 @@ func releaseSortKeysPrecede(_ lhs: ReleaseSnapshot, _ rhs: ReleaseSnapshot) -> B
 /// release, using `releaseSortKeysPrecede` — so the top-level entries appear in exactly
 /// the order the table's flat `.standard` sort would place them.
 ///
-/// GROUP SHAPE — index 0 of every group is its top-level parent, and every later index is
-/// one of that parent's children. The key pairs a child only with the release it names, and
-/// the member sort below puts `isTopLevel` first. Both presentations depend on this: the
-/// cards read index 0 as the plate's parent half and treat every later index as an attached
-/// child, and the table reads `isChild` as "the row above continues my stack".
+/// GROUP SHAPE: index 0 of each group is its top-level parent, and later indices are its children. The member
+/// sort puts `isTopLevel` first. The cards read index 0 as the plate's parent half and treat later indices as
+/// attached children. The table reads `isChild` as "the row above continues my stack".
 ///
-/// It holds because a child cannot name a parent that is absent from the film — which is
-/// what would form a parentless group of one. `Release.parentRelease` is an object
-/// reference under a `.nullify` delete rule (deleting a parent makes its children
-/// top-level, never dangling), and the two writers that resolve a raw `parentReleaseID`
-/// both refuse a link they cannot resolve: DataManager step 6.5 looks the parent up in
-/// `film.releases` alone and clears the pointer otherwise, and DBRestorer's hierarchy pass
-/// drops any link whose parent is missing, is on another film, or is itself a child.
+/// This holds because a child cannot name an absent parent, which would form a parentless group.
+/// `Release.parentRelease` is an object reference with a `.nullify` delete rule, so deleting a parent makes its
+/// children top-level instead of dangling. Both writers that resolve a raw `parentReleaseID` refuse unresolvable
+/// links. DataManager's hierarchy step (Step 6) looks the parent up in `film.releases` alone and clears the pointer
+/// otherwise, and DBRestorer's hierarchy pass drops any link whose parent is missing, is on another film, or is itself a child.
 ///
-/// ONE RESIDUAL, deliberately not defended against here. Both callers filter their input to
-/// recognized `ReleaseFormat` values before calling this, so a parent carrying a format
-/// string this build does not know is removed while its child survives — leaving that child
-/// in a group of its own with nothing at index 0 but itself. No UI path can produce such a
-/// format (every release is created from `ReleaseFormat.allCases` or an explicit case, and
-/// the field is never edited afterward); only a hand-edited or corrupt backup can. The
-/// consequence is bounded and fails safe: the card treats the release as standalone and
-/// therefore shows its acquisition figures rather than hiding them, and the table draws one
-/// open-topped badge meeting nothing — cosmetic. Defending it would mean reinstating the
-/// per-row adjacency bookkeeping that this shape exists to make unnecessary.
+/// One residual case is deliberately not defended against. Both callers filter to recognized `ReleaseFormat`
+/// values, so a parent with an unknown format string is removed while its child stays, leaving the child alone in
+/// a group. No UI path can produce such a format. Only a hand-edited or corrupt backup can. The effect fails safe.
+/// The card treats the release as standalone and shows its acquisition figures, and the table draws one
+/// open-topped badge that meets nothing. Defending against it would need per-row adjacency bookkeeping, which this shape avoids.
 ///
 /// The table flattens the result into rows; the cards map each group onto one plate.
 ///
-/// Both tiebreaks are load-bearing. `sortOrder` orders a dual-BD pack's two children, which
-/// tie on every key above it, in the order the FilmSheet created and displays them. The
-/// final ID key makes the ordering *total*: a dictionary's value order is unspecified and
-/// `sorted(by:)` is not stable, so without it two groups tying on all four visible keys
-/// could swap places on any rebuild — including rebuilds triggered by editing a field no
-/// sort key reads.
+/// Both tiebreaks are needed. `sortOrder` orders a dual-BD pack's two children, which tie on every visible key,
+/// in the order the FilmSheet creates and displays them. The final ID key makes the order total. A dictionary's
+/// value order is unspecified and `sorted(by:)` is not stable, so two groups that tie on all four keys could swap
+/// on any rebuild, even one triggered by editing a field no sort key reads.
 ///
 /// Every group is non-empty by construction (each is created by `default: []` immediately
 /// followed by an `append`), which is what lets both sorts read `[0]` directly.
@@ -1781,6 +1480,14 @@ enum QueryTarget {
         }
     }
 
+    /// The site's origin; every URL below is built on it.
+    private var baseURL: String {
+        switch self {
+        case .imdb:   return "https://www.imdb.com"
+        case .bluray: return "https://www.blu-ray.com"
+        }
+    }
+
     /// Builds a direct URL using the stored numeric identifier for this site.
     /// 'identifier' must be a non-empty digit string.
     /// 'dashedName' is used only by the Blu-ray target (the slug component).
@@ -1788,12 +1495,12 @@ enum QueryTarget {
         switch self {
         case .imdb:
             // Direct title reference page: /title/tt<id>/reference/
-            return URL(string: "https://www.imdb.com/title/tt\(identifier)/reference/")
+            return URL(string: "\(baseURL)/title/tt\(identifier)/reference/")
 
         case .bluray:
             // Direct title page: /<dashed-name>/<id>/
             // dashedName is already lowercased, punctuation-stripped, and hyphen-joined.
-            return URL(string: "https://www.blu-ray.com/\(dashedName)/\(identifier)/")
+            return URL(string: "\(baseURL)/\(dashedName)/\(identifier)/")
         }
     }
 
@@ -1801,8 +1508,8 @@ enum QueryTarget {
     /// `normalizedTitle` must already have had dash variants collapsed and must
     /// be plain Unicode text — percent-encoding is applied internally.
     func searchURL(for normalizedTitle: String) -> URL? {
-        // A value inside a query string: `.urlQueryAllowed` alone leaves `&`, `=`, `+` and
-        // `?` literal, so "Fast & Furious" searched for "Fast" and a `+` read as a space.
+        // A value inside a query string. `.urlQueryAllowed` leaves `&`, `=`, `+` and `?` literal, which would cut a
+        // title such as "Fast & Furious" at the ampersand and read a `+` as a space.
         var valueAllowed = CharacterSet.urlQueryAllowed
         valueAllowed.remove(charactersIn: "&=+?")
         switch self {
@@ -1811,7 +1518,7 @@ enum QueryTarget {
             guard let encoded = normalizedTitle.addingPercentEncoding(
                 withAllowedCharacters: valueAllowed
             ) else { return nil }
-            return URL(string: "https://www.imdb.com/find/?q=\(encoded)&s=tt&ttype=ft&exact=true")
+            return URL(string: "\(baseURL)/find/?q=\(encoded)&s=tt&ttype=ft&exact=true")
 
         case .bluray:
             // Blu-ray.com quick-search, US theatrical section.
@@ -1821,7 +1528,7 @@ enum QueryTarget {
                 .addingPercentEncoding(withAllowedCharacters: valueAllowed)?
                 .replacingOccurrences(of: "%20", with: "+")
             else { return nil }
-            return URL(string: "https://www.blu-ray.com/search/?quicksearch=1&quicksearch_country=US&quicksearch_keyword=\(encoded)&section=theatrical")
+            return URL(string: "\(baseURL)/search/?quicksearch=1&quicksearch_country=US&quicksearch_keyword=\(encoded)&section=theatrical")
         }
     }
 }
@@ -1942,16 +1649,12 @@ enum QueryHandoff {
 }
 
 // MARK: - SearchableItemRow
-/// A single row used by RSBHelpers.searchableItemSection. Displays the item name on the
-/// leading side with a "Search" button on the trailing edge. The item text is truncated
-/// with an ellipsis when it would otherwise overlap or be clipped by the button.
+/// One crew name's row: the name, selectable, with its token-search button. Internal rather than private, so
+/// Metadata's pooled crew block (24.17) draws exactly the same row.
 ///
-/// The Search button fires a .activateTokenSearch UICommand that MainView intercepts to
-/// perform a programmatic single-token search — the user sees instant results with no
-/// intermediate state.
+/// The Search button fires `.activateTokenSearch`, which MainView handles as a single-token search. The result
+/// appears at once, with no intermediate state.
 @MainActor
-/// One crew name's row: the name, selectable, and its token-search button. Internal rather
-/// than private so Metadata's pooled crew block (24.17) draws exactly the same row.
 struct SearchableItemRow: View {
     let item: String
     let field: SearchField
@@ -1993,10 +1696,8 @@ struct SearchableItemRow: View {
 // a name is a string assignment, and a longer list adds rows to a pool that a shorter one
 // leaves intact. The section header above stays SwiftUI.
 //
-// `rsb-modules` measured the crew block at about 20 ms of Metadata's median 27 ms (Debug):
-// in SwiftUI a row costs about half a millisecond to update even when nothing in it is
-// built, and a film's crew lists run to twenty or thirty rows. `rsb-crew-parity` compares
-// these rows with SearchableItemRow pixel for pixel, light and dark.
+// SwiftUI rows re-render even when nothing in them changes, and a film's crew lists run to 20 or 30 rows. The
+// `rsb-crew-parity` harness scenario compares these rows with SearchableItemRow pixel for pixel, in light and dark.
 struct CrewRowList: NSViewRepresentable {
     let items: [String]
     let field: SearchField
@@ -2264,8 +1965,7 @@ final class CrewRowView: NSView {
 }
 
 /// A crew row's glyph, placed in its box exactly as SwiftUI places the Image in
-/// SearchableItemRow. NSImageView centers differently, which put five of the seven crew
-/// symbols half a pixel or more off.
+/// SearchableItemRow. NSImageView centers differently and misplaces some symbols by half a pixel or more.
 final class CrewGlyphView: NSView {
     var image: NSImage? { didSet { needsDisplay = true } }
     var tint: NSColor = .secondaryLabelColor { didSet { needsDisplay = true } }
@@ -2376,17 +2076,12 @@ enum SidebarTextAbbreviation {
 
     /// The "<number> <unit>" pattern `shorteningUnits(in:)` rewrites, compiled once.
     ///
-    /// Built here rather than inside that function because the two call sites —
-    /// WatchDetails' "Last Watched" and "Next Up for Rotation" rows — are computed view
-    /// properties, so the function ran (and, before this, compiled this pattern) on every
-    /// body pass of that module rather than once per film. Compiling an
-    /// `NSRegularExpression` is the expensive half of the rule; matching against a short
-    /// clause is not. `NSRegularExpression` is immutable and thread-safe once built, so a
-    /// single shared instance is safe to match against from anywhere.
+    /// Built once, not per call. The two call sites are view properties, so the function would otherwise run on
+    /// every body pass. Compiling the pattern is the expensive part. `NSRegularExpression` is immutable and
+    /// thread-safe once built, so one shared instance is safe.
     ///
-    /// Optional because the initializer is throwing. The pattern is a literal that does
-    /// compile, so this is never nil in practice; `shorteningUnits` treats a nil as
-    /// "nothing to abbreviate" — exactly what the previous `try?` did.
+    /// Optional because the initializer throws. The literal pattern always compiles, so this is never nil in
+    /// practice. A nil would mean there is nothing to abbreviate.
     private static let unitPattern: NSRegularExpression? =
         try? NSRegularExpression(pattern: #"(\d+)\s+(year|month|week)s?\b"#)
 
@@ -2410,12 +2105,8 @@ enum SidebarTextAbbreviation {
     /// "Month YYYY"). That lookahead is what keeps the rule out of a value's prose: a film
     /// or studio named "March" is not followed by a number and is left alone.
     ///
-    /// "May" is listed with itself as its own abbreviation rather than omitted. Omitting it
-    /// would be equivalent — it is already three letters — but listing it keeps the table a
-    /// complete statement of the twelve months, so a reader does not have to work out
-    /// whether May is missing on purpose. A value whose only month is May therefore rewrites
-    /// to itself, and the `result == value` check below reports that as "nothing to
-    /// shorten", exactly as if no month had been found.
+    /// "May" is listed with itself so the table states all twelve months. A value whose only month is May
+    /// rewrites to itself, and the `result == value` check below reports that as nothing to shorten.
     static func abbreviatingMonthNames(in value: String) -> String? {
         var result = value
         for (month, abbreviation) in monthAbbreviations {
@@ -2434,22 +2125,17 @@ enum SidebarTextAbbreviation {
 
     // MARK: Ladders
 
-    /// The shortened spellings of a "date plus relative-time parenthetical" value, in the
-    /// order `fittingValueRow` should try them — each one a further step from the full
-    /// spelling, so the first that fits is also the most informative that fits.
+    /// The shortened spellings of a "date plus relative-time parenthetical" value, in the order `fittingValueRow`
+    /// tries them. Each is a further step from the full spelling:
     ///
-    ///   1. Units only. The parenthetical is the lesser half of the value, so it gives ground
-    ///      first: "November 04, 2021 (4 yr. 4 mo. ago)".
-    ///   2. Month only. Reached when there were no units to shorten — the prose forms
-    ///      ("Less than a week ago", "Today") have none — so the date must give instead.
+    ///   1. Units only. The parenthetical is the lesser half, so it gives ground first: "November 04, 2021 (4 yr. 4 mo. ago)".
+    ///   2. Month only. Used when there were no units to shorten, such as the prose forms ("Less than a week ago",
+    ///      "Today"), so the date gives instead.
     ///   3. Both.
     ///
-    /// Steps that would change nothing are omitted, and a step identical to one already in
-    /// the ladder is dropped, so a value with no applicable rule yields an empty array and
-    /// costs no measurement at all. Ordering by decreasing informativeness rather than by
-    /// decreasing width is deliberate: `ViewThatFits` takes the FIRST candidate that fits, so
-    /// the ladder is a preference list, and a step that happens to be wider than the one
-    /// before it simply never wins.
+    /// Steps that change nothing are omitted, and duplicates are dropped. A value with no applicable rule yields an
+    /// empty array and costs no measurement. The order is by decreasing informativeness, not width. `ViewThatFits`
+    /// takes the first candidate that fits, so the ladder is a preference list, and a wider step later in it never wins.
     static func dateValueLadder(for value: String) -> [String] {
         let units = abbreviatingTimeUnits(in: value)
         let month = abbreviatingMonthNames(in: value)
@@ -2522,14 +2208,9 @@ enum SidebarTextAbbreviation {
             .replacingOccurrences(of: #"\bremastered\b"#, with: "rem.", options: .regularExpression)
             .replacingOccurrences(of: #"\bRemastered\b"#, with: "Rem.", options: .regularExpression)
 
-        // Report "nothing to shorten" by comparing the result, rather than by testing
-        // for the word up front. A case-INSENSITIVE presence check paired with
-        // case-sensitive replacements disagreed on any other spelling — an all-caps
-        // "REMASTERED" surviving an import passed the check, matched neither
-        // replacement, and was returned as a non-nil "abbreviation" identical to the
-        // input, costing fittingValueRow a ViewThatFits measurement whose extra
-        // candidate could never win. Deriving the answer from the work actually done
-        // makes the two incapable of disagreeing.
+        // Report "nothing to shorten" by comparing the result, not by testing for the word first. A case-insensitive
+        // presence check with case-sensitive replacements would disagree on other spellings, such as an all-caps
+        // "REMASTERED", which matches neither replacement and would come back as an identical "abbreviation".
         return shortened == value ? nil : shortened
     }
 }
@@ -2540,13 +2221,11 @@ enum SidebarTextAbbreviation {
 /// that changes the tab's height (the Releases tab's purchase filter, the Details tab's
 /// table expansion). Wrap the tab's whole content in it, inside SidebarScrollView.
 ///
-/// Measured with the `releases-filter` harness scenario (99.56): when a filter change made
-/// the content TALLER, and the root of the hosted tree took the new height in that same
-/// animated pass, the whole stack — picker included — started half the growth lower and
-/// slid back up over the length of the animation (123 pt for a 246 pt grow). The animated
-/// cards were interpolated against the root's center, which had moved by half the growth.
-/// A shrink never showed it, because there the root kept its size through the animated
-/// pass and the hosting view shrank afterward, in a pass of its own.
+/// When content grows taller in an animated update and the root of the hosted tree takes the
+/// new height in that same pass, the whole stack, picker included, starts partway down and
+/// slides up over the animation. The animated cards are interpolated against the root's
+/// center, which has moved by half the growth. A shrink does not, since the root keeps its
+/// size through the animated pass and the hosting view shrinks in a later pass.
 ///
 /// So the root reports exactly the height it is offered, and the content, placed at the
 /// top at its own natural height, may overhang it briefly. Under the unspecified height

@@ -1,21 +1,18 @@
 // MARK: - Metadata.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// RightSidebar's modular "Details" tab, module 06.
-//
-// Formerly the standalone "Metadata" tab (RTabMetadata, file 24_20). It is now a module
-// rendered at the bottom of RTabDetails' stack, so it supplies no SidebarScrollView or
-// outer padding of its own — RTabDetails owns both — and it is named and numbered like
-// every other Details module. It draws two headers rather than one: "Cast and Crewmen"
-// over the crew block, and "Metadata" over everything below it.
+// The Metadata module (module 06) in RightSidebar's Details tab. It sits at the bottom of
+// RTabDetails' stack. RTabDetails supplies the scroll view
+// and outer padding. This module draws two headers: "Cast and Crewmen" over the crew block,
+// and "Metadata" over everything below it.
 
 import SwiftUI
 
 struct Metadata: View {
     @Environment(\.sidebarFilm) private var film: FilmSnapshot?
 
-    /// The same switch that gates WatchDetails' glyphs, read through @AppStorage for the
-    /// same reason: so toggling it in Settings redraws this module immediately.
+    /// The switch that gates WatchDetails' glyphs. Read through @AppStorage so that toggling it
+    /// in Settings redraws this module immediately.
     @AppStorage(preference: Preferences.showWatchDetailsAnnotationGlyphsKey)
         private var showAnnotationGlyphs: Bool
 
@@ -30,17 +27,10 @@ struct Metadata: View {
         Preferences.capWatchDetailsGlyphColorAtSecondary ? .secondary : .primary
     }
 
-    // Formatted timestamps and release date, derived directly from the film rather
-    // than cached in `@State` and refreshed from an `onChange`.
-    //
-    // The caching this replaces was a pessimization, and the profiling that showed it
-    // is worth recording. Writing these into `@State` from an `onChange(of: film)`
-    // means a new film renders the module twice: once with the previous film's strings
-    // still in place, then again once the handler has written the new ones. The parse
-    // and format work being avoided measured 0.4-2.8 ms per selection; the extra render
-    // pass it bought costs vastly more than that, because it re-lays out the whole
-    // module stack. Deriving the values makes the module a pure function of the film,
-    // so one selection is one pass.
+    // Timestamps and release date are derived from the film, not cached in `@State`. A cache
+    // written from `onChange(of: film)` would render the module twice per selection, first with
+    // stale strings. The extra pass re-lays out the whole module stack, which costs more than
+    // the parsing it saves. Deriving keeps one selection to one pass.
     private var cachedLastModified: String {
         film.map { RSBHelpers.formatFullTimestamp($0.lastModified) } ?? ""
     }
@@ -49,10 +39,9 @@ struct Metadata: View {
         film.map { RSBHelpers.formatFullTimestamp($0.dateAdded) } ?? ""
     }
 
-    // releaseDate is stored as "yyyy-MM-dd'T'12:00:00'Z'" (see FSTabDetails);
-    // formatDateString is the application's canonical parser/formatter and renders it
-    // as "Month Day, Year" (e.g. "November 4, 2025"). Falls back to "Unknown date" only
-    // if the stored value is non-empty, but unparseable.
+    // releaseDate is stored as "yyyy-MM-dd'T'12:00:00'Z'" (see FSTabDetails). formatDateString
+    // renders it as "Month Day, Year", such as "November 4, 2025". A non-empty but unparseable
+    // value shows "Unknown date".
     private var cachedReleaseDate: String {
         guard let film else { return "" }
         return film.releaseDate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -65,23 +54,16 @@ struct Metadata: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // This module carries two module titles, drawn with the shared
-    // RSBHelpers.moduleHeader: "Cast and Crewmen" over the crew block, and "Metadata"
-    // over everything from Sort Name down.
-
     // MARK: - Metadata Content
-    // Block order: crew/studio → naming/sorting → video characteristics → dates/text.
-    // The crew block leads because it is the block a reader scans first; the naming and
-    // video-characteristics blocks that used to sit above it are now below the Studio
-    // section, each behind its own divider.
+    // Block order: crew and studio, then naming and sorting, video characteristics, and dates
+    // and text. The crew block leads because readers scan it first.
     @ViewBuilder
     private var metadataContent: some View {
         if let film = film {
             VStack(alignment: .leading, spacing: RSBHelpers.sectionSpacing) {
                 // MARK: Crew / studio block
-                // Each section is hidden when the film has no members. The trailing
-                // divider is gated on the block having drawn at least one section, so a
-                // film with no crew credits does not open the module with a bare rule.
+                // Each section is hidden when empty. The trailing divider appears only if a section
+                // drew, so a film with no credits does not open with a bare rule.
                 let hasAnyCrewField = !film.cast.isEmpty
                     || !film.directors.isEmpty
                     || !film.producers.isEmpty
@@ -90,8 +72,7 @@ struct Metadata: View {
                     || !film.composer.isEmpty
                     || !film.studio.isEmpty
                 if hasAnyCrewField && !RSBProfileFlags.noCrewBlock {
-                    // Header is inside the gate so a film with no credits shows neither
-                    // a stray title nor the trailing divider below.
+                    // The header is inside the gate, so a film with no credits shows no stray title or divider.
                     RSBHelpers.moduleHeader("Cast and Crewmen")
                     if !film.cast.isEmpty {
                         RSBHelpers.searchableItemSection(
@@ -152,15 +133,13 @@ struct Metadata: View {
                 }
 
                 // MARK: Naming / sorting block
-                // Headed by "Metadata", which titles this block and every block below it.
-                // The header is unconditional because the video-characteristics and date
-                // blocks that follow always render, even when both fields here are absent.
+                // Headed by "Metadata", which titles this block and every block below it. The header
+                // is unconditional because the later blocks always render.
                 //
-                // "Special Sorting Parameter" used to appear here. It was removed as
-                // duplicative: WatchDetails already reports the same values unconditionally
-                // as the suffix on its "Next Up for Rotation" row. FilmSnapshot.specialSorting
-                // is untouched and still drives that row, MetadataCache's rotation
-                // exclusions, and the Film Queue add guard in LeftSidebar.
+                // The Special Sorting row was dropped as duplicative: WatchDetails already reports the
+                // same values as the suffix on its "Next Up for Rotation" row. FilmSnapshot.specialSorting
+                // is unchanged and still drives that row, MetadataCache's rotation exclusions, and the
+                // Film Queue add guard in LeftSidebar.
                 RSBHelpers.moduleHeader("Metadata")
                 let hasSortName    = !film.sortName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 let hasHofPosition = film.hofPosition > 0
@@ -173,15 +152,13 @@ struct Metadata: View {
                     RSBHelpers.textSection(
                         title: "Hall of Fame Membership", value: "Position \(film.hofPosition)")
                 }
-                // Divider is shown whenever this block drew at least one field, so an
-                // empty block does not put two rules back to back.
+                // The divider appears only if this block drew a field, so an empty block does not stack rules.
                 if hasSortName || hasHofPosition {
                     Divider()
                 }
 
                 // MARK: Video characteristics block
-                // Never empty — "Color" (Bool) and "Encoding Tool(s)" always render — so
-                // its trailing divider is unconditional.
+                // Never empty: "Color" and "Encoding Tool(s)" always render, so the trailing divider is unconditional.
                 let hasDigitalSource = !film.digitalSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if hasDigitalSource {
                     RSBHelpers.textSection(
@@ -198,7 +175,7 @@ struct Metadata: View {
                         title: "Library Version", value: libraryVersionText,
                         glyph: gatedGlyph("film.stack"), glyphColor: glyphTint)
                 }
-                // Two-column section: "Subtitles" and "Aspect Ratio" — hidden when both are empty.
+                // Subtitles and Aspect Ratio share a row. Hidden when both are empty.
                 let hasSubtitles   = !film.subtitles.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 let hasAspectRatio = !film.aspectRatio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if hasSubtitles || hasAspectRatio {
@@ -221,14 +198,13 @@ struct Metadata: View {
                                 glyph: gatedGlyph("aspectratio"), glyphColor: glyphTint)
                     }
                 }
-                // Dynamic row: "Frame Rate", "HB RF Value", "Color".
-                // Color (Bool) is always present. The two numeric fields hide when zero.
-                // Row adapts from three columns down to two or one as fields are absent.
+                // Frame Rate, HB RF Value, and Color. Color is always present. The numeric fields hide
+                // when empty, and the row shrinks from three columns to two or one.
                 let frameRateStr = RSBHelpers.formatNumericalValue(film.frameRate)
                 let hbRFStr      = RSBHelpers.formatNumericalValue(film.libraryHBRFValue)
                 let hasFrameRate = !frameRateStr.isEmpty
                 let hasHBRF      = !hbRFStr.isEmpty
-                // Color is always displayed (Bool — always has a meaningful Yes/No value).
+                // Color always shows, since it is a Yes/No value.
                 if hasFrameRate && hasHBRF {
                     // All three visible — three-column layout.
                     HStack(spacing: 12) {
@@ -284,7 +260,7 @@ struct Metadata: View {
                             glyphColor: glyphTint)
                     }
                 } else {
-                    // Both numeric fields absent — single-column Color only.
+                    // Both numeric fields absent: Color alone.
                     RSBHelpers.textSection(
                         title: "Color",
                         displayValue: film.color ? "Yes" : "No",
@@ -303,8 +279,7 @@ struct Metadata: View {
                 Divider()
 
                 // MARK: Date / text / taxonomy block
-                // lastModified and dateAdded are system-managed and always present for
-                // any persisted film, so they are shown unconditionally. releaseDate is
+                // lastModified and dateAdded are system-managed and always shown. releaseDate is
                 // user-entered and hidden when empty.
                 let hasReleaseDate = !cachedReleaseDate.isEmpty
                 if hasReleaseDate {

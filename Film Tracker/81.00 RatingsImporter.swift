@@ -108,10 +108,9 @@ final class RatingsImporter: Loggable {
     // so the UI unlocks and the session is closed out identically in each case.
     //
     // NOT for cancellation. ImportProgress.cancelImport already closes a canceled
-    // import out (finalizeCancellation: session marked canceled, UI unlocked). Reporting
-    // a completion on top of that ran flushAndFinalize as well — twice, once from the
-    // loop and once after it — which showed the canceled import with the success glyph
-    // and re-saved its session as completed.
+    // import out (finalizeCancellation: session marked canceled, UI unlocked). A
+    // completion report on top of that would run flushAndFinalize a second time, which
+    // would show the canceled import with the success glyph and re-save it as completed.
     private func reportEmptyCompletion() {
         progressDelegate?.didCompleteRatingsImport(imported: 0, updated: 0,
             notFound: 0, duplicateSkipped: 0, addedTitles: [], updatedTitles: [],

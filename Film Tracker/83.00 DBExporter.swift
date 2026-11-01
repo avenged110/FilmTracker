@@ -15,11 +15,11 @@ import UniformTypeIdentifiers
 ///
 /// The export pipeline and the import pipeline enforce different limits — the reader caps
 /// file size, per-text-node size and object count, and the writer caps nothing — so there
-/// are library shapes the application can WRITE and then refuse to READ. Before this error
-/// existed, such an export reported success and the file failed at restore time, which is
-/// the one moment the user needs it to work and the one moment they may no longer have the
-/// data it was made from. Surfacing the disagreement at export time is strictly better:
-/// the library is still there, and the message names what is wrong with it.
+/// are library shapes the application can WRITE and then refuse to READ. Without this
+/// check, such an export would report success and fail only at restore time, which is the
+/// one moment the user needs it to work and the one moment they may no longer have the data
+/// it was made from. Surfacing the disagreement at export time keeps the library intact and
+/// names what is wrong with it.
 public enum DBExporterError: LocalizedError {
     /// The written package could not be parsed back at all.
     case verificationFailed(underlying: any Error)
@@ -41,20 +41,27 @@ public enum DBExporterError: LocalizedError {
 /// The name a new backup is written under: `FilmTrackerBackup-<timestamp>.ftbackup`, or
 /// `FilmTrackerBackup-Auto-<timestamp>.ftbackup` for the background auto-backup.
 ///
-/// The Export tab and the auto-backup each built this by hand from their own formatter,
-/// with a comment asking one to mirror the other. The timestamp is ISO 8601 in the
-/// user's time zone with its colons swapped for dashes, which Finder and other file
-/// systems reject in a name.
+/// The Export tab and the auto-backup both build their names here, so the format cannot
+/// drift between them. The timestamp is ISO 8601 in the user's time zone with its colons
+/// swapped for dashes, which Finder and other file systems reject in a name.
 ///
-/// A Sendable value style in the local time zone, safe from the auto-backup's background
-/// thread. It truncates to the second where the old `ISO8601DateFormatter` rounded.
+/// A Sendable format style in the local time zone, safe to use from the auto-backup's
+/// background thread. It truncates to the second.
 nonisolated enum BackupFilename {
+    /// The backup package's filename extension, without the dot.
+    static let fileExtension = "ftbackup"
+
+    /// Whether `url` names a backup package, matching the extension case-insensitively.
+    static func isBackup(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == fileExtension
+    }
+
     private static let timestampStyle = Date.ISO8601FormatStyle(timeZoneSeparator: .colon, timeZone: .current)
 
     static func make(auto: Bool, date: Date = Date()) -> String {
         let timestamp = timestampStyle.format(date)
             .replacingOccurrences(of: ":", with: "-")
-        return "FilmTrackerBackup-\(auto ? "Auto-" : "")\(timestamp).ftbackup"
+        return "FilmTrackerBackup-\(auto ? "Auto-" : "")\(timestamp).\(fileExtension)"
     }
 }
 
@@ -166,11 +173,9 @@ public final class DBExporter: Loggable {
         // discarded when this method returns.
         //
         // The automatic backup reads on a background executor instead (see
-        // BackgroundExportReader), with its own equally fresh context. Before, its read ran
-        // here on the MainActor like the manual one: each entity's fetch materialized the
-        // whole table in one blocking call — seconds on a large library, during which the
-        // UI could not respond — and every object's conversion followed on the main thread
-        // too.
+        // BackgroundExportReader), with its own equally fresh context. A read on the
+        // MainActor materializes each entity's whole table in one blocking call, which
+        // freezes the UI for seconds on a large library.
         let exportPackage: ExportPackage
         if isBackgroundExport {
             // Awaited directly: the reader's jobs run on its context's queue, and quitting
@@ -228,9 +233,7 @@ public final class DBExporter: Loggable {
         // The package's ownership is handed to the packaging task rather than shared with
         // it. Freeing an export package — tens of thousands of dictionaries on a large
         // library — takes tens of milliseconds, and whichever thread drops the last
-        // reference pays it. Kept here, that was the main thread, as this function
-        // returned: the one hitch the automatic backup still caused once its read had moved
-        // off the main thread. Only the two figures verification needs are kept.
+        // reference pays that cost. Only the two figures verification needs are kept here.
         let expectedObjects = exportPackage.objects.count
         let expectedManifest = exportPackage.manifest
         let handoff = ExportPackageHandoff(consume exportPackage)
@@ -241,7 +244,7 @@ public final class DBExporter: Loggable {
         let (packageURL, stagingDir): (URL, URL) = try await Task.detached(priority: priority) {
             let stagingDir = try ExportStaging.makeDirectory()
 
-            let packageName = filename.hasSuffix(".ftbackup") ? filename : "\(filename).ftbackup"
+            let packageName = filename.hasSuffix(".\(BackupFilename.fileExtension)") ? filename : "\(filename).\(BackupFilename.fileExtension)"
             let packagePath = stagingDir.appendingPathComponent(packageName)
 
             let fm = FileManager.default
@@ -256,11 +259,9 @@ public final class DBExporter: Loggable {
 
                 // Write XML file inside package.
                 //
-                // The packager's own 0…1 is mapped into this phase's slice of the export's bar
-                // rather than discarded. Writing the XML is the longest single step of a large
-                // export, and dropping its progress left the bar parked at 40% for the whole of
-                // it and then jumping to 85% — the one stretch where an export looks stalled is
-                // the one stretch that already knows exactly how far along it is.
+                // The packager's own 0…1 progress is mapped into this phase's slice of the
+                // export's bar. Writing the XML is the longest single step of a large export,
+                // and without this the bar would sit still at 40% for that whole stretch.
                 let xmlFilename = "backup.xml"
                 let pkg = handoff.take()
                 _ = try await packager.package( exportPackage: pkg, filename: xmlFilename,
@@ -290,15 +291,12 @@ public final class DBExporter: Loggable {
         // PHASE 2.5: Verify the written package (BACKGROUND)
         //
         // Read the file back through the SAME importer a restore uses, and require it to
-        // describe what was just exported. Nothing else in the pipeline does this: the
-        // packager's `write` calls not throwing was previously the whole of the evidence
-        // that a usable backup existed, and that evidence is weaker than it sounds. It does
-        // not cover a truncated write, and — the case that motivated this phase — it does
-        // not cover the reader and the writer disagreeing about what is acceptable at all.
-        // `DBImporter` refuses a text node over 4 MiB, a file over 512 MiB, and more than
-        // 100 000 objects; the writer enforces none of those, so a single oversized notes
-        // field or a large enough library produced a backup that reported success and could
-        // never be restored.
+        // describe what was just exported. The packager's write calls not throwing does not
+        // prove a usable file: it does not cover a truncated write, nor a reader and writer
+        // that disagree about what is acceptable. `DBImporter` refuses a text node over
+        // 4 MiB, a file over 512 MiB, and more than 100 000 objects. The writer enforces
+        // none of those, so a single oversized notes field or a large enough library would
+        // produce a backup that cannot be restored.
         //
         // Verification is by re-parse plus a count comparison rather than a full field-level
         // diff. The re-parse is what catches every "written but unreadable" shape at once,

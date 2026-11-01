@@ -66,7 +66,7 @@ struct SettingsSheet: View, Loggable {
                         DataCoordinatorScrollView {
                             GeneralSettingsView()
                                 .id(SettingsTab.general)
-                                .padding(26) } } }
+                                .padding(Preferences.sheetContentMargin) } } }
                 if coordinator.selectedTab == .import_ {
                     SettingsFocusSinkWrapper {
                         ImportSettingsView()
@@ -87,7 +87,7 @@ struct SettingsSheet: View, Loggable {
                         DataCoordinatorScrollView {
                             AdvancedSettingsView()
                                 .id(SettingsTab.advanced)
-                                .padding(26) } } } }
+                                .padding(Preferences.sheetContentMargin) } } } }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Divider()
@@ -158,7 +158,10 @@ struct SettingsSheet: View, Loggable {
             // command arrives but the Settings sheet is already active and cannot be
             // re-presented without a dismiss/reshow cycle.
             if case .loadBackupFile(let url) = event {
-                guard !coordinator.isSheetDismissBlocked else { return }
+                // Only a running export or restore refuses it. The Restore-tab lock does
+                // not: database-error recovery is exactly when a backup is wanted, and the
+                // lock already holds the sheet on the Restore tab.
+                guard !coordinator.isBlockingOperationInProgress else { return }
                 coordinator.selectedTab = .restore
                 coordinator.restoreViewModel.loadBackupFile(url)
             }
@@ -230,10 +233,8 @@ struct SettingsSheet: View, Loggable {
             // hierarchy — the earliest moment at which AppKit will no longer block
             // termination due to an attached sheet.
             //
-            // A fixed asyncAfter delay was previously used here but proved unreliable:
-            // AppKit silently rejects NSApp.terminate(nil) while a sheet is still
-            // attached, so timing-based approaches are inherently fragile. The
-            // onDisappear callback is the authoritative signal that the sheet is gone.
+            // AppKit rejects NSApp.terminate(nil) while a sheet is still attached, so the termination waits for
+            // onDisappear, the signal that the sheet has left the view hierarchy.
             //
             // The key code for Q is 12; the guard checks for Cmd with no other modifiers.
             if event.keyCode == 12,
@@ -256,13 +257,8 @@ struct SettingsSheet: View, Loggable {
             guard !coordinator.isSheetDismissBlocked else { return event }
             // Don't steal Return when a text-entry control is the first responder.
             //
-            // Routed through `TextInputFocus` (InputUtilities.swift) rather than an
-            // inline copy of the rule. The copy that stood here recognized only
-            // "TextField", "TextEditor" and "SearchField" — it was missing the
-            // "EditableText" keyword and the generic Text + Field/Editor/Input clause
-            // that KeyboardManager and MenuBar both apply — so a responder those two
-            // classify as text was invisible here and Return dismissed the sheet out
-            // from under a live edit.
+            // Routed through `TextInputFocus` (InputUtilities.swift), so this check matches the rule that
+            // KeyboardManager and MenuBar apply.
             if TextInputFocus.isActive(in: sheetWindow) { return event }
             sheetCoordinator.dismissSheet()
             return nil  // Consume the event.

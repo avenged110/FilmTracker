@@ -8,18 +8,18 @@
 //
 // This sits between the sheet's two other reorderable lists:
 //
-//   • `ReorderableStringList` (30_30_FSStringList.swift) edits in place through a
+//   • `ReorderableStringList` (30.30 FSStringList.swift) edits in place through a
 //     one-line `NSTextField` — right for a cast name or tag, wrong for a warning
 //     or note that routinely runs to a paragraph and needs to be seen in full
 //     while editing.
-//   • `ReorderableFramesList` (30_40_FSFramesList.swift) edits through a popover
+//   • `ReorderableFramesList` (30.40 FSFramesList.swift) edits through a popover
 //     (the right affordance for a large text block), but its rows are four-field
 //     comma-packed records with a three-toggle/three-picker popover, and it
 //     numbers rows because a frame list is cited by position.
 //
 // Folding this into either as a flag would mean that type carrying two disjoint
-// row models and editors, gated throughout — the exact arrangement the note atop
-// `FSFramesList.swift` explains those two files were split apart to avoid. So the
+// row models and editors, gated throughout — the arrangement the header of
+// `FSFramesList.swift` gives as the reason the two components stay separate. So the
 // shape is borrowed and the specifics aren't: this is `ReorderableFramesList`'s
 // structure with the record model, metadata block, and index column removed, and
 // a seven-line `FixedHeightScrollingTextView` in place of the popover's field.
@@ -27,7 +27,7 @@
 // Everything the three genuinely share is already factored out and used unchanged
 // here: `ListCircleButton`/`ListCircleButtonStyle`, `ListImportPopover`,
 // `ListRowMetrics`, `ScrollActivityObserver`, and `FieldEdgeTreatment`
-// (30_10_FSTextHelpers.swift). Nothing about the chrome is restated, so these
+// (30.10 FSTextHelpers.swift). Nothing about the chrome is restated, so these
 // tables stay visually indistinguishable from the other two on the same sheet.
 
 import SwiftUI
@@ -69,11 +69,8 @@ struct ReorderableTextList: View {
 
     /// Upper bound on row count.
     ///
-    /// 30, matching `ReorderableStringList` rather than the frames list's 99.
-    /// These are the same two fields that list held before this component
-    /// existed, so the limit they were already under is preserved; the frames
-    /// list's higher cap is tied to its two-digit index column, which this table
-    /// does not draw.
+    /// 30, matching `ReorderableStringList`. The frames list's 99 is tied to its
+    /// two-digit index column, which this table does not draw.
     private static let maxItems = 30
 
     /// Tells any row holding an open popover to close it.
@@ -121,8 +118,7 @@ struct ReorderableTextList: View {
     /// Rows drawn: every entry, plus the trailing add row.
     ///
     /// Unconditional, as on both other tables: an empty list is one ordinary row
-    /// tall rather than a shorter special case, so the paired label needs one
-    /// alignment constant instead of two.
+    /// tall rather than a special case.
     private var displayedRowCount: Int { items.count + 1 }
 
     private var listHeight: CGFloat {
@@ -218,7 +214,7 @@ struct ReorderableTextList: View {
         // List style, sizing, clip, border, and shadow — one modifier, shared with the
         // string and frames lists so all three tables are drawn identically and
         // in the same order. The order is load-bearing; the full account is on
-        // `listContainerChrome(height:)` (30_20_FSControlHelpers.swift).
+        // `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
         // Scroll detection in AppKit rather than SwiftUI. An `NSPopover` is
         // pinned to the screen rectangle its anchor occupied when presented, so
@@ -270,7 +266,7 @@ struct ReorderableTextList: View {
             // slot it occupies on both other tables, and the same shared control
             // they present it with. The account of why it is permanently gray
             // and deliberately NOT gated on `canAdd` lives on
-            // `ListBulkImportButton` (30_20_FSControlHelpers.swift).
+            // `ListBulkImportButton` (30.20 FSControlHelpers.swift).
             ListBulkImportButton(
                 isPresented: $showImportPopover,
                 help: "Add multiple \(itemLabel.lowercased())s from a comma- or line-separated list",
@@ -343,9 +339,8 @@ struct ReorderableTextList: View {
             itemLabel: itemLabel,
             maxItems: Self.maxItems,
             // One count, from which the popover derives both the append-mode
-            // headroom and the two locked states of its Replace toggle. It used
-            // to receive `isAtCapacity` and `hasEntries` as separate booleans,
-            // which was three descriptions of one array that had to agree.
+            // headroom and the two locked states of its Replace toggle. The popover
+            // therefore has one description of the array, not several that must agree.
             currentCount: items.count,
             replaces: $importReplaces,
             placeholder: "Entry 1, Entry 2, Entry 3",
@@ -415,7 +410,8 @@ struct ReorderableTextList: View {
     }
 
     /// The cap-and-replace rule is `ListImportCommit`'s, shared with the string
-    /// and frames lists. Resolving before writing keeps this a single array
+    /// list. The frames list does not use it, because its two columns take separate
+    /// dispositions. Resolving before writing keeps this a single array
     /// write — one observation invalidation, one change-tracking pass — and
     /// leaves a rejected batch writing nothing at all.
     private func commitImport(_ parsed: [String]) {
@@ -555,8 +551,8 @@ fileprivate struct TextEntryPopover: View {
     /// reason `ListImportPopover` sets out at its own `draft`: a popover's
     /// content is hosted in its own window with its own update graph, so writing
     /// the presenter's state is not a guarantee that this view is re-evaluated
-    /// in step — the symptom there was a readout and a button that would change
-    /// on the way up but not on the way down. Writing local state invalidates
+    /// in step: the failure mode is a readout and a button that change on the way
+    /// up but not on the way down. Writing local state invalidates
     /// *this* view by definition, so every keystroke recomputes the enablement
     /// in the same pass. The value reaches the list through `onConfirm`, which
     /// is the only moment anything outside this view needs it.
@@ -591,24 +587,19 @@ fileprivate struct TextEntryPopover: View {
     private static let visibleLines: Int = 7
 
     /// Wide enough that a sentence of a warning or a note is a line rather than
-    /// three. Matches `ListImportPopover`, which sits over the same tables — and
-    /// with it, `ViewingDatesTable`'s add and edit popovers, which are the width
-    /// every FilmSheet-presented popover is now stated in. The entry area fills
-    /// whatever width it is given, so the 30pt this used to carry beyond that
-    /// reference bought nothing but an inconsistent edge.
-    private static let width: CGFloat = 290
-    private static let padding: CGFloat = 16
+    /// three: `EntryPopoverMetrics`, the size every FilmSheet-presented popover is
+    /// drawn at. The entry area fills whatever width it is given, so the 30pt this
+    /// used to carry beyond that bought nothing but an inconsistent edge.
+    private static let width = EntryPopoverMetrics.width
+    private static let padding = EntryPopoverMetrics.padding
 
     /// Non-empty once trimmed, and different from what the editor opened on.
     ///
     /// **Measured on the trimmed value, deliberately**
     ///
-    /// The change test previously compared the RAW draft against `initialText`,
-    /// while the commit trims and then compares. The two disagreed on exactly
-    /// one input: an edit that changed only leading or trailing whitespace. That
-    /// enabled Update, and the commit then found nothing to write — so the
-    /// popover closed, the entry was unchanged, and nothing said why. Both sides
-    /// now measure the finished value.
+    /// The commit trims before it writes, so the change test trims too. Comparing the raw
+    /// draft would enable Update for a whitespace-only edit that the commit then discards,
+    /// closing the popover with nothing changed and nothing said why.
     ///
     /// The cheap `allSatisfy` emptiness check is kept as the leading term, so a
     /// draft that is plainly blank short-circuits without allocating; only a
@@ -653,7 +644,7 @@ fileprivate struct TextEntryPopover: View {
                 if let onDelete {
                     // Shared with the frames list's and `ViewingDatesTable`'s
                     // Delete buttons; the full account of the treatment is on
-                    // `PopoverDeleteButton` (30_20_FSControlHelpers.swift).
+                    // `PopoverDeleteButton` (30.20 FSControlHelpers.swift).
                     PopoverDeleteButton(action: onDelete, bindsOptionDelete: true)
                 }
 
@@ -707,10 +698,8 @@ fileprivate struct TextEntryPopover: View {
 /// parent's `ForEach`, every row's content would re-run on any parent state
 /// change, including each keystroke in an unrelated row's open popover.
 ///
-/// Each row owns its own popover state, which is also what stops the
-/// shared-state race the frames list documents: a single presentation flag on
-/// the parent leaves a reopened popover unable to present, because the flag is
-/// still being torn down from the previous row.
+/// Each row owns its own popover state. A single presentation flag on the parent
+/// would let one row's close race the next row's open.
 private struct TextListRow: View {
 
     /// The stored entry this row shows. A value: the row reads it and hands edits back
@@ -753,12 +742,11 @@ private struct TextListRow: View {
     /// replaces already had.
     ///
     /// A plain value rather than a `@State` cache. The table constructs a row only
-    /// when its own body re-runs — the only moment `item` can have changed — so
-    /// this costs what the cache did (its initial-value expression ran on every
-    /// construction anyway), and it cannot lag `item`: the cache needed an
-    /// `onChange` to catch up, which ran a second body pass after every reorder,
-    /// import, or edit. The row's own re-renders (its popover opening and
-    /// closing) do not reconstruct it, so they do not recompute this either.
+    /// when its own body re-runs, which is the only moment `item` can have changed, so
+    /// a stored value cannot lag `item`. A cache would need an `onChange` to catch up,
+    /// which costs a second body pass after every reorder, import, or edit. The row's
+    /// own re-renders (its popover opening and closing) do not reconstruct it, so they
+    /// do not recompute this either.
     private let displayText: String
 
     init(item: String,

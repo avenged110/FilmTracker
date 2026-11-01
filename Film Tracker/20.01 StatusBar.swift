@@ -1,13 +1,15 @@
 // MARK: - StatusBar.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Small bar at the bottom of GalleryView listing a live count of the total
-// number of films (or list members when filtered) and number of items
-// currently-selected (if applicable) with DataCoordinator integration.
+// The status bar at the foot of GalleryView. It shows a live count of films (or list members when filtered)
+// and of selected items.
 
 import SwiftUI
 
 struct StatusBar: View {
+    /// The bar's height. The gallery, list and Reports insets read it to clear the overlay.
+    nonisolated static let height: CGFloat = 29
+
     @Environment(AppState.self) private var appState
     @Environment(SelectionState.self) private var selectionState
     @Environment(DataCoordinator.self) private var dataCoordinator
@@ -17,10 +19,8 @@ struct StatusBar: View {
     @AppStorage(preference: Preferences.showStatusBarKey) private var showStatusBar: Bool
 
     // MARK: - View
-    // The text is derived here rather than cached in @State. A cache written from
-    // onChange cost two extra body passes per change (the value change, then the cache
-    // write) to save a string interpolation; computed inline, a change costs exactly one
-    // pass, and a hidden bar reads none of the inputs at all.
+    // Derived inline rather than cached in @State. A cache would add a body pass per change, and a hidden bar reads
+    // none of its inputs.
     var body: some View {
         Group { if showStatusBar { statusBarContent } } }
 
@@ -40,9 +40,8 @@ struct StatusBar: View {
 
         let label: String
         if isReportsView {
-            // The Hall of Fame tab lists films, not releases; use the film label there.
-            // The other tabs with a status bar (Cost Tracker, Price Tracker, Release
-            // Wishlist) list releases. Data Visualizations hides the bar.
+            // The Hall of Fame tab lists films, so it uses the film label. The Cost Tracker, Price Tracker, and
+            // Release Wishlist tabs list releases.
             if currentCategory == .hallOfFame {
                 label = (total == 1) ? "film" : "films"
             } else {

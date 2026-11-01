@@ -1021,9 +1021,9 @@ extension DebugHarness {
         r.check("hierarchy:children-name-their-parent",
                 children.allSatisfy { $0.parentRelease?.id == graph.parentReleaseID },
                 children.map { String(describing: $0.parentRelease?.id.uuidString.prefix(8)) }.joined(separator: ", "))
-        // The inverse array is populated by hand during the restore precisely because
-        // SwiftData has been observed not to follow it for a batch of unsaved inserts. The
-        // FilmSheet's combo-pack logic reads this side.
+        // The inverse array is populated by hand during the restore, because it is not relied
+        // on to follow the relationship for a batch of unsaved inserts. The FilmSheet's
+        // combo-pack logic reads this side.
         r.check("hierarchy:parent-claims-both-children",
                 Set(parent?.childReleases.map(\.id) ?? []) == Set(graph.childReleaseIDs),
                 "parent.childReleases → \(parent?.childReleases.map { $0.id.uuidString.prefix(8) } ?? [])")
@@ -1256,7 +1256,7 @@ extension DebugHarness {
 
         // --- The export PRUNES the user's live poster folder ------------------------------------
         //
-        // Discovered by this scenario rather than assumed, and pinned here because it is easy
+        // Pinned here because it is easy
         // to miss when reading the export: with `Preferences.prunePosterImages` on (its default),
         // `DBExporter` runs `PosterPruner` over the LIVE PosterImages folder before packaging,
         // and the pruner deletes every non-JPEG outright plus every JPEG whose basename is not
@@ -1277,8 +1277,8 @@ extension DebugHarness {
         //
         // The race: the UID set is read, a film is then saved with a new poster (reserved,
         // written, committed, released), and only then does the prune reach the file. It is
-        // in neither the stale set nor PosterReservations, so before the snapshot-time rule
-        // it was deleted and the film left pointing at nothing. Replayed here in that order,
+        // in neither the stale set nor PosterReservations, so without the snapshot-time rule
+        // it would be deleted and the film left pointing at nothing. Replayed here in that order,
         // beside an old orphan that must still go, so the rule cannot pass by pruning nothing.
         do {
             let snapshotTakenAt = Date()
@@ -1762,8 +1762,8 @@ extension DebugHarness {
         }
 
         // 1. Truncated XML — the shape a backup takes when a write is interrupted by a full
-        //    disk, a crash, or an ejected volume. This is precisely the damage an export-time
-        //    verification pass would catch, and none exists (see `export-verification` below).
+        //    disk, a crash, or an ejected volume. This damage can occur after the export has
+        //    verified its own output, so the restore must refuse it (see `export-verification` below).
         let truncated = goodXML.prefix(goodXML.count / 2)
         let truncatedError = await attemptRestore("truncated-xml", xml: Data(truncated))
         r.check("truncated-xml:reports-a-parse-error",
@@ -1868,7 +1868,7 @@ extension DebugHarness {
 
         // --- An empty library ------------------------------------------------------------------
         // The 0-object path in DBPackager is a separate early-return branch that writes and
-        // closes the file by itself; nothing exercised it. A user with an empty library who
+        // closes the file by itself, so it is exercised here. A user with an empty library who
         // takes a backup and restores it must get an empty library, not an error.
         do {
             container = try resetBackupStore()
@@ -1931,7 +1931,7 @@ extension DebugHarness {
         // --- Every settings field, restored from a file nothing else can touch ---------------------
         //
         // The deterministic counterpart to `extractor-covers:SettingsObject`. The XML is
-        // written by hand here, with a value for all 43 restorable settings fields, precisely
+        // written by hand here, with a value for every restorable settings field, precisely
         // so the running application's own debounced settings write — which reaches the store
         // but cannot reach this file — is out of the picture. If DBRestorer.createSettingsObject
         // forgets a field, this is where it shows.
@@ -2097,7 +2097,7 @@ extension DebugHarness {
         // uses, and requires the object count and manifest to match what it exported. This is
         // the step that turns "the write calls did not throw" into "a restore can read this",
         // and the two questions are not the same one — see `oversized-node` in
-        // `backup-limits`, which is the shape that used to slip through.
+        // `backup-limits`, which is the shape this verification exists to catch.
         //
         // Asserted here from the outside: a healthy export must pass verification and produce
         // a package whose re-parse describes exactly the seeded library. The negative
@@ -2298,8 +2298,8 @@ extension DebugHarness {
         }
 
         // --- A backup that repeats IDs --------------------------------------------------------------
-        // Every entity's ID is unique in the store. A backup written before that was enforced
-        // can repeat one (the old dual-write bug did for releases); the restore must keep the
+        // Every entity's ID is unique in the store, but a backup file can still repeat one; the
+        // restore must keep the
         // first of each, link everything to it, and still pass its own row-count check.
         do {
             let filmA = UUID().uuidString, filmB = UUID().uuidString
@@ -2418,12 +2418,12 @@ extension DebugHarness {
         // --- The reader's per-text-node ceiling ----------------------------------------------------
         //
         // `DBImporter` refuses any text node over 4 MiB, and the writer enforces no size limit
-        // at all. That disagreement used to produce the worst outcome a backup system has: an
-        // export that reported success and a file that could never be restored, discovered
-        // only at the moment the user needed it.
+        // at all. That disagreement would produce the worst outcome a backup system has: an
+        // export that reports success and a file that cannot be restored, discovered only when
+        // the user needs it.
         //
-        // `DBExporter` now re-parses the package it wrote before claiming success, so the
-        // contract under test is the corrected one: the export REFUSES, at a moment when the
+        // `DBExporter` re-parses the package it wrote before claiming success, so the
+        // contract under test is that the export REFUSES, at a moment when the
         // library is still intact and the message can name the problem, and it leaves no
         // unusable package behind under a plausible name.
         do {

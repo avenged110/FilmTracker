@@ -20,14 +20,9 @@ struct WatchDetails: View, Loggable {
     // cancel the first one's timer instead of racing it. See showCheckmarkFeedback().
     @State private var checkmarkResetTask: Task<Void, Never>?
 
-    // Holds a snapshot of the viewing-event popover's in-progress entry, captured only
-    // when the user hits "Add" with a date that collides with an existing entry.
-    // macOS automatically closes an open NSPopover the instant the resulting "Event
-    // Already Exists" NSAlert is presented, so the popover's own @State is torn down
-    // along with it — this snapshot is what lets the reopened popover (fired by
-    // .reopenViewingEventPopover once the alert clears) seed itself with exactly
-    // what the user had entered, rather than resetting to blank defaults. `nil` for
-    // a genuine fresh open (see handleViewingButtonClick, which clears it).
+    // Snapshot of the popover's entry, taken when "Add" hits a date that already exists. macOS closes the popover
+    // when the "Event Already Exists" alert appears, which tears down its @State. The reopened popover (fired by
+    // .reopenViewingEventPopover) restores from this. `nil` for a fresh open (see handleViewingButtonClick).
     @State private var pendingViewingEntry: PendingViewingEntry?
 
     // The film a click is waiting on calendar permission for, while the request is out.
@@ -40,13 +35,9 @@ struct WatchDetails: View, Loggable {
         private var iCalIntegration: Bool
     @AppStorage(preference: Preferences.defaultRotationThresholdKey)
         private var defaultRotationThreshold: Int
-    /// Read through @AppStorage rather than `Preferences.showWatchDetailsAnnotationGlyphs`
-    /// so that toggling it in Settings redraws this module immediately: a plain static read
-    /// would give the right answer on the next body pass but nothing would schedule one, and
-    /// the sidebar behind the sheet would keep its old glyphs until the film changed.
-    ///
-    /// This is also why the glyph maps below are instance members. They were `static` while
-    /// the switch was a compile-time constant; a static cannot read a view's @AppStorage.
+    /// Read through @AppStorage, not `Preferences.showWatchDetailsAnnotationGlyphs`, so toggling it in Settings
+    /// redraws this module at once. A static read would not schedule that redraw. The glyph maps below are instance
+    /// members for the same reason, since a static cannot read a view's @AppStorage.
     @AppStorage(preference: Preferences.showWatchDetailsAnnotationGlyphsKey)
         private var showAnnotationGlyphs: Bool
     @AppStorage(preference: Preferences.manualExtQueryKey)
@@ -54,34 +45,18 @@ struct WatchDetails: View, Loggable {
     
     // MARK: - Derived Display Values
     //
-    // These were `@State` caches, refreshed from an `onChange(of: film)` handler. They
-    // are now computed directly from the film, which is both cheaper and more robust.
+    // Values are computed from the film on each render, not cached in @State. A copy written from onChange would
+    // render the module twice per new film, first with the old values. Layout dominates the per-selection cost, so
+    // that extra pass costs more than the string work it saves. A derived value cannot go stale: a film or
+    // `defaultRotationThreshold` change invalidates the view and the values are recomputed with it. Changes that
+    // invalidate nothing by themselves (a midnight rollover, or a queue change that leaves `lastModified` untouched)
+    // are covered by `externalRefreshToken` below.
     //
-    // Cheaper, because the caching was a net loss once measured. Writing `@State` from
-    // an `onChange` means a new film renders this module twice — once with the previous
-    // film's values still in place, then again after the handler overwrites them — and
-    // profiling showed the sidebar's per-selection cost is dominated by laying out this
-    // stack, at roughly 50 ms a pass. The work being avoided was the whole set of
-    // calculations below, which together measured under 2 ms. Paying an extra layout
-    // pass to skip 2 ms of string formatting is a bad trade, and this module was the
-    // last one still making it.
-    //
-    // More robust, because a derived value cannot go stale. Every trigger that used to
-    // need an explicit refresh call now works by construction: a film change and a
-    // `defaultRotationThreshold` change both already invalidate this view, and the
-    // values are simply recomputed with it. The one class of change that does NOT
-    // invalidate anything on its own — a midnight rollover shifting date-relative
-    // wording, or a queue membership change that leaves `lastModified` untouched — is
-    // handled by `externalRefreshToken` below.
-    //
-    // `effectiveThreshold` used to be carried as a fifth field of the rotation data; it
-    // was never read by any view (the threshold is already baked into `headerTitle`),
-    // so it remains a purely local value inside calculateRotationData.
+    // `effectiveThreshold` is a local inside calculateRotationData. No view reads it, since the threshold already
+    // appears in `headerTitle`.
 
-    /// Bumped by the events that change what these values should read but that alter
-    /// neither the film value nor any preference this view observes — so nothing else
-    /// would schedule the re-render they require. Read once in `body` to make the
-    /// dependency explicit rather than relying on the invalidation side effect alone.
+    /// Bumped by events that change what these values read without altering the film or any observed preference,
+    /// so nothing else would schedule the re-render. Read once in `body` to make the dependency explicit.
     @State private var externalRefreshToken = 0
 
     private var cachedLastWatched: String {
@@ -97,15 +72,9 @@ struct WatchDetails: View, Loggable {
     }
 
     private var cachedRotationData: RotationData {
-        // `film.rotationThreshold` falls back to Preferences.defaultRotationThreshold
-        // for films carrying no per-film override, and that fallback reads the static
-        // rather than the @AppStorage mirror below. Changing the preference in Settings
-        // alters neither the film value nor its lastModified stamp, so the @AppStorage
-        // declaration is the only thing that invalidates this view for it. Touching it
-        // here makes that dependency textual instead of incidental — the value is
-        // genuinely required to compute a correct result, and a future reader removing
-        // an "unused" property wrapper would silently break the Settings→sidebar
-        // update path.
+        // `film.rotationThreshold` falls back to `Preferences.defaultRotationThreshold`, a static, not this @AppStorage
+        // mirror. A Settings change alters neither the film nor its lastModified, so this read is what invalidates the
+        // view for it. Removing it as "unused" would break the Settings-to-sidebar update.
         _ = defaultRotationThreshold
         // Read through CurrentDay, as the Source field is, so the countdown ticks down and
         // turns into "Ready for viewing" when the day changes without anything else changing.
@@ -158,9 +127,8 @@ struct WatchDetails: View, Loggable {
         return film.effectiveDuration != film.duration
     }
 
-    // The formatted edited duration string; non-empty only when film.edited is true
-    // and film.editedDuration contains a meaningful (non-zero) millisecond value.
-    // When non-empty it is appended to the duration field as "(originally X)".
+    // The formatted edited duration, non-empty only when it applies and differs from the regular duration. It is
+    // shown as the primary value, with the regular duration in an "(originally X)" parenthetical.
     private var cachedEditedDuration: String {
         guard hasDistinctEditedDuration, let film else { return "" }
         return RSBHelpers.formattedDuration(from: film.editedDuration)
@@ -176,10 +144,8 @@ struct WatchDetails: View, Loggable {
     // Local appearance parameters.
     private let buttonFontSize = CGFloat(12)
     
-    // The shared "yyyy.MM.dd" storage formatter. These values are stored in
-    // calendarTable and compared as strings against what CalendarPopover and
-    // ViewingDatesTable produce; those now resolve to this same object, so the
-    // comparisons hold by construction rather than by three copies being pinned alike.
+    // The shared "yyyy.MM.dd" formatter. calendarTable entries are stored in this format and compared as strings
+    // against what CalendarPopover and ViewingDatesTable produce. All three use this one object, so the formats match.
     private static let viewingDateFormatter = StorageDateFormatters.dot
     
     var body: some View {
@@ -200,14 +166,8 @@ struct WatchDetails: View, Loggable {
                             ZStack {
                                 Image(systemName: showViewingCheckmark ? "checkmark.circle.fill" : "calendar.badge.plus")
                                     .contentTransition(.symbolEffect(.replace))
-                                    // The symbol swap is animated HERE, scoped to this one
-                                    // value, rather than with `withAnimation` around the
-                                    // state change. showCheckmarkFeedback() runs in the
-                                    // same turn as addViewing(), whose MemoryStore write
-                                    // re-renders the whole tab (Last Watched, Queue
-                                    // inclusion) in the same update pass; a transaction-
-                                    // wide animation there animated that relayout too,
-                                    // and the sidebar's modules visibly slid into place.
+                                    // The symbol swap animates here, scoped to this value. A transaction-wide animation would also
+                                    // animate the tab relayout that the same turn triggers, so the modules would visibly slide.
                                     .animation(.smooth, value: showViewingCheckmark)
                                     .font(.system(size: buttonFontSize))
                                     .frame(width: 16, alignment: .center)
@@ -293,46 +253,21 @@ struct WatchDetails: View, Loggable {
                 checkCalendarAccess()
             }
             .onDisappear {
-                // Cancel the pending checkmark reset on dismount, matching the
-                // cancel-on-teardown treatment every other retained task in the sidebar
-                // gets (RightSidebar's resolutionTask/swipeResetTask). The re-entry case is
-                // already covered by the cancel() at the top of showCheckmarkFeedback().
+                // Cancel the pending checkmark reset on dismount, as RightSidebar does for its resolutionTask and
+                // swipeResetTask. Re-entry is covered by the cancel() at the top of showCheckmarkFeedback().
                 checkmarkResetTask?.cancel()
                 checkmarkResetTask = nil
             }
-            // This handler no longer refreshes any display values — those are derived
-            // from the film as it renders (see "Derived Display Values" above), which is
-            // both why a new film can never show the previous one's figures and why
-            // there is no first-frame flash to guard against. What remains here is the
-            // transient-state reset, which is genuinely stateful and has no other
-            // trigger, plus the diagnostic line.
+            // Display values are derived from the film as it renders, so a new film never shows the previous one's
+            // figures. This handler only resets transient state and logs.
             //
-            // `initial: true` is kept so a fresh mount still emits exactly one log line.
-            // It intentionally does NOT run the reset below: SwiftUI passes equal old and
-            // new values on the initial call, so the id guard is false — correct, since
-            // there is no prior film whose popover could still be open.
-            //
-            // Logging note: onAppear and this onChange both fire exactly once per fresh
-            // WatchDetails mount (one here, one for the live calendar authorization read,
-            // since the latter is not a function of `film` and cannot be folded into the
-            // same trigger). Both used to log independently, producing two lines per
-            // mount. The single log call below reads the authorization status directly
-            // (rather than relying on `calendarAccessStatus`, which would be stale if
-            // this onChange happens to run before onAppear's assignment — the relative
-            // firing order of two independent initial-appearance modifiers is not
-            // guaranteed) so a mount still produces exactly one accurate diagnostic line,
-            // and a genuine double-mount (if one ever occurs) still surfaces as two
-            // lines, preserving that signal for future debugging.
+            // `initial: true` logs once per fresh mount and skips the reset on that call: equal old and new values
+            // fail the id guard, and no earlier film's popover can be open. onAppear and this handler both fire per
+            // mount. The log reads the authorization status directly, since `calendarAccessStatus` may not be set yet.
+            // A genuine double mount still shows as two lines.
             .onChange(of: film, initial: true) { oldFilm, newFilm in
-                // A different film is a different subject: nothing transient that was
-                // on screen for the previous one still applies. This used to happen
-                // implicitly, because the sidebar gave each film's tab content a fresh
-                // SwiftUI identity and every `@State` here was destroyed with it; the
-                // tab content is now reused across films (it is far too expensive to
-                // rebuild per selection), so the reset has to be stated. Guarded on a
-                // genuine id change so an in-place edit of the *current* film — a
-                // rating change, a new viewing — cannot dismiss a popover the user is
-                // actively working in.
+                // The sidebar reuses tab content across films, so reset transient state explicitly on a real id change.
+                // An in-place edit of the same film (a rating, a new viewing) must not dismiss the popover being used.
                 if oldFilm.id != newFilm.id {
                     showViewingPopover = false
                     pendingViewingEntry = nil
@@ -351,19 +286,13 @@ struct WatchDetails: View, Loggable {
                     calendarAccessStatus = EventKitManager.shared.authorizationStatus
                     Self.log("Calendar authorization updated: \(calendarAccessStatus.rawValue)")
                 case .rightSidebarDidStartLiveScroll:
-                    // Dismiss the popover synchronously when the sidebar's scroll
-                    // view begins a live-scroll phase. SidebarScrollView's
-                    // onScrollWillStart callback fires this event before the content
-                    // has re-laid-out, so the popover tears down before it can chase
-                    // the moving anchor. Guard on the existing presented-state flag
-                    // to avoid redundant state mutations.
+                    // Dismiss the popover synchronously when a sidebar live scroll starts, before the content re-lays
+                    // out and the popover can chase the moving anchor (SidebarScrollView's onScrollWillStart fires this).
+                    // Guarded on showViewingPopover to avoid redundant mutations.
                     if showViewingPopover { showViewingPopover = false }
                 case .smartListsRecalculated:
-                    // SmartLists fires this event at midnight after recalculating
-                    // rotation-based list membership. The date-relative display
-                    // strings ("Today" → "Yesterday", "X months away") are derived
-                    // from the current date, which nothing else observes, so this is
-                    // one of the two cases that must force a re-render explicitly.
+                    // SmartLists fires this at midnight. Date-relative strings ("Today" → "Yesterday", "X months away")
+                    // depend on the date, which nothing else observes, so this must force a re-render.
                     externalRefreshToken &+= 1
                     Self.log("Midnight rollover: refreshed date-relative cached values for \(film.name)")
                 default:
@@ -372,18 +301,14 @@ struct WatchDetails: View, Loggable {
             }
             .onReceive(AppEventBus.shared.uiCommands) { command in
                 guard case .reopenViewingEventPopover = command else { return }
-                // The system already auto-closed the popover the instant the
-                // duplicate-date alert appeared; pendingViewingEntry (captured at
-                // that moment) is what lets it come back with the same entry.
+                // The system closed the popover when the duplicate-date alert appeared. pendingViewingEntry lets it
+                // reopen with the same entry.
                 showViewingPopover = true
             }
             .onReceive(AppEventBus.shared.listEvents) { event in
-                // Film Queue membership changes (e.g. drag-and-drop between Up Next /
-                // Soon / Later, or removal from the queue entirely) do not update the
-                // film's own lastModified timestamp, so the onChange(of: film) trigger
-                // above won't fire for them on its own. Refresh here whenever one of
-                // the three internal queue lists changes, so the "in the '<Section>'
-                // Queue" clause never goes stale while this film is on screen.
+                // Queue membership changes (drag between Up Next, Soon, and Later, or removal) leave the film's
+                // lastModified alone, so onChange(of: film) does not fire. Refresh here so the "in the '<Section>'
+                // Queue" clause never goes stale.
                 guard case .membershipChanged(let listID) = event, FilmQueue.isInternalList(listID) else { return }
                 externalRefreshToken &+= 1
             }
@@ -392,21 +317,14 @@ struct WatchDetails: View, Loggable {
     
     // MARK: - Custom Section Builders (for placeholder styling)
 
-    // Every builder below renders exclusively from the derived `cached…` values above
-    // — none of them read the live snapshot directly — so they are parameterless
-    // computed properties rather than functions taking a `film` argument they never
-    // used. `sourceSection` was already written this way.
-    /// The "Last Watched" field: the viewing date followed by its relative-time clause.
-    ///
-    /// Built from `sectionHeader` + `fittingValueRow` rather than from `textSection`
-    /// (which is exactly those two with a plain `valueRow`) so the value can shorten its
-    /// time units when the full spelling would wrap — "November 04, 2021 (4 years 4 months
-    /// ago)" is the shape that overruns a 300pt sidebar, and "(4 yr. 4 mo. ago)" is not.
-    /// The abbreviation is offered, never imposed: `fittingValueRow` uses it only when the
-    /// full text does not fit on one line, and falls back to the full text wrapping when
-    /// even the short form needs two. Placeholder values ("Unwatched", "Unknown date")
-    /// carry no parenthetical, so `abbreviatingTimeUnits` returns nil for them and the row
-    /// behaves exactly as it always did.
+    // Builders below render only from the derived `cached…` values, never the live snapshot. That is why they
+    // are parameterless computed properties.
+    /// The "Last Watched" field: the viewing date and its relative-time clause. It is built from `sectionHeader`
+    /// and `fittingValueRow`, so the time units can shorten when the full text would wrap. "November 04, 2021
+    /// (4 years 4 months ago)" overruns a 300 pt sidebar, while "(4 yr. 4 mo. ago)" fits. The abbreviation is only
+    /// offered. `fittingValueRow` uses it when the full text does not fit on one line, and wraps the full text if
+    /// even the short form needs two. Placeholder values ("Unwatched", "Unknown date") have no parenthetical, so
+    /// they are unchanged.
     @ViewBuilder
     private var lastWatchedSection: some View {
         let value = cachedLastWatched
@@ -426,31 +344,22 @@ struct WatchDetails: View, Loggable {
         }
     }
 
-    /// The value row's foreground for the rotation field, matching `RSBHelpers.valueRow`'s
-    /// own placeholder rule. Needed explicitly here because `fittingValueRow` takes a
-    /// pre-styled `Text` (so a composed row such as the source field's glyph-plus-value can
-    /// use the same path), which moves the color decision to the call site.
+    /// The foreground for the rotation field, matching `RSBHelpers.valueRow`'s placeholder rule. It is needed here
+    /// because `fittingValueRow` takes a pre-styled `Text`, which moves the color decision to the caller.
     ///
-    /// Takes the placeholder flag rather than reading `cachedRotationData` itself. That
-    /// mattered once the rotation data stopped being stored: this is read once for the
-    /// full value and again for *every* entry of the abbreviation ladder, so reading the
-    /// derived property here would re-run `calculateRotationData` per ladder entry. As a
-    /// stored `@State` read that was free; as a derived value it is not, and passing the
-    /// one flag it actually needs keeps the computation at one per render.
+    /// It takes the placeholder flag rather than reading `cachedRotationData`. That data is derived, so reading it
+    /// here would re-run `calculateRotationData` for every entry of the abbreviation ladder. Passing the one flag it
+    /// needs keeps the computation to one per render.
     private func rotationValueColor(isPlaceholder: Bool) -> Color {
         isPlaceholder ? Color(nsColor: .tertiaryLabelColor) : .primary
     }
 
-    /// The "Next Up for Rotation" field: the countdown value, then each of its
-    /// subordinate notes on its own row beneath it, in the fixed order value →
-    /// special-sorting tags → Film Queue membership.
+    /// The "Next Up for Rotation" field: the countdown value, then each subordinate note on its own row, in the
+    /// order value, special-sorting tags, Film Queue membership.
     ///
-    /// The notes were previously joined into one comma-separated italic clause appended
-    /// to the value itself ("June 2028 (1 year away), in the "Up Next" Queue,
-    /// indefinitely on hold"), which routinely wrapped the row to two or three lines and
-    /// needed a hand-composed mixed-style Text to keep the value and the clause in
-    /// different colors. Giving each note its own row removes both problems and matches
-    /// the one-header-many-rows shape `searchableItemSection` uses for cast and crew.
+    /// Each note is its own row. A combined clause would wrap across lines and need mixed-style Text to keep
+    /// the colors apart. Separate rows avoid both, and match the one-header-many-rows shape of
+    /// `RSBHelpers.searchableItemSection`.
     ///
     /// This builder needs no placeholder guard of its own: `calculateRotationData`
     /// decides which notes apply. "Blacklisted"/"Ignored" return with no notes at all,
@@ -486,10 +395,8 @@ struct WatchDetails: View, Loggable {
         }
     }
     
-    /// Everything the "Next Up for Rotation" section renders. The notes are kept as
-    /// separate, individually complete strings rather than one pre-joined clause
-    /// because each is now its own row; this function stays style-free, exactly as it
-    /// did when the view was responsible for composing them into mixed Text runs.
+    /// Everything the "Next Up for Rotation" section renders. The notes are separate, complete strings, one row
+    /// each, and the struct is style-free: the view applies all styling.
     struct RotationData {
         var headerTitle: String = ""
         var formattedValue: String = ""
@@ -502,17 +409,25 @@ struct WatchDetails: View, Loggable {
         var queueNote: String?
     }
 
+    /// The fixed "Next Up for Rotation" values `calculateRotationData` writes and
+    /// `rotationValueGlyph` matches on — one spelling each, so the two cannot drift.
+    private enum RotationValue {
+        static let blacklisted = "Blacklisted"
+        static let ignored = "Ignored"
+        static let ready = "Ready for viewing"
+        static let unknown = "Unknown"
+    }
+
     // Helper to calculate rotation data.
     private func calculateRotationData(for film: FilmSnapshot, today: Date) -> RotationData {
-        // Check if film is blacklisted or ignored. These two remain mutually exclusive
-        // with "Indefinitely on hold" (enforced by the FilmSheet UI), and both still take
-        // display priority over the rotation countdown even though "Waiting for edit" and/or
-        // "Temporarily on hold" may also be present on the same film.
+        // Blacklisted and Ignored take display priority over the countdown, even when "Waiting for edit" or
+        // "Temporarily on hold" also applies. They are mutually exclusive with "Indefinitely on hold"
+        // (FilmSpecialSorting.exclusiveOptions).
         if film.specialSorting.contains(FilmSpecialSorting.blacklisted) {
-            return RotationData(headerTitle: "Next Up for Rotation", formattedValue: "Blacklisted", isPlaceholder: true)
+            return RotationData(headerTitle: "Next Up for Rotation", formattedValue: RotationValue.blacklisted, isPlaceholder: true)
         }
         if film.specialSorting.contains(FilmSpecialSorting.ignore) {
-            return RotationData(headerTitle: "Next Up for Rotation", formattedValue: "Ignored", isPlaceholder: true)
+            return RotationData(headerTitle: "Next Up for Rotation", formattedValue: RotationValue.ignored, isPlaceholder: true)
         }
 
         let effectiveThreshold = film.rotationThreshold
@@ -535,12 +450,9 @@ struct WatchDetails: View, Loggable {
         let isPlaceholder: Bool
         
         if let lastWatchedDate = parseDate(from: film.lastWatched) {
-            // The eligibility date is the anniversary rounded up to the 1st of the
-            // following month. Every part of this line is derived from this one
-            // value — the readiness switch, the month named, and the countdown — so
-            // the line is structurally incapable of contradicting itself the way
-            // "September 2026 (0 days away)" did, and equally incapable of
-            // contradicting the smart list, which compares against the same helper.
+            // The eligibility date is the anniversary rounded up to the 1st of the following month. Every part of this
+            // line derives from that one value (the readiness switch, the month named, and the countdown), and the
+            // smart list compares against the same helper.
             if let rotationDate = rotationEligibilityDate(
                 from: lastWatchedDate,
                 months: effectiveThreshold
@@ -549,7 +461,7 @@ struct WatchDetails: View, Loggable {
                 // the 1st and `today` the start of the current day, so this turns true
                 // on the first day of the month the label names — never partway through it.
                 if today >= rotationDate {
-                    formattedValue = "Ready for viewing"
+                    formattedValue = RotationValue.ready
                     isPlaceholder = false
                 } else {
                     // `timeDistanceFromNow` is guaranteed at least "1 day away" here:
@@ -559,46 +471,35 @@ struct WatchDetails: View, Loggable {
                     isPlaceholder = false
                 }
             } else {
-                formattedValue = "Unknown"
+                formattedValue = RotationValue.unknown
                 isPlaceholder = true
             }
         } else {
             // If lastWatched is empty, check if film has never been watched
             if !film.watched {
                 // Never watched - ready for viewing
-                formattedValue = "Ready for viewing"
+                formattedValue = RotationValue.ready
                 isPlaceholder = false
             } else {
                 // Watched but date unknown
-                formattedValue = "Unknown"
+                formattedValue = RotationValue.unknown
                 isPlaceholder = true
             }
         }
         
-        // Resolve the special sorting notes, if any. "Blacklisted" and "Ignore"
-        // returned early above, already naming their parameter in the value row. Each
-        // remaining tag is its own entry, one row apiece — the FilmSpecialSorting
-        // constants are already written in the sentence case a standalone row wants, so
-        // they are used verbatim rather than lowercased for splicing mid-sentence as the
-        // joined clause required.
+        // Special sorting notes. "Blacklisted" and "Ignored" returned early above, as the value row. Each remaining
+        // tag gets its own row, using the FilmSpecialSorting constants as-is (already sentence case).
         //
-        // These rows are NOT gated on `!isPlaceholder`. A film whose countdown resolves
-        // to "Unknown" (watched, but with an unparseable or missing date) can still carry
-        // a special sorting parameter, and that parameter is exactly the kind of fact the
-        // user needs to see at a glance — suppressing it made the only surface that
-        // reports it disappear for that class of film, since Metadata deliberately no
-        // longer duplicates the field. The Film Queue note below remains suppressed for
-        // placeholders: queue membership is a statement about an active rotation, which
-        // an unknown countdown does not describe.
+        // These rows are not gated on `!isPlaceholder`: an "Unknown" countdown (watched, but with a missing or
+        // unparseable date) can still carry a special sorting parameter. The Film Queue note is suppressed for
+        // placeholders, since queue membership describes an active rotation.
         var specialSortingNotes: [String] = []
         if film.specialSorting.contains(FilmSpecialSorting.waitingForEdit)     { specialSortingNotes.append(FilmSpecialSorting.waitingForEdit) }
         if film.specialSorting.contains(FilmSpecialSorting.temporarilyOnHold)  { specialSortingNotes.append(FilmSpecialSorting.temporarilyOnHold) }
         if film.specialSorting.contains(FilmSpecialSorting.indefinitelyOnHold) { specialSortingNotes.append(FilmSpecialSorting.indefinitelyOnHold) }
 
-        // Resolve the Film Queue note, if the film currently belongs to one of the
-        // three internal Film Queue sections (Up Next, Soon, Later). Suppressed
-        // alongside the special sorting notes whenever the row is a placeholder
-        // value ("Unknown").
+        // Film Queue note: the film is in one of the three internal sections (Up Next, Soon, Later). Suppressed
+        // for a placeholder value ("Unknown").
         let queueNote: String?
         if !isPlaceholder, let section = dataCoordinator.filmQueueSection(forFilm: film.id) {
             queueNote = "In the \"\(section.displayName)\" Queue"
@@ -629,26 +530,16 @@ struct WatchDetails: View, Loggable {
         )
     }
 
-    /// The "Recorded View Count" plate's trailing inset, tightened from the standard 8pt.
+    /// Trailing inset for the "Recorded View Count" plate. The field shares its row with "Average Between Viewings"
+    /// and gets half of the sidebar's content width, of which the glyph gutter takes 22 pt. At the standard inset,
+    /// a value such as "44 (since 2004)" overflows its column and wraps, which makes the neighboring column's row
+    /// taller. This inset fits every two-digit count.
     ///
-    /// This field is the narrowest in the module — it shares a row with "Average Between
-    /// Viewings", so it gets half of the sidebar's 268pt of content, 128pt — and the glyph
-    /// gutter takes 22 of that. At the standard inset the widest values it can produce
-    /// ("44 (since 2004)" is 91.3pt against 90pt of room; `4` is the widest digit in the
-    /// system font at this size) overflow by a point or two and wrap to a second line, which
-    /// also drags the neighboring column's row taller. 4pt clears every two-digit count with
-    /// room to spare, and is a point past the 5pt where the worst case first fits.
+    /// Applied unconditionally: the fill spans the full column either way, so a short value renders the same at
+    /// any inset. A triple-digit count would still wrap, and that is accepted.
     ///
-    /// Applied unconditionally rather than only to values that need it: the fill spans the
-    /// full column either way, so a value that does not reach the trailing edge renders
-    /// identically at 4 or 8 — the condition would buy nothing but a branch that could
-    /// mis-fire near the boundary.
-    ///
-    /// A triple-digit count would still wrap. That is accepted, not overlooked.
-    ///
-    /// "Average Between Viewings", the other half of the row, uses it too: its
-    /// "Insufficient data" placeholder is 91.6pt against the same 90pt. Its numeric values
-    /// never come close (a five-digit day count is about 68pt).
+    /// "Average Between Viewings" uses it too, for its "Insufficient data" placeholder, which needs the same room.
+    /// Its numeric values are narrower than that.
     private static let viewCountTrailingInset: CGFloat = 4
     
     // Helper to calculate view count data
@@ -659,12 +550,8 @@ struct WatchDetails: View, Loggable {
             return ("None recorded", true)
         }
         
-        // Find the oldest year in calendarTable.
-        // Note: entries may be "YYYY.MM.DD" or "YYYY.MM.DD.XX" - we only need the year.
-        // `first` rather than an index plus a count check: splitting a non-empty string
-        // on "." yields at least one component in every case except an entry made up
-        // entirely of dots, which `first` reports as nil and the index form guarded for
-        // separately. One optional chain covers both.
+        // Oldest year. Entries are "YYYY.MM.DD" or "YYYY.MM.DD.XX"; only the first component is needed. `first` is nil
+        // only for an entry with no components (empty or all dots), which compactMap skips.
         let years = film.calendarTable.compactMap { entry -> Int? in
             guard let firstComponent = entry.split(separator: ".").first else { return nil }
             return Int(firstComponent)
@@ -688,14 +575,9 @@ struct WatchDetails: View, Loggable {
             case 1:  return ("Insufficient data", true)
             default:
                 let value = cachedAverageBetweenViewings
-                // An empty value with 2+ entries means the entries exist but fewer
-                // than two of them parsed into usable dates (calculateAverageBetween-
-                // Viewings drops unparseable ones before pairing). That is the same
-                // "there are viewings, just not enough to measure an interval" state
-                // as the single-entry case, so it reads identically. "None recorded"
-                // was wrong here and directly contradicted the adjacent Recorded View
-                // Count field, which reports the raw entry count and would be showing
-                // a non-zero number beside it.
+                // An empty value with 2+ entries means fewer than two parsed into usable dates
+                // (calculateAverageBetweenViewings drops unparseable ones). That reads as "Insufficient data", not
+                // "None recorded", because the adjacent Recorded View Count shows the raw non-zero count.
                 return value.isEmpty ? ("Insufficient data", true) : (value, false)
             }
         }()
@@ -710,23 +592,13 @@ struct WatchDetails: View, Loggable {
         )
     }
     
-    // Helper to calculate average between viewings.
+    // Helper to calculate the average between viewings.
     //
-    // The parsed `Date`s are carried through to the interval arithmetic rather than being
-    // discarded in favor of the raw strings. This previously sorted on the parsed dates,
-    // mapped back to the originals, and then handed each consecutive pair to
-    // `daysBetween(from:to:)`, which parsed both again — three parses per entry instead of
-    // one, on a path that reruns for every film selection. The arithmetic below is
-    // `daysBetween`'s own, applied to the very Dates that function would have recovered
-    // from those strings, so the result is unchanged.
+    // The parsed Dates are carried through the interval arithmetic rather than re-parsed from the strings, which
+    // would cost three parses per entry on a path that runs for every film selection.
     //
-    // Dropping the re-parse also retires the "some intervals failed to parse" bookkeeping
-    // it required. Every entry still in `sortedDates` parsed successfully to get there, so
-    // the interval count is exactly `count - 1`, which the guard below already establishes
-    // as at least 1 — the old `validIntervals > 0` guard could never fail.
-    // `averageBetweenViewingsSection`'s "Insufficient data" state (entries present, fewer
-    // than two of them usable) is still reached by the empty string that guard returns,
-    // which remains the only way this reports nothing.
+    // Every entry in `sortedDates` parsed, so the interval count is exactly `count - 1`. The guard below needs at
+    // least two dates, and the empty string it returns is the only way this reports nothing ("Insufficient data").
     private func calculateAverageBetweenViewings(for film: FilmSnapshot) -> String {
         // Sort dates from most to least recent.
         let sortedDates = film.calendarTable
@@ -741,8 +613,7 @@ struct WatchDetails: View, Loggable {
         let calendar = AppCalendar.current
         var totalDays = 0
 
-        // Days between each consecutive pair, matching daysBetween(from:to:) exactly —
-        // same calendar, same single `.day` component, same absolute value.
+        // Days between each consecutive pair: the current calendar, one `.day` component, and the absolute value.
         for index in 0..<(sortedDates.count - 1) {
             let laterDate = sortedDates[index]
             let earlierDate = sortedDates[index + 1]
@@ -757,13 +628,9 @@ struct WatchDetails: View, Loggable {
     /// Renders the Duration field from the cached display strings.
     @ViewBuilder
     private var durationSection: some View {
-        // When the film is edited and a non-empty editedDuration value is available,
-        // the primary value (edited runtime) is rendered at full prominence and the
-        // "(originally X hr. Y min.)" suffix is rendered in secondary color to reduce
-        // its visual weight. Text concatenation (+) is used to mix foreground styles
-        // within a single layout run.
-        // When editedDuration is absent, falls back to the standard duration string.
-        // When neither value is present, shows the standard placeholder.
+        // Edited runtime: primary value at full prominence, with the "(originally X)" parenthetical in tertiary
+        // (text concatenation mixes styles in one layout run). Without an edited duration, the standard duration.
+        // With neither, the placeholder.
         let isPlaceholder = cachedEditedDuration.isEmpty && cachedDuration.isEmpty
 
         VStack(alignment: .leading, spacing: RSBHelpers.headerRowSpacing) {
@@ -778,12 +645,11 @@ struct WatchDetails: View, Loggable {
         }
     }
 
-    /// The Duration row's composed value: the primary runtime at full prominence, and — when
-    /// the film is edited — the original runtime as a tertiary parenthetical.
+    /// The Duration row's composed value: the primary runtime at full prominence, and, when the film is edited,
+    /// the original runtime as a tertiary parenthetical.
     ///
-    /// `abbreviatingPrimary` selects the spelling of the PRIMARY value only. The parenthetical
-    /// is always abbreviated, as it has been: it is the lesser of the two figures and was
-    /// never given the long spelling to lose.
+    /// `abbreviatingPrimary` selects the spelling of the PRIMARY value only. The parenthetical is always
+    /// abbreviated, since it is the lesser of the two figures.
     private func durationRowText(abbreviatingPrimary: Bool) -> Text {
         if !cachedEditedDuration.isEmpty {
             let primary = abbreviatingPrimary ? cachedEditedDurationAbbreviated : cachedEditedDuration
@@ -798,14 +664,12 @@ struct WatchDetails: View, Loggable {
         return Text("None provided").foregroundStyle(Color(nsColor: .tertiaryLabelColor))
     }
 
-    /// The shorter candidate `fittingValueRow` falls back to when the full spelling would wrap
-    /// — "1 hr. 47 min." for "1 hour 47 minutes".
+    /// The shorter candidate `fittingValueRow` falls back to when the full spelling would wrap, such as
+    /// "1 hr. 47 min." for "1 hour 47 minutes".
     ///
-    /// `nil` when there is nothing to shorten, which skips the measurement entirely: the
-    /// placeholder has no abbreviation, and neither does a primary value whose short form is
-    /// missing or already identical to the long one ("0 min." is spelled the same either way).
-    /// That matches how every other row in the module offers its abbreviation — as a candidate,
-    /// never as an imposition.
+    /// `nil` when there is nothing to shorten, which skips the measurement: the placeholder has no abbreviation,
+    /// and neither does a value whose short form is missing or identical to the long one ("0 min." is the same
+    /// either way). As in every other row, the abbreviation is only a candidate.
     private var durationAbbreviatedRowText: Text? {
         let full = cachedEditedDuration.isEmpty ? cachedDuration : cachedEditedDuration
         let short = cachedEditedDuration.isEmpty ? cachedDurationAbbreviated : cachedEditedDurationAbbreviated
@@ -832,36 +696,26 @@ struct WatchDetails: View, Loggable {
     // `RSBHelpers.sidebarRowContainer(glyph:)` reserves, so no row's text starts at a
     // different offset than another's and no symbol can make a row taller.
 
-    /// The Film Queue membership note's glyph, shared by all three sections (Up Next, Soon,
-    /// Later) — the note names which queue, and the symbol only marks it as a queue row.
-    ///
-    /// Read from `RSBHelpers` rather than spelled out here: ListTable draws the same mark
-    /// for the same fact in the List Membership table, and the two were previously three
-    /// separate literals kept matched by comment. See `RSBHelpers.queueMembershipGlyph`.
+    /// The Film Queue membership note's glyph, shared by all three sections (Up Next, Soon, Later). The note
+    /// names the queue, and the symbol only marks it as a queue row. It is defined once in `RSBHelpers`
+    /// (`queueMembershipGlyph`), which ListTable also uses for the same mark.
     private static let queueNoteGlyph = RSBHelpers.queueMembershipGlyph
 
     /// The "Available for purchase on <format>" note's glyph.
     private static let purchaseNoteGlyph = "cart.fill.badge.questionmark"
     private static let preorderNoteGlyph = "calendar.badge.clock"
 
-    /// The tint a value row's glyph is drawn in.
+    /// The tint for a value row's glyph. Glyphs take `.secondary` instead of the text's `.primary` (capped by
+    /// `Preferences.capWatchDetailsGlyphColorAtSecondary`), so a glyph reads as an annotation rather than part of
+    /// the value. Placeholder glyphs stay tertiary, which is already below the cap.
     ///
-    /// The original rule was simply "whatever the text beside it uses", which put a glyph
-    /// beside a normal value at full `.primary` — the same weight as the value itself, for a
-    /// mark that only labels it. `Preferences.capWatchDetailsGlyphColorAtSecondary` caps that
-    /// at `.secondary` so the glyph reads as an annotation on the value rather than as part
-    /// of it. A placeholder row's tertiary gray is already below the cap and passes through
-    /// either way, so an empty field's glyph stays as faint as its text.
+    /// `opticaldisc.fill` is exempt. It marks a purchased release, a fact about the film rather than decoration,
+    /// so it stays `.primary`.
     ///
-    /// `opticaldisc.fill` is exempt: it denotes a purchased release, which is a fact about
-    /// the film rather than decoration on the row, and it is the one glyph in the module a
-    /// user may be reading FOR rather than reading past.
-    ///
-    /// Annotation rows do not come through here — `annotationRow` already defaults to
-    /// `.secondary`, which is what this cap would give them anyway.
+    /// Annotation rows do not come through here. `annotationRow` already defaults to `.secondary`.
     private func glyphTint(isPlaceholder: Bool, symbol: String? = nil) -> Color {
         if isPlaceholder { return Color(nsColor: .tertiaryLabelColor) }
-        if symbol == "opticaldisc.fill" { return .primary }
+        if symbol == ContentGlyphs.disc { return .primary }
         return Preferences.capWatchDetailsGlyphColorAtSecondary ? .secondary : .primary
     }
 
@@ -885,31 +739,27 @@ struct WatchDetails: View, Loggable {
     /// Matched against the four fixed spellings `calculateRotationData` can produce; anything
     /// else is a formatted future date ("September 2029 (3 years 7 months away)"), the case
     /// the clock names. Defaulting that way round means a date whose formatting changes still
-    /// gets the right symbol, while a renamed fixed string would fall through to the clock —
-    /// so the fixed spellings are written here exactly as that function writes them.
+    /// gets the right symbol; both sides read the fixed spellings from `RotationValue`.
     private func rotationValueGlyph(_ formattedValue: String) -> String? {
         switch formattedValue {
-        case "Blacklisted", "Ignored": return gatedGlyph("xmark")
-        case "Ready for viewing":      return gatedGlyph("checkmark")
-        case "Unknown":                return gatedGlyph("questionmark")
+        case RotationValue.blacklisted, RotationValue.ignored: return gatedGlyph("xmark")
+        case RotationValue.ready:   return gatedGlyph("checkmark")
+        case RotationValue.unknown: return gatedGlyph("questionmark")
         default:                       return gatedGlyph("deskclock")
         }
     }
 
-    /// The "Source for Viewing" value row's glyph: the disc for a purchased disc-based
-    /// source, a document for everything else, and the document's outline form for the
-    /// "None provided" placeholder — an unfilled symbol for an unfilled field.
+    /// The "Source for Viewing" value row's glyph: the disc for a purchased disc-based source, a document for
+    /// everything else, and the outline document for the "None provided" placeholder.
     ///
-    /// The disc is the one glyph that can outrank the user's preference. With
-    /// `Preferences.purchasedDiscGlyphVisibilityOverride` on it bypasses the gate entirely
-    /// and is always drawn; with it off it is gated like everything else. Either way it is
-    /// drawn in the gutter — the inline composition it used to fall back to when glyphs were
-    /// off is gone, so the disc's position and size no longer depend on the preference.
+    /// The disc can outrank the user's preference. With `Preferences.purchasedDiscGlyphVisibilityOverride` on, it
+    /// is always drawn; with it off, it is gated like the rest. Either way it sits in the leading gutter, so its
+    /// position does not depend on the preference.
     private func sourceValueGlyph(isPurchasedDisc: Bool, isPlaceholder: Bool) -> String? {
         if isPurchasedDisc {
             return Preferences.purchasedDiscGlyphVisibilityOverride
-                ? "opticaldisc.fill"
-                : gatedGlyph("opticaldisc.fill")
+                ? ContentGlyphs.disc
+                : gatedGlyph(ContentGlyphs.disc)
         }
         return gatedGlyph(isPlaceholder ? "document" : "document.fill")
     }
@@ -931,23 +781,11 @@ struct WatchDetails: View, Loggable {
         }
     }
 
-    /// Composes the "Source for Viewing" value row: the optional disc glyph followed by
-    /// the value. Extracted from the @ViewBuilder context because Text + Text
-    /// concatenation is not a valid @ViewBuilder expression — the result type is Text,
-    /// not a View the builder can emit directly.
+    /// The Source row's value text, plain. The disc glyph is drawn in the leading gutter by `sourceValueGlyph`,
+    /// so the value and its abbreviation are just text.
     ///
-    /// The glyph is inlined as a Text attachment so it participates in the text's own
-    /// layout flow. When the value wraps, subsequent lines return to the text's left
-    /// edge — directly beneath the glyph — rather than indenting past it as they would
-    /// in an HStack column arrangement. A kerned space separates the glyph from the
-    /// text, approximating the original 5pt HStack gap at 12pt.
-    /// This row's value text, plain. The disc glyph it used to compose inline is now drawn
-    /// in the leading gutter by `sourceValueGlyph`, in every state of every preference, so
-    /// the value and its abbreviation are just text.
-    ///
-    /// Kept as a function rather than folded into its two call sites because both candidates
-    /// handed to `fittingValueRow` must be built the same way for the measurement to mean
-    /// anything.
+    /// Kept as a function because every candidate handed to `fittingValueRow` must be built the same way for the
+    /// measurement to mean anything.
     private func sourceRowText(displayValue: String, valueColor: Color) -> Text {
         Text(displayValue).foregroundStyle(valueColor)
     }
@@ -957,37 +795,26 @@ struct WatchDetails: View, Loggable {
         let source = cachedSourceDisplay
         let isPlaceholder = source.value.isEmpty
         let displayValue = isPlaceholder ? "None provided" : source.value
-        // Both notes stay suppressed for the "None provided" placeholder, as they were
-        // when they hung off the end of the value: with no source recorded there is no
-        // statement for them to qualify. The purchase-availability note can now sit
-        // beside a purchased Blu-ray disc (e.g. an owned Blu-ray with an unpurchased 4K
-        // reads "Available for purchase on 4K UHD"), so it and the Region B note are no
-        // longer mutually exclusive; each is emitted independently by sourceDisplay.
+        // Both notes are suppressed for the "None provided" placeholder, since there is no source to qualify. The
+        // purchase note can sit beside a purchased Blu-ray disc (an owned Blu-ray with an unpurchased 4K reads
+        // "Available for purchase on 4K UHD"), so it and the Region B note are emitted independently by sourceDisplay.
         let purchaseNote = isPlaceholder ? "" : source.availableForPurchaseNote
         let regionBNote = isPlaceholder ? "" : source.regionBLockNote
         let preorderNote = isPlaceholder ? "" : source.preorderReleaseNote
         let valueColor: Color = isPlaceholder ? Color(nsColor: .tertiaryLabelColor) : .primary
-        // Resolved once and used for both the glyph itself and the tint decision that
-        // depends on which glyph it is. Called separately at the two sites, the symbol
-        // was derived twice per render and — more to the point — the two calls had to be
-        // kept identical by hand for `glyphTint`'s `opticaldisc.fill` exemption to be
-        // asking about the symbol actually drawn.
+        // The glyph and the tint decision use the same resolved symbol, so `glyphTint`'s `opticaldisc.fill`
+        // exemption tests the symbol actually drawn.
         let valueGlyph = sourceValueGlyph(isPurchasedDisc: source.isPurchasedDiscSource,
                                           isPlaceholder: isPlaceholder)
 
         VStack(alignment: .leading, spacing: RSBHelpers.headerRowSpacing) {
             RSBHelpers.sectionHeader("Source for Viewing")
-            // Three words in a source value are long enough to be worth shortening and
-            // safe to shorten: "remastered" ("rem."), the origin demonym ("Australian" →
-            // "AU") and the studio shorthand ("Universal" → "Uni"). Every other component
-            // ("Blu-ray disc", "4K disc", "rip", the year) is already short. As everywhere
-            // else, a short form is used only when the longer one would wrap; a value with
-            // none of the three words offers no alternative at all. The origin's and the
-            // studio's compact forms come from sourceDisplay rather than from text
-            // substitution — see SourceDisplay.originAbbreviatedValue for why.
-            //
-            // Composed through sourceRowText for every candidate so all of them are
-            // measured the same way as the full value.
+            // Three words in a source value are worth shortening and safe to shorten: "remastered" ("rem."), the origin
+            // demonym ("Australian" → "AU"), and the studio shorthand ("Universal" → "Uni"). Other components ("Blu-ray
+            // disc", "4K disc", "rip", the year) are already short. A short form is used only when the longer one would
+            // wrap, and a value with none of the three offers no alternative. The origin and studio forms come from
+            // sourceDisplay, not text substitution (see SourceDisplay.originAbbreviatedValue). Every candidate is built
+            // through sourceRowText, so all are measured alike.
             RSBHelpers.fittingValueRow(
                 full: sourceRowText(displayValue: displayValue, valueColor: valueColor),
                 abbreviations: SidebarTextAbbreviation
@@ -1000,18 +827,15 @@ struct WatchDetails: View, Loggable {
                 glyph: valueGlyph,
                 glyphColor: glyphTint(isPlaceholder: isPlaceholder, symbol: valueGlyph)
             )
-            // Region B first: it describes the very disc named on the value row, and
-            // stays .primary because a hard playback restriction warrants the same
-            // attention as the value it qualifies. Purchase availability is the lesser
+            // Region B first: it describes the disc named on the value row, and stays .primary because a playback
+            // restriction warrants the same attention as the value it qualifies. Purchase availability is the lesser
             // aside and takes annotationRow's default .secondary.
             if !regionBNote.isEmpty {
                 RSBHelpers.annotationRow(regionBNote, color: .primary)
             }
-            // Built as a fitting row rather than a plain annotationRow so an upcoming
-            // release's date can drop to its abbreviated month ("Oct. 2, 2026") instead
-            // of wrapping, exactly as the module's other date rows do. Styled to match
-            // annotationRow: .secondary text and glyph, always selectable.
-            // A pre-ordered disc's release date, styled as the purchase note below it.
+            // Pre-order date: a fitting row, so it can drop to an abbreviated month ("Oct. 2, 2026") instead of
+            // wrapping, as the module's other date rows do. Styled like annotationRow (.secondary text and glyph,
+            // always selectable).
             if !preorderNote.isEmpty {
                 RSBHelpers.fittingValueRow(
                     full: Text(preorderNote).foregroundStyle(.secondary),
@@ -1045,8 +869,8 @@ struct WatchDetails: View, Loggable {
         let dateFormatter = Self.viewingDateFormatter
         let baseDateString = dateFormatter.string(from: date)
 
-        // Build full date string with version code (e.g. "2025.06.14.tc")
-        // CRITICAL: lastWatched must store the base date only, never the version code
+        // Full date string with version code (e.g. "2025.06.14.tc").
+        // lastWatched must store the base date only, never the version code.
         let fullDateString: String
         if version.rawValue.isEmpty {
             fullDateString = baseDateString
@@ -1057,26 +881,16 @@ struct WatchDetails: View, Loggable {
         // Build new calendarTable as a local copy - do NOT mutate the live Film object
         var newCalendarTable = film.calendarTable
         let existingBaseDates = newCalendarTable.compactMap { extractDatePortion(from: $0) }
-        // Defense-in-depth: UnifiedViewingPopover already rejects a duplicate date up
-        // front (with a visible "Event Already Exists" alert) before this closure is
-        // ever invoked, so this guard should be unreachable in the normal UI flow.
-        // It is retained so this method can never silently create a second viewing
-        // entry for the same calendar day even if called from an unexpected path.
+        // Defense in depth: UnifiedViewingPopover rejects a duplicate date first (with the "Event Already Exists"
+        // alert), so this guard is normally unreachable. It keeps this method from ever adding a second entry for the same day.
         if !existingBaseDates.contains(baseDateString) {
             newCalendarTable.append(fullDateString)
         }
 
-        // Compute new lastWatched - only advance it if this date is more recent.
-        //
-        // Parsed with the app-wide canonical `parseDate(from:)` rather than the strict
-        // "yyyy.MM.dd" formatter above. The two are NOT interchangeable here: the
-        // formatter accepts only the dot format, while `lastWatched` is merely
-        // guaranteed to have had version codes and trailing dots stripped (see
-        // DBRestorer's `cleanedLastWatched` and FilmSheet's derivation) — a dash-format
-        // or ISO value surviving an import parses fine everywhere else in this file
-        // (calculateRotationData, formatDateWithTimeAgo) but failed here, dropping into
-        // the unconditional-overwrite branch below. Recording an OLDER viewing for such
-        // a film then silently rewound lastWatched to that older date.
+        // Advance lastWatched only when this date is more recent. Parse it with the app-wide `parseDate(from:)`, not
+        // the dot-only formatter above: after an import, lastWatched can still be dash or ISO format (DBRestorer's
+        // cleanedLastWatched strips version codes and trailing dots only). The dot-only formatter fails on those and
+        // would fall through to the unconditional overwrite, so an older viewing would rewind lastWatched.
         var newLastWatched = film.lastWatched
         if let existingDate = parseDate(from: film.lastWatched) {
             if date > existingDate { newLastWatched = baseDateString }
@@ -1108,11 +922,9 @@ struct WatchDetails: View, Loggable {
     }
     
     private func handleViewingButtonClick() {
-        // Fresh open: clear any leftover pending entry so the popover seeds itself
-        // with blank defaults rather than a stale snapshot from an earlier session.
-        // (The reopen path after a duplicate-date alert does NOT go through this
-        // function — see the .reopenViewingEventPopover handler below — so a
-        // rejected entry is never wiped out by this reset before it can be restored.)
+        // Fresh open: clear any leftover pending entry so the popover starts blank. The reopen path after a
+        // duplicate-date alert does not come through here (see .reopenViewingEventPopover), so a rejected entry
+        // survives until it is restored.
         pendingViewingEntry = nil
 
         // If Preferences.iCalIntegration is enabled and permission has not yet been
@@ -1152,16 +964,11 @@ struct WatchDetails: View, Loggable {
         showViewingPopover = true
     }
     
-    /// Flashes the confirmation checkmark on the "Add Viewing Event" button for three
-    /// seconds. The reset is held in `checkmarkResetTask` and canceled on re-entry so
-    /// that consecutive viewings restart the full three-second window rather than
-    /// leaving an earlier timer running to clear the checkmark early — with a detached
-    /// task per call, adding two viewings in quick succession had the first call's
-    /// timer expire partway through the second call's display.
+    /// Flashes the "Add Viewing Event" confirmation checkmark for three seconds. The pending reset lives in
+    /// `checkmarkResetTask` and is canceled on re-entry, so consecutive viewings each get the full three seconds.
     ///
-    /// Deliberately NOT wrapped in `withAnimation`: the symbol swap carries its own
-    /// value-scoped `.animation` on the Image. A transaction-wide animation here also
-    /// animated the tab relayout that addViewing() triggers in the same update pass.
+    /// Not wrapped in `withAnimation`: the symbol swap has its own value-scoped `.animation`, and a transaction-wide
+    /// animation would also animate the tab relayout that addViewing() triggers.
     private func showCheckmarkFeedback() {
         checkmarkResetTask?.cancel()
         showViewingCheckmark = true

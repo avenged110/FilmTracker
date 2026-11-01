@@ -10,9 +10,8 @@ import Foundation
 /// Represents a single search token that can be selected in the search field.
 /// SwiftUI requires tokens to conform to Identifiable.
 ///
-/// `Hashable`/`Equatable` are synthesized. The hand-written `==` and `hash(into:)`
-/// that used to live here combined exactly the four stored properties the compiler
-/// does, so they were pure duplication; `id` is computed and never participates.
+/// `Hashable`/`Equatable` are synthesized from the four stored properties. A hand-written
+/// `==` and `hash(into:)` would duplicate that, and `id` is computed and never participates.
 struct SearchToken: Identifiable, Hashable {
     var id: String { "\(field.rawValue):\(value):\(isInverted):\(isOr)" }
     

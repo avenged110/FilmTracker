@@ -1,28 +1,18 @@
 // MARK: - ReleasesTable.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// RightSidebar's "Releases" tab, summary-table module. Displays all disc-based releases
-// in a unified table above the release cards, when the corresponding preference is on.
+// The summary table in RightSidebar's Releases tab, shown above the release cards when its preference is on.
+// It lists all disc releases in one table.
 //
-// MAINTENANCE NOTE — DO NOT PRUNE `.standard`
-// This table has two layouts (see ReleasesTableMode below). Only `.releaseCard` has a
-// live call site: the summary table above the cards in the Releases tab. `.standard` —
-// the full 22-column, horizontally scrolling layout — lost its only caller when this
-// module moved out of the Details tab's stack, and RSBReleasesSection's `mode`
-// default of `.standard` is likewise now unexercised.
-//
-// All of that is retained deliberately for potential future use. `.standard`, its
-// column-width constants, its horizontal scrolling geometry, the module title it draws,
-// and every branch reached only when `mode == .standard` are NOT dead code and must not
-// be removed as such unless explicitly instructed. Reintroducing the layout should be a
-// call-site change, nothing more.
+// MAINTENANCE NOTE: DO NOT PRUNE `.standard`
+// The table has two layouts (see ReleasesTableMode). Only `.releaseCard` has a live call site. `.standard`, the
+// full 22-column horizontally scrolling layout, lost its caller when the module left the Details tab. It is kept on purpose,
+// along with its column constants, scrolling geometry, module title, and every branch that only `.standard` reaches. Do not remove
+// them as dead code without explicit instruction. Reintroducing the layout should be a call-site change only.
 //
 // SHARED WITH THE RELEASE CARDS
-// Everything this table and the cards below it must agree on — the region lock's mark and
-// coloring, the composed video line, and the grouping and ordering of the release set — is
-// defined once in RSBHelpers' "Releases Tab: Shared Derivations" section and used from
-// both. Nothing in that list should be reimplemented here; what stays local is this
-// table's own column geometry and cell chrome.
+// The region lock, composed video line, and release grouping and ordering are defined once in RSBHelpers'
+// "Releases Tab: Shared Derivations" section. Do not reimplement them here. This file owns only the table's own geometry and cell chrome.
 
 import SwiftUI
 
@@ -61,25 +51,15 @@ private enum ColW {
 // Accepts pre-filtered releases from RSBReleasesSection (which already filters to
 // disc formats), avoiding a duplicate filter pass on every render.
 //
-// This was previously split across two types — a `DiscReleasesTable` that added only
-// the module title and forwarded both of its stored properties verbatim to a private
-// `UnifiedReleaseTable` that did all the work. The wrapper carried no state, no
-// environment, and no logic, so the two are merged here; `DiscReleasesTable` keeps its
-// name and signature, which is what RSBReleasesSection (below) constructs.
+// `DiscReleasesTable` is the one view for the table. RSBReleasesSection constructs it with the same name and signature.
 
 // MARK: - Presentation Mode
 /// Which of the table's two layouts to draw.
 ///
-/// `.standard` is the original full-width, 22-column, horizontally scrolling table that
-/// the "Details" tab used to host. It currently has no call site and is retained
-/// intentionally — see the maintenance note at the top of this file before removing
-/// anything that only `.standard` reaches.
+/// `.standard` is the full 22-column, horizontally scrolling table. It has no call site and is kept on purpose (see the header note).
 ///
-/// `.releaseCard` is the condensed variant used above the cards in the "Releases" tab.
-/// It keeps only the first five columns, does not scroll horizontally, drops the module
-/// title, and stacks each combo-pack child directly beneath its parent. Everything it
-/// omits is present in full on the cards immediately below it, so the table's job there
-/// is purely at-a-glance summary.
+/// `.releaseCard` is the condensed table above the cards. It shows the first five columns, does not scroll, has no module title,
+/// and stacks each combo-pack child under its parent. The omitted fields appear on the cards below, so this table is a summary.
 enum ReleasesTableMode {
     case standard
     case releaseCard
@@ -87,12 +67,8 @@ enum ReleasesTableMode {
 
 // MARK: - Table Row Model
 private extension ReleaseRow {
-    /// The release year as the Year cell draws it: in the tertiary color while the release
-    /// date is still ahead, so an unreleased disc reads as not yet in hand at a glance.
-    ///
-    /// Decided when the cell is drawn rather than when the row is built, against
-    /// CurrentDay's `today`, which the reading view observes — so the year darkens on the day
-    /// the release comes out without the table being rebuilt.
+    /// The release year, in the tertiary color while the release is still ahead. It is decided at draw time against
+    /// CurrentDay's `today`, so the year changes on release day without a table rebuild.
     @MainActor var yearText: Text {
         let upcoming = ReleaseDateValue(release.releaseDate, format: release.format)?
             .isUpcoming(today: CurrentDay.shared.today) ?? false
@@ -101,8 +77,7 @@ private extension ReleaseRow {
 }
 
 private struct ReleaseRow: Identifiable {
-    // Stable ID derived from the release's own UUID so that ForEach can correctly
-    // diff rows across recomputes rather than treating every render as a full replacement.
+    // The release's own UUID, so ForEach can diff rows across recomputes.
     var id: UUID { release.id }
     let release: ReleaseSnapshot
     let studio: String
@@ -120,9 +95,8 @@ private struct ReleaseRow: Identifiable {
     let independence: String
     let hasArtwork: String
     let isRemastered: String
-    /// False for 4K UHD rows when no 4K release in the current set is marked remastered.
-    /// True for all Blu-ray and DVD rows, and for 4K rows once at least one 4K release
-    /// is affirmatively remastered (at which point all 4K rows display their status).
+    /// False for 4K rows until at least one 4K release in the set is remastered. Then all 4K rows show their status.
+    /// Blu-ray and DVD rows always show.
     let showRemasteredIndicator: Bool
     let cost: String
     let amountSpent: String
@@ -130,64 +104,30 @@ private struct ReleaseRow: Identifiable {
     let condition: String
     let nationalOrigin: String
     let notes: String
-    /// True when this release hangs off a parent (a combo-pack child Blu-ray). Read only
-    /// in `.releaseCard` mode, where it suppresses the purchased and studio cells — both
-    /// would merely repeat the parent row directly above — and selects the badge's
-    /// open-top outline.
-    ///
-    /// This also answers "does the row above continue my stack?", which used to be a
-    /// separate `hasStackedAbove` field. The two differed only for an ORPHANED child — one
-    /// naming a parent absent from the displayed set, which is a child with nothing above
-    /// it to meet, so it needed a closed badge while keeping its cells suppressed. Orphans
-    /// are now impossible by construction, and `.releaseCard` ordering
-    /// (`releasesGroupedByHierarchy` flattened) always places a child immediately after
-    /// either its parent or an earlier sibling of the same parent — so every child has a
-    /// stack-mate directly above and the two fields carried identical values. See that
-    /// function's "GROUP SHAPE" note, including the one residual it cannot rule out: a
-    /// parent dropped by the format filter leaves its child drawing an open-topped badge
-    /// that meets nothing, which is cosmetic and reachable only from a corrupt backup.
-    ///
-    /// The other direction is genuinely order-dependent and still computed; see
-    /// `hasStackedBelow`.
+    /// True when this release is a combo-pack child. It is read only in `.releaseCard` mode, where it hides the purchased and studio cells
+    /// (they repeat the parent above) and sets the badge's open-top outline. It also means the row above continues this stack.
+    /// Orphans cannot occur, because grouping always places a child directly after its parent or a sibling (see `releasesGroupedByHierarchy`).
+    /// The one residual is a parent dropped by the format filter, which can leave a cosmetic open top. That happens only with a corrupt backup.
+    /// The reverse direction depends on order and is computed in `hasStackedBelow`.
     let isChild: Bool
-    /// True when the row immediately below this one belongs to the same stack, so the
-    /// format badge draws an open-bottom outline that meets the next row's open-top one.
-    ///
-    /// "Same stack" covers two adjacencies, not one: the next row is this release's own
-    /// child, OR the next row is a *sibling* child of the same parent. The second case is
-    /// what a "Combo-pack (dual BD)" pack introduces — its first Blu-ray child has an
-    /// open top (it meets the parent above) and an open bottom (it meets its sibling
-    /// below), leaving the badge with no closed edge at all. Naming the field for the
-    /// adjacency rather than for the child relationship is what keeps that case
-    /// expressible; the old `hasStackedChild` could only ever describe the parent's edge.
-    ///
-    /// Only ever true in `.releaseCard` mode, whose ordering is what guarantees the
-    /// adjacency; `.standard` ordering makes no such promise, so it never sets this.
+    /// True when the next row is in the same stack, so this format badge's bottom edge is open. The next row is either this
+    /// release's child or a sibling child of the same parent. The sibling case covers a "Combo-pack (dual BD)" pack, whose first
+    /// Blu-ray has an open top and bottom. Only `.releaseCard` order guarantees this adjacency, so only that mode sets it.
     let hasStackedBelow: Bool
 }
 
 struct DiscReleasesTable: View {
-    // Deliberately reads no environment: this view's entire input is the
-    // pre-filtered `releases` array passed down from RSBReleasesSection, which already
-    // owns the `\.sidebarFilm` dependency and re-derives the array on film changes.
-    // Declaring an unused `@Environment(\.sidebarFilm)` here only subscribed this
-    // view to a value it never consulted.
+    // Reads no environment. Its input is the pre-filtered `releases` array from RSBReleasesSection, which owns the `\.sidebarFilm` dependency.
     @Binding var isTableExpanded: Bool
 
     // Pre-filtered releases passed in from RSBReleasesSection.
     let releases: [ReleaseSnapshot]
 
-    /// Defaults to `.standard`. That default is currently unexercised — the sole caller
-    /// passes `.releaseCard` — and is retained deliberately; see this file's header note.
+    /// Defaults to `.standard`, which nothing uses at present. See the header note.
     var mode: ReleasesTableMode = .standard
 
-    // The rows (and the scrolling layout's Notes width) are derived from `releases` in the
-    // pass that draws them. They used to be cached in @State written from
-    // onChange(initial:), which drew every new film twice — once with the previous film's
-    // rows, then again once the handler replaced them — so the cache cost a full extra
-    // pass to save a build that is one pass's worth of work. SwiftUI skips this body
-    // entirely when `releases` and the binding are unchanged, so nothing is rebuilt on
-    // unrelated renders either.
+    // The rows and the scrolling layout's Notes width are derived from `releases` in each draw pass. A cache would draw a new film twice.
+    // SwiftUI skips this body when `releases` and the binding are unchanged.
 
     @ViewBuilder
     var body: some View {
@@ -199,11 +139,8 @@ struct DiscReleasesTable: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case .releaseCard:
-            // No module title here: the tab is already named "Releases" and the cards
-            // below say what they are. No vertical padding either — the table is one
-            // member of RTabReleases' stack, so its spacing above and below is set by
-            // that stack's own top inset and spacing rather than baked in here, which is
-            // what keeps the gaps identical whether or not this table is present.
+            // No module title, since the tab is named "Releases" and the cards say what they are. No vertical padding either. The
+            // RTabReleases stack sets the spacing, so the gaps match whether or not this table is shown.
             compactTable
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -211,36 +148,18 @@ struct DiscReleasesTable: View {
 
     // MARK: - Compact Table (.releaseCard mode)
 
-    /// The first five columns only, non-scrolling. The Studio column is deliberately
-    /// given no `maxWidth` so it absorbs whatever width is left over after the four
-    /// fixed columns; with horizontal scrolling off, a fixed 142pt Studio column would
-    /// overrun the 300pt sidebar and simply be clipped.
+    /// The first five columns, without scrolling. The Studio column has no `maxWidth`, so it takes the width the four fixed columns leave.
+    /// A fixed-width Studio column would overrun the sidebar and be clipped.
     private var compactTable: some View {
         CustomTable(
             buildTableData(from: releases),
             columns: [
                 CustomTableColumn(
-                    "", systemImage: "opticaldisc.fill", minWidth: ColW.format, maxWidth: ColW.format, alignment: .center, cellPadding: 4),
-                // MARK: Zero cellPadding on Pur. and Reg.
-                // CustomTable applies cellPadding OUTSIDE the header label's own
-                // minWidth/maxWidth frame (see CustomTable.headerRow), so those points
-                // widen the column's footprint without giving the label a single point
-                // more room to render in. "Pur." and "Reg." are the two narrowest text
-                // headers in this layout and already sit within a few points of their
-                // column widths, which is why the widths themselves cannot come down —
-                // but the padding around them is pure surplus and can.
-                //
-                // Dropping it from 2 to 0 takes 4pt off each column's total width while
-                // leaving the labels exactly the width they have today, so neither can
-                // begin to truncate as a result of this change. The data cells below
-                // shed their matching .padding(.horizontal, 2) so header and content
-                // stay on the same geometry; their 16pt badges keep 3pt (Pur.) and 5pt
-                // (Reg.) of slack inside the column frame, so nothing crowds there
-                // either. Both columns' text neighbors carry the default 8pt
-                // cellPadding, so the gutter between headings never falls below 8pt.
-                //
-                // Scoped to this layout on purpose — the `.standard` column list below
-                // keeps its 2pt, since it scrolls horizontally and is not width-starved.
+                    "", systemImage: ContentGlyphs.disc, minWidth: ColW.format, maxWidth: ColW.format, alignment: .center, cellPadding: 4),
+                // Pur. and Reg. use cellPadding 0. CustomTable adds the padding outside the header label's frame, so the padding
+                // widens the column without giving the label room. Dropping it from 2 to 0 frees 4 pt per column, and the labels keep
+                // their width, so they cannot truncate. The data cells drop the matching 2 pt padding too. Their badges still have slack.
+                // This applies only to this layout. `.standard` keeps 2 pt because it scrolls and is not width-starved.
                 CustomTableColumn(
                     "Pur.", minWidth: ColW.purchased, maxWidth: ColW.purchased, alignment: .center, cellPadding: 0),
                 CustomTableColumn(
@@ -252,19 +171,13 @@ struct DiscReleasesTable: View {
             ],
             isExpanded: $isTableExpanded,
             allowHorizontalScroll: false,
-            // The scrolling layout puts both the header and the data rows at a leading
-            // inset of 10. With horizontal scrolling off, CustomTable instead adds its
-            // 2pt `scrollCompensation` to the rows (10 + 2 = 12) and drops the header to
-            // that 2 alone. Reducing contentPadding to 8 restores the rows to a visual
-            // 10, and the header overrides restore the header to the same 10 / trailing 8
-            // the rows sit at — so this table's columns line up with their headings and
-            // with the standard mode's geometry.
+            // Without scrolling, CustomTable adds a 2 pt `scrollCompensation` to the rows and drops the header to 2. contentPadding 8 brings the rows
+            // back to a visual 10. The header overrides set the header to the same 10 / 8, so the columns line up with the headings.
             contentPadding: 8,
             headerLeadingPadding: 10,
             headerTrailingPadding: 8
         ) { row in
-            // Format badge (col 1). No vertical padding, and a full-height frame, so a
-            // stacked parent/child pair's outlines meet exactly at the row boundary.
+            // Format badge (col 1). No vertical padding, and a full-height frame, so stacked outlines meet at the row boundary.
             StackedFormatBadge(
                 label: ReleaseFormat.badge(for: row.release.format),
                 outlined: row.release.format == ReleaseFormat.uhd4K.rawValue || row.isChild,
@@ -274,15 +187,12 @@ struct DiscReleasesTable: View {
             .frame(minWidth: ColW.format, maxWidth: ColW.format, maxHeight: .infinity, alignment: .center)
             .padding(.horizontal, 4)
 
-            // Purchased (col 2) — omitted for a child, whose purchase is recorded on the
-            // parent row directly above it.
+            // Purchased (col 2). Omitted for a child, whose purchase is on the parent row above.
             Group {
                 if row.isChild {
                     Color.clear.frame(width: 16, height: 16)
                 } else {
-                    // Unpurchased releases draw the same dashed-circle glyph as the
-                    // release card's header badge, in the same red — not the plain
-                    // "xmark" the other indicator columns still use.
+                    // Unpurchased releases use the card header's dashed-circle glyph in red, not the plain "xmark" the other indicators use.
                     purchasedIndicator(row.purchased)
                 }
             }
@@ -290,14 +200,8 @@ struct DiscReleasesTable: View {
             .frame(minWidth: ColW.purchased, maxWidth: ColW.purchased, alignment: .center)
             .padding(.vertical, 2)
 
-            // Year (col 3) — a child reports its base release year, and only when it
-            // actually carries one. Its own release year is the combo pack's, already
-            // stated on the parent row directly above, so repeating it would say nothing;
-            // a base release year is the one date a child can contribute that the parent
-            // does not. With neither, the cell is left blank rather than filled with a
-            // duplicate.
-            //
-            // A release not yet out has its year in the tertiary color; see `yearText`.
+            // Year (col 3). A child shows only its base release year, since the parent above already states the pack's year. A blank cell is
+            // used when there is no base year. A release not yet out uses the tertiary color (see `yearText`).
             CustomTableCell(row.isChild ? Text(row.baseReleaseYear) : row.yearText,
                             minWidth: ColW.year, maxWidth: ColW.year, alignment: .center)
 
@@ -307,24 +211,22 @@ struct DiscReleasesTable: View {
                 .frame(minWidth: ColW.region, maxWidth: ColW.region, alignment: .center)
                 .padding(.vertical, 2)
 
-            // Studio (col 5) — likewise omitted for a child; a combo pack has one studio.
+            // Studio (col 5). Omitted for a child, since a combo pack has one studio.
             CustomTableCell(row.isChild ? "" : row.studio,
                             minWidth: ColW.compactStudioMinimum, maxWidth: .infinity)
         }
-        // No Notes width here, unlike the scrolling layout below: this layout draws
-        // only the first five columns and has no Notes column at all.
+        // No Notes column here. This layout draws only the first five columns.
     }
 
-    /// The table itself, kept in its own property so `body` stays a trivial
-    /// expression for the type-checker despite the 22-column builder below.
+    /// The table, kept in its own property so `body` stays simple for the type-checker despite the 22-column builder.
     private var table: some View {
-        // Computed once per pass and captured, not re-derived per row.
+        // Computed once per pass and captured.
         let notesColumnWidth = computeNotesColumnWidth(from: releases)
         return CustomTable(
             buildTableData(from: releases),
             columns: [
                 CustomTableColumn(
-                    "", systemImage: "opticaldisc.fill", minWidth: ColW.format, maxWidth: ColW.format, alignment: .center, cellPadding: 4),
+                    "", systemImage: ContentGlyphs.disc, minWidth: ColW.format, maxWidth: ColW.format, alignment: .center, cellPadding: 4),
                 CustomTableColumn(
                     "Pur.", minWidth: ColW.purchased, maxWidth: ColW.purchased, alignment: .center, cellPadding: 2),
                 CustomTableColumn(
@@ -400,7 +302,7 @@ struct DiscReleasesTable: View {
                 .padding(.horizontal, 2)
                 .padding(.vertical, 2)
 
-            // Year (col 3) — tertiary while the release is not yet out; see `yearText`.
+            // Year (col 3). Tertiary while the release is not yet out (see `yearText`).
             CustomTableCell(row.yearText, minWidth: ColW.year, maxWidth: ColW.year, alignment: .center)
 
             // Region (col 4)
@@ -446,10 +348,7 @@ struct DiscReleasesTable: View {
                 .padding(.horizontal, 2)
                 .padding(.vertical, 2)
 
-            // Remastered (col 15)
-            // For 4K UHD rows the indicator is suppressed until at least one 4K release
-            // in the set is marked remastered; once that threshold is met, all 4K rows
-            // display their individual status.  Blu-ray and DVD rows always show.
+            // Remastered (col 15). 4K rows show nothing until one 4K release is remastered. Then all 4K rows show their own status. Blu-ray and DVD always show.
             Group {
                 if row.showRemasteredIndicator {
                     symbolBadge(row.isRemastered == "Yes" ? "checkmark" : "xmark",
@@ -482,10 +381,8 @@ struct DiscReleasesTable: View {
 
     // MARK: - Table Data Builder
 
-    /// Artwork tags that `ArtworkCell` draws a dedicated glyph for, and which therefore
-    /// reach it verbatim rather than being folded into the qualified "Yes*" bucket. Held
-    /// as a type-level constant rather than built inside the per-release mapping below,
-    /// where it would allocate a fresh Set for every row on every rebuild.
+    /// Artwork tags that `ArtworkCell` draws its own glyph for. They pass through verbatim, not into the "Yes*" bucket.
+    /// This is a type-level constant, so it is not rebuilt for every row.
     private static let literalArtworkTags: Set<String> = [
         ReleaseArtwork.steelbook,
         ReleaseArtwork.yes,
@@ -496,9 +393,7 @@ struct DiscReleasesTable: View {
     ]
 
     private func buildTableData(from source: [ReleaseSnapshot]) -> [ReleaseRow] {
-        // Determine whether any 4K UHD release in this set is affirmatively remastered.
-        // This drives the Rem. column visibility rule: all 4K rows are blank until the
-        // threshold is met, then all 4K rows show their individual remaster status.
+        // Whether any 4K release is remastered. This sets the Rem. column rule: all 4K rows stay blank until then.
         let any4KRemastered = source.contains { $0.format == ReleaseFormat.uhd4K.rawValue && $0.remastered }
 
         let ordered: [ReleaseSnapshot]
@@ -511,22 +406,9 @@ struct DiscReleasesTable: View {
             ordered = releasesGroupedByHierarchy(source).flatMap { $0 }
         }
 
-        // Which rows have their BOTTOM edge open, i.e. the row below continues their stack.
-        // Computed off the final order rather than inferred per-row from `childReleaseIDs`,
-        // so the outline can never claim an adjacency the layout does not actually have.
-        //
-        // Two adjacencies count as continuing a stack: the next row is this release's own
-        // child, or the next row is a sibling child of the same parent. The second is what
-        // "Combo-pack (dual BD)" introduces — its first Blu-ray is met from above by the
-        // parent and from below by its sibling — and it is why this cannot be reduced to
-        // "has children".
-        //
-        // Only this direction is computed. The TOP edge used to be accumulated alongside it
-        // as a separate `hasStackedAbove` set, which was needed only to tell an orphaned
-        // child (a child with nothing above it to meet) from an ordinary one. Orphans are
-        // now impossible by construction, and this ordering places every child immediately
-        // after its parent or an earlier sibling, so "the row above continues my stack" is
-        // exactly `isChild` and is read directly from the row.
+        // Rows whose bottom edge is open, so the row below continues their stack. This is computed from the final order, so an outline
+        // never claims an adjacency the layout lacks. Two adjacencies count: the next row is this release's child, or a sibling child of the same parent.
+        // The second is the dual-BD case, so this cannot reduce to "has children". The top edge is `isChild`, read directly from the row.
         let idsWithStackedBelow: Set<UUID> = {
             guard mode == .releaseCard else { return [] }
             var below: Set<UUID> = []
@@ -537,10 +419,8 @@ struct DiscReleasesTable: View {
                     // Parent → its own child.
                     continues = true
                 } else if let parentID = release.parentReleaseID {
-                    // Child → the next sibling child of the same parent. Guarding on the
-                    // CURRENT row's parentReleaseID being non-nil is what stops two
-                    // top-level releases — which both carry nil — from being read as
-                    // siblings of one another and welded into a stack.
+                    // Child → the next sibling child of the same parent. The non-nil guard on the current row
+                    // keeps two top-level releases (both nil) from being read as siblings.
                     continues = (next.parentReleaseID == parentID)
                 } else {
                     continues = false
@@ -552,12 +432,8 @@ struct DiscReleasesTable: View {
 
         return ordered
             .map { release in
-                // Artwork display. Every tag `ArtworkCell` draws a dedicated glyph for is
-                // passed through untouched; any OTHER affirmative variant — the picker's
-                // "Yes (Custom artwork)", "Yes (Incorrect release)", or a value from an
-                // older database — collapses to "Yes*", which that cell renders as the
-                // amber "affirmative but qualified" check. Anything else passes through
-                // to be shown as its own text.
+                // Artwork display. Tags with a dedicated glyph pass through. Other affirmative variants, such as "Yes (Custom artwork)" or older database values,
+                // collapse to "Yes*", which ArtworkCell draws as an amber qualified check. Anything else shows as its own text.
                 //
                 // This was written as a chain of six equality tests that each assigned
                 // back the very constant they had just compared against, which is simply
@@ -683,12 +559,8 @@ struct DiscReleasesTable: View {
 }
 
 // MARK: - Stacked Format Badge (.releaseCard mode)
-/// The format label with its optional 1pt outline. A standalone 4K release gets the same
-/// compact rounded badge the standard table draws. A parent with its child on the next row
-/// gets an outline with its bottom edge open, and the child gets one with its top edge
-/// open; both run the full height of their row, so the two meet flush at the row boundary
-/// and read as a single tall rectangle spanning the pair — the effect the cards achieve
-/// with one shared plate, without needing an outline that can span rows.
+/// The format label with an optional 1 pt outline. A standalone 4K release gets the standard rounded badge. A parent and its child
+/// get outlines with the shared edge open, both running the full row height. They meet at the row boundary and read as one tall rectangle.
 private struct StackedFormatBadge: View {
     let label: String
     let outlined: Bool
@@ -698,29 +570,16 @@ private struct StackedFormatBadge: View {
     /// True when this badge participates in a stacked pair and so must run edge to edge.
     private var isStacked: Bool { openBottom || openTop }
 
-    /// A single fixed width for every stacked badge. Left to size themselves naturally,
-    /// "4K" and "BD" measure a fraction of a point apart, and — being center-aligned in
-    /// the column — their outlines' left edges then fail to line up by half that
-    /// difference. One shared width makes the pair's sides exactly collinear. Set wide
-    /// enough to clear the widest stacked label at 11pt bold with the standard mode's
-    /// 4pt of breathing room on each side.
+    /// One fixed width for every stacked badge, so the pair's sides line up. Natural widths differ slightly for "4K" and "BD", and centering
+    /// would misalign the outlines. The width fits the widest stacked label at 11 pt bold, with 4 pt on each side.
     private static let stackedWidth: CGFloat = 26
 
-    /// How far the closed edge sits in from the row boundary, which is what keeps the
-    /// outline hugging the text as tightly as the standard mode's badge does rather than
-    /// stretching to the full row height. Derived from CustomTable's 22pt row against a
-    /// badge whose visual height matches the standard badge's (11pt bold text plus its
-    /// 1pt vertical padding, ≈15pt): (22 − 15) / 2.
+    /// How far the closed edge sits in from the row boundary, so the outline hugs the text as the standard badge does. This is
+    /// (22 − 15) / 2, from CustomTable's 22 pt row and a badge about 15 pt tall (11 pt bold text plus 1 pt vertical padding).
     private static let closedEdgeInset: CGFloat = 3.5
 
-    /// How far each vertical side sits in from the frame's own edge, applied to all
-    /// three stack positions (open-bottom parent, both-open middle child, open-top last
-    /// child) so their sides stay collinear. `stackedWidth` is sized to hold the label
-    /// itself; the standard mode's badge hugs its text more tightly than that, so the
-    /// drawn outline is pulled in 1pt per side — 2pt narrower overall — to match it.
-    /// Kept separate from `stackedWidth` deliberately: narrowing the frame instead would
-    /// narrow the text's centering box along with the outline, so the pair's labels and
-    /// their sides would no longer be guaranteed to line up.
+    /// How far each side is pulled in from the frame's edge, applied to all three stack positions so the sides stay collinear. The outline
+    /// is 1 pt narrower per side, to match the standard badge's tighter fit. Narrowing the frame instead would also narrow the text's centering box.
     private static let sideInset: CGFloat = 1
 
     var body: some View {
@@ -736,9 +595,7 @@ private struct StackedFormatBadge: View {
     private var outline: some View {
         if outlined {
             if isStacked {
-                // The shape spans the full row height; it insets its own closed edge, so
-                // only the open edge actually reaches the row boundary and meets its
-                // neighbor's.
+                // The shape spans the full row height and insets its own closed edge. Only the open edge reaches the boundary.
                 StackedBadgeOutline(openTop: openTop,
                                     openBottom: openBottom,
                                     closedInset: Self.closedEdgeInset,
@@ -764,10 +621,8 @@ private struct StackedBadgeFrame: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if isStacked {
-            // Two frames rather than one: there is no `frame` overload combining a fixed
-            // `width` with a flexible `maxHeight`. The inner fixes the width, the outer
-            // grows to the full row height so the outline's open edge reaches the row
-            // boundary exactly.
+            // Two frames, because no single `frame` overload combines a fixed width with a flexible height. The inner fixes the width,
+            // and the outer grows to the full row height so the open edge reaches the boundary.
             content
                 .frame(width: width)
                 .frame(maxHeight: .infinity)
@@ -779,18 +634,14 @@ private struct StackedBadgeFrame: ViewModifier {
     }
 }
 
-/// A rounded rectangle with one or both horizontal edges removed. The path is inset by
-/// half a point on every closed edge so a 1pt centered stroke lands fully inside the
-/// frame; each open edge is left flush with the frame boundary so the neighboring row's
-/// outline continues it without a seam.
+/// A rounded rectangle with one or both horizontal edges removed. Each closed edge is inset half a point so a 1 pt stroke fits inside the frame.
+/// Each open edge sits flush with the boundary, so the neighboring row's outline continues it.
 ///
-/// Three shapes, one per position in a stack:
-///   • open bottom only — the parent at the top of the stack: rounded top, open below.
-///   • open top only    — the last child: open above, rounded bottom.
-///   • both open        — a *middle* child, which only a "Combo-pack (dual BD)" pack
-///     produces: the first of two Blu-rays, meeting the parent above and its sibling
-///     below. It has no closed edge and therefore no corners at all, reducing to two
-///     bare full-height verticals that carry the stack's sides past this row.
+/// Three shapes, one per stack position:
+///   • open bottom only: the parent at the top, rounded top.
+///   • open top only: the last child, rounded bottom.
+///   • both open: a middle child, which only a "Combo-pack (dual BD)" pack has (its first Blu-ray). It has no corners and is
+///     two full-height verticals that carry the sides past this row.
 private struct StackedBadgeOutline: Shape {
     let openTop: Bool
     let openBottom: Bool
@@ -814,10 +665,7 @@ private struct StackedBadgeOutline: Shape {
         let radius = min(3, (right - left) / 2, (bottom - top) / 2)
 
         if openTop && openBottom {
-            // Middle of the stack: two full-height lines, drawn as separate subpaths so
-            // the stroke never closes across the top or bottom. Both run the frame's full
-            // height (top == rect.minY, bottom == rect.maxY here), so they meet the
-            // outlines above and below flush at both row boundaries.
+            // Middle of the stack: two full-height lines as separate subpaths, so the stroke never closes across the top or bottom.
             path.move(to: CGPoint(x: left, y: top))
             path.addLine(to: CGPoint(x: left, y: bottom))
             path.move(to: CGPoint(x: right, y: top))
@@ -848,16 +696,10 @@ private struct StackedBadgeOutline: Shape {
 }
 
 // MARK: - Circular Indicator Badge
-// Every colored circular indicator in this table (purchased, subtitles, remastered,
-// artwork, and the lettered/numbered region badges) is the same 14pt filled circle
-// with a white, drop-shadowed glyph or character centered in it. (The 16pt figures
-// elsewhere in this file are the Color.clear placeholders that hold a cell's footprint
-// open — deliberately a shade larger than the badge, and not the badge itself.)
-// That ZStack was
-// written out verbatim eight times; it now lives here once, so the circle diameter,
-// shadow, and label color are defined in a single place.
-/// Not `private`: RTabReleases (24_20) reuses this verbatim, scaled up, for the release
-/// cards' purchase-status glyph — see the note on `symbolBadge` below.
+// Each colored circle indicator here (purchased, subtitles, remastered, artwork, and region badges) is a 14 pt filled circle
+// with a white, drop-shadowed glyph or character. The 16 pt Color.clear placeholders elsewhere hold a cell's footprint open.
+// This one definition sets the circle diameter, shadow, and label color.
+/// Not `private`: RTabReleases (24.20) reuses it, scaled up, for the card purchase glyph (see `symbolBadge`).
 struct IndicatorBadge<Label: View>: View {
     let color: Color
     /// Lettering color. Defaults to white, which is what every saturated fill needs; the
@@ -869,14 +711,8 @@ struct IndicatorBadge<Label: View>: View {
     /// Circle diameter. Defaults to this table's 14pt; RTabReleases passes a larger value
     /// to match its card chrome while drawing the identical badge.
     let diameter: CGFloat
-    /// Drop shadow for the circular fill ALONE — nil (the default, and every table call
-    /// site) draws none. This is deliberately applied to the `Circle` itself rather than
-    /// to the composed badge: a shadow on the whole ZStack would pick up the label's own
-    /// already-shadowed silhouette and cast a second, blurrier shadow behind that shadow,
-    /// visibly changing how the label's shadow reads. Keeping the two shadows on separate
-    /// layers is what lets RTabReleases give its card-header checkmark badge a shadow
-    /// around the fill without disturbing the label shadow above, which must stay exactly
-    /// what `inkNeedsShadow` alone already produces.
+    /// Drop shadow for the circle alone. Nil (the default) draws none. It goes on the `Circle`, not the whole ZStack, so the label's
+    /// shadow is not doubled. RTabReleases uses it for the card's checkmark fill without changing the label shadow.
     let circleShadow: (opacity: Double, radius: CGFloat, offsetY: CGFloat)?
     let label: () -> Label
 
@@ -935,18 +771,9 @@ private func purchasedIndicator(_ purchased: Bool) -> some View {
 /// indicators and `.regular` for the Steelbook book glyph, matching the prior
 /// per-site font declarations exactly.
 ///
-/// `@MainActor` is required because `IndicatorBadge` conforms to `View`, and Swift 6
-/// infers main-actor isolation for the whole type (including its initializer) from
-/// that conformance. A file-scope function is nonisolated by default, so constructing
-/// the badge from one would be a cross-actor call. Every caller — the row builder in
-/// `DiscReleasesTable`, `RegionCell`, and `ArtworkCell` — is itself main-actor
-/// isolated for exactly the same reason, so this annotation costs nothing at any call
-/// site and simply states the isolation these helpers already operate under.
-/// Not `private`: RTabReleases (24_20) calls this directly for its release cards' purchase
-/// glyph, so that badge is the exact same view as this table's — not a lookalike built
-/// from the same constants — just drawn at a larger `diameter`. The glyph's own font size
-/// is derived from `diameter` at this table's own ratio (8pt glyph in a 14pt circle) so
-/// scaling one scales the other.
+/// `@MainActor` because `IndicatorBadge` is a main-actor `View`, and its initializer inherits that isolation. Every caller is main-actor isolated too.
+/// Not `private`: RTabReleases (24.20) calls this for its card purchase glyph, so the badge is the same view at a larger `diameter`.
+/// The glyph size scales with `diameter` at this table's ratio (8 pt glyph in a 14 pt circle).
 @MainActor
 func symbolBadge(_ systemName: String,
                  _ color: Color,
@@ -962,14 +789,8 @@ func symbolBadge(_ systemName: String,
 /// Single-character variant of `IndicatorBadge`, used for the region letters/digits.
 /// `@MainActor` for the same reason as `symbolBadge` above.
 ///
-/// The character's size and weight come from `RSBRegionBadge.characterFont`, shared with
-/// `RSBIndicatorView` on the release cards. That constant exists precisely to hold the two
-/// renderers together — both draw into the same 14pt circle, so a difference of even a
-/// point makes one of them sit visibly large in its disc and read as off-center beside the
-/// other, which is what happened when this site carried 11pt and split its weight by state.
-/// Reading the constant is what makes that guarantee structural; restating its value here
-/// in a literal (with a comment asserting the two agree) left it to be maintained by hand,
-/// which is the arrangement the drift happened under.
+/// The character's font comes from `RSBRegionBadge.characterFont`, shared with `RSBIndicatorView` on the release cards. Both draw into a
+/// 14 pt circle, so one shared constant keeps them the same size. A literal copy would need manual upkeep.
 @MainActor
 private func characterBadge(_ label: String,
                             _ color: Color,
@@ -982,15 +803,9 @@ private func characterBadge(_ label: String,
 }
 
 // MARK: - Region Cell Component
-// The table's drawing of an `RSBRegionIndicator`. Which mark a stored region resolves to,
-// and how a playable disc is colored versus a locked one, are shared with the release cards
-// below this table — see `RSBRegionIndicator` / `RSBRegionBadge` in RSBHelpers. Both used
-// to be written out in full here and again in RTabReleases, with a comment on each telling
-// the reader to keep them in step.
-//
-// What stays here is this context's own chrome: the cell centers itself in a fixed column,
-// and its globe and raw-value fallback take the adaptive label color, since they sit on the
-// row background rather than on the cards' opaque gray pill.
+// Draws an `RSBRegionIndicator`. The mark selection and playable-versus-locked colors come from `RSBRegionIndicator` and `RSBRegionBadge`
+// in RSBHelpers, shared with the cards. What stays here is the cell's own chrome. It centers in a fixed column, and its globe and raw
+// fallback use the adaptive label color, since they sit on the row background rather than the cards' opaque pill.
 private struct RegionCell: View {
     /// The display region — 4K UHD's empty-means-Region-Free default is already applied by
     /// `buildTableData`.
@@ -1059,32 +874,22 @@ private struct ArtworkCell: View {
 
 
 // MARK: - Releases Section
-// Moved here from RTabDetails.swift when the releases module left the "Details" tab:
-// this wrapper's only consumer is the "Releases" tab, which prepends it above its cards
-// when Preferences.showReleasesSummaryTable is enabled (see RTabReleases). Keeping it
-// beside the table it feeds keeps the two from drifting.
+// The Releases tab's table wrapper. The tab prepends it above the cards when Preferences.showReleasesSummaryTable is on (see RTabReleases).
 //
-// RightSidebar is the single source of truth: it handles both .updated and
-// .releaseChanged events and refreshes the environment snapshot before any child view
-// sees the event. RSBReleasesSection therefore derives its filtered releases from the
-// environment film value in its body, avoiding the race condition that arose when both
-// RightSidebar and this view subscribed to the same AppEventBus event simultaneously
-// (the sibling onReceive fired before the environment propagation completed).
+// RightSidebar is the single source of truth. It handles .updated and .releaseChanged and refreshes the environment snapshot before children
+// see the event. This view derives its releases from that environment value. Subscribing here too raced: the sibling onReceive could fire
+// before the environment updated.
 struct RSBReleasesSection: View {
     @Environment(\.sidebarFilm) private var film: FilmSnapshot?
 
     var releasesExpanded: Binding<Bool>
 
-    /// Which of DiscReleasesTable's two layouts to draw. `.standard` remains the default
-    /// even though every current call site passes `.releaseCard`; see this file's header
-    /// maintenance note.
+    /// Which of DiscReleasesTable's two layouts to draw. `.standard` stays the default, though every call site passes `.releaseCard`. See the header note.
     var mode: ReleasesTableMode = .standard
 
     var body: some View {
-        // Derived in the pass rather than cached in @State from onChange(initial:), which
-        // drew each new film twice (first with the previous film's releases). Filtering is
-        // a single pass over a handful of releases, and DiscReleasesTable's own body is
-        // skipped by SwiftUI whenever the filtered array comes out equal.
+        // Derived each pass, not cached, since a cache would draw each new film twice. Filtering is one cheap pass, and SwiftUI
+        // skips DiscReleasesTable when the array is unchanged.
         let releases = discReleases(of: film)
         VStack(spacing: 8) {
             if !releases.isEmpty {
@@ -1103,19 +908,9 @@ struct RSBReleasesSection: View {
 
     private func discReleases(of film: FilmSnapshot?) -> [ReleaseSnapshot] {
         guard let film = film else { return [] }
-        // Membership is decided by `ReleaseFormat` — a format string this build does not
-        // recognize is excluded — which is exactly the test `RSBReleaseCardBuilder.buildGroups`
-        // applies to build the cards below this table. Sharing the single expression is what
-        // makes "the table and the cards draw the same release set" structural rather than
-        // two constructions that happen to agree.
-        //
-        // This replaces the former `FilmSnapshot.releases4K + releases2K + releasesSD`
-        // accessors (since deleted), which cost three filter passes plus three
-        // `sorted { $0.dateAdded < $1.dateAdded }` passes whose ordering
-        // was then discarded: `buildTableData` regroups through `releasesGroupedByHierarchy`
-        // (`.releaseCard`) or re-sorts flat (`.standard`), so nothing downstream can observe
-        // the order this arrives in. The card builder documents the same conclusion for its
-        // own copy of this filter.
+        // Same membership test as `RSBReleaseCardBuilder.buildGroups`, so the table and the cards below draw the same release set.
+        // The former releases4K/2K/SD accessors did three filter and sort passes. Their ordering was discarded, since buildTableData
+        // regroups or re-sorts, so nothing downstream sees the input order.
         return film.releases.filter { ReleaseFormat(rawValue: $0.format) != nil }
     }
 }

@@ -99,9 +99,8 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
     ///
     /// The one definition of the rule. The gallery sort and its duration bands
     /// (MetadataCache), the list view's duration column, and the viewing popover's
-    /// runtime, "Ends:" readout and calendar event all read it here; the popover used to
-    /// accept any non-empty edited value, so an edited "0" would have given it a zero-length
-    /// event while the gallery used the regular runtime.
+    /// runtime, "Ends:" readout and calendar event all read it here, so an edited "0" never
+    /// gives the popover a zero-length event while the gallery uses the regular runtime.
     var effectiveDuration: String {
         if edited, let ms = Int(editedDuration), ms > 0 { return editedDuration }
         return duration
@@ -488,10 +487,8 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// Used by `reconcilingHierarchy(_:)`, which rebuilds the parent side of the
     /// hierarchy from the child side.
     ///
-    /// Both helpers copy `self` and replace one field. They used to rebuild the snapshot
-    /// through the memberwise init, restating all 39 fields; since every init parameter
-    /// has a default, a field added to the struct but missed there would have compiled
-    /// and silently reset to its default on every wishlist reorder or hierarchy rebuild.
+    /// Both helpers copy `self` and replace one field, so a field added to the struct is carried over
+    /// rather than dropped or reset to a default.
     func withChildReleaseIDs(_ ids: [UUID]) -> ReleaseSnapshot {
         var copy = self
         copy.childReleaseIDs = ids
@@ -510,12 +507,8 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// `DataManager` step 6.5 assigns on save) and as `Release.childReleases` (the to-many
     /// side, which nothing ever assigns directly — it exists only as Core Data's inverse of
     /// the first). Every writer in this project sets the child's pointer and trusts the
-    /// inverse to follow. Under SwiftData it sometimes did not — a restored backup whose
-    /// links were applied in bulk before a single `save()`, an inverse array that came back
-    /// empty on a later fetch — and the two sides disagreed in one specific direction:
-    /// children still named their parent, but parents no longer claimed their children.
-    /// Core Data stores only the child's pointer and derives the parent's side from it, so
-    /// that disagreement cannot come from the store now. This stays because it also enforces
+    /// inverse to follow. Snapshotting from the child side keeps both sides of the relationship in step,
+    /// and it also enforces
     /// the one-level-depth rule below on whatever the store holds, at no cost.
     ///
     /// That asymmetry is invisible in most of the UI, because the RightSidebar's tables

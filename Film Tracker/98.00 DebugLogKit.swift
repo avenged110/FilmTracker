@@ -1,6 +1,7 @@
 // MARK: - DebugLogKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
+// Drop-in logging kit: call sites hand messages to an ordered pipe, and an actor buffers them and writes them to a log file.
 //
 // STANDARDIZED LOGGING UTILITY — one file, drop into any project.
 //
@@ -968,8 +969,7 @@ public enum Logger {
 // MARK: - Standard Error
 
 /// The kit's own diagnostics, for when the log file itself is what failed. Same unbuffered
-/// write as `fputs(_, stderr)`, without handing a C `FILE*` around; a closed stderr is
-/// ignored, as `fputs` ignored it.
+/// write as `fputs(_, stderr)`, without handing a C `FILE*` around. A closed stderr is ignored.
 nonisolated private func writeToStandardError(_ message: String) {
     try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
 }

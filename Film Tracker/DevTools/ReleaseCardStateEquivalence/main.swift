@@ -2,6 +2,9 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 //
+// Runs the release-card state checks: matches() against snapshot() equality, per-field
+// sensitivity of both content hashes, differingFields against its Mirror-based form, and
+// a timing comparison on the debounce-tick path.
 import Foundation
 
 // Every mutable field, as a named mutation applied to a model.

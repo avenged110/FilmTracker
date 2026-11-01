@@ -4,8 +4,8 @@
 // Assembles the whole-library PDF: the complete-library table, followed by one sheet per
 // ReportsView tab, in a single document.
 //
-// The document is built entirely from the shared PDF stack (PDFCore 88.00 / PDFTableRenderer
-// 88.10 / LibraryPDFReport 88.20). The report sheets are the ones `ReportsPDFExporter`
+// The document is built entirely from the shared PDF stack (PDFCore 85.00 / PDFTableRenderer
+// 85.10 / LibraryPDFReport 85.20). The report sheets are the ones `ReportsPDFExporter`
 // (27.50) builds — this file does not restate a single column of them, it just appends
 // them.
 //
@@ -33,14 +33,9 @@ import Foundation
 ///
 /// # What is NOT here
 ///
-/// The Purchase and Expense Tracker, the Price Tracker and the Release Wishlist were cases
-/// here until `discReleases` superseded all three. That section reports the same purchase
-/// state, cost, amount spent, lowest price and both dates — per release, beside the disc
-/// they belong to, rather than as three separately ranked lists of the same rows. Keeping
-/// them would have printed every purchased release twice and every wishlist entry twice.
-///
-/// Their ReportsView TABS are untouched and still on screen; it is only their sheets in
-/// this document that are gone, along with the section builders that served nothing else.
+/// The cost, price and wishlist tabs of ReportsView have no sheet in this document. `discReleases` reports the
+/// same purchase state, cost, amount spent, lowest price and dates per release, beside the disc it belongs to,
+/// so those rows would otherwise appear twice. Their ReportsView tabs are unaffected.
 enum LibraryPDFSection: String, CaseIterable, Identifiable, Hashable, Sendable {
     case completeLibrary
     case viewingHistory
@@ -180,11 +175,9 @@ enum LibraryPDFExporter: Loggable {
         // measures them all, then draws. It closes the context on finish().
         let builder = PDFDocumentBuilder(context: context)
 
-        // The build loop is budgeted 0…`buildShare`, and finish() — which measures and
-        // draws every collected sheet, suspending between pages — the rest. The split
-        // follows the wall time: on a library-sized export, building the sections is a
-        // small fraction of the whole and drawing the pages is nearly all of it, so a bar
-        // that gave the build the lion's share sat at ninety percent for most of the run.
+        // The build loop is budgeted 0…`buildShare`, and finish(), which measures and draws every collected sheet
+        // and suspends between pages, takes the rest. The split follows wall time: building the sections is a small
+        // fraction of a library-sized export, and drawing the pages is nearly all of it.
         var added = 0
         for (index, section) in ordered.enumerated() {
             try Task.checkCancellation()
@@ -206,25 +199,19 @@ enum LibraryPDFExporter: Loggable {
                             geometry: layout.geometry)
                 added += 1
             default:
-                // Every remaining case names a ReportsView tab. Handled in one arm rather
-                // than one per case because the binding the body needs — the category — is
-                // DERIVED from the case, not given by it, so an arm each would restate the
-                // same six lines six times.
+                // Every remaining case names a ReportsView tab, handled in one arm because the category is derived from
+                // the case rather than given by it.
                 //
-                // A tab with nothing to report is SKIPPED rather than rendered as an empty
-                // table — `ReportsPDFExporter.sheet(for:)` returns nil for exactly that
-                // case, which is why it reports emptiness that way rather than throwing.
+                // A tab with nothing to report is skipped rather than rendered as an empty table.
+                // `ReportsPDFExporter.sheet(for:)` returns nil for exactly that case.
                 if let category = section.reportsCategory,
                    let sheet = ReportsPDFExporter.sheet(
                     for: exportData(for: category, dataCoordinator: dataCoordinator,
                                     films: films)) {
-                    // The LIBRARY TABLE'S geometry: inside this document the report
-                    // sections match the table they follow, in
-                    // orientation and in type size. The sections are geometry-independent
-                    // (column widths are weights), which is what allows it. Taken from the
-                    // caller's `layout` rather than from `.standard`, so a non-default
-                    // layout cannot leave the appended sheets on a different page size
-                    // from the table and the context's own media box.
+                    // The library table's geometry: the report sheets match the table they follow in orientation and
+                    // type size. They are geometry-independent, since column widths are weights. The geometry comes
+                    // from the caller's `layout` rather than `.standard`, so the appended sheets always match the table
+                    // and the context's media box.
                     builder.add(sheet, geometry: layout.geometry)
                     added += 1
                 }
@@ -261,12 +248,8 @@ enum LibraryPDFExporter: Loggable {
     /// whole sheets out of the document depending on where the user had browsed this
     /// session.
     ///
-    /// Each payload is built by calling the tab's OWN row builder rather than by restating
-    /// its rules here. This file used to carry a private reimplementation of all four —
-    /// same predicates, same field mapping, separately maintained — and they had already
-    /// drifted apart on ordering (see `ReleaseData.sorted`). The builders now live beside
-    /// the models they produce (`ReleaseData`, `HallOfFameFilm`, `WishlistRelease`) and
-    /// have exactly one definition each.
+    /// Each payload is built by the tab's own row builder, so each rule has exactly one definition (in `ReleaseData`,
+    /// `HallOfFameFilm`, and the other row builders beside their models).
     /// Internal rather than private so the debug harness can assert on the payload this
     /// builds — in particular that the tracker sheets come out in a reproducible order.
     /// Driving the real builder is the point: a harness that restated the ordering rule
@@ -277,9 +260,9 @@ enum LibraryPDFExporter: Loggable {
         films: [FilmSnapshot]
     ) -> ReportsExportData {
         switch category {
-        // The three superseded tabs no longer reach this document — see the note on
+        // The cost, price and wishlist tabs have no section here — see the note on
         // `LibraryPDFSection`. Listed explicitly rather than folded into a `default` so
-        // that adding a sixth ReportsCategory still fails the build here, which is the
+        // that adding a ReportsCategory still fails the build here, which is the
         // check that kept this switch and the picker in step in the first place.
         case .costTracker, .priceTracker, .releaseWishlist:
             return ReportsExportData(category: category,

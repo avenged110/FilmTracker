@@ -504,7 +504,10 @@ nonisolated enum SearchSuggestionRanker {
         case .some(.none):
             break
         case .none:
+            // Foundation's range(of:) and Swift's hasPrefix match by different rules, so a
+            // match at the very start is possible here; index(before:) would trap on it.
             if let range = key.range(of: typed) {
+                guard range.lowerBound > key.startIndex else { return 2 }
                 return key[key.index(before: range.lowerBound)] == " " ? 1 : 0.5
             }
         }

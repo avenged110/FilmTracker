@@ -688,9 +688,6 @@ enum DebugHarness: Loggable {
 
     // MARK: - Scenario: Cache Schema
 
-    /// Covers the `FilmMetadataCacheFile` schema bump that accompanied the `viewCount`
-    /// sort key. Two distinct risks: that the new field does not survive the plist
-    /// round-trip, and that the version guard fails to reject an older file.
     /// RatingsParser runs off the main actor. A synthetic Blu-ray.com export is parsed
     /// while a MainActor ticker runs; parseFile has no suspension points of its own, so a
     /// parse on the main actor would let zero ticks through while it ran. Also pins the
@@ -754,6 +751,9 @@ enum DebugHarness: Loggable {
         return r
     }
 
+    /// Covers the `FilmMetadataCacheFile` schema version and its `viewCount` field. Two
+    /// distinct risks: that the field does not survive the plist round-trip, and that the
+    /// version guard fails to reject an older file.
     private static func cacheSchemaScenario() -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "cache-schema")
 
@@ -1176,7 +1176,7 @@ enum DebugHarness: Loggable {
         // calendar are both pinned to the same zone here, as they are in production.
         var zoneDisagreements: [String] = []
         // Santiago, Havana, Amman and their kin start DST at midnight (no 00:00 that day);
-        // the Azores once ended it at midnight (two 00:00s; the formatters take the later); Apia skipped 2011-12-30
+        // the Azores end it at midnight, giving two 00:00s, and the formatters take the later; Apia skipped 2011-12-30
         // entirely; Lord Howe shifts by half an hour; Kiritimati sits at +14.
         var zoneAgreements = 0
         for identifier in ["America/Santiago", "America/Sao_Paulo", "America/Havana", "America/Asuncion", "Asia/Tehran", "Africa/Cairo",
@@ -1246,7 +1246,7 @@ enum DebugHarness: Loggable {
 
         // --- canonicalStoredTimestamp ≡ the formatter chain ------------------------
         // The `dateAdded` / `lastModified` shape, "2026-01-24T10:30:00.000Z". The formatter
-        // that used to read it is fifth in `parseDateWithFormatters`, so that chain is the
+        // that reads it is fifth in `parseDateWithFormatters`, so that chain is the
         // reference, compared by exact Date equality (bit for bit).
         var stampAgreements = 0, stampFast = 0, stampDisagreements: [String] = []
         func compareStamp(_ text: String) {
@@ -1296,7 +1296,7 @@ enum DebugHarness: Loggable {
             // And the value read back is the instant written, to within the millisecond
             // the writer truncates away. Not exact text equality: the nearest Double to
             // ".678" can lie just below it, and the writer truncates that to ".677" — as
-            // it did against the formatters (≈16% of instants), so not the fast path's doing.
+            // it did against the formatters (≈16% of instants), so the fast path is not the cause.
             if let back = canonicalStoredTimestamp(text[...]) {
                 let gap = instant.timeIntervalSince1970 - back.timeIntervalSince1970
                 if back.formatted(StorageDateFormatters.timestamp) != text { writerTruncations += 1 }
@@ -1508,7 +1508,7 @@ enum DebugHarness: Loggable {
     /// format from the view to both — and that the Sort menu lists every option in every
     /// view, disabling rather than hiding the ones that do not apply.
     ///
-    /// The lead specimen is the reported case: a Blu-ray bought 2026.02.04 and a 4K
+    /// The lead specimen is a Blu-ray bought 2026.02.04 and a 4K
     /// combo-pack (with its Blu-ray child) bought 2020.01.29. In "Purchased 4K" it must sort
     /// and band as a 2020 purchase, never as the 2026 Blu-ray.
     ///
@@ -2023,8 +2023,8 @@ enum DebugHarness: Loggable {
         print("===HARNESS-REPORT-BEGIN===")
         print(json)
         print("===HARNESS-REPORT-END===")
-        // Stated in three separate numbers rather than one ratio: "325/325 passed" would
-        // be actively misleading while 29 documented defects are failing underneath it.
+        // Stated as separate counts rather than one ratio: a single "N/N passed" figure would
+        // be misleading while documented defects are failing underneath it.
         let cleanPasses = report.totalChecks - report.totalFailures - report.totalKnownIssues - report.totalSkips
         print("[DebugHarness] \(cleanPasses) passed, \(report.totalFailures) failed, "
             + "\(report.totalKnownIssues) known pre-existing issues, \(report.totalSkips) skipped — across \(report.scenarios.count) scenarios "

@@ -84,7 +84,8 @@ struct DuplicateSheet: View {
                 
                 // Handle Escape key
                 if event.keyCode == 53 { // Escape key
-                    if viewModel.isScanning {
+                    // While the confirmation is up, Escape is its own (Continue Scan).
+                    if viewModel.isScanning && !self.showingCancelConfirmation {
                         // Trigger Cancel Scan confirmation
                         Task { @MainActor in
                             self.showingCancelConfirmation = true
@@ -642,7 +643,7 @@ final class DuplicateSheetViewModel: Loggable {
     // capture the generation at scan-start and are silently dropped if a newer
     // scan (or cancellation) has since advanced the counter. This eliminates the
     // race where callbacks from a canceled scan corrupt a freshly-started one,
-    // which previously caused progress bar flickering and illegible counter values.
+    // which would otherwise corrupt the counter and progress display.
     private var scanGeneration: Int = 0
     
     var placeholderText: String {
@@ -841,9 +842,9 @@ final class DuplicateSheetViewModel: Loggable {
     
     // MARK: - Actions
     func ignoreCurrentCard() {
+        // A second click while the card slides away would remove the next card too.
+        guard dismissingCardIndex == nil, currentIndex < duplicates.count else { return }
         Self.log("Ignoring duplicate pair at index \(currentIndex)")
-        
-        guard currentIndex < duplicates.count else { return }
         
         // Save the pair to ignored list before removing it
         let pair = duplicates[currentIndex]
@@ -871,7 +872,9 @@ final class DuplicateSheetViewModel: Loggable {
     }
     
     func reconcileCurrentCard() {
-        guard let selectedID = selectedFilmForReconciliation,
+        // A second click while the card slides away would remove the next card too.
+        guard dismissingCardIndex == nil,
+              let selectedID = selectedFilmForReconciliation,
               currentIndex < duplicates.count else { return }
         
         let pair = duplicates[currentIndex]

@@ -51,6 +51,9 @@ enum FilmSpecialSorting {
     static let ignore              = "Ignore"
     static let blacklisted         = "Blacklisted"
 
+    /// The rotation threshold override, in months, a blacklisted film is forced to.
+    static let blacklistedRotationThreshold = 60
+
     /// Freely and independently combinable with each other and with the exclusive group.
     static let independentOptions = [waitingForEdit, temporarilyOnHold]
 
@@ -77,10 +80,8 @@ enum FilmSpecialSorting {
 ///
 /// There is no separate "remastered" column. A remastered source is stored by PREFIXING
 /// the value with `remasteredPrefix` — trailing space included — giving
-/// `"Remastered Blu-ray disc"`. That convention was previously spelled out at three
-/// separate sites, twice as a `hasPrefix` test paired with a `dropFirst(_:)` whose count
-/// came from a second hand-typed copy of the same literal on the line above it. A single
-/// dropped space in any one of them would have silently stopped the flag round-tripping.
+/// `"Remastered Blu-ray disc"`. The prefix and the character count it removes both come from
+/// `remasteredPrefix`, so the two cannot drift apart.
 ///
 /// `compose` and `decompose` are exact inverses and are the ONLY supported way to cross
 /// between the stored form and the (source, remastered) pair. Neither trims: whitespace

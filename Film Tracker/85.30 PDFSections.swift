@@ -222,10 +222,9 @@ enum ViewingHistoryPDFReport {
         /// The viewing count, or the reason there is none — "No viewing history" is the
         /// longest thing it holds.
         static let count: CGFloat = 52
-        /// A full date at its LONGEST — "September 30, 2044", not the "November 4, 2025"
-        /// this column was first measured against. The month names are not the same width
-        /// and neither are the day numbers, so sizing to a middling example left the widest
-        /// real dates wrapping to a second line and growing their row.
+        /// A full date at its LONGEST, "September 30, 2044". The month names and the day
+        /// numbers differ in width, so sizing to a middling example would wrap the widest real
+        /// dates to a second line and grow their row.
         static let date: CGFloat = 63
         /// "1,234 days" at its widest.
         static let sincePrior: CGFloat = 34
@@ -369,17 +368,15 @@ enum DiscReleasesPDFReport {
     private enum Width {
         /// The shared index column. See `PDFColumnWidth.index`.
         static let index: CGFloat = PDFColumnWidth.index
-        /// The film title on a film row, the indented format on a release row. Truncates.
-        /// Gave a point to Release Date (see `year`), which a truncating column can spare.
+        /// The film title on a film row, the indented format on a release row. Truncates, so
+        /// it can spare width for Release Date (see `year`).
         static let title: CGFloat = 108
-        /// Exactly "Not purchased" on one line — the widest thing this column holds (36.12pt
-        /// at the 5pt semibold body face) — plus the standard padding on either side. Every
-        /// point past that went to Release Date.
+        /// Sized to "Not purchased" on one line, the widest thing this column holds (36.12pt
+        /// at the 5pt semibold body face), plus the standard padding on either side.
         static let status: CGFloat = 42.25
         /// The Release Date column, sized by its widest value: a full date with a base year
-        /// behind it, "2016.03.01 (1977)" (44.28pt), which must not wrap — the cell is a
-        /// single row tall on a purchased release. The width Status gave up was 0.53pt short
-        /// of that, and the last point comes from Title.
+        /// behind it, "2016.03.01 (1977)" (44.28pt), which must not wrap, so a purchased
+        /// release's cell stays one row tall.
         static let year: CGFloat = 50.75
         /// A country name, under a "Provenance" header.
         static let provenance: CGFloat = 44
@@ -396,23 +393,19 @@ enum DiscReleasesPDFReport {
         //   bottom row:  |‹—— Versions Included ——›|‹—— Packaging ——›|‹— Audio — …
         //   columns:     |    video   | vTail | aTail |   pTail    |
         //
-        // Every field is one column or a `columnSpan` over two of them — see
-        // `specificationRow` and `provenanceRow`. The alternative was sizing each row's
-        // fields to the other's boundaries, which is how Versions Included came to be cut
-        // down when only Video was meant to shrink.
+        // Every field is one column or a `columnSpan` over two of them, so resizing one
+        // column does not move the other row's fields. See `specificationRow` and `provenanceRow`.
 
         /// Video alone, sized by the widest string the vocabulary can build:
         /// "HEVC (Upscaled), Dolby Vision" (75.9pt of text).
         static let video: CGFloat = 84
-        /// The rest of Versions Included, which keeps the full 120pt it had.
+        /// The rest of Versions Included.
         static let versionsTail: CGFloat = 36
         /// The rest of Aspect Ratio, which holds three ratios and an ellipsis at 66pt
         /// because it TRUNCATES rather than wrapping. Three is the practical ceiling on a
         /// release anyone needs to read off a page.
         static let aspectTail: CGFloat = 30
-        /// The rest of Packaging, which keeps the full 103pt it had, and the leading column
-        /// of the Notes span. Every point freed by shrinking Video lands here, which is why
-        /// Aspect Ratio and Notes both moved left without either losing width.
+        /// The rest of Packaging, and the leading column of the Notes span.
         static let packagingTail: CGFloat = 73
 
         /// The widest audio string the vocabulary can build: "Dolby Digital 2.0 Mono".

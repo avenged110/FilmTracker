@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The shared paginated-table renderer every PDF report in the app is drawn with.
 //
-// Layer two of the PDF stack described at the top of PDFCore.swift (88.00). This file owns
+// Layer two of the PDF stack described at the top of PDFCore.swift (85.00). This file owns
 // table LAYOUT — column geometry, the one- or two-row header band, row measurement, page
 // breaks, per-page titles and footers — and nothing about what any particular table means.
 //
 // Everything renders through `PDFTableRenderer.render`: the report sheets built in
 // ReportExporter.swift (27.50), which mostly pass plain string rows, and the
-// complete-library table built in LibraryPDFReport.swift (88.20), which passes styled
+// complete-library table built in PDFReport.swift (85.20), which passes styled
 // cells and a grouped header. Those are the only two axes the callers differ on, and both
 // are expressed as data on `PDFTableSection` rather than as a second renderer.
 
@@ -122,8 +122,8 @@ struct PDFCell {
     /// that a truncated value is still unambiguous, truncating is the better trade.
     var truncates: Bool
 
-    /// Which of the cell's four edges are ruled. `.all` — the default, and what every
-    /// table drew before this existed — closes the cell on every side.
+    /// Which of the cell's four edges are ruled. `.all`, the default, closes the cell on
+    /// every side.
     ///
     /// Dropping the horizontal edges from a run of cells in one column merges that run
     /// visually: the column reads as a single tall cell spanning the rows, which is how a
@@ -424,7 +424,7 @@ enum PDFTableRenderer {
     /// past a couple of seconds the system's spinning cursor. So the loop SUSPENDS after
     /// every page: `afterPage` is awaited, then the task yields, and the run loop gets a
     /// turn between every page of every section. The drawing itself is no faster; it is
-    /// merely no longer one indivisible stretch.
+    /// split into pieces the run loop can interleave with.
     ///
     /// Suspending between pages is safe because nothing is open then — the page has been
     /// ended and the next not begun — and because `NSGraphicsContext.current`, which is
@@ -727,7 +727,7 @@ enum PDFTableRenderer {
                         geometry: PDFPageGeometry) -> PDFSectionMetrics {
         // Measured against a PANE's columns, not the page's — a two-up section's cells wrap
         // inside a half-width table, and measuring them at full width would report row
-        // heights roughly half of what the section actually draws.
+        // heights smaller than what the section actually draws.
         let columns = paneLayout(section, geometry: geometry)[0].columns
         let fonts = BodyFonts(geometry: geometry)
         let heights = section.rows.map {
@@ -743,7 +743,7 @@ enum PDFTableRenderer {
     /// `metrics(of:geometry:)`, suspending every `stride` rows so the run loop can turn.
     ///
     /// Measuring is one `boundingRect` per cell, and a library-sized section is tens of
-    /// thousands of cells — half a second or more in one stretch. The document builder
+    /// thousands of cells. Measuring them in one stretch would stall the run loop. The document builder
     /// measures every section before it can draw the first page, so without this the
     /// export would open with a stall as long as every section's measurement combined. The
     /// result is identical to the synchronous form; only the pacing differs.
@@ -934,9 +934,9 @@ enum PDFTableRenderer {
     /// Draws one header cell with its title vertically centered in the space available.
     ///
     /// Centering is MEASURED rather than assumed. A merged header spans two rows while its
-    /// title may occupy one line or two — "Chr." against "Aspect Ratio" — and the previous
-    /// fixed half-row nudge was only ever correct for the one-line case: a title that
-    /// wrapped to two lines was pushed down until it sat on the floor of the cell. Asking
+    /// title may occupy one line or two, as "Cust. Edit" and "Aspect Ratio" do. A fixed
+    /// nudge is right only for the one-line case; a title that wraps to two lines would sit
+    /// on the floor of the cell. Asking
     /// for the text's real height at the cell's real width covers every combination,
     /// including the single-row banner and sub-header cells, with one rule.
     private static func drawHeaderCell(
@@ -1250,9 +1250,8 @@ final class PDFDocumentBuilder {
     }
 
     /// How many rows a table is measured between suspensions. Two hundred rows is a few
-    /// thousand `boundingRect`s — tens of milliseconds — which is short enough that the
-    /// run loop is never starved and long enough that the yields themselves cost nothing
-    /// measurable.
+    /// thousand `boundingRect`s, short enough that the run loop is never starved and long
+    /// enough that the yields cost nothing measurable.
     static let measureStride = 200
 
     /// Renders every collected sheet and closes the document.
@@ -1266,13 +1265,10 @@ final class PDFDocumentBuilder {
     /// # Why this is async and throwing
     ///
     /// This is where a library-sized export spends nearly all of its time — a few hundred
-    /// pages of a few hundred cells each — and it used to spend it in one synchronous call.
-    /// The exporter yielded between BUILDING its sections and then handed everything to
-    /// this method, which drew every page of every section before returning. Several
-    /// seconds without a turn of the run loop: a progress bar stuck at ninety percent, a
-    /// Cancel button that could not be pressed, and the system's spinning cursor. The
-    /// sheets now suspend between pages (and, while measuring, every `measureStride` rows),
-    /// which is what puts the run loop back in charge. Cancellation is honored at the same
+    /// pages of a few hundred cells each. Drawn in one synchronous call, it would hold the
+    /// run loop for seconds: no progress updates, no Cancel, and the spinning cursor. The
+    /// sheets therefore suspend between pages (and, while measuring, every `measureStride`
+    /// rows), which keeps the run loop in charge. Cancellation is honored at the same
     /// points, so a cancel lands within a page rather than after the last one; the caller
     /// is responsible for removing the partial file, exactly as before.
     ///
@@ -1314,9 +1310,8 @@ final class PDFDocumentBuilder {
         return documentTotal
     }
 
-    /// How `finish` divides its progress between its two passes. Measuring is roughly a
-    /// fifth of the wall time on a library-sized document and drawing the rest, so the bar
-    /// moves at about the rate the work is actually done.
+    /// How `finish` divides its progress between its two passes, weighted to the work each
+    /// does: measuring is the smaller share, and drawing the larger.
     static let progressShare = (measuring: 0.2, drawing: 0.8)
 }
 

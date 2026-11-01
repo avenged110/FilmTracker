@@ -1,8 +1,9 @@
 // MARK: - MetadataCache.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Persistent cache for derived film metadata: sorting keys, parsed dates, and recent-activity
-// data. Sourced exclusively from FilmSnapshot value types; does not reference Core Data.
+// Persistent cache of metadata derived from FilmSnapshot values, such as sort keys, parsed dates, and
+// recent-activity data. It also maintains the library orders that make sorting fast.
+
 
 import Foundation
 import os
@@ -16,23 +17,15 @@ struct FilmMetadata: Codable {
     let titleStartsWithNumber: Bool
     let year: String
     let duration: String
-    // The duration value used for sort comparisons. When the film is marked as
-    // edited and editedDuration resolves to a positive integer, this holds that
-    // value; otherwise it mirrors `duration`. Stored as the raw millisecond string
-    // so the sort case can parse it exactly as it does `duration`.
+    // The duration the duration sort reads: editedDuration when set, otherwise `duration`. Raw milliseconds.
     let effectiveDuration: String
     let dateAddedRaw: String
     let lastWatchedRaw: String
     let rating: Int
-    // Number of recorded viewings — the count of entries in the film's calendarTable,
-    // the same figure the RightSidebar's "Watch Details" module shows as "Recorded
-    // View Count". Backs the .viewCount sort option.
+    // Number of recorded viewings (calendarTable entries). Backs the .viewCount sort.
     let viewCount: Int
     let lastModifiedRaw: String
-    // Parsed release date used as a secondary sort key within the .year sort option.
-    // nil when the releaseDate field is absent, malformed, or does not contain a
-    // well-formed "YYYY-MM-DD" prefix (dashes required). When nil, the .year sort
-    // falls back directly to the title tiebreaker, exactly as before.
+    // Parsed releaseDate, a secondary key for the .year sort. Nil when absent or not a well-formed "YYYY-MM-DD" prefix.
     let releaseDateParsed: Date?
     
     // Recents Data
@@ -42,18 +35,13 @@ struct FilmMetadata: Codable {
     let rotationDate: Date?
     let mostRecentPurchaseDate: Date?
     
-    // True if at least one Release object associated with this film is marked as purchased,
-    // regardless of whether any of those releases carries a purchase date. Used by the
-    // datePurchased sort to place "purchased but no date" films in their own middle tier,
-    // between films that have a dated purchase and films with no purchase record at all.
+    // True if any release is marked purchased, dated or not. The datePurchased sort uses it to rank undated
+    // purchases between dated ones and never-purchased films.
+
     let hasPurchasedReleases: Bool
 
-    // The two fields above, per release format, keyed by ReleaseFormat raw value: the most
-    // recent usable purchase date among purchased releases of that format, and the formats
-    // that have any purchased release at all. A combo-pack's Blu-ray child counts as a
-    // Blu-ray here exactly as it does for "Purchased Blu-ray" membership (it carries its
-    // parent's purchase date). Read through `mostRecentPurchaseDate(in:)` and
-    // `hasPurchasedReleases(in:)`, which back the Date Last Purchased sort on the format lists.
+    // Purchase data per release format, keyed by ReleaseFormat raw value. Read through mostRecentPurchaseDate(in:)
+    // and hasPurchasedReleases(in:). A combo pack's Blu-ray child counts as Blu-ray, as it does for Purchased Blu-ray.
     let mostRecentPurchaseDateByFormat: [String: Date]
     let purchasedFormats: Set<String>
 
@@ -64,9 +52,8 @@ struct FilmMetadata: Codable {
     let rotationDateFormatted: String?
     let purchaseDateFormatted: String?
     
-    // Search Cache Data — each title in SearchText.key form, the form search compares in.
-    // Alternate titles are joined by "\n", which no key contains, so a query can never
-    // match across the boundary between two of them.
+    // Search keys, in SearchText.key form. Alternate titles are joined by a newline, which no key contains, so a
+    // query cannot match across two titles.
     let nameSearchKey: String
     let alternateTitleSearchKeys: String
     /// The synopsis (`descriptionText`) in the same form, for the `#synopsis` token.
@@ -95,11 +82,7 @@ struct FilmMetadata: Codable {
         self.viewCount = snapshot.calendarTable.count
         self.lastModifiedRaw = snapshot.lastModified
         
-        // Parse releaseDate as a secondary sort key for the .year sort option.
-        // Requires a strictly well-formed "YYYY-MM-DD" prefix (dashes in positions 4 and 7).
-        // Accepts both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SSZ" — the optional time suffix
-        // is handled by trying the full ISO 8601 formatter first, then the date-only one.
-        // Any other format (malformed, empty, missing dashes) yields nil.
+        // Parse releaseDate for the .year sort's secondary key.
         self.releaseDateParsed = Self.parseReleaseDate(snapshot.releaseDate)
         
         // Recents Data
@@ -111,21 +94,9 @@ struct FilmMetadata: Codable {
         self.lastWatchedFormatted = Self.formatDate(self.lastWatchedParsed, includeDay: true)
         self.lastModifiedFormatted = Self.formatDate(self.lastModifiedParsed, includeDay: true)
         
-        // Rotation date, via the shared helper in GlobalUtilities: the viewing
-        // anniversary rounded up to the 1st of the following month. Films with any
-        // specialSorting value are excluded from rotation entirely.
-        // Reuses the already-computed self.lastWatchedParsed — no second parse needed.
-        //
-        // Stored UNCONDITIONALLY — this is deliberately not gated on the date having
-        // already arrived. Everything this entry holds must be a pure function of the
-        // snapshot, because entries are persisted to disk and, on the common startup
-        // path (cache present, count matching), are trusted wholesale and never
-        // recomputed. A value that depends on `Date()` therefore freezes at whatever
-        // was true when the entry was written: gating here meant a film that crossed
-        // its rotation date after that point kept a nil rotation date, and stayed
-        // absent from "Recently Come Up for Rotation", until something else happened
-        // to touch that particular film. The "has it arrived yet" test now lives in
-        // recentFilmIDs(for:), which re-evaluates `Date()` on every call.
+        // Rotation eligibility date: the viewing anniversary rounded up to the 1st of the next month. Films with a
+        // specialSorting value are excluded. It is stored unconditionally and never gated on `Date()`, because entries
+        // are persisted and trusted at startup. recentFilmIDs(for:) checks whether the date has arrived.
         if !snapshot.lastWatched.isEmpty && snapshot.specialSorting.isEmpty {
             let eligibility = rotationEligibilityDate(
                 from: self.lastWatchedParsed,
@@ -151,14 +122,8 @@ struct FilmMetadata: Codable {
             formats.insert(release.format)
             guard !release.purchaseDate.isEmpty else { continue }
 
-            // parseDate() reports failure as Date.distantPast, and that value must not be
-            // adopted as a purchase date. Doing so promoted a release whose purchaseDate
-            // was present but unparseable into the "has a dated purchase" tier, carrying a
-            // date of the year 1, which then sorted it ahead of every genuine purchase in
-            // ascending order — and displayed it, via purchaseDateFormatted, as a real
-            // date the user never entered. A malformed value is not a date; skipping it
-            // leaves the release counted in `anyPurchased` only, which is exactly the
-            // "purchased, date unknown" tier that case belongs in.
+            // parseDate() returns Date.distantPast on failure. A malformed purchase date must not be adopted, or it
+            // would sort as year 1. Such a release still counts in anyPurchased.
             let purchaseDate = Self.parseDate(release.purchaseDate)
             guard purchaseDate > Date.distantPast else { continue }
 
@@ -207,18 +172,12 @@ struct FilmMetadata: Codable {
     // ISO 8601 formatter for "YYYY-MM-DD" (date-only, UTC).
     private static let releaseDateOnlyStyle = Date.ISO8601FormatStyle(timeZoneSeparator: .colon).year().month().day()
     
-    /// Parses a film's `releaseDate` field into a `Date` for use as a secondary sort
-    /// key within the `.year` sort option. Returns `nil` if the value is empty,
-    /// does not begin with a well-formed `YYYY-MM-DD` prefix (dashes required at
-    /// positions 4 and 7), or cannot be decoded by either ISO 8601 style.
-    ///
-    /// Both "YYYY-MM-DD" and "YYYY-MM-DDTHH:MM:SSZ" are accepted; the time
-    /// component is discarded for comparison purposes (only the calendar day matters).
+    /// Parses `releaseDate` for the `.year` sort's secondary key. Returns nil for an empty value, a malformed
+    /// "YYYY-MM-DD" prefix, or an undecodable value. Any time part is ignored.
     private static func parseReleaseDate(_ raw: String) -> Date? {
         guard raw.count >= 10 else { return nil }
         
-        // Validate the "YYYY-MM-DD" prefix strictly: characters at index 4 and 7
-        // must be dashes, and all digit positions must be ASCII digits.
+        // Require a strict "YYYY-MM-DD" prefix: digits, with dashes at indexes 4 and 7.
         let chars = Array(raw.unicodeScalars)
         let isDigit: (Unicode.Scalar) -> Bool = { $0.value >= 48 && $0.value <= 57 }
         guard isDigit(chars[0]), isDigit(chars[1]), isDigit(chars[2]), isDigit(chars[3]),
@@ -228,13 +187,11 @@ struct FilmMetadata: Codable {
               isDigit(chars[8]), isDigit(chars[9])
         else { return nil }
         
-        // Attempt full datetime parse first (handles the "T12:00:00Z" suffix),
-        // then fall back to the date-only formatter.
+        // Try the full datetime first, then the date-only style.
         if raw.count > 10, let date = try? releaseDateTimeStyle.parse(raw) {
             return date
         }
-        // Use only the first 10 characters so a partially-malformed suffix after
-        // the date segment (e.g. "1990-10-02 extra") doesn't cause a spurious failure.
+        // Only the first 10 characters are used for date-only parsing.
         let dateOnly = String(raw.prefix(10))
         return try? releaseDateOnlyStyle.parse(dateOnly)
     }
@@ -243,19 +200,14 @@ struct FilmMetadata: Codable {
     /// leading article ("The ", "A ", "An ", any case) dropped. Shared by the Reports and
     /// DataViz sorts so every title ordering in the app agrees with the gallery's.
     static func stripArticles(_ title: String) -> String {
-        // Strip any leading punctuation characters in a single pass — one allocation
-        // rather than one per character. drop(while:) produces a Substring (no copy);
-        // trimmingCharacters materializes a new String only once at the end.
+        // Strip leading punctuation and whitespace in one pass.
         let specialChars = CharacterSet(charactersIn: "[]():.,-—")
         var result = String(
             title
                 .unicodeScalars
                 .drop(while: { specialChars.contains($0) || CharacterSet.whitespaces.contains($0) })
         )
-        // After stripping leading punctuation, strip any residual leading whitespace
-        // that separated punctuation from the first real character (e.g. "[ Title").
-        // The drop(while:) above handles contiguous punctuation+space runs, but a
-        // string like "(  Title" could leave a leading space. One trim is sufficient.
+        // Trim any whitespace left after the punctuation.
         result = result.trimmingCharacters(in: .whitespaces)
 
         for article in ["The ", "A ", "An "] {
@@ -288,8 +240,7 @@ struct FilmMetadata: Codable {
         return includeDay ? dayFormatter.string(from: date) : monthFormatter.string(from: date)
     }
     
-    // Date parsing delegates to GlobalUtilities' canonical parseDate(from:) for
-    // consistent format handling across the entire application.
+    // Delegates to the shared parseDate(from:) in GlobalUtilities, so formats are handled consistently.
     private static func parseDate(_ dateString: String) -> Date {
         guard !dateString.isEmpty else { return Date.distantPast }
         return Film_Tracker.parseDate(from: dateString) ?? Date.distantPast
@@ -342,71 +293,28 @@ extension FilmMetadata {
 }
 
 // MARK: - Cache File Envelope
-/// The on-disk representation of the metadata cache.
+/// The on-disk form of the metadata cache.
 ///
-/// `FilmMetadata` holds values DERIVED from `FilmSnapshot` — parsed dates, sort
-/// keys, pre-formatted display strings, rotation eligibility dates. When the rule
-/// producing any of those changes, every entry already on disk is silently wrong,
-/// and on the common startup path (cache present, entry count matching the film
-/// count) nothing recomputes it: the file is trusted wholesale. Before this
-/// envelope existed there was no way for the app to notice.
+/// `FilmMetadata` holds values derived from `FilmSnapshot`. If the rule producing a value changes, entries already on
+/// disk are wrong, and the common startup path trusts the file without recomputing. `schemaVersion` guards against
+/// this: bump `currentSchemaVersion` whenever a derived field's meaning changes. The next launch then discards the file
+/// and rebuilds from live snapshots, using MemoryStore's existing rebuild path.
 ///
-/// `schemaVersion` is that mechanism. Bump `currentSchemaVersion` whenever a
-/// derived field's meaning changes, and the next launch discards the file and
-/// performs a full rebuild from live snapshots — which `MemoryStore`'s existing
-/// `cacheCount == 0` branch already does, with no special-case migration code.
-///
-/// Version 1 is the first envelope. Files written before it have a bare
-/// `[UUID: FilmMetadata]` root and simply fail to decode as this type, taking the
-/// same discard-and-rebuild path, which is exactly what they need: they predate
-/// the month-rounding of rotation eligibility dates.
+/// Version 1 is the first envelope. Older files have a bare dictionary root, fail to decode, and are rebuilt.
 struct FilmMetadataCacheFile: Codable {
-    /// Bump when any derived value in `FilmMetadata` changes meaning.
-    /// Version 2 adds `viewCount` (recorded-viewing count) to every entry; files
-    /// written at version 1 have no such field and cannot be decoded into the
-    /// current type at all, so they take the discard-and-rebuild path.
+    /// Bump when any derived value in `FilmMetadata` changes meaning. Each version below forces a rebuild.
     ///
-    /// Version 3 changes the MEANING of an existing field rather than adding one:
-    /// `mostRecentPurchaseDate` no longer absorbs an unparseable `purchaseDate` as
-    /// `Date.distantPast`, so an entry written at version 2 can hold a year-1 purchase
-    /// date that the current rule would never produce. This is the case the envelope
-    /// exists for — nothing about such a file fails to decode, so without the version
-    /// number it would be loaded and trusted, and the affected films would keep sorting
-    /// and displaying wrongly until something else happened to touch them.
-    ///
-    /// Version 4 forces a one-time rebuild: `rotationDate` for films without an override
-    /// follows Preferences.defaultRotationThreshold, and until the default-threshold
-    /// refresh existed, changing that preference left every such entry on disk computed
-    /// from the old default.
-    ///
-    /// Version 5: `titleKey` strips leading articles case-insensitively ("THE", "the").
-    ///
-    /// Version 6 adds `mostRecentPurchaseDateByFormat` and `purchasedFormats`, which the
-    /// Date Last Purchased sort reads on the "Purchased 4K / Blu-ray / DVD" lists.
-    ///
-    /// Version 7 replaces the lowercased search strings with `SearchText.key` forms
-    /// (`nameSearchKey`, `alternateTitleSearchKeys`), which fold diacritics and drop
-    /// punctuation so a typed hyphen or a missing colon still finds the title.
-    ///
-    /// Version 8 adds `synopsisSearchKey`, so the `#synopsis` token reads a stored key
-    /// instead of normalizing every film's synopsis on each search.
-    ///
-    /// Version 9: `rotationDate` is computed in the Gregorian calendar whatever the system
-    /// calendar (AppCalendar); an entry written under a Hebrew or Islamic system calendar
-    /// holds a rotation date counted in its months. The file also gains `libraryOrders`.
-    ///
-    /// Version 10 adds `textSearchKeys`, so the credit, studio, tag, genre, notes and
-    /// release-studio tokens read stored keys instead of normalizing every value of every
-    /// film on each search (~100 ms on the main actor per Crew token at 1,400 films).
+    /// v2 adds `viewCount`. v3: `mostRecentPurchaseDate` no longer absorbs an unparseable purchase date as
+    /// `Date.distantPast`. v4: `rotationDate` follows the default rotation threshold. v5: `titleKey` strips leading
+    /// articles case-insensitively. v6 adds `mostRecentPurchaseDateByFormat` and `purchasedFormats`. v7: search keys
+    /// use `SearchText.key` forms. v8 adds `synopsisSearchKey`. v9: `rotationDate` is computed in the Gregorian calendar,
+    /// and the file gains `libraryOrders`. v10 adds `textSearchKeys`.
     static let currentSchemaVersion = 10
 
     let schemaVersion: Int
     let entries: [UUID: FilmMetadata]
-    /// The library orders over exactly `entries`, saved only when they were current for
-    /// them, keyed by `LibraryOrderKey.storageName`; each is the order's film IDs, 16 bytes
-    /// apiece. Never trusted as read: `MetadataCache.validatedOrders` keeps only those that
-    /// are, pair by pair, what `compare` would build over these entries now. Optional, so a
-    /// file without them still loads (the orders are then built in the background).
+    /// Saved library orders for `entries`, keyed by `LibraryOrderKey.storageName`. They are never trusted as read:
+    /// `MetadataCache.validatedOrders` keeps only those that match a fresh build. Optional, so older files still load.
     var libraryOrders: [String: Data]? = nil
 }
 
@@ -426,22 +334,15 @@ final class MetadataCache: Loggable {
 
     // MARK: - Library Orders
     //
-    // Every comparator ends in a title tiebreak that ends in the film ID, so each sort
-    // option is a strict TOTAL order over metadata entries. Under a total order, sorting
-    // any subset of the library yields exactly the subsequence of the sorted library, and
-    // the descending result is exactly the ascending one reversed. So each option's
-    // ascending order over the whole library is built once, off the main actor, and every
-    // later sort() of a view's films is a filter of it: O(N) instead of an
-    // O(N log N) sort whose title comparisons (englishStandardCompare) cost ~33 ms per
-    // 1,400 films on the main thread, after every edit.
+    // Every comparator ends in a title tiebreak and then the film ID, so each sort option is a strict total order.
+    // Under a total order, sorting any subset yields the subsequence of the full sorted library, and descending is the
+    // ascending order reversed. So each option's ascending order over the whole library is built once, off the main
+    // actor. Later sort() calls filter that order, which is O(N) instead of a full sort.
     //
-    // Correctness rests on one rule: an order is used only while it describes the
-    // CURRENT metadata. `metadataGeneration` moves on every mutation of `metadata` (the
-    // didSet above, so no mutation path can miss it), and the orders are usable only when
-    // `libraryOrdersGeneration` equals it. The single-film mutation paths repair the orders
-    // in place (reconcileLibraryOrders) and bring the generation forward; any other
-    // mutation leaves them stale, which sends sort() back to the full sort until a
-    // background rebuild lands. A stale order is never read.
+    // An order is used only while it matches the current metadata. `metadataGeneration` advances on every change to
+    // `metadata`, and an order is usable only when `libraryOrdersGeneration` equals it. Single-film mutations repair
+    // the orders in place (reconcileLibraryOrders). Other mutations leave them stale, so sort() falls back to the full
+    // sort until a background rebuild lands. A stale order is never read.
 
     /// One library order: a sort option, plus the purchase format for Date Last Purchased (the
     /// only option that reads it; nil for every other option, so they share one order).
@@ -483,18 +384,14 @@ final class MetadataCache: Loggable {
     private var libraryOrders: [LibraryOrderKey: [UUID]] = [:]
     private var libraryOrderBuild: Task<Void, Never>?
 
-    /// Off for harness-isolated instances, whose sort scenarios exist to exercise the
-    /// comparators directly (a permutation-invariance check served from a cached order
-    /// would pass vacuously). Scenarios that test the orders turn it on.
+    /// Disabled for harness-isolated instances, which exercise the comparators directly. Harness scenarios that test
+    /// the orders turn it on.
     var usesLibraryOrders: Bool
 
     /// Below this many films the full sort is already cheap, and filtering a library-sized
     /// order would cost more than it saves. Either path yields the same array.
     private static let minimumIDsForLibraryOrder = 48
-    /// The most sort-relevant film changes repaired in place between two builds, whether
-    /// in one batch or across many mutations (an import adds films one at a time). Past it
-    /// the orders are dropped and rebuilt in the background, which bounds the main-thread
-    /// cost of a burst at a few milliseconds.
+    /// Maximum sort-relevant changes repaired in place between builds. Past this, the orders are dropped and rebuilt.
     private static let maximumReconciledChanges = 64
     /// Sort-relevant film changes repaired in place since the orders were last built.
     private var reconciledChangesSinceBuild = 0
@@ -505,31 +402,19 @@ final class MetadataCache: Loggable {
     
     private let maxFilmsPerSection = 200
     private let purchaseWindowDays = 90
-    // Rotation window (days): how far back recentFilmIDs(for:) looks when building
-    // the "Recently Come Up for Rotation" list, measured from each film's rotation
-    // eligibility date. This is the sole owner of that cutoff — no other component
-    // applies a second rotation-recency filter to these results, so there is nothing
-    // for it to be kept in sync with.
+    // Days back from now that the Recently Come Up for Rotation list covers. This is the only place that cutoff is set.
     private let recentlyRotatedWindowDays = 60
 
     // MARK: - Recents Result Cache
-    // Caches the sorted [UUID] result for each RecentsCategory so that repeated
-    // navigation to the same category — and category picker changes — return instantly
-    // without re-iterating the full metadata dictionary each time.
-    // Invalidated whenever any film metadata entry changes (add, update, remove).
+    // Sorted [UUID] results per RecentsCategory, so repeated navigation returns at once. Cleared on any metadata change.
     private var recentsCategoryCache: [RecentsCategory: [UUID]] = [:]
-    // The calendar day the cached results were computed on. The rotation and purchase
-    // tabs filter against `Date()`, so their results expire at
-    // midnight even when no film changes; cachedRecents(_:) drops the whole cache the
-    // first time it is read on a later day.
+    // Day the cached results were computed on. Rotation and purchase results depend on `Date()`, so they expire at midnight.
     private var recentsCacheDay: Date?
     
     // MARK: - Initialization
     private init() {
         guard let dataFolder = Preferences.dataFolderURL else {
-            // dataFolderURL is nil only if FileManager cannot resolve Application Support,
-            // which cannot occur in a sandboxed app after ensureRequiredDirectoriesExist()
-            // has run. Fall back to Application Support directly as a last resort.
+            // Fallback for an unavailable data folder, which is not expected once launch setup has run.
             let appSupport = FileManager.default.urls(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
@@ -553,17 +438,11 @@ final class MetadataCache: Loggable {
     }
 
     #if DEBUG
-    /// Creates an isolated instance for harness use, disconnected from `shared`.
+    /// Creates an instance for harness use, disconnected from `shared`. It never loads or saves the real cache, and
+    /// `cacheURL` is only a placeholder that it never opens.
     ///
-    /// The harness needs to load a synthetic corpus and sort it through the real
-    /// production code path — `rebuild(from:)` then `sort(_:by:direction:)` — without
-    /// that corpus displacing the live `shared.metadata` the rest of the app is reading,
-    /// and without any possibility of it reaching `metadata-cache.bin`. An isolated
-    /// instance gives both: nothing else holds a reference to it, `load()` is never
-    /// called on it, and `save()` is never called on it either (this class owns no
-    /// timer — every persistence path in the app runs through MemoryStore, which knows
-    /// only about `shared`). `cacheURL` is still assigned because it is a `let`; it
-    /// points at a file this instance will never open.
+    /// The harness loads a synthetic corpus and sorts it through the production `rebuild(from:)` and `sort`, without
+    /// affecting `shared`.
     init(isolatedForTesting cacheURL: URL) {
         self.cacheURL = cacheURL
         self.usesLibraryOrders = false
@@ -571,21 +450,15 @@ final class MetadataCache: Loggable {
     #endif
     
     // MARK: - Load/Save
-    // STARTUP: Disk I/O and plist decoding now run on a background
-    // thread via Task.detached, enabling true parallelism with other startup work.
-    /// Set once load() has run, whatever the outcome. Guards against a second call
-    /// overwriting `metadata` with on-disk content — which, if it arrived after
-    /// validateCacheAndFinalize() had already rebuilt the dictionary from fresh snapshots,
-    /// would replace correct derived data with the stale copy the rebuild just superseded.
+    // STARTUP: disk I/O and plist decoding run on a background task, in parallel with other startup work.
+    /// Set once load() has run, whatever the outcome. A second call must not overwrite `metadata` with stale disk content.
     private var hasLoadedFromDisk = false
 
     /// The cache file's read and decode, started by beginEarlyLoad and consumed by load().
     private var earlyRead: Task<CacheFileRead, Never>?
 
-    /// Starts load()'s read and decode now, off the main thread, so it overlaps the AppKit
-    /// launch work before `initializeApp()` runs. Only the read moves: every assignment and
-    /// log line still happens in load(), and nothing writes the file before load() runs,
-    /// so an early read reads the same bytes. Called once, from FilmTrackerApp.init.
+    /// Starts the read and decode early, off the main thread, so they overlap AppKit's launch work. Called once, from
+    /// FilmTrackerApp.init. Only the read moves. Nothing writes the file before load() runs, so the bytes read are the same.
     func beginEarlyLoad() {
         guard earlyRead == nil, !hasLoadedFromDisk else { return }
         let url = cacheURL
@@ -596,12 +469,7 @@ final class MetadataCache: Loggable {
     /// The early read's start and end, in LaunchTimeline milliseconds, set by the read.
     private nonisolated static let readStamps = OSAllocatedUnfairLock<(start: Double, end: Double)?>(initialState: nil)
 
-    /// Reads and decodes the cache file. Returns a tuple so the actual error description
-    /// is available on the MainActor side for logging. Returning only `nil`
-    /// (the prior approach) silently discarded the failure reason, making
-    /// cache corruption or decode errors impossible to diagnose from logs.
-    /// A tuple is used rather than Result<_, String> because Result requires
-    /// its Failure type to conform to Error, which String does not.
+    /// Reads and decodes the cache file. The result carries any error text, so the caller can log why a read failed.
     private nonisolated static func readCacheFile(at url: URL) -> CacheFileRead {
         let start = LaunchTimeline.now()
         defer { readStamps.withLock { $0 = (start, LaunchTimeline.now()) } }
@@ -610,12 +478,8 @@ final class MetadataCache: Loggable {
             let decoder = PropertyListDecoder()
             let file = try decoder.decode(FilmMetadataCacheFile.self, from: data)
 
-            // A file written by a build with a different notion of what the
-            // derived fields mean is not usable, and is not repairable either —
-            // every entry in it would have to be recomputed, which is precisely
-            // what a full rebuild does. Reported as an error string so the caller
-            // logs the reason and leaves `metadata` empty, which routes into
-            // MemoryStore's existing "no existing MetadataCache" rebuild branch.
+            // A file with a different schema version cannot be repaired, so it is discarded and rebuilt. Returning an
+            // error leaves `metadata` empty, which routes to MemoryStore's rebuild branch.
             guard file.schemaVersion == FilmMetadataCacheFile.currentSchemaVersion else {
                 return CacheFileRead(error: "schema version \(file.schemaVersion) ≠ expected \(FilmMetadataCacheFile.currentSchemaVersion) — discarding for rebuild")
             }
@@ -641,13 +505,11 @@ final class MetadataCache: Loggable {
         var error: String?
     }
 
-    /// The saved orders that are exactly the orders `compare` builds over `entries` today.
+    /// The saved orders that exactly match what `compare` builds over `entries`.
     ///
-    /// Each must name every entry once, and each neighboring pair must compare in order.
-    /// `compare` is a strict total order (every rule ends in the film ID), whose sorted
-    /// order is unique, so that is a proof, not a heuristic: an order saved by a build
-    /// whose comparator, title rules or ICU collation differed fails it and is rebuilt.
-    /// It costs one comparison per film per order — a twelfth of a sort's.
+    /// Each must hold every entry once, and each adjacent pair must compare in order. Because `compare` is a strict total
+    /// order, a match proves equality rather than suggesting it. Orders from a build with a different comparator, title
+    /// rules, or collation fail and are rebuilt.
     nonisolated private static func validatedOrders(_ stored: [String: Data],
                                                     for entries: [UUID: FilmMetadata]) -> (orders: [LibraryOrderKey: [UUID]], rejected: Int) {
         var orders: [LibraryOrderKey: [UUID]] = [:]
@@ -677,8 +539,7 @@ final class MetadataCache: Loggable {
         return true
     }
 
-    /// Film IDs as 16 raw bytes apiece — a fifth of their size as plist strings, and read
-    /// back without parsing.
+    /// Film IDs as 16 raw bytes each, read back without parsing.
     nonisolated private static func packedIDs(_ ids: [UUID]) -> Data {
         var bytes: [UInt8] = []
         bytes.reserveCapacity(ids.count * 16)
@@ -732,20 +593,9 @@ final class MetadataCache: Loggable {
             self.metadata = loaded
             onDiskGeneration = metadataGeneration
             onDiskOrderKeys = Set(result.orders.keys)
-            // Assigning `metadata` wholesale is exactly the kind of mutation the recents
-            // invalidation contract covers, and it was the one assignment that omitted it.
-            // rebuild(from:) and incrementalUpdate(from:) both invalidate; this path did
-            // not, which left a real hole: recentsCategoryCache memoizes per-category
-            // results and is otherwise cleared only by film-level mutations, so any
-            // recentFilmIDs(for:) call that landed before this load completed cached an EMPTY
-            // ordering that survived for the remainder of the session. That is reachable
-            // during the startup window, when the window is on screen and interactive
-            // while the caches are still loading.
-            //
-            // DataCoordinator.loadFilms now gates ahead of RecentsCategory.orderedFilmIDs()
-            // so the primary caller can no longer reach it early; this invalidation is the
-            // self-healing backstop that makes the cache correct by construction for any
-            // caller, present or future, rather than by the discipline of its callers.
+            // Assigning `metadata` wholesale needs the same Recents invalidation as rebuild(from:). Without it, a Recents
+            // query made before this load finished could cache an empty result for the rest of the session. DataCoordinator
+            // also gates Recents loads, so this is a backstop.
             invalidateRecentsCache()
             installSavedLibraryOrders(result.orders, rejected: result.rejectedOrders, validation: result.validation)
             let duration = Date().timeIntervalSince(start)
@@ -755,13 +605,9 @@ final class MetadataCache: Loggable {
         }
     }
     
-    /// Writes `metadata` to disk, unless the file already holds exactly this generation of
-    /// it — a quit after no edits, or after the throttled save has caught up, then writes
-    /// nothing (≈45 ms of encoding and 0.8 MB of disk writes per quit, 2026-10-27).
+    /// Writes `metadata` to disk, unless the file already holds this generation. A quit with no edits writes nothing.
     ///
-    /// Saves run one at a time, in call order: the throttled save and the quit save can
-    /// otherwise overlap, land in either order, and leave the older entries on disk with
-    /// `onDiskGeneration` claiming the newer.
+    /// Saves run one at a time, in call order, so an older write cannot land after a newer one.
     func save() async {
         let previous = saveInFlight
         let current = Task {
@@ -788,9 +634,7 @@ final class MetadataCache: Loggable {
         let orders = libraryOrdersAreCurrent ? libraryOrders : [:]
         let orderKeys = Set(orders.keys)
         let url = cacheURL
-        // The file must still be there: the generation only says what was written. Orders
-        // built since the last save (the background build after a launch that loaded none)
-        // are a change too.
+        // The file must still exist. Orders built since the last save are also changes.
         if generation == onDiskGeneration, orderKeys.isSubset(of: onDiskOrderKeys),
            FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             Self.log("Save skipped: cache on disk is current (\(metadata.count) entries)")
@@ -802,12 +646,7 @@ final class MetadataCache: Loggable {
         // task has no shared-mutable-state access to self.
         let snapshot = metadata
 
-        // The detached task returns a tuple so the actual error description
-        // is available on the MainActor side for logging, matching the same
-        // pattern used by load(). Returning only a Bool discarded the failure
-        // reason, making encode/write errors impossible to diagnose from logs.
-        // A tuple is used rather than Result<_, String> because Result requires
-        // its Failure type to conform to Error, which String does not.
+        // The detached task returns the error text, so the caller can log why a write failed.
         let (saveSuccess, saveError): (Bool, String?) = await Task.detached(priority: .utility) {
             do {
                 let encoder = PropertyListEncoder()
@@ -835,26 +674,14 @@ final class MetadataCache: Loggable {
         }
     }
     
-    // NOTE: This class does NOT own a throttled-save timer. The unified throttled save
-    // lives in MemoryStore.scheduleThrottledSave(), which flushes both MetadataCache and
-    // MemoryStoreCache together on every mutation. A dedicated timer here would create
-    // two independent 2-second throttles writing to metadata-cache.bin, producing
-    // redundant disk I/O and a race window at shutdown where either timer could wake
-    // after the final flush and overwrite it. All MetadataCache mutation paths
-    // (addFilm, updateFilm, removeFilm, removeFilms, rebuild, incrementalUpdate) have
-    // a corresponding MemoryStore mutation path that invokes the unified throttled save,
-    // so persistence is always scheduled in lockstep.
-    //
-    // For shutdown, AppDelegate.performGracefulShutdown() calls
-    // DataCoordinator.saveImmediately() → MemoryStore.saveImmediately(), which calls
-    // MetadataCache.shared.save() directly (no throttle involved).
-    
+    // This class has no throttled-save timer. MemoryStore.scheduleThrottledSave() saves MetadataCache and
+    // MemoryStoreCache together, so there is one timer and no write race at shutdown. AppDelegate.performGracefulShutdown()
+    // calls DataCoordinator.saveImmediately(), which reaches save() through MemoryStore.
+
     // MARK: - Build from Snapshots
     
-    /// Full rebuild from a dictionary of FilmSnapshots.
-    /// Called at startup when no cache exists or when counts are severely mismatched.
-    /// Heavy construction work (date parsing, string ops) runs on a background thread;
-    /// only the final dictionary assignment touches MainActor state.
+    /// Rebuilds all entries from `snapshots`. Called when the cache is empty, or after a slow-path load. Entries are
+    /// built off the main actor, and only the final assignment runs on it.
     func rebuild(from snapshots: [UUID: FilmSnapshot]) async {
         let start = Date()
 
@@ -871,13 +698,8 @@ final class MetadataCache: Loggable {
     
     /// Builds an entry for every snapshot, off MainActor, in parallel chunks.
     ///
-    /// `FilmMetadata(from:)` is a pure function of its snapshot — the shared state it reads
-    /// (the storage formatters and format styles, `SearchText`) is immutable, and was
-    /// already being read from this background build and the main thread at once. A full
-    /// rebuild of 1,400 films took ~75 ms on one core in the launch that needs it (a
-    /// snapshot-cache miss, or a missing or outdated cache file), all of it on the startup
-    /// path. Chunks of at least 64 films keep task overhead negligible, so a handful of
-    /// new films is still built in one piece.
+    /// Builds an entry for each snapshot in parallel chunks, off the main actor. `FilmMetadata(from:)` is a pure function
+    /// of its snapshot, so this is safe. Chunks of at least 64 films keep task overhead small.
     nonisolated private static func buildEntries(_ snapshots: [UUID: FilmSnapshot]) async -> [UUID: FilmMetadata] {
         let pairs = Array(snapshots)
         let chunkCount = min(ProcessInfo.processInfo.activeProcessorCount, max(1, pairs.count / 64))
@@ -897,13 +719,8 @@ final class MetadataCache: Loggable {
         }
     }
 
-    /// The synchronous counterpart of `buildEntries`, for a batch its caller needs in place
-    /// before it returns: MemoryStore.updateFilms, whose caller reloads the view next. The
-    /// same pure construction, spread across the cores with `concurrentPerform`, which
-    /// blocks the calling thread only for the parallel span (it also works a chunk itself).
-    /// Below 128 films it is built inline, where the hand-off would cost more than it saves.
-    /// Measured by the `bulk-edit-perf` harness scenario: building 1,600 entries one at a
-    /// time was about 330 ms of a bulk save's main-thread time in a Debug build.
+    /// The synchronous counterpart of `buildEntries`, for batches the caller needs before it returns, such as
+    /// MemoryStore.updateFilms. It builds across the cores with `concurrentPerform`, and inline below 128 films.
     nonisolated private static func buildEntriesNow(_ snapshots: [FilmSnapshot]) -> [FilmMetadata] {
         guard snapshots.count >= 128 else { return snapshots.map { FilmMetadata(from: $0) } }
         let chunkCount = min(ProcessInfo.processInfo.activeProcessorCount, snapshots.count / 64)
@@ -917,13 +734,7 @@ final class MetadataCache: Loggable {
         return chunks.withLock { $0.flatMap { $0 } }
     }
 
-    /// Incremental update: adds missing entries and removes stale ones.
-    /// Much faster than a full rebuild when only a small delta has changed.
-    ///
-    /// New `FilmMetadata` entries are constructed on a background thread so that
-    /// date parsing and string operations do not block `MainActor`. Only the final
-    /// dictionary mutation — which touches `self.metadata`, an actor-isolated property —
-    /// runs back on `MainActor`.
+    /// Adds entries for new films and removes entries for deleted ones. New entries are built off the main actor.
     func incrementalUpdate(from snapshots: [UUID: FilmSnapshot]) async {
         let start = Date()
 
@@ -939,11 +750,7 @@ final class MetadataCache: Loggable {
         // Build new entries for films that have no existing metadata entry.
         let toAddIDs = snapshotKeys.subtracting(existingKeys)
         if !toAddIDs.isEmpty {
-            // Extract only the snapshots that actually need new metadata entries.
-            // Passing the full `snapshots` dictionary to the detached task would copy
-            // every FilmSnapshot across an actor boundary even though only the `toAddIDs`
-            // subset is used inside the task. For a library with many films this is a
-            // substantial unnecessary copy; slicing first keeps the transfer lean.
+            // Pass only the snapshots that need new entries, to avoid copying the rest across the actor boundary.
             var toAddSnapshots: [UUID: FilmSnapshot] = [:]
             toAddSnapshots.reserveCapacity(toAddIDs.count)
             for id in toAddIDs {
@@ -998,8 +805,7 @@ final class MetadataCache: Loggable {
         store([FilmMetadata(from: snapshot)])
     }
 
-    /// Batch counterpart of updateFilm(_:): one library-order repair for the whole batch
-    /// (MemoryStore.updateFilms), with the entries built across the cores.
+    /// Batch counterpart of updateFilm(_:), with one library-order repair for the whole batch.
     func updateFilms(_ snapshots: [FilmSnapshot]) {
         store(Self.buildEntriesNow(snapshots))
     }
@@ -1050,17 +856,9 @@ final class MetadataCache: Loggable {
         }
     }
 
-    /// Brings every library order forward across `changes`, which have already been
-    /// applied to `metadata`. Called by every single-film mutation path.
-    ///
-    /// Each changed film is removed and re-inserted by binary search. Every other film's
-    /// entry is unchanged, so the rest of the order is still sorted under the current
-    /// comparator, and under a total order there is exactly one position the film can
-    /// occupy: the result is the array a full sort would produce. A change that leaves
-    /// every sort field equal (`sortsIdentically`) cannot move the film, and is skipped.
-    ///
-    /// Orders that were already stale before the mutation, or a batch too large to repair
-    /// cheaply, are dropped and rebuilt in the background instead.
+    /// Updates every library order for `changes`, which are already applied to `metadata`. Each changed film is removed
+    /// and reinserted by binary search. A change that leaves every sort field equal (`sortsIdentically`) cannot move the
+    /// film, so it is skipped. Stale orders, and batches too large to repair cheaply, are dropped and rebuilt.
     private func reconcileLibraryOrders(_ changes: [LibraryOrderChange], ordersWereCurrent: Bool) {
         guard usesLibraryOrders else { return }
         guard ordersWereCurrent, !libraryOrders.isEmpty else {
@@ -1120,9 +918,8 @@ final class MetadataCache: Loggable {
         return result
     }
 
-    /// Adopts the orders saved with the entries just loaded — already proven to be exactly
-    /// what a build would produce (validatedOrders) — so launch starts with them current
-    /// instead of sorting the title order on the startup path and building the rest after.
+    /// Adopts the saved orders, already validated against the entries. Launch starts with current orders instead of
+    /// sorting on the startup path.
     private func installSavedLibraryOrders(_ orders: [LibraryOrderKey: [UUID]], rejected: Int, validation: Duration) {
         guard usesLibraryOrders else { return }
         libraryOrders = orders
@@ -1190,9 +987,7 @@ final class MetadataCache: Loggable {
         guard usesLibraryOrders else { return false }
         var orders = built
         if builtGeneration != metadataGeneration {
-            // The library changed while the build ran. Bring the new orders forward by
-            // the difference between the snapshot they were built from and `metadata` now,
-            // exactly as a mutation would have.
+            // The library changed during the build, so the built orders are brought forward by the difference.
             var changed: Set<UUID> = []
             for (id, entry) in metadata {
                 if let old = snapshot[id], old.sortsIdentically(to: entry) { continue }
@@ -1205,8 +1000,7 @@ final class MetadataCache: Loggable {
             }
             orders = repaired
         }
-        // Orders that are current stay (they agree with these: one total order, one
-        // array); stale ones are discarded.
+        // Current orders agree with the built ones, since each order is unique. Stale orders are discarded.
         if !libraryOrdersAreCurrent { libraryOrders.removeAll() }
         libraryOrders.merge(orders) { _, new in new }
         libraryOrdersGeneration = metadataGeneration
@@ -1258,8 +1052,7 @@ final class MetadataCache: Loggable {
             }
             libraryOrders[key] = direction == .ascending ? sorted : sorted.reversed()
         }
-        // Small sorts (a Film Queue section, Up Next) land here on every refresh; only an
-        // order actually missing is worth a build.
+        // Small sorts land here on every refresh. Only a missing order is worth building.
         if !libraryOrdersAreCurrent || libraryOrders.count < Self.wantedLibraryOrderKeys.count {
             scheduleLibraryOrderBuild()
         }
@@ -1310,38 +1103,18 @@ final class MetadataCache: Loggable {
         let year2 = Int(data2.year) ?? 0
         if year1 != year2 { return year1 < year2 }
 
-        // Same title, same year (a deliberate Film1/Film2 pair, or a true duplicate):
-        // the film ID is the last resort, so every comparator ending here is a TOTAL
-        // order. Without it such a pair compared equal and kept whatever relative order
-        // the caller passed in — and callers pass `Array(films.keys)` or a list's ID
-        // set, whose iteration order is reseeded every launch, so the pair swapped
-        // places from one launch to the next.
+        // Same title and year. The film ID is the last tiebreak, which keeps the comparison total. Caller order is
+        // not stable across launches, so it cannot be used.
         return data1.id.uuidString < data2.id.uuidString
     }
     
-    /// Compares two films by a date field, falling back to a title comparison when the
-    /// dates are equal. Used by the dateAdded, lastViewed, and dateModified sort cases so
-    /// the three share one definition.
+    /// Compares two films by a date field, falling back to the title. Used by the dateAdded, lastViewed, and
+    /// dateModified sort cases.
     ///
-    /// A film with no date carries `Date.distantPast`, and this function deliberately does
-    /// NOT special-case it: "no date" simply IS the earliest possible value, and it sorts
-    /// that way. Ascending therefore leads with the films that have never been watched /
-    /// added / modified and ends with the most recent; descending reverses that completely,
-    /// putting the most recent first and the dateless ones at the end. That is the behavior
-    /// a user reads off the direction label, and it needs no sentinel rule to produce.
+    /// A film with no date carries `Date.distantPast`, which is the earliest value. Ascending therefore puts undated
+    /// films first, and descending puts them last. No sentinel rule is needed.
     ///
-    /// This replaces an earlier design that pinned undated films to the end in BOTH
-    /// directions. That rule did not survive contact with `_performSort`, which reversed
-    /// direction by negating this function's result — negation inverted the sentinel along
-    /// with everything else, so undated films actually LED in descending order, the exact
-    /// opposite of what the rule intended and of what its comment claimed. Both halves are
-    /// now gone: the sentinel here, and the negation there.
-    ///
-    /// The title tiebreak is applied unconditionally, including when both dates are absent.
-    /// It previously returned a bare `false` for that case, which left every undated film
-    /// equivalent to every other and their relative order therefore unspecified — it varied
-    /// with whatever order the caller happened to pass the IDs in. Every sibling comparator
-    /// ends in `compareTitles`; this one now does too.
+    /// The title tiebreak always applies, including when both dates are absent, so every undated film has a defined position.
     ///
     /// - Parameters:
     ///   - date1: Parsed date for the first film (`Date.distantPast` means "no date").
@@ -1360,29 +1133,14 @@ final class MetadataCache: Loggable {
 
     /// Compares two films for the datePurchased sort option.
     ///
-    /// Purchase state forms three ordered tiers, read as "how recently was this acquired":
+    /// Compares films for the datePurchased sort. Purchase state forms three tiers:
     ///
-    ///   Tier 0 — no purchased releases at all      (never acquired → earliest)
-    ///   Tier 1 — purchased, but no usable date     (acquired at some unknown past point)
-    ///   Tier 2 — purchased with a date             (ordered among themselves by that date)
+    ///   Tier 0: never purchased (earliest)
+    ///   Tier 1: purchased, with no usable date
+    ///   Tier 2: purchased with a date, ordered by that date
     ///
-    /// Ascending runs 0 → 1 → 2, ending with the most recent purchase. Descending reverses
-    /// the whole sequence, so the newest purchases lead and the never-purchased films trail.
-    /// This is the same principle `compareDates` applies to an absent date, extended to the
-    /// two distinct kinds of absence a purchase record can have.
-    ///
-    /// This replaces an earlier design in which the tier boundaries were fixed — dated
-    /// purchases led in both directions, and only the ordering within that tier reversed.
-    /// That rule was deliberate, but it made this the one sort option whose direction
-    /// control did not reverse what the user could see at the top of the grid, and it
-    /// required an early return that bypassed `_performSort`'s direction handling. Neither
-    /// is needed now: this is an ordinary ascending comparator like every other, and
-    /// direction is applied uniformly by the caller.
-    ///
-    /// Every tier and date is read within `format` — only purchases of that release format
-    /// count — or across all formats when it is nil. A "Purchased 4K" list passes `.uhd4K`,
-    /// so a film whose 4K copy was bought in 2020 and a Blu-ray last month sorts, and bands,
-    /// as a 2020 purchase there (see ViewIdentifier.purchaseFormatScope).
+    /// Tiers and dates are read within `format`, or across all formats when nil. A "Purchased 4K" list therefore sorts
+    /// by 4K purchases only (see ViewIdentifier.purchaseFormatScope).
     ///
     /// - Returns: `true` if film 1 sorts before film 2 in ASCENDING order.
     nonisolated private static func comparePurchaseDates(
@@ -1406,10 +1164,7 @@ final class MetadataCache: Loggable {
     /// The purchase tier a film belongs to within `format` (all formats when nil):
     /// 0 = never purchased, 1 = purchased with no usable date, 2 = purchased with a date.
     ///
-    /// Non-private so the debug harness asserts tier ordering against this exact definition
-    /// rather than re-deriving it from `mostRecentPurchaseDate`/`hasPurchasedReleases` on
-    /// its own. A test that restates the rule it is checking will agree with a broken
-    /// implementation as readily as a correct one.
+    /// Internal, not private, so the debug harness checks ordering against this definition rather than a restated copy.
     nonisolated static func purchaseTier(_ data: FilmMetadata, in format: ReleaseFormat? = nil) -> Int {
         if data.mostRecentPurchaseDate(in: format) != nil { return 2 }
         return data.hasPurchasedReleases(in: format) ? 1 : 0
@@ -1453,9 +1208,7 @@ final class MetadataCache: Loggable {
         if let ordered = sortFromLibraryOrder(filmIDs, key: LibraryOrderKey(option), direction: direction) {
             return ordered
         }
-        // Copy the dictionary header on MainActor (O(1) for Swift's CoW dicts).
-        // The actual element data is shared until the detached task modifies it,
-        // which it never does — it only reads, so no copy-on-write is triggered.
+        // Copy the metadata on MainActor. Copy-on-write means the detached task reads it without copying.
         let metadataSnapshot = metadata
         let generation = metadataGeneration
         let start = Date()
@@ -1474,52 +1227,35 @@ final class MetadataCache: Loggable {
         return sorted
     }
 
-    /// Shared sort implementation — pure function, works on any metadata snapshot.
-    /// Separated so both sync and async paths share the same logic with no duplication.
-    /// Marked nonisolated so that sortAsync's Task.detached can call it without
-    /// hopping back to MainActor — otherwise the background sort would silently
-    /// re-acquire MainActor, defeating the purpose of the detached task.
+    /// The shared sort. It is a pure function over any metadata snapshot, and nonisolated, so sortAsync's detached task
+    /// can call it without returning to MainActor.
     nonisolated private static func _performSort(_ filmIDs: [UUID], by option: SortOption,
                                      direction: SortDirection,
                                      purchaseFormat: ReleaseFormat?,
                                      using metadata: [UUID: FilmMetadata]) -> [UUID] {
         return filmIDs.sorted { id1, id2 in
-            guard let data1 = metadata[id1], let data2 = metadata[id2] else {
-                // Degenerate path: an ID with no metadata entry. Ordered by UUID purely so
-                // the predicate stays a valid ordering rather than because the result means
-                // anything. Left outside the direction handling below deliberately — there
-                // is no meaningful "reverse" of an arbitrary tiebreak, and involving it
-                // would only make an already-impossible state harder to reason about.
+            let entry1 = metadata[id1], entry2 = metadata[id2]
+            guard let data1 = entry1, let data2 = entry2 else {
+                // Degenerate path: an ID with no metadata entry. Such IDs sort after every
+                // film that has one, and by UUID among themselves. Comparing only the two
+                // UUIDs whenever EITHER entry was missing mixed two unrelated orderings —
+                // not a strict weak ordering — so the sort could scatter them arbitrarily.
+                // Left outside the direction handling below deliberately — there is no
+                // meaningful "reverse" of an arbitrary tiebreak.
+                if (entry1 == nil) != (entry2 == nil) { return entry2 == nil }
                 return id1.uuidString < id2.uuidString
             }
 
-            // Direction is applied by SWAPPING THE OPERANDS, never by negating the result.
-            //
-            // The two are equivalent for any pair the comparator considers distinct, but
-            // they differ precisely where it considers them equal: negation turns
-            // "a is not before b" into "a is before b", so for an equivalent pair both
-            // less(a, b) and less(b, a) come back true — and less(a, a) comes back true as
-            // well. That is an asymmetric, non-irreflexive predicate, which violates the
-            // strict-weak-ordering contract `Array.sorted(by:)` documents as a requirement
-            // and whose result it leaves unspecified when unmet.
-            //
-            // Swapping is exact instead of approximate: comparing (b, a) is the definition
-            // of reversal, it preserves the tiebreak reversal the old negation produced for
-            // distinct elements, and equal elements correctly compare false in both
-            // directions. It also removes the need for any comparator to bypass this step —
-            // `comparePurchaseDates` previously returned early to protect a tier rule from
-            // the negation, and no longer has to.
+            // Direction is applied by swapping operands, never by negating the result. Negation breaks the strict weak
+            // ordering that sorted(by:) requires, because equal elements would compare as less than themselves.
             return direction == .ascending
                 ? compare(data1, data2, by: option, purchaseFormat: purchaseFormat)
                 : compare(data2, data1, by: option, purchaseFormat: purchaseFormat)
         }
     }
 
-    /// The single ascending comparison for every sort option: `true` when `data1` sorts
-    /// before `data2`. Direction is not a parameter and must not become one — reversal is
-    /// the caller's job, performed by swapping arguments (see `_performSort`). Keeping this
-    /// function direction-blind is what guarantees every option reverses identically and
-    /// that none can quietly opt out of the rule.
+    /// The single ascending comparison for every sort option. The caller applies direction (see _performSort). This
+    /// function stays direction-blind, so every option reverses the same way.
     nonisolated private static func compare(_ data1: FilmMetadata, _ data2: FilmMetadata,
                                             by option: SortOption,
                                             purchaseFormat: ReleaseFormat?) -> Bool {
@@ -1548,36 +1284,13 @@ final class MetadataCache: Loggable {
             }
 
         case .duration:
-            // effectiveDuration resolves to editedDuration when the film is marked
-            // as edited and that field holds a valid positive value; otherwise it
-            // mirrors the regular duration field. The sort therefore naturally
-            // reflects the runtime the user actually experiences.
-            //
-            // Compared in WHOLE MINUTES, not raw milliseconds, so the title tiebreak
-            // below is actually reachable. Durations are stored in milliseconds but the
-            // app is a minute-granularity application throughout: every duration entered
-            // through the UI is built by DurationHelpers.hoursAndMinutesToMilliseconds
-            // (an exact multiple of 60,000), and every duration displayed is truncated to
-            // hours and minutes by RSBHelpers.formattedDuration. Only IMPORTED metadata
-            // carries sub-minute precision — and comparing on it meant a dozen films all
-            // showing "1 hour 19 minutes" were ordered by a residue of milliseconds the
-            // user cannot see and did not choose, which reads as no ordering at all.
-            // Truncating to the granularity the app itself presents makes films that
-            // display the same runtime genuinely equal here, so they fall through to the
-            // title comparison exactly as films sharing a rating or a view count do.
+            // Compared in whole minutes, because the UI shows minutes. Otherwise films that look identical would be ordered
+            // by milliseconds the user cannot see, and the title tiebreak would never apply.
             let ms1 = Int(data1.effectiveDuration) ?? 0
             let ms2 = Int(data2.effectiveDuration) ?? 0
 
-            // Films with no recorded runtime at all form their own leading tier, ahead of
-            // the minute comparison rather than inside it. Truncating to minutes would
-            // otherwise make a film whose duration was never filled in exactly equal to a
-            // 40-second one, interleaving the two by title — and the duration divider bands
-            // label those two things differently ("No Duration" vs "Under 1:00"), so an
-            // interleaved run would break the contiguity GallerySectioning requires and cost
-            // the view its bands entirely. The tier keeps sort and bands describing the same
-            // partition. Like every other rule here it is direction-blind: _performSort
-            // reverses by swapping operands, so undated films lead ascending and trail
-            // descending, exactly as compareDates' undated films do.
+            // Films with no runtime form a leading tier. Truncating to minutes would otherwise place them among short films,
+            // which would break the duration divider bands. Like every other rule, the tier is direction-blind.
             if (ms1 <= 0) != (ms2 <= 0) { return ms1 <= 0 }
 
             let dur1 = ms1 / 60_000
@@ -1593,9 +1306,7 @@ final class MetadataCache: Loggable {
                                 tiebreak: data1, data2)
 
         case .viewCount:
-            // Mirrors the .rating case: a plain integer comparison with a title
-            // tiebreak, so ascending places films with no recorded viewings first
-            // and the most-watched films at the end of the grid.
+            // An integer comparison with a title tiebreak.
             return data1.viewCount != data2.viewCount
                 ? data1.viewCount < data2.viewCount
                 : compareTitles(data1, data2)
@@ -1643,12 +1354,9 @@ final class MetadataCache: Loggable {
             guard let cutoff = AppCalendar.current.date(byAdding: .day,
                                                      value: -recentlyRotatedWindowDays,
                                                      to: now) else { return [] }
-            // The cached rotation date is the film's eligibility date whether or not it
-            // has arrived (see FilmMetadata.init). Both halves of the window are therefore
-            // applied here, against a `Date()` read on this call: not yet arrived →
-            // excluded; arrived more than `recentlyRotatedWindowDays` ago → no longer
-            // "recent". Rotation dates are always the 1st of a month, so ties are the norm
-            // rather than the exception; the title tiebreak is what gives each month an order.
+            // The rotation date is the eligibility date, whether or not it has arrived. Both bounds are checked against
+            // the current `Date()`: a date not yet reached is excluded, and so is one more than `recentlyRotatedWindowDays` ago.
+            // Rotation dates fall on the 1st of a month, so ties are common, and the title tiebreak orders them.
             result = newestFirst { data in
                 data.rotationDate.flatMap { $0 <= now && $0 >= cutoff ? $0 : nil }
             }
@@ -1683,13 +1391,8 @@ final class MetadataCache: Loggable {
 
     // MARK: - Formatted Date Access
     
-    /// `String`-backed and `Hashable` so callers can use a case as a stable,
-    /// comparable key rather than only as a switch subject. `GalleryView` builds
-    /// `GallerySubtitleProvider.kind` from the raw value, which is what lets
-    /// `GallerySubview` tell one KIND of subtitle from another across a Recents
-    /// sub-tab switch (the provider stays non-nil throughout, so nil-ness alone
-    /// cannot distinguish them). Raw values are the case names verbatim; nothing
-    /// persists them, so they carry no compatibility obligation.
+    /// String-backed and Hashable, so a case can serve as a stable key. GallerySubtitleProvider.kind is built from the
+    /// raw value, which lets GallerySubview tell subtitle kinds apart across a Recents sub-tab switch.
     enum DateType: String, Hashable, Sendable {
         case dateAdded
         case lastWatched

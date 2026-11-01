@@ -1,21 +1,15 @@
 // MARK: - RPTabDataViz.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Contains the Data Visualizations report view: eight gallery-style sections on one
-// vertically scrolling page (see DataVisualizationsView), drawn by AppKit (27.44/27.45),
-// and the destinations its figures open (DVNavigation). Also contains
-// DataCoordinatorModifier and DataCoordinatorScrollView, the environment re-injection
-// modifier and AppKitScrollView facade shared by every consumer that needs
-// DataCoordinator re-injected and nothing more (ImportsView and the Settings tabs).
-// The statistics models live in 27.41 and 27.43; the page's sections in 27.45.
+// The Data Visualizations report view, which draws its sections with AppKit (27.44 and 27.45), plus the navigation its figures open
+// (DVNavigation). It also holds DataCoordinatorModifier and DataCoordinatorScrollView, the environment re-injection helpers shared
+// with ImportsView and the Settings tabs. The statistics models live in 27.41 and 27.43.
 
 import SwiftUI
 
 // MARK: - DataCoordinatorModifier
 
-/// Re-injects DataCoordinator into the NSHostingView subtree.
-/// NSHostingView does not inherit the enclosing SwiftUI environment; this modifier
-/// ensures child views can read DataCoordinator via @Environment in the usual way.
+/// Re-injects DataCoordinator into the NSHostingView subtree, which does not inherit the enclosing SwiftUI environment.
 struct DataCoordinatorModifier: ViewModifier {
     let dataCoordinator: DataCoordinator
 
@@ -26,11 +20,9 @@ struct DataCoordinatorModifier: ViewModifier {
 
 // MARK: - DataCoordinatorScrollView
 
-/// `AppKitScrollView` facade for every consumer whose only hosted-environment
-/// requirement is DataCoordinator: the Imports session list and the Settings tabs.
-/// (The Data Visualizations tab used it too until it moved to its own AppKit-drawn
-/// page, 27.45.) None passes an `isActive` flag or a live-scroll callback; only the
-/// Imports list passes a proxy, for its animated card removal (`holdForAnimatedShrink`).
+/// `AppKitScrollView` facade for consumers whose only hosted-environment need is DataCoordinator: the Imports session list and the Settings
+/// tabs. The Data Visualizations tab used it until it moved to its own AppKit page (27.45). None passes an `isActive` flag or a live-scroll
+/// callback. Only the Imports list passes a proxy, for its animated card removal (`holdForAnimatedShrink`).
 struct DataCoordinatorScrollView<Content: View>: View {
     let content: Content
     var scrollProxy: AppKitScrollProxy? = nil
@@ -54,20 +46,16 @@ struct DataCoordinatorScrollView<Content: View>: View {
 
 // MARK: - View
 
-/// The Data Visualizations report: one vertically scrolling page of eight gallery-style
-/// sections, capped at `Preferences.galleryMaxGridWidth` and centered beyond it, exactly
-/// as the gallery grid stops widening. Every figure LibraryStatistics vends is still on
-/// the page; the sections re-shape how they are shown (one ownership bar instead of five
-/// tiles, one formats table instead of three cards, and so on) and add the viewing-,
-/// rotation-, money- and metadata-derived figures LibraryInsights computes.
+/// The Data Visualizations report: one scrolling page of eight gallery-style sections, capped at `Preferences.galleryMaxGridWidth` and centered
+/// beyond it, as the gallery grid stops widening. Every LibraryStatistics figure is still on the page, reshaped (for example, one ownership bar
+/// in place of five tiles). It also adds the viewing, rotation, money, and metadata figures from LibraryInsights.
 struct DataVisualizationsView: View {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(AppState.self) private var appState
     @State private var stats: LibraryStatistics? = nil
     @State private var insights: LibraryInsights? = nil
-    /// The recalculation on screen. Its parsed viewing histories let the year stepper
-    /// rebuild the period section without walking every film's calendar table again, and
-    /// the next pass reuse them; its inputs let the next pass tell that nothing changed.
+    /// The recalculation on screen. Its parsed viewing histories let the year stepper rebuild the period section without rewalking every calendar,
+    /// and its inputs let the next pass detect that nothing changed.
     @State private var dataset: DVDataset? = nil
     @State private var period: ViewingPeriodStatistics? = nil
     @State private var selectedYear: Int = AppCalendar.current.component(.year, from: Date())
@@ -81,19 +69,15 @@ struct DataVisualizationsView: View {
     /// it is still the newest, so two passes started in quick succession (an event burst
     /// straddling a coalescing boundary) cannot land out of order.
     @State private var recalculationGeneration = 0
-    /// Advanced whenever anything the page shows changes — a dataset or period applied, the
-    /// Compare switch, a setting — and handed to the page, which rebuilds only when it moves
+    /// Advanced whenever anything the page shows changes, such as a dataset, period, Compare switch, or setting. The page rebuilds only when it moves
     /// (see `DVCanvasModel.revision`).
     @State private var pageRevision = 0
     @AppStorage(preference: Preferences.showInfoCompleteKey) private var showInfoComplete: Bool
-    /// Observed only so a change recalculates: every rotation figure moves with it (see
-    /// `DVDataset.Inputs`), and no film event is posted when it changes.
+    /// Observed so a change recalculates. Every rotation figure depends on it (see `DVDataset.Inputs`), and no film event is posted when it changes.
     @AppStorage(preference: Preferences.defaultRotationThresholdKey) private var defaultRotationThreshold: Int
 
     #if DEBUG
-    /// Every dataset applied to a mounted tab. Read by the `dataviz-tab` harness scenario
-    /// to show that a remount with nothing changed applies the cache and nothing after it;
-    /// never read in a release build.
+    /// Every dataset applied to a mounted tab. The `dataviz-tab` harness scenario reads it to check that a remount with nothing changed applies only the cache.
     static var applications = 0
     #endif
 
@@ -106,8 +90,7 @@ struct DataVisualizationsView: View {
                     message: "Add films to your library to view statistics and visualizations."
                 )
             } else if let stats, let insights {
-                // Drawn by AppKit (27.44/27.45), not hosted: see DVCanvasPageView. The
-                // navigation closures capture `appState` here, in this view's own body.
+                // Drawn by AppKit (27.44 and 27.45), not hosted. See DVCanvasPageView. The navigation closures capture `appState` here, in this body.
                 DVCanvasScrollView(model: DVCanvasModel(
                     stats: stats, insights: insights, period: period,
                     navigation: DVNavigation(appState: appState), showInfoComplete: showInfoComplete,
@@ -115,20 +98,15 @@ struct DataVisualizationsView: View {
                     compare: $compareWithPriorYear, compareYear: $compareYear,
                     revision: pageRevision))
             } else {
-                // Only during the window between onAppear and calculateStatistics() on the
-                // same run loop pass; never visible in practice.
+                // Shown only between onAppear and calculateStatistics() in the same run-loop pass, so not visible in practice.
                 Color.clear
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            // Mount path. When statistics were computed before this launch, seed from the
-            // cache so the tree renders immediately; the fresh recalculation is deferred
-            // two run-loop cycles so it lands after the Picker menu-dismissal fade has
-            // been committed (see ReportsState.selectCategory), and then runs off the
-            // main actor. First-ever visit computes synchronously, so the Color.clear
-            // branch remains invisible in practice. The whole page is built in one turn:
-            // drawn by AppKit, it lays out in a few milliseconds.
+            // Mount path. If statistics were computed earlier this launch, seed from the cache so the page renders at once. The fresh
+            // recalculation runs off the main actor, two run-loop cycles later, after the Picker's fade (see ReportsState.selectCategory).
+            // The first visit computes synchronously. The whole page is built in one turn.
             if let cached = ReportsState.shared.cachedVisualizations {
                 apply(cached)
                 Self.afterCommit { recalculateInBackground() }
@@ -139,8 +117,7 @@ struct DataVisualizationsView: View {
         .onChange(of: selectedYear) { _, newYear in
             let comparable = insights?.viewingYears.filter { $0 != newYear } ?? []
             let newCompareYear = comparable.contains(newYear - 1) ? newYear - 1 : (comparable.last ?? newYear - 1)
-            // When the comparison year moves too, its own onChange rebuilds the period;
-            // rebuilding here as well would walk every viewing twice for one step.
+            // If the comparison year moves too, its own onChange rebuilds the period. Rebuilding here as well would walk every viewing twice.
             if newCompareYear != compareYear {
                 compareYear = newCompareYear
             } else {
@@ -150,26 +127,26 @@ struct DataVisualizationsView: View {
         .onChange(of: yearToDate) { _, _ in rebuildPeriod() }
         .onChange(of: compareYear) { _, _ in rebuildPeriod() }
         .onChange(of: compareWithPriorYear) { _, _ in pageRevision += 1 }
-        // Two settings the figures are computed from; Settings is a sheet over this tab,
-        // so without these the page kept the old figures until the next remount.
+        // Two settings the figures depend on. Settings opens as a sheet over this tab, so without these the page would keep old figures until the next remount.
         .onChange(of: showInfoComplete) { _, _ in scheduleRecalculation() }
         .onChange(of: defaultRotationThreshold) { _, _ in scheduleRecalculation() }
+        // Overdue / due-soon counts, the year-to-date span and every "last 90 days" figure
+        // are day-granular, and no film event fires at midnight: without this a tab left
+        // open overnight kept yesterday's figures until something in the library changed.
+        // `compute` compares the day, so this recalculates only when it actually rolled.
+        .onReceive(CurrentDay.shared.dayChanged) { _ in scheduleRecalculation() }
         .onDisappear {
-            // A result still in flight belongs to a view that no longer exists; it will
-            // still refresh the mount cache, but must not write to this view's state.
+            // A result still in flight belongs to a view that is gone. It still refreshes the cache, but must not write to this view's state.
             recalculationGeneration += 1
         }
         .onFilmEvent { _ in
-            // Every event case can move a number on this tab, so there is no membership
-            // test to gate on; what IS avoided is one pass per event in a burst.
+            // Any event can move a number on this tab, so no membership test applies. What is avoided is one pass per event in a burst.
             scheduleRecalculation()
         }
     }
 
-    /// Runs `work` on the run-loop cycle after the current one. The double hop is the
-    /// point, for the reason ReportsState.selectCategory gives: a single hop still runs
-    /// before this cycle's CoreAnimation commit, so its layout would land in the same
-    /// frame.
+    /// Runs `work` two run-loop cycles later. The double hop matters for the reason in ReportsState.selectCategory: a single hop still runs
+    /// before this cycle's CoreAnimation commit, so its layout would land in the same frame.
     private static func afterCommit(_ work: @escaping @MainActor () -> Void) {
         DispatchQueue.main.async {
             DispatchQueue.main.async {
@@ -178,10 +155,8 @@ struct DataVisualizationsView: View {
         }
     }
 
-    /// Coalesces recalculation requests so a burst of film events costs one pass, not one
-    /// per event: `getAllFilms()` materializes a copy of every snapshot and the statistics
-    /// passes walk all of them; deferring to the next run loop pass collapses a burst into
-    /// one recalculation and one tree rebuild.
+    /// Coalesces recalculation requests, so a burst of film events costs one pass. `getAllFilms()` copies every snapshot, and the statistics
+    /// walk them all. Deferring to the next run-loop pass collapses a burst into one recalculation and one rebuild.
     private func scheduleRecalculation() {
         guard !recalculationPending else { return }
         recalculationPending = true
@@ -191,8 +166,7 @@ struct DataVisualizationsView: View {
         }
     }
 
-    /// The first-ever pass: synchronous, so the tab never shows an empty page. Every later
-    /// pass goes through `recalculateInBackground`.
+    /// The first pass, which runs synchronously so the tab never shows an empty page. Later passes use `recalculateInBackground`.
     private func calculateStatistics() {
         let ticket = ReportsState.shared.nextVisualizationsTicket()
         let dataset = DVDataset(films: dataCoordinator.getAllFilms(), previousRecords: self.dataset?.viewingRecords ?? [],
@@ -201,18 +175,10 @@ struct DataVisualizationsView: View {
         apply(dataset)
     }
 
-    /// Recomputes every figure off the main actor and applies the result here. The inputs
-    /// are gathered on the main actor — the snapshot array is a value copy, and the
-    /// previous viewing records let the pass skip re-parsing every film whose history has
-    /// not changed — so nothing the computation reads can move underneath it, and the
-    /// main thread is held only for the copy and the final assignment. This tab used to do
-    /// all of it inline, close to a second of main-thread time for a library-sized
-    /// collection, on every film event and on every mount from the cache.
+    /// Recomputes every figure off the main actor, then applies the result here. The inputs are gathered on the main actor as a value copy, and the
+    /// previous viewing records let the pass skip films whose history has not changed. So the main thread is held only for the copy and the final assignment.
     ///
-    /// A pass whose inputs match the dataset on screen (a remount's reconcile with the
-    /// library unchanged since the cache was filled, or an event that moved nothing this
-    /// tab reads) comes back nil and applies nothing: the page already shows its figures,
-    /// and the cache already holds them.
+    /// A pass whose inputs match the dataset on screen comes back nil and applies nothing. That covers a remount with an unchanged library and an event that moved nothing this tab reads.
     private func recalculateInBackground() {
         let films = dataCoordinator.getAllFilms()
         let ticket = ReportsState.shared.nextVisualizationsTicket()
@@ -223,9 +189,8 @@ struct DataVisualizationsView: View {
         Task(priority: .userInitiated) {
             guard let dataset = await DVDataset.compute(films: films, previous: previous,
                                                         showInfoComplete: showInfoComplete) else { return }
-            // The cache takes an orphaned result (the tab went away mid-pass) as well as a
-            // current one, but never one read from the library before what it already
-            // holds: two passes can finish out of order (see ReportsState's tickets).
+            // The cache takes a result even if the tab went away mid-pass, but never one read from the library before what it already holds.
+            // Passes can finish out of order (see ReportsState's tickets).
             ReportsState.shared.updateVisualizationsData(dataset, ticket: ticket)
             guard generation == recalculationGeneration else { return }
             apply(dataset)
@@ -239,7 +204,7 @@ struct DataVisualizationsView: View {
         self.dataset = dataset
         stats = dataset.stats
         insights = dataset.insights
-        // Clamp the stepper to a year that has viewings on first load.
+        // Clamp the stepper to a year that has viewings, on first load.
         let viewingYears = dataset.insights.viewingYears
         if !viewingYears.contains(selectedYear), let last = viewingYears.last {
             selectedYear = last
@@ -253,9 +218,8 @@ struct DataVisualizationsView: View {
 
     private func rebuildPeriod() {
         let today = Date()
-        // Reused when nothing it depends on has moved — the common case on a cache-seeded
-        // mount (see ReportsState.cachedPeriod). The inputs comparison is cheap there: the
-        // seeded dataset shares the cached one's film array.
+        // Reused when nothing it depends on has moved, which is the common case on a cache-seeded mount (see ReportsState.cachedPeriod).
+        // The inputs comparison is cheap there, since the seeded dataset shares the cached film array.
         let key = dataset.map {
             ReportsState.PeriodKey(inputs: $0.inputs, year: selectedYear, yearToDate: yearToDate,
                                    compareYear: compareYear,
@@ -277,10 +241,8 @@ struct DataVisualizationsView: View {
 
 // MARK: - Navigation
 
-/// The few destinations a figure on this tab can open. Built in DataVisualizationsView's
-/// body, where AppState is in the environment, and handed down as plain closures. With
-/// no AppState (the harness's off-screen render) every destination is nil and the rows
-/// draw without chevrons.
+/// The destinations a figure on this tab can open. DataVisualizationsView builds it in its body, where AppState is available, and passes
+/// plain closures down. With no AppState (the harness's off-screen render), every destination is nil and rows draw without chevrons.
 @MainActor
 struct DVNavigation {
     let appState: AppState?

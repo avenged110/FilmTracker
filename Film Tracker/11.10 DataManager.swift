@@ -11,9 +11,8 @@ actor DataManager: Loggable {
     nonisolated static let logTag = "[DataManager]"
 
     // MARK: - Context
-    // What `@ModelActor` synthesized in the SwiftData build: one long-lived private-queue context, and
-    // an executor that runs this actor's jobs on that context's queue (ContextExecutor), so
-    // every method uses `context` directly.
+    // One long-lived private-queue context. The executor runs this actor's jobs on that context's
+    // queue (ContextExecutor), so every method uses `context` directly.
     nonisolated let persistentContainer: NSPersistentContainer
     private nonisolated let executor: ContextExecutor
     nonisolated var unownedExecutor: UnownedSerialExecutor { unsafe executor.asUnownedSerialExecutor() }
@@ -51,9 +50,8 @@ actor DataManager: Loggable {
     /// is safe at every call site: each method saves before it suspends, so the context
     /// never holds another operation's unrelated pending changes when this runs.
     ///
-    /// The batched methods (`resetRotationThresholdOverrides`, `batchAddFilmsToLists`, …)
-    /// are unaffected in their documented partial-commit behavior: a rollback here discards
-    /// only the batch that failed, and the batches already committed stay committed.
+    /// `batchAddFilmsToLists` and `batchRemoveFilmsFromLists` commit in batches, so a rollback
+    /// here discards only the batch that failed; earlier batches stay committed.
     private func commit() throws {
         try context.commit()
     }
@@ -70,44 +68,17 @@ actor DataManager: Loggable {
     ///   2. ListObject count only (no properties, no relationships)
     ///   3. ListMembership count only (no properties, no relationships)
     ///
-    /// This lives here, in the background context actor, rather than in MemoryStoreCache where
-    /// it used to run against `persistentContainer.viewContext`. The two count queries really are
-    /// negligible, but the film query is not: under SwiftData it instantiated one managed
-    /// object per Film (the dictionary fetch above now avoids that). On a large library that
-    /// was tens of milliseconds of synchronous main-thread work
-    /// — and it lands in the worst possible place, inside the first phase of startup, where
-    /// it blocks the run loop while the launch progress indicator is the only thing on
-    /// screen and stalls the MainActor continuations of the MetadataCache and PosterCache
-    /// metadata loads that are supposed to be running in parallel with it. Nothing about the
-    /// computation needs the main context, so the whole cost moves off the critical path.
+    /// Runs on this background context rather than `viewContext`, keeping the work off the main
+    /// thread during launch. The film query uses a dictionary fetch, so it creates no managed
+    /// objects. The fingerprint describes the committed store, which is what the snapshot cache
+    /// was written from, so reading the committed state (not unsaved `viewContext` changes) is correct.
     ///
-    /// Correctness note: this reads through the actor's own `NSManagedObjectContext`, so it sees
-    /// the committed store rather than any unsaved changes pending in `viewContext`. That is
-    /// equivalent at the only point it is called — the first phase of launch, before any
-    /// user action or background writer has had the opportunity to mutate anything — and the
-    /// fingerprint's whole purpose is to describe what is on disk, which is precisely what
-    /// the snapshot cache it validates was written from.
-    ///
-    /// Two consequences of the fetch landing in this context rather than `viewContext` were
-    /// considered and are benign:
-    ///
-    ///   - Object registration. `allFilms` is released when this method returns and nothing
-    ///     retains the objects, so they do not accumulate in this long-lived context; a
-    ///     `NSManagedObjectContext` does not retain unmodified fetched objects. No properties are
-    ///     mutated either, so the context is left clean and a later `context.save()`
-    ///     from any write operation has nothing extra to flush. This is the same lifecycle
-    ///     the fetch previously had inside `viewContext`.
-    ///
-    ///   - Slow-path warmth. When the fingerprint mismatches, MemoryStore follows up with
-    ///     the full `viewContext` fetch, which no longer inherits registered objects from
-    ///     the fingerprint pass. The shared row cache below the contexts still applies, the
-    ///     slow path is already seconds long, and it gains this fetch's duration back on the
-    ///     main thread — so the trade is favorable in the case that matters and immaterial
-    ///     in the case that does not.
+    /// Registered objects are not a concern: `allFilms` is released when this method returns, and
+    /// an `NSManagedObjectContext` does not retain unmodified fetched objects.
     func computeStoreFingerprint() -> StoreFingerprint? {
         let start = ContinuousClock.now
 
-        // ~4 ms for 1,400 films in a Debug build, off the main thread.
+        // Runs off the main thread.
         guard let filmLayer = fetchFilmLayerDigest() else { return nil }
         let fetchElapsed = ContinuousClock.now - start
 
@@ -130,9 +101,7 @@ actor DataManager: Loggable {
         //
         // Either one makes the live count exceed the stored count forever, and because
         // the fingerprint is an exact-equality check, that is a permanent cache miss —
-        // a ~980ms penalty on every single launch, reported in the log as an ordinary
-        // mismatch and therefore indistinguishable from "the library legitimately
-        // changed." Filtering here eliminates the orphan cause outright; duplicates are
+        // a slow launch on every start, which the log cannot tell from a real library change. Filtering here eliminates the orphan cause outright; duplicates are
         // handled by cleanupOrphanedAndDuplicateMemberships() below, which corrects the
         // store itself so the discrepancy costs at most one slow launch.
         //
@@ -190,8 +159,7 @@ actor DataManager: Loggable {
 
     /// The film layer: every film's ID, lastModified, hofPosition and userRating, folded into
     /// a digest. A dictionary-result fetch reads only those four columns and builds no Film
-    /// objects. (Under SwiftData the same fetch materialized every Film, ~800 ms, which is
-    /// why a raw-SQLite reader once stood in for it.)
+    /// objects.
     ///
     /// The cheap substitutes that do not enumerate film UUIDs do not work here:
     ///
@@ -277,7 +245,7 @@ actor DataManager: Loggable {
     ///
     /// Why this is worth doing at all: both classes inflate the live membership count
     /// in computeStoreFingerprint above without inflating the stored one, which is a
-    /// permanent snapshot-cache miss and a ~980ms penalty on every launch until the
+    /// permanent snapshot-cache miss and a slow launch on every start until the
     /// store is corrected. The predicate there already neutralizes orphans at read
     /// time; this pass is what neutralizes duplicates, converting "slow forever" into
     /// "slow once, then healed":
@@ -339,9 +307,8 @@ actor DataManager: Loggable {
         var survivorByPair: [MembershipPair: ListMembership] = [:]
         var duplicates: [ListMembership] = []
         for membership in valid {
-            // Force-unwrap is avoided deliberately: `valid` was built from a nil check,
-            // but re-deriving the IDs defensively costs nothing and keeps this loop
-            // correct even if the partitioning above is ever changed.
+            // Re-derives the IDs rather than trusting the partition above, so the loop stays
+            // correct if that partition changes.
             guard let filmID = membership.film?.id,
                   let listID = membership.list?.listID else { continue }
 
@@ -488,7 +455,7 @@ actor DataManager: Loggable {
     /// instead of fetching each film, setting it and saving the object graph. Returns the
     /// values by attribute name, or nil when the batch can't express the edit: a field whose
     /// value differs between films (tags added to each film's own list), an array field
-    /// (archived, which a batch update can't write), or a field with no attribute of its name.
+    /// (transformable, which a batch update can't write), or a field with no attribute of its name.
     private static func batchValues(_ fields: Set<FilmField>, _ snapshots: [FilmSnapshot]) -> [String: Any]? {
         #if DEBUG
         // `-FTBulkEditObjectPath`: the object-graph write, for A/B runs.
@@ -518,8 +485,8 @@ actor DataManager: Loggable {
     /// The statement goes around every context, so the films a context has registered are
     /// refreshed afterwards: this one's here, on its own queue, and the view context's on the
     /// main queue, without waiting for it. Only registered films are touched. The general
-    /// `mergeChanges(fromRemoteContextSave:into:)` took 250–330 ms on the main thread for
-    /// 1,600 films even when the view context had none of them registered.
+    /// `mergeChanges(fromRemoteContextSave:into:)` is costly on the main thread even when the
+    /// view context has none of these films registered.
     private func batchUpdateFilms(_ ids: Set<UUID>, _ values: [String: Any]) throws {
         let request = NSBatchUpdateRequest(entityName: Film.entityName)
         request.predicate = .in("id", ids)
@@ -594,21 +561,14 @@ actor DataManager: Loggable {
     
     /// Resets rotation threshold overrides to nil for the specified film IDs.
     ///
-    /// Accepts the exact set of IDs pre-identified by DataCoordinator so the fetch
-    /// is targeted rather than a full-table scan.  Operates exclusively on the
-    /// background NSManagedObjectContext - never touches viewContext.
+    /// Accepts the exact ID set pre-identified by DataCoordinator, so the fetch is targeted.
+    /// Operates on the background NSManagedObjectContext only.
     ///
-    /// ONE TRANSACTION, deliberately. This used to commit in `batchSize` chunks, each a
-    /// separate `save()`, on the theory that it kept memory pressure low — but the fetch
-    /// below already materializes every target film in one call, so chunked saves bought
-    /// nothing. What they cost was real: a failure partway through left the earlier chunks
-    /// committed while the caller's rollback closure
-    /// (`DataCoordinator.resetAllRotationThresholdOverrides`) restored every film in
-    /// MemoryStore, and that divergence never self-corrected — `rotationThresholdOverride`
-    /// does not bump `lastModified` and is not in the snapshot-cache fingerprint, so the next
-    /// launch validated the cache, served memory's values, and never re-read the database.
-    /// A single `commit()` either applies the whole reset or discards all of it, which is
-    /// exactly the contract the rollback closure is written against.
+    /// ONE TRANSACTION, deliberately. Chunked saves would leave earlier chunks committed if a
+    /// later one failed, while the caller's rollback restores every film in MemoryStore. That
+    /// divergence never self-corrects, because `rotationThresholdOverride` does not bump
+    /// `lastModified` and is not in the snapshot-cache fingerprint. A single `commit()` either
+    /// applies the whole reset or none of it.
     func resetRotationThresholdOverrides(for ids: Set<UUID>) async throws {
         try resetFilms(ids) { $0.rotationThresholdOverride = nil }
     }
@@ -649,10 +609,10 @@ actor DataManager: Loggable {
     /// Operations performed (in order):
     ///   1. Fetch or create the Film
     ///   2. Apply scalar Film properties from FilmSnapshot (every field, or the changeset's delta)
-    ///   3. Apply derived values (lastWatched, viewCount, lastModified, numberOfDiscs)
-    ///   4. Delete removed releases
-    ///   5. Update existing releases
-    ///   6. Create new releases
+    ///   3. Delete removed releases
+    ///   4. Update existing releases
+    ///   5. Create new releases
+    ///   6. Link release parent-child hierarchy
     ///   7. Remove list memberships
     ///   8. Add list memberships
     ///   9. Save context (single atomic transaction)
@@ -670,9 +630,7 @@ actor DataManager: Loggable {
         // Step 1: Fetch or create the Film in this context.
         // For new films, DataCoordinator.saveFilmChangeset adds the film to MemoryStore
         // (optimistic update) and then dispatches this changeset via trackOperation.
-        // DataManager is therefore the first (and only) place the Film managed object is
-        // created in the persistent store — it is inserted here in the background context
-        // and never touches viewContext.
+        // The new film is inserted into the store here, in this background context, never viewContext.
         //
         // For existing films the fetch will always find the record (it was created in a
         // prior session). The else-if branch below handles the hypothetical case where an
@@ -703,7 +661,7 @@ actor DataManager: Loggable {
             changeset.filmSnapshot.apply(to: film)
         }
 
-        // Step 4: Delete removed releases.
+        // Step 3: Delete removed releases.
         if !changeset.releasesToDelete.isEmpty {
             let existingReleases = film.releases
             for releaseID in changeset.releasesToDelete {
@@ -713,20 +671,20 @@ actor DataManager: Loggable {
             }
         }
 
-        // Step 5: Update existing releases.
+        // Step 4: Update existing releases.
         for snapshot in changeset.releasesToUpdate {
             if let release = film.releases.first(where: { $0.id == snapshot.id }) {
                 snapshot.apply(to: release)
             }
         }
 
-        // Step 6: Create new releases.
+        // Step 5: Create new releases.
         for snapshot in changeset.releasesToCreate {
             let release = snapshot.toRelease(film: film)
             context.insert(release)
         }
 
-        // Step 6.5: Link release parent-child hierarchy.
+        // Step 6: Link release parent-child hierarchy.
         //
         // ReleaseSnapshot.apply(to:) and toRelease(film:) intentionally do not touch
         // parentRelease / childReleases because those are object-graph

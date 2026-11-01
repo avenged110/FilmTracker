@@ -203,27 +203,27 @@ final class ImportProgress: Loggable {
 
     // Shared teardown after any cancel path.
     private func finalizeCancellation() {
+        // A throttled update still waiting would otherwise land after this and write the
+        // uncounted successes back over the canceled session's zeroed tallies.
+        pendingUIUpdateTask?.cancel()
+        pendingUIUpdateTask = nil
+        flushPendingState()
         updateSessionAsCanceled()
         isImporting = false
         isUILingering = false
         activeImportType = nil }
 
-    // Shared fetch-by-ID used by all three session-persistence methods below.
-    // Centralizing this removes three copies of the same descriptor-construction
-    // and context-resolution boilerplate; each call site keeps its own do/catch
-    // so error logging stays specific to what was being attempted.
+    // Shared fetch-by-ID for the three session-persistence methods below. Each call site keeps its own do/catch,
+    // so error logs say what was being attempted.
     private func fetchCurrentSession(context: NSManagedObjectContext) throws -> ImportSession? {
         guard let sessionID = currentSessionID else { return nil }
         let descriptor = ImportSession.request(.equals("id", sessionID))
         return try context.fetch(descriptor).first
     }
 
-    // Writes the counts/titles common to all three persistence paths.
-    // `zeroSuccessAndUpdated` mirrors the cancellation-only behavior of the
-    // original updateSessionAsCanceled: success/updated counts and their title
-    // arrays are cleared (work-in-progress that didn't complete isn't counted
-    // as a success), while error/duplicate/notFound data — which reflects real
-    // outcomes already observed — is preserved exactly as before.
+    // Writes the counts and titles common to all three persistence paths. `zeroSuccessAndUpdated` is the
+    // cancellation rule: success and updated counts and their titles are cleared, since work that did not complete
+    // is not a success. Error, duplicate, and not-found data reflect outcomes already observed, so they are kept.
     private func writeSessionCounts(_ session: ImportSession, zeroSuccessAndUpdated: Bool) {
         session.totalItems = totalFiles
         session.errorCount = errorFiles.count
@@ -337,9 +337,8 @@ final class ImportProgress: Loggable {
     }
     
     // MARK: - Pending State Flush
-    // Applies all accumulated pending values to the live @Observable properties
-    // and clears the pending slots. Called both from the throttled update path
-    // and immediately at completion/cancellation.
+    // Applies all accumulated pending values to the live @Observable properties and clears the pending slots.
+    // Called from the throttled update path and immediately at completion.
     private func flushPendingState() {
         if let current = pendingCurrentFile { currentFile = current }
         if let success = pendingSuccessCount { successCount = success }

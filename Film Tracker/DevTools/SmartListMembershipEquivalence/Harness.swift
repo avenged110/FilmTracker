@@ -9,9 +9,8 @@
 // @MainActor instance checkers that drove targeted per-film recalculation, and the
 // `nonisolated static _`-prefixed copies that drove the background full recalculation.
 //
-// Those two copies were required to stay "byte-for-byte equivalent" by comment alone —
-// a film's membership flips depending on which path last evaluated it if they drift.
-// This harness re-establishes that property against the single surviving definition.
+// The two copies must stay equivalent, or a film's membership depends on which path
+// last evaluated it. This harness checks that property against the single definition.
 
 import Foundation
 
@@ -205,7 +204,7 @@ enum Old {
     }
 }
 
-// MARK: - NEW: the consolidated definition (verbatim from 71.10 SmartLists.swift)
+// MARK: - NEW: the consolidated definition (verbatim from 71.00 SmartLists.swift)
 
 enum New {
     static let purchasedFormatLists: [(String, SmartListType)] = [

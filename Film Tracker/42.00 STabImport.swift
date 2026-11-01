@@ -22,9 +22,8 @@ struct ImportSettingsView: View {
         private var allowUpdatesForDuplicateRatings: Bool
 
     var body: some View {
-        // SettingsPage with 16 pt padding (the `.padding()` it replaced), not the kit's
-        // default 18: with SettingsSheet's 10 pt that makes 26, the same inset the
-        // scrolling General and Advanced tabs get, so checkboxes don't shift between tabs.
+        // SettingsPage with 16 pt padding, not the kit's default 18. With SettingsSheet's 10 pt that makes 26, the
+        // same inset the scrolling General and Advanced tabs use, so checkboxes line up across tabs.
         SettingsPage(padding: 16) {
             Toggle(isOn: $importScanSubfolders) {
                 Text("Scan subfolders for items") }

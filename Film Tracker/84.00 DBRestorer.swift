@@ -71,7 +71,7 @@ final class DBRestorer: Loggable {
         claimedListNames.removeAll()
 
         // Validate it's a .ftbackup package.
-        guard packageURL.pathExtension == "ftbackup" else {
+        guard BackupFilename.isBackup(packageURL) else {
             throw DBRestorerError.notAPackage(packageURL) }
 
         guard packageURL.isExistingDirectory else {
@@ -316,9 +316,8 @@ final class DBRestorer: Loggable {
         // Third pass: Link release parent-child hierarchy.
         // Both the parent and child releases are guaranteed to exist in releaseByID at
         // this point (they were all created in the second pass above). The parentReleaseID
-        // field is optional — old backups that predate this feature simply won't have it,
-        // in which case SafeValueParser.parseOptionalUUID returns nil and no link is made,
-        // leaving the release as an independent top-level release.
+        // field is optional. When it is absent or null, SafeValueParser.parseOptionalUUID
+        // returns nil, no link is made, and the release stays an independent top-level release.
         //
         // Implementation uses two sub-passes to be resilient against arbitrary XML object
         // ordering. A single-pass approach could silently produce illegal 3-level chains if
@@ -336,10 +335,8 @@ final class DBRestorer: Loggable {
         //             A link failing any of them is dropped; both releases are still
         //             restored, the child simply as a top-level release.
         //
-        // Splitting the passes was necessary but not sufficient: the depth check used to
-        // read `parentRelease.parentRelease`, which reports whether the parent's own link
-        // has been APPLIED yet rather than whether one exists, so ordering still defeated
-        // it inside sub-pass B. See `releasesNamingAParent` below.
+        // The depth check is made against the collected candidates, not the object graph.
+        // See `releasesNamingAParent` below.
 
         // Sub-pass A: collect candidate links.
         // UUID fields are parsed through SafeValueParser to guarantee consistent handling
@@ -384,14 +381,12 @@ final class DBRestorer: Loggable {
         // least three deep — and a release naming ITSELF appears here as its own parent,
         // so the same test rejects a self-link.
         //
-        // This is the depth check, and it is deliberately made against the collected
-        // candidates rather than against `parentRelease.parentRelease`. That object-graph
-        // form was order-dependent despite the comment above claiming otherwise: it reads
-        // whether the parent's OWN link has been applied yet, not whether one exists. Given
-        // candidates ordered [(C,B), (B,A)], the C→B link was evaluated while B was still
-        // parentless, passed, and B→A was then applied on top of it — producing exactly the
-        // three-level chain the guard exists to prevent. A set built from all candidates up
-        // front cannot be outrun by ordering.
+        // This is the depth check, made against the collected candidates rather than against
+        // `parentRelease.parentRelease`. The object-graph form reports whether the parent's
+        // own link has been applied yet, not whether one exists, so its result would depend
+        // on XML order. With candidates ordered [(C,B), (B,A)], the C→B link would pass while
+        // B is still parentless, and B→A would then produce a three-level chain. A set built
+        // from all candidates up front does not depend on ordering.
         //
         // Conservative in one direction on purpose: if a middle link is itself dropped (say
         // its parent is missing from the backup), the deeper link is still refused even
@@ -423,15 +418,10 @@ final class DBRestorer: Loggable {
             }
 
             // Guard the same-film constraint. `releaseByID` spans the WHOLE restore, not
-            // one film, so without this a backup naming a parent that belongs to a
-            // different film would be linked across films — the child would then name a
-            // parent that is absent from its own `film.releases`, which is precisely the
-            // "orphaned child" state every other writer in the app makes impossible.
-            // DataManager step 6.5 cannot produce it (its lookup is built from
-            // `film.releases` alone) and the `.nullify` delete rule cannot either, so this
-            // was the one remaining way in — reachable only from a hand-edited or corrupt
-            // XML, but reachable, and the sidebar's release cards no longer carry the
-            // branch that used to cope with it.
+            // one film, so without this check a backup naming a parent from a different film
+            // would link across films. The child would then name a parent absent from its own
+            // `film.releases`, the "orphaned child" state that every other writer in the app
+            // prevents. Only a hand-edited or corrupt XML can reach it.
             //
             // Compared by film identity rather than by object reference so a nil film on
             // either side (a release whose film failed to resolve) also fails the test
@@ -444,9 +434,7 @@ final class DBRestorer: Loggable {
             }
 
             // Core Data fills in the inverse, parentRelease.childReleases, which the
-            // FilmSheet's combo-pack logic reads. (The SwiftData build had to append to it
-            // by hand: there the inverse could come back empty after a batch of links to
-            // unsaved objects.)
+            // FilmSheet's combo-pack logic reads.
             childRelease.parentRelease = parentRelease
         }
 
@@ -638,7 +626,7 @@ final class DBRestorer: Loggable {
         // NOTE: Format and version are already validated by DBImporter.parseBackupFile —
         // it throws DBImporterError.unsupportedFormat / .unsupportedVersion before a
         // ParsedBackup is ever constructed. The checks here would be unreachable.
-        // This method now focuses on the one useful structural check: manifest vs actual counts.
+        // This method checks only the manifest against the actual object counts.
 
         // Verify object counts match manifest (warn on mismatches, don't throw)
         var actualCounts: [String: Int] = [:]
@@ -885,8 +873,8 @@ final class DBRestorer: Loggable {
     /// A saved search's name is a `#list` target, in one namespace with every list, smart
     /// list, Queue section, Recents tab and report (SavedSearchName), and two entries with
     /// one key would both answer the same token. The app refuses such a name when a search
-    /// is saved; a backup is not a trusted input, and one made before a built-in name
-    /// existed can hold a search that now takes it. Lists keep their names (resolveListName
+    /// is saved; a backup is not a trusted input, and it can hold a search whose name a
+    /// built-in now takes. Lists keep their names (resolveListName
     /// has settled them) and the search is renamed instead, " 2", " 3"… as the Save sheet
     /// names one. A second row with an ID already restored is skipped.
     ///
@@ -1016,9 +1004,8 @@ final class DBRestorer: Loggable {
         settings.rememberTabSelection = parser.parseOptionalBool("rememberTabSelection")
         settings.tabRememberScope = parser.parseOptionalInt("tabRememberScope")
         // Note: "rememberRecentsTab" and "rememberReportsTab" are intentionally not
-        // restored — they were superseded by rememberTabSelection/tabRememberScope
-        // above. Backups containing these keys (exported prior to consolidation) are
-        // silently forward-compatible; the keys are simply ignored during restore.
+        // restored; rememberTabSelection/tabRememberScope above replace them. A backup
+        // containing these keys is read without error, and the keys are ignored.
         settings.lastRecentsCategory = parser.parseOptionalString("lastRecentsCategory")
         settings.lastReportsCategory = parser.parseOptionalString("lastReportsCategory")
         settings.rememberImportsTab = parser.parseOptionalBool("rememberImportsTab")
@@ -1032,9 +1019,8 @@ final class DBRestorer: Loggable {
         settings.strictFramesTableChecking = parser.parseOptionalBool("strictFramesTableChecking")
         settings.showWatchDetailsAnnotationGlyphs = parser.parseOptionalBool("showWatchDetailsAnnotationGlyphs")
         settings.atvq = parser.parseOptionalBool("atvq")
-        // Note: "rememberWindowDimensions" is intentionally not restored — the preference
-        // was never implemented and has been removed. Backups containing this key are
-        // silently forward-compatible; the key is simply ignored during restore.
+        // Note: "rememberWindowDimensions" is intentionally not restored; no preference of
+        // that name exists. A backup containing the key is read without error, and the key is ignored.
         
         // ADVANCED PREFERENCES
         settings.loggingEnabled = parser.parseOptionalBool("loggingEnabled")
@@ -1132,8 +1118,8 @@ final class DBRestorer: Loggable {
         // meaningful only as a value strictly BELOW the release date's year. Two shapes a backup can
         // carry are not: a base year with no release year to qualify (orphaned), and a base
         // year at or after its release year (inverted). Neither is producible by the Steppers
-        // — see _ReleaseYearRow — but a hand-edited XML, a record written before the ordering
-        // rule existed, or a partially-written export can all present one.
+        // — see _ReleaseYearRow — but a hand-edited XML, an older record, or a partially-written
+        // export can present one.
         //
         // Dropped HERE, at the boundary, rather than only repaired later. The FilmSheet's
         // loadExistingReleases repairs both shapes when a card is built, but that runs only
@@ -1149,9 +1135,8 @@ final class DBRestorer: Loggable {
         // through untouched — `parseString` has already normalized those to "", and a
         // malformed year is not this guard's business.
         //
-        // `releaseDate` was `releaseYear` until full release dates were introduced. A backup
-        // written before then carries the old key, whose every value is a valid year-only
-        // release date, so it is taken as-is. Like every other string field, the value is
+        // `releaseDate` was formerly stored as `releaseYear`. A backup carrying the old key
+        // holds year-only values, which are valid release dates, so they are taken as-is. Like every other string field, the value is
         // otherwise preserved verbatim; ReleaseDateValue decides how each reader interprets it.
         //
         // The one exception: a well-formed full date before its format's floor (a Blu-ray
@@ -1220,7 +1205,7 @@ final class DBRestorer: Loggable {
             masterType: parser.parseString("masterType"),
             regionLock: parser.parseString("regionLock"),
             regionLockBypass: parser.parseBool("regionLockBypass"),
-            // Backups written before the two-component format hold one legacy tag.
+            // Older backups hold a single legacy tag, which `migrated` converts.
             marketAvailability: ReleaseMarketAvailability.migrated(
                 parser.parseStringArray("marketAvailability")),
             numberOfCopies: parser.parseInt("numberOfCopies"),
@@ -1383,12 +1368,10 @@ final class DBRestorer: Loggable {
             }
 
             // Booleans and string arrays reaching a String field mean the reader's type
-            // inference misread the text — a String field whose content was "true" or
-            // "[\"a\",\"b\"]". Backups written by a build that records the declared type no
-            // longer land here at all, but every backup written before it still can, and the
-            // previous behavior was to fall through to the default and REPLACE the field with
-            // an empty string. Reconstructing the text loses nothing but the original
-            // formatting, which is strictly better than losing the content.
+            // inference misread the text, as with a String field whose content was "true" or
+            // "[\"a\",\"b\"]". Backups that record the declared type do not reach this point.
+            // Backups without it can, and the text is reconstructed rather than replaced with
+            // an empty string, which would lose the content. Only the original formatting is lost.
             if let b = value as? Bool {
                 return b ? "true" : "false"
             }
@@ -1558,7 +1541,7 @@ final class DBRestorer: Loggable {
             
             // Handle string with ISO8601 parsing
             if let s = value as? String {
-                // Leading whitespace skipped, as the ISO8601DateFormatter this replaced skipped it.
+                // Leading whitespace is skipped before parsing.
                 if let date = try? Self.iso8601Style.parse(String(s.drop(while: \.isWhitespace))) {
                     return date
                 }
@@ -1731,7 +1714,7 @@ final class DBRestorer: Loggable {
     /// Relaunches the application and exits the current process immediately via exit(0).
     ///
     /// Used by both the "Restore from Backup" completion flow (`RestoreViewModel`) and the
-    /// "Create New Library" completion flow (`DatabaseErrorAlertModifier`) after staging a
+    /// "Create New Library" completion flow of the database-error alert, after staging a
     /// new store; the relaunch swaps it in (PendingRestore.applyIfPending). The `exit(0)`
     /// bypass is intentional — the normal AppKit termination path would flush caches that
     /// describe the library about to be replaced. Spawning a new instance via `open` before
@@ -1744,7 +1727,10 @@ final class DBRestorer: Loggable {
         let pid = ProcessInfo.processInfo.processIdentifier
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/bin/bash")
-        task.arguments = ["-c", "for _ in $(seq 200); do kill -0 \(pid) 2>/dev/null || break; sleep 0.05; done; open \"\(bundlePath)\""]
+        // The path is passed as an argument ($1), never spliced into the script, so a
+        // quote, `$` or backtick in a folder name cannot break or alter the command.
+        task.arguments = ["-c", "for _ in $(seq 200); do kill -0 \(pid) 2>/dev/null || break; sleep 0.05; done; open \"$1\"",
+                          "relaunch", bundlePath]
         do {
             try task.run()
         } catch {

@@ -7,9 +7,9 @@
 // This file knows nothing about films, releases, or reports. It is the bottom layer of a
 // three-file stack:
 //
-//     88.00 PDFCore.swift            ← geometry, fonts, colors, drawing primitives
-//     88.10 PDFTableRenderer.swift   ← paginated table layout built on those primitives
-//     88.20 LibraryPDFReport.swift   ← the complete-library table's content and rules
+//     85.00 PDFCore.swift            ← geometry, fonts, colors, drawing primitives
+//     85.10 PDFTableRenderer.swift   ← paginated table layout built on those primitives
+//     85.20 PDFReport.swift   ← the complete-library table's content and rules
 //
 // Both PDF-producing features draw from this stack: the per-tab report sheets in
 // ReportExporter.swift (27.50) and the whole-library export in PDFExporter.swift
@@ -46,11 +46,9 @@ enum PDFExportError: LocalizedError {
 
 /// Every measurement that governs how a page is laid out, in one value.
 ///
-/// These were once `private static let`s on `ReportsPDFExporter`, which pinned every
-/// report in the app to a single portrait page at a single font size. Passing the set
-/// around as a value is what lets the complete-library table use a LANDSCAPE page (it has
-/// sixteen columns; portrait cannot hold them legibly) inside the same document as the
-/// report sections that follow it.
+/// Passing the set around as a value is what lets the complete-library table use a
+/// LANDSCAPE page (it has sixteen columns; portrait cannot hold them legibly) inside the
+/// same document as the report sections that follow it.
 ///
 /// A PDF document may mix page sizes freely as long as each page declares its own media
 /// box — see `PDFTableRenderer.beginPage`, which does exactly that from this struct.
@@ -116,12 +114,11 @@ struct PDFPageGeometry: Sendable {
     )
 
     /// US Letter landscape with tighter margins — the complete-library table's geometry.
-    /// The wider page buys the sixteen columns room; the 0.5" margin buys another 72 points
-    /// on top of that.
+    /// The wider page gives the sixteen columns room, and the 0.5" margin gives them more.
     ///
     /// The body font is deliberately SMALL. This table's job is density: it carries every
-    /// film in the library across sixteen columns, and two points of type traded away buys
-    /// roughly a third of the page's width back for the columns that actually wrap.
+    /// film in the library across sixteen columns, and the smaller type buys width for the
+    /// columns that wrap.
     static let landscapeLetter = PDFPageGeometry(
         pageSize: CGSize(width: 792, height: 612), // 11" x 8.5" at 72 DPI
         margin: 36,                                // 0.5"
@@ -166,7 +163,7 @@ enum PDFColumnWidth {
 ///
 /// `NSFont` lookup is not free and the drawing loop asks for the same handful of faces
 /// once per cell, so results are memoized. The cache is keyed by (size, weight) because
-/// geometry is now a value: two sections in one document legitimately ask for the same
+/// geometry is a value passed per call: two sections in one document legitimately ask for the same
 /// weight at different sizes.
 @MainActor
 enum PDFFonts {
@@ -305,10 +302,9 @@ enum PDFParagraphStyles {
 enum PDFPalette {
     /// The opacity every fill below is drawn at. The single knob for "more/less vibrant".
     ///
-    /// Raised from 0.38 once the tables had been seen on paper: at this type size the fills
-    /// were deferring to the text more than they needed to, and a tenth more opacity
-    /// separates the shades from one another without touching the contrast of the black
-    /// text sitting on them.
+    /// At this type size the fills defer to the text more than they need to, and a tenth
+    /// more opacity separates the shades from one another without touching the contrast of
+    /// the black text sitting on them.
     static let fillAlpha: CGFloat = 0.42
 
     // MARK: Shared shades
@@ -579,8 +575,7 @@ enum PDFDrawing {
         guard !edges.isEmpty else { return }
         // The complete set in the shared color is the overwhelmingly common case and is
         // drawn as a rectangle rather than as four segments — identical output, a quarter
-        // of the path work, and byte-for-byte the same as every table produced before this
-        // existed.
+        // of the path work.
         if edges == .all && color == PDFPalette.border {
             return strokeBorder(rect, context: context, lineWidth: lineWidth)
         }
@@ -878,9 +873,9 @@ enum PDFBrandMark {
 /// The comma-separated list convention every Notes column in the app's PDFs prints in:
 /// the first item's initial capitalized, every later item's lowercased, joined with ", ".
 ///
-/// Two sections build such a list — the complete-library table's Notes column and the Hall
-/// of Fame's — and their whole point is that the two read alike. The rule lived once in
-/// each file, which made "alike" a comment rather than a fact.
+/// Two sections build such a list, the complete-library table's Notes column and the Hall
+/// of Fame's, and they must read alike. The rule is defined once here, so the two cannot
+/// drift apart.
 ///
 /// An item may opt OUT of the case transform when its text is a proper noun or a brand —
 /// "Steelbook", a studio name, an authored note — where re-casing would be wrong wherever
@@ -912,10 +907,8 @@ enum PDFNoteList {
 
 // MARK: - Cell Text
 
-/// Cell text the report's tables share. The complete-library table and the film-detail
-/// sections each carried their own copy of the placeholder and the abbreviated-date
-/// formatter, with a comment asking the second to match the first; one definition makes
-/// that a fact.
+/// Cell text the report's tables share, so the placeholder and the abbreviated-date
+/// format are defined once.
 @MainActor
 enum PDFCellText {
     /// The stand-in for a field with nothing in it, where a blank cell would read as an

@@ -174,10 +174,9 @@ final class SearchController: Loggable {
     
     /// The parsed shape of the in-progress "#…" fragment at the tail of `searchText`.
     ///
-    /// Four members used to re-derive these same pieces independently — the hash index,
-    /// the "/" (OR) and "!" (inversion) prefixes, and the partial field name — each with
-    /// its own copy of the prefix-stripping order. Parsing once here keeps them from
-    /// drifting and makes the fragment's grammar readable in a single place.
+    /// Parsing happens once here, so the hash index, the "/" (OR) and "!" (inversion)
+    /// prefixes, and the partial field name cannot drift apart, and the fragment's grammar
+    /// is readable in a single place.
     private struct HashFragment {
         /// Everything before the "#".
         let beforeHash: String
@@ -956,9 +955,9 @@ final class SearchController: Loggable {
             
         // Every field backed purely by string-array snapshot properties — the six
         // credited-person fields, the broad-match .crew union over all six, plus studio
-        // and tags — resolves through one table-driven pass. Each of these used to be
-        // its own near-identical `films.filter { film.<field>.contains { fuzzyMatch… } }`
-        // case; the only thing that ever varied between them was which arrays to scan.
+        // and tags — resolves through one table-driven pass. Each field is a
+        // `films.filter { film.<field>.contains { fuzzyMatch… } }` over its own arrays, so
+        // the only thing that varies between them is which arrays to scan.
         // Scan order within .crew is preserved, and `contains` still short-circuits on
         // the first array that matches.
         case .crew, .cast, .directors, .producer, .executiveProducer,
@@ -1149,12 +1148,14 @@ final class SearchController: Loggable {
     /// when `query` is not that shape. Both ends must be whole numbers, so the open-ended
     /// "8-" (rating at most 8) and a leading-minus value are not ranges. Shared by the
     /// year, duration and rating tokens so the three accept exactly the same form. A
-    /// reversed range ("9-7") parses and simply matches nothing.
+    /// reversed range ("9-7") is read as the same span as "7-9".
     private func parseNumericRange(_ query: String) -> (low: Int, high: Int)? {
         let parts = query.split(separator: "-", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
         guard parts.count == 2, let low = Int(parts[0]), let high = Int(parts[1]) else { return nil }
-        return (low, high)
+        // A range typed high-to-low ("2010-2000") means the same span; returned as-is it
+        // matched nothing.
+        return (min(low, high), max(low, high))
     }
 
     /// Every word typed must appear in the film's synopsis, in any order, each as a
@@ -1275,8 +1276,8 @@ final class SearchController: Loggable {
     /// answer is the same.
     /// "none" finds films with no date for the field; a bare year ("2025") finds that
     /// calendar year. A query that matches none of the forms below, or names a date that cannot be parsed,
-    /// returns no films — the same answer a misspelled title gets. It used to return every
-    /// film with any value for the field, which made a typo look like a successful search.
+    /// returns no films — the same answer a misspelled title gets. Returning every film with
+    /// any value for the field would make a typo look like a successful search.
     ///
     /// Supported query forms (case-insensitive):
     ///   Keyword:   "none" (no date recorded)
@@ -1572,6 +1573,9 @@ final class SearchController: Loggable {
     /// arithmetic; fractions of them are converted to days.
     private func naturalDate(_ date: Date, back amount: Double, _ unit: DateUnit) -> Date? {
         let cal = AppCalendar.current
+        // A typed amount like "1e300 days" is finite but far beyond Int's range; converting
+        // it below would trap. No real date lies that far back, so it names no span.
+        guard amount.isFinite, amount < 1_000_000 else { return nil }
         let days: Double
         let months: Double
         switch unit {
@@ -2103,8 +2107,13 @@ final class SearchController: Loggable {
         // since deleted) built a filtered, sorted copy of the array on every access; testing
         // their .isEmpty paid for an allocation and an O(R log R) sort whose result is
         // immediately discarded. contains is O(R), allocation-free, and behavior-identical.
-        if q == "unpurchased" || q.contains("wishlist") || q.contains("wanted") {
-            // Unpurchased/wishlist releases are those not marked as purchased.
+        // Wishlist: only releases actually on the Release Wishlist. A child of a combo pack
+        // mirrors its parent's position, so `wishlist > 0` on any release is the same test
+        // the Release Wishlist report makes for the pack.
+        if q.contains("wishlist") || q == "wanted" {
+            return films.filter { film in film.releases.contains { $0.wishlist > 0 } }
+        }
+        if q == "unpurchased" {
             return films.filter { film in film.releases.contains { !$0.purchased } }
         }
         // Exact words: a substring test read "unowned" and "owned 4k" as "owned".
@@ -2240,7 +2249,9 @@ final class SearchController: Loggable {
         let parts = q.split(separator: "-", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }
         if parts.count == 2, let low = year(Substring(parts[0])), let high = year(Substring(parts[1])) {
-            return { $0.year >= low && $0.year <= high }
+            // Either order: "2020-2015" names the same span as "2015-2020".
+            let (from, to) = (min(low, high), max(low, high))
+            return { $0.year >= from && $0.year <= to }
         }
 
         if let op = q.first, op == ">" || op == "<" {
@@ -2351,7 +2362,8 @@ final class SearchController: Loggable {
             .replacingOccurrences(of: monthUnitPattern, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespaces)
 
-        guard let doubleVal = Double(stripped) else { return nil }
+        // Bounded so a typed "1e300" or "inf" cannot trap in the Int conversions below.
+        guard let doubleVal = Double(stripped), doubleVal.isFinite, abs(doubleVal) < 1_000_000 else { return nil }
 
         if hasYearUnit {
             // Unit was explicitly years — convert to months and validate.

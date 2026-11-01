@@ -55,11 +55,12 @@
 // Activation and key-window changes print a one-line summary on their own, so the transitions
 // between steps 2 and 3 are in the log without anyone having to press anything.
 //
-// SINCE THEN: the FilmSheet no longer lets AppKit walk the key view loop at all. Its key
-// monitor consumes Tab and FilmSheetKeyLoop (30.01) moves first responder itself — over the
-// current card's controls on the Releases tab, over the active tab's elsewhere — by geometry — so hypotheses 2 and 3 cannot produce the symptom any
-// more, and the `inLoop` column describes a chain that Tab no longer follows there. The TAB
-// lines still show where focus actually lands, which is the probe's remaining use.
+// THE FILMSHEET DOES NOT USE THE KEY VIEW LOOP. Its key monitor consumes Tab, and
+// FilmSheetKeyLoop (30.01) moves first responder itself: over the current card's controls on
+// the Releases tab, and over the active tab's controls elsewhere, chosen by geometry. Hypotheses
+// 2 and 3 therefore cannot produce the symptom in the FilmSheet, and the `inLoop` column
+// describes a chain that Tab does not follow there. The TAB lines still show where focus lands,
+// which is the probe's remaining use.
 
 #if DEBUG
 

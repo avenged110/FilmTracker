@@ -22,9 +22,8 @@
 //     answers are compared against those of a FRESH store built from its own final films
 //     and lists. The two must agree for every (view, sort, direction, filters) combination.
 //     A fresh store has no view cache, so any disagreement is by construction a cache entry
-//     that a mutation should have invalidated and did not. This is the property the layer's
-//     one previously-known corruption (a poisoned empty view cached during startup) would
-//     have failed, and no example-based check would have caught it.
+//     that a mutation should have invalidated and did not. This property is the one a poisoned
+//     empty view cached during startup would fail, and no example-based check would catch it.
 //
 // WHY MOST SCENARIOS USE AN ISOLATED STORE
 //
@@ -767,8 +766,8 @@ extension DebugHarness {
                 "\(baselineFilms) + \(corpus.count) = \(store.totalFilmCount)")
 
         // --- Film Queue exclusivity, through the coordinator ---------------------------------
-        // The synchronous drag-and-drop entry point, which is the path that previously allowed
-        // a dropped film to occupy two sections at once.
+        // The synchronous drag-and-drop entry point, which must never let a dropped film
+        // occupy two sections at once.
         let subject = corpus[0].id
         _ = coordinator.addFilmsToList(filmIDs: [subject], listID: FilmQueueSection.later.listID)
         r.check("queue-add-lands-in-requested-section",
@@ -866,8 +865,8 @@ extension DebugHarness {
         }
         // The refresh is reached through a Task hop, a Combine sink and a debounce, so it may
         // not have started when the scenario first asks — and on a large library it takes
-        // longer still. A fixed sleep failed whenever the refresh was slower than the sleep.
-        // Poll for the expected value instead, failing only if it never arrives.
+        // longer still. Poll for the expected value rather than sleep a fixed time, failing only
+        // if it never arrives.
         func awaitRotation(_ months: Int) async -> (Bool, String) {
             let deadline = ContinuousClock.now + .seconds(5)
             var result = cachedRotationMatches(months)
@@ -1152,7 +1151,7 @@ extension DebugHarness {
         if let existing = releases.first {
             let before = releases.count
             // Release.id is a uniqueness constraint, so a second release with an existing ID
-            // can no longer be stored: the save merges it into the existing row.
+            // cannot be stored separately: the save merges it into the existing row.
             context.insert(Release(id: existing.id, independence: "Standalone"))
             if save("duplicate") {
                 let after = (try? container.makeMainContext().count(for: Release.request())) ?? -1
@@ -1200,10 +1199,9 @@ extension DebugHarness {
         }
 
         // A NULL lastModified, which the app never writes: a dictionary fetch leaves that row
-        // out (measured), so the digest must differ from the one before — the fingerprint
-        // mismatches and the slow path runs, failing safe. The raw-SQLite reader this fetch
-        // replaced declined on such a row and fell back to the same fetch. Written with raw SQL, last, because it
-        // leaves this throwaway store in a state the app does not produce.
+        // out, so the digest must differ from the one before — the fingerprint mismatches and
+        // the slow path runs, failing safe. Written with raw SQL, last, because it leaves this
+        // throwaway store in a state the app does not produce.
         var db: OpaquePointer?
         if unsafe sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
             let rc = unsafe sqlite3_exec(db, "UPDATE ZFILM SET ZLASTMODIFIED = NULL WHERE Z_PK = (SELECT MIN(Z_PK) FROM ZFILM)", nil, nil, nil)

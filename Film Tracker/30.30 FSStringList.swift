@@ -3,52 +3,36 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The reorderable plain-string list used by the FilmSheet Metadata and Notes tabs.
 //
-// Renamed from FSListUtilities.swift when ReorderableFramesList was split out to
-// 30_40_FSFramesList.swift. The two components are deliberately NOT unified: a
-// frames entry is a four-field comma-packed record edited through a popover,
-// whereas a string-list entry is a bare value edited in place, so a single type
-// would carry two disjoint row models and two disjoint edit paths.
+// The two list components (this one and ReorderableFramesList in 30.40 FSFramesList.swift)
+// are deliberately NOT unified. A frames entry is a four-field comma-packed record edited
+// through a popover, whereas a string-list entry is a bare value edited in place, so a single
+// type would carry two disjoint row models and two disjoint edit paths.
 //
-// What the two DO share now lives in FSControlHelpers.swift — `ListCircleButton`
-// and `ListCircleButtonStyle` (the circular control family), `ListImportPopover`
-// (the comma/line-separated bulk-entry sheet), and `ListRowMetrics` (the row and
-// control geometry both tables are drawn on). Everything remaining in this file
-// is specific to the string list: its in-place editing field and the focus
-// machinery behind it, and the click tracking that ends an edit.
+// What the two share lives in 30.20 FSControlHelpers.swift: `ListCircleButton` and
+// `ListCircleButtonStyle` (the circular control family), `ListImportPopover` (the bulk-entry
+// sheet), and `ListRowMetrics` (the row and control geometry). Everything else in this file
+// is specific to the string list: its in-place editing field, the focus machinery behind it,
+// and the click tracking that ends an edit.
 
 import SwiftUI
 import AppKit
 
 // MARK: - Row Metrics
 //
-// The private `StringListMetrics` that used to sit here is gone. Its three values
-// were shared with `ReorderableFramesList` in all but name — that file carried
-// its own byte-identical copies under different constant names, with comments at
-// both sites instructing the reader to keep them in step by hand — so they now
-// live on `ListRowMetrics` (30_20_FSControlHelpers.swift) alongside the circular
-// control family they are measured against. The same consolidation retired
-// `AddRowMetrics`, which held this file's second copy of the control geometry.
-//
-// This is the arrangement `FieldEdgeTreatment` already established for the
-// container chrome: values that must agree across both tables are defined once
-// on a primitives file both depend on, rather than restated sideways between two
-// peers that are free to drift.
+// Row geometry lives on `ListRowMetrics` (30.20 FSControlHelpers.swift), which both list
+// components use, so the two tables agree by construction. This is the arrangement
+// `FieldEdgeTreatment` establishes for the container chrome: values that must agree across both
+// tables are defined once, in a file both depend on, rather than restated in two places.
 
 // MARK: - Row Control Region Tracking
 
 /// Holds a reference to a live `NSView` so unrelated views can hit-test against
 /// its bounds.
 ///
-/// An earlier version of this type existed to forgive clicks on the "+" button
-/// that used to sit OUTSIDE the table, which would otherwise have registered as
-/// clicks away from the row being edited. That control is now a row, so the
-/// problem it solved is gone — but its inverse appeared in its place.
-///
-/// A row's own trailing buttons lie INSIDE the row's bounds, so a double-click
-/// on one of them was being read as a double-click on the row. That is only ever
-/// wrong: those buttons already act on their own clicks, and a click that
-/// happens to be the second half of a double-click is not a different intent
-/// from the first. The concrete failure is described at `RowClickReporter`.
+/// Lets a row's double-click handling ignore clicks on the row's own trailing buttons. Those
+/// buttons lie inside the row's bounds, so without this a double-click on one of them would be
+/// read as a double-click on the row. Those buttons already act on their own clicks. See
+/// `RowClickReporter` for the failure this prevents.
 @MainActor
 private final class ClickExclusionRegion {
     weak var view: NSView?
@@ -88,8 +72,7 @@ private struct ClickExclusionCapture: NSViewRepresentable {
 ///
 /// **Why not a SwiftUI gesture**
 ///
-/// Both `.onTapGesture(count: 2)` and `.simultaneousGesture(TapGesture(count: 2))`
-/// were tried, and both broke drag-to-reorder. SwiftUI's tap recognizer has to
+/// Both `.onTapGesture(count: 2)` and `.simultaneousGesture(TapGesture(count: 2))` break drag-to-reorder. SwiftUI's tap recognizer has to
 /// claim the initial mouseDown to determine whether a second click follows, and
 /// the hosting `NSTableView` needs that same event to begin a drag session.
 /// Adding `.contentShape` to widen the gesture's hit region only widened the
@@ -103,13 +86,10 @@ private struct ClickExclusionCapture: NSViewRepresentable {
 ///
 /// **One monitor, not one per row**
 ///
-/// The monitor itself lives on `RowClickBroadcaster`, which every reporter
-/// registers with. `NSEvent` local monitors are process-wide, so installing one
-/// per row meant a single click ran one closure for every visible row of every
-/// list on the tab — around forty of them on a populated Metadata tab, all
-/// asking the same question. One monitor answers it once and fans the result
-/// out. See `RowClickBroadcaster` for the second, more important reason:
-/// dispatch order.
+/// The monitor itself lives on `RowClickBroadcaster`, which every reporter registers with.
+/// `NSEvent` local monitors are process-wide, so one monitor per row would run a closure for every
+/// row of every list on the tab for each click, all asking the same question. One monitor answers
+/// it once and fans the result out. See `RowClickBroadcaster` for the second reason: dispatch order.
 private struct RowClickReporter: NSViewRepresentable {
 
     /// Whether the attached row is currently being edited. Both of the reporter's
@@ -235,7 +215,7 @@ private struct RowClickReporter: NSViewRepresentable {
                 guard event.clickCount == 2 else { return .ignore }
                 // The row's own buttons handle their clicks themselves; a second
                 // click on one of them is another button click, not a gesture on
-                // the row. See `controlsRegion` for what happened when it was.
+                // the row. See `ClickExclusionRegion`.
                 if let controlsRegion,
                    controlsRegion.contains(windowPoint: event.locationInWindow, in: window) {
                     return .ignore
@@ -263,7 +243,7 @@ private struct RowClickReporter: NSViewRepresentable {
         /// future host that does not use the FilmSheet's tab architecture keeps
         /// the unconditional behavior.
         private func clickReachesThisTab(_ event: NSEvent, from view: NSView, in window: NSWindow) -> Bool {
-            // `outermostEnclosingScrollView` (30_20_FSControlHelpers.swift)
+            // `outermostEnclosingScrollView` (30.20 FSControlHelpers.swift)
             // rather than `enclosingScrollView`: the nearest ancestor is the
             // scroll view backing this row's own `List`, whereas the outermost
             // is `FilmSheetScrollView`, whose `hitTest` gate is what
@@ -298,17 +278,14 @@ private struct RowClickReporter: NSViewRepresentable {
 /// ending an edit whose draft is blank *removes that row*, which shifts every
 /// index after it, and `editingIndex` is an index.
 ///
-/// With a monitor per row the order was whatever order AppKit happened to call
-/// the monitors in. If the abandoned blank row was serviced first, its removal
-/// shifted the list out from under the index the double-click was about to
-/// target, and the double-click resolved against a position that no longer held
-/// the row that was clicked — so the edit silently failed to open.
+/// With a monitor per row, the order would depend on the order AppKit calls the monitors. If the
+/// abandoned blank row were serviced first, its removal would shift the list out from under the index
+/// the double-click targets, and the edit would silently fail to open.
 ///
-/// Dispatching in two phases fixes it by construction. Every begin-edit runs
-/// first, so `editingIndex` is set while the array still matches the indices the
-/// rows were built with; the click-away commits then run, and
-/// `shiftEditingIndex(afterRemovalAt:)` corrects `editingIndex` for any removal
-/// they cause. The result no longer depends on monitor ordering at all.
+/// Dispatching in two phases fixes this by construction. Every begin-edit runs first, so `editingIndex`
+/// is set while the array still matches the indices the rows were built with. The click-away commits
+/// then run, and `shiftEditingIndex(afterRemovalAt:)` corrects `editingIndex` for any removal they
+/// cause. The result does not depend on monitor ordering.
 @MainActor
 private final class RowClickBroadcaster {
 
@@ -399,11 +376,6 @@ private final class RowClickBroadcaster {
 /// The sheet's string-list field: native drag-to-reorder alongside in-place row
 /// editing.
 ///
-/// It replaced `EditableStringList`, a plain `VStack` of permanently-bound
-/// `TextField`s with a trailing "Add new..." row, which has now been removed
-/// entirely. Several notes below contrast the two; that type no longer exists.
-
-///
 /// **Why rows are `Text` rather than `TextField`**
 ///
 /// A `List` with `.onMove` makes the entire row the drag source; SwiftUI offers
@@ -427,19 +399,13 @@ private final class RowClickBroadcaster {
 /// into a focused field when its "+" is clicked, and back into a placeholder
 /// once the add resolves. Nothing is written to the array until a non-empty
 /// draft is committed, so a canceled add is a no-op by construction rather than
-/// by remembering to remove a blank entry on each of the routes out. See that
-/// type for what the change removed: the empty-state layout, the scroll bridge,
-/// and the click-exclusion machinery all existed to serve an add control that
-/// lived outside the table.
+/// by remembering to remove a blank entry on each of the routes out.
 ///
 /// **Edits are drafted, not live-bound**
 ///
-/// While a row is being edited its text lives in row-local `@State`, and the
-/// backing array is written exactly once on commit. The former list bound each
-/// field directly to `$items[index]`, so every keystroke performed a full
-/// array write and fired observation invalidation for the whole collection,
-/// which in turn re-ran the owning tab's change tracking. Drafting removes that
-/// per-keystroke cost entirely.
+/// While a row is being edited its text lives in row-local `@State`, and the backing array is written
+/// once on commit. Binding each field to `$items[index]` would perform a full array write, and invalidate
+/// observation for the whole collection, on every keystroke.
 ///
 /// **Commits are position-verified**
 ///
@@ -456,19 +422,13 @@ struct ReorderableStringList: View {
     /// produces "Import Cast Members". Defaults to a neutral term.
     var itemLabel: String = "Item"
 
-    // No scroll bridge. The list used to take a `FilmSheetScrollProxy` and an
-    // anchor name so that adding a row could pull the table into the viewport,
-    // because the "+" button sat beside the table's TOP edge and could therefore
-    // be clicked while the row it created was below the fold. The add control is
-    // now the table's last row: it cannot be clicked unless it is already on
-    // screen, and the row it turns into is that same row. There is nothing left
-    // to scroll to.
+    // No scroll bridge. The add control is the table's last row, so it can be clicked only when it is
+    // already on screen, and the row it turns into is that same row. Nothing needs to scroll to an anchor.
 
-    /// Upper bound on row count. The list does not scroll internally, so every
-    /// row adds to the sheet's overall content height; 30 is well clear of the
-    /// 1–10 these fields carry in practice while still bounding the worst case.
+    /// Upper bound on row count. The list does not scroll internally, so every row adds to the sheet's
+    /// overall content height. 30 bounds the worst case.
     /// Internal for BulkFilmEdit.tagLimit, which the MultiFilmSheet asserts against it.
-    static let maxItems = 30
+    nonisolated static let maxItems = 30
 
     // MARK: - Editing State
     //
@@ -531,40 +491,21 @@ struct ReorderableStringList: View {
 
     // MARK: - Row Geometry
     //
-    // Every value now comes from `ListRowMetrics` (30_20_FSControlHelpers.swift).
-    // The private `listPadding` that used to sit here was the last of the row
-    // constants this type owned, and `ReorderableFramesList` carried its own copy
-    // of the identical value; the two are the same measurement, so they are now
-    // one declaration rather than two the reader is asked to keep in step.
+    // Every value comes from `ListRowMetrics` (30.20 FSControlHelpers.swift), which both list
+    // components share.
 
     // MARK: Container Chrome
     //
-    // The outline and shadow now come from `FieldEdgeTreatment`
-    // (30_10_FSTextHelpers.swift), shared with `ReorderableFramesList` and with
-    // `FixedHeightScrollingTextView`. This list's treatment was the reference
-    // for it, so the drawn result is unchanged — the private copy that used to
-    // sit here is simply gone, along with the byte-identical copy that sat on
-    // the frames list and the mismatched hairline the text view drew.
+    // The outline and shadow come from `FieldEdgeTreatment` (30.10 FSTextHelpers.swift), shared with
+    // `ReorderableFramesList` and `FixedHeightScrollingTextView`.
     //
-    // The corner radius and border width still have to agree with each other:
-    // the clip below is inset by exactly the width the border occupies, so a
-    // change to one without the other reopens the composited edge described at
-    // the clip site. Both now come from the same place, which is what keeps
-    // them agreeing.
-
-    // The bulk-import control's geometry constants that used to sit here are
-    // gone with the control's old position. It is no longer a separate button
-    // trailing the table at 22pt — it is a row control inside the add row, at
-    // the row-control diameter, and its constants live with the other add-row
-    // controls on `StringListAddRow`.
+    // The corner radius and border width must agree: the clip below is inset by exactly the width
+    // the border occupies. Both come from the same place, which keeps them agreeing.
 
     /// Rows drawn: every entry, plus the trailing add row.
     ///
-    /// The add row is unconditional, which is what retired the old "extra short"
-    /// empty state. A list with no entries is not a special layout any more —
-    /// it is a list of one row that happens to be the add row, so the first
-    /// entry a user types changes that row's contents and nothing else about the
-    /// table's structure.
+    /// The add row is unconditional, so there is no special empty state. A list with no entries is a
+    /// list of one row, the add row, and the first entry a user types changes only that row's contents.
     private var displayedRowCount: Int { items.count + 1 }
 
     private var listHeight: CGFloat {
@@ -580,19 +521,10 @@ struct ReorderableStringList: View {
 
     // MARK: - Vertical Alignment Tuning
     //
-    // The field label and the bulk-import button need different offsets: they
-    // have different intrinsic heights and different baselines, so a single
-    // shared value cannot put both in line with the list's first row. Each is
-    // therefore its own constant, and the two can be adjusted independently.
+    // The field label offset is a single value. The inset List always applies its internal top padding,
+    // because the table always holds at least the add row, so one constant lines up in every state.
     //
     // Sign convention: positive moves DOWN, negative moves UP.
-    //
-    // These were previously pairs — one value for the empty state, one for the
-    // populated one — because the inset List applied its internal top padding
-    // only when it held rows, so a single constant lined up in one state and not
-    // the other. The table now always holds at least the add row, so the padding
-    // is always present and the empty-state variants have no state left to
-    // describe.
 
     /// Vertical offset that aligns an adjacent field label with the list's first
     /// row. Exposed statically so the owning tab applies the same rule the
@@ -600,32 +532,18 @@ struct ReorderableStringList: View {
     /// drift out of step.
     static let labelTopOffset: CGFloat = 14
 
-    // `buttonTopOffset` is gone. It aligned a control sitting BESIDE the table
-    // with the table's first row, and no control sits beside either table any
-    // more — the frames list read this same constant for its own trailing
-    // button and has been moved in step.
-
     var body: some View {
-        // No wrapping HStack any more. Every control this component offers now
-        // lives inside the table — the bulk-import button was the last one
-        // outside it, and it has moved into the add row alongside the "+" — so
-        // the table is the whole component and takes the full column width, the
-        // same width every other field on the sheet occupies. The `buttonTopOffset`
-        // that aligned the old trailing control with the first row went with it.
+        // The table is the whole component. Every control lives inside it, including the bulk-import
+        // button in the add row, so the table takes the full column width. Emptying the table is an
+        // ordinary row removal, animated like any other.
         listContainer
-        // The `.animation(nil, value: items.isEmpty)` that used to sit here is
-        // gone with the state it guarded. It suppressed the interpolation of the
-        // simultaneous height change and offset flip that emptying the table
-        // produced, which read as the whole field sliding down and snapping
-        // back. There is no offset flip any more — emptying the table is now an
-        // ordinary row removal, animated exactly like every other one.
         //
         // Scroll detection, done in AppKit rather than in SwiftUI.
         //
         // An `NSPopover` is pinned to the screen rectangle its anchor occupied
         // when it was presented, so scrolling the sheet leaves the bulk-import
         // popover floating over unrelated content. `ScrollActivityObserver`
-        // (30_20_FSControlHelpers.swift) watches the enclosing clip view's
+        // (30.20 FSControlHelpers.swift) watches the enclosing clip view's
         // bounds — a notification AppKit posts for its own purposes — instead of
         // the `GeometryReader` that would otherwise put SwiftUI layout on the
         // live-scroll path, which is precisely what `AppKitScrollView`'s
@@ -725,12 +643,9 @@ struct ReorderableStringList: View {
         // band's overhang from escaping it, and the clip's inset is what keeps
         // the translucent border from compositing over that fill into a
         // distinctly darker bottom edge. The full account is on
-        // `listContainerChrome(height:)` (30_20_FSControlHelpers.swift).
+        // `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
-        // The empty-state placeholder overlay that used to sit here is gone: the
-        // placeholder is now the add row's own label, so it is a real row with
-        // the list's own leading inset rather than an overlay that had to
-        // reproduce that inset by hand.
+        // The placeholder is the add row's own label, a real row with the list's own leading inset.
     }
 
     // MARK: - Bulk Import
@@ -738,19 +653,15 @@ struct ReorderableStringList: View {
     /// Content for the bulk-entry popover, handed to the add row, which owns the
     /// control it is anchored to.
     ///
-    /// The control moved into the row; the state and the commit did not. The
-    /// presentation flag, the replace toggle, and `commitImport` all stay on this
-    /// type, because the array is here and the
-    /// cap is here. The row supplies an anchor and a click — it is not given the
-    /// list to mutate.
+    /// The control lives in the add row, which anchors it. The presentation flag, the replace
+    /// toggle, and `commitImport` stay on this type, because the array and its cap are here. The
+    /// row supplies an anchor and a click, and is not given the list to mutate.
     private var importPopoverContent: some View {
         ListImportPopover(
             itemLabel: itemLabel,
             maxItems: Self.maxItems,
-            // One count, from which the popover derives both the append-mode
-            // headroom and the two locked states of its Replace toggle. It used
-            // to receive `isAtCapacity` and `hasEntries` as separate booleans,
-            // which was three descriptions of one array that had to agree.
+            // One count, from which the popover derives both the append-mode headroom and the
+            // two locked states of its Replace toggle.
             currentCount: items.count,
             replaces: $importReplaces,
             onImport: { parsed in
@@ -766,9 +677,8 @@ struct ReorderableStringList: View {
 
     // MARK: - Import Popover
 
-    // Parsing lives entirely on `ListImportPopover.parseItems(from:)`, which is
-    // what the popover itself calls and what hands the result back through
-    // `onImport`. The forwarding wrapper that used to sit here had no callers.
+    // Parsing lives on `ListImportPopover.parseItems(from:)`, which the popover calls and passes
+    // the result of through `onImport`.
 
     // MARK: - Mutation Helpers
     //
@@ -777,12 +687,8 @@ struct ReorderableStringList: View {
 
     /// Opens the add row's text field.
     ///
-    /// No placeholder element is appended to the array. The old "+" button
-    /// appended an empty string and then edited it, which meant every route out
-    /// of a canceled add had to remember to remove that blank entry again — and
-    /// meant a blank row could survive into the model if any of them did not.
-    /// The add row exists in the view only, so a canceled add is a no-op on the
-    /// array by construction.
+    /// No placeholder element is appended to the array. The add row exists only in the view, so a
+    /// canceled add leaves the array untouched by construction.
     private func beginAdd() {
         guard canAdd, !isAdding else { return }
         // Clearing `editingIndex` ends any open row edit through the row's own
@@ -930,12 +836,10 @@ struct ReorderableStringList: View {
 
     /// Discards the edit, dropping the row if it was blank to begin with.
     ///
-    /// The removal no longer has anything to do with canceling an add — the add
-    /// row is not backed by an array element, so an abandoned add leaves nothing
-    /// behind to clean up. What remains is the defensive case: a blank entry
-    /// that reached the array by some other route (older data, a restore) should
-    /// not survive being opened and dismissed, because an empty string renders as
-    /// a blank, undraggable-looking row.
+    /// The add row is not backed by an array element, so an abandoned add leaves nothing to clean up.
+    /// This removal covers the defensive case: a blank entry that reached the array by another route
+    /// (older data, a restore) should not survive being opened and dismissed, because an empty string
+    /// renders as a blank, undraggable-looking row.
     ///
     /// Position-verified on the same terms as `commitEdit`, and blankness is
     /// judged on the seeded value rather than the live one, so that a draft the
@@ -987,9 +891,8 @@ struct ReorderableStringList: View {
         // import is replacing rather than the one it produced.
         let grew = updated.count > items.count
         items = updated
-        // The add row moves down by one row per entry gained, so a bulk import
-        // can push it well below the fold — further than a single commit ever
-        // does, which is the case this reveal was built for. Only on growth: a
+        // The add row moves down by one row per entry gained, so a bulk import can push it well below
+        // the fold, which is the case the reveal exists for. Only on growth: a
         // Replace-mode import that shrinks the table moves the add row UP, and
         // scrolling to it then would drag the viewport for no reason.
         if grew { addRevealToken &+= 1 }
@@ -1021,7 +924,7 @@ struct ReorderableStringList: View {
 /// body was tracking every array on the tab, so committing an entry in one list
 /// invalidated the tab; and `Binding` carries closures, which never compare
 /// equal, so once the tab's body re-ran every list was rebuilt along with it —
-/// eleven `List`s and all of their rows, for a keystroke in an unrelated text
+/// every `List` and all of its rows, for a keystroke in an unrelated text
 /// field.
 ///
 /// Here the array is reached through a key path instead. The tab's body no
@@ -1034,12 +937,9 @@ struct ReorderableStringList: View {
 /// Generic over the view model so the Metadata and Notes tabs share it rather
 /// than each carrying a copy specialized to its own type.
 ///
-/// It also serves both list editors. The Notes tab's Warnings and Notes use
-/// `ReorderableTextList` (30_50_FSTextList.swift) — long, multi-line values edited
-/// in a popover — while every other list uses the inline `ReorderableStringList`.
-/// Those two rows were once two copies of this type, identical but for the list
-/// they built. `editor` is a plain enum rather than a view-builder closure so the
-/// row still compares by value (see above).
+/// It also serves both list editors: `ReorderableTextList` (30.50 FSTextList.swift), for long,
+/// multi-line values edited in a popover, and the inline `ReorderableStringList`. `editor` is a
+/// plain enum rather than a view-builder closure so the row still compares by value (see above).
 struct FilmSheetListRow<Model: AnyObject & Observable>: View {
 
     @Bindable var model: Model
@@ -1061,13 +961,6 @@ struct FilmSheetListRow<Model: AnyObject & Observable>: View {
     /// Singular noun the list uses in its own popovers and placeholder.
     let itemLabel: String
 
-    // The `anchorID` and `scrollProxy` this row used to carry are gone. They
-    // existed only so that adding an entry could scroll the list into view when
-    // the "+" button beside its top edge had been clicked while the newly
-    // appended row was below the fold. The add control is now the list's last
-    // row, which cannot be clicked from outside the viewport, so neither the
-    // anchor nor the proxy has anything left to do.
-
     let labelWidth: CGFloat
     let columnSpacing: CGFloat
 
@@ -1080,7 +973,7 @@ struct FilmSheetListRow<Model: AnyObject & Observable>: View {
     /// built before the tab's first frame is shown. Rows that cannot be on screen
     /// at that moment are given a non-zero wave so their construction lands a few
     /// frames later instead; see `DeferredFieldContent`
-    /// (30_20_FSControlHelpers.swift) for the full account, including why the
+    /// (30.20 FSControlHelpers.swift) for the full account, including why the
     /// stand-in's height is stated rather than measured.
     ///
     /// Declared last so the existing memberwise call sites are unaffected.
@@ -1137,17 +1030,15 @@ enum FilmSheetListEditor {
 ///
 /// A reference type rather than a set of `@State` properties, for two reasons.
 ///
-/// First, seeding. The values have to be in place the moment the editor appears,
-/// and a `@State` write cannot be made from within the same update that creates
-/// the view — which is why the previous implementation seeded from `.task` and
-/// therefore always seeded one turn late. A class can be written directly from
-/// `makeNSView`, so the draft, the baseline, and the resolution flag are all
-/// correct before the field draws a single frame.
+/// First, seeding. The values have to be in place the moment the editor appears. A `@State` write
+/// cannot be made from within the same update that creates the view, so seeding from `.task` would run
+/// a turn late. A class can be written directly from `makeNSView`, so the draft, the baseline, and the
+/// resolution flag are all correct before the field draws a single frame.
 ///
 /// Second, cost. The draft is written on every keystroke but read only when the
 /// edit resolves; storing it in `@State` invalidated the row on each character
 /// for a value nothing was displaying. Mutating a class does not invalidate
-/// anything, so typing now performs no SwiftUI work at all.
+/// anything, so typing performs no SwiftUI work.
 ///
 /// Not `Sendable`, and deliberately so: it is main-actor-only by construction,
 /// reached solely from view bodies and AppKit callbacks on the main thread.
@@ -1172,19 +1063,15 @@ private final class RowEditBuffer {
 ///
 /// **Why this is not a SwiftUI `TextField` with `@FocusState`**
 ///
-/// The component previously used `TextField(...).focused($isFocused)`, owned by the
-/// row. That had a durable failure mode: when a row was destroyed *while its field
-/// held focus*, its `@FocusState` storage went away with it, so SwiftUI never
-/// observed the focused → unfocused transition and the focus scope was left
-/// resolved against a field that no longer existed. Every later `isFocused = true`
-/// in that scope was then treated as a request the scope believed it had already
-/// granted, and was silently — and permanently — dropped for the life of the sheet.
+/// A `TextField(...).focused($isFocused)` owned by the row has a failure mode. When the row is destroyed
+/// *while its field holds focus*, its `@FocusState` storage goes away with it. SwiftUI never observes the
+/// focused → unfocused transition, so the focus scope stays resolved against a field that no longer exists.
+/// Every later `isFocused = true` in that scope is then treated as already granted, and is silently and
+/// permanently dropped for the life of the sheet.
 ///
-/// That matches the reported bug exactly. Committing a *non-empty* edit leaves the
-/// row in place, so its focus state survives and the scope unwinds cleanly — which
-/// is why committing never broke anything. Every route that *cancels* an add
-/// (Escape, the delete button, clicking away with a blank draft) ends by removing
-/// the row while the field is still focused, so the first cancel poisons the scope.
+/// Committing a *non-empty* edit leaves the row in place, so its focus state survives and the scope unwinds
+/// cleanly. Routes that *cancel* an add (Escape, the delete button, clicking away with a blank draft) remove
+/// the row while the field is still focused, so the first cancel would poison the scope.
 ///
 /// Rather than keeping SwiftUI's focus bookkeeping balanced across a teardown it
 /// can't observe, this type removes the bookkeeping entirely: the field asks the
@@ -1220,9 +1107,8 @@ private struct EditingTextField: NSViewRepresentable {
         let field = FocusClaimingTextField(frame: .zero)
         field.delegate = context.coordinator
 
-        // Matches SwiftUI's `.squareBorder` style, which is itself a bezeled
-        // NSTextField with the square bezel — so the row's metrics and text
-        // position are unchanged by the switch to explicit AppKit.
+        // Matches SwiftUI's `.squareBorder` style, a bezeled NSTextField with the square bezel, so the
+        // row's metrics and text position are unchanged.
         // isBordered and isBezeled are mutually exclusive on NSTextField —
         // setting either clears the other — so the plain border is cleared
         // first and the bezel established second.
@@ -1267,8 +1153,7 @@ private struct EditingTextField: NSViewRepresentable {
     /// The height is deliberately the control's own: a bezeled field has a fixed
     /// natural height, and forcing it to the row's nominal content height would
     /// shave a point off the bezel and clip the text's descenders. The row's
-    /// `HStack` already fixes the row height, so the field sits within it
-    /// exactly as the SwiftUI `.squareBorder` field did.
+    /// `HStack` already fixes the row height, so the field sits within it.
     func sizeThatFits(_ proposal: ProposedViewSize,
                       nsView: FocusClaimingTextField,
                       context: Context) -> CGSize? {
@@ -1477,18 +1362,15 @@ private struct StringListRow: View {
     let onCancel: (_ original: String) -> Void
     let onDelete: () -> Void
 
-    // Row control geometry comes from `ListRowMetrics`. Diameter and glyph size
-    // are separate values there so the symbol's optical weight and the row's
-    // layout stay independent, and both are shared with `PairedFramesListRow`,
-    // whose controls sit in the same column on the same sheet.
+    // Row control geometry comes from `ListRowMetrics`. Diameter and glyph size are separate values there,
+    // so the symbol's optical weight and the row's layout stay independent. The frames list's rows
+    // (`PairedFramesListRow`, 30.40) share them, since their controls sit in the same column.
 
     /// Draft, baseline, and resolution flag for this row's edit.
     ///
     /// Deliberately not `@FocusState` + `@State`. Focus is claimed by the field
     /// itself against the window, and the draft lives in a reference the field
-    /// can seed synchronously — see `EditingTextField` for why the previous
-    /// SwiftUI-focus arrangement failed permanently after the first canceled
-    /// add.
+    /// can seed synchronously. See `EditingTextField` for why SwiftUI focus state is not used.
     ///
     /// The buffer belongs to the row rather than the field so that it outlives
     /// the field: an edit is resolved by whichever path ends it, and several of
@@ -1499,7 +1381,7 @@ private struct StringListRow: View {
 
     /// Bounds of this row's trailing controls, so a double-click on one of them
     /// is not also read as a double-click on the row. See
-    /// `RowClickReporter.controlsRegion`.
+    /// `RowClickReporter`.
     @State private var controlsRegion = ClickExclusionRegion()
 
     /// Writes the draft back through the parent, at most once per edit session.
@@ -1614,9 +1496,7 @@ private struct StringListRow: View {
                     // `performKeyEquivalent(with:)` runs before the responder
                     // chain sees `keyDown`, so the focused `NSTextField` never
                     // interprets the event as its default "delete word
-                    // backward". `KeyboardManager` is what lets it reach the
-                    // window at all — it now passes Opt+Delete through inside a
-                    // sheet rather than consuming it.
+                    // backward".
                 }
 
                 // From the shared factory so the row controls and the table's
@@ -1672,14 +1552,6 @@ private struct StringListRow: View {
     }
 }
 
-// The private `AddRowMetrics` namespace that used to sit here is gone. It held
-// this file's second copy of the row-control geometry — a copy that existed only
-// because `StringListAddRow` is generic and Swift does not permit static stored
-// properties in a generic type. `ListRowMetrics` (30_20_FSControlHelpers.swift)
-// is a non-generic namespace, so it satisfies that language rule as well, and it
-// does so with one declaration instead of the three this file and the frames
-// list carried between them.
-
 // MARK: - StringListAddRow
 
 /// The table's trailing row: a placeholder until the user chooses to add, and an
@@ -1687,23 +1559,16 @@ private struct StringListRow: View {
 ///
 /// **Why the add control is a row**
 ///
-/// It used to be a "+" button beside the table, with an empty table collapsing to
-/// a shorter "Add item…" well. Both are gone — the control that creates a row now
-/// IS a row, drawn with the same metrics and circular button family as every other
-/// row, so the table has exactly one resting appearance: n entries followed by an
+/// The control that creates a row is itself a row, drawn with the same metrics and circular button
+/// family as every other row. The table has one resting appearance: its entries, followed by an
 /// invitation to add the next one.
 ///
-/// Knock-on effects worth stating, since each deleted code rather than adding it:
+/// Consequences:
 ///
-///   - No empty state: a table with no entries is one row tall, so the paired
-///     label and bulk-import button no longer need two alignment constants each.
-///   - No scroll-into-view: the old button sat level with the table's TOP edge and
-///     could be clicked while the row it appended was below the fold — what the
-///     `FilmSheetScrollProxy` bridge existed to correct. This row can't be clicked
-///     unless already visible, and it's the row that changes.
-///   - No placeholder entry in the model: the old flow appended `""` and edited
-///     it, so every cancel path had to remember to remove it. Nothing is written
-///     to the array until a non-empty draft is committed.
+///   - No empty state: a table with no entries is one row tall.
+///   - No scroll-into-view: this row can be clicked only when it is visible, and it is the row that
+///     changes.
+///   - No placeholder entry: nothing is written to the array until a non-empty draft is committed.
 ///
 /// **Why it is a separate type from `StringListRow`**
 ///
@@ -1715,12 +1580,9 @@ private struct StringListRow: View {
 ///
 /// **Generic over its popover's content**
 ///
-/// Generic rather than taking an `AnyView` or the seven parameters
-/// `ListImportPopover` needs — the row's job is to place a control and anchor a
-/// popover to it, and what goes inside is the list's business. This is also why
-/// the type declares no constants of its own: Swift disallows static stored
-/// properties in a generic type, so its geometry comes from `ListRowMetrics`,
-/// which is where the frames list's identical values live too.
+/// Generic rather than taking an `AnyView`. The row's job is to place a control and anchor a popover to
+/// it, and what goes inside is the list's business. The type declares no constants of its own. Its
+/// geometry comes from `ListRowMetrics`, a non-generic namespace that the frames list shares.
 private struct StringListAddRow<ImportPopover: View>: View {
 
     /// Changes on every add begin; see `ReorderableStringList.editSession`. Also
@@ -1754,17 +1616,9 @@ private struct StringListAddRow<ImportPopover: View>: View {
     let onBeginImport: () -> Void
     @ViewBuilder let importPopover: () -> ImportPopover
 
-    // Geometry lives on `ListRowMetrics` (30_20_FSControlHelpers.swift) rather
-    // than on the type itself.
-    //
-    // Not purely a style preference — it is also a language rule. Swift does not
-    // allow static stored properties in a generic type, and this type became
-    // generic when the bulk-import control moved into it and brought its popover
-    // content along as a type parameter. A non-generic namespace is the standard
-    // remedy and costs nothing: these are process-wide constants that never
-    // varied by instance, let alone by type argument. Reaching for the shared
-    // namespace rather than a private one is what additionally guarantees the
-    // "+" here is the same size as the frames list's.
+    // Geometry lives on `ListRowMetrics` (30.20 FSControlHelpers.swift) rather than on the type itself.
+    // These are process-wide constants that do not vary by instance or by type argument. The shared
+    // namespace guarantees the "+" here is the same size as the frames list's.
 
     /// Draft and resolution flag for the add in progress. Its `original` is
     /// unused here — there is no array slot to verify against — but the type is
@@ -1773,7 +1627,7 @@ private struct StringListAddRow<ImportPopover: View>: View {
 
     /// Bounds of this row's trailing controls, so a double-click on one of them
     /// is not also read as a double-click on the row. See
-    /// `RowClickReporter.controlsRegion`.
+    /// `RowClickReporter`.
     @State private var controlsRegion = ClickExclusionRegion()
 
     /// Hands the draft to the list, at most once per add session.
@@ -1869,7 +1723,7 @@ private struct StringListAddRow<ImportPopover: View>: View {
                     // per-symbol offset, same accent-while-open behavior. The
                     // account of why it is permanently gray and deliberately
                     // NOT gated on `canAdd` lives on `ListBulkImportButton`
-                    // (30_20_FSControlHelpers.swift).
+                    // (30.20 FSControlHelpers.swift).
                     ListBulkImportButton(
                         isPresented: $showImportPopover,
                         help: "Add multiple \(itemLabel.lowercased())s from a comma-separated list",

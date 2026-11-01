@@ -4,13 +4,10 @@
 // The Imports view's in-memory copy of every ImportSession, as values, kept current from
 // Core Data's save notifications.
 //
-// Why it exists: ImportsView used to read its sessions through `@Query`, which fetches every
-// ImportSession of every type each time the view is built — on every visit and every
-// Metadata ⟷ Ratings switch — and SwiftData materialized each one in full, JSON-decoding
-// its four title arrays, on the main thread. Measured by `imports-switch-perf` (99.55): 129 ms
-// for 1,000 sessions, whatever the predicate, and `propertiesToFetch` saved nothing. The view
-// now reads this index instead, which costs nothing to read; the only fetch is one full load
-// in the background after launch.
+// Why it exists: reading ImportSession through `@Query` would fetch every session of every type on each build
+// of the view (every visit, and every Metadata ⟷ Ratings switch), and SwiftData would materialize each one in full,
+// JSON-decoding its four title arrays, on the main thread. A predicate did not help, and `propertiesToFetch` saved nothing. The view reads this index
+// instead, which costs nothing to read. The only fetch is one full load in the background after launch.
 //
 // How it stays current: every ImportSession write in the app is saved, and every save posts
 // `NSManagedObjectContext.didSaveObjectIDsNotification` with the object IDs it touched.
@@ -224,11 +221,10 @@ final class ImportHistory: Loggable {
     /// Loads every session in the background, from a context of its own.
     ///
     /// At user-interactive QoS, deliberately. Every context shares the store's one SQLite
-    /// connection, and this fetch holds it while it runs: a save made meanwhile — the launch
-    /// settings sync on the main thread, DataManager's launch bootstrap — waits for it. At
-    /// a lower QoS that wait is a priority inversion (it was, at `.utility`: Xcode's thread
-    /// performance checker flagged a main-context `save()` (then `saveSettings`'; now ImportProgress's session saves are the main-thread ones); `imports-qos` in 99.55
-    /// reproduces it under libRPAC). The load is a single fetch, once per launch.
+    /// connection, and this fetch holds it while it runs, so a save made meanwhile (the launch
+    /// settings sync on the main thread, DataManager's launch bootstrap) waits for it. At a
+    /// lower QoS that wait is a priority inversion, which the `imports-qos` harness (99.55)
+    /// reproduces under libRPAC. The load is a single fetch, once per launch.
     private func reload() {
         guard let container else { return }
         loadGeneration += 1

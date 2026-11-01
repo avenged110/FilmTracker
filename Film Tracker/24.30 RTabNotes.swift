@@ -1,7 +1,8 @@
 // MARK: - RTabNotes.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Displays film notes in the right sidebar's "Notes" tab.
+// The Notes tab in RightSidebar. It shows the film's release, tools, warnings, descriptions, notes, and frame
+// and time-code tables. The frame tables are drawn with AppKit rows, and a legend explains their glyphs.
 
 import SwiftUI
 import AppKit
@@ -14,7 +15,7 @@ struct RTabNotes: View {
             VStack(alignment: .leading, spacing: 0) {
                 notesContent
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, RSBCardChrome.sidebarInset)
         }
     }
     
@@ -49,21 +50,14 @@ struct RTabNotes: View {
 
                 if !RSBProfileFlags.noNotesFrames {
                     framesSection(title: "HandBrake Frames", values: film.handbrakeFrames)
-                    // Only this table gets the aligned range layout. Its values are
-                    // time codes, which are uniform in character count and therefore
-                    // ragged only because the face is proportional — exactly what
-                    // the sub-columns correct. Frame numbers vary in length for real
-                    // reasons, so pinning them to fixed sub-columns would impose a
-                    // regularity the data does not have.
+                    // Only this table gets the aligned range layout. Time codes look ragged only because the font is proportional,
+                    // and the sub-columns correct that. Frame numbers vary in length for real reasons, so they stay unaligned.
                     framesSection(title: "Associated Time Codes",
                                   values: film.correspondingTimecodes,
                                   alignsRanges: true)
                 }
                 
-                // Legend — shown only when at least one entry in either table actually
-                // carries one of the glyphs it explains, not merely when a table is
-                // non-empty. A list of plain frame numbers displays no marks and no fade
-                // indicators, so a key to those symbols has nothing to key.
+                // Legend: shown only when an entry in either table carries one of its glyphs. Plain frame numbers show none.
                 if FramesEntryParser.containsLegendGlyphs(film.handbrakeFrames)
                     || FramesEntryParser.containsLegendGlyphs(film.correspondingTimecodes) {
                     legendSection
@@ -77,10 +71,8 @@ struct RTabNotes: View {
 
     // MARK: - Custom Sections
 
-    /// One text section per value, titled only on the first, so a field holding several
-    /// entries reads as one titled list. The title is `plural` when given and there is
-    /// more than one value, otherwise `singular`. With no values it is a single
-    /// "None provided" section under `singular`, or nothing when `showsWhenEmpty` is false.
+    /// One text section per value, titled only on the first, so several entries read as one list. The title is `plural` when given
+    /// and there is more than one value, otherwise `singular`. With no values it shows "None provided" under `singular`, or nothing when `showsWhenEmpty` is false.
     @ViewBuilder
     private func repeatedTextSection(_ singular: String, plural: String? = nil,
                                      values: [String], showsWhenEmpty: Bool = true) -> some View {
@@ -96,9 +88,7 @@ struct RTabNotes: View {
         }
     }
     
-    /// Renders the Edit Date section from the stored String value in FilmSnapshot.
-    /// FilmSnapshot.editDate is a "yyyy-MM-dd" string (empty string = no date set),
-    /// matching the format used by FSTabNotes when saving.
+    /// Renders the Edit Date section from `FilmSnapshot.editDate`, a "yyyy-MM-dd" string (empty when unset), in the format FSTabNotes saves.
     @ViewBuilder
     private func editDateSection(editDateString: String) -> some View {
         let formattedDate = formatDateString(editDateString)
@@ -131,6 +121,8 @@ struct RTabNotes: View {
                     .sidebarRowContainer()
             } else {
                 Group {
+                    // Parity with the VStack of FrameEntryRow is checked by the `rsb-frames-parity`
+                    // harness scenario (99.20 DHViewState.swift).
                     if RSBProfileFlags.swiftUIFramesRows {
                         VStack(alignment: .leading, spacing: FrameEntryRow.spacing) {
                             ForEach(values.indices, id: \.self) { index in
@@ -160,8 +152,8 @@ struct RTabNotes: View {
                 legendRow(glyph: "asterisk", text: "See notes")
                 legendRow(glyph: "chevron.up", text: "See notes")
                 legendRow(glyph: "number", text: "See notes")
-                legendRow(glyph: "arrow.up.right.circle.fill", text: "Audio fade-in for this section")
-                legendRow(glyph: "arrow.down.right.circle.fill", text: "Audio fade-out for this section")
+                legendRow(glyph: ContentGlyphs.audioFadeIn, text: "Audio fade-in for this section")
+                legendRow(glyph: ContentGlyphs.audioFadeOut, text: "Audio fade-out for this section")
                 
                 Text("Final Cut Pro audio fade effects:")
                     .font(.system(size: RSBHelpers.rowFontSize))
@@ -191,10 +183,8 @@ struct RTabNotes: View {
 
 // MARK: - Frames Entry Row
 
-/// One row of the Notes tab's two frames tables: the index, the value, and the mark and fade
-/// indicators. The tab draws its rows with FramesRowList (below); this is the SwiftUI row it
-/// replaced, kept for `-FTRSBSwiftUIFramesRows` and as the reference `rsb-frames-parity`
-/// compares FramesRowList against.
+/// One row of the Notes tab's frames tables: the index, the value, and the mark and fade indicators. The tab draws rows with
+/// FramesRowList (below). This SwiftUI row is kept for `-FTRSBSwiftUIFramesRows`, the SwiftUI reference for FramesRowList.
 struct FrameEntryRow: View {
     /// The gap between rows.
     static let spacing: CGFloat = 4
@@ -207,33 +197,15 @@ struct FrameEntryRow: View {
         let parsed = FramesEntryParser.parse(entry)
         
         HStack(spacing: 8) {
-            // Index number
-            // Index number.
-            //
-            // Zero-padded and tinted to match the sheet's `ReorderableFramesList`
-            // exactly: the two surfaces show the same rows of the same arrays, so
-            // an index that reads one way while editing and another way in the
-            // sidebar is a difference with nothing behind it. Padding also fills
-            // the tens place on rows 1 through 9, which is what keeps the
-            // trailing-aligned column reading as a column of numerals rather than
-            // as one that starts ragged and squares up at row 10.
-            //
-            // `%02d` is a minimum width, not a cap, so an index that somehow ran
-            // to three digits would widen rather than truncate.
+            // Zero-padded and tinted to match the sheet's `ReorderableFramesList`, so the two surfaces agree.
+            // Padding fills the tens place for rows 1 to 9, so the column reads as numerals. `%02d` is a minimum width, not a cap.
             Text("\(Fmt.padded(index, 2)).")
                 .font(.system(size: RSBHelpers.rowFontSize, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 24, alignment: .trailing)
             
-            // Frame value.
-            //
-            // The aligned variant draws the same string; it only distributes it
-            // across three fixed sub-columns, and falls back to the plain run
-            // for any value it cannot measure as a time-code range — so the two
-            // branches agree on what a non-range entry looks like. Font, line
-            // limit, and truncation are set inside that view, which needs the
-            // point size to derive its widths; `.textSelection` is an
-            // environment modifier and reaches its `Text`s either way.
+            // Frame value. The aligned variant splits the same string into three sub-columns. Anything that is not a time-code range falls back to plain text.
+            // Font and truncation are set inside that view. `.textSelection` is an environment modifier, so it applies to both.
             Group {
                 if alignsRanges {
                     TimeCodeRangeText(text: parsed.text, fontSize: RSBHelpers.rowFontSize)
@@ -265,7 +237,7 @@ struct FrameEntryRow: View {
                 HStack(spacing: 2) {
                     Group {
                         if parsed.fadeIn != .none {
-                            Image(systemName: "arrow.up.right.circle.fill")
+                            Image(systemName: ContentGlyphs.audioFadeIn)
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         } else {
@@ -289,7 +261,7 @@ struct FrameEntryRow: View {
                 HStack(spacing: 2) {
                     Group {
                         if parsed.fadeOut != .none {
-                            Image(systemName: "arrow.down.right.circle.fill")
+                            Image(systemName: ContentGlyphs.audioFadeOut)
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         } else {
@@ -322,15 +294,9 @@ struct FrameEntryRow: View {
 
 // MARK: - Frames Row List
 //
-// The rows of one frames table, built from AppKit views rather than as a ForEach of
-// FrameEntryRow: the zero-padded index, the value as a selectable label (or, for an aligned
-// time-code range, three, one per sub-column), and the five indicator slots. A film change
-// re-points the rows, and a longer table adds rows to a pool that a shorter one leaves
-// intact. The table's container and header stay SwiftUI.
-//
-// `rsb-modules` measured the two tables at about 18 ms of the tab's median 29 ms (Debug),
-// growing by about 1.5 ms a row, to 155 ms for a film with 84 entries. `rsb-frames-parity`
-// compares these rows with FrameEntryRow pixel for pixel, light and dark.
+// The rows of one frames table, built from AppKit views rather than a ForEach of FrameEntryRow. Each row has the zero-padded index,
+// the value as a selectable label (three labels for an aligned time-code range), and five indicator slots. A film change re-points
+// the rows, and a longer table only adds rows to the pool. The table's container and header stay SwiftUI.
 struct FramesRowList: NSViewRepresentable {
     let entries: [String]
     var alignsRanges: Bool = false
@@ -351,8 +317,7 @@ struct FramesRowList: NSViewRepresentable {
 final class FramesRowListView: NSView {
     private var rows: [FramesRowView] = []
     private var count = 0
-    /// What the rows were last configured from: parsing and aligning every entry is the costly
-    /// part, and the tab updates this view for many changes that leave the table as it was.
+    /// What the rows were last configured from. Parsing and aligning is the costly part, and many updates leave the table unchanged.
     private var configured: (entries: [String], alignsRanges: Bool)?
 
     override var isFlipped: Bool { true }
@@ -424,10 +389,8 @@ final class FramesRowView: NSView {
     private let indexLabel = NSTextField(labelWithString: "")
     /// The plain value, or the leading half of an aligned range.
     private let valueLabel = NSTextField(labelWithString: "")
-    /// The dash and trailing half of an aligned range, and the five indicator glyphs (mark,
-    /// fade-in arrow, fade-in style, fade-out arrow, fade-out style), are made the first time
-    /// a row needs them: most rows show a plain value and no indicators, and a frames table
-    /// can run to eighty rows, all made at once when a tab is built.
+    /// The dash and trailing half of an aligned range, and the five indicator glyphs, are made on first use. Most rows show a plain
+    /// value with no indicators, so creating them all up front would waste work.
     private var dashLabel: NSTextField?
     private var trailingLabel: NSTextField?
     private var glyphs: [FramesGlyphView?] = Array(repeating: nil, count: 5)
@@ -482,9 +445,9 @@ final class FramesRowView: NSView {
         trailingLabel?.isHidden = halves == nil
         let names: [String?] = [
             parsed.mark != .none ? parsed.mark.symbolName : nil,
-            parsed.fadeIn != .none ? "arrow.up.right.circle.fill" : nil,
+            parsed.fadeIn != .none ? ContentGlyphs.audioFadeIn : nil,
             parsed.fadeIn != .none ? parsed.fadeIn.glyph : nil,
-            parsed.fadeOut != .none ? "arrow.down.right.circle.fill" : nil,
+            parsed.fadeOut != .none ? ContentGlyphs.audioFadeOut : nil,
             parsed.fadeOut != .none ? parsed.fadeOut.glyph : nil]
         for (i, name) in names.enumerated() {
             guard let name else {
@@ -547,13 +510,9 @@ final class FramesRowView: NSView {
     }
 }
 
-/// One indicator glyph, placed as SwiftUI places `Image(systemName:)` at an 11 pt font in its
-/// 11 pt-tall slot: horizontally by the alignment rectangle's width, vertically by the
-/// symbol's own vector bounds (which is neither the image's height nor its alignment
-/// rectangle's), each centered in the slot and rounded to the device pixel with a half
-/// rounding up. Found with `rsb-frames-parity`, against all nine indicator symbols: its view
-/// tree shows the vertical bounds (SwiftUI draws each symbol in a view that size), and its
-/// captures the horizontal rule. CrewGlyphView's rule differs, and is right for its symbols.
+/// One indicator glyph, placed as SwiftUI places `Image(systemName:)` at 11 pt in its 11 pt-tall slot. Horizontally it centers by the
+/// alignment rectangle's width. Vertically it centers by the symbol's vector bounds, rounded to the device pixel. CrewGlyphView uses a
+/// different horizontal rule, which is right for its symbols.
 class FramesGlyphView: NSView {
     var symbolName: String? { didSet { if symbolName != oldValue { needsDisplay = true } } }
     /// The font the symbol is drawn at, as `.font(.system(size:weight:))` sets it on an Image.

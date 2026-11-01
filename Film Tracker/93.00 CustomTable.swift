@@ -45,17 +45,16 @@ struct CustomTable<Data: RandomAccessCollection,
     @Binding var isExpanded: Bool
     /// Nil for a table without selection. Held as a plain optional rather than an
     /// `@Binding` with a `.constant(nil)` default: SwiftUI reports a binding input as
-    /// changed on every re-init — a shared constant included — so every time a parent
-    /// re-ran its body this table re-ran its own with identical data, three times per
-    /// mount in the right sidebar. `selectedIDValue` carries the selection as a plain
-    /// value instead, which is what makes a real selection change re-render the table.
+    /// changed on every re-init, a shared constant included, so a binding default would
+    /// re-run this table's body on every parent body pass. `selectedIDValue` carries the
+    /// selection as a plain value instead, so only a real selection change re-renders the table.
     private let selectedIDBinding: Binding<Data.Element.ID?>?
     private let selectedIDValue: Data.Element.ID?
     private var selectedID: Data.Element.ID? {
         get { selectedIDBinding?.wrappedValue }
         nonmutating set { selectedIDBinding?.wrappedValue = newValue } }
     @State private var fadeOut = false
-    // Ambient registrar (non-nil only inside RightSidebar) used to exclude this
+    // Ambient registrar (non-nil only inside RightSidebar) that excludes this
     // table's on-screen area from the sidebar's tab-swipe hit testing while its
     // horizontal scroll is actually active, driven by `.onHover` below. Always
     // nil, and therefore a no-op, everywhere else CustomTable is used.
@@ -74,11 +73,10 @@ struct CustomTable<Data: RandomAccessCollection,
     /// height in one layout pass rather than interpolating it frame-by-frame.
     ///
     /// NOTE: clipHeight is intentionally never set to a non-nil value during
-    /// expansion. In NSScrollView-hosted contexts the animated clip reveal
-    /// produced a gap (space reserved, rows filling it slowly); suppressing it
-    /// means the rows become visible in the same single frame that tableHeight
-    /// jumps, matching the RSB single-frame behavior. The variable is kept so
-    /// the collapse reset path (onChange) compiles unchanged.
+    /// expansion. In NSScrollView-hosted contexts an animated clip reveal leaves a gap
+    /// (space reserved, rows filling it slowly), so the rows appear in the same frame
+    /// that tableHeight jumps, matching the right sidebar's single-frame behavior. The
+    /// collapse reset path (onChange) still clears it.
     @State private var clipHeight: CGFloat?
 
     init(
@@ -310,10 +308,9 @@ struct CustomTable<Data: RandomAccessCollection,
         .background(Color(nsColor: .controlBackgroundColor)) }
 
     // MARK: - Data Rows
-    // While collapsed, the clip shows 6.5 rows, so only the first 7 can ever be on
-    // screen; building the rest (a long viewing history runs to hundreds) cost a
-    // full second render of the sidebar on every selection. Expanding swaps in the
-    // whole collection; the prefix keeps its rows' identities, so they carry over.
+    // While collapsed, the clip shows 6.5 rows, so only the first 7 can be on screen.
+    // Building the rest is costly (a long viewing history can run to hundreds of rows).
+    // Expanding swaps in the whole collection; the prefix keeps its rows' identities, so they carry over.
     private var renderedRows: Data.SubSequence {
         shouldShowExpandButton && !isExpanded
             ? data.prefix(collapsedRowCount + 1)

@@ -6,14 +6,13 @@
 // into cached Core Animation strips inside a plain NSScrollView, with the page's few controls
 // as real AppKit subviews; and into the library PDF as vector blocks (DVPrintLayout).
 //
-// Why not hosted SwiftUI (the page's form until 2026-09-24): an NSHostingView of ~1,000
-// leaves re-resolved every Text and re-rendered every drawing group whenever the window's key
-// state flipped — which every sheet, popover and window switch does — inside AppKit's sheet
-// animation, which stepped from the main thread and stuttered (`sheet-hitch`: 60–80 ms later
-// first frame, 90–120 ms stalls mid-slide). Drawn here, nothing on the page redraws on a key
-// change, the tab mounts in ~35 ms instead of ~290, a live-resize step costs ~6 ms instead of
-// ~19, and a scroll step only moves drawn strips. `dataviz-render` (99.40) renders the page;
-// `dataviz-canvas` measures it; `dataviz-window` (99.50) captures the real window.
+// Why not hosted SwiftUI: an NSHostingView of ~1,000 leaves re-resolves every Text and re-renders
+// every drawing group whenever the window's key state flips, which every sheet, popover, and window
+// switch causes. Inside AppKit's sheet animation that stepped from the main thread and stuttered
+// (`sheet-hitch` in 99.50). Drawn here, nothing on the page redraws on a key change, and a scroll
+// step only moves drawn strips. `dataviz-render`
+// (99.40) renders the page; `dataviz-canvas` (99.40) measures it; `dataviz-window` (99.50) captures the
+// real window.
 
 import AppKit
 import SwiftUI
@@ -175,8 +174,8 @@ final class DVCanvasPageView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     /// The page is drawn by strips of this height, each its own CALayer that draws its whole
-    /// strip once and keeps it: scrolling only moves drawn strips (compositing, as the hosted
-    /// page's flattened layers did). A change marks every strip stale but redraws only the
+    /// strip once and keeps it: scrolling only moves drawn strips, which Core Animation composites.
+    /// A change marks every strip stale but redraws only the
     /// ones on screen; the rest are drawn ahead while the page is at rest (`schedulePrefetch`),
     /// or as they near the viewport if a scroll outruns that. (NSView strips would not do:
     /// AppKit backs a layer-backed view with its visible rect only and redraws the newly
@@ -184,8 +183,7 @@ final class DVCanvasPageView: NSView {
     static let tileHeight: CGFloat = 256
     /// How far beyond the viewport stale strips are refreshed eagerly, in viewport heights:
     /// half a screen at rest, so a scroll finds them drawn; none mid-drag, when every step
-    /// makes them stale again (measured: 512-pt strips with the margin, 25 ms a resize step;
-    /// 256-pt strips, no margin, drawn asynchronously, 10).
+    /// makes them stale again.
     private var refreshMargin: CGFloat {
         #if DEBUG
         if Self.debugLiveResize { return 0 }
@@ -214,7 +212,7 @@ final class DVCanvasPageView: NSView {
             tile.contentsScale = scale
             tile.anchorPoint = .zero
             // Recorded on the main thread, rasterized by Core Animation off it: half the
-            // cost of a resize step (measured 6 ms vs 13.6).
+            // cost of a resize step.
             tile.drawsAsynchronously = true
             // Below the controls' layers.
             host.insertSublayer(tile, at: 0)
@@ -1367,12 +1365,14 @@ enum DVCanvasSections {
                 return DVK.blend(ramp[lo], t - CGFloat(lo), ramp[hi])
             } + (present.contains("Unknown") ? [.systemGray] : [])
         } else {
-            let genres: [(String, String, NSColor)] = [
-                ("Action and Adventure", "Action and Adventure", .systemOrange), ("Comedy", "Comedy", .systemYellow),
-                ("Drama", "Drama", .systemBlue), ("Horror", "Horror", .systemRed),
-                ("Kids and Family", "Kids and Family", .systemGreen), ("Sci-Fi and Fantasy", "Sci-Fi and Fantasy", .systemPurple),
-                ("Thriller", "Thriller", .systemTeal),
+            let genreColors: [FilterOption: NSColor] = [
+                .actionAndAdventure: .systemOrange, .comedy: .systemYellow, .drama: .systemBlue,
+                .horror: .systemRed, .kidsAndFamily: .systemGreen, .sciFiAndFantasy: .systemPurple,
+                .thriller: .systemTeal,
             ]
+            let genres: [(String, String, NSColor)] = FilterOption.genreOptions.map {
+                ($0.displayName, $0.displayName, genreColors[$0] ?? .systemGray)
+            }
             let known = Set(genres.map(\.0))
             let shown = genres.filter { present.contains($0.0) }
             // Any other stored value (and a blank genre) is banded together as "No genre".
@@ -1546,11 +1546,10 @@ enum DVCanvasSections {
         ])
 
         // Formats table.
-        // The release cards' format tints (ReleaseCard, RTabReleases): near-black 4K, navy
-        // Blu-ray, gray DVD.
-        let colors: [NSColor] = [NSColor(srgbRed: 0.05, green: 0.05, blue: 0.06, alpha: 1),
-                                 NSColor(srgbRed: 0.10, green: 0.22, blue: 0.42, alpha: 1), NSColor(white: 0.30, alpha: 1)]
-        let labels = ["4K UHD", "Blu-ray only", "DVD only"]
+        // The release cards' format tints: near-black 4K, navy Blu-ray, gray DVD.
+        let colors: [NSColor] = [ReleaseFormatPalette.tint4K, ReleaseFormatPalette.tintBluRay,
+                                 ReleaseFormatPalette.tintDVD]
+        let labels = [ReleaseFormat.uhd4K.rawValue, "\(ReleaseFormat.bluRay.rawValue) only", "\(ReleaseFormat.dvd.rawValue) only"]
         let medians = [insights.medianCostByFormat.fourK, insights.medianCostByFormat.bluRay, insights.medianCostByFormat.dvd]
         func header(_ text: String, _ width: CGFloat?) -> any DVNode {
             let t = DVText(text, .system(10), .secondary)
@@ -2111,9 +2110,9 @@ enum DVCanvasSections {
     // MARK: 8. Audio, Sources, and Technical
 
     /// A hue per tier of the source ladder — cyan for Blu-ray rips, green for DVD rips, orange
-    /// for the better downloads, red below 540p — each source its own shade (a remastered rip
-    /// deeper than a plain one), so no two neighboring bands share a color. By decoded value rather than row position, so a tier the ladder gains
-    /// cannot shift every color below it.
+    /// for the better downloads, red below 540p. Each source has its own shade (a remastered rip
+    /// is deeper than a plain one), so no two neighboring bands share a color. Colors are keyed by
+    /// decoded value rather than row position, so a tier the ladder gains cannot shift every color below it.
     private static func sourceTint(_ stored: String) -> (NSColor, CGFloat) {
         let (source, remastered) = FilmDigitalSource.decompose(stored)
         switch source {
@@ -2133,8 +2132,7 @@ enum DVCanvasSections {
     /// LPCM in its own, the DTS codecs in a third, each family in descending shades.
     ///
     /// Indexed by position in `hdOptions`, so it must have exactly one entry per option —
-    /// a codec added there without a tint here traps the Audio card. The five DTS shades
-    /// were re-spaced (from four) when DTS-ES joined the list.
+    /// a codec added there without a tint here traps the Audio card.
     private static let codecTints: [(NSColor, CGFloat)] = [
         (.systemIndigo, 0.9), (.systemIndigo, 0.65), (.systemIndigo, 0.4), (.systemTeal, 0.75),
         (.systemOrange, 0.85), (.systemOrange, 0.69), (.systemOrange, 0.53), (.systemOrange, 0.39),

@@ -18,16 +18,9 @@ struct ReportsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        // Sub-view tab changes within Reports (Cost Tracker, Price Tracker, Hall of
-        // Fame, Release Wishlist, Data Visualizations) swap the entire content view,
-        // but SelectionState is a single shared instance that otherwise persists across
-        // that swap. Without this, a selection made in one tab survives into another
-        // where nothing is actually highlighted, and reappears as an orphaned selection
-        // if the user switches back — exactly mirroring the clear performed on full
-        // view switches (see MainView's handleViewChange). Firing on selectedCategory
-        // (not the deferred displayedCategory) clears the instant the user requests a
-        // switch, regardless of whether it originated from the picker, the menu bar, or
-        // a keyboard shortcut.
+        // Switching Reports tabs swaps the whole content view, but SelectionState is one shared instance that persists across the swap.
+        // Without this clear, a selection would survive into a tab where nothing is highlighted, and reappear later. This matches the clear on full
+        // view switches (see MainView's handleViewChange). It fires on selectedCategory, not the deferred displayedCategory, so it clears on request from any source.
         .onChange(of: reportsState.selectedCategory) { _, _ in
             selectionState.clearImmediate()
         }
@@ -44,16 +37,13 @@ private struct ReportsTitleBar: View {
             glyph: reportsState.selectedCategory.glyph,
             leadingContent: {
                 ReportsCategoryPicker()
-                    .frame(width: 220)
-                    .padding(.leading, 12)
+                    .frame(width: GalleryTitleBar.pickerWidth)
+                    .padding(.leading, GalleryTitleBar.pickerLeading)
             },
             trailingButtons: {
                 HStack(spacing: 8) {
                     Button {
-                        // Every PDF export mechanism and option now lives in the Settings
-                        // sheet's Export tab, so this button is a shortcut to it rather
-                        // than a second, narrower export path of its own. Same command the
-                        // global ⇧⌘E shortcut sends.
+                        // The Settings sheet's Export tab holds every export option, so this button is a shortcut to it. It sends the same command as ⇧⌘E.
                         AppEventBus.shared.sendCommand(.openSettingsToTab(tab: .export))
                     } label: {
                         Image(systemName: "square.and.arrow.up")
@@ -87,27 +77,13 @@ private struct ReportsCategoryPicker: View {
 }
 
 // MARK: - Reports Content Switcher
-/// Uses a plain switch to ensure only the active tab's view is in the hierarchy
-/// at any time. Keeping all tabs alive simultaneously (ZStack approach) was tried
-/// but caused cascading performance degradation: each additional tab visited added
-/// a live `.onFilmEvent` subscriber (firing on every film event), a retained
-/// AppKit subtree (NSTableView / NSOutlineView / NSScrollView), and a large
-/// SwiftUI layout tree (especially DataVisualizationsView) all participating in
-/// every layout pass, growing more expensive with each tab loaded.
+/// Only the active tab's view is in the hierarchy at a time. Keeping every tab alive (a ZStack) slowed everything down. Each visited tab kept a
+/// live film-event subscriber, an AppKit subtree, and a large SwiftUI layout, all of which took part in every layout pass.
 ///
-/// This switcher reads `displayedCategory` (not `selectedCategory`). The selection
-/// mutation is synchronous so the Picker label updates instantly, but the heavy
-/// content swap — outgoing tab teardown plus incoming AppKit/SwiftUI tree
-/// construction — is deferred two run-loop cycles in ReportsState.selectCategory.
-/// This keeps the swap out of the run-loop cycle in which CoreAnimation commits
-/// the NSPopUpButton menu-dismissal fade; once that transaction is committed to
-/// the render server, the fade animates out-of-process and is immune to
-/// subsequent main-thread load. This mirrors the RecentsState/SmartListVariantState
-/// pattern, where the deferred block wraps the expensive switchToViewSync.
+/// This reads `displayedCategory`, not `selectedCategory`. The Picker label updates at once. The content swap waits in
+/// ReportsState.selectCategory, so it runs after the Picker's menu-dismissal fade has been committed. The fade then runs out of process.
 ///
-/// The targeted `.transaction` suppressor below additionally strips any ambient
-/// animation transaction from the incoming tab's initial render, so the swap
-/// itself renders immediately rather than animating in.
+/// The `.transaction` below removes any inherited animation from the incoming tab's first render.
 private struct ReportsContentSwitcher: View {
     var reportsState = ReportsState.shared
 
@@ -126,11 +102,7 @@ private struct ReportsContentSwitcher: View {
                 DataVisualizationsView()
             }
         }
-        // Strip any inherited animation transaction so the incoming tab renders
-        // immediately rather than animating in. With the swap now deferred past
-        // the menu-dismissal commit this is defensive, but it remains correct:
-        // it is applied here rather than on ReportsView to avoid suppressing
-        // legitimate animations elsewhere in the title bar or export button.
+        // Strips inherited animation so the incoming tab renders at once. It sits here, not on ReportsView, so it does not suppress animations in the title bar or export button.
         .transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 }
@@ -142,11 +114,8 @@ final class ReportsState {
     static let shared = ReportsState()
     
     var selectedCategory: ReportsCategory = .costTracker
-    /// The category whose content is currently mounted in ReportsContentSwitcher.
-    /// Trails `selectedCategory` by two run-loop cycles on user-driven switches so
-    /// the heavy tab swap does not compete with the Picker menu-dismissal fade
-    /// (see selectCategory). Everything label-like (picker, glyph, menu checkmarks,
-    /// status bar text) reads `selectedCategory` and stays instant.
+    /// The category mounted in ReportsContentSwitcher. It trails `selectedCategory` by two run-loop cycles on user-driven switches,
+    /// so the heavy swap does not compete with the Picker's fade (see selectCategory). Labels read `selectedCategory` and stay instant.
     private(set) var displayedCategory: ReportsCategory = .costTracker
     var visibleItemCount: Int = 0
     
@@ -155,17 +124,11 @@ final class ReportsState {
     private var priceTrackerData: [ReleaseData] = []
     private var hallOfFameData: [HallOfFameFilm] = []
     private var wishlistData: [WishlistRelease] = []
-    /// The Data Visualizations tab's last complete recalculation, its mount cache (the
-    /// PDF export computes its own `LibraryStatistics` from the live library and does not
-    /// read this). `@ObservationIgnored` because nothing reads it from a view body — the
-    /// tab seeds itself from it in `onAppear` — and it is rewritten after every
-    /// background pass, so observation tracking would only add a notification nothing
-    /// listens to.
+    /// The Data Visualizations tab's last full recalculation, used as its mount cache. The PDF export does not read it. It is
+    /// `@ObservationIgnored` because no view body reads it (the tab seeds from it in `onAppear`), and each background pass rewrites it.
     @ObservationIgnored private var visualizations: DVDataset?
-    /// The Data Visualizations tab's last viewing-period figures and what they were computed
-    /// from. Rebuilding them walks every parsed viewing (~50 ms on a library-sized collection,
-    /// measured by the `reports-loop` profile), and the tab did so on every mount although a
-    /// cache-seeded mount with the stepper unchanged asks for exactly the figures it had.
+    /// The Data Visualizations tab's last viewing-period figures, with the key they were computed from. Rebuilding them walks every parsed
+    /// viewing. The tab rebuilt them on every mount, even when the stepper was unchanged, so this cache serves them.
     @ObservationIgnored private var periodCache: (key: PeriodKey, period: ViewingPeriodStatistics)?
 
     struct PeriodKey: Equatable {
@@ -190,24 +153,15 @@ final class ReportsState {
     private var priceTrackerSortOrder: [KeyPathComparator<ReleaseData>] = []
 
     // MARK: - Mount Caches
-    // The per-category data stores above already persist across tab switches; the
-    // members below let the tab views exploit that: on mount, a tab seeds its local
-    // state from the cache (rendering instantly with no library scan, no sort, and
-    // no placeholder), then reconciles with a fresh load deferred two run-loop
-    // cycles — after the Picker menu-dismissal fade has been committed. This keeps
-    // the heavy data work out of the fade window entirely. The AppKit table/list
-    // construction itself remains per-switch (keep-alive was tried and reverted).
+    // The data stores above persist across tab switches. On mount, a tab seeds its state from these caches and renders at once, with no scan, sort, or placeholder.
+    // It then reloads two run-loop cycles later, after the Picker's fade. The AppKit table or list is still rebuilt on each switch.
 
-    /// Categories whose data stores have been populated at least once this launch.
-    /// Distinguishes "never loaded" (must scan synchronously on mount to avoid a
-    /// placeholder flash) from "loaded and legitimately empty" (placeholder is
-    /// correct; the deferred reconcile will confirm).
+    /// Categories whose stores were populated this launch. "Never loaded" must scan at mount, to avoid a placeholder flash. "Loaded and empty"
+    /// can show the placeholder, and the deferred reconcile confirms it.
     @ObservationIgnored private var loadedCategories: Set<ReportsCategory> = []
 
-    /// Memoized sort results for the tracker tabs, keyed by the exact inputs they
-    /// were computed from. Seeding assigns the cached data array back into view
-    /// state, so the `data` equality check below short-circuits on buffer identity
-    /// and the mount-path lookup is O(1).
+    /// Memoized sort results for the tracker tabs, keyed by the inputs they came from. Seeding reuses the cached array, so the `data` equality
+    /// check short-circuits on buffer identity and the lookup is O(1).
     @ObservationIgnored private var sortedReleaseCaches: [ReportsCategory: SortedReleaseCache] = [:]
 
     private struct SortedReleaseCache {
@@ -283,14 +237,10 @@ final class ReportsState {
         displayedCategory = selectedCategory
     }
     
-    /// - Parameter persist: Whether this is a deliberate tab CHOICE by the user, and so
-    ///   should be remembered across sessions. See RecentsState.selectCategory for the
-    ///   full rationale — navigation INTO Reports must not overwrite the remembered tab.
-    /// - Parameter immediate: Swap the content in this turn rather than two run-loop turns
-    ///   later. The title-bar pop-up passes true: it is an NSPopUpButton, which sends its
-    ///   action only after the menu's fade has finished (see SubcategoryPicker), so the
-    ///   deferral below would protect nothing and only split the switch across two update
-    ///   passes. Menu-bar commands and shortcuts keep the deferral.
+    /// - Parameter persist: True for a deliberate tab choice, which is remembered across sessions. Navigation into Reports must not overwrite it.
+    ///   See RecentsState.selectCategory.
+    /// - Parameter immediate: Swap the content now, rather than two run-loop turns later. The title-bar pop-up passes true. Its NSPopUpButton
+    ///   sends the action only after the menu fade (see SubcategoryPicker), so deferring would gain nothing. Menu commands and shortcuts defer.
     func selectCategory(_ category: ReportsCategory, persist: Bool = true, immediate: Bool = false) {
         // Don't skip if it's the same category - we might need to reload
         selectedCategory = category
@@ -300,25 +250,12 @@ final class ReportsState {
             Preferences.lastReportsCategory = category.rawValue
         }
         
-        // Defer the actual content swap (displayedCategory) and the visible-item-count
-        // update by two run loop cycles. The Picker Binding setter fires synchronously
-        // inside the menu action handler; mutating the switcher's source of truth here
-        // would rebuild the incoming tab's entire SwiftUI/AppKit tree (NSTableView,
-        // NSScrollView, or the large DataVisualizations layout) — and toggle MainView's
-        // gallery chrome for the DataViz case — in the same run loop cycle, and thus
-        // the same CATransaction, in which CoreAnimation commits the NSPopUpButton
-        // menu-dismissal fade. That competition truncates or stutters the fade.
+        // The content swap (displayedCategory) and the item count are deferred two run-loop cycles. The Picker's binding setter runs inside the
+        // menu action, so an immediate swap would build the new tab in the same transaction that commits the menu fade, which stutters the fade.
+        // A single async hop still lands before that commit. A second hop lands after it, so the fade runs out of process. DispatchQueue.main.async
+        // is used rather than Task because this originates from an AppKit event (see RecentsState.selectCategory).
         //
-        // CoreAnimation commits at the end of the current run loop cycle; a single
-        // async hop still runs before that commit. A double hop lands in the NEXT
-        // cycle, after the fade has been committed to the render server, where it
-        // animates out-of-process and is immune to main-thread load.
-        // DispatchQueue.main.async is used rather than Task { @MainActor in } because
-        // this deferral originates from an AppKit event callback (see
-        // RecentsState.selectCategory for full rationale).
-        //
-        // selectedCategory is already updated synchronously above so the picker label,
-        // glyph, and menu checkmarks reflect the new choice immediately.
+        // selectedCategory is already set above, so the picker label, glyph, and checkmarks update at once.
         let swap: @MainActor () -> Void = {
             self.displayedCategory = category
             switch category {
@@ -362,20 +299,15 @@ final class ReportsState {
     
     // Update hall of fame data
     //
-    // `hallOfFameData` and `visibleItemCount` are observed properties, so every assignment
-    // notifies observers whether or not the value changed. HallOfFameView reloads once per
-    // shifted member during a drag-reorder, which previously reassigned the whole 200-element
-    // cache on each of those redundant reloads. Both writes are now change-guarded.
-    // (`loadedCategories` is @ObservationIgnored; it is read here only to decide whether this
-    // is the first load for the category.)
+    // Both properties are observed, so every assignment notifies, even when the value is unchanged. HallOfFameView reloads once per shifted
+    // member during a drag-reorder, so both writes are change-guarded. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
     func updateHallOfFameData(_ data: [HallOfFameFilm]) {
         let wasLoaded = loadedCategories.contains(.hallOfFame)
         if !wasLoaded {
             loadedCategories.insert(.hallOfFame)
         }
 
-        // The `!wasLoaded` term guarantees the first call always assigns, so an initially
-        // empty Hall of Fame still populates the cache rather than being skipped as "equal".
+        // The `!wasLoaded` term makes the first call always assign, so an empty first load still fills the cache.
         if !wasLoaded || hallOfFameData != data {
             hallOfFameData = data
         }
@@ -388,21 +320,15 @@ final class ReportsState {
     
     // Update wishlist data
     //
-    // Change-guarded for exactly the reason updateHallOfFameData above is, and against a
-    // heavier reload pattern: a wishlist drag-reorder emits one .film(.releaseChanged) per
-    // film whose position moved, each delivered synchronously and each driving a full
-    // reload. `wishlistData` and `visibleItemCount` are observed, so an unconditional
-    // assignment notified observers on every one of those redundant reloads.
-    // (`loadedCategories` is @ObservationIgnored; it is read here only to decide whether
-    // this is the first load for the category.)
+    // Change-guarded for the same reason as updateHallOfFameData. A wishlist drag-reorder sends one .film(.releaseChanged) per moved film,
+    // each triggering a full reload. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
     func updateWishlistData(_ data: [WishlistRelease]) {
         let wasLoaded = loadedCategories.contains(.releaseWishlist)
         if !wasLoaded {
             loadedCategories.insert(.releaseWishlist)
         }
 
-        // The `!wasLoaded` term guarantees the first call always assigns, so an initially
-        // empty wishlist still populates the cache rather than being skipped as "equal".
+        // The `!wasLoaded` term makes the first call always assign, so an empty first load still fills the cache.
         if !wasLoaded || wishlistData != data {
             wishlistData = data
         }
@@ -412,10 +338,8 @@ final class ReportsState {
         }
     }
     
-    /// Tickets order the Data Visualizations passes by when each read the library, so a
-    /// slower pass that read it earlier cannot overwrite what a later one already stored:
-    /// passes run concurrently off the main actor and can finish in either order. Issued
-    /// on the main actor at the moment a pass copies the films.
+    /// Tickets order the Data Visualizations passes by when each read the library. A slower pass that read earlier cannot overwrite a later
+    /// result, since passes run off the main actor and can finish in any order. A ticket is issued on the main actor as a pass copies the films.
     @ObservationIgnored private var lastVisualizationsTicket = 0
     @ObservationIgnored private var storedVisualizationsTicket = 0
 
@@ -424,21 +348,16 @@ final class ReportsState {
         return lastVisualizationsTicket
     }
 
-    /// Updates the Data Visualizations tab's mount cache, unless it already holds a pass
-    /// that read the library later than this one did.
+    /// Updates the Data Visualizations mount cache, unless it already holds a pass that read the library later.
     func updateVisualizationsData(_ dataset: DVDataset, ticket: Int) {
         guard ticket > storedVisualizationsTicket else { return }
         storedVisualizationsTicket = ticket
         visualizations = dataset
     }
 
-    /// Fills the Data Visualizations tab's mount cache in the background, so the tab's
-    /// first visit of a launch mounts from it rather than computing every figure on the
-    /// main thread before its first frame (≈100 ms optimized, ≈330 ms in a Debug build,
-    /// on a 1,400-film library). Called once, after launch has settled. A visit that
-    /// arrives first computes as before and the result here is dropped; one that arrives
-    /// after reconciles the cache against the library in the background, as every mount
-    /// from the cache does.
+    /// Fills the Data Visualizations mount cache in the background, so the first visit mounts from it instead of computing on the main thread.
+    /// Called once, after launch settles. If a visit comes first, it computes as usual and this result is dropped. If a visit comes later, it reconciles
+    /// the cache in the background, as every cached mount does.
     func prefetchVisualizations(films: [FilmSnapshot]) {
         guard visualizations == nil else { return }
         let ticket = nextVisualizationsTicket()
@@ -472,10 +391,8 @@ final class ReportsState {
 // MARK: - Reports Export Data
 /// The payload one report tab contributes to the whole-library PDF.
 ///
-/// Two tabs contribute today — see `LibraryPDFSection`. The `releases` and
-/// `wishlistReleases` fields this once carried went with the three tracker sheets that
-/// `discReleases` superseded; `ReleaseData` and `WishlistRelease` themselves are untouched,
-/// because the tabs still build their on-screen tables from them.
+/// Two tabs contribute today (see `LibraryPDFSection`). `ReleaseData` and `WishlistRelease` are unchanged, because the tabs still build
+/// their on-screen tables from them.
 struct ReportsExportData {
     let category: ReportsCategory
     let hallOfFameFilms: [HallOfFameFilm]?

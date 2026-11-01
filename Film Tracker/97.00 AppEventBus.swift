@@ -59,7 +59,7 @@ enum ViewEvent: Equatable, Sendable {
     case rightSidebarDidStartLiveScroll
     /// A horizontal two-finger swipe was recognized over the right sidebar's tab
     /// content. Emitted by RightSidebar's own NSEvent local monitor (see
-    /// installSwipeMonitor() in 24_00_RightSidebar.swift); RightSidebar itself
+    /// installSwipeMonitor() in 24.00 RightSidebar.swift); RightSidebar itself
     /// consumes it to drive swipe-only animated tab navigation. `.forward`
     /// advances toward Notes; `.backward` retreats toward Details.
     case rightSidebarSwipe(RightSidebarSwipeDirection)
@@ -192,8 +192,8 @@ enum UICommand: Equatable, Sendable {
     case reopenViewingEventPopover
 
     // MARK: Notes Tab
-    // No commands here: each frames table's add control is now its own last row
-    // and scrolls itself into view, so there's nothing left for a command to carry.
+    // No commands here: each frames table's add control is its own last row and
+    // scrolls itself into view, so no command is needed.
 
     // MARK: Gallery Navigation
     /// Scroll the gallery so the single selected film appears in the top visible row

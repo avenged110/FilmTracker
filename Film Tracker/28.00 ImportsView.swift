@@ -2,10 +2,10 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // Displays import history and manages metadata/ratings imports. The scrollable
-// session list is hosted by DataCoordinatorScrollView (27_40_RPTabDataViz.swift),
+// session list is hosted by DataCoordinatorScrollView (27.40 RPTabDataViz.swift),
 // the shared AppKitScrollView facade for consumers that need nothing re-injected
 // into the hosted tree beyond DataCoordinator. The sessions themselves come from
-// ImportHistory (28_20), an in-memory index of value records, not from a fetch.
+// ImportHistory (28.20), an in-memory index of value records, not from a fetch.
 
 import SwiftUI
 import CoreData
@@ -32,10 +32,8 @@ struct ImportsView: View {
     // for why that state must live inside the hosted content tree.
     @State private var insertionCount: Int = 0
 
-    // Every session on the tab is listed. There used to be a "Show More" window (ten,
-    // then 500 more per press) that bounded how many cards were built; ImportSessionList
-    // now builds only those on or near the screen (see "Windowed mounting" there), so
-    // the length of the history no longer costs anything to show.
+    // Every session on the tab is listed. ImportSessionList builds only the cards on or near the screen (see
+    // "Windowed mounting" there), so the length of the history costs nothing to show.
 
     // Lets ImportSessionList hold the scroll view's document height through a card's
     // removal animation, and tells it which part of the list is on screen (see
@@ -53,8 +51,8 @@ struct ImportsView: View {
                 glyph: importsState.selectedCategory.glyph,
                 leadingContent: {
                     ImportsTabPicker()
-                        .frame(width: 220)
-                        .padding(.leading, 12)
+                        .frame(width: GalleryTitleBar.pickerWidth)
+                        .padding(.leading, GalleryTitleBar.pickerLeading)
                 },
                 trailingButtons: {
                     HStack(spacing: 8) {
@@ -501,117 +499,77 @@ private struct ActiveImportRow: View {
 
 // MARK: - Import Session List
 
-// Card removal works by structural exclusion, not by height manipulation.
+// Card removal works by structural exclusion, not by height manipulation. Animating the removed card's own
+// layout (frame collapse, maxHeight, height interpolation) either sheared the siblings or never animated. The
+// hosted list's updateNSView pushes content with a bare `rootView` assignment and no animation transaction, so
+// withAnimation in the outer tree cannot animate it.
 //
-// Every prior approach animated the removed card's own layout (frame collapse,
-// maxHeight, measured-height interpolation) and failed in one of two ways:
-// sibling cards were sheared/jumped as the collapsing frame fought the VStack's
-// layout, or the collapse silently never animated and the remaining cards
-// snapped into place when the record left the store. The root architectural
-// cause: this list lives inside an NSHostingView (AppKitScrollView), whose
-// updateNSView pushes refreshed content via a bare `rootView` assignment that
-// carries no animation transaction — so withAnimation calls from the outer
-// SwiftUI tree (ImportsView) can never animate the hosted layout.
+// The mechanism:
 //
-// The mechanism below sidesteps all of that:
-//
-//   1. "Clear This Item" inserts the session's ID into `removingIDs` — @State
-//      that lives INSIDE the hosted tree, so the mutation runs within the
-//      NSHostingView's own SwiftUI render loop where the withAnimation
-//      transaction survives intact. `remaining` excludes the ID, so the
-//      row leaves the ForEach as a single animated structural change: its
-//      .opacity removal transition fades the card out (at full, untouched
-//      height — no card's height ever changes) while the VStack reflow slides
-//      every card below it up into the vacated space, both in the same spring.
-//      Because the entire row — including its 12-pt VStack spacing
-//      contribution — leaves layout in that one change, no residual gap is
-//      left behind to close later.
-//   2. After the spring has visually settled (400 ms), the database delete
-//      fires. When ImportHistory subsequently drops the record, `remaining` is
-//      unchanged (the ID was already filtered out), so that structural
-//      removal produces zero visual delta — no second animation, no jump.
-//   3. Once the record is confirmed gone from `sessions`, the ID is dropped
-//      from `removingIDs` (pure hygiene; an absent ID filters nothing).
+//   1. "Clear This Item" inserts the session's ID into `removingIDs`, which is @State inside the hosted tree, so
+//      the mutation runs in the hosted tree's own render loop and the transaction survives. `remaining` excludes
+//      the ID, so the row leaves the ForEach as one structural change: its .opacity removal transition fades it
+//      out at its full height, while the VStack reflow slides the cards below up on the same spring. The row's
+//      12 pt spacing leaves layout in that same change, so no gap is left to close later.
+//   2. After the spring has settled (400 ms), the database delete runs. When ImportHistory drops the record,
+//      `remaining` is unchanged, so that removal produces no visual change.
+//   3. Once the record is gone from `sessions`, the ID is dropped from `removingIDs` (hygiene; an absent ID
+//      filters nothing).
 //
 // Two more pieces make it work wherever the card sits:
 //
-//   • The scroll view holds the document's height through the spring
-//     (`holdForAnimatedShrink`, "Animated shrink" in 92_00). Without it, a
-//     removal while scrolled to (or near) the bottom of a list taller than the
-//     window shortened the document in one step, NSClipView clamped the offset
-//     in that same frame, every card leapt down by the shortfall, and a removed
-//     bottom card faded entirely out of sight — it "simply disappeared". The
-//     hold's anchor places the list in the held frame (ShrinkAnchoredLayout) so
-//     that the cards above the removal slide down instead, on the same spring;
-//     when the hold ends, the offset follows and nothing moves.
-//   • Only cards near the screen exist (see "Windowed mounting" below); the rest
-//     are spacer. The window reaches far enough that every card a spring moves
-//     on screen is already built.
+//   • The scroll view holds the document height through the spring (`holdForAnimatedShrink`, "Animated shrink"
+//     in 98.20 UtilityKit.swift). Without the hold, removing a card near the bottom of a list taller than the
+//     window shortened the document in one step. NSClipView then clamped the offset, every card jumped, and the
+//     removed bottom card faded out of sight. The hold's anchor (ShrinkAnchoredLayout) places the list so the
+//     cards above slide down on the same spring. When the hold ends, the offset follows and nothing moves.
+//   • Only cards near the screen are mounted (see "Windowed mounting" below). The window reaches far enough that
+//     every card a spring moves on screen is already built.
 //
-// The `imports-removal` harness scenario (99.54) films every case of this —
-// top, middle and bottom cards; short and long lists; scrolled to the bottom,
-// near it, and at the top; long lists that are mostly spacer; overlapping removals; and
-// clearing the bottom card repeatedly until the list is empty — and checks each
-// frame for jumps, reversals, snaps, and a visible fade.
+// The `imports-removal` harness scenario (99.54) covers top, middle, and bottom cards; short and long lists;
+// scrolled to the bottom, near it, and at the top; long lists that are mostly spacer; overlapping removals; and
+// clearing the bottom card repeatedly until the list is empty. It checks each frame for jumps, reversals, snaps,
+// and a visible fade.
 //
-// As defense in depth, the VStack also carries .animation(value: removingIDs),
-// which injects the spring at the modifier level in the exact update that
-// removes the row — independent of whatever transaction reaches the hosted
-// tree. This is the same transaction-independent mechanism that lets the
-// existing insertion spring (keyed to insertionCount) animate correctly
-// through AppKitScrollView's bare rootView pushes today. It is also the
-// sole animation source for removals: a bare removingIDs.insert(id) in
-// beginRemoval() — without any wrapping withAnimation — is all that is
-// needed, mirroring how insertionCount increments drive the insertion spring.
+// As defense in depth, the VStack also carries .animation(value: removingIDs), which injects the spring at the
+// modifier level in the exact update that removes the row, independent of the transaction. It is the sole
+// animation source for removals, so a bare `removingIDs.insert(id)` in beginRemoval(), with no withAnimation, is
+// all that is needed. Insertions work the same way, keyed to insertionCount.
 //
 // Windowed mounting
 // ─────────────────
-// The list is still one plain VStack, so every animation above runs exactly as it
-// always has — but it only mounts the cards on or near the screen. Each run of cards
-// above or below that window is stood in for by a single clear spacer exactly as tall
-// as the cards and gaps it replaces (`CardColumn`), so every mounted card sits where it
-// would sit in the full stack, the document is exactly as tall, and the scroller is
-// unchanged. What it costs to show, switch tabs or leave no longer depends on how many
-// sessions there are. `imports-switch-perf` (99.55), 1,000 sessions: leaving after
-// revealing 900 cards took 1,342 ms before this (when a "Show More" button bounded the
-// list; each press took 3,614 ms), against ~95 ms for a gallery switch.
+// The list is still one plain VStack, so the animations above run as they always have. It mounts only the cards
+// on or near the screen. Each run of cards above or below that window is stood in for by one clear spacer exactly
+// as tall as the cards and gaps it replaces (`CardColumn`). Every mounted card therefore sits where it would in the
+// full stack, the document is exactly as tall, and the scroller is unchanged. The cost of showing, switching tabs,
+// or leaving no longer depends on the number of sessions.
 //
-//   • Heights. A card's height depends only on its `ImportCardShape` (canceled or
-//     not, ratings or not, failures or not): every line in it is a single line at
-//     any width the window allows. ImportCardMetrics remembers each shape's height,
-//     measured from the real card in this tree — from mounted cards, and from
-//     hidden template cards for shapes not yet seen. Until a shape is measured (a
-//     launch's first visit), its height as measured on macOS 15 stands in; the first
-//     visit opens at the top, so that can only touch the spacer below the screen, and
-//     the measurement replaces it a frame later.
-//   • The window is ImportsListViewport's, fed by the clip view
-//     (AppKitScrollProxy.viewportHandler / liveScrollHandler). Changing it mid-scroll is
-//     what costs — every change, however small, re-lays out the list and builds cards,
-//     20 ms and more (`imports-scroll`, 99.55, on a copy of a real library) — so the
-//     window grows while the list is at rest: after a visit's first frame (which builds
-//     only what it shows) and after each scroll, a step per run-loop turn. A list up to
-//     `ImportsListViewport.wholeListHeight` tall (a few dozen sessions) grows to all of
-//     it, and then scrolls exactly as the full stack did; a longer one to
-//     `ImportsListViewport.lead` beyond the viewport each way, letting go of cards
-//     beyond that. Mid-scroll, a long list's window moves only when the viewport reaches
-//     its edge, and then only that edge, a full lead ahead: a live scroll synchronizes
-//     with the main thread every frame, so that costs a few dropped frames, never a gap.
-//   • Edges are invisible. The window always reaches at least one card pitch (the
-//     tallest card plus a gap) beyond the viewport on both sides — farther than any
-//     card moves in one removal or insertion spring, the shrink hold's lowering
-//     included. So every card that is on screen at any moment of a spring is already
-//     mounted when it starts, and moves exactly as in the full stack. A card that joins
-//     the window only because the layout moved (not a session that is new) takes no
-//     insertion transition: it appears at its place, out of sight. One that leaves
-//     fades where it was, also out of sight.
-//   • Only the cards that can be on screen during a spring — within two card pitches of
-//     the viewport — animate in it; the others move to their new places in one step,
-//     unseen. Every card that moves is redrawn every frame of a spring, so with the
-//     whole of a long list mounted, animating them all made each removal stall the main
-//     thread for 100–400 ms (the `imports-removal` `windowed-*` cases).
+//   • Heights. A card's height depends only on its `ImportCardShape` (canceled or not, ratings or not, failures or
+//     not), since every line is a single line at any width the window allows. ImportCardMetrics records each shape's
+//     height, measured from a real card in this tree: from mounted cards, and from hidden template cards for shapes
+//     not yet seen. Until a shape is measured (a launch's first visit), its height as measured on macOS 15 stands
+//     in. The first visit opens at the top, so the stand-in can only touch the spacer below the screen, and the
+//     measurement replaces it a frame later.
+//   • The window is ImportsListViewport's, fed by the clip view (AppKitScrollProxy.viewportHandler and
+//     liveScrollHandler). Changing it mid-scroll is what costs. Every change, however small, re-lays out the list and
+//     builds cards, at 20 ms or more (`imports-scroll`, 99.55, on a copy of a real library). So the window grows
+//     while the list is at rest: after a visit's first frame (which builds only what it shows) and after each scroll,
+//     one step per run-loop turn. A list up to `ImportsListViewport.wholeListHeight` tall (a few dozen sessions) grows
+//     to all of it, and then scrolls as the full stack did. A longer list grows to `ImportsListViewport.lead` beyond
+//     the viewport each way, and lets go of cards beyond that. Mid-scroll, a long list's window moves only when the
+//     viewport reaches its edge, and then only that edge, a full lead ahead. A live scroll synchronizes with the main
+//     thread every frame, so this costs a few dropped frames, never a gap.
+//   • Edges are invisible. The window always reaches at least one card pitch (the tallest card plus a gap) beyond
+//     the viewport on both sides, farther than any card moves in one removal or insertion spring, the shrink hold's
+//     lowering included. So every card on screen during a spring is already mounted when it starts, and moves exactly
+//     as in the full stack. A card that joins the window only because the layout moved (not a new session) takes no
+//     insertion transition: it appears at its place, out of sight. One that leaves fades where it was, also out of sight.
+//   • Only the cards within two card pitches of the viewport animate in a spring. The others move to their new places
+//     in one step, unseen. Every card that moves is redrawn each frame of a spring, so animating all of a long list
+//     stalled the main thread for 100–400 ms per removal (the `imports-removal` `windowed-*` cases).
 //
-// `imports-window` (99.55) checks that a windowed list is pixel-identical to the full
-// stack at offsets throughout a long history (`window-identical`).
+// `imports-window` (99.55) checks that a windowed list is pixel-identical to the full stack at offsets throughout a
+// long history (`window-identical`).
 
 private struct ImportSessionList: View {
     /// Every session on the current tab, newest first. Those not being removed are
@@ -810,7 +768,7 @@ private struct ImportSessionList: View {
         guard !removingIDs.contains(sessionID) else { return }
         // BEFORE the state change, so the scroll view holds the document at its
         // current height through the spring instead of clamping the scroll offset
-        // to the shorter list in one frame (see "Animated shrink" in 92_00). The
+        // to the shorter list in one frame (see "Animated shrink" in 98.20 UtilityKit.swift). The
         // anchor it reports places the list within the held frame, in this same
         // animated update, so a removal near the bottom brings the cards above
         // down rather than leaving the viewport past the list's end.
@@ -820,8 +778,7 @@ private struct ImportSessionList: View {
         // picked up by the .animation(value: removingIDs) modifier on the VStack,
         // which injects the spring at the exact update that removes the row —
         // the same transaction-independent mechanism that drives the insertion
-        // spring via insertionCount. withAnimation is unnecessary here and
-        // would produce a "result unused" warning in Swift 6.
+        // spring via insertionCount, so withAnimation is unnecessary here.
         removingIDs.insert(sessionID)
         // Defer the database delete until the animation has visually settled
         // so the record never leaves `sessions` mid-animation. When the deletion
@@ -838,13 +795,13 @@ private struct ImportSessionList: View {
 /// One card in its row: centered, at most `importBoxMaxWidth` wide, never closer than
 /// `importBoxEdgeInset` to the sides.
 ///
-/// Equatable on what it draws — the session and the two lengths — and compared that way
-/// (`.equatable()`), because its two closures never compare equal: without it, every
-/// update of the list (a deletion landing, an import's progress) re-ran every mounted
-/// card's body and threw away its measured size, and the list re-measured all of them —
-/// 130–390 ms with sixty cards mounted (`imports-removal`, the `windowed-*` cases). The
-/// closures a reused row keeps act exactly as new ones would: `onClearThis` reaches the
-/// list's state through its @State storage, and `onClearAll` reads the tab when called.
+/// Equatable on what it draws (the session and the two lengths), compared that way
+/// (`.equatable()`), because its two closures never compare equal. Without this, every
+/// update of the list (a deletion landing, an import's progress) re-runs every mounted
+/// card's body, discards its measured size, and re-measures all of them. With sixty cards
+/// mounted, that took 130–390 ms (`imports-removal`, the `windowed-*` cases). A reused
+/// row's closures act as new ones would: `onClearThis` reaches the list's state through
+/// its @State storage, and `onClearAll` reads the tab when called.
 private struct SessionCardRow: View, Equatable {
     let session: ImportSessionRecord
     let importBoxMaxWidth: CGFloat
@@ -1136,7 +1093,7 @@ enum ImportsListDebug {
 // MARK: - Shrink Anchored Layout
 
 /// Places its one subview at the top of the proposed frame, lowered by the anchor's
-/// `lowering(frameHeight:contentHeight:)` (92_00) when the subview is shorter.
+/// `ShrinkAnchor.lowering(frameHeight:contentHeight:)` (98.20 UtilityKit.swift) when the subview is shorter.
 ///
 /// The frame is only ever taller than the list while the scroll view holds the
 /// document's height through a removal (`AppKitScrollProxy.holdForAnimatedShrink`).
@@ -1190,12 +1147,9 @@ private struct ShrinkAnchoredLayout: Layout {
 // heights never change, including during removal — the removal animation is a
 // structural exclusion handled entirely by ImportSessionList above.
 //
-// A card also has no interactive state of its own that could change its height.
-// It once carried a disclosure triangle that expanded an inline "Failed Files:"
-// list, which made a card's height depend on whether the user had clicked it;
-// the Details popover supersedes that list (its Errors tab shows the same
-// `errorFileNames`, alongside the other four categories), so the expander and
-// its @State are gone. Nothing here should reintroduce per-card view state.
+// A card has no interactive state that could change its height. Failed files are listed in the Details popover
+// (its Errors tab shows `errorFileNames`, alongside the other four categories), so nothing here should introduce
+// per-card view state.
 
 private struct SessionCardContent: View {
     let session: ImportSessionRecord
@@ -1395,7 +1349,7 @@ private enum SessionDetailsCategory: String, CaseIterable, Identifiable {
 // it onto the shared single-purpose utility would complicate that call site for
 // every other consumer.
 //
-// The header is a SheetSegmentedControl (30_20) — an NSSegmentedControl driven
+// The header is a SheetSegmentedControl (30.20) — an NSSegmentedControl driven
 // directly — rather than SwiftUI's segmented Picker, because it disables the
 // categories with nothing to list: AppKit's per-segment
 // `setEnabled(_:forSegment:)` is the native way to gray one out, and the SwiftUI
@@ -1409,10 +1363,8 @@ private struct SessionDetailsPopover: View {
 
     // MARK: Layout Constants
     private static let popoverWidth: CGFloat = 300
-    // Fixed total popover height, regardless of content. Previously this scaled
-    // between a minimum and maximum based on row count; a single fixed height
-    // is simpler and avoids any size differences between the popover's internal
-    // tabs (All/Added/Updated/Errors/Duplicates).
+    // Fixed total popover height, regardless of content, so every tab (All, Added, Updated, Errors, Duplicates)
+    // is the same size.
     private static let popoverHeight: CGFloat = 400
     // Horizontal padding applied to the picker (i.e. the header buttons) on each
     // side, measured from the popover's edges. The divider below is inset by this
@@ -1428,8 +1380,7 @@ private struct SessionDetailsPopover: View {
         VStack(spacing: 0) {
             // Fixed header: segmented category picker atop a divider. The control
             // refuses first responder, so it is never a Tab stop and never draws the
-            // native focus ring — the AppKit equivalent of the .focusable(false) the
-            // SwiftUI Picker used to carry.
+            // native focus ring. It is the AppKit equivalent of `.focusable(false)`.
             SheetSegmentedControl(selection: $selectedCategory, segments: segments,
                                   refusesFirstResponder: true)
                 .padding(.horizontal, Self.headerHorizontalPadding)
@@ -1476,9 +1427,7 @@ private struct SessionDetailsPopover: View {
         // A single fixed total height, regardless of content. Because the
         // ScrollView/placeholder above both use maxHeight: .infinity, they always
         // expand to consume every point of vertical space this frame allots below
-        // the divider; alignment: .top additionally guarantees the header itself
-        // never shifts, matching the fix already applied for the header-sinking
-        // issue.
+        // the divider. alignment: .top keeps the header itself from shifting.
         .frame(height: Self.popoverHeight, alignment: .top)
     }
 

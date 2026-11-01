@@ -1,18 +1,18 @@
 // MARK: - CalendarPopover.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Calendar popover components for WatchDetails module with reactive
-// authorization handling for immediate TCC permission updates.
+// The Add Viewing Event popover for WatchDetails, with its shared form row and the pending-entry
+// snapshot that survives a duplicate-date alert. It reacts to calendar permission changes so a
+// TCC grant takes effect immediately.
 
 import SwiftUI
 import EventKit
 
 // MARK: - Viewing Form Row
 
-/// A labeled row in the two viewing-event editors — this file's popover and the FilmSheet
-/// Details tab's add/edit date popovers (ViewingDatesTable, 30.20 FSControlHelpers.swift).
-/// Both put their labels in the same 72 pt column; this is where that column is defined,
-/// rather than in nine copies of the same three modifiers.
+/// A labeled row in the viewing-event editors: this popover and the FilmSheet Details tab's
+/// date popovers (ViewingDatesTable, 30.20 FSControlHelpers.swift). Both share the 72 pt label
+/// column defined here.
 struct ViewingFormRow<Content: View>: View {
     /// The label column's width; also what the calendar checkbox row indents by.
     static var labelWidth: CGFloat { 72 }
@@ -37,14 +37,10 @@ struct ViewingFormRow<Content: View>: View {
 
 // MARK: - Pending Viewing Entry Snapshot
 
-/// A snapshot of everything the user had entered in UnifiedViewingPopover, captured
-/// the instant a duplicate-date collision is detected — just before the "Event
-/// Already Exists" alert is fired. macOS automatically closes an open NSPopover as
-/// soon as an NSAlert sheet is presented over it, tearing down the popover's own
-/// @State along with it; WatchDetails holds onto this snapshot and feeds it back in
-/// as `initialEntry` when it reopens the popover once the alert clears, so the
-/// reopened popover shows exactly what the user had typed rather than resetting to
-/// blank defaults.
+/// The user's in-progress entry in UnifiedViewingPopover, captured when a duplicate-date
+/// collision is detected. macOS closes an open NSPopover when an NSAlert sheet appears over
+/// it, destroying the popover's @State. WatchDetails stores this snapshot and passes it back
+/// as `initialEntry` when it reopens the popover, so the entry is not lost.
 struct PendingViewingEntry {
     var date: Date
     var version: ViewingVersion?
@@ -62,34 +58,24 @@ struct UnifiedViewingPopover: View, Loggable {
     
     let film: FilmSnapshot
     @Binding var isPresented: Bool
-    /// Called for every committed viewing on both commit paths — the local-only path
-    /// and the system-calendar path (which invokes it after the event is created, and
-    /// also when creation fails, so the viewing is still recorded in Film Tracker).
-    /// This is the single "a viewing was committed" signal; a second `onEventAdded`
-    /// callback used to fire alongside it on the calendar path only, which meant the
-    /// parent's completion handling ran twice for one viewing.
+    /// Called for every committed viewing, on both the local-only and system-calendar paths.
+    /// The calendar path also calls it when event creation fails, so the viewing is still
+    /// recorded. This is the only "viewing committed" signal.
     let onDateSelected: (Date, ViewingVersion) -> Void
-    /// Called the instant a duplicate-date collision is detected, with a full
-    /// snapshot of the current entry — immediately before the alert is fired (and,
-    /// as a consequence, the instant before macOS auto-closes this popover). The
-    /// parent (WatchDetails) stores this snapshot and passes it back in as
-    /// `initialEntry` on the next open, restoring the user's in-progress entry.
+    /// Called when a duplicate date is detected, before the alert fires and macOS closes this
+    /// popover. The parent stores the snapshot and passes it back as `initialEntry` on the next open.
     let onDuplicateDateDetected: (PendingViewingEntry) -> Void
     
     // Authorization state - reactive to permission changes
     @State private var hasCalendarAccess = false
     @State private var isRequestingPermission = false
     
-    // Calendar settings — availableCalendars is always recomputed fresh in
-    // onAppear (see loadCalendars()); selectedCalendar is seeded from
-    // initialEntry below so a restored entry keeps whatever calendar the user
-    // had manually chosen, rather than falling back to the remembered default.
+    // Calendar settings. availableCalendars is reloaded in onAppear (see loadCalendars()).
+    // selectedCalendar is seeded from initialEntry, so a restored entry keeps its calendar.
     @State private var availableCalendars: [EKCalendar] = []
     @State private var selectedCalendar: EKCalendar?
 
-    // Date/time settings — all seeded from `initialEntry` at init time (see the
-    // custom init below) so a popover reopened after a duplicate-date rejection
-    // restores the user's prior entry instead of resetting to blank defaults.
+    // Date and time settings, all seeded from `initialEntry` in the init below.
     @State private var selectedDate: Date
     @State private var selectedVersion: ViewingVersion?
     @State private var hour: Int
@@ -106,13 +92,10 @@ struct UnifiedViewingPopover: View, Loggable {
         self._isPresented = isPresented
         self.onDateSelected = onDateSelected
         self.onDuplicateDateDetected = onDuplicateDateDetected
-        // `initialEntry` is nil for a genuine fresh open (WatchDetails clears its
-        // pendingViewingEntry before showing the popover from the "Add Viewing
-        // Event" button), in which case every field falls back to the same blank
-        // defaults this view has always opened with.
+        // `initialEntry` is nil on a fresh open (WatchDetails clears pendingViewingEntry before
+        // showing the popover), so each field falls back to its blank default.
         self._selectedDate = State(initialValue: initialEntry?.date ?? Date())
-        // No `?? nil` on the two optional-valued fields below: `initialEntry?.version` is
-        // already `ViewingVersion?`, so coalescing it with nil could never change it.
+        // No `?? nil` on `initialEntry?.version`: it is already `ViewingVersion?`.
         self._selectedVersion = State(initialValue: initialEntry?.version)
         self._hour = State(initialValue: initialEntry?.hour ?? 7)
         self._minute = State(initialValue: initialEntry?.minute ?? 0)
@@ -128,11 +111,9 @@ struct UnifiedViewingPopover: View, Loggable {
         return formatter
     }()
 
-    // Base-date (no version code) comparison against film.calendarTable entries, which
-    // must match the "yyyy.MM.dd" convention used throughout the app so string
-    // comparisons against extractDatePortion(from:) results are exact. That is now the
-    // shared StorageDateFormatters.dot — the same object WatchDetails and
-    // ViewingDatesTable write through — so "must match" is satisfied by identity.
+    // Base-date (no version code) format for comparing against film.calendarTable entries and
+    // extractDatePortion(from:) results. It is StorageDateFormatters.dot, shared with the other
+    // viewing-date code, so the "yyyy.MM.dd" strings match exactly.
     private static let baseDateFormatter = StorageDateFormatters.dot
     
     // Preference for calendar integration
@@ -237,15 +218,9 @@ struct UnifiedViewingPopover: View, Loggable {
             if iCalIntegrationEnabled {
                 ViewingFormRow("Calendar:") {
                     Picker("", selection: $selectedCalendar) {
-                        // `selectedCalendar` is Optional and legitimately nil in two
-                        // states: before loadCalendars() has run (access not yet
-                        // granted, or the popover has only just appeared), and
-                        // permanently when the account exposes no writable calendar for
-                        // it to pick. Without a tagged entry for nil, the Picker's
-                        // selection matches no option in either state — SwiftUI reports
-                        // that as an invalid selection and draws the control blank, with
-                        // nothing to explain why. Tagging it names the state instead.
-                        // The version picker above does the same with its "Select…" row.
+                        // selectedCalendar is nil before loadCalendars() runs, and also when the
+                        // account has no writable calendar. Without a tag for nil, the Picker
+                        // matches no option and draws blank. The tag names that state instead.
                         Text(availableCalendars.isEmpty ? "No calendars available" : "Select…")
                             .tag(nil as EKCalendar?)
                         ForEach(availableCalendars, id: \.calendarIdentifier) { calendar in
@@ -278,11 +253,7 @@ struct UnifiedViewingPopover: View, Loggable {
                 
                 Button("Add") {
                     guard !isDuplicateViewingDate(selectedDate) else {
-                        // Capture the in-progress entry before this popover is torn
-                        // down — macOS closes an open NSPopover the instant the
-                        // alert's NSAlert sheet is presented, so this snapshot (not
-                        // the popover's own soon-to-be-destroyed @State) is what
-                        // restores the user's entry when WatchDetails reopens it.
+                        // Snapshot the entry first: presenting the alert closes this popover (see PendingViewingEntry).
                         onDuplicateDateDetected(PendingViewingEntry(
                             date: selectedDate,
                             version: selectedVersion,
@@ -307,19 +278,14 @@ struct UnifiedViewingPopover: View, Loggable {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .frame(width: 290)
-        .padding(16)
+        .frame(width: EntryPopoverMetrics.width)
+        .padding(EntryPopoverMetrics.padding)
         .onAppear {
-            // `updateCalendarAccess()` loads the calendars itself on the one path where
-            // it flips access on with the checkbox already ticked, so it reports whether
-            // it did. Without that, this handler's own load below ran a second time for
-            // the same open — `getWritableCalendars()` is cached but XPC-backed, and the
-            // duplicate also re-ran the remembered-calendar resolution underneath it.
+            // updateCalendarAccess() reports whether it already loaded calendars, so this
+            // handler does not load them a second time.
             let didLoad = updateCalendarAccess()
-            // If calendar integration is enabled but access is still not recognized,
-            // do a live (non-cached) recheck and restart polling on every open.
-            // This self-heals the race where the TCC grant arrived after the
-            // polling loop had already timed out and stopped.
+            // If integration is on but access is not recognized, recheck live (uncached).
+            // This covers a TCC grant that arrived after polling had timed out.
             if iCalIntegrationEnabled && !hasCalendarAccess {
                 EventKitManager.shared.recheckAuthorizationStatus()
             }
@@ -331,8 +297,7 @@ struct UnifiedViewingPopover: View, Loggable {
         .onReceive(AppEventBus.shared.viewEvents) { event in
             if case .calendarAuthorizationChanged = event {
                 log("Received calendar authorization change notification")
-                // Same one-load-per-event contract as onAppear above: skip this
-                // handler's load when updateCalendarAccess already performed it.
+                // Same as onAppear: skip the load if updateCalendarAccess already did it.
                 let didLoad = updateCalendarAccess()
                 if hasCalendarAccess && !didLoad {
                     loadCalendars()
@@ -406,9 +371,8 @@ struct UnifiedViewingPopover: View, Loggable {
     ///
     /// Returns whether it loaded the calendar list as part of that update, so the two
     /// callers — `onAppear` and the `.calendarAuthorizationChanged` handler — can skip
-    /// their own load rather than repeating it. Both previously called this and then
-    /// loaded unconditionally, so the one path that gains access with the checkbox
-    /// already ticked did the work twice for a single open.
+    /// their own load rather than repeating it. The access-gained path must not
+    /// also load unconditionally, or a single open does the work twice.
     @MainActor
     @discardableResult
     private func updateCalendarAccess() -> Bool {
@@ -469,7 +433,7 @@ struct UnifiedViewingPopover: View, Loggable {
         guard selectedCalendar == nil else { return }
 
         // Try to load remembered calendar.
-        if let rememberedID = Preferences.store.string(forKey: "LastSelectedCalendarID"),
+        if let rememberedID = Preferences.store.string(forKey: Preferences.lastSelectedCalendarIDKey),
            let remembered = availableCalendars.first(where: { $0.calendarIdentifier == rememberedID }) {
             selectedCalendar = remembered
             log("Restored remembered calendar: \(remembered.title)")
@@ -482,15 +446,10 @@ struct UnifiedViewingPopover: View, Loggable {
     @MainActor
     private func addEventAndViewing() {
         guard let calendar = selectedCalendar else {
-            // No calendar to write to — either the account exposes none that is
-            // writable, or the user left the picker on its untagged "Select…" entry.
-            // This is the same situation as a failed EventKit write, and is handled
-            // identically for the same reason: recording the viewing is the user's
-            // primary intent and the calendar event is the optional half, so the
-            // viewing is committed and the failure is surfaced. Returning here without
-            // committing (as this did) left the popover open and the "Add" click with
-            // no visible result whatsoever — the exact dead end the creation-failure
-            // path below was already corrected for.
+            // No writable calendar, or the picker is on its untagged "Select…" entry. This is
+            // handled like a failed EventKit write: the viewing is recorded, since that is the
+            // primary intent, and the failure is surfaced. Returning early left the popover open
+            // with no visible result.
             log("Cannot add event - no calendar selected; recording viewing locally only")
             onDateSelected(selectedDate, selectedVersion ?? .none)
             isPresented = false
@@ -499,22 +458,16 @@ struct UnifiedViewingPopover: View, Loggable {
         }
         
         // Remember calendar selection.
-        Preferences.store.set(calendar.calendarIdentifier, forKey: "LastSelectedCalendarID")
+        Preferences.store.set(calendar.calendarIdentifier, forKey: Preferences.lastSelectedCalendarIDKey)
         
         // Create start date using selected date and time.
         var components = AppCalendar.current.dateComponents([.year, .month, .day], from: selectedDate)
         components.hour = hour24
         components.minute = minute
         
-        // A start date that cannot be composed is handled exactly as a missing calendar
-        // and a failed EventKit write are, and for the same reason: the viewing is the
-        // user's primary intent and the calendar event is the optional half, so the
-        // viewing is committed, the popover closes, and the failure is surfaced.
-        // Returning bare (as this did) left the popover open with the "Add" click having
-        // produced no visible result at all — the one remaining instance of the dead end
-        // the other two paths were already corrected for. Unreachable in practice, since
-        // the components come from a real date plus a validated 24-hour time; kept
-        // consistent rather than left as the odd path out.
+        // A start date that cannot be composed is handled like a missing calendar, for the same
+        // reason. It is unreachable in practice, since the components come from a real date and
+        // a valid time.
         guard let startDate = AppCalendar.current.date(from: components) else {
             log("Failed to create start date; recording viewing locally only")
             onDateSelected(selectedDate, selectedVersion ?? .none)
@@ -541,12 +494,8 @@ struct UnifiedViewingPopover: View, Loggable {
             calendar: calendar
         )
         
-        // The viewing is recorded in Film Tracker either way. Event creation is the
-        // optional half of this action — the user's primary intent is to log that they
-        // watched the film — so a failed EventKit write must not also discard the
-        // viewing. Previously the failure branch did nothing at all: the popover stayed
-        // open, no viewing was recorded, and the only trace was this log line, so the
-        // user saw their "Add" click produce no visible result whatsoever.
+        // The viewing is recorded either way. The calendar event is optional, so a failed
+        // EventKit write must not discard the viewing.
         log(success ? "Event created successfully" : "Failed to create event — recording viewing locally only")
 
         // Add viewing date to FilmTracker (just the date, not time) with version.

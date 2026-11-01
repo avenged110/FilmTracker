@@ -17,8 +17,8 @@
 //
 // WHAT IT MEASURES, AND WHY THAT PARTICULAR THING
 //
-// The naive metric — time spent inside `WidthObservingScrollView.layout()` — is worthless here,
-// and measuring it was how this file's first version wasted a profiling run. That method returns
+// The naive metric, time spent inside `WidthObservingScrollView.layout()`, is not useful here.
+// That method returns
 // long before the work it triggers is done: the collection view lays its cells out later in the
 // same display cycle, and the compositor later still. The number it yields is ~0.01ms no matter
 // how heavy the grid is.

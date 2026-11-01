@@ -475,7 +475,7 @@ enum RuleValues {
     }
 
     static let releaseKeywords: [ReleaseKeyword] = [
-        ("Ownership", ["purchased", "unpurchased"]),
+        ("Ownership", ["purchased", "unpurchased", "wishlist"]),
         ("Date", ["upcoming"]),
         ("Format", ["4k", "blu-ray", "dvd"]),
         ("4K master", ["native 4k", "upscaled"]),

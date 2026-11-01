@@ -2,6 +2,8 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 //
+// Runs the gallery-list change-detection checks: skip soundness, reload superset, the
+// interior-reorder case, and the scroll-clamp comparison against real AppKit.
 import AppKit
 
 var failures = 0
@@ -119,7 +121,7 @@ do {
 print("Test 2 — the Film Queue \"All\" opt-out: queue membership changing with a")
 print("         byte-identical films array still rebuilds.")
 do {
-    // The exact scenario from the review: promoting the first "Soon" film to "Up Next"
+    // The reproducing case: promoting the first "Soon" film to "Up Next"
     // leaves it in the same array position with every snapshot field unchanged.
     let films = [Film(id: 0, band: "A", title: "t0"),
                  Film(id: 1, band: "A", title: "t0"),
@@ -369,7 +371,7 @@ do {
     check("the skip fires (not vacuous)", noOps > 0, "noOps=\(noOps)")
     check("the refresh still fires for in-place edits", refreshes > 0, "refreshes=\(refreshes)")
 
-    // The two passes the audit measured: a selection change (films untouched) and a
+    // The two common passes: a selection change (films untouched) and a
     // metadata edit (films changed in place).
     let a = [Film(id: 0, band: "A", title: "t0"), Film(id: 1, band: "A", title: "t0")]
     var b = a; b[1].title = "renamed"

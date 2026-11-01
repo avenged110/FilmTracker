@@ -49,7 +49,7 @@ final class ListObject: LibraryObject {
             .sorted { $0.sortOrder < $1.sortOrder }
             .compactMap { $0.film?.id } }
 
-    // Returns the film IDs as strings (for compatibility with existing code).
+    // Returns the film IDs as strings.
     var filmIDStrings: [String] { return filmIDs.map { $0.uuidString } }
 }
 
@@ -68,7 +68,7 @@ extension ListObject: ExportableModel {
         props["sortFilterOptions"] = self.sortFilterOptions
         props["displayOrder"] = self.displayOrder
 
-        // Export film membership as array of film IDs for backward compatibility
+        // Export film membership as an array of film IDs.
         props["containsFilms"] = self.filmIDStrings
         // Don't export memberships as a relationship array
         // These are handled via the ListMembership join entity

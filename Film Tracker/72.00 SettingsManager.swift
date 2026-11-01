@@ -21,10 +21,7 @@ final class SettingsManager: Loggable {
     /// The in-flight debounce. Owned explicitly (rather than left to Combine's
     /// `.debounce` operator) so that `flushPendingSync()` can cancel the pending wait
     /// and perform the write immediately at quit. Combine offers no way to force a
-    /// debounced value out early, which is precisely why a preference changed within
-    /// the debounce window of a quit never reached SettingsObject at all — leaving the
-    /// next export/backup carrying the stale value, and a restore from it silently
-    /// reverting the setting.
+    /// debounced value out early, so the quit path needs this explicit handle.
     private var debounceTask: Task<Void, Never>?
 
     /// True when a `preferencesChanged` event has been observed but not yet written
@@ -56,9 +53,8 @@ final class SettingsManager: Loggable {
     
     // NOTE: No explicit deinit needed. AnyCancellable automatically cancels its
     // upstream subscription when deallocated, so `cancellables` cleans up on its own.
-    // A previous version used `Task { @MainActor in cancellables.removeAll() }` here,
-    // but deinit is nonisolated — the fire-and-forget Task would access instance storage
-    // after deallocation had begun, risking a crash on a dangling pointer.
+    // A Task that clears `cancellables` from deinit would be unsafe: deinit is nonisolated, and the
+    // task would touch instance storage after deallocation had begun.
     
     // MARK: - Observers
     private func setupObservers() {

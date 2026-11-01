@@ -133,19 +133,14 @@ enum PosterConverter {
     nonisolated fileprivate static let normalizedColorSpace: CGColorSpace =
         CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
-    // PIXEL-DENSITY FIX: Preferences.normalizedPosterWidth/Height (120x180) are LOGICAL
+    // PIXEL DENSITY: Preferences.normalizedPosterWidth/Height (120x180) are LOGICAL
     // POINT dimensions, not pixel dimensions. GalleryItemView/GalleryItem set the
     // displaying CALayer's `contentsScale` to the window's backingScaleFactor (falling
-    // back to 2.0 — see 23_40_GalleryItem.swift and 23_50_GalleryItemView.swift)
-    // precisely because they expect the poster bitmap to already be rendered at Retina
-    // pixel density, not the raw point size. The original lockFocus-based pipeline
-    // satisfied this implicitly: `NSImage(size: targetSize).lockFocus()` rasterizes at
-    // the main screen's backingScaleFactor (2.0 on every modern Mac), silently
-    // producing a 240x360-pixel bitmap for a "120x180" poster. The CGContext-based
-    // rewrite used `targetSize` as literal pixel dimensions instead, halving the
-    // actual stored resolution — the dramatic quality loss reported. Restoring
-    // `posterPixelScale` here reproduces the same 2x pixel density the rest of the
-    // gallery pipeline has always assumed, independent of screen generation.
+    // back to 2.0; see 23.40 GalleryItem.swift and 23.50 GalleryItemView.swift), because
+    // they expect the poster bitmap to already be rendered at Retina pixel density. Each
+    // point is therefore rendered at `posterPixelScale` pixels. Using the point size as the
+    // pixel size would halve the stored resolution. The 2x scale reproduces the pixel density
+    // the gallery pipeline assumes, independent of screen generation.
     nonisolated fileprivate static let posterPixelScale: CGFloat = 2.0
 
     // Resizes an NSImage to a target (point) size, compositing through an explicit
@@ -171,16 +166,12 @@ enum PosterConverter {
 
         // Opaque RGB, 8-bit, explicit sRGB — no alpha channel.
         //
-        // QUALITY FIX: the previous version used `.premultipliedLast` (RGBA). Poster
-        // art is always effectively opaque, so that alpha channel carried no real
-        // information, but its presence meant NSBitmapImageRep/the JPEG encoder had to
-        // flatten it before writing — an implicit conversion that appeared to apply
-        // its own lossy compression ahead of our explicit `compressionFactor`,
-        // compounding into visibly blockier output than the original lockFocus-based
-        // pipeline produced. Requesting `.noneSkipLast` up front means the CGImage has
-        // no alpha to flatten, so the JPEG encoder writes directly from RGB pixels
-        // honoring only the quality we specify — matching the original pipeline's
-        // fidelity while still gaining the deterministic sRGB tagging.
+        // `.noneSkipLast` (no alpha) rather than `.premultipliedLast`. Poster art is effectively
+        // opaque, so an alpha channel carries no information, and its presence would make
+        // NSBitmapImageRep and the JPEG encoder flatten it before writing. That implicit step
+        // applies its own lossy compression ahead of the explicit `compressionFactor`, which
+        // produces blockier output. Without alpha, the encoder writes directly from RGB pixels
+        // and honors only the quality specified, while the sRGB tag is still applied.
         guard let context = unsafe CGContext(data: nil, width: pixelWidth, height: pixelHeight,
             bitsPerComponent: 8, bytesPerRow: 0, space: normalizedColorSpace,
             bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
@@ -224,10 +215,10 @@ enum PosterConverter {
 ///     film's new UID) reaches MemoryStore only when Step 8 dispatches the changeset.
 ///
 /// The pruner runs from the deferred maintenance pass after launch and from every backup
-/// that has poster pruning enabled — including the automatic one thirty seconds after
-/// launch. An import begun in that window lost every poster it had extracted so far:
-/// the files were deleted, the films then committed with `posterUID`s that pointed at
-/// nothing, and nothing ever re-extracted them.
+/// that has poster pruning enabled, including the automatic one thirty seconds after
+/// launch. Without protection, a pruner run during an import would delete the posters
+/// extracted so far, and the films committed afterward would carry `posterUID`s pointing
+/// at nothing, with nothing to re-extract them.
 ///
 /// A UID is reserved by `PosterConverter` at the moment it is generated, before the
 /// write, so the pruner can never observe the file without the reservation. It is

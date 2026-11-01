@@ -1,7 +1,7 @@
 // MARK: - DBPackager.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Sandbox-only streaming writer for packaging DBReader.swift output as an XML file.
+// Streaming writer that packages DBReader output as an XML backup file.
 
 import Foundation
 
@@ -14,9 +14,9 @@ public final class DBPackager: Loggable {
     // Public for the same reason as DBExporter.logTag — see the note there.
     nonisolated public static let logTag = "[DBPackager]"
 
-    // No formatter or encoder is held here any more: dates and arrays are serialized by
-    // DBReader before they reach this file (see encodeXmlPropertyValue), so the packager
-    // only ever writes text it has been handed.
+    // The packager holds no formatter or encoder: DBReader serializes dates and arrays
+    // before they reach this file (see encodeXmlPropertyValue), so the packager only
+    // writes text it has been handed.
 
     public init() {}
 
@@ -193,10 +193,9 @@ public final class DBPackager: Loggable {
         return out }
 
     // Wraps a string in a CDATA section, guaranteeing the result is valid XML:
-    //   • Illegal XML 1.0 scalars are stripped first — a raw CDATA section cannot
-    //     legally contain them, so the previous (unstripped) CDATA path could emit
-    //     an unparseable file for any string that held both a control character and
-    //     an XML special character.
+    //   • Illegal XML 1.0 scalars are stripped first. A raw CDATA section cannot
+    //     legally contain them, so a string holding both a control character and an
+    //     XML special character would otherwise produce an unparseable file.
     //   • Any embedded "]]>" sequence is split across two CDATA sections. Without this
     //     an embedded "]]>" (which can occur in free-text fields such as notes, or in
     //     a JSON-encoded array element) would terminate the CDATA section early and
@@ -228,47 +227,23 @@ public final class DBPackager: Loggable {
         // value — and it normalizes as it builds `propsEncoded`. By the time a value
         // arrives it is one of exactly five things: NSNull, String, Bool, Int64 or Double.
         //
-        // Three branches for UUID, [String] and Date used to sit here as "defensive"
-        // duplicates. They were unreachable, and what they were defending is already done
-        // upstream, better:
-        //   • UUID   → the reader writes `uuid.uuidString` and records NO declared type, so
-        //              the String branch's own normalization below still canonicalizes it.
-        //   • [String] → the reader strips XML-illegal scalars and THEN JSON-encodes; this
-        //              copy did neither, so it was the weaker of the two.
-        //   • Date   → the reader formats with the shared ISO8601 formatter, configured
-        //              identically to this file's; the two produced the same string.
-        // The final `String(describing:)` fallback remains as the genuine backstop for a
-        // value shape the reader might grow later.
+        // The UUID, [String] and Date types are normalized upstream, so they never reach
+        // this function as their own types:
+        //   • UUID     → the reader writes `uuid.uuidString` and records NO declared type, so
+        //                the String branch below still canonicalizes it.
+        //   • [String] → the reader strips XML-illegal scalars and then JSON-encodes.
+        //   • Date     → the reader formats with the shared ISO8601 formatter, configured
+        //                identically to this file's.
+        // The final `String(describing:)` fallback is the backstop for a value shape the
+        // reader might add later.
 
         // Handle strings
         if let s = val as? String {
-            // NO `\'` CLEANUP HERE — it can only ever damage what it touches.
-            //
-            // A `replacingOccurrences(of: "\\'", with: "'")` used to run on every string
-            // reaching this point, described as cleaning up backslash-escaped apostrophes
-            // from upstream metadata. That cleanup belongs on the READ side, and it is
-            // already there and correct: DBImporter's `decodeArray` applies it to legacy
-            // files whose arrays really do carry the invalid `\'` escape (D\'Onofrio and
-            // friends). Applied HERE, to values on their way OUT, it had no legacy input to
-            // repair and two ways to corrupt a healthy one:
-            //
-            //   • A String field — declared type "string" — whose text genuinely contains a
-            //     backslash before an apostrophe (a Windows path, a shell-quoted fragment)
-            //     was written to the backup with the backslashes silently removed. The
-            //     restore has nothing to recover them from; the loss is permanent.
-            //
-            //   • A [String] field arrives here as JSON that DBReader produced with
-            //     JSONEncoder, so a literal backslash is already encoded as `\\`. The
-            //     cleanup matched the `\'` inside that `\\'` and rewrote it to `\'` —
-            //     which is not a legal JSON escape. The array then failed to decode on
-            //     restore and DBImporter substituted NSNull, so the WHOLE field came back
-            //     empty: an entire cast list lost to one apostrophe.
-            //
-            // JSONEncoder output is always valid JSON, and a declared String must be
-            // written verbatim, so there is no value shape the cleanup could have helped.
-            // This is the same defect class as the UUID normalization immediately below,
-            // which is why that one is gated on `declaredType` rather than deleted — it
-            // has a real job to do for genuine UUID properties. This one had none.
+            // Strings are written verbatim. No backslash repair happens here: a declared
+            // String may legitimately contain a backslash before an apostrophe (a Windows
+            // path), and a [String] value arrives as JSONEncoder output, where `\\` is a
+            // valid escape that a rewrite would corrupt. The `\'` repair for legacy arrays
+            // belongs to the read side, in DBImporter's `decodeArray`.
             let cleanString = s
 
             // Check if it's a UUID string - if so, validate and normalize it.

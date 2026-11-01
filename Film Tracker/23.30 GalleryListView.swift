@@ -1,54 +1,30 @@
 // MARK: - GalleryListView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// SwiftUI List-based alternative to the NSCollectionView gallery grid.
-// Activated when ViewState.isListView is true for the current view.
+// List-style alternative to the grid, shown when ViewState.isListView is true for the current view.
 //
-// Architecture: DraggableListView is a full NSViewRepresentable that owns a
-// DraggableListTableView (an NSTableView subclass) directly — the same pattern
-// GallerySubview uses for GalleryCollectionView. This gives us complete control
-// over mouse events and allows NSTableView's native drag-as-source machinery
-// to be used to trigger GalleryDragEngine's list-path drag preview.
+// DraggableListView is an NSViewRepresentable that owns a DraggableListTableView (an NSTableView subclass),
+// as GallerySubview does for the grid. That gives full control over mouse events and lets NSTableView's
+// native drag-as-source machinery trigger GalleryDragEngine's list-path preview.
 //
-// A manual, GalleryCollectionView-style mouseDown/mouseDragged/mouseUp bypass of
-// this native machinery was tried and does NOT work: NSTableView.mouseDown(with:)
-// runs its own internal, blocking event-tracking loop that consumes every
-// subsequent mouseDragged/mouseUp event itself whenever a row is hit — those
-// events never reach a subclass's own overrides at all, drag-eligible row or
-// not. (NSCollectionView has no equivalent blocking behavior for an item hit,
-// which is why GalleryCollectionView's manual approach works for the grid but
-// has no NSTableView analog.) The native pipeline below is the only viable
-// hook point.
+// A manual mouseDown and mouseDragged bypass, like the grid's, does not work here.
+// NSTableView.mouseDown(with:) runs its own blocking tracking loop and consumes the drag and mouse-up events
+// for any row it hits. So the native pipeline below is the only usable hook.
 //
-// Unlike the grid, which uses the session's own NATIVE dragging-item image as
-// its visible preview (window-server-driven; see GalleryDragEngine's class doc
-// comment), the list path's visible preview is a separate, manually positioned
-// borderless NSWindow (the "flyback window") — this app's original list-view
-// drag mechanism, reinstated after the native per-item preview proved unable to
-// track the cursor correctly for an NSTableView-originated session across
-// several independent fix attempts. See GalleryDragEngine's class-level doc
-// comment for the full rationale.
+// The list's visible preview is a separate, manually positioned borderless NSWindow (the "flyback window").
+// The grid uses the native dragging image instead. The native list preview does not track the cursor for
+// NSTableView sessions. See GalleryDragEngine's class doc for the full rationale.
 //
 // Drag pipeline:
-//   1. Coordinator implements tableView(_:pasteboardWriterForRow:), which registers
-//      the film payload and causes NSTableView to detect drag gestures natively from
-//      within its own mouseDown event-tracking loop — the only reliable hook point.
-//   2. dragImageForRows(with:tableColumns:event:offset:) on DraggableListTableView
-//      suppresses NSTableView's default row-snapshot drag image with an invisible
-//      1×1 image (the `offset` value doesn't matter — this native item is never
-//      actually shown).
-//   3. tableView(_:draggingSession:willBeginAt:forRowIndexes:) fires when the drag
-//      begins. We reconfirm the invisible 1×1 placeholder (belt-and-suspenders)
-//      and call GalleryDragEngine.prepareDrag, which arms the flyback window at
-//      the drag's starting screen point.
-//   4. DraggableListTableView's own draggingSession(_:movedTo:) override (NSTableView
-//      already conforms to NSDraggingSource) forwards each cursor move to
-//      GalleryDragEngine.dragMoved(to:), which repositions the flyback window by
-//      direct screen-point arithmetic.
-//   5. The Coordinator's endedAt delegate callback forwards session end to
-//      GalleryDragEngine.draggingSessionEnded, which animates the flyback window
-//      back to its start point on cancel/fail, or dismisses it immediately on a
-//      successful drop, then posts .dragSessionDidEnd (DragSessionMonitor bookkeeping).
+//   1. tableView(_:pasteboardWriterForRow:) registers the film payload, so NSTableView detects the drag natively.
+//   2. dragImageForRows(with:tableColumns:event:offset:) on DraggableListTableView replaces the default row snapshot with an
+//      invisible 1x1 image. That native image is never shown.
+//   3. tableView(_:draggingSession:willBeginAt:forRowIndexes:) re-asserts the placeholder and calls GalleryDragEngine.prepareDrag,
+//      which arms the flyback window at the drag's start point.
+//   4. DraggableListTableView.draggingSession(_:movedTo:) forwards each move to GalleryDragEngine.dragMoved(to:), which moves the
+//      flyback window.
+//   5. endedAt forwards the session end to GalleryDragEngine.draggingSessionEnded. The window either animates back on cancel or
+//      dismisses at once on drop, and then .dragSessionDidEnd is posted.
 
 import AppKit
 import SwiftUI
@@ -57,24 +33,16 @@ import Combine
 // MARK: - Scroll range
 
 private extension NSScrollView {
-    /// The largest valid vertical `contentView` bounds origin for a document of
-    /// `contentHeight` — i.e. the position at which the document is scrolled as far up as
-    /// AppKit will allow. Every programmatic scroll in this file clamps against it.
+    /// The largest valid vertical `contentView` bounds origin for a document of `contentHeight`. That is the
+    /// position where the document is scrolled as far up as AppKit allows. Every programmatic scroll in this
+    /// file clamps to it.
     ///
-    /// Defined once because it is subtle in one specific way: `contentInsets.bottom` (29pt
-    /// while the StatusBar overlay is shown) EXTENDS the scrollable range past the
-    /// document's natural bottom edge. That is the entire reason the inset is set — so the
-    /// last real row can scroll clear of the overlay instead of being stranded underneath
-    /// it — and omitting the term capped every programmatic scroll 29pt short of where the
-    /// user can drag the scroller by hand.
+    /// The bottom content inset (29 pt while the StatusBar overlay shows) extends the scrollable range past
+    /// the document's bottom edge. So the last row can scroll clear of the overlay. Omitting the inset would
+    /// stop programmatic scrolls 29 pt short of where the user can drag.
     ///
-    /// The expression is NSClipView's own constraint, verified against
-    /// `constrainBoundsRect` for a flipped document view (which NSTableView is): a
-    /// 1000pt document in a 400pt viewport constrains to 600 with no insets and to 629
-    /// with a 29pt bottom inset. `contentView.bounds.height` is the viewport height
-    /// proper — the clip view is NOT itself inset by `contentInsets`, it spans the whole
-    /// scroll view — so it is the direct statement of the quantity this needs, rather than
-    /// `documentVisibleRect.height`, which merely happens to equal it.
+    /// This matches NSClipView's constraint for a flipped document, which NSTableView is. The viewport height
+    /// is contentView.bounds.height, since the clip view spans the whole scroll view and is not inset.
     func maxVerticalScrollOffset(forContentHeight contentHeight: CGFloat) -> CGFloat {
         max(0, contentHeight + contentInsets.bottom - contentView.bounds.height)
     }
@@ -83,16 +51,9 @@ private extension NSScrollView {
 // MARK: - Drag placeholder image
 
 private extension NSImage {
-    /// The invisible 1×1 image used to suppress the list path's NATIVE drag preview, in
-    /// both places AppKit offers to supply one: `dragImageForRows` (the definitive
-    /// suppression point, called during session construction) and the belt-and-suspenders
-    /// re-assertion in `willBeginAt`. Defined once so the two can never diverge — the
-    /// real, visible preview is GalleryDragEngine's flyback window (see this file's
-    /// header).
-    ///
-    /// Computed rather than a stored `static let`: a shared NSImage instance would be
-    /// non-Sendable global state, and the object is a 1×1 bitmap constructed at most twice
-    /// per drag gesture, so there is nothing worth caching.
+    /// The invisible 1x1 image that suppresses the list's native drag preview. It is supplied in two places:
+    /// dragImageForRows, which is the definitive point, and willBeginAt, as a second assertion. Defining it
+    /// once keeps the two the same. The visible preview is the flyback window (see GalleryDragEngine).
     static var transparentDragPlaceholder: NSImage {
         NSImage(size: NSSize(width: 1, height: 1), flipped: false) { rect in
             NSColor.clear.setFill()
@@ -106,49 +67,43 @@ private extension NSImage {
 // Thumbnail height (36) + top padding (4) + bottom padding (4) = 44.
 let kListRowHeight: CGFloat = 44
 
-/// Height of a section-divider band's own CONTENT in the list gallery —
-/// the label/count line plus the hairline rule beneath it. Deliberately shorter than the
-/// grid's full-row divider band (see SectionDividerDecorationView in GalleryViewUI.swift):
-/// a list row is 44pt tall rather than a whole poster tile, so a grid-proportioned band
-/// would dwarf the content it separates.
+/// Height of a section-divider band's own CONTENT in the list gallery — the label/count line plus the
+/// hairline rule beneath it. Deliberately shorter than the grid's full-row divider band (see
+/// SectionDividerDecorationView in GalleryViewUI.swift): a list row is 44pt tall rather than a whole poster
+/// tile, so a grid-proportioned band would dwarf the content it separates.
 let kListSectionDividerBandHeight: CGFloat = 38
 
-/// Vertical breathing room added above AND below the band content, separating a divider
-/// from the film rows on either side of it so the section break reads unmistakably rather
-/// than as just another row.
+/// Vertical breathing room added above AND below the band content, separating a divider from the film rows on
+/// either side of it so the section break reads unmistakably rather than as just another row.
 let kListSectionDividerVerticalPadding: CGFloat = 16
 
-/// The total row height a section divider occupies. Derived rather than stated, so the
-/// band content and its padding can be retuned independently without the row height and
-/// the view's own frame ever falling out of agreement — they are the same number by
-/// construction, which matters because the scroll-restore math sums these heights
-/// arithmetically (see Coordinator.listContentHeight).
+/// The total row height a section divider occupies. Derived rather than stated, so the band content and its
+/// padding can be retuned independently without the row height and the view's own frame ever falling out of
+/// agreement — they are the same number by construction, which matters because the scroll-restore math sums
+/// these heights arithmetically (see Coordinator.listContentHeight).
 let kListSectionDividerHeight: CGFloat =
     kListSectionDividerBandHeight + 2 * kListSectionDividerVerticalPadding
 
 // MARK: - Row Item Model
 //
-// The list gallery's table is addressed in ROW space, which is not necessarily the same
-// as FILM space: a sectioned view interleaves labeled section-divider rows between its
-// groups, exactly as the grid does with its decoration-view bands. `ListRowItem` is the
-// single mapping between the two spaces, and every row↔film conversion in this file goes
-// through it (or through the Coordinator.filmRowMap it is built alongside).
+// The list gallery's table is addressed in ROW space, which is not necessarily the same as FILM space: a
+// sectioned view interleaves labeled section-divider rows between its groups, exactly as the grid does with
+// its decoration-view bands. `ListRowItem` is the single mapping between the two spaces, and every row↔film
+// conversion in this file goes through it (or through the Coordinator.filmRowMap it is built alongside).
 //
-// Whenever no bands apply — the Film Queue's "All" tab always has them, every other view
-// only while this view's ViewState.showSectionDividers is on — the row model is built as a
-// strict 1:1 `.film(index:)` sequence with no dividers whatsoever, so row index == film
-// index and the mapping is an exact identity. The divider machinery therefore contributes
-// nothing at all in that case, and cannot affect the gallery's behavior.
+// Whenever no bands apply — the Film Queue's "All" tab always has them, every other view only while this
+// view's ViewState.showSectionDividers is on — the row model is built as a strict 1:1 `.film(index:)`
+// sequence with no dividers whatsoever, so row index == film index and the mapping is an exact identity. The
+// divider machinery therefore contributes nothing at all in that case, and cannot affect the gallery's
+// behavior.
 enum ListRowItem: Equatable {
-    /// A labeled section band. `filmCount` is the number of real film rows
-    /// that belong to this section, computed as the span to the next divider (or to the
-    /// end of the film set) via GallerySectioning.bandFilmCount — the same call the grid's
-    /// SmoothResizingGridLayout.filmCount(atOrdinal:) makes.
+    /// A labeled section band. `filmCount` is the number of film rows in the section. It is the span to the
+    /// next divider, or to the end, computed by GallerySectioning.bandFilmCount, the same call the grid uses.
     case divider(section: GallerySection, filmCount: Int)
     /// A real film row, carrying its index into the Coordinator's `films` array.
     case film(index: Int)
-    /// An empty "Up Next" placeholder slot (1-based number), shown only on the Film
-    /// Queue's "All" tab after the "Up Next" films. Never selectable; see UpNextSlots.swift.
+    /// An empty "Up Next" placeholder slot (1-based number), shown only on the Film Queue's "All" tab after
+    /// the "Up Next" films. Never selectable; see UpNextSlots.swift.
     case slot(number: Int)
 
     var isFilm: Bool {
@@ -161,8 +116,8 @@ enum ListRowItem: Equatable {
         return false
     }
 
-    /// The row's own height, used by both `heightOfRow` and the pure-arithmetic content
-    /// height the scroll-restore math depends on, so the two can never disagree.
+    /// The row's own height, used by both `heightOfRow` and the pure-arithmetic content height the
+    /// scroll-restore math depends on, so the two can never disagree.
     var rowHeight: CGFloat {
         isDivider ? kListSectionDividerHeight : kListRowHeight
     }
@@ -170,57 +125,41 @@ enum ListRowItem: Equatable {
 
 // MARK: - List Scroll View
 
-/// NSScrollView subclass for the list gallery, used to resolve a pending scroll target —
-/// transferred from GalleryScrollIntent (ViewState.swift) — in viewWillDraw(), after
-/// AppKit has laid out the view with real geometry, immediately before the first
-/// frame is drawn.
+/// NSScrollView subclass for the list. It resolves a pending scroll target, handed off from
+/// GalleryScrollIntent, in viewWillDraw(). At that point AppKit has laid out the view with real geometry, and
+/// the frame has not yet been drawn.
 ///
-/// Mirrors WidthObservingScrollView's identical technique in GallerySubview.swift
-/// (see GalleryScrollIntent's and PendingScrollBehavior's doc comments in
-/// ViewState.swift for the full rationale). Resolving here rather than directly in makeNSView
-/// matters even though the table's row geometry is pure arithmetic on a fixed row
-/// height: setting contentView bounds origin before the scroll view has been inserted
-/// into the window and given a real frame is unreliable — AppKit's own layout pass can
-/// silently reset it once the view acquires real geometry, which is exactly why every
-/// deferred scroll in GallerySubview — the scroll-intent handoffs and the
-/// "maintainScrollPositionOnViewSwitch" origin restore alike — resolves in
-/// WidthObservingScrollView.viewWillDraw() rather than scrolling immediately, with
-/// no pre-scroll flash frame because the origin is applied before the frame paints.
+/// It mirrors WidthObservingScrollView in GallerySubview. Resolving here, rather than in makeNSView, matters.
+/// Setting the origin before the view has a real frame is unreliable, since AppKit's own layout can reset it.
+/// So every deferred scroll resolves in viewWillDraw(), and the origin is set before the first frame paints.
 private final class ListScrollView: NSScrollView, Loggable {
     nonisolated static let logTag = "[DraggableListView]"
 
     /// Pending post-layout scroll target, transferred here from GalleryScrollIntent by
     /// DraggableListView.makeNSView (mirrors WidthObservingScrollView's identical field).
     var pendingScrollFilmID: UUID?
-    /// How pendingScrollFilmID should be applied once geometry is available. See
-    /// PendingScrollBehavior's doc comment (ViewState.swift) for the two cases. Every
-    /// handoff uses the default, `.forceTop`; only the post-edit keep-in-view sets
-    /// `.ifNeeded`, right before resolving. Reset to the default whenever a target resolves,
-    /// so a handoff can never inherit a post-edit `.ifNeeded`.
+    /// How pendingScrollFilmID is applied once geometry is available (see PendingScrollBehavior in
+    /// ViewState.swift). Every handoff uses the default, .forceTop. Only the post-edit keep-in-view sets
+    /// .ifNeeded, and it resets to the default after resolving, so no handoff inherits it.
     var pendingScrollBehavior: PendingScrollBehavior = .forceTop
-    /// Pending post-layout scroll ORIGIN restore for the
-    /// maintainScrollPositionOnViewSwitch feature, armed by
-    /// DraggableListView.updateNSView's view-switch branch and resolved — and cleared —
-    /// in viewWillDraw() below, exactly like pendingScrollFilmID. Mirrors
-    /// WidthObservingScrollView's identically named field. Mutually exclusive with
-    /// pendingScrollFilmID by construction (updateNSView only arms this when no film
-    /// target is pending); should both ever be set, the film target wins and the
-    /// superseded origin is discarded when it resolves.
+    /// Pending post-layout scroll origin restore for maintainScrollPositionOnViewSwitch. It is armed by
+    /// DraggableListView.updateNSView's view-switch branch, and it is resolved and cleared in viewWillDraw(),
+    /// as pendingScrollFilmID is. It is mutually exclusive with pendingScrollFilmID, since updateNSView arms
+    /// it only when no film target is pending. If both are set, the film target wins.
     var pendingScrollPosition: GalleryScrollPosition?
-    /// Pending keyboard-focus claim, transferred here from GalleryFocusIntent by
-    /// DraggableListView.makeNSView (mirrors WidthObservingScrollView's identical field).
-    /// Honored — and cleared — in viewWillDraw() below.
+    /// Pending keyboard-focus claim, transferred here from GalleryFocusIntent by DraggableListView.makeNSView
+    /// (mirrors WidthObservingScrollView's identical field). Honored — and cleared — in viewWillDraw() below.
     var pendingKeyboardFocus = false
-    /// Weak back-reference so viewWillDraw() can reach scrollFilmToTop(_:) and
-    /// isRowVisible(_:). Wired in makeNSView.
+    /// Weak back-reference so viewWillDraw() can reach scrollFilmToTop(_:) and isRowVisible(_:). Wired in
+    /// makeNSView.
     weak var listCoordinator: DraggableListView.Coordinator?
 
     override func viewWillDraw() {
         super.viewWillDraw()
 
-        // Film-target resolution takes precedence; an origin armed alongside one can only
-        // be a superseded leftover from an earlier pass and is discarded when the film
-        // target resolves. Mirrors WidthObservingScrollView.viewWillDraw().
+        // Film-target resolution takes precedence; an origin armed alongside one can only be a superseded
+        // leftover from an earlier pass and is discarded when the film target resolves. Mirrors
+        // WidthObservingScrollView.viewWillDraw().
         if pendingScrollFilmID != nil {
             resolvePendingFilmTarget()
         } else if pendingScrollPosition != nil {
@@ -231,8 +170,8 @@ private final class ListScrollView: NSScrollView, Loggable {
     }
 
     /// Keyboard-focus claim for the search-exit handoff. Mirrors
-    /// WidthObservingScrollView.resolvePendingKeyboardFocus — see there for why it is
-    /// independent of the scroll resolution and deferred one turn.
+    /// WidthObservingScrollView.resolvePendingKeyboardFocus — see there for why it is independent of the
+    /// scroll resolution and deferred one turn.
     private func resolvePendingKeyboardFocus() {
         guard pendingKeyboardFocus, let window = unsafe window, let target = documentView else { return }
         pendingKeyboardFocus = false
@@ -242,15 +181,13 @@ private final class ListScrollView: NSScrollView, Loggable {
         }
     }
 
-    /// Film-target resolution for every scroll handoff (see GalleryScrollIntent in
-    /// ViewState.swift for the producers) and for the post-edit keep-in-view. Mirrors
+    /// Film-target resolution for every scroll handoff (see GalleryScrollIntent in ViewState.swift for the
+    /// producers) and for the post-edit keep-in-view. Mirrors
     /// WidthObservingScrollView.resolvePendingFilmTarget.
     private func resolvePendingFilmTarget() {
         guard let filmID = pendingScrollFilmID else { return }
-        // If geometry isn't ready yet, this guard fails and pendingScrollFilmID is left
-        // set — viewWillDraw fires again on the next display pass, so the target is
-        // retained and retried automatically (matches WidthObservingScrollView's
-        // identical guard-and-retry pattern).
+        // If geometry is not ready, this guard fails and pendingScrollFilmID stays set. viewWillDraw runs
+        // again on the next pass, so the target is retried, as in WidthObservingScrollView.
         guard bounds.width > 0, documentVisibleRect.height > 0,
               let coordinator = listCoordinator else { return }
 
@@ -261,9 +198,9 @@ private final class ListScrollView: NSScrollView, Loggable {
         }
 
         pendingScrollFilmID = nil
-        // Discard any superseded origin restore (see viewWillDraw's precedence note),
-        // both the copy armed here and the intent it was armed from — otherwise the
-        // intent would simply be re-armed on the next update pass and fight this scroll.
+        // Discard any superseded origin restore (see viewWillDraw's precedence note), both the copy armed
+        // here and the intent it was armed from — otherwise the intent would simply be re-armed on the next
+        // update pass and fight this scroll.
         pendingScrollPosition = nil
         ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
         let behavior = pendingScrollBehavior
@@ -271,8 +208,8 @@ private final class ListScrollView: NSScrollView, Loggable {
 
         switch behavior {
         case .forceTop:
-            // Every handoff: the film's row goes to the top of the viewport (as far as the
-            // content allows), like Cmd+L, even when the film is already visible.
+            // Every handoff: the film's row goes to the top of the viewport (as far as the content allows),
+            // like Cmd+L, even when the film is already visible.
             coordinator.scrollFilmToTop(filmID)
             Self.log("Scroll handoff resolved pre-draw: film \(filmID) → row \(row)")
         case .ifNeeded:
@@ -284,48 +221,44 @@ private final class ListScrollView: NSScrollView, Loggable {
         }
     }
 
-    /// Applies an armed origin restore immediately, if geometry already allows it.
-    /// Mirrors WidthObservingScrollView.applyPendingOriginRestoreIfPossible() — see that
-    /// method for why viewWillDraw alone is not sufficient on a reused gallery.
+    /// Applies an armed origin restore immediately, if geometry already allows it. Mirrors
+    /// WidthObservingScrollView.applyPendingOriginRestoreIfPossible() — see that method for why viewWillDraw
+    /// alone is not sufficient on a reused gallery.
     func applyPendingOriginRestoreIfPossible() {
         resolvePendingOriginRestore()
     }
 
-    /// Applies an armed film target immediately, if geometry already allows it. The list's
-    /// copy of WidthObservingScrollView.applyPendingFilmTargetIfPossible() — see that
-    /// method for why viewWillDraw alone is not sufficient on a reused gallery.
+    /// Applies an armed film target immediately, if geometry already allows it. The list's copy of
+    /// WidthObservingScrollView.applyPendingFilmTargetIfPossible() — see that method for why viewWillDraw
+    /// alone is not sufficient on a reused gallery.
     func applyPendingFilmTargetIfPossible() {
         resolvePendingFilmTarget()
     }
 
-    /// Saved-origin restore for the maintainScrollPositionOnViewSwitch feature, armed by
-    /// DraggableListView.updateNSView's view-switch branch. Applied pre-draw (from
-    /// viewWillDraw, or directly via applyPendingOriginRestoreIfPossible), so the first
-    /// painted frame for the new view is already at the restored position.
+    /// Saved-origin restore for maintainScrollPositionOnViewSwitch. It is armed by
+    /// DraggableListView.updateNSView's view-switch branch and applied before the draw, so the first painted
+    /// frame is already at the restored position.
     private func resolvePendingOriginRestore() {
         guard let position = pendingScrollPosition else { return }
         guard bounds.width > 0, documentVisibleRect.height > 0,
               let coordinator = listCoordinator else { return }
 
-        // Content height is summed from the row model (see Coordinator.listContentHeight,
-        // which accounts for the taller section-divider rows) rather than taken from the
-        // document view's frame height, for exactly the reason spelled out in
-        // Coordinator.scrollFilmToTop(_:): NSTableView's frame can still read 0 or stale
-        // on the first viewWillDraw pass after a reload, which would collapse the clamp
-        // below to 0 and force every restore back to the top. Pure arithmetic has no
-        // dependency on AppKit's internal layout timing.
+        // Content height is summed from the row model, which includes the taller divider rows. It is not
+        // taken from the document frame, which can read 0 or stale on the first pass after a reload. That
+        // would collapse the clamp to zero and force every restore to the top. Pure arithmetic does not
+        // depend on AppKit's layout timing.
         let contentHeight = coordinator.listContentHeight
         guard contentHeight > 0 else {
-            // No rows laid out yet — viewWillDraw fires again on the next display pass,
-            // so the origin is retained and retried automatically (matching
-            // resolvePendingFilmTarget's guard-and-retry pattern).
+            // No rows laid out yet — viewWillDraw fires again on the next display pass, so the origin is
+            // retained and retried automatically (matching resolvePendingFilmTarget's guard-and-retry
+            // pattern).
             return
         }
 
         pendingScrollPosition = nil
-        // Retire the intent now that it has genuinely been applied against real geometry.
-        // Until this point it stays live in ViewStateManager on purpose, so a reload that
-        // lands between arming and resolution re-arms it rather than losing it.
+        // Retire the intent now that it has genuinely been applied against real geometry. Until this point it
+        // stays live in ViewStateManager on purpose, so a reload that lands between arming and resolution
+        // re-arms it rather than losing it.
         ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
 
         let target = applyClampedOrigin(CGPoint(x: 0, y: coordinator.restoreY(for: position)),
@@ -333,10 +266,8 @@ private final class ListScrollView: NSScrollView, Loggable {
         Self.log("Saved scroll origin restored pre-draw: \(target)")
     }
 
-    /// Moves the viewport to `origin`, clamped to the current valid scroll range: the
-    /// view's content may have shrunk since the origin was saved (films deleted, filters
-    /// changed before returning), and an out-of-range origin would leave the viewport in
-    /// over-scrolled blank space.
+    /// Moves the viewport to `origin`, clamped to the current valid scroll range. The content may have shrunk
+    /// since the origin was saved, and an out-of-range origin would leave blank space.
     @discardableResult
     private func applyClampedOrigin(_ origin: CGPoint, contentHeight: CGFloat) -> NSPoint {
         let maxScrollY = maxVerticalScrollOffset(forContentHeight: contentHeight)
@@ -349,49 +280,44 @@ private final class ListScrollView: NSScrollView, Loggable {
     }
 }
 
-// StatusBar overlay height — mirrors the private kStatusBarHeight in GallerySubview.
-private let kListStatusBarHeight: CGFloat = 29
+// StatusBar overlay height.
+private let kListStatusBarHeight: CGFloat = StatusBar.height
 
 // MARK: - GalleryListView
 
 struct GalleryListView: View {
-    /// The active ViewIdentifier from ViewStateManager, passed down so the Coordinator
-    /// can address itself when consuming a pending GalleryScrollIntent (the search-exit
-    /// and grid⟷list toggle scroll-position handoffs). Mirrors GallerySubview.activeViewID.
+    /// The active ViewIdentifier from ViewStateManager, passed down so the Coordinator can address itself
+    /// when consuming a pending GalleryScrollIntent (the search-exit and grid⟷list toggle scroll-position
+    /// handoffs). Mirrors GallerySubview.activeViewID.
     let activeViewID: ViewIdentifier
 
-    /// The film whose position may have changed in the reload this pass is about to
-    /// perform, or nil. Produced by GalleryView's `.film(.updated)` handler, exactly as for
-    /// the grid — this style previously did not receive it at all, so a film that an edit
-    /// pushed out of the viewport (a rating change under a rating sort, say) stayed off
-    /// screen with no indication of where it had gone. See the Priority 1 branch in
-    /// updateNSView.
+    /// The film whose position may have changed in the reload this pass is about to perform, or nil.
+    /// GalleryView's `.film(.updated)` handler produces it, as it does for the grid. Without it, a film
+    /// pushed off screen by an edit, such as a rating change under a rating sort, would stay off screen with
+    /// no clue where it went. See Priority 1 in updateNSView.
     let scrollRequest: FilmScrollRequest?
-    /// The same subtitle provider GalleryView hands the grid (a Recents date, or nil for
-    /// every other view). The list renders it as a by-line under the title, so the two
-    /// styles show the same secondary information for the same view.
+    /// The same subtitle provider GalleryView hands the grid (a Recents date, or nil for every other view).
+    /// The list renders it as a by-line under the title, so the two styles show the same secondary
+    /// information for the same view.
     let subtitleProvider: GallerySubtitleProvider?
-    /// This view's section-dividers setting, read from its ViewState by GalleryView and
-    /// passed down, mirroring the identical handoff to GallerySubview. The value reaches
-    /// the Coordinator before its `films` assignment, whose didSet rebuilds the row model —
-    /// so the bands appear or disappear in place, with no film-set change of any kind.
+    /// This view's section-dividers setting, read from its ViewState by GalleryView and passed down, as for
+    /// GallerySubview. It reaches the Coordinator before the `films` assignment, whose didSet rebuilds the
+    /// row model, so bands appear or disappear in place.
     let showSectionDividers: Bool
 
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
     @AppStorage(preference: Preferences.showStatusBarKey) private var showStatusBar: Bool
-    // NOTE: maintainScrollPositionOnViewSwitch is deliberately NOT read here any more.
-    // ViewStateManager.prepareScrollHandoff is now the single gate for the feature: it
-    // consults the preference at the moment of each switch and simply arms nothing when
-    // the preference is off, so this layer has no decision left to make. Mirrors the
-    // identical removal in GallerySubview.
+    // maintainScrollPositionOnViewSwitch is not read here. ViewStateManager.prepareScrollHandoff checks the
+    // preference at each switch and arms nothing when it is off, so this layer has no decision to make.
+    // GallerySubview removed its read for the same reason.
 
     var body: some View {
         DraggableListView(
             films: dataCoordinator.films,
-            // Handed down so the Coordinator can resolve Film Queue section membership
-            // when building its row model — the list's counterpart to the identical
-            // handoff GallerySubview performs for its own section-divider computation.
+            // Handed down so the Coordinator can resolve Film Queue section membership when building its row
+            // model — the list's counterpart to the identical handoff GallerySubview performs for its own
+            // section-divider computation.
             dataCoordinator: dataCoordinator,
             selectionState: selectionState,
             showStatusBar: showStatusBar,
@@ -405,9 +331,8 @@ struct GalleryListView: View {
 
 // MARK: - DraggableListView
 
-/// Full NSViewRepresentable replacement for SwiftUI's List.
-/// Owns a DraggableListTableView directly so NSTableView's native drag detection
-/// fires correctly from within its own mouseDown event-tracking loop.
+/// Full NSViewRepresentable replacement for SwiftUI's List. Owns a DraggableListTableView directly so
+/// NSTableView's native drag detection fires correctly from within its own mouseDown event-tracking loop.
 private struct DraggableListView: NSViewRepresentable, Loggable {
     nonisolated static let logTag = "[DraggableListView]"
 
@@ -426,9 +351,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         #if DEBUG
         ViewSwitchProbe.record("list.make \(activeViewID) films=\(films.count)")
         #endif
-        // A request already standing when this list mounts belongs to an edit some earlier
-        // instance handled (the grid, before a style toggle); seeding it keeps this one from
-        // acting on it again.
+        // A request already standing when this list mounts belongs to an edit some earlier instance handled
+        // (the grid, before a style toggle); seeding it keeps this one from acting on it again.
         context.coordinator.lastScrollRequest = scrollRequest
         let scrollView = ListScrollView()
         scrollView.hasVerticalScroller = true
@@ -438,33 +362,27 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         scrollView.drawsBackground = false
         scrollView.verticalScrollElasticity = .allowed
         scrollView.scrollerStyle = .overlay
-        // Prevent macOS from overwriting contentInsets with its own safe-area values.
-        // We set contentInsets manually in updateNSView to create StatusBar scroll headroom.
+        // Prevent macOS from overwriting contentInsets with its own safe-area values. We set contentInsets
+        // manually in updateNSView to create StatusBar scroll headroom.
         scrollView.automaticallyAdjustsContentInsets = false
         // Layer-backed rendering for smooth compositing, matching GallerySubview.
         scrollView.wantsLayer = true
         scrollView.layerContentsRedrawPolicy = .onSetNeedsDisplay
-        // Allow the scroll view to grow to fill all available horizontal space
-        // and resist compression so the table is never clipped on narrow windows.
+        // Allow the scroll view to grow to fill all available horizontal space and resist compression so the
+        // table is never clipped on narrow windows.
         scrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         scrollView.setContentCompressionResistancePriority(.init(1), for: .horizontal)
 
         let tableView = DraggableListTableView()
-        // Do NOT set wantsLayer = true on the table view. When the table is
-        // layer-backed, reloadData does not synchronously repaint the layer bitmap —
-        // the stale (pre-deletion) bitmap remains visible until the next display cycle,
-        // which exposes the old row backgrounds below the new content boundary as a
-        // phantom partial-row artifact. The scroll view itself is layer-backed (set
-        // above), which is sufficient for compositing; the table draws synchronously
-        // via the display cycle and avoids any stale-bitmap window.
+        // Do not set wantsLayer = true on the table view. A layer-backed table does not repaint synchronously
+        // on reloadData. The stale bitmap of the deleted rows would show until the next display cycle. The
+        // scroll view is already layer-backed, which is enough for compositing.
         tableView.style = .inset
         tableView.usesAlternatingRowBackgroundColors = true
-        // Set the table's own background color to the first alternating content color.
-        // NSTableView fills its entire frame with row backgrounds — including the area
-        // below the last data row when the frame height is not an exact multiple of
-        // rowHeight. Setting backgroundColor to colors[0] ensures that sub-row-height
-        // band at the bottom is invisible (it matches the first stripe color), preventing
-        // the fractional-row visual artifact that would otherwise appear after deletions.
+        // The table background is the first alternating row color. NSTableView fills its whole frame with row
+        // backgrounds, including the strip below the last row when the height is not a multiple of the row
+        // height. Matching that color hides the strip, which would otherwise show a fractional-row artifact
+        // after deletions.
         tableView.backgroundColor = NSColor.alternatingContentBackgroundColors[0]
         tableView.allowsMultipleSelection = true
         tableView.allowsEmptySelection = true
@@ -490,45 +408,36 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         let coordinator = context.coordinator
         coordinator.tableView = tableView
         coordinator.scrollView = scrollView
-        // Must be assigned BEFORE any `coordinator.films` write: the row model rebuilt in
-        // that property's didSet consults dataCoordinator.loadedFilmQueueFilter to decide
-        // whether section-divider rows apply. The scroll-handoff branch further down this
-        // method performs exactly such a write.
+        // Must be assigned before any `coordinator.films` write. The row model rebuilt in that didSet checks
+        // loadedFilmQueueFilter to decide whether divider rows apply. The scroll-handoff branch below writes
+        // films.
         coordinator.dataCoordinator = dataCoordinator
         coordinator.showSortingSections = showSectionDividers
         coordinator.subtitleProvider = subtitleProvider
 
-        // Give the table view a back-reference to its coordinator so the
-        // NSDraggingSource callbacks can delegate to GalleryDragEngine.
+        // Give the table view a back-reference to its coordinator so the NSDraggingSource callbacks can
+        // delegate to GalleryDragEngine.
         tableView.coordinator = coordinator
 
-        // Secondary-click contextual menu. DraggableListTableView.menu(for:) has already
-        // established that the click landed on a real row (and not in the inset side
-        // margins) before this runs.
+        // Secondary-click contextual menu. DraggableListTableView.menu(for:) has already established that the
+        // click landed on a real row (and not in the inset side margins) before this runs.
         tableView.getContextMenu = { [weak coordinator] in coordinator?.contextMenu(forRow: $0) }
 
-        // Register this coordinator as the source of "what's on top" for the active
-        // view — read by ViewStateManager.updateListViewStyle when the grid⟷list toggle
-        // is about to switch AWAY from the list. Unregistered in dismantleNSView below.
+        // Register this coordinator as the source of "what's on top" for the active view — read by
+        // ViewStateManager.updateListViewStyle when the grid⟷list toggle is about to switch AWAY from the
+        // list. Unregistered in dismantleNSView below.
         ViewStateManager.shared.registerScrollPositionProvider(coordinator)
 
         // MARK: Scroll-Position Handoff (Search Exit / Grid⟷List Toggle)
-        //
-        // Mirrors GallerySubview's identical preload path for its own copy of this
-        // handoff — see that type's makeNSView for the fuller rationale. Both
-        // producers (search exit and the view-style toggle) share the identical
-        // sequence here. Preloading coordinator.films
-        // and reloading here (rather than letting the normal updateNSView reload
-        // branch run) ensures the very next updateNSView pass sees no change and does
-        // not reload a second time, which would otherwise reset scroll to y=0 after
-        // this arming has already taken effect. The scroll itself runs in
-        // ListScrollView.viewWillDraw(), once real geometry is available; see that
-        // type's doc comment for why resolving here, in makeNSView, is unreliable.
+        // Mirrors GallerySubview's preload path. Search exit and the view-style toggle share this sequence.
+        // Preloading the films and reloading here keeps the next updateNSView pass from reloading a second
+        // time, which would reset the scroll to y=0. The scroll itself runs in ListScrollView.viewWillDraw(),
+        // once geometry exists.
         scrollView.listCoordinator = coordinator
 
-        // Keep this view's saved scroll origin current as the user scrolls — see the
-        // method's doc comment in GallerySubview.Coordinator for the full rationale;
-        // this is the list's copy of the identical mechanism.
+        // Keep this view's saved scroll origin current as the user scrolls — see the method's doc comment in
+        // GallerySubview.Coordinator for the full rationale; this is the list's copy of the identical
+        // mechanism.
         coordinator.installScrollOriginRecorder(on: scrollView)
         #if DEBUG
         coordinator.installViewportJumpTracer(on: scrollView)
@@ -536,10 +445,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         if let filmID = GalleryScrollIntent.shared.consume(ifTargeting: activeViewID) {
             coordinator.films = films
-            // Seed both view identifiers so the very next updateNSView pass does not read
-            // this mount as a view switch and re-zero (or origin-restore over) the scroll
-            // position this handoff is about to establish. Mirrors GallerySubview's
-            // identical seeding on its own intent path.
+            // Seeds both view identifiers, so the next updateNSView pass does not read this mount as a view
+            // switch and reset the scroll. This mirrors GallerySubview.
             coordinator.currentViewID = activeViewID
             coordinator.prevViewID = activeViewID
             // See GallerySubview.makeNSView's identical seeding.
@@ -548,22 +455,21 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 tableView.reloadData()
             }
             scrollView.pendingScrollFilmID = filmID
-            // This path deliberately bypasses updateNSView's reload branch, which is where
-            // an origin restore would otherwise be picked up. The film handoff outranks it,
-            // so retire the intent here rather than leaving it to be armed by a later pass
-            // and fight the scroll this path exists to perform. Mirrors GallerySubview.
+            // This path bypasses updateNSView's reload branch, where an origin restore would otherwise be
+            // picked up. The film handoff outranks it, so the intent is retired here, rather than being armed
+            // later and fighting this scroll. This mirrors GallerySubview.
             ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
             Self.log("Scroll handoff armed in makeNSView for film \(filmID) (view: \(activeViewID))")
         } else {
-            // No film handoff claims this mount, so a saved origin may. Mirrors
-            // GallerySubview.makeNSView — see armScrollOriginRestoreOnMount.
+            // No film handoff claims this mount, so a saved origin may. Mirrors GallerySubview.makeNSView —
+            // see armScrollOriginRestoreOnMount.
             ViewStateManager.shared.armScrollOriginRestoreOnMount(
                 for: GalleryScrollKey(viewID: activeViewID,
                                       subTab: dataCoordinator.loadedFilmQueueFilter?.rawValue))
         }
 
-        // Outside the scroll-handoff branch, mirroring GallerySubview.makeNSView — see
-        // GalleryFocusIntent for why the two handoffs are independent.
+        // Outside the scroll-handoff branch, mirroring GallerySubview.makeNSView — see GalleryFocusIntent for
+        // why the two handoffs are independent.
         if GalleryFocusIntent.shared.consume(ifTargeting: activeViewID) {
             scrollView.pendingKeyboardFocus = true
             Self.log("Keyboard-focus handoff armed in makeNSView (view: \(activeViewID))")
@@ -578,24 +484,21 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         #endif
         guard let tableView = scrollView.documentView as? DraggableListTableView else { return }
         let coordinator = context.coordinator
-        // Refreshed on every pass (the environment object is a stable singleton, but the
-        // assignment is free and keeps the invariant "dataCoordinator is set before films
-        // is written" true on every path through this method). See makeNSView.
+        // Refreshed on every pass (the environment object is a stable singleton, but the assignment is free
+        // and keeps the invariant "dataCoordinator is set before films is written" true on every path through
+        // this method). See makeNSView.
         coordinator.dataCoordinator = dataCoordinator
-        // Refreshed before any row is (re)configured below. A change of subtitle KIND
-        // always coincides with a view-identity change (the Recents category is part of
-        // the ViewIdentifier), which forces the full reload; and the else-branch's
-        // visible-row refresh re-resolves the string through this provider on every
-        // same-view pass, with ListRowHostCell comparing the resolved text so an
-        // unchanged by-line costs no rootView reassignment.
+        // Refreshed before any row is (re)configured below. A change of subtitle KIND always coincides with a
+        // view-identity change (the Recents category is part of the ViewIdentifier), which forces the full
+        // reload; and the else-branch's visible-row refresh re-resolves the string through this provider on
+        // every same-view pass, with ListRowHostCell comparing the resolved text so an unchanged by-line
+        // costs no rootView reassignment.
         coordinator.subtitleProvider = subtitleProvider
 
-        // Bottom inset for the StatusBar overlay. contentInsets extends the scrollable
-        // range below the document view's natural bottom edge, allowing the last real
-        // row to scroll fully above the StatusBar without injecting a phantom row into
-        // the data source. scrollerInsets keeps the scroll thumb track above the overlay.
-        // automaticallyAdjustsContentInsets must be false (set in makeNSView) so macOS
-        // does not overwrite contentInsets with its own safe-area calculation.
+        // Bottom inset for the StatusBar overlay. contentInsets extends the scrollable range below the
+        // document's bottom edge, so the last row can scroll above the StatusBar without adding a phantom
+        // row. scrollerInsets keeps the thumb above the overlay. automaticallyAdjustsContentInsets must be
+        // false, set in makeNSView, so macOS does not overwrite the insets.
         let bottomInset: CGFloat = showStatusBar ? kListStatusBarHeight : 0
         if scrollView.contentInsets.bottom != bottomInset {
             scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
@@ -604,11 +507,10 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
         }
 
-        // Stale-pass guard. GalleryListView's body reads dataCoordinator.films, so SwiftUI
-        // also runs this when the films change on their own — carrying the activeViewID of
-        // the LAST GalleryView body pass. After a view switch that is a pass in
-        // which the films belong to the new view while activeViewID still names the old
-        // one, and it can only come from one of two places:
+        // Stale-pass guard. GalleryListView's body reads dataCoordinator.films, so SwiftUI also runs this
+        // when the films change on their own — carrying the activeViewID of the LAST GalleryView body pass.
+        // After a view switch that is a pass in which the films belong to the new view while activeViewID
+        // still names the old one, and it can only come from one of two places:
         //
         //  • An instance that is about to be removed. AppState.navigate switches before it
         //    flips the sidebar, so the outgoing gallery sees the destination's films one
@@ -621,8 +523,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         //    the new activeViewID follows in the same update, and that pass performs the
         //    reload with the correct identity.
         //
-        // Either way nothing here is owed until activeViewID agrees with the view the films
-        // were loaded for, so the pass is skipped.
+        // Either way nothing here is owed until activeViewID agrees with the view the films were loaded for,
+        // so the pass is skipped.
         guard activeViewID == ViewStateManager.shared.activeView else { return }
 
         // Style guard — see the identical guard in GallerySubview.updateNSView.
@@ -634,24 +536,14 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         // MARK: View-Switch Detection
         //
-        // The list previously had none, which produced two divergences from the grid:
+        // NSTableView.reloadData() does not reset the scroll position, unlike NSCollectionView's. So a switch
+        // that reuses this table (every Recents and Unwatched tab, and every smart-list variant) would carry
+        // the outgoing offset into the new view. The list zeroes on a view change, as the grid does.
+        // maintainScrollPositionOnViewSwitch also applies to the list.
         //
-        //  • NSTableView.reloadData() — unlike NSCollectionView's — does NOT reset the
-        //    scroll position. Every view change that reuses this same mounted table (all
-        //    Recents sub-tabs, both Unwatched tabs, and every smart-list variant, since
-        //    the enclosing GalleryView's .id is unchanged for those) therefore carried the
-        //    OUTGOING view's scroll offset straight into the incoming one, dropping the
-        //    user into the middle of an unrelated film set. The grid zeroes on the same
-        //    transition; the list now does too.
-        //  • maintainScrollPositionOnViewSwitch was silently grid-only, despite the
-        //    preference reading "Remember prior scroll positions across view changes" and
-        //    saying nothing about display style.
-        //
-        // prevViewID is Optional for the same two reasons as its counterpart in
-        // GallerySubview.Coordinator: nil compares unequal to every case, so a fresh mount
-        // is correctly treated as a transition (and can restore its saved origin) whatever
-        // view it lands on, and it marks "nothing displayed yet" so the outgoing-origin
-        // save below cannot file a synthetic zero under an unrelated view's key.
+        // prevViewID is optional for the reasons given in GallerySubview.Coordinator. nil means nothing has
+        // been displayed yet, so a fresh mount counts as a transition, and the outgoing-origin save cannot
+        // file a synthetic zero under another view.
         coordinator.currentViewID = activeViewID
         let viewIdentityChanged = coordinator.prevViewID != coordinator.currentViewID
         if viewIdentityChanged {
@@ -664,31 +556,16 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             coordinator.prevViewID = coordinator.currentViewID
         }
 
-        // The Film Queue's segmented filter narrows/widens the SAME view (currentViewID
-        // stays .filmQueue throughout), so viewIdentityChanged above can never detect a
-        // switch between "All" and a single section. The grid has always synthesized this
-        // signal; the list did not, and the omission was visible rather than theoretical.
-        // NSTableView.reloadData() — unlike NSCollectionView's — does not reset the scroll
-        // position, and the zeroing block below was gated on the identity test alone, so a
-        // Queue tab change in list style carried the outgoing tab's offset straight into
-        // the incoming one. AppKit then clamped that offset against the (usually shorter)
-        // new content, landing the user at the BOTTOM of the section they had just
-        // selected. The same omission skipped the `pendingScrollPosition = nil` reset below,
-        // leaving an origin armed for one tab free to resolve against another's rows when
-        // tabs were switched faster than a restore could apply.
+        // The Film Queue's segment filter narrows the same view, so viewIdentityChanged cannot see a switch
+        // between All and one section. The grid synthesizes this signal, and the list needed it too. Without
+        // it, the offset carries over, AppKit clamps it against the shorter content, and the user lands at
+        // the bottom of the new section. The pendingScrollPosition reset is also skipped, so an origin armed
+        // for one tab could resolve against another's rows.
         //
-        // Compared against dataCoordinator.loadedFilmQueueFilter — the filter the films
-        // handed to this pass were actually produced with — and NOT against
-        // FilmQueueFilterState.shared.selectedFilter, which is the live intent: the live
-        // filter flips synchronously inside selectFilter while the narrowed film set only
-        // arrives with the deferred reload that follows. See the fuller rationale on
-        // GallerySubview's identical computation.
-        //
-        // A nil last-seen value never counts as a change: a fresh mount's transition is
-        // already covered by viewIdentityChanged, and reporting a filter change there would
-        // additionally discard a scroll handoff armed by makeNSView. The value resets to nil
-        // whenever a non-Queue film set is displayed, so returning to the Queue is treated
-        // as that same first observation rather than compared against a stale section.
+        // It compares against dataCoordinator.loadedFilmQueueFilter, the filter the films were produced with,
+        // and not the live FilmQueueFilterState.shared.selectedFilter. The live filter changes before the
+        // films arrive. A nil last-seen value is not a change, since a fresh mount is already covered by
+        // viewIdentityChanged. It resets to nil when a non-Queue set is shown.
         let filmQueueFilterChanged: Bool
         if let loadedQueueFilter = dataCoordinator.loadedFilmQueueFilter {
             filmQueueFilterChanged = coordinator.lastFilmQueueFilter != nil &&
@@ -699,30 +576,26 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             filmQueueFilterChanged = false
         }
 
-        // Drives the reload and the scroll-to-zero below. The outgoing-origin save above is
-        // deliberately NOT included: currentViewID is still .filmQueue across a filter
-        // change, so saving there would file one section's position under the key all four
-        // share. Banking for a Queue tab change is handled authoritatively by
-        // FilmQueueFilterState.selectFilter, which calls prepareScrollHandoff with explicit
-        // per-section keys before the filter flips.
+        // Drives the reload and scroll-to-zero below. The outgoing-origin save above is not used here.
+        // currentViewID stays .filmQueue across a filter change, so saving there would file one section's
+        // position under the key all four share. FilmQueueFilterState.selectFilter banks each tab's position
+        // with explicit keys, before the filter flips.
         let isViewSwitch = viewIdentityChanged || filmQueueFilterChanged
 
         let newFilms = films
         let oldFilms = coordinator.films
 
-        // A same-view refresh that empties the list is about to take it off screen; bank
-        // the position first. See the identical step in GallerySubview.updateNSView.
+        // A same-view refresh that empties the list is about to take it off screen; bank the position first.
+        // See the identical step in GallerySubview.updateNSView.
         if !isViewSwitch && newFilms.isEmpty && !oldFilms.isEmpty {
             ViewStateManager.shared.saveScrollPosition(coordinator.scrollPosition(of: scrollView),
                                                        under: coordinator.displayedScrollKey)
         }
 
-        // Launch pre-paint poster warm + restore-priority registration — one-shot per
-        // session, shared with GallerySubview via PosterCache's internal flag, so
-        // whichever gallery style renders first at launch performs it and the other's
-        // call is a single Bool read. Must precede the reloadData below so the first
-        // rows configured find their posters already resident. See
-        // PosterCache.registerLaunchDisplayOrder.
+        // Launch pre-paint poster warm and restore-priority registration. It runs once per session, shared
+        // with GallerySubview through a flag in PosterCache. Whichever style renders first at launch does it,
+        // and the other's call reads one Bool. It must come before reloadData, so the first cells find their
+        // posters loaded. See PosterCache.registerLaunchDisplayOrder.
         if PosterCache.shared.needsLaunchWarm, !newFilms.isEmpty {
             PosterCache.shared.registerLaunchDisplayOrder(newFilms.map(\.posterUID))
         }
@@ -730,46 +603,27 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         // MARK: Change Detection
         //
-        // `Array ==` short-circuits on CoW buffer identity, so when `dataCoordinator.films`
-        // has not been reassigned since the last pass — every status-bar toggle, every
-        // scroll-request change, every ancestor re-render — this is an O(1) pointer
-        // comparison that decides the whole block below without touching an element. When
-        // the contents DO differ it exits at the first difference, and only a genuine
-        // "reloaded to an equal-but-distinct array" costs a full walk (measured at ~10ms
-        // per 200k elements, i.e. tens of microseconds at this app's scale, and it buys a
-        // skipped rebuild).
+        // Array == returns quickly when the buffer is the same. So when films has not been reassigned, which
+        // is most passes, this is an O(1) check that skips everything below. When the contents differ it
+        // stops at the first difference. Only an equal-but-distinct array costs a full walk, which is cheap
+        // at this app's scale.
         //
-        // This gate is what keeps rebuildRowModel() off the no-op passes. It is not
-        // micro-optimization: with section dividers on, that rebuild runs
-        // GallerySectioning.displayedSectionBreaks — an O(films) scan doing a MetadataCache
-        // lookup and constructing a GallerySection (two Strings) per film — and then builds
-        // a fresh row array and a fresh film→row dictionary. The list used to assign
-        // coordinator.films unconditionally, so it paid all of that on every pass. (The
-        // grid assigns its films only inside its own needsReload branch, and gates its
-        // section-break recompute on the same inputs — see its updateSectionDividers.)
+        // This gate keeps rebuildRowModel() off no-op passes. That rebuild, with dividers on, scans every
+        // film through GallerySectioning.displayedSectionBreaks and builds fresh row and index arrays.
         //
-        // Deep equality — not an ID-sequence comparison — is required here. An edit that
-        // changes a rendered field without moving the film (renaming a film under a Date
-        // Added sort, say) leaves the ID sequence identical, and skipping the assignment on
-        // that basis would leave the visible-row refresh below re-rendering STALE films.
+        // The comparison is deep equality, not an ID check. A rename that leaves the IDs in place still needs
+        // a visible-row refresh, so skipping on IDs alone would leave stale rows.
         let filmsChanged = oldFilms != newFilms
 
-        // The row model depends on more than `films`. Everything else it reads is captured
-        // here, so a change to any of them rebuilds even when the film array is untouched:
+        // The row model depends on more than `films`. A change to any of these rebuilds it, even when the
+        // array is unchanged:
         //
-        //  • showSortingSections — this view's own dividers setting, toggled with no
-        //    film-set change of any kind (updateShowSectionDividers passes `reload: false`
-        //    for exactly that reason). This is the entire mechanism by which the bands
-        //    appear and disappear in real time.
-        //  • the three `loaded*` values — the gates inside
-        //    GallerySectioning.displayedSectionBreaks. A sort change that happens to
-        //    produce the identical film ORDER still re-bands the view (Date Added ⇄ Date
-        //    Modified over a set where both agree), and `films` alone cannot see it.
+        //  • showSortingSections, this view's dividers setting. It can change with no film change, and it is how bands appear and disappear.
+        //  • The three loaded* values, which gate GallerySectioning.displayedSectionBreaks. A sort change can re-band a view while keeping
+        //    the same film order, which films alone cannot show.
         //
-        // Read from dataCoordinator's `loaded*` properties, never the live `current*`
-        // intent, for the reason spelled out on rebuildRowModel(): they are written in the
-        // same synchronous statement group as `films` itself, which makes the banding a
-        // pure function of the films actually being displayed.
+        // They are read from dataCoordinator's loaded* values, not the live current* intent, so the bands
+        // always match the films shown.
         let sectionInputs = Coordinator.SectionInputs(
             showSortingSections: showSectionDividers,
             queueFilter: dataCoordinator.loadedFilmQueueFilter,
@@ -780,37 +634,20 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         let sectionInputsChanged = coordinator.lastSectionInputs != sectionInputs
         coordinator.lastSectionInputs = sectionInputs
 
-        // The Film Queue's "All" tab is the ONE banding whose inputs are not derivable from
-        // the films array, which is why its section memberships are part of sectionInputs
-        // (see GallerySectioning.filmQueueMembership) rather than left to `filmsChanged`.
+        // The Film Queue's All tab is the only banding whose inputs are not derivable from the films array.
+        // Its bands come from each film's membership in Up Next, Soon, or Later, which is list membership in
+        // MemoryStore. No FilmSnapshot field carries it. Promoting the first Soon film to Up Next can leave
+        // every snapshot identical and the order the same, while still changing the bands. So the memberships
+        // are part of sectionInputs (see GallerySectioning.filmQueueMembership).
         //
-        // Its bands come from GallerySectioning.filmQueueSectionBreaks, which resolves each
-        // film's Up Next / Soon / Later membership through
-        // DataCoordinator.filmQueueSection(forFilm:) → MemoryStore list membership. No
-        // FilmSnapshot field mirrors that, and the array does not necessarily reorder when
-        // it changes: promoting the first film of "Soon" to "Up Next" leaves it in the same
-        // position (still after every Up Next film, still before every remaining Soon film)
-        // with every snapshot byte-identical, while deleting the "Soon" band above it. Both
-        // `filmsChanged` and the sort-derived inputs are blind to that; the memberships are
-        // not.
-        //
-        // Every other view's bands are sort-derived, and GallerySectioning resolves those
-        // from MetadataCache values that are themselves derived from FilmSnapshot fields
-        // (titleKey←name/sortName, year←releaseYear, effectiveDuration←edited/editedDuration
-        // /duration, the parsed dates←dateAdded/lastModified/lastWatched, rating←userRating,
-        // viewCount, and both Recents dates←lastWatched/rotationThresholdOverride and
-        // `releases`). A change to any of them moves a FilmSnapshot field, so `filmsChanged`
-        // sees it and the skip is sound there.
+        // Every other view's bands derive from MetadataCache values, and those derive from FilmSnapshot
+        // fields. A change to any of those fields moves the snapshot, so filmsChanged sees it. The skip is
+        // therefore sound for those views.
 
-        // Whether the ROW ORDER changed, which is what the table's cached row views cannot
-        // survive. Guarded by filmsChanged so the O(films) walk is never reached on a pass
-        // the O(1) comparison above already settled. Subsumes the previous
-        // count/first/last heuristics exactly — elementsEqual is false whenever the counts
-        // differ or either endpoint moved — and additionally catches the INTERIOR reorder
-        // they were blind to, which is the same ambiguity GallerySubview guards with its
-        // own `interiorReordered` scan: two sort options can share a count and both
-        // endpoints (Date Added ⇄ Date Modified when the newest and oldest coincide) and
-        // still permute everything between them.
+        // Whether the row order changed. The table's cached row views cannot survive a reorder. The O(films)
+        // walk runs only when filmsChanged is set. elementsEqual covers the old count, first, and last
+        // checks, and it also catches an interior reorder. Two sorts can share a count and both endpoints and
+        // still permute the middle, as Date Added and Date Modified can when the newest and oldest coincide.
         let idSequenceChanged = filmsChanged &&
             !oldFilms.elementsEqual(newFilms) { $0.id == $1.id }
 
@@ -824,22 +661,14 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             coordinator.rebuildRowModel()     // same films, possibly different banding
         }
 
-        // Section-divider structure change. Moving a film between two Film Queue
-        // sections — or, under sort-derived bands, an edit that moves a film from one band
-        // to another — leaves the film COUNT, the first film, and the last film all
-        // unchanged, yet can add, remove, reorder, or re-count a divider row. None of the
-        // three checks above can see that. Comparing the row models catches all of it, and
-        // is the list's equivalent of the grid recomputing its section breaks on every
-        // reload pass.
+        // Section-divider structure change. Moving a film between two Film Queue sections, or an edit that
+        // moves a film between sort bands, leaves the count, first, and last films unchanged. The three
+        // checks above miss it, but comparing the row models catches it. This is the list's equivalent of the
+        // grid recomputing its breaks each reload.
         //
-        // `ListRowItem` is Equatable over the band's identity AND its film count, so a band
-        // whose label is unchanged but whose membership shifted still compares unequal and
-        // still forces the full reload the row heights and labels need.
-        //
-        // Wherever no bands apply at all — every view with the sorting-sections preference
-        // off, outside the Film Queue's "All" tab — the row model is a strict 1:1
-        // `.film(index:)` sequence, so this comparison is true exactly when the film COUNT
-        // changed and it can never introduce an extra reload.
+        // ListRowItem is Equatable over the band's identity and film count, so a changed membership still
+        // compares unequal. With no bands at all, the model is a strict one-to-one sequence, and the
+        // comparison matches the film count alone.
         let rowModelChanged = coordinator.rowItems != oldRowItems
 
         if isViewSwitch || idSequenceChanged || rowModelChanged {
@@ -850,33 +679,19 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 tableView.reloadData()
             }
         } else if filmsChanged {
-            // Refresh the existing rows in place for metadata/poster updates, preserving
-            // scroll position and selection (avoids full reloadData bounce).
+            // Refreshes the existing rows in place for metadata and poster updates, keeping scroll and
+            // selection. It runs only for a same-view refresh where every film kept its row. A view switch,
+            // or any reorder, takes the full reload above.
             //
-            // Reachable only for a SAME-view refresh in which every film kept its row:
-            // a view switch is forced down the full-reload path above, and so now is any
-            // reorder, interior ones included. What remains here is the in-place metadata
-            // edit this branch exists for — a renamed film, a new rating, a release marked
-            // purchased.
+            // It updates every row view the table holds, not just visible ones. NSTableView keeps prepared
+            // rows just outside the viewport and does not ask for them again, so an edit there would
+            // otherwise show stale values. It updates in place rather than through
+            // reloadData(forRowIndexes:). That swap could hand back a cell last used for another film, and it
+            // would reassign that cell's rootView even when the row's own film had not changed. `update`
+            // compares what the row displays, so unchanged rows cost little.
             //
-            // Every row view the table currently holds is updated, not just the visible
-            // ones: NSTableView keeps rows prepared just outside the viewport and does not
-            // ask for them again when they scroll in, so a film edited there would otherwise
-            // show its old values. (The grid reconfigures its prepared cells for the same
-            // reason.) Rows the table holds no view for need nothing — it asks the delegate
-            // when one is needed, and that reads the films array assigned above.
-            //
-            // In place rather than through reloadData(forRowIndexes:), which swapped each
-            // row's cell view through the reuse queue: the swap relaid the row out, and the
-            // cell it got back could be one last configured for another film, which
-            // reassigned that cell's rootView even when the row's own film had not changed.
-            // `update` compares what the row displays, so a row whose film is unchanged
-            // costs a few comparisons and no hosting-view work.
-            //
-            // Gated on filmsChanged: on every other pass (a selection change, a status-bar
-            // toggle, a banding-only rebuild that kept the row model) the rows already show
-            // the current films, and refreshing them was pure waste. A banding change that
-            // alters rows is caught by rowModelChanged above.
+            // It is gated on filmsChanged, so passes that only change selection or the status bar do no work.
+            // Banding changes are caught by rowModelChanged above.
             tableView.enumerateAvailableRowViews { rowView, row in
                 guard let cell = rowView.view(atColumn: 0) as? ListRowHostCell,
                       let film = coordinator.film(forRow: row) else { return }
@@ -887,69 +702,52 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             }
         }
 
-        // Post-reload scroll placement for a view switch. Runs after the reload above so
-        // the row count the clamp depends on is already current.
+        // Post-reload scroll placement for a view switch. Runs after the reload above so the row count the
+        // clamp depends on is already current.
         if let listScrollView = scrollView as? ListScrollView {
             if isViewSwitch {
-                // Zero first, unconditionally: this is the position the new view opens at
-                // when nothing else claims it, and it is what replaces the offset
-                // reloadData() would otherwise have carried over from the outgoing view.
+                // Zero first, unconditionally. This is where the new view opens when nothing else claims it,
+                // and it replaces the offset that reloadData() would otherwise carry over from the outgoing
+                // view.
                 appViewportMove {
                     scrollView.contentView.setBoundsOrigin(.zero)
                     scrollView.reflectScrolledClipView(scrollView.contentView)
                 }
 
-                // Discard any origin armed by an earlier pass that this transition
-                // supersedes, so it cannot resolve against the wrong view's content. The
-                // block below re-arms it for the incoming view when one is available.
+                // Discard any origin armed by an earlier pass that this transition supersedes, so it cannot
+                // resolve against the wrong view's content. The block below re-arms it for the incoming view
+                // when one is available.
                 listScrollView.pendingScrollPosition = nil
             }
 
-            // Arm this view's own saved origin for pre-draw restore — on EVERY pass, not
-            // just the one that detected the transition above. That coupling is what broke
-            // the preference across a view's own sub-tabs: this same table is reused for
-            // them (the enclosing GalleryView's .id is unchanged), so the pass that
-            // consumes the prevViewID → currentViewID transition need not be the pass that
-            // reloads with the destination's films, and a restore armed only on the former
-            // had nothing to restore against. The intent is armed once, authoritatively, by
-            // ViewStateManager at the moment of the switch, is addressed to a specific view,
-            // and is retired only once actually applied — so it is picked up by whichever
-            // pass genuinely reloads, and is inert on all the others. The preference itself
-            // is checked at arming time; nothing is ever armed while it is off.
+            // Arms this view's saved origin for a pre-draw restore on every pass, not only the one that
+            // detected the transition. The restore intent is armed once by ViewStateManager at the switch,
+            // addressed to a view, and retired only when applied. So whichever pass reloads the films picks
+            // it up. Nothing is armed while the preference is off.
             //
-            // The pendingScrollFilmID == nil condition keeps the search-exit /
-            // view-style-toggle film handoff authoritative: if makeNSView armed a
-            // scroll-to-film for this same mount, the origin restore must not fight it
-            // (mirrors the identical condition in GallerySubview.updateNSView).
-            // A reuse-path film handoff outranks the origin restore below and is claimed
-            // first. By construction this can only be a ShowInListNavigation redirection to
-            // a smart-list sub-variant of the parent already on screen — see
-            // GalleryScrollIntent.consumableOnReuse. Mirrors the identical Priority 0 branch
-            // in GallerySubview.updateNSView.
+            // The pendingScrollFilmID == nil check keeps the search-exit and style-toggle film handoff
+            // authoritative. A reuse-path film handoff outranks the origin restore and is claimed first. It
+            // is only a ShowInListNavigation redirect to a smart-list sub-variant (see
+            // GalleryScrollIntent.consumableOnReuse). This mirrors Priority 0 in GallerySubview.updateNSView.
             if let handoffFilmID = GalleryScrollIntent.shared.consumeOnReuse(ifTargeting: coordinator.currentViewID) {
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
                 listScrollView.pendingScrollPosition = nil
                 listScrollView.pendingScrollFilmID = handoffFilmID
                 listScrollView.pendingScrollBehavior = .forceTop
-                // Apply now rather than waiting for a viewWillDraw that will never arrive on
-                // a reused gallery. The list resolver's geometry needs are pure arithmetic
-                // on the fixed row height, so no forced layout pass is required first.
+                // Apply now rather than waiting for a viewWillDraw that will never arrive on a reused
+                // gallery. The list resolver's geometry needs are pure arithmetic on the fixed row height, so
+                // no forced layout pass is required first.
                 listScrollView.applyPendingFilmTargetIfPossible()
                 Self.log("Scroll handoff armed on reuse path for film \(handoffFilmID) (view: \(coordinator.currentViewID))")
 
             } else if let scrollRequest, scrollRequest != coordinator.lastScrollRequest,
                       coordinator.rowIndex(for: scrollRequest.filmID) != nil {
                 let filmID = scrollRequest.filmID
-                // Priority 1 — an intentional post-edit reposition, the list's counterpart
-                // to the identically-ranked branch in GallerySubview.updateNSView. It
-                // outranks the origin restore below, so any intent armed for this view is
-                // retired first rather than being left live to undo the placement.
-                //
-                // Unlike the grid, there is no origin to restore first: NSTableView's
-                // reloadData() does not reset the scroll position, so the viewport is still
-                // exactly where the user left it and the `.ifNeeded` resolution below can
-                // test visibility against it directly. A film still on screen is left alone;
-                // one the edit pushed out of view is placed in the top row.
+                // Priority 1: an intentional post-edit reposition, the list's counterpart to the grid's. It
+                // outranks the origin restore, so any intent for this view is retired first. There is no
+                // origin to restore: reloadData() does not reset the list's scroll position, so the viewport
+                // is still where the user left it. The .ifNeeded resolution tests visibility directly. A film
+                // still on screen is left alone, and one the edit pushed out of view goes to the top row.
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
                 listScrollView.pendingScrollPosition = nil
                 listScrollView.pendingScrollFilmID = filmID
@@ -961,10 +759,10 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                    .pendingScrollOriginRestore(for: coordinator.displayedScrollKey) {
                 listScrollView.pendingScrollPosition = restoredPosition
                 Self.log("Scroll-origin restore armed for \(coordinator.currentViewID): \(restoredPosition.origin)")
-                // Apply now rather than waiting for a viewWillDraw that will never arrive
-                // on a reused gallery — see applyPendingOriginRestoreIfPossible. The list
-                // resolver clamps against coordinator.scrollableContentHeight (row-model
-                // arithmetic, no AppKit layout dependency), so no forced layout pass is needed.
+                // Apply now rather than waiting for a viewWillDraw that will never arrive on a reused gallery
+                // — see applyPendingOriginRestoreIfPossible. The list resolver clamps against
+                // coordinator.scrollableContentHeight (row-model arithmetic, no AppKit layout dependency), so
+                // no forced layout pass is needed.
                 listScrollView.applyPendingOriginRestoreIfPossible()
             }
         }
@@ -976,17 +774,17 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
-        // Backstop scroll-origin save, mirroring GallerySubview.dismantleNSView — see that
-        // method for why the y > 0 condition is deliberate and must not be relaxed to an
-        // unconditional save at this particular call site.
+        // Backstop scroll-origin save, mirroring GallerySubview.dismantleNSView — see that method for why the
+        // y > 0 condition is deliberate and must not be relaxed to an unconditional save at this particular
+        // call site.
         let position = coordinator.scrollPosition(of: nsView)
         if position.origin.y > 0 {
             ViewStateManager.shared.saveScrollPosition(position, under: coordinator.displayedScrollKey)
             Self.log("Saved scroll origin \(position.origin) for \(coordinator.currentViewID)")
         }
-        // Identity-checked: only clears the registry if this coordinator is still the
-        // registered provider, so an out-of-order mount/dismantle sequence during the
-        // grid⟷list toggle can never clear the freshly-mounted opposite style's registration.
+        // Identity-checked: only clears the registry if this coordinator is still the registered provider, so
+        // an out-of-order mount/dismantle sequence during the grid⟷list toggle can never clear the
+        // freshly-mounted opposite style's registration.
         ViewStateManager.shared.unregisterScrollPositionProvider(coordinator)
         coordinator.cancelSubscriptions()
     }
@@ -1003,30 +801,27 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         weak var tableView: NSTableView?
         weak var scrollView: NSScrollView?
 
-        // Current and previous view identifiers, for the same authoritative view-switch
-        // detection GallerySubview.Coordinator performs. See the "View-Switch Detection"
-        // block in updateNSView for why prevViewID is Optional.
+        // Current and previous view identifiers, for the same view-switch detection
+        // GallerySubview.Coordinator uses. See the View-Switch Detection block in updateNSView for why
+        // prevViewID is optional.
         var currentViewID: ViewIdentifier = .allFilms
         fileprivate var prevViewID: ViewIdentifier?
 
         /// The last post-edit scroll request this Coordinator has seen, acted on or not.
         fileprivate var lastScrollRequest: FilmScrollRequest?
 
-        /// The Film Queue section filter this coordinator last displayed a film set for, or
-        /// nil when the last set displayed was not a Film Queue result at all.
+        /// The Film Queue section filter this coordinator last displayed a film set for, or nil if the last
+        /// set was not a Queue result.
         ///
-        /// The Queue's four segmented tabs share the single `.filmQueue` ViewIdentifier, so
-        /// the `prevViewID != currentViewID` test above can never see a switch between them.
-        /// This is compared against `dataCoordinator.loadedFilmQueueFilter` on every pass to
-        /// synthesize the equivalent signal — see its use site in updateNSView, and the
-        /// identical field on GallerySubview.Coordinator, for why the comparison is against
-        /// the LOADED filter rather than the live one in FilmQueueFilterState.
+        /// The four Queue tabs share one ViewIdentifier, so the prevViewID test cannot see a switch between
+        /// them. This is compared against dataCoordinator.loadedFilmQueueFilter on each pass to produce the
+        /// same signal. It uses the loaded filter, not the live one (see updateNSView and
+        /// GallerySubview.Coordinator).
         fileprivate var lastFilmQueueFilter: FilmQueueFilter?
 
-        /// Everything rebuildRowModel()'s section-break computation reads OTHER than the
-        /// `films` array itself. Compared as a unit against `lastSectionInputs` so a change
-        /// to any of them rebuilds the row model even when the film array is byte-identical
-        /// — see the Change Detection block in updateNSView for why each one is here.
+        /// Everything that rebuildRowModel()'s section-break computation reads besides `films`. It is
+        /// compared as a unit against `lastSectionInputs`, so a change rebuilds the row model even when the
+        /// film array is identical. See Change Detection in updateNSView.
         fileprivate struct SectionInputs: Equatable {
             let showSortingSections: Bool
             let queueFilter: FilmQueueFilter?
@@ -1036,20 +831,20 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             let queueMembership: [Set<UUID>]?
         }
 
-        /// The section inputs the current row model was built from, or nil before the first
-        /// update pass — which is what makes a fresh mount always rebuild.
+        /// The section inputs the current row model was built from, or nil before the first update pass —
+        /// which is what makes a fresh mount always rebuild.
         fileprivate var lastSectionInputs: SectionInputs?
 
-        /// Resolves Film Queue section membership when building the row model. Weak, and
-        /// assigned by DraggableListView.makeNSView/updateNSView before any `films` write.
-        /// Mirrors GallerySubview.Coordinator.dataCoordinator.
+        /// Resolves Film Queue section membership when building the row model. It is weak, and assigned by
+        /// makeNSView and updateNSView before any `films` write. It mirrors
+        /// GallerySubview.Coordinator.dataCoordinator.
         weak var dataCoordinator: DataCoordinator?
-        /// Mirror of the active view's ViewState.showSectionDividers, pushed here by
-        /// makeNSView/updateNSView before any `films` assignment — its didSet is what
-        /// rebuilds the row model, and computeSectionBreaks() reads this while doing so.
+        /// Mirror of the active view's ViewState.showSectionDividers, pushed by makeNSView and updateNSView
+        /// before any `films` assignment. The didSet of `films` rebuilds the row model, and
+        /// computeSectionBreaks() reads this value.
         var showSortingSections: Bool = false
-        /// The active subtitle provider, pushed by makeNSView/updateNSView and resolved
-        /// per film when a row is configured. Mirrors GallerySubview.Coordinator.
+        /// The active subtitle provider, pushed by makeNSView/updateNSView and resolved per film when a row
+        /// is configured. Mirrors GallerySubview.Coordinator.
         var subtitleProvider: GallerySubtitleProvider?
 
         var films: [FilmSnapshot] = [] {
@@ -1057,43 +852,37 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         }
         let selectionState: SelectionState
 
-        /// The table's row model — the single mapping between row space and film space.
-        /// See ListRowItem. Rebuilt (together with filmRowMap and listContentHeight) in
-        /// `films.didSet`, so it is never out of step with the films it describes.
+        /// The table's row model, the one mapping between row space and film space. See ListRowItem. It is
+        /// rebuilt, along with filmRowMap and listContentHeight, in `films.didSet`, so it always matches the
+        /// films.
         private(set) var rowItems: [ListRowItem] = []
 
-        /// Total document height of the table, derived from the row model rather than the
-        /// document view's frame. See scrollFilmToTop(_:) for why the frame is unreliable
-        /// at the moments this is needed. Stored rather than computed so the scroll paths
-        /// that read it never pay an O(rows) walk.
+        /// The total document height of the table, derived from the row model, not the document frame. The
+        /// frame is unreliable at the moments it is needed (see scrollFilmToTop). It is stored, so scroll
+        /// paths do not walk the rows.
         private(set) var listContentHeight: CGFloat = 0
 
-        /// The table's full document height, for clamping programmatic scrolls: the row
-        /// model's height plus the padding the `.inset` table style puts above the first row
-        /// and below the last (10 pt each on macOS 15; row 0 starts at y = 10). Clamping
-        /// against listContentHeight alone stopped every placement near the end of a list
-        /// 20 pt short of where AppKit (and the user's own scrolling) can go, so the last
-        /// rows could never be brought fully up. The padding is measured from the table — the
-        /// first row's offset, which comes from the style, not the frame — rather than
-        /// restated, and is symmetric (table height = rows + 2 × that offset).
+        /// The table's full document height, used to clamp programmatic scrolls. It is the row model's height
+        /// plus the padding of the .inset table style, which is 10 pt above the first row and 10 pt below the
+        /// last. Clamping to listContentHeight alone would stop placements short of the end by that padding, so the last
+        /// rows could not be fully scrolled up. The padding is read from the table's first row offset, not
+        /// restated, and it is symmetric.
         var scrollableContentHeight: CGFloat {
             guard listContentHeight > 0, let tv = tableView, tv.numberOfRows > 0 else { return listContentHeight }
             return listContentHeight + 2 * tv.rect(ofRow: 0).minY
         }
 
-        /// Film ID → TABLE ROW index (not film index). Every selection, drag, and scroll
-        /// path in this file works in row space, so storing rows directly removes any need
-        /// for a second conversion at the point of use.
+        /// Film ID to table row index (not film index). Every selection, drag, and scroll path works in row
+        /// space, so no conversion is needed.
         private var filmRowMap: [UUID: Int] = [:]
         private var isSuppressingCallbacks = false
         private var isUpdatingSelection = false
         private var cancellables = Set<AnyCancellable>()
         private var observationTask: Task<Void, Never>?
 
-        /// The row index the user pressed on at mouseDown time.
-        /// Set by DraggableListTableView.mouseDown before super enters its drag-detection
-        /// loop. Read by willBeginAt to select the correct poster for the drag preview.
-        /// Cleared after use so a stale value never leaks into a subsequent drag.
+        /// The row the user pressed at mouseDown. DraggableListTableView.mouseDown sets it before the drag
+        /// loop, and willBeginAt reads it to pick the drag preview's poster. It is cleared after use, so a
+        /// stale value cannot leak into a later drag.
         var pendingDragSourceRow: Int? = nil
 
         // Drag engine — owns the native drag preview and NSDraggingSource state.
@@ -1116,30 +905,20 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             #endif
         }
 
-        /// Rebuilds `rowItems`, `filmRowMap`, and `listContentHeight` from the current
-        /// `films` array. Runs synchronously inside `films.didSet`, so the three can never
-        /// be observed out of step with the film set they describe.
+        /// Rebuilds `rowItems`, `filmRowMap`, and `listContentHeight` from the current `films`. It runs
+        /// inside `films.didSet`, so the three cannot fall out of step.
         ///
-        /// Also called directly by updateNSView for the one case `films.didSet` cannot
-        /// cover: the banding inputs changed while the film array did not (this view's
-        /// section-dividers setting toggled, or a re-sort that produced the identical
-        /// order). Calling it is equivalent to re-assigning `films` with the same value and
-        /// says what is actually happening.
+        /// updateNSView also calls it directly when only the banding inputs change, such as the dividers
+        /// setting or a re-sort that keeps the order. That is the same as reassigning `films` with the same
+        /// value.
         ///
-        /// Which section-divider rows are emitted (if any) is decided by
-        /// computeSectionBreaks() below. Both of its gates —
-        /// `dataCoordinator.loadedFilmQueueFilter` and `dataCoordinator.loadedSortOption` —
-        /// are read from the DataCoordinator deliberately, rather than from the live
-        /// FilmQueueFilterState / ViewStateManager intent or this Coordinator's own
-        /// currentViewID, for exactly the reason spelled out in
-        /// GallerySubview.Coordinator.updateSectionDividers(): both are written in the same
-        /// synchronous pass as `films` itself, which makes the divider state a pure
-        /// function of the films actually being displayed and therefore impossible to
-        /// desync from them. When no bands apply the row model is a strict 1:1 identity
-        /// mapping and the divider machinery contributes nothing at all.
+        /// computeSectionBreaks() decides which divider rows apply. It reads dataCoordinator's
+        /// loadedFilmQueueFilter and loadedSortOption, not the live intent, for the same reason the grid
+        /// does: those are written in the same pass as `films`, so the bands always match the films shown.
+        /// With no bands, the row model is a one-to-one identity mapping.
         fileprivate func rebuildRowModel() {
-            // Divider insertion points, in FILM index space. Empty whenever no bands apply
-            // at all, which collapses the loop below to a plain 1:1 build.
+            // Divider insertion points, in FILM index space. Empty whenever no bands apply at all, which
+            // collapses the loop below to a plain 1:1 build.
             let breaks = computeSectionBreaks()
             var nextBreak = 0
 
@@ -1148,8 +927,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             items.reserveCapacity(films.count + breaks.count)
             map.reserveCapacity(films.count)
 
-            // The Queue's "All" tab follows its "Up Next" films with empty slot rows (and,
-            // when "Up Next" has no films, its own band first). Nil everywhere else.
+            // The Queue's "All" tab follows its "Up Next" films with empty slot rows (and, when "Up Next" has
+            // no films, its own band first). Nil everywhere else.
             var slotPlan = dataCoordinator.flatMap {
                 UpNextSlots.plan(breaks: breaks, filmCount: films.count, coordinator: $0)
             }
@@ -1167,13 +946,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             for (index, film) in films.enumerated() {
                 appendSlots(at: index)
                 if nextBreak < breaks.count, breaks[nextBreak].index == index {
-                    // Section film count is the span from this break to the next one (or to
-                    // the end of the film set for the final section) — the same real-item
-                    // index space the breaks themselves use, so it always matches the number
-                    // of film rows actually rendered beneath the band. The arithmetic is
-                    // GallerySectioning.bandFilmCount, the same call
-                    // SmoothResizingGridLayout.filmCount(atOrdinal:) makes, so the two
-                    // gallery styles share one definition rather than two matching ones.
+                    // A section's film count is the span from this break to the next one, or to the end for
+                    // the last section. It uses the same index space as the breaks, so it matches the rows
+                    // rendered. It is GallerySectioning.bandFilmCount, the same call the grid uses.
                     let next = (nextBreak + 1) < breaks.count ? breaks[nextBreak + 1].index : nil
                     items.append(.divider(
                         section: breaks[nextBreak].section,
@@ -1181,11 +956,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                             from: index, nextBandIndex: next, totalCount: films.count)))
                     nextBreak += 1
                 }
-                // Last-wins on a duplicate film ID, matching the deliberate
-                // `uniquingKeysWith` reliability choice this replaces (and
-                // GallerySubview.Coordinator.rebuildFilmIndexMap): a repeated ID degrades to
-                // "maps to its last row" rather than trapping. Plain subscript assignment is
-                // last-wins by construction.
+                // On a duplicate film ID, the last row wins. This matches
+                // GallerySubview.Coordinator.rebuildFilmIndexMap, so a repeated ID does not trap.
                 map[film.id] = items.count
                 items.append(.film(index: index))
             }
@@ -1196,11 +968,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             listContentHeight = items.reduce(0) { $0 + $1.rowHeight }
         }
 
-        /// The list's divider insertion points — the identical call the grid's
-        /// updateSectionDividers() makes, so the two styles cannot disagree about which
-        /// bands a film set has: they are not two implementations kept in agreement, they
-        /// are one. Returns an empty array when no bands apply, which leaves the row model
-        /// a strict 1:1 identity mapping.
+        /// The list's divider insertion points, from the same call the grid makes. The two styles share one
+        /// definition, so they agree about which bands apply. It returns an empty array when no bands apply,
+        /// leaving the row model one to one.
         private func computeSectionBreaks() -> [(index: Int, section: GallerySection)] {
             guard let dc = dataCoordinator else { return [] }
             return GallerySectioning.displayedSectionBreaks(
@@ -1209,8 +979,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         // MARK: - Row ⟷ Film Conversion
 
-        /// The film index a table row displays, or nil when the row is a section divider
-        /// (or out of range). The single funnel every row→film conversion goes through.
+        /// The film index a table row displays, or nil when the row is a section divider (or out of range).
+        /// The single funnel every row→film conversion goes through.
         func filmIndex(forRow row: Int) -> Int? {
             guard row >= 0, row < rowItems.count else { return nil }
             guard case .film(let index) = rowItems[row], index < films.count else { return nil }
@@ -1225,50 +995,32 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         // MARK: - Drag Support (NSTableViewDataSource)
 
-        /// Returning a writer here causes NSTableView to detect drag gestures from
-        /// within its own mouseDown event-tracking loop — the only reliable trigger
-        /// point (a manual mouseDown/mouseDragged/mouseUp bypass, mirroring
-        /// GalleryCollectionView's approach for the grid, was tried and does not
-        /// work: NSTableView.mouseDown(with:) runs its own internal, blocking
-        /// event-tracking loop that consumes every subsequent mouseDragged/mouseUp
-        /// event itself, so a subclass's own overrides of those methods never see
-        /// them at all). The writer serializes the film IDs for drop destinations.
+        /// Returning a writer lets NSTableView detect drag gestures from inside its mouseDown tracking loop.
+        /// That is the only reliable trigger. A manual mouseDown and mouseDragged bypass does not work,
+        /// because NSTableView's own blocking loop consumes those events. The writer serializes the film IDs
+        /// for drop destinations.
         ///
-        /// Critical: NSTableView calls this once per row in the selection. Each
-        /// non-nil return value becomes one NSDraggingItem, and the OS renders a
-        /// count badge equal to NSDraggingSession.draggingItems.count — independent
-        /// of draggingFormation and the drag image. To suppress the badge entirely,
-        /// we return a writer only for the *lowest-index selected row* (computed
-        /// below), encoding the full set of dragged IDs in that single item. All
-        /// other selected rows return nil, so the session has exactly one item and
-        /// the OS never shows a badge.
+        /// NSTableView calls this once per selected row. Each non-nil writer becomes a dragging item, and the
+        /// OS draws a count badge for the item count. To avoid the badge, only the lowest-index selected row
+        /// returns a writer, and it carries the whole set of IDs. The other rows return nil, so the session
+        /// has one item.
         func tableView(_ tableView: NSTableView,
                        pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-            // Divider rows resolve to nil here, so they never produce a pasteboard writer
-            // and can never originate a drag.
+            // Divider rows resolve to nil here, so they never produce a pasteboard writer and can never
+            // originate a drag.
             guard let clickedID = film(forRow: row)?.id else { return nil }
 
-            // The AUTHORITATIVE, synchronous AppKit selection — deliberately not
-            // selectionState.selectedFilmIDs, exactly as
-            // GallerySubview.Coordinator.filmIDsForDrag(clickedAt:) reads
-            // collectionView.selectionIndexPaths for the grid. SelectionState.select(_:)
-            // commits through a deferred DispatchQueue.main.async, and NSTableView begins a
-            // drag from inside the same synchronous mouseDown tracking loop that changed
-            // the selection — so the main queue has not drained yet and the model set can
-            // still be one gesture behind. Reading it here made a Cmd-click (or
-            // Shift-click) followed immediately by a drag produce a writer for the newly
-            // added row AND a separate writer for the stale set, giving the session more
-            // than one dragging item: the OS count badge this method exists to suppress
-            // reappeared, and the payload was split across items.
+            // Reads the synchronous AppKit selection, not selectionState.selectedFilmIDs, as GallerySubview's
+            // filmIDsForDrag does. SelectionState writes through a deferred dispatch, so right after a
+            // Cmd-click the model can still be one gesture behind. Reading it there could produce two writers and
+            // bring back the count badge.
             //
-            // Divider rows are unselectable (tableView(_:shouldSelectRow:)), so every index
-            // here is a film row and `first` is the lowest-index selected row.
+            // Divider rows cannot be selected (shouldSelectRow), so every index here is a film row.
             let selectedRows = tableView.selectedRowIndexes
 
             if selectedRows.contains(row) {
-                // Multi-selection drag: only produce a writer for the lowest-index
-                // selected row. All other selected rows return nil, keeping the
-                // NSDraggingSession at exactly one item (= no OS count badge).
+                // Multi-selection drag: only the lowest-index selected row gets a writer, keeping the session
+                // at one item and no count badge.
                 guard row == selectedRows.first else { return nil }
                 let selectedIDs = Set(selectedRows.compactMap { film(forRow: $0)?.id })
                 guard !selectedIDs.isEmpty else { return nil }
@@ -1283,50 +1035,38 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                        draggingSession session: NSDraggingSession,
                        willBeginAt screenPoint: NSPoint,
                        forRowIndexes rowIndexes: IndexSet) {
-            // Use the row the user actually grabbed (recorded at mouseDown time) as
-            // the source for the poster preview. Fall back to rowIndexes.first only
-            // if the stored value is somehow absent — which should never occur in
-            // normal flow since mouseDown fires before this delegate callback.
+            // The poster preview uses the row recorded at mouseDown. rowIndexes.first is a fallback, which
+            // should not be needed.
             let sourceRow = pendingDragSourceRow ?? rowIndexes.first ?? 0
             pendingDragSourceRow = nil  // Consume immediately; must not persist.
 
-            // dragPreviewImage (cache-only) is used here deliberately, NOT
-            // getImageWithFallback. See PosterCache.dragPreviewImage for rationale.
-            // Resolved through the row model: `sourceRow` is a TABLE row index, which is
-            // only the same as a film index when no divider rows are present.
+            // dragPreviewImage is cache-only by design, so it never reads disk during a drag. See
+            // PosterCache.dragPreviewImage. The row is a table row index, which equals a film index only when
+            // there are no divider rows.
             let sourceFilm = film(forRow: sourceRow)
             let posterImage: NSImage? = sourceFilm.flatMap {
                 PosterCache.shared.dragPreviewImage(for: $0.posterUID)
             }
 
-            // dragCount: if the source row is part of the selection, the full
-            // selection count is dragged; otherwise just this single row. Read from the
-            // table's own selection for the same reason pasteboardWriterForRow above does
-            // — see that method's note on the deferred SelectionState write, which made
-            // this badge report the pre-click count for a Cmd/Shift-click-then-drag.
+            // dragCount is the full selection when the source row is selected, and otherwise 1. It reads the
+            // table's own selection, as the writer does, because the deferred SelectionState write would
+            // report the pre-click count after a Cmd-click followed by a drag.
             let selectedRows = tableView.selectedRowIndexes
             let dragCount = selectedRows.contains(sourceRow) ? selectedRows.count : rowIndexes.count
 
-            // Disable the built-in cancel animation — the flyback window handles
-            // the fly-back itself (see GalleryDragEngine.performFlyBack).
+            // Disable the built-in cancel animation — the flyback window handles the fly-back itself (see
+            // GalleryDragEngine.performFlyBack).
             session.animatesToStartingPositionsOnCancelOrFail = false
 
-            // The session always has exactly one dragging item because
-            // pasteboardWriterForRow returns nil for all rows except the lowest-index
-            // selected one. draggingFormation = .none is kept as a belt-and-suspenders
-            // guard against any future code path that might introduce a second item.
+            // The session has one dragging item, since pasteboardWriterForRow returns a writer only for the
+            // lowest-index selected row. draggingFormation is
+            // .none as a guard against a future second item.
             session.draggingFormation = .none
 
-            // Replace the single dragging item's (already-suppressed, per
-            // dragImageForRows) image with an explicit 1×1 transparent placeholder
-            // too — belt-and-suspenders, matching this app's original list-view
-            // drag implementation. The REAL visible preview is the separate
-            // flyback window armed by dragEngine.prepareDrag below, positioned by
-            // direct screen-point arithmetic and kept in sync via
-            // DraggableListTableView's own draggingSession(_:movedTo:) override —
-            // deliberately not the native per-item frame AppKit tracks here, which
-            // proved unreliable for this session type across several fix attempts
-            // (see GalleryDragEngine's class-level doc comment).
+            // Replaces the dragging item's image with an explicit transparent 1x1 placeholder, as a second
+            // suppression. The visible preview is the flyback window armed by dragEngine.prepareDrag,
+            // positioned by screen-point arithmetic. The native per-item frame is unreliable for this
+            // session type, so the list does not use it. See GalleryDragEngine.
             let transparent = NSImage.transparentDragPlaceholder
             unsafe session.enumerateDraggingItems(
                 options: .clearNonenumeratedImages,
@@ -1341,8 +1081,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 )
             }
 
-            // Arm the drag engine: marks the session live in DragSessionMonitor and
-            // prepares the flyback window at the drag's starting screen point.
+            // Arm the drag engine: marks the session live in DragSessionMonitor and prepares the flyback
+            // window at the drag's starting screen point.
             dragEngine.prepareDrag(
                 filmCount: dragCount,
                 posterImage: posterImage,
@@ -1368,14 +1108,16 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         func syncSelectionToView() {
             guard let tv = tableView, !isUpdatingSelection else { return }
+            // A deferred selection is about to land and will sync again; see hasPendingSelection.
+            guard !selectionState.hasPendingSelection else { return }
             isUpdatingSelection = true
             defer { isUpdatingSelection = false }
 
             // Untracked: this also runs inside updateNSView — see untrackedSelectedFilmIDs.
             let selectedIDs = selectionState.untrackedSelectedFilmIDs
             guard !selectedIDs.isEmpty else {
-                // Only call deselectAll if rows are actually selected; calling it on an
-                // already-empty selection fires tableViewSelectionDidChange needlessly.
+                // Only call deselectAll if rows are actually selected; calling it on an already-empty
+                // selection fires tableViewSelectionDidChange needlessly.
                 if !tv.selectedRowIndexes.isEmpty {
                     tv.deselectAll(nil)
                 }
@@ -1400,27 +1142,18 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         // MARK: - Contextual Menu
 
-        /// Resolves the film set a secondary-click contextual menu should act on, and
-        /// builds the menu for it. Called from DraggableListTableView.menu(for:), which
-        /// has already verified the click landed on an actual row.
+        /// Resolves the films a secondary-click context menu should act on, and builds the menu. It is called
+        /// from DraggableListTableView.menu(for:), which has already confirmed the click landed on a row.
         ///
-        /// SELECTION SEMANTICS. Identical to the grid's — see
-        /// GallerySubview.Coordinator.contextMenu(forItemAt:) for the full rationale.
-        /// In short: a secondary-click on an already-selected row leaves the selection
-        /// untouched and the menu acts on the whole group; a secondary-click on an
-        /// unselected row must select it, because "Edit Metadata…" / "Edit Releases…"
-        /// are resolved downstream against SelectionState rather than against an ID
-        /// carried in the command.
+        /// Selection rules match the grid (see GallerySubview.Coordinator.contextMenu(forItemAt:)). A click
+        /// on a selected row leaves the selection alone and the menu acts on the group. A click on an
+        /// unselected row selects it, since the Edit commands resolve against the selection.
         ///
-        /// `selectRowIndexes` fires tableViewSelectionDidChange synchronously, so the
-        /// `isUpdatingSelection` guard is held across it to suppress the redundant
-        /// updateSelectionFromView echo; the model write is then performed directly,
-        /// immediately, via selectImmediate — the menu's tracking loop starts as soon as
-        /// this method returns, so the deferred select() path would be too late.
+        /// selectRowIndexes fires the selection callback synchronously, so isUpdatingSelection is held across
+        /// it to suppress the echo. The model is then written at once with selectImmediate, since the menu's
+        /// tracking loop starts as soon as this returns.
         func contextMenu(forRow row: Int) -> NSMenu? {
-            // A secondary-click on a section-divider row resolves to nil here and therefore
-            // shows no menu at all — matching the grid, where the divider band is purely
-            // decorative and non-interactive (SectionDividerDecorationView.hitTest).
+            // A secondary-click on a divider row returns no menu, as the grid's decorative divider bands do.
             guard let tv = tableView, let clickedID = film(forRow: row)?.id else { return nil }
 
             var targetIDs = Set(tv.selectedRowIndexes.compactMap { row -> UUID? in
@@ -1449,14 +1182,10 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             let ids = Set(rows.compactMap { row -> UUID? in
                 film(forRow: row)?.id
             })
-            // Classify the input authoritatively from NSApp.currentEvent: a mouse
-            // press/release is a deliberate discrete click, so RightSidebar resolves it
-            // instantly instead of tripping the `.unspecified` timing fallback (75 ms
-            // debounce) when clicks land < 0.15 s apart. NSTableView's native arrow-key
-            // navigation reaches this method with a keyboard current event and therefore
-            // still classifies `.unspecified` — preserving the existing timing-heuristic
-            // debounce for held arrow keys in the list view, exactly as documented on
-            // SelectionInputKind. See SelectionInputKind.fromCurrentAppKitEvent.
+            // Classifies the input from NSApp.currentEvent. A mouse press or release is a deliberate click,
+            // and RightSidebar resolves it at once. Arrow keys arrive with a key event, so they stay
+            // `.unspecified` and keep the timing debounce for held keys. See
+            // SelectionInputKind.fromCurrentAppKitEvent.
             selectionState.select(ids, inputKind: .fromCurrentAppKitEvent())
         }
 
@@ -1465,11 +1194,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         private func setupSubscriptions() {
             observeSelectionState()
 
-            // Switched over exhaustively, with no `default` clause: SelectionEvent has
-            // exactly these two cases, so a `default` was unreachable (and warned as
-            // such). Leaving it off is also the safer shape — a third event added later
-            // becomes a compile error here rather than a silently ignored no-op.
-            // Mirrors the identical switch in GallerySubview.Coordinator.
+            // Switched exhaustively, with no default. SelectionEvent has two cases, so a default would be
+            // unreachable. A third case added later becomes a compile error here rather than being ignored.
+            // This mirrors GallerySubview.Coordinator.
             AppEventBus.shared.selectionEvents
                 .receive(on: RunLoop.main)
                 .sink { [weak self] event in
@@ -1477,17 +1204,15 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                     switch event {
                     case .selectAllFilms:
                         guard let tv = self.tableView, !self.films.isEmpty else { return }
-                        // Set isUpdatingSelection before modifying the table view so
-                        // tableViewSelectionDidChange → updateSelectionFromView is blocked.
-                        // This mirrors the GallerySubview.selectAll() pattern: the visual
-                        // selection happens here, not through the observation round-trip.
+                        // Sets isUpdatingSelection before changing the table, so tableViewSelectionDidChange
+                        // does not run. This follows GallerySubview.selectAll(): the visual selection changes
+                        // here, not through the observation round-trip.
                         guard !self.isUpdatingSelection else { return }
                         self.isUpdatingSelection = true
-                        // Row space, and film rows only: a contiguous 0..<films.count range
-                        // would sweep any interleaved section-divider rows into the
-                        // selection request. (They are unselectable, so AppKit would drop
-                        // them — but building the set from the film rows themselves keeps
-                        // the request itself honest rather than relying on that filtering.)
+                        // Row space, and film rows only: a contiguous 0..<films.count range would sweep any
+                        // interleaved section-divider rows into the selection request. (They are
+                        // unselectable, so AppKit would drop them — but building the set from the film rows
+                        // themselves keeps the request itself honest rather than relying on that filtering.)
                         let all = IndexSet(self.filmRowMap.values)
                         self.withSuppressedCallbacks {
                             tv.selectRowIndexes(all, byExtendingSelection: false)
@@ -1495,9 +1220,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                         self.selectionState.selectImmediate(Set(self.films.map(\.id)))
                         DispatchQueue.main.async { [weak self] in self?.isUpdatingSelection = false }
                     case .clearFocusRings:
-                        // Suppress tableViewSelectionDidChange so it doesn't schedule a
-                        // redundant deferred selectionState.select(Set()) alongside the
-                        // observation loop's own syncSelectionToView pass.
+                        // Suppress tableViewSelectionDidChange so it doesn't schedule a redundant deferred
+                        // selectionState.select(Set()) alongside the observation loop's own
+                        // syncSelectionToView pass.
                         self.withSuppressedCallbacks {
                             self.tableView?.deselectAll(nil)
                         }
@@ -1505,15 +1230,13 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 }
                 .store(in: &cancellables)
 
-            // Cmd+L - Scroll the table so the topmost selected film sits in the top
-            // visible row, exactly as the grid does. Works for both single and
-            // multi-selection: IndexSet.first is the smallest index, i.e. the row nearest
-            // the top, and divider rows are unselectable, so it is always a film row.
+            // Cmd+L scrolls the table so the topmost selected film sits in the top visible row, as the grid
+            // does. IndexSet.first is the smallest index, so it is the row nearest the top. Divider rows are
+            // unselectable, so it is always a film row.
             //
-            // This used scrollRowToVisible, which scrolls only as far as it must, so a film
-            // below the viewport landed on the BOTTOM row — while the grid, and the
-            // search-exit handoff that documents itself as matching Cmd+L, place it at the
-            // top.
+            // This scrolls the row to the top rather than calling scrollRowToVisible, which stops as soon as
+            // the row is visible. That would leave a film below the viewport on the bottom row, while the grid
+            // places it at the top.
             AppEventBus.shared.uiCommands
                 .receive(on: RunLoop.main)
                 .sink { [weak self] command in
@@ -1533,13 +1256,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         // MARK: - Scroll-Origin Persistence
 
-        /// Begins recording this view's scroll origin each time a user-driven scroll
-        /// gesture ends. The list's copy of
-        /// GallerySubview.Coordinator.installScrollOriginRecorder(on:) — see that method's
-        /// doc comment for why the transition-time saves alone are not sufficient, why a
-        /// notification that fires only for genuine user scrolling is immune to the
-        /// mis-attribution those saves must guard against, and why delivery is deliberately
-        /// left synchronous.
+        /// Records this view's scroll origin each time a user scroll gesture ends. It is the list's copy of
+        /// GallerySubview.Coordinator.installScrollOriginRecorder. Only user scrolling posts this
+        /// notification, so it cannot save a programmatic zero. Delivery is synchronous.
         func installScrollOriginRecorder(on scrollView: NSScrollView) {
             NotificationCenter.default.addObserver(
                 self, selector: #selector(handleLiveScrollEnded(_:)),
@@ -1547,8 +1266,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             coastStopper.install(on: scrollView)
         }
 
-        /// Lets Cmd+L stop a trackpad coast in flight. The grid's identical member
-        /// (23.20) explains it; installed and removed with the scroll-origin recorder.
+        /// Lets Cmd+L stop a trackpad coast in flight. The grid's identical member (23.20) explains it;
+        /// installed and removed with the scroll-origin recorder.
         private let coastStopper = CoastingScrollStopper()
 
         /// Removes the live-scroll observer. Idempotent. Called from cancelSubscriptions().
@@ -1560,9 +1279,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         #if DEBUG
         // MARK: Viewport-Jump Tracer (DEBUG only)
-        // The shared `ViewportJumpTracer` (23.20 GallerySubview.swift) — see it for the
-        // rationale. Logs any clip-view move larger than three viewport heights, with the
-        // call stack that made it.
+        // The shared `ViewportJumpTracer` (23.20 GallerySubview.swift) — see it for the rationale. Logs any
+        // clip-view move larger than three viewport heights, with the call stack that made it.
         private let viewportJumpTracer = ViewportJumpTracer(owner: "list")
 
         func installViewportJumpTracer(on scrollView: NSScrollView) {
@@ -1578,9 +1296,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         @objc private func handleLiveScrollEnded(_ notification: Notification) {
             guard let scrollView else { return }
-            // The user has taken the viewport over by hand. Retired BEFORE the save for
-            // the reason spelled out in GallerySubview.Coordinator's identical recorder:
-            // bankScrollOrigin refuses to overwrite a key with an outstanding restore.
+            // The user has taken the viewport over by hand. Retired BEFORE the save for the reason spelled
+            // out in GallerySubview.Coordinator's identical recorder: bankScrollOrigin refuses to overwrite a
+            // key with an outstanding restore.
             ViewStateManager.shared.finishScrollOriginRestore(for: displayedScrollKey)
             ViewStateManager.shared.saveScrollPosition(scrollPosition(of: scrollView),
                                                        under: displayedScrollKey)
@@ -1592,18 +1310,17 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             GalleryScrollKey(viewID: currentViewID, subTab: lastFilmQueueFilter?.rawValue)
         }
 
-        /// See GalleryScrollPositionProviding.currentScrollState(). `prevViewID` is nil
-        /// until this Coordinator's first update pass has run, which is exactly the
-        /// "nothing rendered yet, currentViewID is still its default" condition the
-        /// protocol requires be reported as nil rather than as a real identity.
+        /// See GalleryScrollPositionProviding.currentScrollState(). `prevViewID` is nil until this
+        /// Coordinator's first update pass has run, which is exactly the "nothing rendered yet, currentViewID
+        /// is still its default" condition the protocol requires be reported as nil rather than as a real
+        /// identity.
         func currentScrollState() -> (key: GalleryScrollKey, position: GalleryScrollPosition)? {
             guard prevViewID != nil, let scrollView else { return nil }
             return (displayedScrollKey, scrollPosition(of: scrollView))
         }
 
-        /// The scroll position of `scrollView` (this list's): its origin, anchored on the
-        /// topmost visible film row. The list's counterpart to the grid's; see
-        /// GalleryScrollPosition.
+        /// The scroll position of `scrollView` (this list's): its origin, anchored on the topmost visible
+        /// film row. The list's counterpart to the grid's; see GalleryScrollPosition.
         func scrollPosition(of scrollView: NSScrollView) -> GalleryScrollPosition {
             let origin = scrollView.documentVisibleRect.origin
             guard origin.y > 0, let tv = tableView else { return GalleryScrollPosition(origin: origin) }
@@ -1636,71 +1353,56 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         // MARK: - Search-Exit / Grid⟷List View-Style Toggle Scroll Handoff
 
-        /// Returns the current row index for the given film ID, or nil if the film is
-        /// not present in this view's data. Used by ListScrollView.viewWillDraw() to
-        /// resolve a pending scroll target without exposing filmRowMap itself. Returns a
-        /// TABLE row index, which is what both isRowVisible(_:) and rect(ofRow:) expect.
+        /// Returns the current row index for the given film ID, or nil if the film is not present in this
+        /// view's data. Used by ListScrollView.viewWillDraw() to resolve a pending scroll target without
+        /// exposing filmRowMap itself. Returns a TABLE row index, which is what both isRowVisible(_:) and
+        /// rect(ofRow:) expect.
         func rowIndex(for filmID: UUID) -> Int? {
             filmRowMap[filmID]
         }
 
-        /// Returns whether the given row is fully or partially visible in the current
-        /// scroll viewport. Mirrors GallerySubview.Coordinator.isFilmVisible(at:) — used
-        /// by ListScrollView.viewWillDraw() to decide whether a search-exit handoff
-        /// needs to scroll at all, or whether the target is already on screen.
+        /// Returns whether the given row is fully or partially visible in the current scroll viewport.
+        /// Mirrors GallerySubview.Coordinator.isFilmVisible(at:) — used by ListScrollView.viewWillDraw() to
+        /// decide whether a search-exit handoff needs to scroll at all, or whether the target is already on
+        /// screen.
         func isRowVisible(_ row: Int) -> Bool {
             guard let tv = tableView else { return false }
             return tv.visibleRect.intersects(tv.rect(ofRow: row))
         }
 
         /// Returns the film in the row currently topmost in the visible viewport, for the
-        /// GalleryScrollPositionProviding conformance used to capture a list→grid handoff
-        /// target. `rows(in:)` returns an empty range (location == -1) when no rows
-        /// intersect the given rect, which the guard below rejects.
+        /// GalleryScrollPositionProviding conformance used to capture a list→grid handoff target. `rows(in:)`
+        /// returns an empty range (location == -1) when no rows intersect the given rect, which the guard
+        /// below rejects.
         func topmostVisibleFilmID() -> UUID? {
             guard let tv = tableView, !films.isEmpty else { return nil }
             let visible = tv.rows(in: tv.visibleRect)
             guard visible.length > 0, visible.location >= 0 else { return nil }
-            // Walk forward to the first FILM row in the visible range: the topmost visible
-            // row can be a section-divider band, which has no film to hand off.
+            // Walk forward to the first FILM row in the visible range: the topmost visible row can be a
+            // section-divider band, which has no film to hand off.
             for row in visible.location..<(visible.location + visible.length) {
                 if let id = film(forRow: row)?.id { return id }
             }
             return nil
         }
 
-        /// Scrolls the table so the given film's row becomes the topmost visible row,
-        /// clamped to the table's maximum scroll extent. Does not alter selection.
-        /// Mirrors GallerySubview.Coordinator.scrollToTopRow — see that method's doc
-        /// comment for the general top-row-placement and clamping rationale. A film
-        /// no longer present in this view's data (e.g. a stale handoff target) is
-        /// silently ignored, matching the equivalent guard in the grid's search-exit
-        /// and view-style-toggle handoff paths.
+        /// Scrolls the table so the given film's row becomes the topmost visible row, clamped to the maximum
+        /// scroll extent. It does not change selection. A film no longer in this view is ignored, as in the
+        /// grid's handoff paths. See GallerySubview.Coordinator.scrollToTopRow.
         func scrollFilmToTop(_ filmID: UUID) {
             guard let tv = tableView, let scrollView, let row = filmRowMap[filmID] else { return }
 
             let rowRect = tv.rect(ofRow: row)
-            // Content height is computed directly from the row model's summed heights
-            // rather than from tv.bounds.height. NSTableView's document-view frame can still reflect
-            // its pre-reload (or entirely unestablished) size on the very first
-            // viewWillDraw pass for a freshly-created table — exactly when this method
-            // is called from the search-exit / view-style-toggle scroll handoff — so
-            // tv.bounds.height can read 0 or stale at that moment. When it does, the old
-            // clamp (content height minus viewport height) collapsed to 0, forcing
-            // targetY to 0 for every row regardless of its real position: the symptom
-            // was a list that always lands back at the top instead of at the preserved
-            // selection. Row count × row height is pure arithmetic with no dependency on
-            // AppKit's internal layout timing — mirrors why rowRect above (also pure
-            // arithmetic via rect(ofRow:)) never had this problem in the first place.
+            // Content height comes from the row model's summed heights, not tv.bounds.height. On a freshly
+            // created table, the frame can read 0 or stale on the first viewWillDraw pass, so the clamp could
+            // collapse to zero and send every target to the top. Row arithmetic does not depend on AppKit
+            // layout timing.
             //
-            // Sourced from scrollableContentHeight (listContentHeight, summed once per
-            // row-model rebuild, plus the inset style's padding) rather than restated as
-            // films.count × kListRowHeight, so it stays correct when the taller
-            // section-divider rows are interleaved. The clamp arithmetic itself
-            // is NSScrollView.maxVerticalScrollOffset(forContentHeight:) — shared with
-            // scrollToSectionBand and ListScrollView.resolvePendingOriginRestore(), so the
-            // three can never drift apart, and inset-aware so a target near the end of the
-            // table is not capped short of the StatusBar overlay.
+            // It uses scrollableContentHeight (summed once per rebuild, plus the inset padding). That stays
+            // correct with divider rows interleaved. The clamp is
+            // NSScrollView.maxVerticalScrollOffset(forContentHeight:), shared with scrollToSectionBand and
+            // resolvePendingOriginRestore. It is inset-aware, so a target near the end is not capped short of
+            // the StatusBar.
             let maxScrollY = scrollView.maxVerticalScrollOffset(forContentHeight: scrollableContentHeight)
             let targetY = max(0, min(rowRect.origin.y, maxScrollY))
 
@@ -1710,14 +1412,13 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             }
         }
 
-        /// Declares that the user has taken this viewport over by hand, so nothing the app
-        /// armed earlier may still move it. The list's counterpart to
-        /// GallerySubview.Coordinator.claimViewportForUser() — see that method for the full
-        /// rationale and the failure it prevents.
+        /// Declares that the user has taken this viewport over by hand, so nothing the app armed earlier may
+        /// still move it. The list's counterpart to GallerySubview.Coordinator.claimViewportForUser() — see
+        /// that method for the full rationale and the failure it prevents.
         func claimViewportForUser() {
             ViewStateManager.shared.finishScrollOriginRestore(for: displayedScrollKey)
-            // The coordinator holds this as a plain NSScrollView; the two armed-target
-            // properties live on the ListScrollView subclass that actually resolves them.
+            // The coordinator holds this as a plain NSScrollView; the two armed-target properties live on the
+            // ListScrollView subclass that actually resolves them.
             if let listScrollView = scrollView as? ListScrollView {
                 listScrollView.pendingScrollPosition = nil
                 listScrollView.pendingScrollFilmID = nil
@@ -1727,22 +1428,20 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                                                        under: displayedScrollKey)
         }
 
-        /// Places the section band beginning with `firstFilmID` at the top of the viewport.
+        /// Places the section band that begins with `firstFilmID` at the top of the viewport.
         ///
-        /// The list's bands are real rows, and `rebuildRowModel` always emits one
-        /// immediately before the first film of its section — so the band is the row at
-        /// `filmRow - 1`, verified rather than assumed via `rowItems`. Scrolling to the film
-        /// itself would push the very label the user clicked just off the top edge; when no
-        /// band precedes the film (the bands were switched off between the menu being built
-        /// and the item being chosen) the film row is the correct target anyway.
+        /// Bands are real rows. rebuildRowModel always emits one just before a section's first film, so the
+        /// band is the row at filmRow - 1, checked against rowItems. Scrolling to the film would push the
+        /// clicked label off the top. If no band precedes the film, because bands were turned off after the
+        /// menu was built, the film row is the target.
         func scrollToSectionBand(firstFilmID: UUID) {
             guard let tv = tableView, let scrollView, let filmRow = filmRowMap[firstFilmID] else { return }
 
             let bandRow = filmRow - 1
             let targetRow = (bandRow >= 0 && rowItems[bandRow].isDivider) ? bandRow : filmRow
 
-            // Same clamp as scrollFilmToTop above, and for the same reasons — see that
-            // method's comment on why contentHeight comes from scrollableContentHeight.
+            // Same clamp as scrollFilmToTop above, and for the same reasons — see that method's comment on
+            // why contentHeight comes from scrollableContentHeight.
             let maxScrollY = scrollView.maxVerticalScrollOffset(forContentHeight: scrollableContentHeight)
             let targetY = max(0, min(tv.rect(ofRow: targetRow).origin.y, maxScrollY))
 
@@ -1751,9 +1450,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
             scrollView.flashScrollers()
-            // See the identical call in the grid's scrollToSectionBand: a programmatic jump
-            // emits no didEndLiveScroll, so the new position must be banked explicitly or
-            // the pre-jump origin survives to be restored later.
+            // See the identical call in the grid's scrollToSectionBand: a programmatic jump emits no
+            // didEndLiveScroll, so the new position must be banked explicitly or the pre-jump origin survives
+            // to be restored later.
             claimViewportForUser()
         }
 
@@ -1768,8 +1467,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                             continuation.resume()
                         }
                     }
-                    // A dismantled list's loop wakes once more on the next change; it must
-                    // stop without syncing. See GallerySubview.Coordinator.observeSelectionState.
+                    // A dismantled list's loop wakes once more on the next change; it must stop without
+                    // syncing. See GallerySubview.Coordinator.observeSelectionState.
                     guard !Task.isCancelled else { break }
                     guard !self.isUpdatingSelection else { continue }
                     self.syncSelectionToView()
@@ -1832,23 +1531,23 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             return rowItems[row].rowHeight
         }
 
-        /// Section-divider bands are purely decorative and must never take the selection —
-        /// matching the grid, whose divider decoration view is excluded from hit-testing
-        /// entirely (SectionDividerDecorationView.hitTest). NSTableView also honors this
-        /// for its own native arrow-key navigation, stepping straight over a divider row
-        /// to the next selectable film row, which is precisely the "divider is transparent
-        /// to navigation" behavior GallerySubview implements by hand for the grid.
+        /// Section-divider bands are purely decorative and must never take the selection — matching the grid,
+        /// whose divider decoration view is excluded from hit-testing entirely
+        /// (SectionDividerDecorationView.hitTest). NSTableView also honors this for its own native arrow-key
+        /// navigation, stepping straight over a divider row to the next selectable film row, which is
+        /// precisely the "divider is transparent to navigation" behavior GallerySubview implements by hand
+        /// for the grid.
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
             guard row >= 0, row < rowItems.count else { return false }
             // Empty "Up Next" slots are no more selectable than divider bands.
             return rowItems[row].isFilm
         }
 
-        /// Supplies a background- and selection-free row view for section-divider rows, so
-        /// a divider band renders against the table's plain backdrop rather than picking up
-        /// an alternating content stripe (which would read as a content row). Film rows
-        /// return nil and therefore keep NSTableView's stock row view, leaving the existing
-        /// alternating-stripe and `.inset` selection appearance completely untouched.
+        /// Supplies a background- and selection-free row view for section-divider rows, so a divider band
+        /// renders against the table's plain backdrop rather than picking up an alternating content stripe
+        /// (which would read as a content row). Film rows return nil and therefore keep NSTableView's stock
+        /// row view, leaving the existing alternating-stripe and `.inset` selection appearance completely
+        /// untouched.
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
             // Empty "Up Next" slots draw their own outline, so they take the plain row too.
             guard row >= 0, row < rowItems.count, !rowItems[row].isFilm else { return nil }
@@ -1869,27 +1568,15 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
 // MARK: - DraggableListTableView
 
-/// NSTableView subclass used as the backing table for GalleryListView.
-/// Overrides the NSDraggingSource sourceOperationMaskFor and movedTo callbacks
-/// inherited from NSTableView: the former restricts drag operations to .copy
-/// within the application, the latter keeps GalleryDragEngine's flyback window
-/// (the visible drag preview) in sync with the cursor. Also overrides
-/// dragImageForRowsWithIndexes to suppress the native row-content drag image
-/// with an invisible placeholder — the flyback window is the sole visible
-/// preview, armed separately via willBeginAt → GalleryDragEngine.prepareDrag.
-///
-/// A manual mouseDown/mouseDragged/mouseUp bypass of this native pipeline
-/// (mirroring GalleryCollectionView's approach for the grid) was tried and does
-/// NOT work: NSTableView.mouseDown(with:) runs its own internal, blocking
-/// event-tracking loop that consumes every subsequent mouseDragged/mouseUp event
-/// itself whenever a row is hit, so a subclass's own overrides of those methods
-/// never see them — regardless of whether a pasteboardWriter is available. The
-/// native pipeline below (pasteboardWriterForRow / willBeginAt / dragImageForRows)
-/// is therefore the only viable hook point for this view.
+/// The NSTableView subclass behind GalleryListView. It overrides the drag-source mask, limiting drops to copy
+/// within the app. It forwards each move to GalleryDragEngine, so the flyback window tracks the cursor. It
+/// also suppresses the native row image (see dragImageForRows). A manual mouseDown bypass does not work,
+/// because NSTableView's own tracking loop consumes the drag events. The native pipeline
+/// (pasteboardWriterForRow, willBeginAt, dragImageForRows) is the only hook.
 #if DEBUG
 extension DraggableListTableView {
-    /// Row → the rating each film row the table currently holds a view for is displaying,
-    /// prepared off-screen rows included. For harness checks of in-place row refresh.
+    /// Row → the rating each film row the table currently holds a view for is displaying, prepared off-screen
+    /// rows included. For harness checks of in-place row refresh.
     func debugDisplayedRatings() -> [Int: Int] {
         var ratings: [Int: Int] = [:]
         enumerateAvailableRowViews { rowView, row in
@@ -1905,32 +1592,23 @@ extension DraggableListTableView {
 
 final class DraggableListTableView: NSTableView {
 
-    /// Set by DraggableListView.makeNSView immediately after construction.
-    /// fileprivate because DraggableListView is a private type in this file.
+    /// Set by DraggableListView.makeNSView immediately after construction. fileprivate because
+    /// DraggableListView is a private type in this file.
     fileprivate weak var coordinator: DraggableListView.Coordinator?
 
     /// Supplies the contextual (secondary-click) menu for a given row. Wired to
-    /// `DraggableListView.Coordinator.contextMenu(forRow:)`, which resolves the target
-    /// film set — and, when required, adjusts the selection — before building the menu.
-    /// Returning nil suppresses the menu entirely.
+    /// `DraggableListView.Coordinator.contextMenu(forRow:)`, which resolves the target film set — and, when
+    /// required, adjusts the selection — before building the menu. Returning nil suppresses the menu
+    /// entirely.
     fileprivate var getContextMenu: ((Int) -> NSMenu?)?
 
     // MARK: - Contextual Menu
 
-    /// Supplies the gallery contextual menu for a secondary-click (or Control-click,
-    /// which AppKit delivers as a right mouse event) that lands on an actual row.
-    ///
-    /// The hit test deliberately matches the one `mouseDown(with:)` below already
-    /// applies: a valid row AND a valid column. With the `.inset` table style, the
-    /// horizontal margins flanking the row highlight belong to no column even though
-    /// `row(at:)` still resolves a row there, and a primary click in that dead zone is
-    /// already treated as "clicking on nothing." Requiring `clickedCol >= 0` keeps the
-    /// two gestures consistent, so the padding around and below the rows is a no-op for
-    /// the contextual menu too.
-    ///
-    /// Deliberately does not call `super.menu(for:)` — NSTableView's own implementation
-    /// would surface the table's `menu` property for non-row points, which is precisely
-    /// the no-op case we want.
+    /// Supplies the gallery context menu for a secondary-click or Control-click on a row. The hit test
+    /// matches mouseDown: a valid row and a valid column. With the .inset style, the margins beside a row
+    /// belong to no column, and a primary click there counts as clicking nothing. Requiring a column keeps
+    /// the two consistent. It does not call super, since NSTableView's own menu would appear for non-row
+    /// points.
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
@@ -1941,33 +1619,27 @@ final class DraggableListTableView: NSTableView {
 
     // MARK: - Side-padding deselect
 
-    /// Deselects the current selection when the user clicks in the horizontal
-    /// padding between the row highlight's edges and the view's left/right edges.
-    ///
-    /// With the `.inset` table style, rows are drawn with inset horizontal margins.
-    /// NSTableView's own hit-testing considers those margins part of no column
-    /// (column(at:) returns -1) even when row(at:) finds a valid row. A click in
-    /// this dead zone previously did nothing when a row was selected. This override
-    /// converts such clicks into a deselect, matching the behavior of clicking in
-    /// the empty space below the last row — both are "clicking on nothing".
+    /// Deselects the selection when the user clicks the horizontal margin beside a row. With the .inset
+    /// style, row(at:) finds the row there but column(at:) returns -1, so the click is treated as clicking
+    /// nothing, the same as the empty space below the rows.
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let clickedRow = row(at: point)
         let clickedCol = column(at: point)
 
-        // Defensive self-heal: close-and-flush any click window a prior gesture
-        // somehow left open (see GalleryCollectionView.mouseDown for the identical
-        // guard). Internally guarded — a free no-op in every normal flow.
+        // Defensive self-heal: close-and-flush any click window a prior gesture somehow left open (see
+        // GalleryCollectionView.mouseDown for the identical guard). Internally guarded — a free no-op in
+        // every normal flow.
         DragSessionMonitor.shared.clickWindowDidClose()
 
-        // The user is acting on this viewport directly, so retire anything still armed to
-        // move it. Mirrors the identical call at the top of GalleryCollectionView.mouseDown
-        // — see Coordinator.claimViewportForUser() for what it prevents.
+        // The user is acting on this viewport directly, so retire anything still armed to move it. Mirrors
+        // the identical call at the top of GalleryCollectionView.mouseDown — see
+        // Coordinator.claimViewportForUser() for what it prevents.
         coordinator?.claimViewportForUser()
 
-        // If the click lands on a valid row but outside any column (i.e., in the
-        // left or right inset padding), deselect and absorb the event. Do not call
-        // super, which would let NSTableView treat it as a row selection gesture.
+        // If the click lands on a valid row but outside any column (i.e., in the left or right inset
+        // padding), deselect and absorb the event. Do not call super, which would let NSTableView treat it as
+        // a row selection gesture.
         if clickedRow >= 0 && clickedCol < 0 {
             if !selectedRowIndexes.isEmpty {
                 deselectAll(nil)
@@ -1975,28 +1647,17 @@ final class DraggableListTableView: NSTableView {
             return
         }
 
-        // Record which row the user pressed on before super.mouseDown enters its
-        // drag-detection loop. pasteboardWriterForRow is called during that loop,
-        // but the call order across multiple selected rows is not guaranteed to
-        // start with the grabbed row. Storing it here — at the definitive click
-        // moment — gives willBeginAt the authoritative source for the poster image.
-        // Film rows only. A section-divider row can never originate a drag
-        // (pasteboardWriterForRow returns nil for it), so recording one here could only
-        // ever seed willBeginAt with a row that resolves to no film.
+        // Records the pressed row before super.mouseDown enters the drag loop. Call order across multiple
+        // rows is not guaranteed to start with the grabbed row. Only film rows matter, since a divider row
+        // can never start a drag.
         if clickedRow >= 0, coordinator?.filmIndex(forRow: clickedRow) != nil {
             coordinator?.pendingDragSourceRow = clickedRow
         }
 
-        // Open the click-ambiguity deferral window around NSTableView's synchronous
-        // internal tracking loop (super.mouseDown returns only once the gesture has
-        // resolved — after mouseUp for a plain click, or right after the drag session
-        // is begun for a drag). Selection commits — and the sidebar's deferred
-        // selection write can drain — inside that loop, so without this window a fast
-        // drag's session start contends with the sidebar content rebuild. Row hits
-        // only: empty-space clicks never commit an item selection this way. On
-        // return, clickWindowDidClose() posts the plain-click flush notification, or
-        // no-ops if a session began (sessionWillBegin absorbed the window — the
-        // flush then belongs to session end) — see DragSessionMonitor.
+        // Opens the click-ambiguity window around NSTableView's synchronous tracking loop. Selection commits,
+        // and the sidebar's deferred write, can run inside that loop. Without the window, a fast drag's start
+        // contends with the sidebar rebuild. Row hits only. On return, clickWindowDidClose() flushes a plain
+        // click, or does nothing if a session began. See DragSessionMonitor.
         let opensClickWindow = clickedRow >= 0
         if opensClickWindow {
             DragSessionMonitor.shared.clickWindowDidOpen()
@@ -2009,17 +1670,10 @@ final class DraggableListTableView: NSTableView {
 
     // MARK: - Drag image suppression
 
-    /// Returns a 1×1 transparent image, suppressing the native row-content drag
-    /// preview entirely. Called by NSTableView during drag-session construction,
-    /// before willBeginAt fires. This is the definitive suppression point —
-    /// delegate hooks fire too late since the image is already composited by then.
-    ///
-    /// The `offset` parameter doesn't matter here — it governs the native item's
-    /// own cursor anchor, but that item is never actually displayed: the real,
-    /// visible preview is the separate flyback window armed by
-    /// GalleryDragEngine.prepareDrag and kept in sync by this class's own
-    /// draggingSession(_:movedTo:) override below. `.zero` matches this app's
-    /// original, proven-reliable list-view drag implementation.
+    /// Returns a 1x1 transparent image, suppressing the native row drag preview. NSTableView calls this while
+    /// building the session, before willBeginAt. Delegate hooks are too late, because the image is composited
+    /// by then. The offset is irrelevant, since the native item is never shown. The visible preview is the
+    /// flyback window, armed by GalleryDragEngine.prepareDrag and moved by draggingSession(_:movedTo:).
     override func dragImageForRows(with dragRows: IndexSet,
                                    tableColumns: [NSTableColumn],
                                    event dragEvent: NSEvent,
@@ -2046,36 +1700,21 @@ final class DraggableListTableView: NSTableView {
 
 // MARK: - ListRowHostCell
 
-/// NSView subclass that hosts a SwiftUI GalleryListRow via NSHostingView.
-/// Reused across rows via NSTableView's cell-reuse queue.
-///
-/// Mirrors GalleryItem's change-tracking pattern: all fields rendered by
-/// GalleryListRow are tracked individually so that rootView is only reassigned
-/// when something the view actually displays has changed.
+/// The NSView subclass that hosts a GalleryListRow through NSHostingView. NSTableView reuses it through its
+/// cell queue. Like GalleryItem, it tracks each rendered field, so rootView is reassigned only when something
+/// visible changes.
 private final class ListRowHostCell: NSView {
 
     private var hostingView: NSHostingView<GalleryListRow>?
 
-    // Change tracking covers every field that GalleryListRow renders:
-    //   posterUID      → PosterThumbnailView
-    //   name           → title Text
-    //   hasPurchased   → purchased-disc badge
-    //   durationParts  → abbreviated duration (hour + minute items)
-    //   userRating     → star + rating Text
-    //   releaseYear    → year Text (monospaced)
-    //   subtitle       → by-line Text under the title (Recents views only)
-    // Tracking all of them ensures that in-place metadata edits (e.g. correcting a
-    // film's name, adjusting its rating, marking a release purchased, or entering an
-    // edited runtime) are reflected immediately in visible rows, even when the film's
-    // sort position — and therefore the table's count and first/last anchors — has not
+    // Change tracking covers every field GalleryListRow renders: posterUID (poster), name, hasPurchased (disc
+    // badge), durationParts, userRating, releaseYear, and subtitle (Recents only). Tracking all of them keeps
+    // in-place edits visible even when the film's sort position and the table's count and endpoints have not
     // changed.
     //
-    // The two derived fields are tracked as their RENDERED values rather than as the
-    // raw snapshot fields they come from (`releases`, and `edited`/`editedDuration`/
-    // `duration`), so a change that does not alter what the row actually shows — a
-    // release edited in some unrelated way, say — correctly skips the rootView
-    // reassignment. Both are computed once here, then handed to the row, so the
-    // comparison and the render can never disagree about what is displayed.
+    // The derived fields are tracked by rendered value, not by their raw sources. A release edit that does
+    // not change the displayed result correctly skips the reassignment. Both are computed once and passed to
+    // the row, so the comparison and the render always agree.
     private var currentFilmID: UUID?
     private var currentPosterUID: String?
     private var currentName: String?
@@ -2083,14 +1722,13 @@ private final class ListRowHostCell: NSView {
     private var currentDurationParts: DurationParts?
     private(set) var currentUserRating: Int?
     private var currentReleaseYear: String?
-    // Double-optional on purpose: nil means "never configured", .some(nil) means
-    // "configured with no subtitle", so a first configuration can never be mistaken
-    // for an unchanged one.
+    // Double-optional on purpose: nil means "never configured", .some(nil) means "configured with no
+    // subtitle", so a first configuration can never be mistaken for an unchanged one.
     private var currentSubtitle: String??
 
-    // Both initializers are required, and neither is redundant: declaring
-    // init?(coder:) suppresses initializer inheritance, so init(frame:) has to be
-    // restated for the no-argument construction the cell-reuse paths above use.
+    // Both initializers are required, and neither is redundant: declaring init?(coder:) suppresses
+    // initializer inheritance, so init(frame:) has to be restated for the no-argument construction the
+    // cell-reuse paths above use.
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
     }
@@ -2111,8 +1749,8 @@ private final class ListRowHostCell: NSView {
                           currentReleaseYear  != film.releaseYear ||
                           currentSubtitle     != .some(subtitle)
 
-        // Update all tracking fields before the (conditional) hosting-view update
-        // so the next call has the correct baseline regardless of whether we render.
+        // Update all tracking fields before the (conditional) hosting-view update so the next call has the
+        // correct baseline regardless of whether we render.
         currentFilmID        = film.id
         currentPosterUID     = film.posterUID
         currentName          = film.name
@@ -2128,9 +1766,9 @@ private final class ListRowHostCell: NSView {
                                       subtitle: subtitle)
 
         if let host = hostingView {
-            // Skip the rootView assignment entirely when nothing displayed changed.
-            // SwiftUI still diffs on assignment even when the value is identical,
-            // so avoiding the assignment is the only way to guarantee zero CPU cost.
+            // Skip the rootView assignment entirely when nothing displayed changed. SwiftUI still diffs on
+            // assignment even when the value is identical, so avoiding the assignment is the only way to
+            // guarantee zero CPU cost.
             if needsUpdate {
                 #if DEBUG
                 GalleryRefreshProbe.listRowRootViewAssignments += 1
@@ -2140,11 +1778,10 @@ private final class ListRowHostCell: NSView {
         } else {
             let host = NSHostingView(rootView: rootView)
             host.translatesAutoresizingMaskIntoConstraints = false
-            // Disable SwiftUI intrinsic-size participation. The hosting view is
-            // fully constraint-driven (pinned to all four edges below), so Auto
-            // Layout must never invoke a SwiftUI layout pass to satisfy its size.
-            // Without this, NSHostingView performs a full SwiftUI layout on every
-            // cell recycle during scrolling. Matches GalleryItem behavior.
+            // Disable SwiftUI intrinsic-size participation. The hosting view is fully constraint-driven
+            // (pinned to all four edges below), so Auto Layout must never invoke a SwiftUI layout pass to
+            // satisfy its size. Without this, NSHostingView performs a full SwiftUI layout on every cell
+            // recycle during scrolling. Matches GalleryItem behavior.
             host.sizingOptions = []
             addSubview(host)
             NSLayoutConstraint.activate([
@@ -2160,37 +1797,30 @@ private final class ListRowHostCell: NSView {
 
 // MARK: - ListDividerRowView
 
-/// Row view used for section-divider rows only.
-///
-/// NSTableView draws a row's alternating-stripe background and its selection highlight in
-/// the row view, not the cell view. A divider band must have neither: a stripe would make
-/// it read as a content row, and the band is unselectable anyway
-/// (`tableView(_:shouldSelectRow:)` returns false for it). Overriding the two drawing
-/// entry points to no-ops is the narrowest way to achieve that, and — critically — it
-/// touches ONLY divider rows: `tableView(_:rowViewForRow:)` returns nil for every film
-/// row, which leaves them on NSTableView's stock row view with its stock `.inset`
-/// selection appearance entirely unchanged.
+/// The row view for section-divider rows only. NSTableView draws stripes and the selection highlight in the
+/// row view, so a divider must have neither. A stripe would make it look like a content row. Overriding both
+/// drawing entry points to no-ops is the narrowest fix. It affects divider rows only, since rowViewForRow
+/// returns nil for film rows, which keep the stock inset selection.
 private final class ListDividerRowView: NSTableRowView {
     override func drawBackground(in dirtyRect: NSRect) {
-        // Deliberately empty: the divider band sits directly on the table's own
-        // backgroundColor, matching the grid, where the divider decoration draws no
-        // background of its own either (see SectionDividerDecorationView).
+        // Deliberately empty: the divider band sits directly on the table's own backgroundColor, matching the
+        // grid, where the divider decoration draws no background of its own either (see
+        // SectionDividerDecorationView).
     }
 
     override func drawSelection(in dirtyRect: NSRect) {
-        // Deliberately empty. Unreachable in normal operation — a divider row can never
-        // become selected — but a no-op here means even a future path that somehow marked
-        // one selected could not paint a highlight over a decorative band.
+        // Deliberately empty. Unreachable in normal operation — a divider row can never become selected — but
+        // a no-op here means even a future path that somehow marked one selected could not paint a highlight
+        // over a decorative band.
     }
 }
 
 // MARK: - ListDividerHostCell
 
-/// NSView subclass that hosts a SwiftUI `GalleryListSectionDivider` via NSHostingView.
-/// The divider counterpart to ListRowHostCell, with the identical reuse and
-/// change-tracking discipline: `rootView` is reassigned only when the section or its film
-/// count actually changed, so a recycled instance neither re-renders needlessly nor shows
-/// a stale section name.
+/// NSView subclass that hosts a SwiftUI `GalleryListSectionDivider` via NSHostingView. The divider
+/// counterpart to ListRowHostCell, with the identical reuse and change-tracking discipline: `rootView` is
+/// reassigned only when the section or its film count actually changed, so a recycled instance neither
+/// re-renders needlessly nor shows a stale section name.
 private final class ListDividerHostCell: NSView {
 
     private var hostingView: NSHostingView<GalleryListSectionDivider>?
@@ -2198,9 +1828,9 @@ private final class ListDividerHostCell: NSView {
     private var currentSection: GallerySection?
     private var currentFilmCount: Int?
 
-    // Both initializers are required, and neither is redundant: declaring
-    // init?(coder:) suppresses initializer inheritance, so init(frame:) has to be
-    // restated for the no-argument construction the cell-reuse paths above use.
+    // Both initializers are required, and neither is redundant: declaring init?(coder:) suppresses
+    // initializer inheritance, so init(frame:) has to be restated for the no-argument construction the
+    // cell-reuse paths above use.
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
     }
@@ -2221,8 +1851,8 @@ private final class ListDividerHostCell: NSView {
         } else {
             let host = NSHostingView(rootView: rootView)
             host.translatesAutoresizingMaskIntoConstraints = false
-            // Constraint-driven, exactly as in ListRowHostCell — Auto Layout must never
-            // invoke a SwiftUI sizing pass to satisfy this view's dimensions.
+            // Constraint-driven, exactly as in ListRowHostCell — Auto Layout must never invoke a SwiftUI
+            // sizing pass to satisfy this view's dimensions.
             host.sizingOptions = []
             addSubview(host)
             NSLayoutConstraint.activate([
@@ -2238,12 +1868,9 @@ private final class ListDividerHostCell: NSView {
 
 // MARK: - GalleryListSectionDivider
 
-/// The list gallery's section band: a bold, left-aligned section label with a
-/// right-aligned live film count, sitting just above a hairline separator that is
-/// bottom-anchored within the band — deliberately the same composition, in the same
-/// order, as the grid's SectionDividerDecorationView, so the two gallery styles present
-/// the Film Queue's sections identically. Only the type sizes differ, scaled down to suit
-/// a 44pt list row rather than a poster tile.
+/// The list's section band: a bold, left-aligned label with a live film count on the right, above a hairline
+/// separator. It matches the grid's SectionDividerDecorationView in order and composition, with smaller type
+/// to fit a 44 pt row.
 private struct GalleryListSectionDivider: View {
     let section: GallerySection
     let filmCount: Int
@@ -2254,10 +1881,9 @@ private struct GalleryListSectionDivider: View {
 
             HStack(alignment: .lastTextBaseline, spacing: 8) {
                 Text(section.displayName)
-                    // 20pt bold, matching SectionDividerDecorationView's sectionLabel in
-                    // the grid style exactly, so the two gallery styles label the Film
-                    // Queue's sections identically rather than at two different scales.
-                    // The count label beside it was already 10pt in both.
+                    // 20pt bold, matching SectionDividerDecorationView's sectionLabel in the grid style
+                    // exactly, so the two gallery styles label the Film Queue's sections identically rather
+                    // than at two different scales. The count label beside it was already 10pt in both.
                     .font(.system(size: 20, weight: .bold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -2271,20 +1897,19 @@ private struct GalleryListSectionDivider: View {
                     .lineLimit(1)
             }
 
-            // Color, not a Divider(): a plain Divider draws at the system hairline
-            // thickness and cannot be thickened, whereas the grid's band uses an explicit
-            // 2pt rule. Matching it keeps the two styles visually consistent. Color also
-            // resolves for light/dark automatically, unlike the raw CALayer background
-            // the AppKit decoration view has to re-resolve by hand.
+            // Color, not a Divider(): a plain Divider draws at the system hairline thickness and cannot be
+            // thickened, whereas the grid's band uses an explicit 2pt rule. Matching it keeps the two styles
+            // visually consistent. Color also resolves for light/dark automatically, unlike the raw CALayer
+            // background the AppKit decoration view has to re-resolve by hand.
             Color(nsColor: .separatorColor)
                 .frame(height: 2)
         }
-        // The band content keeps its own fixed height; the vertical padding is added
-        // around it, so the extra space appears BETWEEN the divider and the film rows
-        // above and below rather than being absorbed into the band's internal layout.
+        // The band content keeps its own fixed height; the vertical padding is added around it, so the extra
+        // space appears BETWEEN the divider and the film rows above and below rather than being absorbed into
+        // the band's internal layout.
         .frame(height: kListSectionDividerBandHeight)
-        // Aligned with the film rows' own symmetric horizontal inset so the label shares a
-        // left edge with the poster column and the count shares a right edge with the year.
+        // Aligned with the film rows' own symmetric horizontal inset so the label shares a left edge with the
+        // poster column and the count shares a right edge with the year.
         .padding(.horizontal, GalleryListRow.contentInset)
         .padding(.vertical, kListSectionDividerVerticalPadding)
         .frame(height: kListSectionDividerHeight)
@@ -2293,70 +1918,46 @@ private struct GalleryListSectionDivider: View {
 
 // MARK: - GalleryListRow
 
-/// One film row: poster thumbnail, title, then the four fixed-width trailing metadata
-/// columns — purchased badge, abbreviated duration, user rating, and release year.
+/// One film row: poster thumbnail, title, then four fixed-width trailing columns (purchased badge, duration,
+/// rating, and year).
 ///
-/// COLUMN WIDTHS. The four trailing columns are fixed-width and the gap between them is a
-/// single shared constant, rather than the per-column ad-hoc padding this row previously
-/// used. Fixed widths are what makes the columns line up vertically down the table at all
-/// (a self-sizing column would jitter from row to row as its content changed), and they
-/// are what keeps the row cheap: every row's layout is then pure arithmetic, with no
-/// measurement pass and no dependency on the enclosing width — which matters when the
-/// table is recycling cells during a fast scroll.
-///
-/// The two new columns add roughly 90pt to the trailing block. The title absorbs that: it
-/// is the only flexible element in the row and truncates with an ellipsis, so a narrow
-/// window shortens the title rather than clipping or wrapping any column. The column
-/// constants below were tightened (rating 30→28, year 60→40, and the rating column's
-/// 20pt trailing pad folded into the shared gap) specifically to claw back width for the
-/// title, so the net cost at small window sizes is smaller than the two new columns'
-/// own footprint.
+/// Columns have fixed widths, so they line up down the table, and each row's layout is simple arithmetic with
+/// no measuring pass. The title is the only flexible element. It truncates when the window is narrow, so no
+/// column clips or wraps.
 struct GalleryListRow: View {
     let film: FilmSnapshot
-    /// Precomputed by ListRowHostCell so the same value drives both its change tracking
-    /// and this render — see that type's tracking comment.
+    /// Precomputed by ListRowHostCell so the same value drives both its change tracking and this render — see
+    /// that type's tracking comment.
     let hasPurchasedRelease: Bool
-    /// Precomputed abbreviated runtime, split into separately aligned components. Either
-    /// or both may be empty (no runtime recorded, or a whole number of hours/minutes).
+    /// Precomputed abbreviated runtime, split into separately aligned components. Either or both may be empty
+    /// (no runtime recorded, or a whole number of hours/minutes).
     let durationParts: DurationParts
-    /// Optional by-line under the title -- the same string the grid shows beneath the
-    /// poster (a Recents date), nil everywhere the grid shows none. Resolved once by the
-    /// Coordinator so the host cell's change tracking and this render agree.
+    /// Optional by-line under the title -- the same string the grid shows beneath the poster (a Recents
+    /// date), nil everywhere the grid shows none. Resolved once by the Coordinator so the host cell's change
+    /// tracking and this render agree.
     let subtitle: String?
 
-    /// The row's symmetric horizontal content inset. Applied as the poster's leading
-    /// padding and as the metadata block's trailing padding, so the space between the
-    /// content and the view's edge is identical on both sides. The left side is the
-    /// reference: this is the poster's long-standing 8pt leading inset, now named.
+    /// The row's symmetric horizontal content inset. Applied as the poster's leading padding and as the
+    /// metadata block's trailing padding, so the space between the content and the view's edge is identical
+    /// on both sides. The left side is the reference: this is the poster's 8 pt leading inset, named here.
     static let contentInset: CGFloat = 8
 
     // Fixed trailing-column geometry.
     //
-    // GOVERNING RULE: every column's box is sized to fit its own content and no more, and
-    // ALL visible separation comes from `columnGap`. That rule is what makes the gaps look
-    // even, and breaking it is exactly what made the rating -> year gap read as roughly
-    // twice the others: the year box was 40pt holding ~29pt of digits, and because it was
-    // trailing-aligned, all ~11pt of that surplus sat on its LEFT, invisibly stacking on
-    // top of columnGap. Slack inside a box is never neutral -- it always surfaces as a gap
-    // on whichever side the alignment pushes it to.
+    // Each column's box fits its own content, and all visible separation comes from `columnGap`. Slack inside
+    // a box shows up as a gap on whichever side the alignment pushes it, so unused box width makes one
+    // separator look wider than the others.
     //
-    //   discColumnWidth   -- the 15pt symbol, centered.
-    //   hoursBoxWidth     -- "12 hr." at 11pt, right-aligned. Sized for two digits so an
-    //                        unusually long runtime cannot truncate mid-word.
-    //   minutesBoxWidth   -- "59 min." at 11pt, right-aligned.
-    //   durationInnerGap  -- hour/minute separation. Deliberately smaller than columnGap:
-    //                        the two halves are one value and should read as closer
-    //                        together than two independent columns are.
-    //   ratingColumnWidth -- the star glyph plus a double-digit rating, and no more.
-    //   yearColumnWidth   -- four monospaced 12pt digits, and no more (was 40).
+    //   discColumnWidth   -- the 15 pt symbol, centered.
+    //   hoursBoxWidth     -- "12 hr." at 11 pt, right-aligned, sized for two digits.
+    //   minutesBoxWidth   -- "59 min." at 11 pt, right-aligned.
+    //   durationInnerGap  -- the gap between hours and minutes, smaller than columnGap because the two halves read as one value.
+    //   ratingColumnWidth -- the star and a two-digit rating.
+    //   yearColumnWidth   -- four 12 pt monospaced digits.
     private static let columnGap: CGFloat = 16
-    // The disc badge's own gap, half of columnGap. It needs its own value because the
-    // hours box that follows is right-aligned and sized for a two-digit hour, so a
-    // typical one-digit runtime leaves ~7pt of empty box on the duration column's
-    // LEADING side. Per the GOVERNING RULE above that slack surfaces as a gap, and it
-    // lands precisely here -- stacked on top of columnGap, which made this one
-    // separation read as roughly double the others. It is unavoidable without giving
-    // up the hours' fixed right edge, so the gap is trimmed to compensate instead.
+    // The gap after the disc badge is half of columnGap. The hours box is right-aligned and sized for two
+    // digits, so a one-digit runtime leaves empty box on the leading side. Trimming this gap compensates, so
+    // the separator still reads as the others.
     private static let discToDurationGap: CGFloat = 8
     private static let discColumnWidth: CGFloat = 18
     private static let hoursBoxWidth: CGFloat = 30
@@ -2370,12 +1971,9 @@ struct GalleryListRow: View {
             PosterThumbnailView(posterUID: film.posterUID)
                 .padding(.leading, Self.contentInset)
 
-            // Title, with the subtitle double-stacked beneath it when the view has one.
-            // Both lines truncate independently and the stack is leading-aligned, so a
-            // short by-line sits flush under the title's first character. The two lines
-            // (12pt + 10pt, 2pt apart) fit inside the unchanged 44pt row height with the
-            // same vertical centering the lone title had, so no row geometry, scroll
-            // arithmetic, or divider math is affected.
+            // The title, with the subtitle beneath it when there is one. Each line truncates on its own, and
+            // both are leading-aligned. They fit in the 44 pt row with the same vertical centering as a lone
+            // title.
             VStack(alignment: .leading, spacing: 2) {
                 Text(film.name)
                     .font(.system(size: 12))
@@ -2390,21 +1988,21 @@ struct GalleryListRow: View {
                 }
             }
 
-            // minLength 8 guarantees a visible gap between a truncated title and the
-            // metadata columns instead of the two running together.
+            // minLength 8 guarantees a visible gap between a truncated title and the metadata columns instead
+            // of the two running together.
             Spacer(minLength: 8)
 
-            // spacing is 0 and each boundary carries its own explicit leading padding:
-            // the disc -> duration gap has to differ from the other two (see
-            // discToDurationGap), which a single uniform HStack spacing cannot express.
+            // spacing is 0 and each boundary carries its own explicit leading padding: the disc -> duration
+            // gap has to differ from the other two (see discToDurationGap), which a single uniform HStack
+            // spacing cannot express.
             HStack(spacing: 0) {
-                // Purchased badge: shown when ANY associated release is marked purchased,
-                // regardless of format. Rendered as a fixed-width slot in both states (a
-                // 1pt-tall clear filler when absent) so the columns to its right hold the
-                // same x-position on every row whether or not the badge is present.
+                // Purchased badge: shown when ANY associated release is marked purchased, regardless of
+                // format. Rendered as a fixed-width slot in both states (a 1pt-tall clear filler when absent)
+                // so the columns to its right hold the same x-position on every row whether or not the badge
+                // is present.
                 Group {
                     if hasPurchasedRelease {
-                        Image(systemName: "opticaldisc.fill")
+                        Image(systemName: ContentGlyphs.disc)
                             .font(.system(size: 15))
                             .foregroundStyle(.secondary)
                     } else {
@@ -2412,23 +2010,14 @@ struct GalleryListRow: View {
                     }
                 }
                 .frame(width: Self.discColumnWidth, alignment: .center)
-                // The glyph alone doesn't convey its meaning, so name it; the empty
-                // placeholder state is hidden from assistive technology entirely rather
-                // than announced as a blank element.
+                // The glyph alone doesn't convey its meaning, so name it; the empty placeholder state is
+                // hidden from assistive technology entirely rather than announced as a blank element.
                 .accessibilityLabel(Text("Purchased"))
                 .accessibilityHidden(!hasPurchasedRelease)
 
-                // Hour and minute components each get their OWN fixed-width box, and each
-                // is right-aligned within it. That gives two guarantees a single string
-                // cannot: the hours' right edge and the minutes' right edge each hold one
-                // fixed vertical line down the table, so neither half shifts as digit
-                // counts change (a 5-minute value and a 50-minute value end at the same
-                // x), and the visible gap between the halves is a constant set by the box
-                // widths rather than something that varies with the values.
-                //
-                // The gap is `durationInnerGap` and nothing else — the boxes are sized to
-                // their own content, so no leftover box slack contributes to it. This is
-                // the same trap the year column fell into (see below).
+                // Hours and minutes each get their own fixed-width box, right-aligned. So each right edge
+                // stays on one vertical line, and the gap between them is set by durationInnerGap, not by the
+                // values. The boxes are sized to their content, so no leftover slack adds to the gap.
                 HStack(spacing: Self.durationInnerGap) {
                     Text(durationParts.hours)
                         .lineLimit(1)
@@ -2450,10 +2039,9 @@ struct GalleryListRow: View {
                         Text("\(film.userRating)")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
-                            // Belt-and-suspenders against the double-digit wrap: the column
-                            // is now sized snugly to "star + 10", so this guarantees a
-                            // two-digit rating stays on one line rather than stacking its
-                            // digits vertically if the fit is ever marginal.
+                            // Belt-and-suspenders against the double-digit wrap: the column is sized
+                            // snugly to "star + 10", so this keeps a two-digit rating on one line
+                            // even if the fit is marginal.
                             .lineLimit(1)
                             .fixedSize()
                     } else {
@@ -2463,11 +2051,10 @@ struct GalleryListRow: View {
                 .frame(width: Self.ratingColumnWidth, alignment: .leading)
                 .padding(.leading, Self.columnGap)
 
-                // Trailing-aligned, and now sized to its own content: the alignment puts
-                // the year's right edge exactly `contentInset` from the view's right edge
-                // (matching the poster's left inset), and the tight width means there is no
-                // surplus left over to pile up on its leading side as a false gap. See the
-                // GOVERNING RULE note on the constants above.
+                // Trailing-aligned, and now sized to its own content: the alignment puts the year's right
+                // edge exactly `contentInset` from the view's right edge (matching the poster's left inset),
+                // and the tight width means there is no surplus left over to pile up on its leading side as a
+                // false gap.
                 Text(film.releaseYear)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -2475,14 +2062,13 @@ struct GalleryListRow: View {
                     .frame(width: Self.yearColumnWidth, alignment: .trailing)
                     .padding(.leading, Self.columnGap)
             }
-            // The trailing columns are fixed-size and must never be the element that
-            // gives way when the row is narrow — the title is. Without this, SwiftUI is
-            // free to compress the fixed frames instead of truncating the Text.
+            // The trailing columns are fixed-size and must never be the element that gives way when the row
+            // is narrow — the title is. Without this, SwiftUI is free to compress the fixed frames instead of
+            // truncating the Text.
             .layoutPriority(1)
-            // Mirrors the poster's leading inset exactly, so the gap between the year's
-            // right edge and the view's right edge equals the gap between the poster's
-            // left edge and the view's left edge. Both read from kListRowContentInset,
-            // so the two sides cannot drift apart.
+            // Mirrors the poster's leading inset exactly, so the gap between the year's right edge and the
+            // view's right edge equals the gap between the poster's left edge and the view's left edge. Both
+            // read from GalleryListRow.contentInset, so the two sides cannot drift apart.
             .padding(.trailing, Self.contentInset)
         }
         .frame(height: kListRowHeight)
@@ -2490,33 +2076,25 @@ struct GalleryListRow: View {
 
     // MARK: - Derived Column Values
     //
-    // Static and `nonisolated` so ListRowHostCell can compute them once and use the
-    // results for both its change comparison and this row's rendered content, which is
-    // what guarantees the two can never disagree about what is on screen.
+    // Static and `nonisolated` so ListRowHostCell can compute them once and use the results for both its
+    // change comparison and this row's rendered content, which is what guarantees the two can never disagree
+    // about what is on screen.
 
-    /// True when at least one associated release is marked purchased, in any format.
-    /// Uses `contains(where:)` rather than FilmSnapshot.purchasedReleases so no
-    /// intermediate array is allocated per row during scrolling.
+    /// True when at least one associated release is marked purchased, in any format. Uses `contains(where:)`
+    /// rather than FilmSnapshot.purchasedReleases so no intermediate array is allocated per row during
+    /// scrolling.
     nonisolated static func hasPurchasedRelease(_ film: FilmSnapshot) -> Bool {
         film.releases.contains { $0.purchased }
     }
 
-    /// The film's runtime split into abbreviated hour and minute components (e.g. "1 hr."
-    /// and "50 min."), preferring the edited runtime when one applies. Both components are
-    /// empty when no runtime is recorded at all; the hour component alone is empty for a
-    /// sub-hour runtime, and the minute component alone for a whole number of hours.
+    /// The film's runtime split into abbreviated hour and minute parts (e.g. "1 hr." and "50 min."). It uses
+    /// the edited runtime when one applies. Both parts are empty when there is no runtime. The hour part is
+    /// empty under an hour, and the minute part is empty for a whole number of hours.
     ///
-    /// The "edited runtime applies" test — `edited` is set AND `editedDuration` parses to
-    /// a positive millisecond count — is `FilmSnapshot.effectiveDuration`, the same one
-    /// MetadataCache sorts by, so the runtime shown in this column always agrees with the
-    /// runtime the gallery sorts by. The
-    /// `edited` term matters on its own: FilmSheet blanks `editedDuration` on save when
-    /// the film is not marked as edited, but a stale non-empty value from an older record
-    /// must not resurface here.
-    ///
-    /// Decomposition goes through RSBHelpers.hoursAndMinutes rather than a local parse, so
-    /// this column's notion of "no duration" cannot drift from the one the sidebar's
-    /// duration formatters use.
+    /// The test for an edited runtime is FilmSnapshot.effectiveDuration, the same value MetadataCache sorts
+    /// by, so the column agrees with the sort. The `edited` check matters because FilmSheet blanks
+    /// editedDuration only on save, and a stale value must not appear here. The split uses
+    /// RSBHelpers.hoursAndMinutes, so "no duration" means the same thing as in the sidebar.
     nonisolated static func durationParts(_ film: FilmSnapshot) -> DurationParts {
         guard let parts = RSBHelpers.hoursAndMinutes(from: film.effectiveDuration) else {
             return DurationParts(hours: "", minutes: "")
@@ -2532,8 +2110,8 @@ struct GalleryListRow: View {
 
 // MARK: - DurationParts
 
-/// The two separately aligned halves of the list gallery's duration column. Equatable so
-/// ListRowHostCell can use it directly as a change-tracking value.
+/// The two separately aligned halves of the list gallery's duration column. Equatable so ListRowHostCell can
+/// use it directly as a change-tracking value.
 struct DurationParts: Equatable {
     let hours: String
     let minutes: String
@@ -2553,20 +2131,11 @@ private struct PosterThumbnailView: View {
         } else if let image = PosterCache.shared.getImageWithFallback(for: posterUID) {
             Image(nsImage: image)
                 .resizable()
-                // PosterCache hands back the full-resolution decoded poster, which is then
-                // drawn into a 24×36pt slot — a very large downscale ratio. SwiftUI's
-                // default interpolation point-samples aggressively at that ratio, which is
-                // what produces the harsh, aliased edges: fine poster detail lands on or
-                // between sample points essentially at random, so nearby pixels along an
-                // edge pick up wildly different source values. `.high` switches to a
-                // properly filtered resampling that averages the source neighborhood
-                // instead, and `.antialiased(true)` smooths the shape's own boundary.
-                //
-                // Both are draw-time flags on an image that is already decoded and cached,
-                // so this costs a slightly more expensive blit of a 24×36pt region and
-                // nothing else — no extra decode, no additional memory, and no change to
-                // the cache. Applied before `.scaledToFill()` so they govern the scaling
-                // operation itself rather than a subsequent one.
+                // The full-resolution poster is drawn into a 24 by 36 pt slot, a large downscale. The default
+                // interpolation point-samples at that ratio and produces harsh, aliased edges. .high
+                // resamples with filtering, and .antialiased(true) smooths the shape's edge. Both are
+                // draw-time flags on an image that is already cached, so they add no decode and no memory.
+                // They apply before scaledToFill, so they govern that scaling.
                 .interpolation(.high)
                 .antialiased(true)
                 .scaledToFill()
@@ -2574,9 +2143,8 @@ private struct PosterThumbnailView: View {
                 .clipped()
                 // Soft inner-shadow band along the edges -- see 23.55 PosterEdgeSheen.swift.
                 .overlay { PosterEdgeSheen.overlay() }
-                // `.continuous` matches every other poster site and the sheen's own corner
-                // profile; at a 2pt radius it is indistinguishable from circular, so this is
-                // purely for consistency.
+                // `.continuous` matches every other poster site and the sheen's own corner profile; at a 2pt
+                // radius it is indistinguishable from circular, so this is purely for consistency.
                 .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
                 .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
         } else {
@@ -2598,18 +2166,14 @@ private struct PosterThumbnailView: View {
 
 // MARK: - UpNextResultsTable
 
-/// The sheets' result list: the "Up Next" slot sheet (UpNextSlots.swift) and the Saved
-/// Search sheet (SavedSearchSheet.swift), each inside `sheetBoxChrome`. It cannot be the
-/// gallery's own GalleryListView: that view is wired to the library's film set, the shared
-/// selection, the scroll-position handoffs and the drag engine. It is instead the same
-/// table — the same `.inset` style, alternating stripes, row height, stock row views and
-/// ListRowHostCell rows — with none of that wiring, so colors, stripes and the selection
-/// highlight come from the same AppKit drawing. No drag source, no contextual menu.
+/// The result list in the sheets: the Up Next slot sheet (UpNextSlots.swift) and the Saved Search sheet
+/// (SavedSearchSheet.swift). It is not GalleryListView, which is wired to the library, selection, scroll
+/// handoffs, and the drag engine. It is the same table style, with the same stripes, row height, and row
+/// views, but without that wiring. It has no drag source and no context menu.
 ///
-/// Rows are selectable only when `onSelect` is given. Selection then commits on mouse-down,
-/// as NSTableView does natively. The table refuses first responder so a sheet's search field
-/// keeps the keyboard, and its rows always draw the emphasized (accent) selection, which a
-/// table that is not first responder would otherwise show gray.
+/// Rows are selectable only when onSelect is given. Selection commits on mouse-down, as NSTableView does
+/// natively. The table refuses first responder so the sheet's search field keeps the keyboard. Its selection
+/// is always the emphasized accent color, since a table without first responder would otherwise show gray.
 struct UpNextResultsTable: NSViewRepresentable {
     let films: [FilmSnapshot]
     var selectedID: UUID? = nil
@@ -2686,8 +2250,8 @@ struct UpNextResultsTable: NSViewRepresentable {
         var films: [FilmSnapshot] = []
         var onSelect: ((UUID?) -> Void)?
         var onActivate: ((UUID) -> Void)?
-        /// True while updateNSView drives the table, so its own selection changes are not
-        /// echoed back as user selections.
+        /// True while updateNSView drives the table, so its own selection changes are not echoed back as user
+        /// selections.
         var isSyncing = false
 
         func numberOfRows(in tableView: NSTableView) -> Int { films.count }
@@ -2731,14 +2295,13 @@ struct UpNextResultsTable: NSViewRepresentable {
     }
 }
 
-/// The sheets' table, with room below the last row as wide as the `.inset` style's side
-/// margins. The room is part of the document itself — not a scroll-view content inset,
-/// which shortened the scroller — so the scroller spans the whole box. The stripes run on
-/// through the band unchanged, as AppKit draws them below any striped table's rows:
-/// painting the band plain cut short the stripe that follows it during overscroll.
+/// The sheets' table, with room below the last row as wide as the `.inset` style's side margins. The room is
+/// part of the document itself, since a scroll-view content inset would shorten the scroller. So the
+/// scroller spans the whole box. The stripes run on through the band unchanged, as AppKit draws them below
+/// any striped table's rows: painting the band plain would cut short the stripe that follows it during overscroll.
 private final class SheetResultsTableView: NSTableView {
-    /// The `.inset` style's side margin around the stripes (10 pt, measured on an offscreen
-    /// render), so the band below the rows reads as the same margin.
+    /// The `.inset` style's side margin around the stripes (10 pt), so the
+    /// band below the rows reads as the same margin.
     static let bottomPadding: CGFloat = 10
 
     /// The rows' bottom edge, or nil with no rows.
@@ -2753,8 +2316,8 @@ private final class SheetResultsTableView: NSTableView {
     }
 }
 
-/// Stock row drawing (stripe, `.inset` selection), but always in the active window's
-/// emphasized state, since the table never holds first responder.
+/// Stock row drawing (stripe, `.inset` selection), but always in the active window's emphasized state, since
+/// the table never holds first responder.
 private final class UpNextResultRowView: NSTableRowView {
     override var isEmphasized: Bool {
         get { true }
@@ -2765,15 +2328,13 @@ private final class UpNextResultRowView: NSTableRowView {
 // MARK: - Sheet Box Chrome
 
 extension View {
-    /// The FilmSheet and right-sidebar tables' outline (`listContainerChrome`), for a box of
-    /// any content in a sheet — UpNextResultsTable, its placeholders, the Saved Search rules:
-    /// fill, the content clipped one border-width inside the outline — so scrolled rows never
-    /// paint into the translucent stroke — then the stroke.
+    /// The outline (`listContainerChrome`) around the tables in FilmSheet and the right sidebar, for any
+    /// content in a sheet. It fills the box, clips the content one border width inside the outline, so
+    /// scrolled rows never paint into the stroke, and then strokes the outline.
     ///
-    /// The shadow is cast by the fill shape alone, behind the content. On the whole box it
-    /// was derived from the content's pixels, so a scrolling table under it re-rendered the
-    /// shadow offscreen on every frame of a scroll; the shape's never changes. The box is
-    /// opaque, so the two cast the same shadow.
+    /// The shadow comes from the fill shape alone, behind the content. The shape never changes, so a
+    /// scrolling table does not re-render the shadow on every frame. The box is opaque, so the shadow is
+    /// the same.
     func sheetBoxChrome(fill: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
         return self

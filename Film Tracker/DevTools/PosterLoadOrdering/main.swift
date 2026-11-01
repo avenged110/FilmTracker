@@ -37,8 +37,8 @@ func section(_ title: String) {
 // MARK: - Test 1 — the ordering bug itself
 //
 // Two rapid film changes, both cache misses, whose disk loads complete in the
-// REVERSE of the order they were requested. This is the scenario the audit
-// identified: PosterCache.getImageAsync genuinely awaits disk I/O, so nothing
+// REVERSE of the order they were requested. This is the scenario behind the
+// defect: PosterCache.getImageAsync genuinely awaits disk I/O, so nothing
 // guarantees that the first request finishes first.
 
 @MainActor

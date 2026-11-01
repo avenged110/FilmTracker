@@ -56,17 +56,11 @@ final class FilmSheet: Identifiable, Loggable {
 
     // Sheet state.
     //
-    // `appearedTabs` is updated from this property's own didSet rather than from an
-    // `onChange` inside FilmSheetTabContent, and that placement is the whole point.
-    // When the view owned the set as @State, activating a tab took two render passes:
-    // the first built the tab (the view's body unions the current selection in, so the
-    // tab does render immediately), and the `onChange` that recorded it then wrote
-    // @State and forced a second pass. That second pass diffs to a structurally
-    // identical tree, but it still reaches AppKitScrollNSView.updateNSView, which
-    // reassigns NSHostingView.rootView and makes Auto Layout re-measure the entire tab
-    // that was just built — a fixed, content-independent cost paid on every first
-    // activation. Writing both values here means SwiftUI observes one coalesced change
-    // and renders the newly built tab exactly once.
+    // `appearedTabs` is updated from this property's own didSet, not from an onChange in
+    // FilmSheetTabContent. Writing both values here lets SwiftUI observe one coalesced change,
+    // so a newly built tab renders once. An onChange that wrote @State would force a second pass,
+    // which reassigns NSHostingView.rootView and makes Auto Layout re-measure the whole tab on every
+    // first activation.
     var selectedTab: FilmTab = .details {
         didSet { appearedTabs.insert(selectedTab) }
     }
@@ -127,13 +121,11 @@ final class FilmSheet: Identifiable, Loggable {
             self.filmID = UUID()
             self.isEditMode = false
         }
-        // In edit mode, include the film's name in the titlebar: Edit “Film Name”.
-        // Resolved once here from the MemoryStore snapshot (via the coordinator) so the
-        // title remains a `let` — see the note on `windowTitle` below. The name is clamped
-        // to `filmSheetTitleMaxLength` characters with a trailing ellipsis using the shared
-        // truncation helper,
-        // which also avoids leaving the ellipsis after a space. If the snapshot is missing
-        // or its name is blank, fall back to the plain "Edit Film" label.
+        // In edit mode, include the film's name in the titlebar: Edit “Film Name”. Resolved once here from the
+        // MemoryStore snapshot (via the coordinator), so the title remains a `let` (see `windowTitle` below). The
+        // name is clamped to `filmSheetTitleMaxLength` characters with a trailing ellipsis, using the shared
+        // truncation helper, which also avoids leaving the ellipsis after a space. If the snapshot is missing or
+        // its name is blank, fall back to the plain "Edit Film" label.
         if self.isEditMode,
            let filmName = coordinator.getFilm(self.filmID)?.name
                .trimmingCharacters(in: .whitespacesAndNewlines),
@@ -203,8 +195,7 @@ final class FilmSheet: Identifiable, Loggable {
     /// paths below, the deferred write in `performCanConfirmUpdate()`, and the
     /// stored `canConfirm` that both the button and KeyboardManager's Return intercept
     /// read — resolves it through here, so the button and the Return key can never
-    /// disagree. Takes the
-    /// dirty flag as a parameter rather than reading `hasChanges`, because the fast
+    /// disagree. It takes the dirty flag as a parameter rather than reading `hasChanges`, because the fast
     /// paths need to evaluate it against a value that has not been stored yet.
     ///
     /// `isConfirming` is deliberately *not* consulted here: it gates the action, not
@@ -330,15 +321,15 @@ final class FilmSheet: Identifiable, Loggable {
     //
     // Flow:
     //   1. Process poster (async file I/O, no Film managed object needed)
-    //   2. Collect all form data from tabs as plain Sendable values
-    //   3. Derive lastWatched, viewCount, lastModified
-    //   4. Preserve fields that tabs do not own (dateAdded, hofPosition)
-    //   5. Build FilmSnapshot, three-way merge it with the film as it stands now (edit
-    //      mode), then build the FilmChangeset (fully Sendable) carrying the merged delta
-    //   6. coordinator.saveFilmChangeset() — instant MemoryStore update + background persist
-    //   7. Post list membership events (handled inside saveFilmChangeset)
-    //   8. Handle Hall of Fame changes via dedicated coordinator methods
-    //   9. Dismiss
+    //   2-5. Collect form data from the tabs as plain Sendable values, derive lastWatched, viewCount, and
+    //        lastModified, preserve the fields no tab owns, and build the FilmSnapshot. In edit mode it is
+    //        three-way merged with the film as it stands now.
+    //   6. Build release deltas
+    //   7. Compute list membership deltas (user lists and the Film Queue section)
+    //   8. coordinator.saveFilmChangeset(): instant MemoryStore update, list membership events, and a
+    //      background persist with rollback on failure
+    //   9. Handle Hall of Fame changes via dedicated coordinator methods
+    //   10. Dismiss
     //
     // No viewContext access or context.save() calls occur here — persistence is owned entirely
     // by DataManager via the background NSManagedObjectContext in DataCoordinator.saveFilmChangeset().
@@ -393,10 +384,9 @@ final class FilmSheet: Identifiable, Loggable {
                 // reconciliation or confirmed Type change still in its settle window — BEFORE
                 // anything reads `releasesTab.releases`. Step 6's buildReleaseDeltas() settles
                 // too, but assembleFilm() below sums the purchased discs first: a save landing
-                // inside the 300 ms fly-up used to count the deleted release's discs into the
-                // film's total while the release itself was correctly deleted, and
-                // saveFilmChangeset persists that total verbatim. Idempotent, so the second
-                // settle inside buildReleaseDeltas() finds nothing left to do.
+                // inside the 300 ms fly-up would otherwise count the deleted release's discs in the
+                // film's total, and saveFilmChangeset persists that total verbatim. Idempotent, so the
+                // second settle inside buildReleaseDeltas() finds nothing left to do.
                 releasesTab.settlePendingWork()
 
                 // ── Steps 2-5: Assemble the film snapshot ───────────────────────────────
@@ -514,10 +504,7 @@ final class FilmSheet: Identifiable, Loggable {
         let notesFields    = notesTab.collectFilmFields()
 
         // ── Derive computed fields ──────────────────────────────────────────────────
-        // lastWatched is the most recent viewing date, and the calendar entries sort
-        // lexicographically in the same order they sort chronologically because they are
-        // stored zero-padded ("yyyy.MM.dd"), optionally with a version-code suffix that
-        // extractDatePortion strips off.
+        // lastWatched and viewCount come from `viewingDerivatives(of:)`.
         let calendarTable = detailsFields.calendarTable
         let (lastWatched, viewCount) = Self.viewingDerivatives(of: calendarTable)
 

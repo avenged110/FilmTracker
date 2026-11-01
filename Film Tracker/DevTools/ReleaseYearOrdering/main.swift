@@ -2,6 +2,8 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 //
+// Runs the release-year ordering checks against the transcribed model in Harness.swift:
+// stepper caps, the combo-pack child, repair paths, the placeholder label, and stale values.
 import Foundation
 
 var failures = 0
@@ -10,7 +12,7 @@ func check(_ label: String, _ condition: Bool, _ detail: @autoclosure () -> Stri
     else { failures += 1; print("  ❌ \(label)\(detail().isEmpty ? "" : " — \(detail())")") }
 }
 
-// A Blu-ray (floor 2006) for a 1980 film — the scenario in the change request.
+// A Blu-ray (floor 2006) for a 1980 film, the reported case.
 func bluRay1980() -> Model { Model(currentYear: 2026, formatFloor: 2006, filmReleaseYear: 1980) }
 
 print("Test 1 — base-year Stepper is capped at releaseYear - 1 and wraps to the floor")

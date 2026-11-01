@@ -135,17 +135,14 @@ struct BulkFilmEdit: Sendable, Equatable {
     /// Added after each film's own tags; the one field that does not overwrite.
     var tagsToAppend: [String] = []
 
-    /// The override a blacklisted film carries, as the FilmSheet's Special Sorting row sets
-    /// it (60 months).
-    static let blacklistedThreshold = 60
+    /// The override a blacklisted film carries, as the FilmSheet's Special Sorting row sets it.
+    static let blacklistedThreshold = FilmSpecialSorting.blacklistedRotationThreshold
 
-    /// The most tags a film holds — ReorderableStringList.maxItems, which the FilmSheet's
-    /// Tags list enforces.
-    static let tagLimit = 30
+    /// The most tags a film holds — the FilmSheet's Tags list's own limit.
+    static let tagLimit = ReorderableStringList.maxItems
 
-    /// Hall of Fame capacity — MemoryStore.hallOfFameCapacity, which the MultiFilmSheet
-    /// asserts it matches.
-    static let hallOfFameCapacity = 200
+    /// Hall of Fame capacity.
+    static let hallOfFameCapacity = MemoryStore.hallOfFameCapacity
 
     /// How many fields the edit sets; the tags count as one.
     var changeCount: Int {

@@ -3,10 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Turns one ReportsView tab into the PDF sheet that reports it.
 //
-// This file no longer contains any PDF machinery. Page geometry, fonts, the fill palette,
-// the drawing primitives, and the paginated table renderer all live in the shared stack
-// described at the top of PDFCore.swift (88.00), which the whole-library export in
-// LibraryPDFExporter.swift (43.10) draws from as well.
+// This file holds no PDF machinery. Page geometry, fonts, the fill palette, the drawing primitives, and the
+// paginated table renderer live in the shared stack described at the top of PDFCore.swift (85.00), which the
+// whole-library export in PDFExporter.swift (43.10) also draws from.
 //
 // What remains here is the part that is genuinely about REPORTS: the column set and row
 // content for each of the five tabs. `sheet(for:)` is internal to the module precisely so
@@ -40,11 +39,9 @@ enum ReportsPDFExporter {
             let stack = dataVisualizationsSheet(visualizations: visualizations, title: data.category.displayName)
             guard !stack.blocks.isEmpty else { return nil }
             return .stack(stack)
-        // The Purchase and Expense Tracker, the Price Tracker and the Release Wishlist were
-        // sheets here until the library PDF's own Disc-based Releases section superseded all
-        // three — see `LibraryPDFSection`. Their section builders are gone with them; these
-        // cases are listed rather than folded into a `default` so that adding a sixth
-        // ReportsCategory still fails the build here.
+        // The cost, price, and wishlist tabs have no sheet here. The library PDF's Disc-based Releases section
+        // covers them (see `LibraryPDFSection`). These cases are listed rather than folded into a `default`, so
+        // adding a sixth ReportsCategory still fails the build here.
         case .costTracker, .priceTracker, .releaseWishlist:
             return nil
         }
@@ -56,16 +53,9 @@ enum ReportsPDFExporter {
         films: [HallOfFameFilm],
         title: String
     ) -> PDFTableSection {
-        // The four narrow columns hold short badges and are sized alike so the block reads
-        // as one unit; Title keeps what a name needs and Notes takes the rest.
-        //
-        // The narrow four are all `narrowBadgeWidth`, which is set by the widest badge any
-        // of them has to print — "Not Available", in Purchased. They used to be 0.04–0.045
-        // and wrapped it onto two lines, which grew the height of the whole row.
-        //
-        // Title has been trimmed twice, from a round 0.26 to 0.234 and now by a further
-        // 10% to 0.211. Both trims, and what the narrow columns' widening did not take,
-        // went to Notes — the one column here that genuinely runs long.
+        // The four narrow columns share `narrowBadgeWidth`, sized to the widest badge any of them prints ("Not
+        // Available", in Purchased), so the block reads as one unit. Title takes what a name needs, and Notes takes
+        // the rest, since it is the one column here that genuinely runs long.
         let columns = [
             // Values centered, matching the header: both sit over the same band of color
             // beneath them, and a centered rank reads as "labeling the row" rather than as
@@ -126,8 +116,8 @@ enum ReportsPDFExporter {
         switch rating {
         case 10: fill = PDFPalette.darkGreen
         case 9:  fill = PDFPalette.darkGold
-        // The complete-library table's own light blue — the same shade a purchased NATIVE
-        // 4K release uses there (see `fourKDiscCell` in LibraryPDFReport.swift), reused here
+        // The complete-library table's own light blue, the same shade a purchased NATIVE
+        // 4K release uses there (see `fourKDiscCell` in PDFReport.swift), reused here
         // rather than the aspect-ratio column's dark blue family, which is that column's own
         // and not meant to be borrowed.
         case 8:  fill = PDFPalette.lightBlue
@@ -177,9 +167,7 @@ enum ReportsPDFExporter {
 
     // MARK: - Data Visualizations
 
-    /// The tab's own page, drawn (see `visualizationBlocks`). The Purchase Statistics and
-    /// Library Overview tables that once led the sheet are gone: every figure they carried
-    /// is on the page.
+    /// The tab's own page, drawn (see `visualizationBlocks`). The sheet has no separate tables.
     private static func dataVisualizationsSheet(visualizations: DVDataset, title: String) -> PDFSectionStack {
         PDFSectionStack(title: title,
                         blocks: visualizationBlocks(visualizations),

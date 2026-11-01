@@ -10,12 +10,8 @@ import SwiftUI
 
 /// One alert AlertHostView can show, carrying everything its buttons act on.
 ///
-/// The payload travels WITH the alert rather than in view state beside it, so a request
-/// that arrives while another alert is open can neither retarget the open one nor lose its
-/// own. (With a flag per alert and shared payload fields, a second "Remove from All Lists"
-/// made the open alert's Remove act on the second request's films, and a "Remove List"
-/// arriving under "Remove from List" redirected the removal to the wrong list and then did
-/// nothing itself.)
+/// The payload travels WITH the alert, not in view state beside it, so a request that arrives
+/// while another alert is open can neither retarget the open one nor lose its own.
 enum HostAlert {
     /// A Film Queue add awaiting confirmation (sidebar drop or "Add to Queue" menu).
     struct QueueAdd {
@@ -132,14 +128,14 @@ struct AlertHostView: View, Loggable {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
 
-    // Cached preference for alert message composition.
+    // Whether debug logging is on, which decides how a persistence failure is described.
     @AppStorage(preference: Preferences.loggingEnabledKey) private var loggingEnabled: Bool
 
     /// The alert on screen.
     @State private var presented: HostAlert?
     /// Alerts requested while another was open, in arrival order. Each is shown when the
-    /// one before it is answered — the order SwiftUI's per-alert flags used to produce,
-    /// now with each alert's own payload intact.
+    /// one before it is answered, in the order SwiftUI's per-alert flags produce, with each
+    /// alert's own payload intact.
     @State private var waiting: [HostAlert] = []
     /// A Film Queue drop waiting for its drag session to end before it is presented (see
     /// the `.dragSessionDidEnd` handler).
@@ -172,18 +168,13 @@ struct AlertHostView: View, Loggable {
             }
             .onReceive(AppEventBus.shared.alertCommands) { receive($0) }
             // MARK: Deferred Film Queue Drop Alert Presentation
-            // GalleryDragEngine posts .dragSessionDidEnd from its session-end callbacks
-            // (both the grid's NSDraggingSource endedAt and the list's forwarded table
-            // endedAt), which AppKit defers until after its drag-completion rendering
-            // pass. Presenting here — rather than when the .confirmFilmQueueAddOnDrop
-            // event was stashed — is what lets Core Animation drive the alert's appear
-            // animation: nothing from the drag teardown is left contending for the main
-            // thread. A session end with nothing stashed (unconfirmed drops, user-list
-            // drops, canceled drags) is a no-op. The one-turn DispatchQueue.main.async hop
-            // moves the presentation off the notification's delivery stack, which is still
-            // inside the AppKit endedAt delegate callback — matching the codebase-wide rule
-            // of never mutating presentation state synchronously from AppKit delegate
-            // contexts (main.async over Task for run-loop ordering and QoS inheritance).
+            // GalleryDragEngine posts .dragSessionDidEnd from its grid and list session-end callbacks,
+            // which AppKit defers until after its drag-completion rendering. Presenting then, rather
+            // than when the drop was stashed, lets Core Animation drive the alert's appear animation
+            // with nothing from the drag teardown contending for the main thread. A session end with
+            // nothing stashed is a no-op. The DispatchQueue.main.async hop moves presentation off the
+            // notification's delivery stack, the codebase rule for presentation changes made from AppKit
+            // delegate callbacks.
             .onReceive(NotificationCenter.default.publisher(for: .dragSessionDidEnd)) { _ in
                 // A drop-time notice rides the same hand-off as the Queue drop below.
                 if stashedNotice != nil {
@@ -236,8 +227,7 @@ struct AlertHostView: View, Loggable {
     }
 
     /// Replaces the alert of the same kind that is on screen or waiting, or queues `alert`
-    /// when there is none — so a burst of the same notice is one alert carrying the latest
-    /// detail, as it was when each alert was a single flag.
+    /// when there is none, so a burst of one kind shows a single alert with the latest detail.
     private func coalesce(_ alert: HostAlert) {
         if presented?.kind == alert.kind {
             presented = alert
@@ -258,24 +248,17 @@ struct AlertHostView: View, Loggable {
     private func receive(_ command: AlertCommand) {
         switch command {
         case .showBackupRestoreAlert(_, let file):
-            // isSheetPresented is the authoritative physical-presence flag managed by
-            // SheetHostView. It is set true when any sheet begins presenting and cleared
-            // only when NSWindow.didEndSheetNotification fires — after the dismiss
-            // animation fully completes. This is deliberately more conservative than
-            // sheetCoordinator.activeSheet, which clears at animation start and would
-            // create a race window.
+            // isSheetPresented (set by SheetHostView) is cleared only when
+            // NSWindow.didEndSheetNotification fires, after the dismiss animation. That is more
+            // conservative than sheetCoordinator.activeSheet, which clears when the animation starts.
             //
-            // Three cases:
-            // A) No sheet on screen: present the confirmation alert normally.
-            // B) Settings sheet on screen: forward directly to the in-place load path — no
-            //    alert needed, user is already in the right place. The "Restore Database"
-            //    button in STabRestore is the confirmation.
-            // C) Any other sheet on screen: discard silently. The user must dismiss that
-            //    sheet first to open a backup file.
+            // A) No sheet on screen: present the confirmation alert.
+            // B) Settings sheet on screen: forward to the in-place load path, with no alert. The
+            //    "Restore Database" button in STabRestore is the confirmation.
+            // C) Any other sheet on screen: ignore it, logging why. The user must dismiss that sheet first.
             //
-            // Another alert on screen or waiting is treated like case C: the prompt would
-            // otherwise surface later, out of context. Re-opening while the restore prompt
-            // itself is up just retargets it.
+            // Another alert on screen or waiting is treated like C, since the prompt would surface
+            // later, out of context. Re-opening while the restore prompt is up retargets it.
             if isAnyAlertActive && !hasAlert(.backupRestore) {
                 log("Backup file open ignored — another alert is on screen")
             } else if !appState.isSheetPresented {
@@ -297,7 +280,7 @@ struct AlertHostView: View, Loggable {
                                             filmIDs: Array(list.filmIDs)))
             }
         case .confirmClearContents(let listID, let listName):
-            // Film count is not carried on the event either; same O(1) lookup.
+            // Film count is not carried on the event either, so it is read here.
             if let list = dataCoordinator.getList(listID) {
                 enqueue(.clearListContents(listID: listID, listName: listName,
                                            filmCount: list.filmIDs.count))
@@ -316,17 +299,13 @@ struct AlertHostView: View, Loggable {
         case .confirmRemoveFromFilmQueue(let filmIDs, let clearing):
             enqueue(.removeFromFilmQueue(filmIDs: filmIDs, clearingSelection: clearing))
         case .confirmFilmQueueAddOnDrop(let filmIDs, let listID):
-            // Sent synchronously from LeftSidebar's performDragOperation, i.e. this handler
-            // runs INSIDE NSDraggingSession's tracking run loop. Deliberately NOT presented
-            // here — SwiftUI would open the alert transaction while AppKit's
-            // drag-completion rendering pass is still consuming frames, and the appear
-            // animation would be dropped. Instead the request is stashed with its message
-            // composed once, and presented from GalleryDragEngine's .dragSessionDidEnd
-            // notification (above), which AppKit guarantees to deliver after the rendering
-            // pass completes — and for every begun session, so a stash is never orphaned.
+            // Sent from LeftSidebar's performDragOperation, inside NSDraggingSession's tracking run
+            // loop. Not presented here: the alert transaction would open while AppKit is still
+            // rendering the drag completion, and the appear animation would be dropped. The request
+            // is stashed with its message composed now, and presented from the .dragSessionDidEnd
+            // handler above, which AppKit delivers after rendering for every begun session.
             //
-            // One Queue alert at a time: a request arriving while one is open or waiting
-            // is ignored, as it always was.
+            // One Queue alert at a time: a request arriving while one is open or waiting is ignored.
             guard !hasAlert(.filmQueueAdd) else { break }
             stashedQueueDrop = HostAlert.QueueAdd(
                 filmIDs: filmIDs, listID: listID,
@@ -355,8 +334,8 @@ struct AlertHostView: View, Loggable {
             // hand-off to the drag session's end, as a drop-time notice does.
             stashedNotice = .upNextFullDrop(filmIDs: filmIDs, message: message)
         case .showNotice(let title, let message, let afterDragSession):
-            // Same-kind coalescing would let an unrelated notice replace one on screen,
-            // so notices queue; a burst of identical ones is still collapsed.
+            // Same-kind coalescing would let an unrelated notice replace one on screen, so notices
+            // queue. An identical notice already on screen is not repeated.
             let notice = HostAlert.notice(title: title, message: message)
             if afterDragSession {
                 stashedNotice = notice
@@ -443,9 +422,7 @@ struct AlertHostView: View, Loggable {
 
         case .deleteFromLibrary(let filmIDs, let clearing):
             Button("Cancel", role: .cancel) {
-                // Closes the loop on the "awaiting confirmation" line FilmRemoval logged
-                // when the command was invoked: without this, a canceled deletion left
-                // that line as the last word on the subject.
+                // Closes the "awaiting confirmation" line FilmRemoval logged when the command was invoked.
                 log("Delete from library canceled — \(filmIDs.count) film(s) left in place")
             }
             Button("Delete", role: .destructive) {
@@ -512,10 +489,9 @@ struct AlertHostView: View, Loggable {
             }
 
         case .databaseError:
-            // "Quit" carries role: .cancel — this is required on macOS to suppress
-            // SwiftUI's automatic system "OK" button injection, which occurs whenever no
-            // cancel-role button is present. It also means Escape activates Quit, which is
-            // the correct deferral behavior for this forced-action flow.
+            // "Quit" has role .cancel. On macOS that stops SwiftUI injecting a system "OK" when no
+            // cancel-role button is present, and Escape then chooses Quit, the right deferral for
+            // this forced action.
             Button("Quit", role: .cancel) { NSApp.terminate(nil) }
             // .defaultAction designates this as the primary button — it receives the
             // Return-key binding and the keyboard focus ring on presentation, ensuring
@@ -546,11 +522,8 @@ struct AlertHostView: View, Loggable {
             // A single "OK" carries the default action (Return), per the app's standard
             // single-button alert convention.
             Button("OK") {
-                // The CalendarPopover was auto-dismissed by the system the moment this
-                // alert appeared (an alert sheet always closes an open NSPopover). Ask
-                // WatchDetails to reopen it now that the user has acknowledged the
-                // collision — it seeds the reopened popover from the entry snapshot
-                // captured just before the alert was fired.
+                // The alert auto-dismissed the CalendarPopover (an alert sheet closes an open NSPopover).
+                // Ask WatchDetails to reopen it, seeded from the entry snapshot taken before the alert.
                 AppEventBus.shared.sendCommand(.reopenViewingEventPopover)
             }
             .keyboardShortcut(.defaultAction)
@@ -656,8 +629,8 @@ struct AlertHostView: View, Loggable {
     }
 
     /// Builds the confirmation message for the Film Queue add alert. The single-film case
-    /// is `FilmQueue.addConfirmationMessage`, the same text the FilmSheet picker's alert
-    /// shows; multi-film adds fall back to a count-based summary in the same voice.
+    /// is `FilmQueue.addConfirmationMessage`, the same text the Details tab's alert shows;
+    /// multi-film adds fall back to a count-based summary in the same voice.
     private func filmQueueAddMessage(_ filmIDs: Set<UUID>) -> String {
         let flaggedFilms = filmIDs.compactMap { dataCoordinator.getFilm($0) }
             .filter { !$0.specialSorting.isEmpty }

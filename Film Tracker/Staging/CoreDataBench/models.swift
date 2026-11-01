@@ -1,3 +1,8 @@
+// MARK: - models.swift
+// Copyright © 2026 avenged110.
+// SPDX-License-Identifier: GPL-3.0-only
+//
+// Model stand-ins for the CoreDataBench scratch tool: the SwiftData @Model types, their Core Data twins, row types, and fill and load helpers.
 import Foundation
 import SwiftData
 import CoreData

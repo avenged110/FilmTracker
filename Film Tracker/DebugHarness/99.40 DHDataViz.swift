@@ -510,7 +510,7 @@ extension DebugHarness {
 
         // MARK: The tab's own entry parser ≡ the formatter chain
         // `DVFilmViewings.parse` reads canonical entries directly (skipping `startOfDay`),
-        // so it is held to the formatter chain `parseDate` used to be — the app-wide
+        // so it is held to the formatter chain that `parseDate` uses — the app-wide
         // fast path has its own exhaustive proof in the `date-semantics` scenario.
         var parseAgreements = 0, parseDisagreements: [String] = []
         for year in stride(from: 1888, through: 2100, by: 3) {
@@ -895,13 +895,11 @@ extension DebugHarness {
         r.check("tab-event-burst-recalculates-in-background", landed,
                 "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 5)")
         // The five films' new counts, tags and Coming Up candidate touch several sections;
-        // SwiftUI re-evaluates only the ones whose inputs it cannot prove unchanged. A page
-        // height delta used to be checked here too, but several cards were since given a
-        // fixed or capped height specifically so their size no longer drifts with content
-        // (the Most Rewatched card, the two-line stat-tile footnotes) — a burst that only
-        // adds rows within those now-stable bounds can legitimately leave document height
-        // unchanged even though the page content plainly did change, which
-        // `tab-cached-count-matches-library` below verifies directly.
+        // SwiftUI re-evaluates only the ones whose inputs it cannot prove unchanged. No page
+        // height delta is asserted: several cards have a fixed or capped height (the Most
+        // Rewatched card, the two-line stat-tile footnotes), so a burst that only adds rows
+        // within those bounds can leave document height unchanged while the content changed.
+        // `tab-cached-count-matches-library` below verifies the content directly.
         r.check("tab-event-burst-rerenders-page", DVCanvasPageView.rebuilds >= 1,
                 "\(DVCanvasPageView.rebuilds) page rebuilds after the pass; height \(heightBefore) → \(documentHeight(host))")
         r.check("tab-event-burst-page-intact", documentHeight(host) > 2000, "document height \(documentHeight(host))")
@@ -999,7 +997,7 @@ extension DebugHarness {
     // MARK: - Scenario: Perf
 
     /// A library-sized corpus (about 1,400 films, 1.6 releases each, most purchased and
-    /// dated, a few viewings apiece — the shape of the real library on 2026-09-21).
+    /// dated, a few viewings apiece — the shape of a real library).
     static func librarySizedCorpus() -> [FilmSnapshot] {
         var generator = SeededGenerator(seed: 0x5EED)
         return standardCorpus(count: 1400, seed: 0xC0DE).map { film in

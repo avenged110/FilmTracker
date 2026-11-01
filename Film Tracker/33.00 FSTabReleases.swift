@@ -2,27 +2,21 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // View model and supporting data model for the "Releases" tab of FilmSheet.
-// The SwiftUI view layer lives in ReleasesView.swift (33_10).
+// The SwiftUI view layer lives in ReleasesView.swift (33.10).
 
 import SwiftUI
 
 // MARK: - ReleaseCardModel
 // @Observable class holding the live UI state for a single release card.
 //
-// WHY A CLASS, NOT A STRUCT. Release data used to be a value-type struct in an array on
-// FSTabReleases, so a field-level mutation wrote to that array and tripped @Observable's
-// tracker for `releases` — and because FSTabReleasesView reads `releases.count` and
-// `carouselEntries` from the same object, every keystroke re-rendered the whole view. That
-// competes with any active Core Animation transaction (Picker dismissals, carousel springs),
-// which is choppy menu dismissals and visible text-entry lag.
+// WHY A CLASS, NOT A STRUCT. The array holds object references, so writing a property on an
+// element does not mutate the array, and a field edit never marks FSTabReleases.releases dirty.
+// Were the elements structs, every keystroke would re-render the whole view and compete with any
+// active Core Animation transaction (Picker dismissals, carousel springs). The view is invalidated
+// only by structural changes, and each card subscribes only to the properties it reads.
 //
-// As a class, the array holds object references: writing a property on an element does not
-// mutate the array, so a field edit never marks FSTabReleases.releases dirty. The view is
-// invalidated only by structural changes, and each card subscribes only to the properties it
-// reads.
-//
-// ReleaseCardState is preserved as a value-type DTO for snapshotting, diffing, and
-// serialization; `snapshot()` converts to it.
+// ReleaseCardState is the value-type snapshot used for diffing and serialization; `snapshot()`
+// produces it.
 @MainActor
 @Observable
 final class ReleaseCardModel {
@@ -57,13 +51,11 @@ final class ReleaseCardModel {
             studioCustomText = ""
         } else {
             // Unknown or pre-existing free-text value — route to "Other" without data loss.
-            // studioCustomText MUST be assigned BEFORE studioSelection: @Observable does not
-            // distinguish programmatic writes from user interaction, so ReleaseCardView's
-            // onChange(of: studioSelection) — which is not live yet at load time, since cards
-            // are not mounted until the user opens the Releases tab — reads whatever
-            // studioCustomText holds on its first body pass after the card mounts. That must
-            // already be the correct custom text rather than the empty-string default,
-            // otherwise the stored studio is lost and saved back as "Unknown".
+            // studioCustomText MUST be assigned BEFORE studioSelection. @Observable does not
+            // distinguish programmatic writes from user interaction, and ReleaseCardView's
+            // onChange(of: studioSelection) reads studioCustomText on the first body pass after
+            // the card mounts. That value must already be the stored text, not the empty default,
+            // or the studio is saved back as "Unknown".
             studioCustomText = studio
             studioSelection  = "Other"
         }
@@ -137,25 +129,12 @@ final class ReleaseCardModel {
     //
     // MARK: Why the setters are narrowed
     //
-    // These two fields are the ONE piece of state on a card that another card's state has to
-    // agree with: a child's `parentReleaseID` and that parent's `childReleaseIDs` are two
-    // spellings of a single edge, and nothing in the type system holds them together. Every
-    // hierarchy defect this tab has had — a parent stuck in combo-pack state with no visible
-    // child, a release absorbed into a card that would not render it, a phantom ID inflating a
-    // child count so reconciliation deleted a real disc to reach a number it already had — is
-    // the two sides disagreeing.
-    //
-    // Which is a problem about a PAIR of models, and no single model can see the pair. Only
-    // FSTabReleases holds the session's releases, so only FSTabReleases can keep them
-    // consistent — and `fileprivate(set)` states that structurally: this file is
-    // ReleaseCardModel plus FSTabReleases and nothing else, so the compiler now refuses any
-    // hierarchy write from a view, a helper, or a future collaborator.
-    //
-    // It is not a theoretical boundary. `requestDelete` in 33_10 was rewriting a parent's
-    // `childReleaseIDs` from inside the view, with its own inline copy of `pruneStaleChildIDs`
-    // minus the warning log — a fifth derivation of the same relationship, in the code path
-    // that decides whether a destructive confirmation is shown. See `liveChildCount(of:)`,
-    // which is what it calls now.
+    // A child's `parentReleaseID` and its parent's `childReleaseIDs` are two spellings of one edge,
+    // and nothing in the type system holds them together. Only FSTabReleases sees the session's
+    // releases, so only it can keep the pair consistent. `fileprivate(set)` makes that structural:
+    // this file is ReleaseCardModel plus FSTabReleases, so the compiler refuses any hierarchy write
+    // from a view or a helper. A view that needs the live child count calls `liveChildCount(of:)`,
+    // which prunes stale IDs inside this type.
     //
     // Reads stay unrestricted: reading one side cannot desynchronize anything.
     fileprivate(set) var parentReleaseID: UUID? = nil
@@ -167,7 +146,7 @@ final class ReleaseCardModel {
     // MARK: - Format tests
     // `format` stays a String (it is persisted verbatim and an unrecognized value must
     // round-trip — see ReleaseFormat), so these are the readable form of the string
-    // comparisons previously written out at every call site. Each registers a read of `format`
+    // in place of the string comparisons written at every call site. Each registers a read of `format`
     // exactly as the literal did; `format` is never mutated after init, so the subscription can
     // never actually fire.
     var releaseFormat: ReleaseFormat? { ReleaseFormat(rawValue: format) }
@@ -183,10 +162,8 @@ final class ReleaseCardModel {
     // unset, which leaves the format-derived floor in effect.
     //
     // Seeded at card creation/load and maintained by FSTabReleases.updateFilmRelease(year:day:).
-    // It was previously a `let`, on the reasoning that it could not change — but the Details
-    // tab owns that date and the user can edit it in the same session, which left every
-    // already-built card holding the old floor while a newly added one got the new one. A `var`
-    // is also @Observable-tracked, which is what refreshes _ReleaseYearRow's Stepper ranges.
+    // The Details tab owns that date, and the user can edit it while cards are already built, so
+    // this is a `var`. Being @Observable-tracked, it also refreshes _ReleaseYearRow's Stepper ranges.
     //
     // Still NOT in contentHash: it is not persisted and is absent from ReleaseCardState, so it
     // is not a field edit. The corrections a floor change provokes are made through
@@ -206,8 +183,7 @@ final class ReleaseCardModel {
     // 2020 rather than 2016, since no such release could physically predate the film.
     var purchaseYearRange: ClosedRange<Int> {
         let currentYear = FSTabReleases.currentYear
-        // An unrecognized format falls back to the DVD floor, which is the behavior the
-        // former `default:` arm provided. See ReleaseFormat.yearFloor(for:).
+        // An unrecognized format falls back to the DVD floor. See ReleaseFormat.yearFloor(for:).
         let formatFloor = ReleaseFormat.yearFloor(for: format)
         // Defensive clamp on the lower bound. filmReleaseYear is parsed from the film's stored
         // release-year string, which the Details tab caps at the current year but the
@@ -438,15 +414,13 @@ final class ReleaseCardModel {
     // MARK: - Format Defaults
     /// Applies a format's starting technical vocabulary to a newly created card.
     ///
-    /// Every field in `NewReleaseDefaults` is written unconditionally, including the ones a
-    /// given format leaves empty — safe because init() gives every one of them the same
-    /// neutral value ("" or false), so writing an empty default leaves the field exactly as
-    /// init built it. The alternative, a
-    /// per-format list of which fields to touch, is the duplication this replaced.
+    /// Every field the format's defaults describe is written unconditionally, including the ones
+    /// the format leaves empty. That is safe because init() gives each of them the same neutral
+    /// value ("" or false), so writing an empty default leaves the field as init built it. A
+    /// per-format list of which fields to touch would duplicate the defaults table.
     ///
-    /// Used by both creation paths, `addRelease` and `createComboChildren`, which previously
-    /// held separate copies of the Blu-ray defaults that had to agree for
-    /// `comboChildHasBeenEdited` to read an untouched child correctly.
+    /// Used by both creation paths, `addRelease` and `createComboChildren`, so they cannot disagree
+    /// about what a fresh Blu-ray looks like. `comboChildHasBeenEdited` depends on that.
     func applyNewReleaseDefaults(for format: String) {
         let defaults = ReleaseFormat.newReleaseDefaults(for: format)
         nationalOrigin = defaults.nationalOrigin
@@ -480,19 +454,17 @@ final class ReleaseCardModel {
     // four, so two cards differing only in an inactive field's leftover placeholder are the
     // same card as far as anything persisted goes.
     //
-    // Copying the placeholder through made the change baseline disagree with that, and the
-    // disagreement was reachable: activating a combo child's base release year moves the value
-    // immediately, and clearing the field afterwards lowers the flag but leaves the moved
-    // number behind. The card was then dirty against a field the user had emptied and that
-    // could not be persisted either way.
+    // Copying the placeholder into the snapshot would let the change baseline disagree with that.
+    // Activating a combo child's base release year moves the value immediately, and clearing the
+    // field afterwards lowers the flag but leaves the moved number behind. The card would then be
+    // dirty against a field the user had emptied, which cannot be persisted either way.
     //
     // Normalized here rather than by clearing the model's value on delete, because the
     // placeholder is load-bearing in the UI — it is the year the Stepper displays grayed out,
     // and the value re-activation commits.
     //
-    // Everything that asks "did this card change?" now routes through this one method
-    // and `ReleaseCardState`'s synthesized `==`, so the normalization above is applied
-    // once, here, rather than mirrored by hand in a parallel comparison.
+    // Everything that asks "did this card change?" routes through this one method and
+    // `ReleaseCardState`'s synthesized `==`, so the normalization is applied once, here.
     func snapshot() -> ReleaseCardState {
         ReleaseCardState(
             id:                 id,
@@ -543,32 +515,26 @@ final class ReleaseCardModel {
     }
 
     // MARK: - Content Hash
-    // One observable value reflecting the combined state of every mutable field, so
-    // observers take a single "did anything change" signal instead of 24 individual
-    // .onChange modifiers (which also hit the type-checker's complexity limit).
+    // One observable value reflecting the combined state of every mutable field, so observers take a
+    // single "did anything change" signal instead of one .onChange modifier per field (which also hit
+    // the type-checker's complexity limit).
     //
-    // Being a computed property on an @Observable class, accessing it registers a read of
-    // every field it references — so per-property invalidation still works normally.
+    // Being a computed property on an @Observable class, accessing it registers a read of every field
+    // it references, so per-property invalidation still works normally.
     //
-    // Derived from `snapshot()` rather than from its own list of 39 `h.combine` calls. That
-    // list was a third restatement of the field set, unchecked by the compiler: a field
-    // missed here is a field whose edits never schedule a change check at all. Hashing the
-    // snapshot picks up every field ReleaseCardState carries, automatically and forever.
+    // Derived from `snapshot()` rather than from a separate list of `h.combine` calls. A hand-written
+    // list is a second copy of the field set that the compiler cannot check: a field missed there would
+    // never schedule a change check. Hashing the snapshot covers every field ReleaseCardState carries.
     //
-    // The four extra combines below are a CLOSED set — they do not grow when a field is
-    // added — and exist to preserve this property's exact sensitivity, which is deliberately
-    // broader than the snapshot's:
+    // The extra combines below are a closed set. They preserve this property's sensitivity, which is
+    // deliberately broader than the snapshot's:
     //
-    //   • The two years, the release month/day, and two dates are normalized away by
-    //     `snapshot()` while their has-flag is false. Reading them unconditionally here keeps the observer subscribed
-    //     to the placeholder values, so the Stepper's grayed-out year still signals. (A
-    //     ternary would not even register the read, let alone the value.)
-    //   • The three Doubles are hashed by bit pattern, as this property always has, so a
-    //     0.0 → -0.0 write still signals even though `==` considers the two equal.
-    //
-    // Both were verified as no-change against the previous implementation by an
-    // equivalence harness: per-field sensitivity identical across all 39 fields, and the
-    // hash-equality relation identical over 100,000 random pairs.
+    //   • The two years, the release month/day, and two dates are normalized away by `snapshot()` while
+    //     their has-flag is false. Reading them unconditionally here keeps the observer subscribed to the
+    //     placeholder values, so the Stepper's grayed-out year still signals. (A ternary would not even
+    //     register the read, let alone the value.)
+    //   • The three Doubles are hashed by bit pattern, so a 0.0 → -0.0 write still signals even though
+    //     `==` considers the two equal.
     /// The release date as it is saved, or nil while the card has none. Built by
     /// ReleaseDateValue.init(year:monthDay:format:), so what is saved always reads back: a
     /// stored day the current year lacks is clamped, and a full date that would fail this
@@ -606,7 +572,7 @@ final class ReleaseCardModel {
 // MARK: - Format Ordering
 //
 // The unified carousel's primary sort key. The rank itself is `ReleaseFormat.displayRank`
-// (63_00_ReleaseObj), shared with the two sidebar lists that order releases the same way; this
+// (63.00 ReleaseObj), shared with the two sidebar lists that order releases the same way; this
 // is only the carousel's spelling of it over a card model.
 extension ReleaseCardModel {
     /// Sort rank for the unified carousel. Unknown formats sort last rather than crashing
@@ -718,7 +684,7 @@ final class FSTabReleases {
 
     // Not cached at launch, so release year defaults and purchase year ranges stay accurate if
     // the app is left running across a calendar year boundary. That guarantee comes from the
-    // shared CurrentYear cache (90_00), which keeps it while removing the Calendar lookup from
+    // shared CurrentYear cache (90.00), which keeps it while removing the Calendar lookup from
     // the per-access cost — this is read on every _ReleaseYearRow evaluation and again inside
     // every enforceReleaseYearOrder pass.
     static var currentYear: Int { CurrentYear.value }
@@ -772,14 +738,7 @@ final class FSTabReleases {
         return min(max(raw, 0), max(0, variantCount - 1))
     }
 
-    // There is deliberately no `releaseCount` mirror any more. It let the cap check be read
-    // without subscribing to the whole `releases` array — but the cap counts CARDS, so
-    // `canAddRelease()` measures `carouselEntries` and nothing read the mirror again. It
-    // survived as a tracked property written on every structural mutation: an @Observable
-    // invalidation per add and delete for a value with no readers.
-
-    // Carousel state: index of the visible card within `carouselEntries`. A single value
-    // now that there is a single stack — there is no longer a per-format position to keep.
+    // Carousel state: index of the visible card within `carouselEntries`. There is one stack, so one index.
     var currentIndex: Int = 0
 
     // ID of a card currently animating off-screen (fly-up delete).
@@ -863,13 +822,11 @@ final class FSTabReleases {
     // delete fly-up, confirmation presentations — sized to cover that animation's full visual
     // duration.
     //
-    // WHY: checkForChanges() is deliberately deferred off the mutation tick, but "one tick
-    // later" often lands inside the first frames of the very animation the mutation started.
-    // The check compares every release, and when the aggregated result flips,
-    // owner.notifyChanges() cascades into hasChanges/canConfirm writes that re-render the
-    // FilmSheet footer and start its 0.2 s button fade — all mid-spring. Whether that collision
-    // occurs depends on run-loop coincidence, which is exactly the "sometimes smooth, sometimes
-    // choppy" inconsistency.
+    // WHY: checkForChanges() is deliberately deferred off the mutation tick, but "one tick later"
+    // often lands inside the first frames of the very animation the mutation started. The check
+    // compares every release, and when the aggregated result flips, owner.notifyChanges() cascades
+    // into hasChanges/canConfirm writes that re-render the FilmSheet footer and start its 0.2 s button
+    // fade, all mid-spring. The window keeps those writes out of the animation.
     //
     // CORRECTNESS: the delay is bounded (≤ ~1 s) and affects only WHEN hasChanges/canConfirm
     // update, never their eventual value. No save path depends on their timeliness —
@@ -912,11 +869,11 @@ final class FSTabReleases {
     // menu-dismissal reasons: a delete removes its release only when the 300 ms fly-up ends,
     // a Type change reconciles combo-pack children ~120 ms later (`comboChildTasks`), and a
     // confirmed type-change alert writes its value one turn after the alert dismisses.
-    // `FilmSheet.confirm()` builds its deltas synchronously, so a save landing inside any of
-    // those windows used to persist the state from BEFORE the action — a deleted release
-    // that came back on the next open, or a 4K release saved as "Combo-pack" with no Blu-ray
-    // child, a state no later interaction repairs. `settlePendingWork()` completes all three
-    // on demand; these two properties are what it needs to know about the first and third.
+    // `FilmSheet.confirm()` builds its deltas synchronously, so a save landing inside one of those
+    // windows would persist the state from before the action: a deleted release that came back on the
+    // next open, or a 4K release saved as "Combo-pack" with no Blu-ray child, a state no later
+    // interaction repairs. `settlePendingWork()` completes all three on demand; these two properties
+    // are what it needs to know about the first and third.
     //
     // `@ObservationIgnored`: bookkeeping, read by no view.
 
@@ -929,24 +886,20 @@ final class FSTabReleases {
 
     // Handle for the in-flight add sequence (mount → slide → fade → teardown).
     //
-    // It was the only multi-phase task in this type left un-held, which made it the only one
-    // that could not be abandoned: `cancelNavigation()` could not reach it, and nothing stopped
-    // it at teardown — so a sheet dismissed mid-add kept a task alive on a strong `self`,
-    // writing view-model state for a carousel that was gone. Held here, TaskHandle's deinit
-    // cancels it with the view model, and the cancellation checks inside the sequence unwind
-    // `addingCardID` and the mount window rather than stranding them.
+    // Held like the other multi-phase tasks, so teardown cancels it. TaskHandle's deinit cancels it
+    // with the view model, and the cancellation checks inside the sequence unwind `addingCardID` and
+    // the mount window rather than stranding them.
     private var addSequenceTask: TaskHandle?
 
     // MARK: - Combo-pack child management
     // Debounce handles for deferred child creation/deletion when independence changes. A
     // TaskHandle decouples the side effect from the picker animation transaction.
     //
-    // KEYED BY PARENT, not a single shared slot. The debounce lets one picker spin through
-    // several values and settle on the final selection — a per-parent concern. A single slot
-    // made it global: retyping a second 4K parent within menuDismissalSettleDelay of the first
-    // silently discarded the first parent's reconciliation, leaving it holding a combo-pack
-    // independence with no children, which the next load's Case D repair would "correct" by
-    // discarding the user's actual choice.
+    // KEYED BY PARENT, not one shared slot. The debounce lets one picker spin through several values
+    // and settle on the final selection, which is a per-parent concern. A shared slot would let a second
+    // 4K parent retyped within menuDismissalSettleDelay of the first silently cancel the first parent's
+    // reconciliation, leaving it with a combo-pack independence and no children. The next load's Case D
+    // repair would then "correct" the label to match, discarding the user's actual choice.
     //
     // Entries are not pruned on completion: the dictionary is bounded by the release cap, lives
     // only as long as the sheet, and a finished Task's handle cancels to a no-op.
@@ -982,15 +935,6 @@ final class FSTabReleases {
                              onCancel: @escaping @MainActor () -> Void = {}) {
         guard !confirmation.isPresented else { onCancel(); return }
 
-        // NOTE: an experiment that resigned first responder two turns before presenting — on
-        // the theory that the alert's implicit responder change was the ~55 ms presentation
-        // spike — is gone. It moved nothing: the spike stayed after `present` at 55/71/69 ms,
-        // identical to before. Whatever the work is, forcing the responder transition early
-        // does not front-load it. (The instrumentation that measured it — a view-tree census
-        // and a main-thread sampler around every presentation — is gone as well; its finding,
-        // ~0.78 ms per first-responder-capable view in the window, is recorded at
-        // FSTabReleasesView.prefetchRadius, which is the constant it informed.)
-
         confirmation.present(title: title,
                              message: message,
                              confirmTitle: confirmTitle,
@@ -1002,9 +946,8 @@ final class FSTabReleases {
     /// Sequences the combo-pack confirmation (see requestIndependenceChange), so spinning the
     /// Type picker through several values discards the earlier, not-yet-presented prompts.
     ///
-    /// Keyed by release id for the same reason `comboChildTasks` is: superseding a prompt is a
-    /// per-card concern, and a shared slot let one card's pending prompt be canceled by an
-    /// unrelated card's change.
+    /// Keyed by release id, as `comboChildTasks` is: superseding a prompt is a per-card concern, so
+    /// one card's change cannot cancel another card's pending prompt.
     @ObservationIgnored private var independencePromptTasks: [UUID: TaskHandle] = [:]
 
     // MARK: - Initialization
@@ -1157,11 +1100,10 @@ final class FSTabReleases {
         //
         // Pruning-only repair could not see that failure: with the parent claiming no children
         // and each child still naming the parent, there is no stale ID to prune and no orphan
-        // to unlock. That is what suppressed the deletion confirmation and the combined card on
-        // films the sidebar was still rendering correctly (it groups on `parentReleaseID ?? id`
-        // and so reads the surviving side).
+        // to unlock. In that state the card shows no children and no deletion confirmation applies,
+        // while the sidebar, which groups on `parentReleaseID ?? id`, still reads the surviving side.
         //
-        // ReleaseSnapshot.reconcilingHierarchy now performs the same derivation at the
+        // ReleaseSnapshot.reconcilingHierarchy performs the same derivation at the
         // model→snapshot boundary, so in normal operation this finds nothing to do. It is kept
         // because this is the last point before the models are handed to the confirmation and
         // reconciliation logic, and because MemoryStore snapshots written by the sheet's own
@@ -1340,37 +1282,30 @@ final class FSTabReleases {
 
         // MARK: Case E — converge every combo-pack child's locked fields onto its parent
         //
-        // Runs in its own pass because it is the only repair that reads ACROSS releases: it
-        // depends on Cases A–D having settled the hierarchy and the independence label, since
-        // `comboChildren(of:)` resolves through `childReleaseIDs`.
+        // Runs in its own pass because it is the only repair that reads across releases. It depends on
+        // Cases A–D having settled the hierarchy and the independence label, since `comboChildren(of:)`
+        // resolves through `childReleaseIDs`.
         //
-        // WHY IT HAS TO HAPPEN HERE. A child's locked fields are owned by the 4K parent and
-        // pushed down by `syncComboChildFields`, which runs after ANY field edit on a parent
-        // with children. Nothing ran that sync at LOAD, so a record whose stored child had
-        // drifted opened with the two disagreeing, and the very first parent edit — of any
-        // field, since the sync is all-or-nothing — converged them.
+        // WHY IT HAS TO HAPPEN HERE. A child's locked fields are owned by the 4K parent and pushed down by
+        // `syncComboChildFields`, which runs after any field edit on a parent with children. Nothing syncs at
+        // load, so a stored child that had drifted from its parent would open out of sync. The first parent
+        // edit would then converge it, mutating the child after `captureOriginalValues` had recorded its
+        // drifted values as the baseline. The child would stay permanently dirty, and the Update button could
+        // never be disabled again.
         //
-        // That convergence mutated the child AFTER `captureOriginalValues` had recorded its
-        // pre-convergence values as the baseline, and was caused by an edit on a DIFFERENT
-        // card. Reverting the parent edit put the parent's values back onto the child, but the
-        // child's baseline held the drifted values it arrived with — so the child stayed
-        // permanently dirty and the Update button could never be disabled again.
+        // Converging before the baseline is taken makes the invariant true from the moment the sheet opens.
         //
-        // Converging before the baseline is taken closes that at the source: the invariant the
-        // sync maintains is true from the moment the sheet opens.
+        // Folded into the baseline rather than forcing a save, like the Case C/D repairs. A film opened and
+        // closed untouched keeps the stored drift and is converged again next time, while any real save carries
+        // the correction along. That happens only because each moved child is recorded in `loadRepairedIDs`;
+        // the baseline comparison alone would never write it.
         //
-        // Folded into the baseline rather than forcing a save, like the Case C/D repairs,
-        // with the same bounded consequence: a film opened and closed untouched keeps the
-        // stored drift and is converged again next time, while any real save carries the
-        // correction along — which it does only because each moved child is recorded in
-        // `loadRepairedIDs`; the baseline comparison alone would never write it.
+        // The parent test is `handleChange`'s verbatim, so the set converged here is exactly the set the first
+        // edit would have converged. Anything narrower leaves a parent whose first edit still moves its child
+        // off the baseline.
         //
-        // The parent test is `handleChange`'s verbatim, so the set converged here is exactly
-        // the set the first edit would have converged — anything narrower leaves a parent whose
-        // first edit still moves its child off the baseline, which is the whole bug.
-        //
-        // Logged per child that actually moved: a silent rewrite of user data at load is what
-        // made this gap hard to see. Snapshots are taken only for combo children.
+        // Logged per child that actually moved, since a silent rewrite of user data at load is hard to notice.
+        // Snapshots are taken only for combo children.
         for parent in releases
         where parent.is4K && !parent.isComboChild && !parent.childReleaseIDs.isEmpty {
             let children = comboChildren(of: parent)
@@ -1505,19 +1440,9 @@ final class FSTabReleases {
         if currentIDs != originalIDs {
             changed = true
         } else {
-            // Field-level change: one snapshot compared against the baseline, through
-            // ReleaseCardState's synthesized `==`.
-            //
-            // This used to call a hand-written `matches(_:)` that compared the 39 fields in
-            // place, to avoid building a snapshot per release per debounce tick. That saving
-            // was measured at roughly 3.7µs per tick across 20 releases — 0.002% of the 150 ms
-            // interval — and it was bought with a comparison chain the compiler could not check
-            // against the field list it was supposed to mirror. A field added to
-            // ReleaseCardState but missed in that chain silently stopped being change-tracked
-            // HERE while `buildReleaseDeltas` (which already used `snapshot() !=`) still wrote
-            // it, so the Update button and the save path disagreed about the same card.
-            // Routing both through the same synthesized comparison removes the disagreement by
-            // construction.
+            // Field-level change: one snapshot compared against the baseline, through ReleaseCardState's
+            // synthesized `==`. `buildReleaseDeltas` uses the same comparison, so the Update button and the
+            // save path cannot disagree about the same card.
             changed = releases.contains { model in
                 guard let original = originalReleasesByID[model.id] else { return true }
                 return model.snapshot() != original
@@ -1526,12 +1451,10 @@ final class FSTabReleases {
 
         // MARK: Diagnostic — why the tab is dirty
         //
-        // Evaluated on every check that resolves dirty, not just on the transition, and then
-        // emitted only when the resulting text differs from the last one emitted. The state
-        // that needs explaining is the one a transition log cannot see: a check that finds the
-        // tab STILL dirty after the user believes they have reverted everything. Suppressing
-        // exact repeats keeps that while removing the ~100-identical-lines-per-session case
-        // the un-deduplicated version produced; see the note at the emit site.
+        // Evaluated on every check that resolves dirty, not just on the transition, and then emitted only
+        // when the resulting text differs from the last one emitted. The state that needs explaining is the
+        // one a transition log cannot see: a check that finds the tab still dirty after the user believes they
+        // have reverted everything. Exact repeats are suppressed; see the note at the emit site.
         //
         // The isLoggingEnabled guard is on the BLOCK, not left to log(): `Loggable.log` returns
         // early when logging is off, but its parameter is an ordinary String rather than an
@@ -1569,28 +1492,21 @@ final class FSTabReleases {
 
             // Emit only when the diagnostic actually says something new.
             //
-            // The block above still runs on every dirty tick, and deliberately: what is being
-            // suppressed is a repeated LINE, not a repeated check, and the only way to know a
-            // line repeats is to build it. What that removes is the case this log was worst at
-            // — a structurally dirty tab, where the message is two counts that cannot change
-            // until the user adds or removes a release, restated on every tick for as long as
-            // they keep typing. One session produced ~100 identical copies of a single line.
+            // The block above runs on every dirty tick, deliberately: what is suppressed is a repeated line,
+            // not a repeated check, and the only way to know a line repeats is to build it. The worst case
+            // is a structurally dirty tab, where the message is two counts that cannot change until the user
+            // adds or removes a release.
             //
-            // The field-level branch is why the whole diagnostic is not simply gated on the
-            // dirty TRANSITION instead: it names which fields differ, and that genuinely
-            // changes from tick to tick as the user edits. Comparing the assembled text keeps
-            // every one of those distinct lines while collapsing only exact repeats, so the
-            // state the header calls out as the reason this logs on every check — still dirty
-            // after the user believes they reverted everything — is still recorded the first
-            // time it is seen, and again if it recurs after a clean tick.
+            // The field-level branch is why the whole diagnostic is not gated on the dirty transition. It names
+            // which fields differ, and that changes from tick to tick as the user edits. Comparing the assembled
+            // text keeps those lines distinct and collapses only exact repeats. A tab still dirty after the user
+            // believes they reverted everything is recorded the first time it is seen, and again if it recurs
+            // after a clean tick.
             //
-            // Suppression is PER RELEASE and on field NAMES, not on the whole assembled text.
-            // Comparing the whole text re-emitted every dirty release whenever any one of them
-            // changed: stepping one card's date month by month re-logged its untouched,
-            // already-dirty siblings on every click (~40 lines for one edit, 2026-10-22).
-            // Comparing values made each click its own line too. A release is now reported
-            // when it first becomes dirty and again only when the SET of differing fields
-            // changes; the line still shows the values as of that moment.
+            // Suppression is per release and on field names, not on the whole assembled text. Comparing the whole
+            // text re-emitted every dirty release whenever any one changed, and comparing values made each edit
+            // its own line. A release is reported when it first becomes dirty, and again only when the set of
+            // differing fields changes. The line still shows the values as of that moment.
             var next: [String: String] = [:]
             for entry in entries {
                 next[entry.key] = entry.signature
@@ -1636,10 +1552,9 @@ final class FSTabReleases {
     /// Within a format the order is `ReleaseCardModel.precedes` — the same total order every
     /// other consumer uses; see there for why the id tiebreak is load-bearing.
     ///
-    /// `carouselRank` is precomputed because it is not a stored field: it is
-    /// `ReleaseFormat(rawValue:)`, a string match, plus a rank lookup. Read inside the
-    /// comparator it was re-derived twice per comparison, so an n-element sort paid it
-    /// O(n log n) times to answer a question with only n distinct answers.
+    /// `carouselRank` is computed once per release rather than inside the comparator. It is a string match
+    /// plus a rank lookup, and a comparator would repeat it O(n log n) times to answer a question with only
+    /// n distinct answers.
     private var unifiedReleaseOrder: [ReleaseCardModel] {
         releases
             .map { (rank: $0.carouselRank, model: $0) }
@@ -1714,9 +1629,7 @@ final class FSTabReleases {
     //
     // Numbers CARDS, in carousel order. Bundled combo-pack discs are segments of their 4K
     // card and carry no number of their own — nothing reads one (both readers look up
-    // `entry.parent.id`) — so they are not numbered. That is also what keeps the visible
-    // run gap-free: the old per-release version had to partition absorbed children to the
-    // end of each format's run for exactly this reason.
+    // `entry.parent.id`) — so they are not numbered, which keeps the visible run gap-free.
     //
     // Returns a map rather than a per-call search, so the carousel computes it once per
     // structural change instead of once per card.
@@ -1749,8 +1662,8 @@ final class FSTabReleases {
     //
     // Combo-pack children are created automatically when a 4K parent's independence is
     // configured, and that path is deliberately NOT gated on this cap: refusing there would
-    // leave a parent with missing children, which is worse than the cap being exceeded. It
-    // cannot be exceeded that way any more, since a child adds no card at all.
+    // leave a parent with missing children, which is worse than exceeding the cap. A child adds no card
+    // of its own, so creating one cannot exceed the cap.
     /// `nonisolated` because its readers are not all on the main actor:
     /// ReleasesFormatting.releaseCapHelpText spells this number into the cap help text from a
     /// nonisolated static initializer.
@@ -1763,11 +1676,9 @@ final class FSTabReleases {
     // `FSTabReleasesView.discreteSwipeThreshold`, one nextCard()/previousCard() runs and the
     // rest of the gesture is ignored.
     //
-    // This replaced a live-drag implementation that tracked the fingers 1:1, and that version
-    // was REMOVED rather than kept behind a switch: it could not be made consistently
-    // performant, and an inconsistent direct-manipulation gesture is worse than a discrete one
-    // — the user is left wondering why it sometimes feels unresponsive rather than reading the
-    // behavior as deliberate.
+    // A discrete step rather than a live drag. A drag that tracked the fingers 1:1 could not be kept
+    // consistently responsive, and an inconsistent direct-manipulation gesture reads as unresponsive
+    // rather than deliberate.
 
     /// Whether another release may be added.
     ///
@@ -1785,12 +1696,11 @@ final class FSTabReleases {
     // duration of its spring. Input arriving mid-step does not move the index; it is remembered
     // in a one-deep slot and taken up once the step completes. See requestNavigation.
     //
-    // WHY. Previously every input path wrote `currentIndex` the instant it arrived, so input
-    // faster than the animation retargeted a spring that was still running — and SwiftUI
-    // re-aims a running spring rather than queueing, so the visible travel per step shrank as
-    // input rate rose. Held arrow-key repeat (~30/s against the navigation spring) collapsed the
-    // animation entirely: cards changed with no travel, and once the index outran the mounted
-    // window the carousel showed a blank followed by a card arriving late.
+    // WHY. Input that writes `currentIndex` the instant it arrives retargets a spring that is still
+    // running. SwiftUI re-aims a running spring rather than queueing, so the visible travel per step
+    // shrinks as input rate rises. Held arrow-key repeat (~30/s against the navigation spring) collapses
+    // the animation: cards change with no travel, and once the index outruns the mounted window the carousel
+    // shows a blank followed by a card arriving late.
     //
     // Serializing removes the ability to accelerate — a card always animates in, settles, and
     // animates out exactly as under slow navigation, because the input no longer reaches the
@@ -1810,27 +1720,18 @@ final class FSTabReleases {
     ///
     /// MARK: Why `response` is the responsiveness knob, and `dampingRatio` is not
     ///
-    /// Perceived input latency in this carousel is not scheduling — it is the spring's own
-    /// soft start. A spring leaves rest with zero velocity, so the opening frames cover very
-    /// little ground, and the eye reads "nothing happened yet" rather than "it started
-    /// gently". Fraction of a step traveled, measured against this Spring directly:
+    /// Perceived input latency in this carousel comes from the spring's soft start, not from scheduling.
+    /// A spring leaves rest with zero velocity, so its opening frames cover little ground. Lowering
+    /// `response` moves more of each step into those early frames, which reads as immediate rather than
+    /// delayed.
     ///
-    ///                      16ms    33ms    50ms    83ms   100ms
-    ///     was r=0.35        4%     13%     24%     48%     59%
-    ///     now r=0.28        5%     18%     33%     61%     72%
+    /// `dampingRatio` is held at 0.85 on purpose. Peak overshoot is set by damping alone and does not
+    /// change with `response`, so the response can be lowered without changing the bounce. Lowering
+    /// damping to buy the same early travel would substantially increase the overshoot, which is the
+    /// visual character this carousel was tuned away from.
     ///
-    /// By the third frame the card has covered a third of its travel rather than a quarter,
-    /// which is the difference between reading as immediate and reading as delayed.
-    ///
-    /// `dampingRatio` is deliberately UNCHANGED at 0.85. Peak overshoot is a function of
-    /// damping alone — it measures 3.5 pt over a 556 pt step at 0.85 and stays exactly 3.5 pt
-    /// at any response — so lowering response speeds the start without altering the bounce at
-    /// all. Lowering damping to buy the same early travel would have tripled the overshoot
-    /// (8.4 pt at 0.80), which is the visual character this carousel was tuned away from.
-    ///
-    /// Everything downstream re-derives: `settlingDuration` falls 635 ms → 519 ms, so
-    /// `navigationStepDuration` (the back-to-back lock) falls 705 ms → 589 ms and
-    /// `addFadeDelay` tracks `response` as it always has. No other constant needed touching.
+    /// `navigationStepDuration` (the back-to-back lock) and `addFadeDelay` both derive from the spring, so
+    /// they follow any change to `response` and `dampingRatio`.
     static let navigationSpring = Spring(response: 0.28, dampingRatio: 0.85)
 
     /// Safety margin added to the spring's own settling estimate.
@@ -1845,21 +1746,11 @@ final class FSTabReleases {
     /// than visible motion, so it is where back-to-back navigation can be made more responsive
     /// without shortening the spring.
     ///
-    /// MEASURED HEADROOM, if this is ever tuned further. Sampling the spring over a 556 pt
-    /// card step, the motion is finished long before the lock releases at 589 ms:
-    ///
-    ///     t=410ms   0.33 pt remaining    9.4 pt/s
-    ///     t=450ms   0.08 pt remaining    3.6 pt/s
-    ///     t=490ms   0.01 pt remaining    1.0 pt/s
-    ///
-    /// So roughly 150 ms of the lock is spent on a card that has visibly stopped. Reclaiming
-    /// it means releasing BEFORE `settlingDuration`, which means a queued step may retarget an
-    /// animation SwiftUI has not yet torn down — the one thing this margin exists to prevent.
-    /// The numbers say the carry-in would be negligible at that point (3.6 pt/s into a 556 pt
-    /// move), and since the strip refactor a retarget touches ONE attribute rather than N. But
-    /// it is a real change to the invariant, not a knob, and it should be made deliberately and
-    /// watched for the travel-collapse this pipeline was built to eliminate — not folded into a
-    /// tuning pass.
+    /// The margin can be shortened, but that changes the invariant rather than tuning a knob. The motion
+    /// is finished well before the lock releases at `navigationStepDuration`, so the margin is where the
+    /// lock could be made more responsive. Releasing before `settlingDuration` would let a queued step
+    /// retarget an animation SwiftUI has not yet torn down, which is what this margin exists to prevent.
+    /// Any change here should be made deliberately and watched for travel collapse.
     private static let navigationSettleMargin: Duration = .milliseconds(70)
 
     /// How long one navigation step owns the pipeline, end to end.
@@ -1905,15 +1796,14 @@ final class FSTabReleases {
 
     /// A SECOND index the mount window must also cover, alongside `mountWindowTarget`.
     ///
-    /// Set on EVERY move, short or long — the distinction it used to draw was wrong in both
-    /// directions.
+    /// Set on every move, short or long.
     ///
     /// The long case is the obvious one: traveling to card 9 from card 0 would point the window
     /// at {8,9} and unmount card 0 — the card the user is still looking at, and the one the
     /// sweep is supposed to depart FROM — for the turn between the mount pass and the index
     /// change.
     ///
-    /// The short case is the same defect landing one card over. Windows around origin and
+    /// The short case has the same problem one card over. Windows around origin and
     /// destination do overlap for a ±1 step, but a window is a RANGE: centering it on the
     /// destination drops its trailing end, which is the card at distance 1 behind the user —
     /// visible, dimmed, and a sliver of it on screen. See the note at the assignment in
@@ -1926,28 +1816,23 @@ final class FSTabReleases {
 
     // MARK: - Mount-window ownership
     //
-    // The two overrides above are shared mutable state with more than one writer — a navigation
-    // move and `addRelease`'s auto-scroll both set them and both clear them — and clearing was
-    // unconditional, so a writer could tear down a window it no longer owned. Two reachable
-    // ways, both producing a card that unmounts while it is on screen:
+    // The two overrides above have more than one writer: a navigation move and `addRelease`'s auto-scroll
+    // both set and clear them. An unconditional clear lets one writer tear down a window it no longer owns,
+    // unmounting a card that is still on screen. Two cases this prevents:
     //
-    //   1. An add's teardown landing inside a later navigation. `isTransitioning` is the only
-    //      gate on navigation input, and it falls with `addingCardID` at `addFadeDelay`
-    //      (~252 ms) while the add holds the overrides until `navigationStepDuration`
-    //      (~589 ms). For those ~337 ms the carousel accepts a step or a jump whose Phase A
-    //      window the add's Phase D then nils — unmounting a jump's departing card mid-spring,
-    //      or the destination in the turn before the index moves.
+    //   1. An add's teardown landing inside a later navigation. `isTransitioning` gates navigation input and
+    //      falls with `addingCardID` at `addFadeDelay`, while the add holds the overrides until
+    //      `navigationStepDuration`. In that gap a step or jump can be accepted, and the add's teardown then
+    //      clears the window it set up.
     //
     //   2. A canceled navigation's release path landing inside a later add. `addRelease` calls
-    //      `cancelNavigation()` and then claims the window; the abandoned step's own
-    //      `Task.isCancelled` branch runs afterwards and called `releaseNavigationLock()`,
-    //      which cleared the add's overrides.
+    //      `cancelNavigation()` and then claims the window, and the abandoned step's cancellation branch must
+    //      not clear the add's overrides.
     //
-    // Neither is a timing bug to be tuned out — they are the absence of an owner. A claim token
-    // supplies one: a writer takes a token before setting the overrides and presents it to
-    // release them, and a release whose token has been superseded is a no-op. Every claim is
-    // total (there is exactly one window), so this is a hand-off, not a lock — a later claimant
-    // always wins, which is what "the newest intent governs the carousel" means here.
+    // A claim token supplies an owner. A writer takes a token before setting the overrides and presents it to
+    // release them, and a release whose token has been superseded is a no-op. Every claim is total (there is
+    // exactly one window), so this is a hand-off, not a lock: a later claimant always wins, so the newest
+    // intent governs the carousel.
     //
     // `@ObservationIgnored` for the same reason as `isNavigationLocked`: internal bookkeeping
     // that no body reads, and making it observable would invalidate every observer of this view
@@ -1989,8 +1874,7 @@ final class FSTabReleases {
     // deep-link position before the first render. Both write `currentIndex` without bumping
     // this, and so are silent by construction.
     //
-    // The jump menu used to be a third such case. It travels now, so it bumps this like any
-    // other move; what remains silent is only the index writes that are not moves at all.
+    // Jumps travel like any other move, so they bump this token. Only index writes that are not moves stay silent.
     private(set) var keyboardNavigationToken: Int = 0
 
     func previousCard() { requestNavigation(step: -1) }
@@ -2001,9 +1885,8 @@ final class FSTabReleases {
     ///
     /// The carousel SWEEPS to the destination rather than cutting to it — the same spring, over
     /// the same strip, that an arrow step and `addRelease`'s auto-scroll use. The distance is
-    /// the only difference, and it is the point: the sweep is what tells the user the card they
-    /// picked was six positions to the right, which is positional guidance an instant swap
-    /// cannot give at all. See beginNavigationMove for why this replaced the instant jump.
+    /// the only difference, and it is the point: the sweep shows how far away the card is, which an
+    /// instant swap cannot show.
     ///
     /// Deliberately NOT routed through the remembered-step slot: that slot stores a DIRECTION,
     /// which is all a keypress means, while a menu selection names an absolute position — and
@@ -2079,21 +1962,18 @@ final class FSTabReleases {
     /// has fully completed. Four presses during one animation therefore advance twice — the
     /// step already running, plus one more.
     ///
-    /// WHY REMEMBER AT ALL. Pure discarding was correct about the animation and wrong about the
-    /// user: the first press often lands during the step it just started, so an input vanished
-    /// with no acknowledgment and the carousel read as callous rather than deliberate.
+    /// WHY REMEMBER AT ALL. Discarding input is correct for the animation but wrong for the user: the first
+    /// press often lands during the step it just started, so the input would vanish with no acknowledgment
+    /// and the carousel would read as unresponsive.
     ///
-    /// WHY THIS IS NOT THE QUEUE THAT WAS REMOVED. That version fired from requestNavigation's
-    /// own release path, the instant the lock dropped — precisely when the previous spring is
-    /// most likely still attached — so the queued step retargeted a moving spring and inherited
-    /// its velocity. Two things differ here:
+    /// WHY THE REMEMBERED STEP IS NOT FIRED AT RELEASE. Firing from the release path, the instant the lock
+    /// drops, would retarget a spring that is still attached and inherit its velocity. Instead:
     ///
-    ///   * Depth one, permanently. The slot is overwritten, never appended to, so N inputs buy
-    ///     one extra step. Input rate can decide whether the next step happens, never how fast
-    ///     any step runs.
-    ///   * The flush happens after the lock is released and the settle margin has elapsed, and
-    ///     the new step runs the full mount/animate/settle sequence from the top. A flushed
-    ///     step is structurally indistinguishable from fresh input against an idle carousel.
+    ///   * Depth one, permanently. The slot is overwritten, never appended to, so N inputs buy one extra
+    ///     step. Input rate can decide whether the next step happens, never how fast any step runs.
+    ///   * The flush happens after the lock is released and the settle margin has elapsed, and the new step
+    ///     runs the full mount/animate/settle sequence from the top. A flushed step is structurally
+    ///     indistinguishable from fresh input against an idle carousel.
     private func requestNavigation(step: Int) {
         // Add and delete own the carousel for the duration of their own animations, and
         // they change what the carousel CONTAINS. A step remembered across one would be
@@ -2120,12 +2000,10 @@ final class FSTabReleases {
 
     /// Runs one step: mount, then animate, then settle. The lock is held across all three.
     ///
-    /// MOUNTING AND ANIMATING ARE SEPARATE PASSES, and that separation is the point. A step
-    /// both shifts the mount window and moves the index; doing them together meant every spring
-    /// began on a pass that was simultaneously building and tearing down card subtrees, so its
-    /// first frames competed with structural graph work and its timing varied with whatever
-    /// that work cost. The unreliability was not one bug but the animation being handed a
-    /// different starting condition every time.
+    /// MOUNTING AND ANIMATING ARE SEPARATE PASSES. A step both shifts the mount window and moves the index.
+    /// Doing both in one pass would start each spring on a turn that is also building and tearing down card
+    /// subtrees, so the spring's first frames would compete with that structural work and its timing would
+    /// vary with whatever that work cost.
     ///
     ///   Phase A — point the window at the target. Cards mount and unmount, all at distance >= 2
     ///             and therefore off-screen and clipped. The index does not move.
@@ -2145,23 +2023,13 @@ final class FSTabReleases {
     /// Arrows, swipes, the jump menu, and `addRelease`'s auto-scroll all run this same spring
     /// over the same strip. A jump is a longer move, not a different kind of move.
     ///
-    /// This REPLACED an instant jump, and the reasoning it replaced is worth keeping because
-    /// it was half right. The old argument was that a spring across nine cards is a smear of
-    /// mostly nothing — every card in between sits outside the mount window and renders as an
-    /// inert spacer — and that a menu promises arrival rather than travel. The first half is
-    /// still true and is not a defect: the sweep is what tells the user the destination was
-    /// eight cards to the RIGHT, which an instant swap cannot say at all. The second half was
-    /// the error. Arriving instantly at a card that looks much like the one you left leaves no
-    /// evidence of where you went, and the carousel's own add path had been traveling its
-    /// (equally long, equally sparse) moves all along, so the two affordances disagreed about
-    /// what a position change looks like.
+    /// A jump is traveled rather than cut to. An instant swap leaves no evidence of where the user went,
+    /// while a sweep shows how far the destination is.
     ///
-    /// The `animated: Bool` parameter went with the instant jump. Nothing passed `false` once
-    /// jumps traveled, and a dead branch through the one function every navigation path runs is
-    /// exactly the kind that rots unnoticed, so it is gone rather than kept for symmetry. The
-    /// silent index writes it used to serve are not moves at all and never came through here:
-    /// `addRelease` corrects the index across an insertion by assigning `currentIndex`
-    /// directly, and `openOnFirstCard` seeds it before the first render.
+    /// There is no `animated` parameter: every move is traveled, so a branch for an instant move would be
+    /// dead code. Silent index writes are not moves and never come through here. `addRelease` corrects the
+    /// index across an insertion by assigning `currentIndex` directly, and `openOnFirstCard` seeds it before
+    /// the first render.
     ///
     /// The mount discipline is unchanged and is what makes the long travel safe: Phase A covers
     /// both origin and destination (see `mountWindowSecondary`), so the card being left does
@@ -2185,32 +2053,18 @@ final class FSTabReleases {
 
             // Phase A — mount ahead. Structural, silent, un-animated.
             self.mountWindowTarget = target
-            // The origin is held for EVERY move, including a ±1 step.
+            // The origin is held for EVERY move, including a ±1 step. The window is a range, so pointing it
+            // at the destination alone drops the far end. Stepping idx -> idx+1 at radius 1 would unmount card
+            // idx-1 while it is still visible at distance 1 (opacity 0.5) and the strip is at rest. Holding the
+            // origin makes the union idx-1...idx+2 during the move. The card at idx-1 is then unmounted when
+            // Phase C releases the window, by which point it is at distance 2, where cardOpacity is exactly 0.
             //
-            // This used to be gated on `abs(target - idx) > 1`, on the reasoning that a short
-            // step's origin is already inside the window around its destination and so costs
-            // nothing to skip. The window part of that is true and the "costs nothing" part is
-            // not, because the window is a RANGE and holding only the destination drops the far
-            // END of it. Stepping idx -> idx+1 at radius 1 points the window at idx...idx+2,
-            // which unmounts card idx-1 — sitting at distance 1, opacity 0.5, with 12 pt of it
-            // on screen at this sheet width (600 pt frame, 536 pt card, 556 pt step). That
-            // unmount happens HERE, a full run-loop turn before the index moves, so the visible
-            // strip of the departing card vanished frame-to-frame while still at rest instead of
-            // sliding out with everything else.
+            // Phase A is also the last turn before the spring starts. Keeping the teardown of ~50 controls out of
+            // it keeps variable-cost work out of the animation's first frames.
             //
-            // Holding the origin makes the union idx-1...idx+2 — four cards during the move,
-            // back to three at rest when Phase C calls releaseMountWindow. The unmount then
-            // lands on a card at distance 2, where cardOpacity is exactly 0, so it is invisible
-            // by construction rather than by timing.
-            //
-            // It also takes the unmount OFF the pre-spring turn. Phase A is the last turn before
-            // the spring starts, and a teardown of ~50 controls (several backed by real NSViews,
-            // whose removal invalidates the window's key view loop) is variable-cost work
-            // sitting directly in front of the animation's first frames.
-            //
-            // Unconditional rather than re-derived from the radius: a redundant secondary is a
-            // window that already overlaps, which costs nothing, whereas every conditional form
-            // of this has to restate the mount window's geometry and has now been wrong twice.
+            // The secondary is set unconditionally rather than re-derived from the radius. A redundant secondary is
+            // a window that already overlaps, which costs nothing, whereas a conditional form has to restate the
+            // mount window's geometry.
             self.mountWindowSecondary = idx
             await Self.nextRunLoopTurn()
             guard !Task.isCancelled else {
@@ -2307,7 +2161,7 @@ final class FSTabReleases {
 
     // MARK: - Release Management
     /// Adds a release in `format`, which the caller always supplies — there is no "current"
-    /// format to infer now that every format shares a stack.
+    /// format to infer when every format shares one stack.
     ///
     /// No insertion index is computed: `nextSortOrder` is a film-wide monotonic maximum and the
     /// unified comparator sorts by format rank first, so a new 4K lands at the end of the 4K
@@ -2384,14 +2238,12 @@ final class FSTabReleases {
             // The carousel TRAVELS to the new card — the intervening cards sweep past and the
             // stack settles on the empty slot, which the new card then fades into.
             //
-            // It stopped doing that when the stack's spring was re-keyed from `idx` to
-            // `keyboardNavigationToken`: this path writes the index but bumped no token, so the
-            // slide became a cut. Restored by bumping the same token the arrow keys use, and by
-            // running the same mount-then-animate discipline `beginNavigationMove` runs.
+            // The slide uses the same token-bumped spring as the arrow keys. Writing the index without bumping
+            // the token would make the slide a cut, so this path bumps the same token and runs the same
+            // mount-then-animate discipline as `beginNavigationMove`.
             //
-            // The destination varies now. It used to be the trailing end of the format's own
-            // carousel; with one stack sorted by format rank, a new release lands wherever its
-            // format puts it, so the travel is to `targetIndex`.
+            // The destination is the new card's position in the unified stack (`targetIndex`). The format rank
+            // can place a new release anywhere, not only at the end.
             //
             // Any navigation still in flight is abandoned first: its target refers to the
             // pre-insertion layout, and it would clear the mount overrides set below.
@@ -2454,27 +2306,21 @@ final class FSTabReleases {
                     }
                     withAnimation(.easeIn(duration: 0.3)) { self.addingCardID = nil }
 
-                    // Phase D — hold the mount overrides until the spring is genuinely torn
-                    // down, exactly as before. Dropping them mounts and unmounts cards, and
-                    // that structural work must not land in the spring's tail; the fade
-                    // starting earlier does not change what is safe to do here.
+                    // Phase D — hold the mount overrides until the spring is genuinely torn down. Dropping them
+                    // mounts and unmounts cards, and that structural work must not land in the spring's tail. The
+                    // fade starting earlier does not change this.
                     //
                     // MARK: Why this teardown is token-scoped
                     //
-                    // `addingCardID` was cleared one sleep ago, and it is the only thing
-                    // `isTransitioning` — the sole gate on navigation input — is made of. So the
-                    // carousel has been accepting arrow keys, swipes, and jumps for the whole
-                    // `navigationStepDuration - addFadeDelay` interval that this sleep spans,
-                    // while this sequence still held the window. Clearing it unconditionally
-                    // here unmounted whatever a step or jump started in that interval had
-                    // mounted — a jump's departing card vanishing mid-slide, or a step's
-                    // destination blanking in the turn before its index moved.
+                    // `addingCardID` was cleared one sleep ago. It is the only thing `isTransitioning` is made of, and
+                    // `isTransitioning` is the sole gate on navigation input. So the carousel accepts arrow keys, swipes
+                    // and jumps for the whole `navigationStepDuration - addFadeDelay` interval this sleep spans, while
+                    // this sequence still holds the window. An unconditional clear here would unmount whatever a step or
+                    // jump started in that interval had mounted, so the release is scoped to this sequence's token.
                     //
-                    // Deliberately NOT fixed by holding `addingCardID` to Phase D instead: it
-                    // drives the new card's opacity and the fade that reveals it, so extending
-                    // it would hold the card invisible for another ~340 ms to fix a mounting
-                    // problem. The window's owner is the thing in question, so ownership is what
-                    // is tracked.
+                    // Not tied to `addingCardID` instead: that flag drives the new card's opacity and the fade that
+                    // reveals it, so holding it to Phase D would keep the card invisible for another ~340 ms. What is
+                    // at stake is the window's owner, so ownership is what is tracked.
                     try? await Task.sleep(for: Self.navigationStepDuration - Self.addFadeDelay)
                     self.releaseMountWindow(token: windowToken)
                     return
@@ -2506,11 +2352,9 @@ final class FSTabReleases {
     /// `coordinator.maxWishlistPosition(excludingFilm:)` together with this film's in-session
     /// maximum.
     ///
-    /// It was previously derived from a COUNT, with removal compacting this film's survivors
-    /// onto the same base. Both halves assume this film's positions are the last N of the
-    /// global sequence, which is false: a film acquires positions whenever the user happens to
-    /// wishlist from it, so its slots are interleaved with every other film's. When they are,
-    /// the arithmetic issues a slot another film already holds:
+    /// A count-based base is wrong. It assumes this film's positions are the last N of the global sequence,
+    /// but a film acquires positions whenever the user wishlists from it, so its slots are interleaved with
+    /// every other film's. When they are, the arithmetic issues a slot another film already holds:
     ///
     ///     Film A wishlists R1  → 1        Film B wishlists R2  → 2
     ///     Film A wishlists R3  → 3        library: {1, 2, 3}
@@ -2519,10 +2363,8 @@ final class FSTabReleases {
     /// The Wishlist report sorts on this value, so a collision makes the order arbitrary. A
     /// value above every position in use cannot collide however gapped the sequence is.
     ///
-    /// Removal no longer compacts, and must not: compaction existed only to keep the sequence
-    /// gap-free for `count + 1`, and it can only renumber THIS film's releases, so it
-    /// necessarily moves them across positions other films own. Gaps are harmless — every
-    /// consumer treats `wishlist` as an ordering key, not an index.
+    /// Removal does not compact. Compaction would renumber only this film's releases, which would move them
+    /// across positions other films own. Gaps are harmless: every consumer treats `wishlist` as an ordering key, not an index.
     func handleWishlistToggle(releaseID: UUID, isOn: Bool) {
         guard let owner = owner else { return }
         guard let model = model(releaseID) else { return }
@@ -2582,9 +2424,9 @@ final class FSTabReleases {
 
         // MARK: Abandon this card's deferred picker work before the fly-up starts
         //
-        // Both dictionaries hold tasks armed by the Type picker and keyed by the release they
-        // act on, and both outlive it: nothing has been canceling them on delete. Dropping the
-        // handle releases it, and TaskHandle cancels on deinit.
+        // Both dictionaries hold tasks armed by the Type picker, keyed by the release they act on.
+        // Removing a handle releases it, and TaskHandle cancels on deinit. Delete does this for every
+        // release it removes, so no armed work outlives its card.
         //
         //   * comboChildTasks — the reconciliation, which CREATES child releases. Its own
         //     post-sleep liveness check (see handleComboPackChange) is the guarantee; this is
@@ -2663,8 +2505,7 @@ final class FSTabReleases {
         if !validatedIDs.isEmpty {
             // Remove all targeted releases in a single mutation so releases.didSet
             // (and the updateCarouselCache() it triggers) fires exactly once, rather
-            // than once per removed element. With a parent+child deletion this halves
-            // the number of filter+sort passes on the releases array.
+            // than once per removed element, so a parent and its children cost one filter and sort pass.
             let removalSet = Set(validatedIDs)
             releases.removeAll { removalSet.contains($0.id) }
             owner?.log("Removed release(s) with ids: \(validatedIDs.map { $0.uuidString }.joined(separator: ", "))")
@@ -2727,17 +2568,6 @@ final class FSTabReleases {
 
     // MARK: - Combo-pack Child Management
 
-    // There is deliberately no `childDisplayLabel(for:)` any more. It named a bundled Blu-ray
-    // in the two destructive alerts, back when each child was its own card with a number the
-    // user could go and look at. Merging ended that, so both alerts count the discs instead.
-    // See ReleasesFormatting in 33_10.
-
-    // There is deliberately no `cardLabel(for:)` any more either. It built "Blu-ray Release 2"
-    // for the delete alert, the last caller that named a card in prose; that alert now says
-    // "this release", because every route into it acts on the CENTERED card and the name only
-    // restated what was visible behind the alert. The jump menu builds its own rows from
-    // ReleaseLabel.short and never went through this.
-
     /// Pushes a new film release year onto every card and re-asserts the year-ordering rule
     /// against the floor it moves.
     ///
@@ -2770,9 +2600,8 @@ final class FSTabReleases {
         releases.first { $0.id == id }
     }
 
-    /// The sortOrder a newly appended release should take. Read once before appending —
-    /// recomputing inside a loop only works because the new cards are not appended until
-    /// afterwards.
+    /// The sortOrder a newly appended release should take. Read it once before appending, so every new
+    /// card in a batch is numbered from the same base.
     var nextSortOrder: Int {
         (releases.map { $0.sortOrder }.max() ?? -1) + 1
     }
@@ -2888,22 +2717,17 @@ final class FSTabReleases {
     /// The one entry point for "how many children does this card really have?" from outside
     /// this type, and the reason `childReleaseIDs` can be `fileprivate(set)` at all.
     ///
-    /// `requestDelete` (33_10) computed this inline: resolve the children, compare the count
-    /// against `childReleaseIDs.count`, and rewrite the array in place when they disagreed.
-    /// Three things were wrong with that, and only the first is about access control.
+    /// A view calls this rather than deriving the count itself, for three reasons:
     ///
-    ///   * It made a VIEW a writer of hierarchy state — the one kind of state that has to be
-    ///     reasoned about across two models at once.
-    ///   * It was a fifth copy of a derivation that already exists four times, so a change to
-    ///     the rule would have to find it here, in a delete-confirmation branch, to stay
-    ///     correct.
-    ///   * It pruned SILENTLY. `pruneStaleChildIDs` logs each stale ID precisely because a
-    ///     phantom child means something upstream is wrong, and the inline copy dropped the
-    ///     warning at the exact moment it mattered most: immediately before a destructive
-    ///     confirmation whose wording depends on this number.
+    ///   * A view would become a writer of hierarchy state, which has to be reasoned about across two
+    ///     models at once.
+    ///   * A view-side derivation would be a fifth copy of a rule that already exists four times (see
+    ///     `ReleaseCardModel.precedes`), so a change to the rule would have to find it there too.
+    ///   * Pruning must log. `pruneStaleChildIDs` logs each stale ID because a phantom child means something
+    ///     upstream is wrong. A silent prune would drop that warning exactly where it matters most: immediately
+    ///     before a destructive confirmation whose wording depends on this number.
     ///
-    /// The fast path is unchanged — a parent with no stale IDs prunes nothing and a parent
-    /// with no children resolves none.
+    /// A parent with no stale IDs prunes nothing, and a parent with no children resolves none.
     func liveChildCount(of parent: ReleaseCardModel) -> Int {
         pruneStaleChildIDs(on: parent)
         return comboChildren(of: parent).count
@@ -2918,8 +2742,7 @@ final class FSTabReleases {
     /// turn in which AppKit ends the tracking loop and commits that fade.
     ///
     /// 120 ms is comfortably past the commit while still overlapping the fade on screen, which
-    /// is what makes the interaction read as one gesture. The earlier 250 ms was sized against
-    /// the visible fade duration, which was the wrong thing. The margin is not zero because
+    /// is what makes the interaction read as one gesture. The margin is not zero because
     /// `beginSheetModal` does substantial synchronous layout work and reconciliation performs
     /// SwiftUI writes; neither should land in the same turn as the menu teardown.
     private static let menuDismissalSettleDelay: Duration = .milliseconds(120)
@@ -2928,18 +2751,17 @@ final class FSTabReleases {
     /// off the menu's dismissal turn by the settle delay inside the task. By this point the
     /// change is already settled (see `requestIndependenceChange`).
     ///
-    /// Delegates to `reconcileComboChildren`, which drives the parent's child set to whatever
-    /// the new independence calls for. Expressing it as a reconciliation rather than as
-    /// old→new transitions is what makes "Combo-pack" ⇄ "Combo-pack (dual BD)" tractable — the
-    /// previous create-or-delete structure had no branch for a change BETWEEN two combo values
-    /// and would have silently ignored it.
+    /// Delegates to `reconcileComboChildren`, which drives the parent's child set to whatever the new
+    /// independence calls for. Expressing it as reconciliation rather than as old→new transitions is what
+    /// makes "Combo-pack" ⇄ "Combo-pack (dual BD)" tractable: a change between two combo values has no
+    /// create-or-delete form.
     ///
     /// Non-4K releases are no-ops, as are changes where neither value is a combo type —
     /// UNLESS the parent already holds children.
     ///
-    /// That exception is what keeps the type-change alert honest. A 4K release can hold
-    /// children under a non-combo type (a save that landed mid-reconciliation in an older
-    /// build, a restored backup), and `requestIndependenceChange` counts those children and
+    /// That exception keeps the type-change alert honest. A 4K release can hold children under a non-combo
+    /// type (a restored backup, or a save interrupted mid-reconciliation), and `requestIndependenceChange`
+    /// counts those children and
     /// warns they will be removed. Skipping reconciliation here because neither type NAMES a
     /// combo pack then broke that promise: the user confirmed, and the discs stayed.
     /// Reconciling drives the child count to what the new type calls for, which for every
@@ -2998,18 +2820,15 @@ final class FSTabReleases {
     ///
     /// MARK: Why this lives on the view model
     ///
-    /// The cascade used to hang off the card's `.onChange(of: model.independence)`, which
-    /// runs only if a view observing THAT model happens to be mounted when the value lands.
-    /// Every write here reaches the store regardless, so the side effects could silently not
-    /// happen: a merged card switched to its Blu-ray segment while a confirmed change was in
-    /// flight observed the child, not the parent, and the parent was retyped with its
-    /// children left in place and its artwork unreset. Applied at the one write site, the
-    /// cascade is a property of the change rather than of what is on screen.
+    /// The cascade runs here rather than in the card's `.onChange(of: model.independence)`. That handler
+    /// runs only if a view observing this model is mounted when the value lands, so the side effects could
+    /// silently not happen. A merged card showing its Blu-ray segment, for example, observes the child, not
+    /// the parent. Applied at the one write site, the cascade is a property of the change, not of what is on
+    /// screen.
     ///
-    /// Writes nothing and triggers nothing when the value is unchanged, matching the
-    /// `.onChange` semantics it replaced. Combo-pack children never come through here —
-    /// their independence is locked and written only by `syncComboChild` — and are guarded
-    /// out anyway, as the old handler did, so the cascade can never clobber synced values.
+    /// Writes nothing and triggers nothing when the value is unchanged. Combo-pack children never come through
+    /// here, because their independence is locked and written only by `syncComboChild`. They are guarded out
+    /// anyway, so the cascade can never clobber synced values.
     private func commitIndependence(_ newValue: String, on model: ReleaseCardModel) {
         let oldValue = model.independence
         guard oldValue != newValue else { return }
@@ -3108,7 +2927,7 @@ final class FSTabReleases {
         guard surplus.contains(where: { comboChildHasBeenEdited($0.id) }) else {
             // Nothing in the surplus carries user work — drop it without asking. A child
             // still holding exactly the defaults createComboChildren gave it represents
-            // no user effort, so discarding it silently is correct and always has been.
+            // no user effort, so discarding it silently is correct.
             owner?.log("Combo child deletion needs no confirmation: \(surplus.count) surplus "
                      + "child(ren), none edited — deleting silently")
             commitIndependence(newValue, on: model)
@@ -3120,11 +2939,10 @@ final class FSTabReleases {
         //
         // The surplus is counted, not named: bundled discs are segments of one merged card and
         // carry no release number the user can see. See ReleasesFormatting.
-        // The title names the ACTION the user took, not its casualty. Deleting discs is the
-        // consequence being warned about, and titling the alert after the consequence made it
-        // read as a delete prompt the user had not asked for — while the picker they had just
-        // changed sat behind it. It is also now one fixed string: the old pair varied with the
-        // surplus count, so the same action announced itself differently depending on the pack.
+        // The title names the ACTION the user took, not its consequence. Titling the alert after the deleted
+        // discs made it read as a delete prompt the user had not asked for, while the picker they had just
+        // changed sat behind it. The title is one fixed string, so the same action always announces itself
+        // the same way.
         let title = "Change Release Type"
         // Only a combo pack can reach here — a reduction in child count presupposes children —
         // so the noun is fixed rather than derived, and the bundled discs are always Blu-rays.
@@ -3145,8 +2963,8 @@ final class FSTabReleases {
         // fade-out. Held in a TaskHandle so spinning the picker through several values
         // discards the superseded prompts and only the final selection asks anything.
         //
-        // Nothing else belongs here. Correcting the picker's displayed value is gone: the
-        // value was never written, so the control never showed the pending selection.
+        // The picker needs no correction: the value was never written, so the control never showed the
+        // pending selection.
         independencePromptTasks[model.id] = TaskHandle(Task { @MainActor [weak self] in
             try? await Task.sleep(for: FSTabReleases.menuDismissalSettleDelay)
             guard let self, !Task.isCancelled else { return }
@@ -3195,9 +3013,7 @@ final class FSTabReleases {
                 },
                 // Nothing to undo on cancel — the value was never written, and the Type
                 // control re-selected the binding's value on the turn the write was declined
-                // (see ReleasePopUpButton), so its menu marks nothing stale either. This used
-                // to schedule a rebuild of the SwiftUI Picker after the alert settled, to clear
-                // exactly that marking.
+                // (see ReleasePopUpButton), so its menu marks nothing stale either.
                 onCancel: {}
             )
         })
@@ -3251,12 +3067,11 @@ final class FSTabReleases {
         // baseReleaseYear is NOT locked — the child may be a reprint of an earlier release.
         //
         // MARK: Condition-gated writes
-        // Every assignment is guarded by an inequality check — a performance measure, not a
-        // behavioral one. @Observable's setters notify the registrar on EVERY write including
-        // equal-value ones, and this runs on every keystroke on a 4K parent card: unconditional
-        // writes emitted 19 redundant notifications per keystroke even when no locked field was
-        // touched. The end state is identical, and the card's cascades key off .onChange(of:),
-        // which never fired on equal-value writes anyway.
+        // Every assignment is guarded by an inequality check. That is a performance measure, not a behavioral
+        // one: @Observable notifies on every write, including equal-value ones, and this runs on every keystroke
+        // on a 4K parent card. Unconditional writes would notify observers on each keystroke even when no locked
+        // field changed. The end state is identical, and the card's cascades key off .onChange(of:), which never
+        // fired on equal-value writes anyway.
         if child.purchased          != parent.purchased          { child.purchased          = parent.purchased }
         if child.wishlist           != parent.wishlist           { child.wishlist           = parent.wishlist }
         if child.studio             != parent.studio             { child.studio             = parent.studio }
@@ -3298,10 +3113,10 @@ final class FSTabReleases {
         // a region its own picker would never have allowed.
         //
         // `_CountryRow`'s cascade cannot cover this: it suppresses itself for combo children,
-        // and it only runs while the child's segment is mounted. The card's read-side clamp
-        // then MASKED the stale value while the sidebar and table, which read `regionLock` raw,
-        // went on displaying it. Handled here because this is the path the change arrives on,
-        // and it runs whether or not a card is mounted. Cleared rather than substituted: there
+        // and it only runs while the child's segment is mounted. The card's read-side clamp would hide the stale
+        // value, while the sidebar and table, which read `regionLock` raw, would show it. Handled here because this
+        // is the path the change arrives on, and it runs whether or not a card is mounted. Cleared rather than
+        // substituted: there
         // is no correct region to guess at.
         if child.isBluRay,
            ReleaseRegionRules.isIncompatible(regionLock: child.regionLock,
@@ -3374,8 +3189,7 @@ final class FSTabReleases {
         // condition-gated writes make that free when they already agree.
         //
         // marketAvailability needs no separate handling: syncComboChild writes
-        // ["Combo-pack only"] onto every child unconditionally, so the former
-        // unpurchased-parent override could only re-write a value that already held.
+        // ["Combo-pack only"] onto every child unconditionally, with no special case for an unpurchased parent.
         syncComboChildFields(from: parent)
 
         owner?.log(
@@ -3462,10 +3276,8 @@ final class FSTabReleases {
 
     /// Converts a live ReleaseCardModel to the ReleaseSnapshot the persistence layer takes.
     ///
-    /// Reads the model DIRECTLY. This was two functions — model → ReleaseCardState →
-    /// ReleaseSnapshot — with one caller that always passed both defaulted parameters, so the
-    /// split bought nothing but a third place to forget a field. Collapsed, it also stops
-    /// allocating a throwaway 40-field ReleaseCardState per release on every save.
+    /// Reads the model directly. ReleaseCardState is not a stage in this conversion, so a save does not
+    /// allocate a throwaway ReleaseCardState per release.
     ///
     /// ReleaseCardState stays: it is the change-detection baseline, a genuinely different job.
     /// The three optional fields are each gated on their has-value flag, so an inactive field
@@ -3605,12 +3417,9 @@ struct ReleaseCardState: Equatable, Hashable {
     /// Bool, which is useless when the Update button disagrees with what the user believes they
     /// did.
     ///
-    /// Walks the fields reflectively rather than through a hand-written list of 39 comparisons.
-    /// The list it replaced was the last restatement of the field set, and the only one whose
-    /// drift was harmless — a field missed there produced an incomplete log line, not a bug —
-    /// but it was also the one most likely to be forgotten, precisely because nothing depends
-    /// on it. `Mirror` yields stored properties in declaration order, so the output ordering is
-    /// unchanged; `id` and `dateAdded` are immutable and skipped, as before.
+    /// Walks the stored properties reflectively, so the field set is defined in one place and a new field is
+    /// compared automatically. `Mirror` yields them in declaration order, and `id` and `dateAdded` are immutable
+    /// and skipped.
     ///
     /// Reflection is slow, and this is the one place in the file where that is acceptable: it
     /// runs only inside the `Logger.isLoggingEnabled` guard in `checkForChanges`, on a path
@@ -3644,8 +3453,7 @@ struct ReleaseCardState: Equatable, Hashable {
     /// `notes` is free prose the user is typing: printing both sides put a copy of the whole
     /// field in the log, and — because the text differs on every keystroke — made the line
     /// itself different every tick, so `checkForChanges`'s repeat-suppression never matched
-    /// and each edit emitted its own "Releases dirty" entry. Seven of them for one
-    /// select/delete/undo/delete sequence, all saying the same thing.
+    /// and each edit would emit its own "Releases dirty" entry.
     ///
     /// The diagnostic's job is to name WHICH field is dirty when the user believes they
     /// reverted everything; for a text field the name alone answers that, and the constant
@@ -3661,13 +3469,8 @@ struct ReleaseCardState: Equatable, Hashable {
 // `isPresented` from event monitors and closures, never from a view body. The callback API
 // means a caller hands over two closures and gets no shared state back.
 //
-// WHY NSAlert, NOT SwiftUI's `.alert`. Both were kept behind a switch and measured against each
-// other on 2026-09-29 (`alert-presenter`, a harness since removed): 67 interleaved pairs on a
-// copy of the real library — 1, 3–4, 5–6 and 10-card films, combo Type changes, Cmd+Delete,
-// menu and picker raises, Escape and click answers, settled, mid-carousel-step and
-// just-opened timing, three main-window backgrounds. NSAlert reached the screen ~10 ms sooner
-// with ~6 ms less main-thread CPU, better in 54–55 of 67 pairs and in every subgroup;
-// animation smoothness (frames, largest gap) and every dismissal measure were identical.
+// WHY NSAlert, NOT SwiftUI's `.alert`. In a timed comparison on the real library, NSAlert reached the screen
+// sooner with less main-thread work, and animation and dismissal were identical.
 // It also needs no zero-size host view and no binding to keep the two from both presenting.
 //
 // Return does not confirm: the confirm button is destructive, and macOS gives a destructive
@@ -3789,10 +3592,8 @@ final class ReleaseConfirmationController: Loggable {
 // edit — scheduling a change check, and pushing locked fields onto combo-pack children — from
 // outside the SwiftUI render path entirely.
 //
-// This was previously a zero-size SwiftUI view carrying `.onChange(of: model.contentHash)`,
-// which made change detection a property of the view tree: it ran only for a mounted card,
-// re-evaluated a body on every keystroke, and interleaved with the update passes the
-// carousel's animations were competing for. Nothing here can invalidate anything.
+// Keeping this out of the view tree means change detection does not depend on a card being mounted, and
+// nothing here can invalidate a view.
 //
 // Two properties of `withObservationTracking` shape the code below:
 //
@@ -3800,7 +3601,7 @@ final class ReleaseConfirmationController: Loggable {
 //     re-arms before doing any work, so mutations made by that work are observed too.
 //   * `onChange` fires on willSet, before the new value is stored, so the observer hops to the
 //     next main-actor turn to read it. That hop also coalesces a multi-field cascade into a
-//     single notification, as the SwiftUI `.onChange` did.
+//     single notification.
 //
 // It also signals on equal-value writes, which `.onChange(of:)` filtered out; `lastHash`
 // restores that filter. `lastHash` has a second duty: writes made while loading a film's
@@ -3839,11 +3640,9 @@ final class ReleaseChangeObserver {
 
     /// Registers the subscription AND returns the hash the registering read produced.
     ///
-    /// `contentHash` walks all 39 mutable fields, each read going through Observation's
-    /// registrar. That was previously paid TWICE per write — once by `handleChange` for the
-    /// value, once by a separate `arm()` whose read was wanted only for its side effect — for
-    /// the identical value at the identical moment. This is the hottest repeated path in the
-    /// tab, so capturing the value out of the tracking closure halves it.
+    /// `contentHash` reads every mutable field through Observation's registrar. Reading it once, inside the
+    /// tracking closure, both registers the subscription and yields the value. That keeps this, the hottest
+    /// repeated path in the tab, from paying for a second traversal.
     ///
     /// Read INSIDE the closure deliberately: that is the same read that registers, so the hash
     /// and the registration describe the same state.
@@ -3878,8 +3677,8 @@ final class ReleaseChangeObserver {
         // and yields the post-write hash in the same traversal. See armAndRead.
         let newHash = armAndRead()
 
-        // Observation signals on equal-value writes too; this is the filter that
-        // `.onChange(of:)` used to provide. It is also what makes rebaseline() work: once
+        // Observation signals equal-value writes too, so this comparison is the filter. It is also what makes
+        // rebaseline() work: once
         // FSTabReleases has advanced the baselines past the load, every reaction already
         // queued from the load lands here and returns.
         guard newHash != lastHash else { return }

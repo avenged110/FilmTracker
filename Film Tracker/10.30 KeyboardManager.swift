@@ -46,17 +46,11 @@ final class KeyboardManager {
     // MARK: - Event Handling
     
     private func handleKeyEvent(_ event: NSEvent) -> Bool {
-        // Determine whether any sheet is currently active.
-        //
-        // Two independent sources are checked and OR'd together so that a mismatch
-        // between AppKit window state and the app-level SheetCoordinator (e.g. during
-        // sheet presentation/dismissal animation) never creates a gap where shortcuts
-        // that should be blocked are allowed to fire:
-        //   • AppKit window state: key window is a sheet, or main window has an attached sheet.
-        //   • SheetCoordinator: app-level coordinator still holds a sheet reference.
-        //
-        // This single Bool replaces all inline `isInSheet || appState?.sheetCoordinator.activeSheet != nil`
-        // dual-checks that were scattered throughout the handler.
+        // Whether any sheet is active. Two sources are OR'd, so a mismatch between them during
+        // a sheet's presentation or dismissal animation cannot leave a gap where a blocked
+        // shortcut fires:
+        //   • AppKit window state: the key window is a sheet, or the main window has an attached sheet.
+        //   • SheetCoordinator: its activeSheet is non-nil.
         let isInSheet: Bool = {
             // AppKit window-level check
             if let keyWindow = NSApp.keyWindow, keyWindow.isSheet || keyWindow.sheetParent != nil {
@@ -72,17 +66,13 @@ final class KeyboardManager {
             return false
         }()
         
-        // CRITICAL: Check for text input in ALL relevant windows (key window + any sheets)
+        // Whether text input is active in the key window or any sheet.
         let textInputActive = isTextInputActiveAnywhere()
         
-        // The single normalization every shortcut below compares against.
-        //
-        // `normalizedModifiers` (InputUtilities.swift) strips the device-specific
-        // hardware bits and subtracts CapsLock. That second part is load-bearing here:
-        // CapsLock is part of .deviceIndependentFlagsMask, so with the raw flags every
-        // exact `modifiers == …` test in this handler silently stopped matching whenever
-        // CapsLock happened to be engaged — Cmd+1…9, Cmd+A, Opt+A, the sheet-tab digits,
-        // Cmd+/ and the rest all quietly died until the user toggled it back off.
+        // Every shortcut below compares against these modifiers. `normalizedModifiers`
+        // (InputUtilities.swift) strips device-specific bits and CapsLock. CapsLock is part of
+        // .deviceIndependentFlagsMask, so with raw flags every exact `modifiers == …` test
+        // failed while CapsLock was on.
         let modifiers = event.normalizedModifiers
         
         guard let characters = event.charactersIgnoringModifiers?.lowercased(),
@@ -92,17 +82,15 @@ final class KeyboardManager {
         
         // MARK: Return Key — FilmSheet Confirm Fallback
         //
-        // Problem: AppKit's NSTextField/NSTextView consume Return during "end editing"
-        // dispatch and never forward it up the responder chain, so the window's default
-        // button (Add/Update) never sees it. This matters because SwiftUI observation
-        // updates (canConfirm flips) can trigger layout passes that silently reassign
-        // first responder away from FilmSheetSinkButton to one of the always-live
-        // NSTextView-backed fields in the keep-alive ZStack.
+        // AppKit's text fields consume Return during "end editing" and never pass it up the
+        // responder chain, so the sheet's default button (Add/Update) never sees it. SwiftUI
+        // updates (canConfirm flips) can also reassign first responder away from
+        // FilmSheetSinkButton to a text field in the keep-alive ZStack.
         //
-        // Fix: intercept plain Return here when a FilmSheet is the active key window, no
-        // text field is being edited (an active field takes Return first — see below),
-        // canConfirm is true, and nothing is already confirming. Evaluated before textInputActive (same ordering as Cmd+N/Cmd+Delete
-        // on the Releases tab) so stale first-responder state can't block the action.
+        // So plain Return is intercepted here when a FilmSheet is the key window, no text field
+        // is being edited (an active field takes Return first; see below), canConfirm is true,
+        // and no confirm is already running. This runs before the textInputActive check, as Cmd+N
+        // and Cmd+Delete on the Releases tab do, so stale first-responder state cannot block it.
         //
         // Three things must be guarded against firing confirm() by mistake:
         // A) A key-stealing popover: SwiftUI can present a popover as its own key window
@@ -135,7 +123,7 @@ final class KeyboardManager {
                 // Return, with no field active, that reaches this intercept and saves.
                 //
                 //   • A multi-line FixedHeightScrollingTextView ends its own editing on
-                //     Return (30_10, doCommandBy).
+                //     Return (FSTextHelpers.swift, doCommandBy).
                 //   • A single-line NSTextField edits through the window's shared field
                 //     editor, whose delegate is the owning NSTextField itself — never an
                 //     NSCell. FilmSheetView's key monitor ends its editing, except for a
@@ -149,18 +137,10 @@ final class KeyboardManager {
         }
 
         // MARK: Tab Key — Direct Gallery Focus
-        // Plain Tab (no modifiers) with a gallery view active and no sheet or text-input
-        // context: consume the event and move first responder directly to the gallery
-        // collection view.
-        //
-        // Rationale: AppKit's default Tab traversal walks the entire NSView nextKeyView
-        // chain, which in a NavigationSplitView with a toolbar search field, a toolbar
-        // "+" menu, and a right sidebar includes many intermediate controls before
-        // reaching GalleryCollectionView. Intercepting Tab here and calling
-        // makeFirstResponder directly bypasses all of that, restoring the original
-        // single-Tab-press UX: one Tab press from the LeftSidebar moves focus
-        // invisibly to the gallery grid and selects item 0 (via seedInitialCursor),
-        // after which the user can navigate immediately with the arrow keys.
+        // With a gallery view active and no sheet or text input, plain Tab moves first responder
+        // straight to the gallery collection view. AppKit's default traversal would cross every
+        // intermediate control first (toolbar search field, "+" menu, right sidebar). One Tab
+        // from the LeftSidebar lands on the grid and selects item 0 (via seedInitialCursor).
         if modifiers == [] && char == "\t" {
             // Only apply in gallery views; pass through in all other views so that
             // Tab retains its default traversal behavior in Reports, Imports, etc.
@@ -245,14 +225,8 @@ final class KeyboardManager {
         }
         
         // MARK: Application Shortcuts
-        // Opt+A - Add Film (no sheet) OR:
-        //   • Details tab active → open Viewing Dates add popover
-        //
-        // The Notes tab's Opt+A (Frames) and Opt+S (Time Codes) add-popover bindings
-        // are gone: each table's add control is now its own last row and reveals
-        // itself after every commit, so there's nothing left for those shortcuts to
-        // trigger. Opt+S has no binding at all now. The Details tab's Viewing Dates
-        // routing below is unaffected — `ViewingDatesTable` keeps its own trigger.
+        // Opt+A - Add Film (no sheet). With a sheet open, it opens the Viewing Dates add popover
+        // on the Details tab (ViewingDatesTable owns that trigger) and does nothing elsewhere.
         if modifiers == .option && char == "a" {
             if isInSheet {
                 if activeFilmSheet(showing: .details) != nil {
@@ -278,16 +252,12 @@ final class KeyboardManager {
             }
         }
         
-        // Cmd+Up / Cmd+Down - Step backward / forward through a tab stack, wrapping at either
-        // end: the FilmSheet or SettingsSheet tabs (Opt+1-5) while a sheet is open, otherwise
-        // the current view's own tabs (Opt+Cmd+1-9) — Unwatched, Recents, Reports, Imports,
-        // the Film Queue, or a smart-list family. Passes through in any other view.
+        // Cmd+Up / Cmd+Down - Step backward / forward through a tab stack, wrapping at either end:
+        // the FilmSheet or SettingsSheet tabs while a sheet is open, otherwise the current view's
+        // own tabs (Opt+Cmd+1-9). Passes through in other views and while text is being edited,
+        // where Cmd+Up/Down is AppKit's move to the beginning or end of the document.
         //
-        // Arrow keys always carry .numericPad and .function, so those are stripped before
-        // the exact comparison. Passed through while text is being edited, where Cmd+Up/
-        // Down is AppKit's move-to-beginning/end-of-document. No menu item, NSEvent
-        // monitor, or system shortcut binds this pair; the gallery grid treated it as a
-        // plain arrow only because its keyDown ignores the Command key.
+        // Arrow keys carry .numericPad and .function, so those are stripped before comparing.
         if modifiers.subtracting([.numericPad, .function]) == .command,
            event.specialKey == .upArrow || event.specialKey == .downArrow {
             guard !textInputActive else { return false }
@@ -305,13 +275,9 @@ final class KeyboardManager {
             return true
         }
         
-        // Opt+Cmd+1-9 - In-view tab switching for the Unwatched view, Recents, Reports,
-        // Imports, the Film Queue, or a smart-list variant group. Nine digits so every tab
-        // of every view has its own shortcut (Filtered Library has six; none has more
-        // than nine).
-        // Only fires when the user is already within one of these views; ignored otherwise.
-        // This allows the same Opt+Cmd+# keys to act differently depending on which
-        // section is currently active, without conflicting with other global shortcuts.
+        // Opt+Cmd+1-9 - In-view tab switching for the Unwatched view, Recents, Reports, Imports,
+        // the Film Queue, or a smart-list family. Nine digits cover the largest tab group.
+        // Outside those views the event passes through.
         if modifiers == [.option, .command],
            let tabNum = Int(String(char)), tabNum >= 1 && tabNum <= 9 {
             guard !isInSheet else {
@@ -360,28 +326,20 @@ final class KeyboardManager {
         // Special case: when a FilmSheet is active and showing the Releases tab,
         // forward as addReleaseToActiveSheet(format: Blu-ray) instead of blocking the event.
         //
-        // ORDERING: The Releases-tab intercept is evaluated BEFORE textInputActive.
-        // After a user interacts with Pickers, checkboxes, or text fields in any other
-        // tab and then switches to the Releases tab without explicitly moving focus,
-        // the first responder can remain an NSTextField, NSTextView, or a SwiftUI
-        // internal wrapper whose class name matches the heuristics in
-        // isTextInputActiveAnywhere(). If textInputActive were checked first, Cmd+N
-        // would pass through to the responder chain for the remainder of the session —
-        // until focus is explicitly moved — causing the shortcut to appear broken.
-        // Evaluating the Releases intercept first ensures the shortcut always fires
-        // on the Releases tab regardless of which control holds first responder.
-        // Cmd+N has no text-editing meaning in any AppKit control, so intercepting it
-        // on the Releases tab never disrupts text-entry behavior.
+        // ORDERING: the Releases-tab intercept runs BEFORE the textInputActive check. After
+        // interacting with pickers, checkboxes or text fields on another tab, the first responder
+        // can stay a view that isTextInputActiveAnywhere() matches. Checking text input first
+        // would then pass Cmd+N through until focus moves. Cmd+N has no text-editing meaning in
+        // any AppKit control, so intercepting it never disrupts text entry.
         if modifiers == .command && char == "n" {
             // If a FilmSheet is open on the Releases tab, route Cmd+N to add a release
             // regardless of what currently holds first responder.
             if let filmSheet = activeFilmSheet(showing: .releases) {
                 // Only add if the carousel is under its ten-card cap.
                 //
-                // Asks the view model rather than counting releases here, so this gate and
-                // the menu's own cannot disagree about what the cap counts (cards, not
-                // releases — a combo pack is one card). A nil releasesTab falls through
-                // to `false` — there is no carousel to add to.
+                // Asks the view model rather than counting here, so this gate and the menu's own
+                // cannot disagree about what the cap counts (cards, not releases: a combo pack is
+                // one card). A nil releasesTab has no room, so the event is consumed.
                 guard filmSheet.releasesTab?.canAddRelease() == true else { return true }
                 // Cmd+N is the Blu-ray shortcut; Opt+Cmd+N above is the 4K one.
                 AppEventBus.shared.sendCommand(
@@ -410,38 +368,25 @@ final class KeyboardManager {
             return false
         }
         
-        // Cmd+Delete - Delete the visible release card when the Releases tab is active.
-        // The delete key (labeled "delete" on Mac keyboards) produces U+0008 via
-        // charactersIgnoringModifiers. U+007F covers the forward-delete key (Fn+Delete).
+        // Cmd+Delete - Delete the visible release card on the Releases tab. "Delete" produces
+        // U+0008 via charactersIgnoringModifiers; U+007F is forward-delete (Fn+Delete).
         //
-        // ORDERING: Same rationale as Cmd+N above — the Releases-tab intercept is
-        // evaluated BEFORE textInputActive. Stale or phantom first-responder state
-        // left behind by Picker/checkbox interactions in other tabs can make
-        // isTextInputActiveAnywhere() return true persistently. If that check ran
-        // first, Cmd+Delete would be passed through to the responder chain for the
-        // rest of the session. Unlike Cmd+N (which has no text-editing meaning),
-        // Cmd+Delete does delete to the line start in text fields — so the
-        // heuristic text-input pass-through still applies for all contexts OTHER than an
-        // active Releases-tab FilmSheet, preserving native text-editing behavior there;
-        // on that tab a precise field-editor test takes its place (see below).
+        // ORDERING: as for Cmd+N, the Releases-tab intercept runs BEFORE the textInputActive check.
+        // Cmd+Delete deletes to line start in text fields, so on every other tab text input keeps
+        // its pass-through. On the Releases tab a precise field-editor test takes its place (below).
         if modifiers == .command && (char == "\u{8}" || char == "\u{7F}") {
             // If a FilmSheet is open on the Releases tab, route Cmd+Delete to delete
             // the current release regardless of what currently holds first responder.
             if let filmSheet = activeFilmSheet(showing: .releases) {
-                // A text field on a card being EDITED keeps Cmd+Delete as the line
-                // deletion it means everywhere else. Tested precisely — the key window's
-                // first responder is a field editor or text view — rather than through
-                // isTextInputActiveAnywhere(), whose broader heuristics are the stale
-                // state the ordering note above guards against. A field editor is first
-                // responder only while a field is actually being edited, so this cannot
-                // latch the way those heuristics can. Without it, clearing a line in a
-                // release's Notes or cost field deleted the whole release.
+                // A field being edited keeps Cmd+Delete as line deletion. Tested precisely (the key
+                // window's first responder is a field editor or text view) rather than with
+                // isTextInputActiveAnywhere(), whose heuristics can latch. Without this check,
+                // clearing a line in a release's Notes or cost field deleted the whole release.
                 if NSApp.keyWindow?.firstResponder is NSText { return false }
                 let releasesTab = filmSheet.releasesTab
                 // Guard: card animations must have settled, and a card must be visible.
                 guard releasesTab?.isTransitioning == false else { return true }
-                // One unified carousel now, so "is a card visible" is simply "does the
-                // stack have any cards" — there is no per-format stack to ask about.
+                // The carousel is a single stack, so a card is visible exactly when it has any.
                 guard releasesTab?.carouselEntries.isEmpty == false else { return true }
                 AppEventBus.shared.sendCommand(.deleteReleaseFromActiveSheet)
                 return true // Consumed
@@ -465,14 +410,9 @@ final class KeyboardManager {
         
         // Opt+Delete - Remove selected film(s) from the current user-generated list.
         //
-        // WHY THIS IS HANDLED HERE AND NOT VIA THE MENU SYSTEM:
-        // Opt+Delete is a standard AppKit text-editing binding ("delete word backward").
-        // When GalleryCollectionView is first responder, its super.keyDown(with:) dispatches
-        // the event through AppKit's text-input binding system, consuming it before the menu
-        // key-equivalent mechanism runs. Cmd+Delete and Shift+Cmd+Delete reach the menu
-        // system first because macOS gives modifier-qualified Delete events priority in key-
-        // equivalent matching. Opt+Delete does not receive this treatment, so we must
-        // intercept it here at the NSEvent.addLocalMonitorForEvents level.
+        // WHY THIS IS NOT A MENU ITEM: Opt+Delete is AppKit's "delete word backward" binding.
+        // GalleryCollectionView's super.keyDown(with:) consumes it before key-equivalent matching
+        // runs, so it is intercepted here, at the local event monitor.
         if modifiers == .option && (char == "\u{8}" || char == "\u{7F}") {
             // Opt+Delete has no text-editing meaning beyond "delete word backward", which is
             // irrelevant in a gallery context. Pass through when a text field is focused so
@@ -481,22 +421,10 @@ final class KeyboardManager {
                 return false
             }
             
-            // Inside a sheet, pass the event through rather than consuming it.
-            //
-            // The background mutation this branch guards against is
-            // `handleRemoveFromCurrentList()` below, which is simply not
-            // reached — so nothing in the gallery can be touched either way. What
-            // consuming the event DID do was starve the sheet's own bindings:
-            // the reorderable lists bind Opt+Delete to the delete control of
-            // whichever row is currently open for editing (the string list's
-            // "-", the frames and text lists' popover "Delete"), and a local
-            // event monitor runs before the window ever gets the chance to match
-            // a key equivalent. Returning false lets those bindings resolve.
-            //
-            // Nothing else in a sheet claims Opt+Delete, so where no row is open
-            // the event reaches the responder chain and means what it always
-            // means there — "delete word backward" in a focused field, and
-            // nothing at all anywhere else.
+            // Inside a sheet, pass the event through. Consuming it would starve the sheet's own
+            // Opt+Delete bindings (the reorderable lists' delete controls for the row being edited),
+            // because a local monitor runs before key-equivalent matching. Where no such binding
+            // exists, the event reaches the responder chain as usual.
             if isInSheet {
                 return false
             }
@@ -557,8 +485,7 @@ final class KeyboardManager {
         // Shift+Cmd+D - Find Duplicates, matching MenuBar's
         // .keyboardShortcut("d", modifiers: [.command, .shift]).
         //
-        // An exact match, like every sibling branch — safe now that `modifiers` has
-        // CapsLock normalized out of it above.
+        // An exact match, like the other branches, since `modifiers` is already normalized.
         if modifiers == [.command, .shift] && char == "d" {
             return handleFindDuplicates(isInSheet: isInSheet)
         }
@@ -644,13 +571,10 @@ final class KeyboardManager {
     
     /// Handle Shift+Cmd+D — Scan Library for Duplicates.
     ///
-    /// The empty-library guard mirrors MenuBar's own
-    /// `.disabled(filmCount == 0 || isSheetActive)` on the item this shortcut
-    /// duplicates. It is not redundant with that item: a local NSEvent monitor runs
-    /// ahead of AppKit's key-equivalent matching, so this handler — not the disabled
-    /// menu item — is what Shift+Cmd+D reaches, and without the count check the
-    /// shortcut opened the duplicate scanner on an empty library that the menu
-    /// deliberately refuses to scan.
+    /// The empty-library guard mirrors MenuBar's `.disabled(filmCount == 0 || isSheetActive)`
+    /// on the item this shortcut duplicates. It is needed here: the local event monitor runs
+    /// before AppKit's key-equivalent matching, so this handler receives the shortcut, not the
+    /// disabled menu item.
     private func handleFindDuplicates(isInSheet: Bool) -> Bool {
         guard !isInSheet else { return false }
         
@@ -772,13 +696,11 @@ final class KeyboardManager {
     
     /// Handle Opt+Delete — Remove selected film(s) from the current list context.
     ///
-    /// A one-line hand-off to FilmRemoval (LibraryManager.swift), which owns the context
-    /// resolution (user list / Film Queue / Hall of Fame), the membership pre-filter, the
-    /// confirmation-preference gating, and the alert payloads for every surface offering
-    /// this command.
+    /// Hands off to FilmRemoval (LibraryManager.swift), which resolves the context (user list,
+    /// Film Queue or Hall of Fame), pre-filters to actual members, applies the confirmation
+    /// preference, and builds the alert for every surface offering this command.
     ///
-    /// `clearingSelection: false` preserves this path's existing behavior, matching the
-    /// MenuBar item this shortcut duplicates: the selection survives the removal.
+    /// `clearingSelection: false` keeps the selection, matching the MenuBar item this shortcut duplicates.
     private func handleRemoveFromCurrentList() {
         guard let appState = appState,
               let selectionState = selectionState,
@@ -811,7 +733,7 @@ final class KeyboardManager {
     
     /// Handle Opt+Cmd+1-9 - Switch tabs within the currently active multi-tab view.
     /// Scoped to the Unwatched view, Recents, Reports, Imports, the Film Queue, and the
-    /// rotation/purchased/unpurchased/alternate-versions/sorting smart-list variant groups.
+    /// rotation, purchased, unpurchased, alternate-versions and filtered-library smart-list families.
     /// Returns false if not in one of those views, allowing the caller to decide
     /// whether to consume or pass through the event.
     private func handleInViewTabNavigation(_ tabNumber: Int) -> Bool {
@@ -881,11 +803,6 @@ final class KeyboardManager {
             // 2=Viewed Over One Year Ago, or 1=Purchased, 2=4K, 3=Blu-ray, 4=DVD.
             // Selecting goes through the same SmartListVariantState.select() the gallery
             // picker uses, so sidebar highlighting and ViewStateManager stay in sync.
-            //
-            // One case covers all five families: every SmartListType has a sidebarParent,
-            // so the per-family branches this replaced — each re-listing its own variants
-            // in an order that had to match the picker's by hand — were together already
-            // exhaustive over `.smartList`.
             let variants = type.familyVariants
             guard tabNumber >= 1, tabNumber <= variants.count else { return false }
             SmartListVariantState.shared(for: type).select(variants[tabNumber - 1])
@@ -904,8 +821,8 @@ final class KeyboardManager {
             return false
         }
         
-        // Requires a selection (matches the Edit Metadata menu item); more than one film
-        // opens the MultiFilmSheet, which has no tabs.
+        // Requires a selection (matches the Edit Metadata menu item). More than one film opens
+        // the MultiFilmSheet, which ignores the requested tab.
         guard let selectionState = selectionState,
               !selectionState.selectedFilmIDs.isEmpty else {
             return false
@@ -915,8 +832,8 @@ final class KeyboardManager {
         return true
     }
     
-    /// Handle Cmd+1-9 shortcuts for Left Sidebar navigation as a fallback
-    /// This provides a robust alternative when the menu system fails validation
+    /// Handle Cmd+1-9 shortcuts for Left Sidebar navigation as a fallback.
+    /// Provides a robust alternative when the menu system fails validation.
     private func handleLeftSidebarNavigation(_ char: Character) -> Bool {
         guard let appState = appState else { return false }
 
@@ -960,33 +877,20 @@ final class KeyboardManager {
         return filmSheet
     }
 
-    /// Returns `true` when `window` has at least one visible child window.
+    /// Whether `window` has a visible child window, which is how a SwiftUI popover attaches.
     ///
-    /// SwiftUI `.popover` attaches its floating panel as a child window of the
-    /// presenting window. When the popover uses a non-activating panel style, the
-    /// presenting window retains key status — so `NSApp.keyWindow` and `isSheet`
-    /// cannot distinguish "sheet with no popover" from "sheet with a popover open".
-    /// Checking for visible child windows provides that distinction: if any child
-    /// is currently on-screen, a popover (or equivalent floating panel) is active
-    /// and the Return key must be passed through rather than intercepted.
-    ///
-    /// This helper is intentionally conservative: it treats *any* visible child
-    /// window as a popover. The only child windows a FilmSheet window is expected
-    /// to have are SwiftUI-managed popover panels, so false positives are not a
-    /// practical concern.
+    /// A non-activating popover leaves its presenting window key, so `isSheet` cannot tell
+    /// "sheet" from "sheet with a popover open". A visible child window means a popover (or
+    /// similar floating panel) is up, and Return must pass through to it. Any visible child is
+    /// treated as a popover, since a FilmSheet has no other kind of child window.
     private func hasVisibleChildWindow(on window: NSWindow) -> Bool {
         window.childWindows?.contains { $0.isVisible } ?? false
     }
 
     /// Check if text input is active in any relevant window (key window or attached sheets)
     private func isTextInputActiveAnywhere() -> Bool {
-        // Build a deduplicated set of windows to inspect.
-        //
-        // When a sheet is open, NSApp.keyWindow returns the sheet window itself —
-        // the same object returned by mainWindow.attachedSheet. Adding both without
-        // deduplication would check the sheet window twice and the main window not
-        // at all. Using an ordered array with an identity-equality guard keeps the
-        // check to one pass per unique window object.
+        // Deduplicated windows to inspect. With a sheet open, NSApp.keyWindow is the same
+        // object as mainWindow.attachedSheet, so each window is added at most once.
         var windowsToCheck: [NSWindow] = []
         
         if let keyWindow = NSApp.keyWindow {
@@ -1014,7 +918,7 @@ final class KeyboardManager {
         TextInputFocus.isActive(in: window)
     }
     
-    // MARK: - Cleanup
+    // MARK: - Gallery Focus
 
     /// Locates the active gallery view in the key window's NSView hierarchy and
     /// makes it the first responder, routing keyboard focus directly to the grid or

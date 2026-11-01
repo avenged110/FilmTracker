@@ -4,7 +4,7 @@
 // Low-level AppKit/SwiftUI text and input field primitives used by FilmSheet tabs.
 //
 // Contains infrastructure that changes when text-editing or input-validation behavior needs
-// updating, independently of the domain-level control widgets in FSControlComponents.swift.
+// updating, independently of the domain-level control widgets in FSControlHelpers.swift (30.20).
 
 import SwiftUI
 import AppKit
@@ -65,14 +65,11 @@ struct ExternalIDField: NSViewRepresentable {
         // this the delegate goes on writing through the `text` binding captured when the
         // coordinator was made.
         //
-        // That is currently harmless here only by luck. This field's sole call site
-        // (FSTabDetailsView's External IDs row) hands it a `Binding(get:set:)` whose
-        // closures capture the view model — a stable @Observable reference — so a stale
-        // binding still reaches the right object. Any call site whose binding closes over
-        // per-render state instead would write into a previous generation of it, and
-        // nothing about this type would indicate why. Refreshing the reference costs one
-        // assignment per update and removes the dependence on what callers happen to
-        // capture.
+        // This field's only call site (FSTabDetailsView's External IDs row) passes a
+        // `Binding(get:set:)` that captures the stable view model, so a stale binding still
+        // reaches the right object. A call site whose binding closes over per-render state would
+        // write into a previous generation of it. Refreshing the reference costs one assignment
+        // per update and removes that dependence.
         context.coordinator.parent = self
 
         if nsView.stringValue != text {
@@ -335,7 +332,7 @@ enum ExternalIDSite {
 /// `FilmSheetView` is structured to avoid — see `FilmSheetButtonBar` and
 /// `FilmSheetTabContent`). A class held in `@State` has stable identity for the
 /// presentation's lifetime, so readers are never invalidated by it. Mirrors
-/// `HorizontalScrollZoneRegistrar` in 24_00_RightSidebar.swift for the same reason.
+/// `HorizontalScrollZoneRegistrar` in 24.00 RightSidebar.swift for the same reason.
 ///
 /// **Why the handler returns `Bool`.** The confirming button is often disabled (no
 /// changes yet, an invalid draft). The handler reports whether it acted, so it can
@@ -499,13 +496,10 @@ private final class InnerTextView: NSTextView {
     // a string with\ntwo new line breaks in it" lands as "This is a test of a string with
     // two new line breaks in it".
     //
-    // Hooked in three places, not one: `paste(_:)` and `pasteAsPlainText(_:)` are the
-    // action methods the Paste menu item and Command-V actually send to the first
-    // responder, so those are overridden directly. Relying on `readSelection(from:type:)`
-    // alone — an earlier version's approach, on the premise that `paste(_:)` funnels
-    // through it — does not hold in this view; line breaks survived. `readSelection` is
-    // still overridden because it IS the path for dragged-in text and Services, and now
-    // routes to the same helper as the other two.
+    // Hooked in three places. `paste(_:)` and `pasteAsPlainText(_:)` are the actions the Paste
+    // menu item and Command-V send to the first responder, so they are overridden directly.
+    // `readSelection(from:type:)` is the path for dragged-in text and Services, and it routes
+    // to the same helper. It does not catch Paste on its own: line breaks survive that route.
     //
     // All three delegate to `insertFlattenedPasteboardString(from:)`, which reports
     // whether it handled the insertion. When it declines (no plain text, or text with no
@@ -744,13 +738,11 @@ private final class ConditionalScrollView: NSScrollView {
 
     // MARK: Layout
     //
-    // AppKit calls layout() after this scroll view is assigned its real frame — in
-    // particular on first appearance, the moment at which contentSize first becomes
-    // non-zero. Evaluating overflow here is what makes a field whose content already
-    // exceeds the fixed height scrollable WITHOUT any user interaction, and makes that
-    // hold on every fresh sheet session (isScrollingEnabled starts false on each newly
-    // created instance). Earlier attempts to measure at makeNSView time failed because
-    // contentSize is still zero there; layout() is the correct, frame-valid hook.
+    // AppKit calls layout() after this scroll view is assigned its real frame, in particular on
+    // first appearance, when contentSize first becomes non-zero. Evaluating overflow here makes a
+    // field whose content already exceeds the fixed height scrollable WITHOUT any user interaction,
+    // on every fresh sheet session (isScrollingEnabled starts false on each new instance).
+    // makeNSView is too early to measure: contentSize is still zero there.
     override func layout() {
         super.layout()
         updateScrollability()
@@ -789,12 +781,11 @@ private final class ConditionalScrollView: NSScrollView {
     }
 
     // MARK: Focus ring.
-    // System-standard ring shaped to match the SwiftUI rounded border (radius 6). That border
-    // is a `RoundedRectangle`, whose default corner style is `.continuous`, so the ring mask
-    // uses the same continuous curve rather than NSBezierPath's circular `roundedRect`. AppKit invokes these on this scroll view because
-    // focusRingType is .exterior here and the document view (InnerTextView) has a non-.none
-    // focusRingType — i.e., the scroll view is the ring drawer for its first-responder
-    // document view.
+    // System-standard ring shaped to match the SwiftUI rounded border (radius 6). That border is a
+    // `RoundedRectangle`, whose default corner style is `.continuous`, so the ring mask uses the same
+    // continuous curve rather than NSBezierPath's circular `roundedRect`. AppKit invokes these on this
+    // scroll view because focusRingType is .exterior here, and the document view (InnerTextView) has a
+    // non-.none focusRingType. That makes the scroll view the ring drawer for its first-responder document view.
 
     override var focusRingMaskBounds: NSRect { bounds }
 
@@ -930,10 +921,8 @@ private struct ScrollingTextViewRepresentable: NSViewRepresentable {
 /// `ReorderableStringList`, `ReorderableFramesList`, and
 /// `FixedHeightScrollingTextView`.
 ///
-/// One definition rather than three copies: the two reorderable lists each carried a
-/// byte-identical private set of these constants, and the text view carried a
-/// mismatched flat outline of its own — so a field meant to look like its neighbors
-/// could silently drift. The lists' treatment is the reference, lifted out here.
+/// One definition, so a field meant to look like its neighbors cannot drift from them. The
+/// reorderable lists' treatment is the reference, lifted out here.
 ///
 /// Declared in this low-level primitives file, not beside the lists, because the text
 /// view lives here too and reaching up into a domain-level file for its own chrome
@@ -1005,21 +994,13 @@ struct FixedHeightScrollingTextView: View {
     /// re-evaluation.
     @Environment(\.fieldSubmitAction) private var submitAction
 
-    /// Per-lineCount memoization for fixedHeight(lineCount:). The measurement below
-    /// depends only on lineCount and the system font at its standard size — neither
-    /// of which changes across the four call sites (Details, Metadata ×2, Notes ×3)
-    /// during a single app session — so the NSTextStorage/NSLayoutManager/
-    /// NSTextContainer measurement sweep only needs to run once per distinct
-    /// lineCount value rather than on every SwiftUI body evaluation. Without this
-    /// cache, the measurement re-ran on every render of the Details/Metadata/Notes
-    /// tabs (every keystroke, every canConfirm toggle, etc.), including the first
-    /// render that lands inside the sheet's presentation transaction — competing
-    /// with CoreAnimation for main-thread time at exactly the moment the sheet-open
-    /// animation is handed its first frame budget. Mirrors the rationale already
-    /// documented on ViewingDatesTable's cached DateFormatters ("~0.5ms init cost").
-    /// @MainActor-isolated: every call site is a SwiftUI body evaluation, which is
-    /// already confined to the main actor, so no additional synchronization or
-    /// actor hop is needed.
+    /// Per-lineCount memoization for fixedHeight(lineCount:). The measurement depends only on
+    /// lineCount and the system font at its standard size, neither of which changes during a
+    /// session, so the NSTextStorage/NSLayoutManager/NSTextContainer sweep runs once per distinct
+    /// lineCount. Without the cache, every body evaluation (each keystroke and canConfirm toggle)
+    /// reran it, including the render inside the sheet's presentation transaction. Every call site
+    /// is a SwiftUI body evaluation, which is already confined to the main actor, so no extra
+    /// synchronization is needed.
     @MainActor
     private static var heightCache: [Int: CGFloat] = [:]
 
@@ -1051,8 +1032,8 @@ struct FixedHeightScrollingTextView: View {
     /// Vertical offset that aligns an adjacent field label with this control's
     /// first line of text.
     ///
-    /// Exposed statically, the way `ReorderableStringList.labelTopOffset` is, so the
-    /// six call sites that pair a label with this control apply one rule instead of six copies of a literal.
+    /// Exposed statically, the way `ReorderableStringList.labelTopOffset` is, so every call site
+    /// that pairs a label with this control applies one rule instead of its own literal.
     ///
     /// Sign convention: positive moves DOWN.
     static let labelTopOffset: CGFloat = 4
@@ -1066,11 +1047,8 @@ struct FixedHeightScrollingTextView: View {
         // behind/over the field without masking it. The corner radius and shape match
         // the AppKit drawFocusRingMask (circular, radius 6) so the ring hugs the border.
         //
-        // The outline and shadow are `FieldEdgeTreatment`'s, shared with the two
-        // reorderable lists, which is what makes a text field and a list sitting
-        // in the same column read as the same kind of object. The flat
-        // `tertiaryLabelColor` hairline that used to be here was neither the same
-        // color nor the same weight as theirs.
+        // The outline and shadow are `FieldEdgeTreatment`'s, shared with the two reorderable lists,
+        // so a text field and a list sitting in the same column read as the same kind of object.
         //
         // Note the shape style: the lists round with `.continuous`, this rounds
         // circular. That is not an oversight — see the note on
@@ -1081,34 +1059,17 @@ struct FixedHeightScrollingTextView: View {
             submitAction: submitAction
         )
         .background(
-            // The shadow is cast by the fill shape alone rather than by the
-            // finished control.
+            // The shadow is cast by the fill shape alone, not by the finished control. A `.shadow`
+            // on the outer view would ask SwiftUI to derive a silhouette from content that includes a
+            // hosted `NSView`, and `.compositingGroup()` would have to flatten that same view's layer
+            // tree. The fill shape is a plain opaque rounded rect of the field's exact bounds, so its
+            // silhouette is exact. The only visible shadow is outside the field, and nothing here
+            // masks the exterior focus ring.
             //
-            // Applying `.shadow` to the outer view would ask SwiftUI to derive a
-            // silhouette from content that includes a hosted `NSView`, and the
-            // usual remedy for that — `.compositingGroup()` — would try to
-            // flatten a layer tree containing that same hosted view. Casting the
-            // shadow off the background shape sidesteps both: the shape is a
-            // plain opaque rounded rect of exactly the field's bounds, so the
-            // silhouette is exact, and the only visible part of the shadow is
-            // the part outside the field, which is all that was ever wanted.
-            // It also cannot clip the exterior focus ring, since nothing here
-            // masks.
-            // Inset by the border width, so the fill stops where the border
-            // begins instead of painting underneath it.
-            //
-            // This is the same defect the reorderable lists' alternating row
-            // background had, and the same remedy: `separatorColor` is
-            // translucent, so anything drawn beneath the border composites
-            // through it. A fill running to the full bounds therefore tinted the
-            // outline from below, muddying the gradient and reading as a field
-            // one pixel oversized on every side — the border was there, but it
-            // was sitting on top of the field's own color rather than on the
-            // sheet.
-            //
-            // `strokeBorder` insets its stroke by half the line width and draws
-            // inward, so a 1pt border occupies exactly the outer 1pt ring. A fill
-            // inset by that same 1pt abuts it precisely: no gap, no overlap.
+            // The fill is inset by the border width so it stops where the border begins. `separatorColor`
+            // is translucent, so a fill running under the border would tint the outline from below.
+            // `strokeBorder` draws inward, so a 1 pt border occupies the outer 1 pt ring, and a fill inset
+            // by that same 1 pt abuts it exactly.
             RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius)
                 .inset(by: FieldEdgeTreatment.borderWidth)
                 .fill(Color(NSColor.textBackgroundColor))

@@ -14,9 +14,9 @@ final class FSTabDetails {
     // Detail fields.
     var name: String = "" { didSet { checkForChanges() } }
     /// Backing store for the Release Date picker. Defaults to today's date, but
-    /// is only meaningful when hasReleaseDate is true — see hasReleaseDate. Moved
-    /// here from FSTabMetadata: releaseDate is now the master date value the user
-    /// manages directly; releaseYear (below) is derived exclusively from it.
+    /// is only meaningful when hasReleaseDate is true — see hasReleaseDate. This is
+    /// the master date value the user edits directly; releaseYear (below) is derived
+    /// from it.
     var releaseDate: Date = Date() { didSet { checkForChanges(); propagateFilmReleaseYear() } }
     /// Whether the film has a recorded release date. false shows the picker's
     /// grayed-out placeholder state, matching the CustomDateStepper convention
@@ -54,11 +54,10 @@ final class FSTabDetails {
     var calendarTable: [String] = [] { didSet { checkForChanges() } }
 
     /// The film's release year, derived exclusively from the year component of
-    /// releaseDate. No longer independently editable or stored — the user manages
-    /// releaseDate alone, and this computed value is what gets persisted to the
-    /// Film model's releaseYear field on save. Returns 0 when hasReleaseDate is
-    /// false (mirrors the "absent" convention collectFilmFields() already used
-    /// for an empty releaseYear string).
+    /// releaseDate. It is not independently editable or stored: the user manages
+    /// releaseDate alone, and this computed value is what gets persisted to the Film
+    /// model's releaseYear field on save. Returns 0 when hasReleaseDate is false, which
+    /// collectFilmFields() writes as an empty string.
     ///
     /// Read through `StorageDateFormatters.calendar`, not `Calendar.current`: the date is
     /// SAVED through `releaseDateFormatter`, which is pinned Gregorian, so this has to read
@@ -133,7 +132,7 @@ final class FSTabDetails {
     /// matching FilmQueueSection.queueOrder) written directly to Film.autoAddToQueueOnRotation.
     var autoAddToQueueOnRotation: Int? = nil { didSet { checkForChanges() } }
 
-    // Metadata fields moved from FSTabMetadata.
+    // Metadata fields.
     var genre: String = "" { didSet { checkForChanges() } }
     var rating: String = "" { didSet { checkForChanges() } }
     var descriptionText: String = "" { didSet { checkForChanges() } }
@@ -163,18 +162,15 @@ final class FSTabDetails {
         return FilmQueue.upNextVacancies(coordinator: coordinator) == 0
     }
 
-    // Available lists for the List Membership picker.
-    // Populated eagerly in init() from MemoryStore — moves the read off the
-    // peak-render path (onAppear) and onto the pre-subscription init path, where
-    // it competes with nothing. Refreshed in response to AppEventBus.listEvents
-    // exactly as the prior onAppear + onReceive pair did, so live consistency is
-    // maintained. Internal access so FSTabDetailsView can read it directly.
+    // Available lists for the List Membership picker. init() fills it in a deferred Task
+    // (see there), and it is refreshed on AppEventBus.listEvents so the picker stays in
+    // sync with list creates, updates, and deletes. Internal access so FSTabDetailsView
+    // can read it directly.
     //
-    // Held as [MemoryList] — the type getAllLists() already returns — rather than
-    // remapped into [ListInfo]. ListMembershipMenu reads only listID and listName,
-    // so the mapping bought nothing and cost a per-list filmIDs.count on a value
-    // no consumer ever read. ListInfo remains the sidebar's type, where filmCount
-    // genuinely drives the row's contextual-menu enablement.
+    // Held as [MemoryList], the type getAllLists() returns, rather than remapped into
+    // [ListInfo]. ListMembershipMenu reads only listID and listName, so a mapping would
+    // add a per-list filmIDs.count that no consumer reads. ListInfo remains the sidebar's
+    // type, where filmCount drives the row's contextual-menu enablement.
     var availableLists: [MemoryList] = []
 
     /// True when this film was already in the Hall of Fame when the sheet was opened.
@@ -185,37 +181,22 @@ final class FSTabDetails {
     /// at load time and therefore would consume a new slot on commit.
     var wasOriginallyInHallOfFame: Bool { originalInHallOfFame }
 
-    // Baseline captured after the initial load in edit mode: the exact same
-    // `FilmDetailsFields` value that `collectFilmFields()` produces, so "has anything
-    // changed?" is a single `==` against what a save would actually write. Identical in
-    // shape to FSTabMetadata's and FSTabNotes' baselines — all three tabs now answer the
-    // question the same way, with one field list each instead of two.
+    // Baseline captured after the initial load in edit mode: the exact `FilmDetailsFields`
+    // value that `collectFilmFields()` produces. "Has anything changed?" is therefore a
+    // single `==` against what a save would write. FSTabMetadata and FSTabNotes answer the
+    // question the same way.
     //
-    // MARK: What the parallel snapshot this replaces got wrong
+    // Comparing the collected value, rather than a parallel snapshot of the stored
+    // properties, removes the special cases a property-by-property comparison needs. The
+    // save writes "" for a duration whose flag is off, or for an edited duration while
+    // `edited` is off, and a release date's time component would otherwise register as a
+    // change. `collectFilmFields()` already renders the date at day precision and drops the
+    // inactive duration fields, so the comparison matches the save by construction.
+    // FSTabMetadata's `isRemastered` follows the same argument.
     //
-    // This used to be `OriginalDetails`, a second 23-field struct mirroring the tab's
-    // stored properties rather than its output, compared field-by-field against the live
-    // values. Two field lists to keep in step, and they disagreed in three places — each
-    // one reporting an unsaved change for an edit that could not be persisted:
-    //
-    //   • `durationHours`/`durationMinutes` were compared even while `hasDuration` was
-    //     false, a state in which `collectFilmFields()` writes "" regardless.
-    //   • `editedDuration*` likewise, and additionally while `edited` was false — the
-    //     state in which the UI hides that picker entirely and the save writes "".
-    //   • `releaseDate` needed a bespoke day-precision comparison (and a three-term
-    //     special case for the has-value flag) to avoid a Date's time component
-    //     manufacturing a phantom change. `collectFilmFields()` already renders it as the
-    //     stored day-precision string, so comparing the collected value gets that for
-    //     free.
-    //
-    // This is exactly the argument FSTabMetadata makes about `isRemastered`: comparing
-    // the value a save would WRITE collapses, by construction, every difference that is a
-    // no-op on disk. The special cases are not reimplemented here — they cease to exist.
-    //
-    // Two things live outside the collected fields and are therefore compared separately
-    // in `computeHasChanges()`: Hall of Fame membership (which `collectFilmFields()` does
-    // not carry, because it is committed through its own coordinator path rather than
-    // through the changeset) and the two list-membership selections.
+    // Two things live outside the collected fields and are compared separately in
+    // `computeHasChanges()`: Hall of Fame membership (committed through its own coordinator
+    // path rather than the changeset) and the two list-membership selections.
     private var original: FilmDetailsFields?
 
     /// Hall of Fame membership as it stood when the sheet opened.
@@ -228,16 +209,12 @@ final class FSTabDetails {
     private var originalInHallOfFame: Bool = false
 
     // Day-precision formatter for the Release Date field, used to build the canonical
-    // storage string on save.
-    //
-    // It no longer participates in change detection: the baseline above holds the
+    // storage string on save. Change detection does not use it: the baseline holds the
     // collected fields, whose `releaseDate` is already this formatter's output, so the
-    // day-precision comparison happens by construction rather than as a special case at
-    // the comparison site.
+    // day-precision comparison happens by construction.
     //
     // The shared "yyyy-MM-dd" storage formatter; see StorageDateFormatters for why the
     // configuration lives there rather than being restated here.
-    // Moved here from FSTabMetadata as part of the releaseDate field's relocation.
     nonisolated static let releaseDateFormatter = StorageDateFormatters.dash
 
     // Change tracking.
@@ -247,11 +224,9 @@ final class FSTabDetails {
     private var isLoadingData: Bool = false
 
     // Cached validation result. Updated by checkForChanges() so that
-    // owner.updateCanConfirm() is only called when the validation state
-    // actually transitions (true↔false). This eliminates the Task spawn
-    // that previously fired on every keystroke across all fields in
-    // add mode — only changes to `name` or `hasReleaseDate` can flip
-    // this value, and the remaining fields skip the call entirely.
+    // owner.updateCanConfirm() is only called when the validation state actually
+    // transitions (true↔false). Only changes to `name` or `hasReleaseDate` can flip it,
+    // so every other field's edit skips the call.
     private var lastIsValid: Bool = false
 
     // Validation - separate from canConfirm to avoid confusion.
@@ -260,10 +235,9 @@ final class FSTabDetails {
         hasReleaseDate
     }
     
-    // "Genre" field options (from FilterOption in ViewState)
+    // "Genre" field options: a blank entry, then FilterOption's canonical genre names.
     // Static: allocated once at class load time, never per-sheet-open.
-    nonisolated static let genreOptions = ["", "Action and Adventure", "Comedy", "Drama", "Horror",
-                        "Kids and Family", "Sci-Fi and Fantasy", "Thriller"]
+    nonisolated static let genreOptions = [""] + FilterOption.genreNames
     
     // "Rating" field options
     static let ratingOptions = ["", "G", "PG", "PG-13", "R", "NR", "Unrated"]
@@ -295,7 +269,7 @@ final class FSTabDetails {
         // *contents* (the full dropdown) are only built when the user opens the menu,
         // which cannot happen before the animation completes and the Task below has
         // already fired. refreshAvailableLists() on listEvents still handles live
-        // consistency exactly as before.
+        // consistency.
         let capturedCoordinator = owner.coordinator
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -373,11 +347,9 @@ final class FSTabDetails {
         } else if validityChanged {
             // hasChanges did not move, so notifyChanges() was not called — but the
             // validation state just flipped and canConfirm is derived from BOTH.
-            // Without this branch, clearing "Name" (or the Release Date) in edit
-            // mode after some other field had already latched hasChanges to true
-            // left canConfirm stranded at true: the Update button stayed enabled
-            // on an invalid film, the "required fields" hint stayed hidden, and
-            // Return, which reads the same stored canConfirm, committed with it.
+            // Without this branch, a validity flip on an edit that leaves hasChanges
+            // unchanged would leave canConfirm stale: Update would stay enabled on an invalid
+            // film, and Return, which reads the same stored canConfirm, would commit it.
             // updateCanConfirm() has its own no-delta fast path, so this costs
             // nothing on the far more common non-transitioning edits.
             //
@@ -413,8 +385,7 @@ final class FSTabDetails {
         // to the next local day for any zone at UTC+12 or later.
         // A non-empty but unparseable legacy value still activates the picker
         // (hasReleaseDate = true) rather than silently hiding it as unset —
-        // matching the precedent in FSTabNotes.editDate's load path. Moved here
-        // from FSTabMetadata as part of the releaseDate field's relocation.
+        // matching the precedent in FSTabNotes.editDate's load path.
         if let dayOnly = Self.releaseDateFormatter.date(from: String(film.releaseDate.prefix(10))) {
             releaseDate = dayOnly
             hasReleaseDate = true
@@ -431,7 +402,6 @@ final class FSTabDetails {
         userRating = film.userRating
         calendarTable = film.calendarTable
 
-        // Get list memberships from coordinator's memory store (instant)
         // Get list memberships from coordinator's memory store (instant).
         // The raw set includes any internal Film Queue membership; split it so the
         // List Membership picker sees only user lists and the Up Next picker sees the section.
@@ -507,8 +477,8 @@ final class FSTabDetails {
 
     // Capture original state after loading.
     //
-    // One line rather than a 22-argument initializer, and it is the same line
-    // FSTabMetadata and FSTabNotes use. The baseline IS what a save would write, so it
+    // One assignment, the same as FSTabMetadata and FSTabNotes use. The baseline IS what a
+    // save would write, so it
     // cannot fall out of step with `collectFilmFields()` — there is no second field list
     // to update when a field is added. Hall of Fame is captured alongside it because it
     // is committed by a different route and so is not one of the collected fields; see
@@ -553,18 +523,15 @@ final class FSTabDetails {
     }
 
     // MARK: - Available Lists
-    // Called by the deferred Task in init() and by FSTabDetailsView's listEvents
-    // handler to keep the picker in sync after list creates, updates, or deletes.
-    // buildAvailableLists is static to avoid an implicit self capture in the Task
-    // closure and in refreshAvailableLists, keeping both call sites clean.
+    // Called by FSTabDetailsView's listEvents handler to keep the picker in sync after
+    // list creates, updates, or deletes. init() fills the initial value in a deferred Task
+    // that calls the same getAllLists().
     // getAllLists() is already sorted in the canonical list order (displayOrder,
-    // tie-broken on listID) and already excludes the internal Film Queue lists, so it
-    // is used verbatim. The re-sort that used to sit here compared displayOrder ALONE
-    // and Swift's sort is not guaranteed stable, so for two lists sharing a
-    // displayOrder — reachable from a restored backup, or from two createList calls
-    // that each read maxOrder before either awaited — it discarded the tiebreak the
-    // store applies precisely to keep that case deterministic, letting this picker
-    // order those lists differently from the sidebar and differently between openings.
+    // tie-broken on listID) and already excludes the internal Film Queue lists, so it is
+    // used verbatim. Re-sorting here would be wrong: comparing displayOrder alone is not a
+    // total order, and Swift's sort is not guaranteed stable, so lists sharing a
+    // displayOrder (reachable from a restored backup, or from concurrent createList calls)
+    // could be ordered differently from the sidebar and differently between openings.
     func refreshAvailableLists() {
         guard let coordinator = owner?.coordinator else { return }
         availableLists = coordinator.getAllLists()
@@ -598,8 +565,7 @@ final class FSTabDetails {
         }
         // Re-stamp the picker's Date value into the app's canonical
         // "yyyy-MM-dd'T'12:00:00'Z'" storage format via the shared helper — see
-        // releaseDateStorageString's doc comment for the full rationale. Moved
-        // here from FSTabMetadata as part of the releaseDate field's relocation.
+        // releaseDateStorageString's doc comment for the full rationale.
         let releaseDateString = Self.releaseDateStorageString(from: releaseDate, hasValue: hasReleaseDate)
         return FilmDetailsFields(
             name: name,

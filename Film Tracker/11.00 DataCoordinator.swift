@@ -11,14 +11,9 @@ import Observation
 
 // MARK: - View Membership
 
-/// The result of resolving a view's film membership — i.e. which films belong to it,
-/// independent of sort order or user-selected filters. Centralizes what used to be
-/// three separate, independently-resolved-and-stored properties on DataCoordinator
-/// (one each for recents, smart lists, and Unwatched), each requiring its own
-/// resolution branch in `loadFilms` and its own application branch in `performLoad`.
-/// A future membership-filtered view needs only a new case in
-/// `ViewIdentifier.resolveMembership` below — no new stored property, and no new
-/// branch in either `loadFilms` or `performLoad`.
+/// The films that belong to a view, independent of sort order or user-selected filters.
+/// A new membership-filtered view needs only a new case in `ViewIdentifier.resolveMembership`
+/// below, with no new stored property and no new branch in `loadFilms` or `performLoad`.
 enum ViewMembership: Sendable {
     /// No membership restriction — every film in the library is a candidate. Used by
     /// allFilms, list (whose restriction is handled separately via its own base ID
@@ -157,7 +152,7 @@ final class DataCoordinator: Loggable {
         return new
     }
 
-    /// Release-day notifications (71.20). Created by `startReleaseNotifications()` once the
+    /// Release-day notifications (70.10 ReleaseNotifications.swift). Created by `startReleaseNotifications()` once the
     /// library has loaded, and never before: its first sync reads the library.
     @ObservationIgnored private var releaseNotifications: ReleaseNotifications?
 
@@ -191,13 +186,9 @@ final class DataCoordinator: Loggable {
     /// Builds the SettingsManager if it does not exist yet, purely for its side effect of
     /// installing the `preferencesChanged` observer.
     ///
-    /// The lazy accessor above meant the manager — and therefore its subscription — came
-    /// into existence only when something first read `settingsManager`. In practice the
-    /// only startup read sits BELOW the `isLibraryStateUnreliable` guard in
-    /// finalizeInitialization(), so an unreliable-library session installed no observer at
-    /// all and NO preference change reached the database for the whole session. That guard
-    /// is meant to skip the one-shot startup sync, not to disable settings persistence
-    /// outright, so construction is now driven independently of it.
+    /// The lazy `settingsManager` accessor would otherwise create the manager, and its
+    /// subscription, only on first read. Calling this forces construction early, so settings
+    /// persistence does not depend on the `isLibraryStateUnreliable` guard in finalizeInitialization().
     func activateSettingsObserver() {
         _ = settingsManager
     }
@@ -296,8 +287,8 @@ final class DataCoordinator: Loggable {
     // MainActor provides all necessary synchronization; no lock is needed.
     private var pendingOperationCount: Int = 0
 
-    /// Set to true by prepareForShutdown(). Causes trackOperation() to silently
-    /// discard any new work enqueued after shutdown has been initiated.
+    /// Set by prepareForShutdown(). Makes trackOperation() drop (and log) any new work
+    /// enqueued after shutdown has begun.
     private var isShuttingDown: Bool = false
 
     /// The most recently dispatched tracked operation. Each new operation awaits this
@@ -337,9 +328,7 @@ final class DataCoordinator: Loggable {
     // ordering chain, the defer, the rollback and the alert all run on MainActor —
     // pendingOperationCount access is safe. The work itself does not: it is a nonisolated
     // async closure, so it runs on the global executor, and DataManager runs its calls on its
-    // own context's queue (ContextExecutor). (The SwiftData build also had to detach the work:
-    // its model executor ran a DataManager call on the thread that awaited it, which held the
-    // main thread for the whole fetch-mutate-save.)
+    // own context's queue (ContextExecutor).
     // `work` is @Sendable so a closure literal passed here is nonisolated rather than
     // inheriting MainActor from the call site; anything it needs from MainActor it must
     // capture as a value or reach with `await`.
@@ -347,7 +336,7 @@ final class DataCoordinator: Loggable {
         rollback: (() -> Void)? = nil,
         _ work: @escaping @Sendable () async throws -> Void
     ) {
-        // Drop new work silently once shutdown has been initiated. Any in-flight
+        // Drop new work once shutdown has been initiated (logged). Any in-flight
         // operations tracked before prepareForShutdown() was called will still
         // complete normally and decrement pendingOperationCount as expected.
         guard !isShuttingDown else {
@@ -493,7 +482,7 @@ final class DataCoordinator: Loggable {
     /// Never affects the daily rotation scheduler, a full recalculation, or a targeted
     /// recalculation triggered by any other update path (updateViewingDates, etc.) —
     /// this set is empty outside the exact window described
-    /// above, so auto-enqueue behaves exactly as before in every other circumstance.
+    /// above, so auto-enqueue is unchanged in every other circumstance.
     private var explicitQueueChangeFilmIDs: Set<UUID> = []
 
     // MARK: - Initialization
@@ -655,17 +644,14 @@ final class DataCoordinator: Loggable {
         currentDirection = prewarmDir
         currentFilterOptions = prewarmFilters
 
-        // Timed separately because this is the main compute in Phase 2 — an O(N log N) sort
-        // plus an O(N) snapshot gather — and it is the obvious second target if the snapshot
-        // decode turns out not to dominate.
+        // Timed separately: this is the main compute in Phase 2 (a sort plus a snapshot gather).
         let prewarmStart = ContinuousClock.now
         let prewarmedFilms = await memoryStore.prewarmInitialView(sortOption: prewarmSort, direction: prewarmDir, filterOptions: prewarmFilters)
         let prewarmElapsed = ContinuousClock.now - prewarmStart
 
         // Publish films + isInitialized + cachedLists atomically so SwiftUI coalesces them
-        // into one render pass. cachedLists being populated here (not deferred to an async
-        // refreshLists() call) is what ensures user-generated lists appear in the very same
-        // frame as gallery grid content, eliminating the prior ~13-frame stagger.
+        // into one render pass. cachedLists is populated here, not in a later async
+        // refreshLists() call, so user-generated lists appear in the same frame as the grid.
         films = prewarmedFilms
         // Pre-warm installs its films directly rather than through performLoad, so it must
         // record the ordering itself; currentSortOption was set to prewarmSort just above.
@@ -703,12 +689,9 @@ final class DataCoordinator: Loggable {
         // resolves its saved sort/filter state from there exactly as it always has.
         ViewStateManager.shared.resyncAfterInitialization()
 
-        // Install SettingsManager's preferencesChanged observer unconditionally, ABOVE the
-        // unreliable-library guard below. The guard is about not WRITING to a store we
-        // could not read; it must not also silence settings persistence for the rest of
-        // the session (see activateSettingsObserver). The observer only ever writes the
-        // singleton SettingsObject via saveSettings, which is not the destructive,
-        // contents-dependent work the guard exists to defer.
+        // Install SettingsManager's observer above the unreliable-library guard below. The
+        // guard blocks writes to a store that could not be read; settings writes are not
+        // that kind of work, so they stay enabled (see activateSettingsObserver).
         activateSettingsObserver()
 
         // Everything below writes to the persistent store. Skip it all when the library
@@ -981,11 +964,10 @@ final class DataCoordinator: Loggable {
         // filterFilms() internally handles both the active state (uses currentTokens)
         // and the token-entry state (uses lastConfirmedTokens), so it always returns
         // the correct result set regardless of whether isActive is true or false.
-        // Removing the isActive gate here fixes a race where isActive briefly becomes
-        // false during token entry (e.g. from a stale debounce timer or from SwiftUI's
-        // searchable binding modifying currentTokens), which previously caused
-        // this load to skip filterFilms() entirely and show the full library.
-        // The original isSearch guard is preserved: non-search views are unaffected.
+        // No isActive gate here: isActive can briefly become false during token entry
+        // (from a stale debounce timer or SwiftUI's searchable binding updating
+        // currentTokens), which would skip filterFilms() and show the full library.
+        // The isSearch guard keeps non-search views unaffected.
         if currentViewID.isSearch && SearchController.shared.hasContent {
             loadedFilms = SearchController.shared.filterFilms(loadedFilms, lists: searchListCatalog())
         }
@@ -1369,11 +1351,9 @@ final class DataCoordinator: Loggable {
     ///
     /// - Parameter onPersisted: Run once the deletion has actually COMMITTED to the store,
     ///   and never when the rollback path is taken. Exists for side effects that cannot be
-    ///   undone — specifically FilmManager's poster-file cleanup, which previously ran on
-    ///   the caller's straight-line path immediately after this (non-throwing) method
-    ///   returned. Because the return only means "applied to MemoryStore", a failed persist
-    ///   restored every FilmSnapshot while the poster JPEGs had already been erased from
-    ///   disk and evicted from PosterCache, leaving the recovered films permanently
+    ///   undone, such as FilmManager's poster-file cleanup. A failed persist restores the
+    ///   films to MemoryStore, so poster files must not be deleted before the commit succeeds;
+    ///   otherwise the restored films would be left without their posters
     ///   posterless behind an alert claiming the deletion was undone.
     func deleteFilms(withIDs ids: Set<UUID>,
                      onPersisted: (@MainActor () -> Void)? = nil) async {
@@ -1540,10 +1520,11 @@ final class DataCoordinator: Loggable {
         )
 
         // Optimistic MemoryStore update — makes the UI reflect the change instantly.
-        for var snapshot in filmsWithOverrides {
+        memoryStore.updateFilms(filmsWithOverrides.map { snapshot in
+            var snapshot = snapshot
             snapshot.rotationThresholdOverride = nil
-            memoryStore.updateFilm(snapshot)
-        }
+            return snapshot
+        })
         refreshFilms()
 
         // Rotation threshold overrides directly affect "Up for Rotation" membership.
@@ -1560,11 +1541,11 @@ final class DataCoordinator: Loggable {
         let rollback: () -> Void = { [weak self] in
             guard let self else { return }
             Self.log("Rolling back rotation threshold override reset for \(preOverrides.count) film(s)")
-            for (id, value) in preOverrides {
-                guard var current = self.memoryStore.getFilm(id) else { continue }
+            self.memoryStore.updateFilms(preOverrides.compactMap { id, value in
+                guard var current = self.memoryStore.getFilm(id) else { return nil }
                 current.rotationThresholdOverride = value
-                self.memoryStore.updateFilm(current)
-            }
+                return current
+            })
             self.refreshFilms()
             self.smartLists.forceFullRecalculation()
         }
@@ -1601,10 +1582,11 @@ final class DataCoordinator: Loggable {
         let targetIDs = Set(filmsWithFlag.map(\.id))
 
         // Optimistic MemoryStore update — makes the UI reflect the change instantly.
-        for var snapshot in filmsWithFlag {
+        memoryStore.updateFilms(filmsWithFlag.map { snapshot in
+            var snapshot = snapshot
             snapshot.infoComplete = false
-            memoryStore.updateFilm(snapshot)
-        }
+            return snapshot
+        })
         refreshFilms()
 
         // Rollback: set the flag back on every mutated film, and only the flag — see the
@@ -1612,11 +1594,11 @@ final class DataCoordinator: Loggable {
         let rollback: () -> Void = { [weak self] in
             guard let self else { return }
             Self.log("Rolling back infoComplete reset for \(targetIDs.count) film(s)")
-            for id in targetIDs {
-                guard var current = self.memoryStore.getFilm(id) else { continue }
+            self.memoryStore.updateFilms(targetIDs.compactMap { id in
+                guard var current = self.memoryStore.getFilm(id) else { return nil }
                 current.infoComplete = true
-                self.memoryStore.updateFilm(current)
-            }
+                return current
+            })
             self.refreshFilms()
         }
 
@@ -1734,9 +1716,7 @@ final class DataCoordinator: Loggable {
             explicitQueueChangeFilmIDs.remove(filmID)
         }
 
-        // Every membership the film events above changed is now in place, so this one load
-        // is final. Ahead of the list events below, which is where the reload used to sit
-        // relative to them.
+        // Every membership the film events above changed is now in place, so this one load is final.
         reloadCurrentView()
 
         for listID in changeset.listsToAdd {
@@ -1818,10 +1798,7 @@ final class DataCoordinator: Loggable {
     }
 
     // MARK: - List Operations
-    // Note: List membership uses DataManager (a context actor) because:
-    // 1. ListMembership is a separate entity (not a Film relationship handled by FSTabReleases)
-    // 2. Batch operations benefit from background processing
-    // 3. FilmSnapshot doesn't affect list membership operations
+    // List membership is persisted through DataManager, since ListMembership is its own entity.
 
     func batchUpdateListOrders(_ updates: [(listID: UUID, displayOrder: Int)]) {
         guard !updates.isEmpty else { return }
@@ -1877,12 +1854,8 @@ final class DataCoordinator: Loggable {
     /// unfiltered getListIDs(forFilm:) so it can detect and manage the film's Up Next
     /// section separately.
     ///
-    /// The membership is a Set, so its order is not merely unspecified but genuinely
-    /// unstable between calls. Every consumer therefore had to sort — and each
-    /// sorted by displayOrder alone, without the listID tiebreak `getAllLists()` applies,
-    /// so two lists sharing a displayOrder could be presented in a different order by the
-    /// menu, the membership table, and the sidebar, and in a different order again on the
-    /// next render. Ordering here, once, by MemoryList.orderedBefore removes that.
+    /// The membership is a Set with no stable order, so it is ordered here, once, by
+    /// MemoryList.orderedBefore. The menu, the membership table and the sidebar then agree.
     func userLists(forFilm filmID: UUID) -> [MemoryList] {
         memoryStore.getListIDs(forFilm: filmID)
             .subtracting(FilmQueue.allListIDs)
@@ -2035,21 +2008,18 @@ final class DataCoordinator: Loggable {
     /// the add always leaves each affected film in exactly one section.
     ///
     /// The FilmSheet Details tab (FSTabDetails) already self-heals this invariant via its
-    /// own delta computation, since `selectedFilmQueueSection` is a single-select control —
-    /// it can only ever request membership in one section, and its save path removes the
-    /// film from any other internal list first. This helper closes the same gap for every
-    /// OTHER add path, most notably the LeftSidebar's "Film Queue" drop target, which
-    /// previously performed a plain add with no awareness of a film's existing section
-    /// membership — allowing a dropped film to end up in two sections simultaneously.
+    /// own delta computation, since `selectedFilmQueueSection` is a single-select control.
+    /// This helper covers every other add path, such as the LeftSidebar's "Film Queue" drop
+    /// target, so a film cannot end up in two sections at once.
     ///
     /// No-op (and cheap to call unconditionally) whenever `targetListID` is not one of
     /// the three internal lists, so ordinary user-generated list adds are unaffected.
     ///
     /// PERSISTENCE IS NOT DISPATCHED HERE. This method applies only the optimistic
     /// MemoryStore side and RETURNS what it removed; the caller folds that into the same
-    /// `trackOperation` as the add that follows. It used to own a `trackOperation` of its
-    /// own, which made a queue move two independent background writes with two independent
-    /// rollbacks — and left a real gap between them:
+    /// `trackOperation` as the add that follows. Owning a separate `trackOperation` would make
+    /// a queue move two independent background writes with two independent rollbacks, leaving
+    /// a gap between them:
     ///
     ///   • The removal committed and the add then failed. The add's rollback undid only the
     ///     add, so the film was left in NO section at all: the store had already lost its
@@ -2327,12 +2297,9 @@ final class DataCoordinator: Loggable {
                 displayOrder: displayOrder, sortFilterOptions: sortFilterOptions) } }
 
     func deleteList(listID: UUID) {
-        // Defense-in-depth: the three internal Film Queue lists must never be
-        // deletable, per the feature's core invariant. In practice this is already
-        // unreachable — every UI entry point sources its listID from getAllLists(),
-        // which filters out the internal IDs — but this guard makes the guarantee
-        // hold at the data layer itself, independent of any future UI path, scripted
-        // interaction, or keyboard-shortcut regression that might otherwise bypass
+        // Defense in depth: the three internal Film Queue lists must never be deletable.
+        // UI entry points already exclude them (getAllLists() filters internal IDs); this
+        // guard enforces it at the data layer, regardless of any other path that might bypass
         // that filtering. Silently returns rather than throwing: this mirrors the
         // "list not found" guard directly below, treating an attempted delete of a
         // protected list the same as a no-op on a nonexistent one.
@@ -2370,9 +2337,8 @@ final class DataCoordinator: Loggable {
         let importedIDs = Set(snapshots.map { $0.id })
 
         // Register snapshots directly with MemoryStore — no viewContext insertion needed.
-        for snapshot in snapshots {
-            memoryStore.addFilm(snapshot)
-        }
+        // One batched add: a single MetadataCache store and view-cache invalidation.
+        memoryStore.addFilms(snapshots)
 
         totalFilmCount = memoryStore.totalFilmCount
 
@@ -2400,12 +2366,9 @@ final class DataCoordinator: Loggable {
     /// snapshots, then persists the whole batch in a single background transaction.
     /// No viewContext.save() is called. Used by RatingsImporter.flushPendingUpdates().
     ///
-    /// Deliberately batched rather than per-film. A single flush routinely carries a hundred
-    /// or more ratings, and dispatching each one separately meant one trackOperation, one
-    /// store fetch, and one modelContext.save() per film — a hundred round trips to the
-    /// context actor for what is one logical unit of work, and a hundred independent rollback
-    /// surfaces that could each fail in isolation. One updateFilms call commits them
-    /// together or not at all.
+    /// Batched rather than per-film. A single flush routinely carries 100 or more ratings,
+    /// and one operation per film would mean 100 round trips to the context actor and 100
+    /// independent rollbacks. One updateFilms call commits them together or not at all.
     ///
     /// The per-film `.film(.updated)` events are still posted individually: every subscriber
     /// (Right Sidebar, Hall of Fame report, open FilmSheet) resolves them by film ID, and a
@@ -2424,7 +2387,9 @@ final class DataCoordinator: Loggable {
         var finalSnapshots: [UUID: FilmSnapshot] = [:]
 
         for update in updates {
-            guard var snapshot = memoryStore.getFilm(update.filmID) else {
+            // A film already updated earlier in this batch is read from the batch, so a
+            // repeated ID builds on its own latest value exactly as the per-film writes did.
+            guard var snapshot = finalSnapshots[update.filmID] ?? memoryStore.getFilm(update.filmID) else {
                 Self.log("WARNING: applyImportedRatingUpdates — film \(update.filmID) not found in MemoryStore")
                 continue
             }
@@ -2433,11 +2398,13 @@ final class DataCoordinator: Loggable {
             }
             guard snapshot.userRating != update.rating else { continue }
             snapshot.userRating = update.rating
-            memoryStore.updateFilm(snapshot)
             finalSnapshots[update.filmID] = snapshot
         }
 
         guard !finalSnapshots.isEmpty else { return }
+        // One batched write: a single cache invalidation and MetadataCache update for the
+        // whole import, rather than one per film.
+        memoryStore.updateFilms(Array(finalSnapshots.values))
 
         let snapshotsToPersist = Array(finalSnapshots.values)
         let rollbackRatings = preRatings.filter { finalSnapshots[$0.key] != nil }
@@ -2452,11 +2419,11 @@ final class DataCoordinator: Loggable {
         // refresh would keep. This matches the behavior of the per-film method this replaced.
         trackOperation(rollback: { [weak self] in
             guard let self else { return }
-            for (filmID, rating) in rollbackRatings {
-                guard var current = self.memoryStore.getFilm(filmID) else { continue }
+            self.memoryStore.updateFilms(rollbackRatings.compactMap { filmID, rating in
+                guard var current = self.memoryStore.getFilm(filmID) else { return nil }
                 current.userRating = rating
-                self.memoryStore.updateFilm(current)
-            }
+                return current
+            })
             // The same per-film events the forward path posts, for the same reason.
             //
             // Without them the rollback is invisible to everything downstream: the forward
@@ -2616,8 +2583,7 @@ final class DataCoordinator: Loggable {
 
         // MemoryStore owns the eligibility rules (unknown film, list full, already ranked)
         // and reports whether anything was actually written. A nil return means no rank
-        // changed, so there is nothing to broadcast, persist, or roll back — the previous
-        // code queued a database write and fired an update event unconditionally.
+        // changed, so there is nothing to broadcast, persist, or roll back.
         guard memoryStore.addToHallOfFame(filmID) != nil,
               let snapshot = memoryStore.getFilm(filmID) else {
             Self.log("addToHallOfFame — no change applied for film \(filmID); skipping persistence")
@@ -2672,12 +2638,8 @@ final class DataCoordinator: Loggable {
     /// Removes one or more films from the Hall of Fame, compacting the surviving ranking and
     /// committing the whole change as a single atomic transaction.
     ///
-    /// Callers used to loop the single-film method over a multi-selection. That issued one
-    /// database transaction per film, each rewriting *every* surviving member (up to 200) even
-    /// when their positions had not moved, and each capturing a rollback baseline taken after
-    /// the previous iteration had already compacted — so a mid-loop failure could not restore a
-    /// coherent ranking. This path captures one baseline, mutates once, and writes only the
-    /// films whose stored position actually changed.
+    /// One transaction for the whole selection: one rollback baseline, one mutation, and writes
+    /// only for the films whose stored position changed.
     func removeFromHallOfFame(_ filmIDs: Set<UUID>) {
         guard !filmIDs.isEmpty else { return }
         Self.log("Removing \(filmIDs.count) film(s) from hall of fame")
@@ -2718,9 +2680,7 @@ final class DataCoordinator: Loggable {
         // a positive position by construction, so presence is sufficient.
         let removedIDs = filmIDs.filter { prePositions[$0] != nil }
 
-        // Persist only genuinely changed films: the removed ones plus any survivor whose
-        // stored position actually shifted. Removing the lowest-ranked member shifts no
-        // survivor at all, which previously still rewrote all 199 of them.
+        // Persist only changed films: the removed ones, plus any survivor whose stored position shifted.
         let changedIDs = Array(removedIDs) + compactedIDs.filter { !removedIDs.contains($0) }
         let snapshotsToPersist = changedIDs.compactMap { memoryStore.getFilm($0) }
 
@@ -2852,9 +2812,7 @@ final class DataCoordinator: Loggable {
         //
         // • baseline mismatch — narrows the write to films whose position actually differs
         //   from the last state committed to the store (which is precisely what prePositions
-        //   holds). A one-step drag near the bottom of a full ranking changes two positions;
-        //   the whole 200-member list was previously rewritten regardless. A film with no
-        //   baseline entry is written, since its stored value cannot be assumed to match.
+        //   holds). A film with no baseline entry is written, since its stored value cannot be assumed to match.
         let snapshots = filmIDs.compactMap { memoryStore.getFilm($0) }
             .filter { $0.hofPosition > 0 && prePositions[$0.id] != $0.hofPosition }
 
@@ -2874,15 +2832,18 @@ final class DataCoordinator: Loggable {
             // Restore each film's hofPosition to the value it held before the debounce
             // sequence began — that is the last state successfully committed to the DB.
             //
-            // One batched call: the previous per-film loop re-sorted the entire film
-            // collection and rescheduled the derived-cache save once per film, up to 200
-            // times for a single failed reorder. No smart list is keyed on hofPosition, so
-            // the forced full smart-list recalculation that used to follow was pure work.
+            // One batched call, so the ordered list is rebuilt once. No smart list is keyed on hofPosition.
             var restore: [UUID: Int] = [:]
             for snapshot in snapshots {
                 restore[snapshot.id] = prePositions[snapshot.id] ?? snapshot.hofPosition
             }
             self.memoryStore.restoreHofPositions(restore)
+            // The same per-film events the forward path posts: they drive the reload that
+            // republishes `films`. Without them the gallery kept the reordered ranks the
+            // store no longer holds.
+            for filmID in restore.keys {
+                AppEventBus.shared.send(.film(.updated(filmID: filmID)))
+            }
             Self.log("Rolled back hall of fame reorder (\(snapshots.count) film(s))")
         }) { [dataManager] in
             // Single atomic transaction for the whole reorder, so every shifted member
@@ -2932,10 +2893,9 @@ final class DataCoordinator: Loggable {
         // order at once. Releases are grouped by film to minimize snapshot re-fetches.
         //
         // Each position is written to the release AND its combo-pack children: a child's
-        // `wishlist` is locked to its parent's (FSTabReleases.syncComboChild), and the rows
+        // `wishlist` is locked to its parent's (FSTabReleases.syncComboChildFields), and the rows
         // arriving here are top-level only (getWishlistReleases). Renumbering the parent
-        // alone left every child holding its old position in memory and in the store, which
-        // the FilmSheet then flagged and converged on each open without ever persisting.
+        // alone left every child at its old position in memory and in the store.
         let grouped = Dictionary(grouping: orderedPairs.enumerated()) { $0.element.filmID }
         for (filmID, indexedPairs) in grouped {
             guard var filmSnapshot = memoryStore.getFilm(filmID) else { continue }
@@ -3045,9 +3005,7 @@ final class DataCoordinator: Loggable {
     /// makes that condition self-healing rather than permanent.
     func cleanupOrphanedAndDuplicateMemberships() async {
         do {
-            // Runs on DataManager's own context queue, so awaiting it here does not hold the
-            // main thread. (The SwiftData build had to await it from a detached task: there
-            // the pass ran on the awaiting thread, ~340 ms on MainActor after every launch.)
+            // Runs on DataManager's own context queue, so awaiting it here does not hold the main thread.
             // Shutdown cancels deferred maintenance; this task is the one canceled, so the
             // pass's checkCancellation throws.
             let (orphans, duplicates) = try await dataManager.cleanupOrphanedAndDuplicateMemberships()
@@ -3150,12 +3108,12 @@ final class DataCoordinator: Loggable {
     // MARK: - Shutdown
 
     /// Signals the coordinator that shutdown is imminent.
-    /// Sets isShuttingDown so that trackOperation() silently discards any new work
+    /// Sets isShuttingDown, so trackOperation() drops (and logs) any new work
     /// enqueued after this point. Must be called before the drain-wait loop so that
     /// the window where new operations could slip in while polling is closed.
     func prepareForShutdown() {
         // Flush any pending Hall of Fame / wishlist reorder BEFORE setting isShuttingDown,
-        // so both can still reach trackOperation — it silently drops work once
+        // so both can still reach trackOperation, which drops new work once
         // isShuttingDown is set.
         flushPendingReorders()
 

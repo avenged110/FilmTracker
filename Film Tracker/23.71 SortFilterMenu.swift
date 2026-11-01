@@ -1,40 +1,30 @@
 // MARK: - SortFilterMenu.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Sort/filter menus that use ViewStateManager as the single source of truth.
+// Sort and filter menus that use ViewStateManager as the single source of truth.
 //
-// This file is the single "master" definition of what the Sort and Filter menus
-// contain, and of what they must know about the view on screen to draw themselves.
+// This file defines what the Sort and Filter menus contain, and what they need to know about the view on
+// screen. Two hosts present each menu: GalleryTitleBar's GallerySortMenu and GalleryFilterMenu, and MenuBar's
+// SortByMenu and FilterItemsMenu. Three things live here, so neither pair can diverge:
 //
-// Two hosts present each menu: GalleryTitleBar's GallerySortMenu/GalleryFilterMenu
-// (embedded directly in the live SwiftUI view hierarchy) and MenuBar's SortByMenu/
-// FilterItemsMenu (bridged into the macOS menu bar via the Commands API). Three things
-// live here so neither pair can diverge:
+//   • The menu contents, meaning the toggles, their labels, and which blocks disable together. These are in
+//     SortMenuContent and FilterMenuContent. Each host supplies only its current value and a persist closure.
+//   • What the menus need to know about the active view, in SortMenuInputs and FilterMenuInputs. They derive it once from
+//     (activeView, activeState, coordinator).
+//   • The mutually exclusive group rules, in FilterToggleLogic.
 //
-//   • WHAT THE MENUS CONTAIN — which toggles exist, how they're labeled, and which
-//     blocks disable together — in SortMenuContent/FilterMenuContent. Each host supplies
-//     only its own current value and a closure describing how to persist a change.
-//   • WHAT THE MENUS NEED TO KNOW about the active view, in SortMenuInputs/
-//     FilterMenuInputs: one derivation from (activeView, activeState, coordinator)
-//     rather than one per host.
-//   • The mutually-exclusive-group semantics, in FilterToggleLogic.
-//
-// What stays per-host is only how each obtains and refreshes those inputs. SortByMenu
-// must mirror them into local @State and resync manually, because NSMenu-backed Commands
-// items don't participate in SwiftUI's observation system. GalleryFilterMenu reads them
-// live. GallerySortMenu also mirrors them, for a different reason spelled out at its own
-// declaration: its inputs include a scan of the film set, and `Menu`'s content is
-// materialized eagerly on every body evaluation.
+// Each host only chooses how it obtains and refreshes those inputs. SortByMenu mirrors them into @State and
+// resyncs them, because NSMenu-backed Commands items do not take part in SwiftUI observation.
+// GalleryFilterMenu reads them live. GallerySortMenu also mirrors them, because its inputs include a scan of
+// the film set, and Menu evaluates its content eagerly.
 
 import SwiftUI
 import AppKit
 
 // MARK: - Filter Menu Blocks
 
-/// Discrete, independently-disable-able groups of related Filter menu items. Each
-/// block is disabled as a whole — for example, disabling `.watched` disables both
-/// the "Watched" and "Unwatched" toggles together, without affecting any other block
-/// (e.g. `.color`).
+/// Groups of related Filter menu items. Each block is disabled as a whole. For example, disabling `.watched`
+/// disables both the Watched and Unwatched toggles, and no other block.
 enum FilterBlock: Sendable {
     case watched
     case color
@@ -45,37 +35,28 @@ enum FilterBlock: Sendable {
 
 // MARK: - Sort Menu Inputs
 
-/// Everything a Sort menu host must know about the view currently on screen, resolved in
-/// one pass from the one place that knows it.
+/// Everything a Sort menu host needs to know about the view on screen, resolved in one pass from one source.
 ///
-/// Both hosts — GallerySortMenu (the gallery toolbar) and SortByMenu (the macOS menu bar)
-/// — need the identical seven values, all derived from the same three sources: the active
-/// ViewIdentifier, the active ViewState, and the DataCoordinator. They used to derive them
-/// separately, one as computed properties and the other as seven hand-refreshed `@State`
-/// mirrors, which is what made SortByMenu's resync order load-bearing (`jumpTargets` is
-/// gated on `showSectionDividers`, so the two had to be refreshed in the right order or
-/// the submenu described the previous view for a pass). Resolved together here, that
-/// ordering is structural rather than remembered, and there is one derivation for the two
-/// hosts to agree on rather than two that happen to agree.
+/// The two hosts, GallerySortMenu and SortByMenu, need the same seven values, all derived from the active
+/// ViewIdentifier, the active ViewState, and the DataCoordinator. Resolving them together makes the order of
+/// updates structural. SortByMenu's manual resync order matters, since `jumpTargets` depends on
+/// `showSectionDividers`.
 ///
-/// A plain value type, so the menu-bar host can mirror the whole thing in a single
-/// `@State` — NSMenu-backed Commands items don't participate in SwiftUI's observation
-/// system, so they must be pushed a value rather than reading one.
+/// It is a plain value type, so the menu-bar host can mirror it in one @State. Commands items do not observe
+/// SwiftUI state, so they need the value pushed to them.
 struct SortMenuInputs: Hashable, Sendable {
-    /// The option the menu checks, or nil for none — see `displayedSortOption`.
+    /// The option the menu checks, or nil for none. See `displayedSortOption`.
     var sortOption: SortOption? = .title
     var sortDirection: SortDirection = .ascending
 
-    /// Individual sort options that should be disabled (but still visible) for this view.
-    /// No option is ever hidden: disabling keeps the menu's shape constant across views, so
-    /// an option the user saw elsewhere is still there, dimmed, rather than gone without
-    /// explanation. The rules live in `disabledSortOptions(smartListType:unwatchedCategory:
-    /// filterOptions:)` below.
+    /// Sort options that are disabled, but still visible, for this view. Options are never hidden, so the
+    /// menu keeps its shape across views. The rules are in
+    /// `disabledSortOptions(smartListType:unwatchedCategory:filterOptions:)`.
     var disabledSortOptions: Set<SortOption> = []
 
     var showSectionDividers: Bool = false
-    /// Whether the Show/Hide pair is fixed for this view rather than the user's to set.
-    /// See ViewStateKey.lockedSectionDividers for the rule and its one subject.
+    /// Whether the Show/Hide pair is fixed for this view rather than the user's to set. See
+    /// ViewStateKey.lockedSectionDividers for the rule and its one subject.
     var sectionDividersLocked: Bool = false
 
     /// The section bands the gallery is currently drawing, in display order.
@@ -83,10 +64,9 @@ struct SortMenuInputs: Hashable, Sendable {
 
     /// Resolves every value above for the view on screen right now.
     ///
-    /// `jumpTargets` comes from the same GallerySectioning.jumpTargets call the galleries'
-    /// own bands come from, so no host can offer a band the gallery is not drawing. It is
-    /// also the one expensive member — a scan of the loaded film set — which is why hosts
-    /// mirror this struct rather than rebuilding it on every body evaluation.
+    /// `jumpTargets` comes from the same GallerySectioning call as the galleries' bands, so no host can offer
+    /// a band that the gallery does not draw. It is also the expensive member, since it scans the loaded
+    /// films, which is why hosts mirror this struct and do not rebuild it on every evaluation.
     @MainActor
     static func current(coordinator: DataCoordinator) -> SortMenuInputs {
         let manager = ViewStateManager.shared
@@ -109,15 +89,11 @@ struct SortMenuInputs: Hashable, Sendable {
                 showSortingSections: state.showSectionDividers))
     }
 
-    /// Whether the sort options and direction pair are locked (SortMenuContent's
-    /// `isDisabled`) for the active view: a fixed-sort view (every Recents tab, "Upcoming
-    /// Releases"), or an empty library. Never the Section Dividers pair or "Jump to
-    /// Section", and never the menu itself — see SortMenuContent.
+    /// Whether the sort options and direction pair are locked for the active view. That happens for a
+    /// fixed-sort view (every Recents tab and Upcoming Releases) or an empty library. The Section Dividers
+    /// pair, Jump to Section, and the menu itself are never locked.
     ///
-    /// Shared by GallerySortMenu's host and the MenuBar's SortByMenu so the two menus lock
-    /// the same items. SortMenuContent being shared kept the items identical, but each host
-    /// used to derive this flag (and its own outer `.disabled`) separately, which is where
-    /// the two drifted apart.
+    /// Both hosts use this, so they lock the same items. Computing it per host is how they drifted.
     @MainActor
     static func optionsLocked(coordinator: DataCoordinator) -> Bool {
         ViewStateManager.shared.activeView.hasFixedSort || coordinator.totalFilmCount == 0
@@ -125,41 +101,30 @@ struct SortMenuInputs: Hashable, Sendable {
 
     /// The option the menu checks for a view whose stored sort is `stored`.
     ///
-    /// Nil — no checkmark — on Recently Come Up for Rotation, the one view whose ordering
-    /// no option describes: it is ordered by rotation eligibility date, and its stored
-    /// `.dateAdded` is a placeholder (see RecentsCategory.sortOption). Checking "Date Added"
-    /// there, as the menu used to, stated an ordering the view does not have.
-    ///
-    /// Nil on "Upcoming Releases" for the same reason: it is ordered by each film's soonest
-    /// upcoming release, and its stored `.title` is a placeholder.
+    /// It is nil on Recently Come Up for Rotation, which no option describes. That view is ordered by
+    /// rotation eligibility date, and its stored `.dateAdded` is a placeholder (see
+    /// RecentsCategory.sortOption). Upcoming Releases is also nil, since its ordering is the soonest upcoming
+    /// release, and its stored `.title` is a placeholder.
     static func displayedSortOption(_ stored: SortOption,
                                     recentsCategory: RecentsCategory?,
                                     smartListType: SmartListType? = nil) -> SortOption? {
         recentsCategory == .recentlyRotated || smartListType == .upcomingReleases ? nil : stored
     }
 
-    /// The sort options that are meaningless in a view, and so render visible-but-locked
-    /// there.
+    /// Sort options that are meaningless in a view. They stay visible but locked.
     ///
-    /// "Date Last Purchased" is meaningful in any view that can hold a purchased film — an
-    /// unpurchased film simply sorts ahead of the purchased ones in ascending order (see
-    /// MetadataCache.comparePurchaseDates). It is disabled only where every film is
-    /// unpurchased by definition: the "Unpurchased" smart list and its 4K / Blu-ray / DVD
-    /// variants, and any view filtered to "Unpurchased". On the "Purchased 4K / Blu-ray /
-    /// DVD" lists it reads that format's purchases only (ViewIdentifier.purchaseFormatScope).
+    /// Date Last Purchased applies to any view that can hold a purchased film. An unpurchased film sorts
+    /// ahead in ascending order (see MetadataCache.comparePurchaseDates). It is disabled only where every
+    /// film is unpurchased: the Unpurchased lists and their variants, and any view filtered to Unpurchased.
+    /// On the Purchased 4K, Blu-ray, and DVD lists it reads only that format's purchases.
     ///
-    /// A view whose chosen sort becomes disabled — Date Last Purchased, then the "Unpurchased"
-    /// filter — is ordered by, and checks, Title until the option is enabled again; the
-    /// choice itself is remembered. See ViewState.effectiveSortOption(in:).
+    /// A disabled sort falls back to Title in ordering and checkmark, but the stored choice is kept. See
+    /// ViewState.effectiveSortOption(in:).
     ///
-    /// "Last Viewed" is meaningless on the "Unwatched" tab: nothing there has ever been
-    /// watched, so every film would sort identically. "Recorded View Count" is disabled
-    /// there for exactly the same reason — every film's viewing count is 0. "Rating" is
-    /// equally meaningless on the "Not Rated" tab, where every film's rating is 0 by
-    /// definition.
+    /// Last Viewed is meaningless on the Unwatched tab, and Recorded View Count is disabled there too, since
+    /// every film is at 0. Rating is meaningless on the Not Rated tab, where every rating is 0.
     ///
-    /// A plain `Set<SortOption>` rather than a wrapper type: the wrapper this replaces
-    /// held exactly this one field and restated `contains` as `isDisabled(_:)`.
+    /// It is a plain Set<SortOption>.
     static func disabledSortOptions(smartListType: SmartListType?,
                                     unwatchedCategory: UnwatchedCategory?,
                                     filterOptions: Set<FilterOption>) -> Set<SortOption> {
@@ -180,9 +145,8 @@ struct SortMenuInputs: Hashable, Sendable {
 
 // MARK: - Filter Menu Inputs
 
-/// Everything a Filter menu host must know about the view currently on screen — the
-/// counterpart to SortMenuInputs above, and resolved the same way and for the same
-/// reasons.
+/// Everything a Filter menu host needs to know about the view on screen. It is the counterpart to
+/// SortMenuInputs.
 struct FilterMenuInputs: Hashable, Sendable {
     var filters: Set<FilterOption> = []
     /// Filter blocks that should be disabled (but still visible) for this view.
@@ -200,18 +164,16 @@ struct FilterMenuInputs: Hashable, Sendable {
                                            unwatchedCategory: activeView.unwatchedCategory))
     }
 
-    /// The blocks that are meaningless for a given view context, and so render
-    /// visible-but-locked there.
+    /// The blocks that are meaningless for a given view context, and so render visible-but-locked there.
     ///
-    /// All three inputs are read off a single ViewIdentifier in `current()` above, through
-    /// ViewIdentifier's own sub-case accessors, rather than one being handed down by a
-    /// host while the other two are read live — which is what the gallery host used to do
-    /// with `smartListType`, giving one call three inputs sourced two different ways.
-    /// Whether the whole Filter menu is disabled for the active view: during initial
-    /// loading, and when the view is empty for a reason filters did not cause. With filters
-    /// active, an empty result is exactly when the menu must stay reachable so the user can
-    /// clear them. Shared by GalleryFilterMenu's host and the MenuBar's FilterItemsMenu, for
-    /// the reason `SortMenuInputs.optionsLocked` gives.
+    /// All three inputs are read off a single ViewIdentifier in `current()` above, through ViewIdentifier's
+    /// own sub-case accessors, rather than one being handed down by a host while the other two are read live
+    /// — which would give one call three inputs sourced
+    /// two different ways. Whether the whole Filter menu is disabled for the active view: during initial
+    /// loading, and when the view is empty for a reason filters did not cause. With filters active, an empty
+    /// result is exactly when the menu must stay reachable so the user can clear them. Shared by
+    /// GalleryFilterMenu's host and the MenuBar's FilterItemsMenu, for the reason
+    /// `SortMenuInputs.optionsLocked` gives.
     @MainActor
     static func menuDisabled(coordinator: DataCoordinator) -> Bool {
         let hasActiveFilters = !ViewStateManager.shared.activeState.filterOptions.isEmpty
@@ -223,18 +185,17 @@ struct FilterMenuInputs: Hashable, Sendable {
                                unwatchedCategory: UnwatchedCategory?) -> Set<FilterBlock> {
         var disabled: Set<FilterBlock> = []
 
-        // Purchased/Unpurchased is meaningless when the view is already scoped to a
-        // purchased or unpurchased smart list, or the "Recently Purchased" recents tab,
-        // where every film is purchased (or unpurchased) by definition.
+        // Purchased and Unpurchased are meaningless in a view already scoped to a purchased or unpurchased
+        // smart list, or in the Recently Purchased tab, where every film is purchased (or unpurchased) by
+        // definition.
         let isViewingPurchasedSmartList = smartListType?.isPurchasedFormat == true
             || smartListType?.isUnpurchasedFormat == true
         if isViewingPurchasedSmartList || recentsCategory == .recentlyPurchased {
             disabled.insert(.purchase)
         }
 
-        // Watched/Unwatched is meaningless on the "Most Recently Viewed" recents tab
-        // (every film is watched by definition) and on the "Unwatched" tab of the
-        // Unwatched view (every film there is, by definition, unwatched already).
+        // Watched and Unwatched are meaningless on the Most Recently Viewed tab, where every film is watched,
+        // and on the Unwatched tab, where every film is unwatched.
         if recentsCategory == .recentlyViewed || unwatchedCategory == .unwatched {
             disabled.insert(.watched)
         }
@@ -245,14 +206,13 @@ struct FilterMenuInputs: Hashable, Sendable {
 
 // MARK: - Filter Toggle Logic
 
-/// Encodes the mutually-exclusive-group semantics shared by every Filter menu host:
-/// selecting one member of a pair (Watched/Unwatched, Color/Black and White,
-/// Purchased/Unpurchased, Complete Data/Incomplete Data) clears its counterpart.
-/// Genre options are multi-select and unaffected by this clearing behavior.
+/// The mutually exclusive group rules shared by every Filter menu host. Picking one member of a pair
+/// (Watched/Unwatched, Color/Black and White, Purchased/Unpurchased, Complete Data/Incomplete Data) clears
+/// its counterpart. Genre is multi-select.
 enum FilterToggleLogic {
-    /// Returns the filter set that results from toggling `filterOption` on or off,
-    /// starting from `currentFilters`. Callers are responsible for persisting the
-    /// result (e.g. via `ViewStateManager.updateFilterOptions`).
+    /// Returns the filter set that results from toggling `filterOption` on or off, starting from
+    /// `currentFilters`. Callers are responsible for persisting the result (e.g. via
+    /// `ViewStateManager.updateFilterOptions`).
     static func applying(_ filterOption: FilterOption, isOn: Bool, to currentFilters: Set<FilterOption>) -> Set<FilterOption> {
         var filters = currentFilters
         if isOn {
@@ -282,29 +242,20 @@ enum FilterToggleLogic {
 
 // MARK: - SortMenuContent (Master Definition)
 
-/// The single, master definition of the Sort menu's contents: the sort-option
-/// toggles and the Ascending/Descending direction toggles. Both GallerySortMenu
-/// (GalleryTitleBar) and SortByMenu (MenuBar) embed this directly inside their own
-/// `Menu { }` so the visual definition and disabling behavior can never diverge
-/// between the two hosts — only how each host sources its current value and
-/// persists a new selection differs, via the closures below.
+/// The master definition of the Sort menu's contents: the sort-option toggles and the Ascending and
+/// Descending toggles. Both GallerySortMenu and SortByMenu embed it, so the look and the disabling cannot
+/// diverge. The hosts differ only in how they read the current value and persist a change, through the
+/// closures below.
 @MainActor
 struct SortMenuContent: View {
-    /// Disables every toggle — used when the menu as a whole shouldn't be interactive
-    /// (e.g. no films loaded, or a view whose sorting is fixed by definition).
+    /// Disables every toggle, for when the menu should not be interactive, such as with no films loaded or a
+    /// view whose sort is fixed.
     ///
-    /// Checkmarks are deliberately NOT suppressed along with interactivity. A view with
-    /// a fixed sort — "Most Recently Viewed" is only what it claims to be when sorted by
-    /// Last Viewed — is still sorted by something, and the reason the options are locked
-    /// is precisely that the answer is already decided. Blanking the checkmark there
-    /// would withhold the one piece of information the menu still exists to convey,
-    /// leaving the user unable to tell how the view is ordered. The item renders
-    /// checked-but-dimmed, which reads correctly as "this is the sort, and you cannot
-    /// change it."
+    /// Checkmarks stay visible. A fixed-sort view is still sorted by something, and the locked checkmark
+    /// tells the user how the view is ordered. It renders checked but dimmed.
     let isDisabled: Bool
-    /// Per-item disabling, layered on top of `isDisabled`. Defaults to no additional
-    /// disabling; callers opt in as needed (typically from
-    /// `SortMenuInputs.disabledSortOptions`).
+    /// Per-item disabling, layered on top of `isDisabled`. It defaults to none, and callers supply it,
+    /// typically from SortMenuInputs.disabledSortOptions.
     var disabledSortOptions: Set<SortOption> = []
 
     /// Nil checks no option (see `SortMenuInputs.displayedSortOption`).
@@ -313,47 +264,35 @@ struct SortMenuContent: View {
     let onSelectSortOption: (SortOption) -> Void
     let onSelectSortDirection: (SortDirection) -> Void
 
-    /// This view's current section-dividers setting, driving the mutually-exclusive
-    /// Show/Hide pair below the direction options.
+    /// The current section-dividers setting, which drives the Show and Hide pair below the direction options.
     let currentShowSectionDividers: Bool
     /// Persists a new section-dividers choice for the host's view.
     let onSelectShowSectionDividers: (Bool) -> Void
-    /// Disables the Show/Hide pair — used for a view whose dividers are fixed by
-    /// definition rather than chosen. Exactly one view is: the Film Queue's unnarrowed
-    /// "All" tab (see ViewStateKey.lockedSectionDividers).
-    ///
-    /// Checkmarks are deliberately NOT suppressed along with interactivity, for the same
-    /// reason they survive `isDisabled` on the sort options above: a fixed setting is
-    /// still a setting, and the checked-but-dimmed "Show" is exactly the statement the
-    /// menu needs to make — the bands are on, and that is not yours to change.
+    /// Disables the Show and Hide pair. That applies to a view whose dividers are fixed, which is only the
+    /// Film Queue's unnarrowed All tab (see ViewStateKey.lockedSectionDividers). Checkmarks stay visible, as
+    /// with the sort options, since the bands are on and not the user's to change.
     var sectionDividersLocked: Bool = false
 
-    /// The section bands currently drawn in the gallery, in display order, for the "Jump to
-    /// Section" submenu. Empty renders no submenu, and no divider above it, at all — which
-    /// covers every case where there are no bands to jump to: this view's section-dividers
-    /// setting off, a sort option with no sectioning rule, or no films loaded.
+    /// The section bands currently drawn in the gallery, in display order, for the Jump to Section submenu.
+    /// The submenu is empty (and not shown) when dividers are off, when the sort has no sectioning rule, or
+    /// when no films are loaded.
     ///
-    /// Supplied by the host rather than computed here because only the host has the
-    /// DataCoordinator — but every host derives it from the same
-    /// GallerySectioning.jumpTargets call the galleries' own bands come from, so the submenu
-    /// cannot list a band the gallery is not drawing.
+    /// The host supplies it, since only the host has the DataCoordinator. Every host uses
+    /// GallerySectioning.jumpTargets, the same call the galleries use for their bands, so the submenu never
+    /// lists a band the gallery is not drawing.
     ///
-    /// Deliberately NOT gated on `isDisabled`. A locked sort menu still describes a real
-    /// gallery with real sections in it, and navigating to one changes nothing about the
-    /// sort — which is exactly why the host is expected to leave the menu itself openable
-    /// and lock only the options above.
+    /// It is not gated on `isDisabled`. A locked sort still has real sections, and jumping to one does not
+    /// change the sort. So the host leaves the menu openable and locks only the options.
     var jumpTargets: [GallerySectionJumpTarget] = []
     var onJumpToSection: ((GallerySectionJumpTarget) -> Void)? = nil
 
     var body: some View {
-        // Sort options — every one, in every view. An option that means nothing here is
-        // disabled through `disabledSortOptions`, never left out, so the menu keeps one
-        // shape and a missing item never has to be explained.
+        // Sort options: every one, in every view. An option that means nothing here is disabled, never
+        // removed, so the menu keeps one shape and no item needs explaining.
         ForEach(SortOption.allCases, id: \.self) { option in
             Toggle(isOn: Binding(
                 get: {
-                    // Reported even while disabled — see `isDisabled`. A locked item can
-                    // still be the selected one, and that is worth showing.
+                    // The checkmark is reported even while disabled, so a locked selected item still shows.
                     currentSortOption == option
                 },
                 set: { isOn in
@@ -372,8 +311,8 @@ struct SortMenuContent: View {
         ForEach([SortDirection.ascending, SortDirection.descending], id: \.self) { direction in
             Toggle(isOn: Binding(
                 get: {
-                    // Reported even while disabled, for the same reason as the sort
-                    // options above: a fixed direction is still a direction.
+                    // Reported even while disabled, as with the sort options. A fixed direction is still a
+                    // direction.
                     currentSortDirection == direction
                 },
                 set: { isOn in
@@ -383,33 +322,26 @@ struct SortMenuContent: View {
                 })) {
                 Text(direction.displayName)
             }
-            // No view has ever needed the direction pair disabled on its own: the
-            // only reason to lock a direction is a fixed sort, and that locks the whole
-            // menu through `isDisabled`. A per-direction counterpart to
-            // `disabledSortOptions` existed here but nothing ever set it.
+            // Nothing disables the direction pair on its own. A fixed sort locks the whole menu through
+            // `isDisabled`. A per-direction counterpart to `disabledSortOptions` existed but was never used.
             .disabled(isDisabled)
         }
 
         Divider()
 
-        // A descriptive header, styled rather than disabled — the same treatment, and for
-        // the same reason, as the "Sort By:" header each host puts above this content.
+        // A descriptive header, styled rather than disabled, as the "Sort By:" header is in each host. A
+        // disabled header would look like another unavailable row.
         Text("Section Dividers:").foregroundStyle(.secondary)
 
-        // Mutually exclusive by construction: each Toggle reports on only when the state
-        // matches it, and acts only on being switched ON. Switching the already-on member
-        // off is not a state the pair can express — the same shape the direction pair
-        // above uses — so there is no way to reach a "neither" reading.
+        // Mutually exclusive by construction. Each Toggle is on only when the state matches it, and it acts
+        // only when switched on. Switching the on member off cannot be expressed, so no "neither" state is
+        // reachable.
         //
-        // ONE VIEW WHERE THE PAIR IS NOT THE USER'S TO SET: the Film Queue's unnarrowed
-        // "All" tab draws its three fixed Up Next / Soon / Later bands unconditionally,
-        // because those describe the view's own structure rather than its ordering (see
-        // GallerySectioning.displayedSectionBreaks). No choice made here could remove them,
-        // so that tab locks the pair ON via `sectionDividersLocked` — which is also what
-        // keeps "Jump to Section" permanently available for those three bands, since that
-        // submenu is gated on the same value. The Queue's three section tabs sort like any
-        // other view once the grouping is narrowed away, and each holds its own ViewState,
-        // so all three leave the pair free and independent of one another.
+        // One view does not let the user choose: the Film Queue's unnarrowed All tab always draws its three
+        // bands, which describe its structure, not its ordering (see
+        // GallerySectioning.displayedSectionBreaks). That tab locks the pair On through
+        // `sectionDividersLocked`, and Jump to Section stays available. The three section tabs sort like any
+        // other view once narrowed, and each keeps its own ViewState, so they are independent.
         ForEach([true, false], id: \.self) { showDividers in
             Toggle(isOn: Binding(
                 get: { currentShowSectionDividers == showDividers },
@@ -421,12 +353,8 @@ struct SortMenuContent: View {
                 Text(showDividers ? "Show" : "Hide")
             }
             .disabled(sectionDividersLocked)
-            // Deliberately NOT gated on `isDisabled`, for the same reason "Jump to
-            // Section" below is not: `isDisabled` means this view's ORDERING is fixed or
-            // there is nothing loaded to order, and neither makes the question of whether
-            // to label the bands that ordering produces any less the user's to answer. A
-            // fixed-sort view still has sections; hiding the control there would strand
-            // whatever the setting already is with no way to change it.
+            // Not gated on `isDisabled`, for the same reason as Jump to Section. A fixed-sort view still has
+            // sections, and hiding the control would leave the current setting with no way to change it.
         }
 
         if !jumpTargets.isEmpty, let onJumpToSection {
@@ -443,22 +371,18 @@ struct SortMenuContent: View {
 
 // MARK: - FilterMenuContent (Master Definition)
 
-/// The single, master definition of the Filter menu's contents: the "None" item and
-/// every filter block (Watched/Unwatched, Color/Black and White, Purchased/
-/// Unpurchased, Complete Data/Incomplete Data, and Genre). Both GalleryFilterMenu
-/// (GalleryTitleBar) and FilterItemsMenu (MenuBar) embed this directly inside their
-/// own `Menu { }` so the visual definition and disabling behavior can never diverge
-/// between the two hosts — only how each host sources its current filter set and
-/// persists a change differs, via the closures below.
+/// The master definition of the Filter menu's contents: the None item and every filter block (Watched, Color,
+/// Purchased, Complete Data, and Genre). GalleryFilterMenu and FilterItemsMenu both embed it, so they cannot
+/// diverge. The hosts differ only in how they read the current set and persist a change, through the closures
+/// below.
 @MainActor
 struct FilterMenuContent: View {
     let currentFilters: Set<FilterOption>
-    /// Disables every toggle and suppresses checkmarks — used when the menu as a
-    /// whole shouldn't be interactive yet (e.g. no films loaded).
+    /// Disables every toggle and suppresses checkmarks, for when the menu should not be interactive yet, such
+    /// as with no films loaded.
     let isDisabled: Bool
-    /// Per-block disabling, layered on top of `isDisabled`. Defaults to no additional
-    /// disabling; callers opt in as needed (typically from
-    /// `FilterMenuInputs.disabledBlocks`).
+    /// Per-block disabling, layered on top of `isDisabled`. It defaults to none, and callers typically supply
+    /// FilterMenuInputs.disabledBlocks.
     var disabledBlocks: Set<FilterBlock> = []
 
     let onClearFilters: () -> Void
@@ -481,10 +405,9 @@ struct FilterMenuContent: View {
         }
         Divider()
 
-        // Watched filters (mutually exclusive). Disabled as a block — rather than
-        // hidden — on the "Most Recently Viewed" tab of RecentsView: every film there
-        // is watched by definition, so this pair would always produce either the full
-        // list (watched) or an empty list (unwatched) and is therefore never useful.
+        // Watched filters, mutually exclusive. Disabled as a block, not hidden, on the Most Recently Viewed
+        // tab, where every film is watched. Either choice would show all films or none, so the pair is never
+        // useful there.
         filterToggle(.watched, label: "Watched", block: .watched)
         filterToggle(.unwatched, label: "Unwatched", block: .watched)
         Divider()
@@ -493,18 +416,15 @@ struct FilterMenuContent: View {
         filterToggle(.color, label: "Color", block: .color)
         filterToggle(.blackAndWhite, label: "Black and White", block: .color)
 
-        // Purchase filters (mutually exclusive). Disabled as a block — rather than
-        // hidden — when viewing any purchased/unpurchased smart list (already scoped
-        // by definition) and on the "Recently Purchased" tab of RecentsView for the
-        // same reason.
+        // Purchase filters, mutually exclusive. Disabled as a block, not hidden, in purchased or unpurchased
+        // smart lists and on the Recently Purchased tab, for the same reason.
         Divider()
         filterToggle(.purchased, label: "Purchased", block: .purchase)
         filterToggle(.unpurchased, label: "Unpurchased", block: .purchase)
 
-        // Data completion filters (mutually exclusive) - only shown if feature is
-        // enabled. This visibility gate is a global user-facing feature toggle
-        // (Settings), not a per-view concern, so it remains a show/hide rather than a
-        // disabled block.
+        // Data completion filters, mutually exclusive. They appear only when the feature is enabled in
+        // Settings. That is a global toggle, not a per-view rule, so it is a show or hide and not a disabled
+        // block.
         if Preferences.showInfoComplete {
             Divider()
             filterToggle(.completeData, label: "Complete Data", block: .dataComplete)
@@ -538,42 +458,25 @@ struct FilterMenuContent: View {
 @MainActor
 struct GallerySortMenu: View {
     let isDisabled: Bool
-    /// Source for the Sort menu's inputs — the "Jump to Section" entries in particular,
-    /// which are a scan of the loaded film set.
+    /// The source of the Sort menu's inputs. The Jump to Section entries, in particular, scan the loaded
+    /// films.
     let coordinator: DataCoordinator
 
-    /// Mirror of everything this menu displays, refreshed at the points below.
+    /// A pushed mirror of everything this menu displays, refreshed at the points below. Unlike SortByMenu,
+    /// this host can observe SwiftUI state, but a live read is still a problem. Menu materializes its content
+    /// on every body evaluation, so every argument is computed even when the menu is closed. Reading
+    /// ViewStateManager.activeState registered this view against searchQuery, which changes on every
+    /// keystroke. That caused a film scan per keystroke for a menu nobody had opened.
     ///
-    /// Deliberately a pushed mirror rather than a live read, even though this host — unlike
-    /// SortByMenu — does participate in SwiftUI's observation system. `Menu`'s content is
-    /// a non-escaping `() -> Content` whose result is materialized immediately, so every
-    /// argument passed to SortMenuContent is evaluated whenever this body runs, menu open
-    /// or not. Reading `ViewStateManager.activeState` live registered this view against
-    /// that single stored property, which every field of ViewState shares — including
-    /// `searchQuery`, written on each keystroke by `updateSearchQuery`. The result was a
-    /// full film scan for `jumpTargets` per character typed into the search field, for a
-    /// menu nobody had opened. (An earlier comment here and in SortByMenu asserted this
-    /// body was "built only when the user clicks the toolbar button"; it never was.)
+    /// The refresh points are SortByMenu's, plus two that keep the mirror as fresh as a live read:
     ///
-    /// The refresh points are SortByMenu's, plus two that together make this mirror at
-    /// least as fresh as the live read it replaces, without depending on the menu-tracking
-    /// notification to catch anything:
+    ///   • The film count. updateSearchQuery reloads films without a viewStateChanged event, and bulk paths move the count too.
+    ///     Reading coordinator.films.count registers the view against the film set, and it is O(1).
+    ///   • Per-film metadata and release edits, the only way a band boundary moves while the count stays the same. Refreshed a turn
+    ///     after the event, once the edited films are loaded. Additions and deletions are left to the count.
     ///
-    ///   • The film COUNT. `updateSearchQuery` reloads the film set without going through
-    ///     commitActiveStateChange, so it emits no viewStateChanged event to ride — and
-    ///     every bulk path (import, restore, deletion) moves the count too. Reading
-    ///     `coordinator.films.count` in the body is what registers this view against the
-    ///     film set at all; it is O(1), unlike the scan it now gates.
-    ///   • Per-film metadata and release edits, which are the only way a band boundary can
-    ///     move while the count stays put (a film's release year changing its band under a
-    ///     release-year sort). User-paced, so this is not a bulk-operation cost; additions
-    ///     and deletions are deliberately left to the count above rather than double-firing
-    ///     here. Refreshed a turn after the event, once the edited films are loaded.
-    ///
-    /// Everything else — the sort, the direction, the dividers setting and its lock, and
-    /// the per-view disabling — changes only through a ViewStateManager mutator or a view
-    /// switch, and both broadcast viewStateChanged (switchToViewSync fires it on every
-    /// `isViewChange`, prepareSubTabStateHandoff unconditionally).
+    /// The sort, direction, dividers setting, and per-view disabling change only through a ViewStateManager
+    /// mutator or a view switch. Both broadcast viewStateChanged.
     @State private var inputs = SortMenuInputs()
 
     var body: some View {
@@ -594,9 +497,8 @@ struct GallerySortMenu: View {
         .onChange(of: coordinator.films.count) { _, _ in refreshInputs() }
         .onFilmEvent { event in
             switch event {
-            // One turn later: the event is delivered synchronously, and its sender reloads
-            // the films only after posting it (DataCoordinator.reloadCurrentView), so a
-            // refresh made here would scan the films as they were before the edit.
+            // One turn later. The event is delivered synchronously, but its sender reloads the films only
+            // after posting it, so a refresh here would scan the old films.
             case .updated, .releaseChanged: DispatchQueue.main.async { refreshInputs() }
             case .added, .deleted: break
             }
@@ -605,12 +507,8 @@ struct GallerySortMenu: View {
 
     @ViewBuilder
     private var menuContents: some View {
-        // A descriptive header, not an item — so it is styled rather than disabled.
-        // `.disabled(true)` was redundant (a bare Text in a menu is not selectable to
-        // begin with) and actively misleading once the options below it can be disabled
-        // as a block: the header rendered in the identical gray and read as one more
-        // unavailable row rather than as the label for them. `.secondary` keeps it
-        // distinct from the selectable items without ever matching the disabled ones.
+        // A descriptive header, styled rather than disabled. A bare Text in a menu is already unselectable,
+        // and .disabled would make it look like an unavailable row beside the options it labels.
         Text("Sort By:").foregroundStyle(.secondary)
         SortMenuContent(
             isDisabled: isDisabled,
@@ -627,10 +525,8 @@ struct GallerySortMenu: View {
         )
     }
 
-    /// Every setter above writes through ViewStateManager, whose change emits
-    /// viewStateChanged and so refreshes this mirror on its own — no setter needs to
-    /// realign it by hand the way SortByMenu's do, because this host is re-rendered by
-    /// that event rather than merely notified of it.
+    /// Every setter writes through ViewStateManager, which emits viewStateChanged. That event re-renders this
+    /// host, so no setter needs to refresh the mirror by hand.
     @MainActor
     private func refreshInputs() {
         inputs = SortMenuInputs.current(coordinator: coordinator)
@@ -644,16 +540,11 @@ struct GalleryFilterMenu: View {
 
     var viewStateManager = ViewStateManager.shared
 
-    /// Every input this menu needs, resolved in one call from the active view — including
-    /// the smart-list type, which used to arrive as a parameter from GalleryTitleBar while
-    /// the recents and unwatched categories beside it were read live. GalleryTitleBar is
-    /// constructed as `GalleryTitleBar(viewIdentifier: viewStateManager.activeView)`, so
-    /// the parameter was a hand-carried copy of the value read here anyway; sourcing all
-    /// three the same way leaves nothing for the two spellings to drift between.
+    /// Every input this menu needs, resolved in one call from the active view. All three inputs come from the same ViewIdentifier, so they
+    /// cannot drift apart.
     ///
-    /// Read live rather than mirrored, unlike GallerySortMenu above: nothing here scans
-    /// the film set, so a body evaluation is cheap and staying observation-driven is
-    /// strictly the fresher option.
+    /// It is read live, not mirrored, since nothing here scans the films. A body evaluation is cheap, so the
+    /// observation-driven read is the fresher choice.
     private var inputs: FilterMenuInputs { FilterMenuInputs.current() }
 
     var hasActiveFilters: Bool {
@@ -662,13 +553,8 @@ struct GalleryFilterMenu: View {
 
     var body: some View {
         Menu {
-            // A descriptive header, not an item — the exact counterpart to
-            // GallerySortMenu's "Sort By:" above, and styled the same way and for the
-            // same reasons: a bare Text in a menu is already unselectable, so
-            // `.disabled(true)` would add nothing but the disabled gray, which would make
-            // the header read as one more unavailable row alongside the filter blocks
-            // that genuinely do disable as a block. `.secondary` keeps it distinct from
-            // both the selectable items and the disabled ones.
+            // A descriptive header, styled rather than disabled, as the Sort menu header is. A disabled
+            // header would read as another unavailable row beside the filter blocks that do disable.
             Text("Filter:").foregroundStyle(.secondary)
             let inputs = self.inputs
             FilterMenuContent(
@@ -683,9 +569,9 @@ struct GalleryFilterMenu: View {
                 }
             )
         } label: {
-            // Show the filled badge only when filters are active AND the button is enabled.
-            // Showing the badge on a disabled button is misleading — the user cannot interact
-            // with it, and on initial load the saved filters aren't yet actionable.
+            // The filled badge shows only when filters are active and the button is enabled. A badge on a
+            // disabled button would mislead, because the user cannot interact with it, and the saved filters
+            // are not yet actionable during initial load.
             Image(systemName: !isDisabled && hasActiveFilters ?
                 "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 .font(.system(size: 14))

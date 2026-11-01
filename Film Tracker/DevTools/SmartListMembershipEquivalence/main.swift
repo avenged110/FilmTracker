@@ -2,6 +2,8 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 //
+// Runs the smart-list membership checks: the old targeted and bulk predicates against
+// New.membership, over exhaustive and randomized film snapshots, plus scope and family tests.
 import Foundation
 
 var failures = 0
@@ -136,7 +138,7 @@ for _ in 0..<300_000 {
 print("TEST 3  randomized sweep: \(checked - t3Start) combinations")
 
 // ── TEST 4: scope tables match what the old code updated per path ─────────────
-// The old recalculateReleaseBasedListsForFilm touched exactly these nine lists.
+// The release-based recalculation touches exactly these nine lists.
 let oldReleaseScope: Set<SmartListType> = [
     .purchased, .purchased4K, .purchasedBluray, .purchasedDVD,
     .unpurchased, .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD,

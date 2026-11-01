@@ -17,11 +17,10 @@ extension Character {
     /// True for the ten ASCII digits "0"–"9" and nothing else.
     ///
     /// The one test every digit-only input in the app uses. Not `isNumber`, which is true
-    /// for any Unicode numeric character — "½", "Ⅻ", Arabic-Indic "٣", CJK "三" — all of
-    /// which it let through into fields meant for US-style digits (currency, time codes,
-    /// frame numbers, external IDs), where they then failed to parse or produced broken
-    /// links. The app targets a US, English-language audience; these are the only digits
-    /// it accepts.
+    /// for any Unicode numeric character ("½", "Ⅻ", Arabic-Indic "٣", CJK "三"). Those would
+    /// reach fields meant for US-style digits (currency, time codes, frame numbers, external
+    /// IDs), where they fail to parse or produce broken links. The app targets a US,
+    /// English-language audience, and these are the only digits it accepts.
     var isASCIIDigit: Bool { ("0"..."9").contains(self) }
 }
 
@@ -39,8 +38,7 @@ extension NSEvent {
     ///
     /// CapsLock is a toggle state, not a held modifier. No macOS key equivalent can
     /// include it, and a user with it switched on is not asking for different
-    /// shortcuts — so letting it gate a shortcut only ever produces the bug where
-    /// "the keyboard shortcuts randomly stopped working."
+    /// shortcuts, so letting it gate a shortcut would make shortcuts stop working.
     ///
     /// Use this anywhere an exact comparison against a modifier set is made.
     /// `.contains(…)` tests are already tolerant of extra flags and do not need it.
@@ -87,9 +85,8 @@ final class ClearableNSStepper: NSStepper {
     /// Auto Layout asks each stepper for its intrinsic size on every constraint pass, and
     /// NSStepper answers with a CoreUI metrics query rather than a stored value. The FilmSheet
     /// carries several (Release Date, User Rating, Duration, and more on every release card),
-    /// so the `filmsheet-perf` harness scenario's open loop sampled that query as one of the
-    /// largest AppKit costs in the Details tab's first layout. The answer depends only on
-    /// what the key holds, so it is measured once per key.
+    /// and that query is costly during the Details tab's first layout. The answer depends only
+    /// on the control size and appearance, so it is measured once per key.
     private struct IntrinsicSizeKey: Hashable {
         let controlSize: UInt
         let appearance: NSAppearance.Name
@@ -110,10 +107,9 @@ final class ClearableNSStepper: NSStepper {
         // Only intercept when no intentional modifier keys are held — plain Delete only.
         //
         // `normalizedModifiers` (above) is what makes the isEmpty test honest: it drops
-        // the device-specific hardware bits and, critically, CapsLock — which would
+        // the device-specific hardware bits and, critically, CapsLock, which would
         // otherwise leave this non-empty and silently block Delete-clear for anyone with
-        // CapsLock toggled on. This file's local copy of that reduction was the original
-        // of the shared definition, which KeyboardManager and SettingsSheet now use too.
+        // CapsLock toggled on. KeyboardManager and SettingsSheet use the same reduction.
         if event.keyCode == 51 && event.normalizedModifiers.isEmpty, let onDelete {
             onDelete()
             return  // Event handled — do NOT call super, which would produce the beep.
@@ -130,7 +126,7 @@ final class ClearableNSStepper: NSStepper {
 /// control (the +/− button pair) is bridged here.
 struct ClearableStepperView: NSViewRepresentable {
     /// The caller's live value. Retained as part of the call-site API (and as the
-    /// natural place for a future value-driven behavior), but no longer pushed into
+    /// natural place for a future value-driven behavior), and is not pushed into
     /// the NSStepper: the control's own number is a step delta, not the value.
     @Binding var value: Int
     /// The caller's logical range. Likewise NOT handed to AppKit — every caller wraps
@@ -155,14 +151,12 @@ struct ClearableStepperView: NSViewRepresentable {
         // value in the onIncrement / onDecrement closures, so the NSStepper is used
         // purely as a direction-reporting device — its own number is never displayed.
         //
-        // Handing AppKit the logical range instead is what broke wrapping at a bound.
-        // NSStepper clamps doubleValue to min/max, and with valueWraps == false a click
-        // that cannot change the value may send no action at all — so a Stepper sitting
-        // ON its ceiling (a base-release-year field whose range is capped by a locked
-        // release year, or any single-year range) could not be stepped forward to wrap
-        // around to its floor. The boundary-equality branch below was an attempt to
-        // recover the intent after the fact; with a range the value can never reach,
-        // the action always fires and the direction is always unambiguous.
+        // Handing AppKit the logical range would break wrapping at a bound. NSStepper clamps
+        // doubleValue to min/max, and with valueWraps == false a click that cannot change the
+        // value may send no action at all. A Stepper sitting ON its ceiling (a base-release-year
+        // field capped by a locked release year, or any single-year range) could then not step
+        // forward to wrap to its floor. With a range the value can never reach, the action
+        // always fires and the direction is always unambiguous.
         stepper.minValue  = -1_000_000
         stepper.maxValue  =  1_000_000
         stepper.doubleValue = 0
@@ -183,52 +177,40 @@ struct ClearableStepperView: NSViewRepresentable {
     func updateNSView(_ stepper: ClearableNSStepper, context: Context) {
         // MARK: Re-point the coordinator at the CURRENT representable
         //
-        // This is the first thing the method does, and it is not bookkeeping — it is what
-        // makes every other value here reachable from the click handler.
+        // This assignment is required for every other value here to be current when a click
+        // arrives.
         //
         // `makeCoordinator()` captures the representable struct as it existed when the
         // NSView was first created, and the coordinator is what AppKit calls back into.
-        // Without this line the coordinator keeps invoking the `onIncrement`/`onDecrement`
-        // closures from that FIRST construction — closures which have captured, by value,
-        // the `yearRange` and the `@Binding`s of whatever the parent view was showing at
-        // the time. Everything downstream of a click therefore froze at first mount:
-        //
-        //   • the wrap bounds. A release card's base-year Stepper caps its range at the
-        //     release year, and a merged combo pack re-points ONE card at
-        //     a different release (a 4K parent, floor 2016, and its bundled Blu-ray, floor
-        //     2006) without rebuilding the view tree. The stale closure kept applying the
-        //     range it was born with, which is why a bundled Blu-ray's base-release-year
-        //     Stepper refused to go below the 4K parent's floor.
-        //   • the bindings. `hasValue` and the year binding still addressed the PREVIOUS
-        //     release, so the first click on a swapped-in card activated the other release's
-        //     field: the visible Stepper's own `hasValue` stayed false — it rendered as an
-        //     un-activated placeholder while its number moved — and because
-        //     `enforceReleaseYearOrder` returns early unless BOTH of a release's year flags
-        //     are set, the ordering rule never engaged and a base year could be walked past
-        //     the release year it qualifies.
+        // Without this line, the coordinator keeps invoking the `onIncrement`/`onDecrement`
+        // closures from that first construction. Those closures capture, by value, the
+        // `yearRange` and the `@Binding`s of the view as it was then. The result would be
+        // stale wrap bounds and stale bindings whenever the same Stepper is re-pointed at a
+        // different release. For example, a merged combo pack can point one card at a 4K
+        // parent (floor 2016) and then at its bundled Blu-ray (floor 2006) without rebuilding
+        // the view tree. The stale bindings would then address the previous release's fields,
+        // and `enforceReleaseYearOrder` would not engage.
         //
         // SwiftUI reconstructs the representable on every parent body pass and calls this
-        // method with it, so assigning here keeps the callbacks exactly as current as the
-        // view that declared them.
+        // method with it, so assigning here keeps the callbacks as current as the view that
+        // declared them.
         context.coordinator.parent = self
 
         stepper.onDelete = onDelete
 
         // MARK: Mirror SwiftUI's isEnabled onto the AppKit control
         //
-        // SwiftUI's `.disabled(...)` writes an ENVIRONMENT value. It reaches the SwiftUI views
-        // in this picker — which is why a combo-pack child's date field draws gray — and it does
-        // not reach the NSStepper at all, because nothing was reading it here. So the control
-        // stayed enabled in AppKit: it accepted clicks (stepping a field the card is not allowed
-        // to edit) and, being an enabled NSControl, it stayed a legal Tab stop.
+        // SwiftUI's `.disabled(...)` writes an environment value. It reaches the SwiftUI views
+        // in this picker, such as a combo-pack child's date field, but not an NSStepper, so the
+        // AppKit control must mirror it explicitly. Otherwise it accepts clicks (stepping a field
+        // the card is not allowed to edit) and remains a legal Tab stop.
         //
-        // Both halves of the treatment match DigitTextField's, in this same file, which hit the
-        // identical problem: `isEnabled` for hit-testing and drawing, and `refusesFirstResponder`
-        // as the AppKit-level backstop so the Tab-key responder chain SKIPS the control outright
-        // rather than merely landing on something that will not respond. The second is the one
-        // that matters for keyboard navigation — `isEnabled == false` alone does not always take
-        // a control out of the key view loop, and a dead Tab stop is indistinguishable, to the
-        // person pressing Tab, from focus having vanished.
+        // Both halves of the treatment match DigitTextField's, in this same file: `isEnabled`
+        // for hit-testing and drawing, and `refusesFirstResponder` as the AppKit-level backstop
+        // so the Tab-key responder chain skips the control. The second is the one that matters
+        // for keyboard navigation, since `isEnabled == false` alone does not always take a
+        // control out of the key view loop. A dead Tab stop looks, to the person pressing Tab,
+        // like focus has vanished.
         //
         // Read from `context.environment` rather than an `@Environment` property: a
         // representable has no view body, and this method is called on every SwiftUI update
@@ -334,7 +316,7 @@ struct TimeStepper: View {
                         .frame(width: 18, alignment: .trailing)
                 }
             }
-            // 1 pt tighter a side than the original 8 / 4 / 4, matching CustomDateStepper.
+            // Padding matches CustomDateStepper.
             .padding(.leading, 7)
             .padding(.trailing, 3)
             .padding(.vertical, 3)
@@ -538,7 +520,7 @@ struct DurationStepper: View {
                 }
             }
         }
-        // 1 pt tighter a side than the original 8 / 4 / 4, matching CustomDateStepper.
+        // Padding matches CustomDateStepper.
         .padding(.leading, 7)
         .padding(.trailing, 3)
         .padding(.vertical, 3)
@@ -787,7 +769,7 @@ struct CustomDateStepper: View {
     // Delegates to the shared cache rather than querying Calendar itself.
     //
     // The new-year-boundary guarantee this accessor was written for is unchanged — see
-    // CurrentYear (90_00_GlobalUtilities) — but the query is no longer paid per access.
+    // CurrentYear (90.00 GlobalUtilities), and the query is not paid per access.
     // That matters most for the `year` @State default below, which Swift evaluates on
     // EVERY construction of this view, including the year-only init that overwrites it.
     private static var currentYear: Int { CurrentYear.value }
@@ -1042,29 +1024,22 @@ struct CustomDateStepper: View {
             withAnimation(nil) { isEnabledState = newValue }
         }
         .onChange(of: date) { _, newDate in
-            // Keep the local @State display value in sync when the underlying binding
-            // is updated externally — e.g. syncComboChildFields pushing a new
-            // releaseYear or purchaseDate value onto a combo-pack child card.
+            // Keeps the local @State display in sync when the binding is updated externally,
+            // e.g. syncComboChildFields pushing a new releaseYear or purchaseDate onto a
+            // combo-pack child card. Without this, the year / month / day state would stay
+            // stale until the view is remounted.
             //
-            // Without this, the local @State (year / month / day) retains the value
-            // from its initial onAppear sync and never reflects subsequent external
-            // writes to the binding. The user would see a stale value on the child
-            // card until the view is fully re-mounted.
+            // Guard: in full-date mode, skip this update while the user is actively stepping
+            // a field, so a value being stepped is not overwritten.
             //
-            // Guard: in full-date mode, skip this update when the user is actively
-            // interacting to avoid overwriting a value the user is currently stepping.
-            //
-            // The guard is deliberately NOT applied in year-only mode. There, `date`
-            // is synthesized directly from the caller's Int binding, and every local
-            // step writes straight through to that Int via validateAndUpdateDate()
-            // before this handler can run — so the local @State can never be ahead of
-            // the binding, and an external write is always authoritative. Applying the
-            // guard there would permanently freeze the display of any field the user
-            // has activated (isInteracting latches to true on the activation click and
-            // is only reset when the field is cleared), which would leave a stale year
-            // on screen whenever another field's validation rule corrects this one —
-            // e.g. the mutual release-year / base-release-year ordering rule on a
-            // release card, where stepping one field must visibly move the other.
+            // The guard is not applied in year-only mode. There, `date` is synthesized from the
+            // caller's Int binding, and every local step writes through to that Int via
+            // validateAndUpdateDate() before this handler runs, so an external write is always
+            // authoritative. The guard would freeze the display of any activated field
+            // (isInteracting stays true until the field is cleared), leaving a stale year on
+            // screen when another field's validation rule corrects it. The release-year /
+            // base-release-year ordering rule is one example, where stepping one field must
+            // visibly move the other.
             let cal = Self.calendar
             switch mode {
             case .yearOnly:
@@ -1290,13 +1265,12 @@ struct CustomDateStepper: View {
     /// MARK: Gated on `hasValue` alone
     ///
     /// `isInteracting` is view-local @State and `hasValue` is the committed model flag, so
-    /// the two can separate — and when they do, `hasValue` is the one that is right.
-    /// Requiring BOTH to be false (the previous condition) meant a picker holding a stale
-    /// `isInteracting == true` treated the first click on an UNCOMMITTED field as an
-    /// ordinary step: the value moved while the field was never activated, leaving a
-    /// number on screen that the model considered absent and that no validation rule
-    /// applied to, since every rule that pairs the two year fields is gated on their
-    /// committed flags.
+    /// the two can separate, and when they do, `hasValue` is the one that is right. Testing
+    /// `isInteracting` as well would let a stale `isInteracting == true` treat the first click
+    /// on an UNCOMMITTED field as an ordinary step. The value would move while the field was
+    /// never activated, leaving a number on screen that the model considered absent and that
+    /// no validation rule applied to, since every rule that pairs the two year fields is gated
+    /// on their committed flags.
     ///
     /// The separation is reachable whenever the field is deactivated by something other
     /// than this view — the release card's ordering rule clears an un-orderable base year,
@@ -1345,9 +1319,8 @@ struct CustomDateStepper: View {
     /// day, the day pulled back into a shorter month (February 29 in a year without one
     /// becomes the 28th).
     ///
-    /// The year is read from the binding, not the `year` @State: the external-sync
-    /// observer is suspended once the field has been interacted with, so the @State may
-    /// trail a year the caller has since written.
+    /// The year is read from the binding, the authoritative value, rather than from the
+    /// `year` @State.
     ///
     /// Bounds clamp rather than loop — see `commitActivatedDay`.
     private func activateFromYearOnly() {
@@ -1496,15 +1469,13 @@ struct CustomDateStepper: View {
 
     /// One step of the year Stepper, wrapping at both ends of `yearRange`.
     ///
-    /// The wrap used to be written inline at each of the four call sites as
-    /// `year >= upperBound ? lowerBound : year + 1` and its mirror. That is correct only
-    /// while `year` is already inside the range, and the release card routinely produces a
-    /// year that is not: the base-year Stepper's ceiling moves with the release year that
-    /// caps it, the film's own release year raises the floor under an
-    /// already-stored value when the Details tab is edited, and a restored record can
-    /// carry a year from below a format floor that has since risen. In those states the
-    /// inline form stepped *toward* the range one year at a time from outside it —
-    /// silently, with no wrap — instead of entering it.
+    /// Every year step goes through this function rather than an inline wrap at each call
+    /// site. A bare wrap such as `year >= upperBound ? lowerBound : year + 1` is correct only
+    /// while `year` is already inside the range, and the release card can produce a year that
+    /// is not: the base-year Stepper's ceiling moves with the release year that caps it, the
+    /// film's own release year can raise the floor under a stored value, and a restored record
+    /// can carry a year below a format floor that has since risen. An inline wrap would step
+    /// *toward* the range one year at a time from outside it, with no wrap, instead of entering it.
     ///
     /// Handled here as three cases so the behavior is the same no matter how the bounds
     /// came to be where they are:
@@ -1539,9 +1510,8 @@ struct CustomDateStepper: View {
 
     /// Calculate the number of days in a given month/year (handles leap years).
     ///
-    /// Uses a static lookup table for all twelve months and applies a lightweight
-    /// leap-year formula for February, avoiding the two Calendar.current calls
-    /// (date(from:) + range(of:in:for:)) that were fired on every stepper click.
+    /// Uses a static lookup table for all twelve months and a lightweight leap-year formula
+    /// for February, so no Calendar query runs on each stepper click.
     private func daysInMonth(month: Int, year: Int) -> Int {
         guard month >= 1 && month <= 12 else { return 31 }
         // February: apply Gregorian leap-year rule directly.
@@ -1630,8 +1600,8 @@ struct CurrencyInputField: View {
     /// Written only from AppKit's end-editing callback, which is already main-actor
     /// bound. Reads inside these closures resolve through the @State property wrapper's
     /// storage box rather than the captured view snapshot, so they always observe the
-    /// current value — the same mechanism the pre-existing `dollars.isEmpty` check
-    /// below already depends on. Each CurrencyInputField owns its own copy, so the
+    /// current value. The `dollars.isEmpty` check below depends on the same mechanism.
+    /// Each CurrencyInputField owns its own copy, so the
     /// three fields on a ReleaseCard cannot contaminate one another.
     @State private var pendingTabFromDollars = false
 
@@ -1768,17 +1738,12 @@ struct CurrencyInputField: View {
 /// this field's own field editor is active, absorbing AppKit's cursor-space
 /// reservation for both cases without visible overdraw.
 ///
-/// Two things that didn't work, worth recording: gating the extension on
-/// `isHighlighted` (assumed to reflect field-editor activity) never fired, since that
-/// flag reflects cell-highlighted state for buttons/selected table rows, not
-/// first-responder/editing state on a standalone `NSTextField`. Applying the
-/// extension unconditionally stopped the on-focus shift but broke horizontal
-/// centering while unfocused, since the same 2 pt shifts a right-aligned glyph
-/// regardless of whether AppKit is actually reserving cursor space.
-///
-/// The correct signal is `NSTextField.currentEditor() != nil` on the cell's
-/// `controlView` — non-nil only while that exact field is being edited — which
-/// restores centering while unfocused and eliminates the shift while editing.
+/// The extension is gated on `NSTextField.currentEditor() != nil` on the cell's
+/// `controlView`, which is non-nil only while that exact field is being edited. Gating on
+/// `isHighlighted` does not work, because that flag tracks cell-highlighted state for buttons
+/// and selected table rows, not editing state on a standalone `NSTextField`. Applying the
+/// extension unconditionally would also shift a right-aligned glyph while the field is
+/// unfocused, which breaks its centering.
 ///
 /// Only `drawingRect` is overridden — all drawing, editing geometry (`editingRect`,
 /// `titleRect`) and focus-ring behavior remain untouched, preserving the native chrome.
@@ -1851,7 +1816,7 @@ final class DigitField: NSTextField, Loggable {
 // MARK: - Digit-Only NSTextField bridge
 //
 // Internal rather than fileprivate: the FilmSheet Notes tab's frames table
-// (30_40_FSFramesList.swift) collects validated frame numbers and time codes
+// (30.40 FSFramesList.swift) collects validated frame numbers and time codes
 // through this same bridge when Preferences.strictFramesTableChecking is on.
 // Sharing the control is the point — a second copy of the formatter intercept,
 // the field-editor guard, and the Tab-exit detection below would be two
@@ -1911,7 +1876,7 @@ struct DigitTextField: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    /// The caller's placeholder, or the historical default of `maxLength` zeros.
+    /// The caller's placeholder, or the default of `maxLength` zeros.
     private var resolvedPlaceholder: String {
         placeholder ?? String(repeating: "0", count: maxLength)
     }
@@ -1937,23 +1902,18 @@ struct DigitTextField: NSViewRepresentable {
             cell.bezelStyle     = .roundedBezel
             cell.isEditable     = true
             cell.isSelectable   = true
-            // NOT scrollable — this is the placeholder fix, so it gets the long comment.
+            // NOT scrollable. This is the placeholder fix.
             //
-            // A scrollable cell hands the window's shared field editor over as a
-            // horizontally resizable NSTextView, whose frame is only reconciled with the
-            // cell's rect lazily, at its next layout. Logged against the real library
-            // (2026-09-19): one run-loop turn after a cost field took focus its editor was
-            // 57, 90 or 92 pt wide inside a 29 pt clip, and 29 pt again 100 ms later. A
-            // right-aligned placeholder is drawn at the editor's trailing edge, so for that
-            // first frame it sat 28–63 pt to the right of the visible interior — partly or
-            // wholly clipped, by an amount that depended on whatever the editor had been
-            // doing before, which is the "random" shift reported against the first
-            // currency field of a freshly purchased card since the fields were introduced.
-            // A natural-aligned placeholder sits at the leading edge, which a stale width
-            // never moves; that is why the cents field beside it was never affected.
+            // A scrollable cell hands the window's shared field editor over as a horizontally
+            // resizable NSTextView, whose frame is reconciled with the cell's rect only lazily,
+            // at its next layout. Until then the editor can have a stale width, and a
+            // right-aligned placeholder is drawn at the editor's trailing edge, so on the first
+            // frame of focus it can sit outside the visible interior and be partly clipped. A
+            // natural-aligned placeholder sits at the leading edge, which a stale width does not
+            // move, so the cents field is unaffected.
             //
-            // With the cell not scrollable the editor is not horizontally resizable and
-            // its width tracks the clip's, so there is no stale width to draw against.
+            // With the cell not scrollable the editor is not horizontally resizable and its
+            // width tracks the clip's, so there is no stale width to draw against.
             // Nothing is lost: the formatter caps the field at `maxLength` digits, which
             // fit the interior with room to spare, so there is never anything to scroll
             // to. Natural-aligned fields keep `isScrollable` (set below) because the
@@ -2029,9 +1989,7 @@ struct DigitTextField: NSViewRepresentable {
         // happens after the field loses focus, so the guard never suppresses a
         // legitimate external update.
         //
-        // The field editor's delegate is the NSTextField it is editing — not the field's
-        // cell. This compared against `nsView.cell`, which never matched, so the guard
-        // never engaged and a mid-edit push could reach the live editor after all.
+        // The field editor's delegate is the NSTextField it is editing, not the field's cell.
         let isFieldEditor: Bool
         if let fr = unsafe nsView.window?.firstResponder as? NSTextView,
            fr.isFieldEditor, fr.delegate === nsView {
@@ -2109,7 +2067,7 @@ struct DigitTextField: NSViewRepresentable {
                     guard field.currentEditor() != nil else { return }
                     // On a ReleaseCard the step goes through the card's own key loop, so
                     // it lands where a Tab press would and can never walk into a
-                    // neighboring card (see FilmSheetKeyLoop, 30_01); the loop declines,
+                    // neighboring card (see FilmSheetKeyLoop, 30.01); the loop declines,
                     // moving nothing, for a field that is not on a card. Elsewhere,
                     // `nextValidKeyView` when AppKit has a loop to walk, which is the
                     // ordinary case and lands on the sibling field directly. The
@@ -2237,11 +2195,6 @@ struct DigitTextField: NSViewRepresentable {
 }
 
 // MARK: - Digit-Only Formatter
-/// NSFormatter subclass attached to each DigitTextField.
-/// isPartialStringValid is called by AppKit for every proposed text change — typing,
-/// paste, autocorrect, drag-drop — before it touches storage. Returning false with a
-/// modified partialStringPtr causes AppKit to silently apply the cleaned value instead,
-/// with no visual glitch of any kind.
 // MARK: - Time-Code Text Rules
 /// The punctuation rules for an `##:##:##` time code, in one place.
 ///
@@ -2329,7 +2282,7 @@ enum TimeCodeText {
 /// `DigitOnlyFormatter` here, `ExternalIDFormatter` in 30.10 FSTextHelpers.swift). Their
 /// "object value" is the string itself, so the conversions are identities; a subclass
 /// only overrides `isPartialStringValid`, AppKit's pre-storage intercept, to decide what
-/// may be typed. The three used to carry their own copies of these overrides.
+/// may be typed. Sharing the base keeps the identity conversions in one place.
 class StringFormatter: Formatter {
     override init() { super.init() }
 
@@ -2397,6 +2350,10 @@ private final class TimeCodeFormatter: StringFormatter, @unchecked Sendable {
     }
 }
 
+/// NSFormatter subclass attached to each DigitTextField.
+/// isPartialStringValid is called by AppKit for every proposed text change (typing,
+/// paste, autocorrect, drag-drop) before it touches storage. Returning false with a
+/// modified partialStringPtr causes AppKit to apply the cleaned value instead.
 private final class DigitOnlyFormatter: StringFormatter, @unchecked Sendable {
     let maxLength: Int
 
@@ -2434,19 +2391,12 @@ private final class DigitOnlyFormatter: StringFormatter, @unchecked Sendable {
 // MARK: - Text-Input Focus
 /// The one definition of "is a text-entry control currently holding first responder."
 ///
-/// Three copies of this heuristic previously lived in the app — `KeyboardManager`'s
-/// `isTextInputActive(in:)`, `MenuBar`'s `isTextFieldFocusedInWindow` /
-/// `isTextRelatedClassName`, and an inline block in `SettingsSheet`'s Return-key
-/// monitor — and they had already drifted: the Settings copy recognized only
-/// `TextField`, `TextEditor` and `SearchField`, so a responder that the other two
-/// classified as text (a `…EditableText…` wrapper, or any class matching the generic
-/// `Text` + `Field`/`Editor`/`Input` rule) was invisible to it and Return dismissed the
-/// sheet out from under a live edit.
+/// The one text-input test, shared by `KeyboardManager.isTextInputActive(in:)`,
+/// `MenuBar`'s `isTextFieldFocusedInWindow`, and the Return-key monitor in `SettingsSheet`.
 ///
-/// The three call sites decide different things — whether to consume a shortcut,
-/// whether to enable Cut/Copy/Paste, whether Return dismisses — but they are all asking
-/// the identical question, and they must never disagree about the answer. One definition
-/// is what guarantees that.
+/// The call sites decide different things: whether to consume a shortcut, whether to enable
+/// Cut/Copy/Paste, whether Return dismisses. They all ask the identical question, and they
+/// must never disagree about the answer, so the test lives in one place.
 ///
 /// **Why the type-name test exists at all.** The fast path covers the AppKit classes
 /// directly. What it cannot cover is SwiftUI's own text plumbing: `TextField` and

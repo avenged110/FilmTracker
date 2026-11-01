@@ -33,7 +33,10 @@ final class FSTabMetadata {
     var subtitles: String = "" { didSet { checkForChanges() } }
     var aspectRatio: String = "" { didSet { checkForChanges() } }
     var frameRate: Double = 0.0 { didSet { checkForChanges() } }
-    var color: Bool = false { didSet { checkForChanges() } }
+    // Defaults to true, as Film's own initializer and the metadata importer do: a film
+    // added by hand starts as a color film rather than a black-and-white one. Edit mode
+    // overwrites it with the stored value.
+    var color: Bool = true { didSet { checkForChanges() } }
 
     /// True while "Colorized" or "Black-and-White" is the selected version, in which
     /// case the Color checkbox is locked to the matching value (see digitalVersion's
@@ -73,10 +76,8 @@ final class FSTabMetadata {
 
     /// Whether the iTunes Comments field is shown on this sheet.
     ///
-    /// The field is a read-back of imported iTunes metadata. Its contents are
-    /// parsed during ingestion to seed other fields, after which it serves only
-    /// as a reference display — nothing in the app reads it again — so a film
-    /// that carries none has no reason to show an empty box for it.
+    /// The field holds imported iTunes metadata, kept for reference, so a film that carries
+    /// none has no reason to show an empty box for it.
     ///
     /// **Why this is a snapshot and not a live `!comments.isEmpty`**
     ///
@@ -140,12 +141,12 @@ final class FSTabMetadata {
     /// Snaps an incoming frameRate to the known option within ±0.01 of it, so a stored
     /// 23.976 selects the "23.98" row. A value with no such option is returned UNCHANGED.
     ///
-    /// It used to fall back to 0.0. The metadata importer stores a file's nominal rate to
-    /// two decimals — 119.88, 15.00, 12.00 are all real results — and zeroing those at load
-    /// made the zero the change-detection baseline, so the next save of any unrelated edit
-    /// silently erased the rate. Kept as-is, it reaches SheetPopUpButton, whose
-    /// effectiveItems gives an out-of-vocabulary tag its own row — the policy the Genre,
-    /// Rating, Aspect Ratio and Subtitles pickers already follow.
+    /// A value with no option within the tolerance is returned unchanged, not zeroed. The
+    /// metadata importer stores a file's nominal rate to two decimals (119.88, 15.00, and 12.00
+    /// are all real results). Zeroing those at load would make 0 the change-detection baseline,
+    /// so the next save of any unrelated edit would silently erase the rate. Returned as-is, the
+    /// value reaches SheetPopUpButton, whose effectiveItems gives an out-of-vocabulary tag its
+    /// own row, the policy the Genre, Rating, Aspect Ratio and Subtitles pickers also follow.
     static func normalizeFrameRate(_ value: Double) -> Double {
         guard value != 0.0 else { return 0.0 }
         return frameRateOptions.first { abs($0.value - value) < 0.01 }?.value ?? value
@@ -251,10 +252,9 @@ final class FSTabMetadata {
         //
         // `isRemastered` is the case that matters: it is not a stored field on its
         // own — `collectFilmFields()` persists `computedDigitalSource`, of which the
-        // flag is one input. Comparing the flag separately (as an earlier field-by-
-        // field version did) reported an unsaved change for a toggle made while no
-        // source is selected, a state in which `computedDigitalSource` is unchanged
-        // and saving would write nothing, leaving the sheet claiming edits it had none
+        // flag is one input. Comparing the flag separately would report an unsaved change for a
+        // toggle made while no source is selected. In that state `computedDigitalSource` is
+        // unchanged and a save would write nothing, so the sheet would claim edits it had none
         // of. Comparing the collected value keeps that correct without a special case.
         let changed = collectFilmFields() != orig
 
@@ -328,14 +328,9 @@ struct FSTabMetadataView: View {
 
     @Bindable var viewModel: FSTabMetadata
 
-    // No scroll proxy. It used to be handed to each `FilmSheetListRow` so
-    // that adding an entry could pull an off-screen list into view; that became
-    // obsolete once the "+" control moved to the list's own last row, which
-    // cannot be clicked from outside the viewport, and `ListAddRowRevealer` now
-    // covers the remaining case without an anchor or a proxy. It survived a while
-    // longer as an unread property purely to keep this view's memberwise
-    // initializer shaped like the Details tab's; that is not a reason to carry
-    // plumbing, so it is gone along with the argument at the call site.
+    // No scroll proxy. Adding an entry does not need to pull an off-screen list into view: the
+    // "+" control is each list's own last row, which is inside the viewport when it is clicked,
+    // and `ListAddRowRevealer` covers the case where a commit pushes it down.
 
     // Static: resolved once at type load time; never re-evaluated per-instance
     // or per-render. Pulling from Preferences statics is already free, but
@@ -371,16 +366,14 @@ struct FSTabMetadataView: View {
         }
     }
 
-    // The per-field pluralization table and the top-aligned label helper that
-    // used it are gone: both moved into `FilmSheetListRow`, which now owns
-    // the label as well as the list. Keeping them here meant this body read every
-    // array's `count` to build the labels, which put all eleven of them in this
-    // view's observation set — so committing one entry invalidated the whole tab.
+    // Each list's label is drawn by `FilmSheetListRow`, which owns the label as well as the list.
+    // Reading each array's `count` here to build the labels would put all eleven arrays in this
+    // view's observation set, so committing one entry would invalidate the whole tab.
     //
-    // The bound rows above the lists sit inside `ObservationBoundary` (30_20) for the same
-    // reason: a `$viewModel.field` binding created in this body subscribes it to `field`, so a
-    // Sort Name keystroke, or a Color toggle, re-ran the whole tab — eleven list rows and
-    // all — measured by the `filmsheet-perf` harness scenario.
+    // The bound rows above the lists sit inside `ObservationBoundary` (30.20) for the same
+    // reason: a `$viewModel.field` binding created in this body subscribes it to `field`. The
+    // `filmsheet-perf` harness scenario measures this for a Sort Name keystroke and a Color toggle,
+    // each of which would otherwise re-run the whole tab.
 
     // MARK: - Label helpers
     // Encapsulates the fixed-width, left-aligned, single-line label pattern used by
@@ -390,9 +383,6 @@ struct FSTabMetadataView: View {
     private func label(_ text: String) -> some View {
         FilmSheetFieldLabel(text, width: Self.labelWidth)
     }
-
-    // `scrollAnchor(_:)` likewise moved into `FilmSheetListRow`, which is
-    // the only thing that ever published one.
 
     var body: some View {
         let _ = FilmSheetBodyProbe.hit("metadata")
@@ -416,7 +406,7 @@ struct FSTabMetadataView: View {
         // Every scroll-view-backed field on this tab carries a `renderWave` /
         // `wave`, and they are assigned in document order. Wave 0 is built with
         // the tab's first frame; each subsequent wave lands one display frame
-        // later. See `DeferredFieldContent` (30_20_FSControlHelpers.swift) for why.
+        // later. See `DeferredFieldContent` (30.20 FSControlHelpers.swift) for why.
         //
         // Where the line is drawn, and why it is drawn conservatively: the sheet
         // is 600pt square, leaving this tab a viewport on the order of 460pt. The
@@ -449,11 +439,9 @@ struct FSTabMetadataView: View {
         // with every list above it collapsed. Nothing can be promoted into view
         // by its absence.
 
-        // VStack of HStack rows replaces Grid/GridRow. Both column widths are fixed
-        // constants (labelWidth and .infinity), so Grid's two-pass column-resolution
-        // sweep was doing zero useful negotiation work — confirming values it was
-        // already given on every sheet open. VStack/HStack produces pixel-identical
-        // output with one fewer layout container per row and no column pass.
+        // VStack of HStack rows. Both column widths are fixed constants (labelWidth and
+        // .infinity), so Grid's column negotiation has no work to do, and VStack/HStack
+        // produces the same layout with one fewer layout container per row.
         VStack(alignment: .leading, spacing: rowSpacing) {
             // Sort Name
             ObservationBoundary {
@@ -473,12 +461,12 @@ struct FSTabMetadataView: View {
                     label("Digital Source:")
                     HStack(spacing: 0) {
                         // AppKit pop-ups, as every menu picker in the sheet is — see
-                        // SheetPopUpButton (30_20).
+                        // SheetPopUpButton (30.20).
                         SheetMenuPicker(selection: $viewModel.digitalSource,
                                         items: Self.digitalSourceItems, width: pickerWidth)
                         Spacer().frame(width: 27)
                         // AppKit checkboxes, so they are stops in the sheet's Tab traversal —
-                        // see SheetCheckbox (30_20).
+                        // see SheetCheckbox (30.20).
                         SheetCheckbox(isOn: $viewModel.isRemastered)
                         Spacer().frame(width: Preferences.spacingAfterCheckbox)
                         Text("Remastered Version")
@@ -635,9 +623,8 @@ struct FSTabMetadataView: View {
             // Notes — top-aligned; label offset matches FixedHeightScrollingTextView inset.
             //
             // Deferred on the same terms as the lists above: this field is an
-            // NSTextView inside an NSScrollView, it sits far below the fold on a
-            // 600pt sheet, and it was previously built before the tab's first
-            // frame was shown. `textFieldHeight` is the exact height the real
+            // NSTextView inside an NSScrollView, and it sits far below the fold on a
+            // 600pt sheet. `textFieldHeight` is the exact height the real
             // control takes, so the stand-in reserves the same space and the swap
             // moves nothing.
             HStack(alignment: .top, spacing: colSpacing) {
@@ -657,10 +644,10 @@ struct FSTabMetadataView: View {
             // why, including what a live condition would do to this body's
             // observation set.
             //
-            // Yielding no subview at all — rather than a hidden or zero-height
-            // one — is what makes the enclosing VStack skip the row's `rowSpacing`
-            // along with the row, so the Tags list closes up against Notes with no
-            // gap left where the field used to be.
+            // Yielding no subview at all, rather than a hidden or zero-height
+            // one, is what makes the enclosing VStack skip the row's `rowSpacing`
+            // along with the row, so the Tags list closes up against Notes when the
+            // field is absent.
             if viewModel.displaysComments {
                 HStack(alignment: .top, spacing: colSpacing) {
                     label("iTunes Comments:")

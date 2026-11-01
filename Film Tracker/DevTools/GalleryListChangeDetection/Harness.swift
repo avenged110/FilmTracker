@@ -14,7 +14,7 @@
 //   • Coordinator.rebuildRowModel() + GallerySectioning.displayedSectionBreaks
 //       → the row model itself                             (rebuildRowModel / computeSectionBreaks)
 //
-// Transcribed rather than imported, exactly as the ReleaseCardStateEquivalence and
+// Transcribed rather than imported, as the ReleaseCardStateEquivalence and
 // ReleaseYearOrdering harnesses carry their own models: the shipped code lives inside an
 // NSViewRepresentable Coordinator in an @Observable app target that cannot be built with
 // swiftc alone. Any edit to the originals must be mirrored here — the tests are only

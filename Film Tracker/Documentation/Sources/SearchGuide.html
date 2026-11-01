@@ -577,7 +577,7 @@
     <div class="row"><span class="q">#rating 0</span><span class="d">Films you have not rated</span></div>
     <div class="row"><span class="q">#rating 7-9</span><span class="d">A range: rated 7, 8, or 9, both ends included</span></div>
   </div>
-  <div class="note"><span class="t">Ranges and the hyphen</span><p>A range needs a whole number on <em>both</em> sides of the hyphen: <code>7-9</code>. A hyphen with nothing after it keeps its older meaning for ratings (<code>8-</code> is &ldquo;8 or lower&rdquo;). Ranges are read literally, so <code>#rating 0-3</code> includes unrated films, which the &ldquo;or lower&rdquo; and &ldquo;less than&rdquo; forms deliberately leave out. A range written backwards, such as <code>9-7</code>, matches nothing.</p></div>
+  <div class="note"><span class="t">Ranges and the hyphen</span><p>A range needs a whole number on <em>both</em> sides of the hyphen: <code>7-9</code>. A hyphen with nothing after it keeps its older meaning for ratings (<code>8-</code> is &ldquo;8 or lower&rdquo;). Ranges are read literally, so <code>#rating 0-3</code> includes unrated films, which the &ldquo;or lower&rdquo; and &ldquo;less than&rdquo; forms deliberately leave out. A range written backwards, such as <code>9-7</code>, means the same as <code>7-9</code>.</p></div>
   <div class="tip"><span class="t">Tip</span><p>A number that is not a number (<code>#rating good</code>) returns no films, so if a numeric search comes back empty, check the value for stray letters.</p></div>
 </section>
 
@@ -768,9 +768,13 @@
     <thead><tr><th style="width:2.3in">Type any of</th><th>Matches films with&hellip;</th></tr></thead>
     <tbody>
       <tr><td><code>purchased</code> &nbsp; <code>owned</code></td><td>a release you have purchased</td></tr>
-      <tr><td><code>unpurchased</code> &nbsp; <code>wishlist</code> &nbsp; <code>wanted</code></td><td>a release you have not purchased (a wishlist release)</td></tr>
+      <tr><td><code>unpurchased</code> &nbsp; <code>unowned</code> &nbsp; <code>not owned</code></td><td>a release you have not purchased</td></tr>
+      <tr><td><code>wishlist</code> &nbsp; <code>wanted</code></td><td>a release on your Release Wishlist</td></tr>
     </tbody>
   </table>
+  <div class="note"><span class="t">Unpurchased is per release, not per film</span>
+  <p><code>#release unpurchased</code> (and <code>unowned</code>) finds films with <em>at least one</em> release you have not purchased, so a film you own on Blu-ray that also has an unpurchased 4K release matches. To find films with releases but <em>none</em> purchased, use <code>#is unowned</code> or the Unpurchased smart list (<code>#list unpurchased</code>). Likewise, <code>#release wishlist</code> finds only releases you have marked Wishlisted, not every release you have yet to buy.</p>
+  </div>
 
   <h3>Release date</h3>
   <p>A release&rsquo;s own date, which can be up to a year ahead. These forms are read as dates only when the whole value is one of them, so a distributor&rsquo;s name is never mistaken for a date.</p>
@@ -1042,7 +1046,7 @@
         <tr><td colspan="2" class="small">Anything else finds nothing.</td></tr>
       </tbody></table>
       <h4>Release</h4>
-      <p><code>purchased</code> <code>owned</code> <code>unpurchased</code> <code>wishlist</code> <code>wanted</code> &middot; <code>4k</code> <code>uhd</code> <code>bluray</code> <code>dvd</code> &middot; <code>native 4k</code> <code>upscaled</code> &middot; <code>hdr</code> <code>dolby vision</code> <code>hdr10</code> <code>hdr10+</code> &middot; <code>region a</code> <code>region b</code> <code>region free</code> <code>region 1</code>&ndash;<code>5</code> &middot; <code>imported</code> <code>remastered</code> &middot; <code>combo</code> <code>standalone</code> <code>multi</code> &middot; anything else = distributor name</p>
+      <p><code>purchased</code> <code>owned</code> <code>unpurchased</code> <code>unowned</code> &middot; <code>wishlist</code> <code>wanted</code> &middot; <code>4k</code> <code>uhd</code> <code>bluray</code> <code>dvd</code> &middot; <code>native 4k</code> <code>upscaled</code> &middot; <code>hdr</code> <code>dolby vision</code> <code>hdr10</code> <code>hdr10+</code> &middot; <code>region a</code> <code>region b</code> <code>region free</code> <code>region 1</code>&ndash;<code>5</code> &middot; <code>imported</code> <code>remastered</code> &middot; <code>combo</code> <code>standalone</code> <code>multi</code> &middot; anything else = distributor name</p>
       <h4>Rotation Threshold</h4>
       <table><tbody>
         <tr><td><code>24</code> <code>2</code> <code>2 years</code> <code>24 months</code></td><td>effective value (override or default)</td></tr>

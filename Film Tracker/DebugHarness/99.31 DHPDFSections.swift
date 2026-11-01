@@ -63,8 +63,8 @@ extension DebugHarness {
     /// metric, and fails only on the one thing that is actually a bug: a single synchronous
     /// stretch long enough to trip that indicator.
     ///
-    /// Sized to the real library as of when this was written — roughly 1,400 films, 1,600
-    /// releases and 10,000 viewings — so the numbers mean something.
+    /// Sized to a library of roughly 1,400 films, 1,600 releases and 10,000 viewings, so the
+    /// numbers are comparable to a real library.
     @MainActor
     static func pdfTimingScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "pdf-timing")
@@ -329,8 +329,7 @@ extension DebugHarness {
 
         // The longest date the Viewing Date column can ever be asked to print. September is
         // the longest month name, 30 the widest two-digit day at these figures, and 2044 a
-        // year of four wide digits. The column was first sized against a middling example
-        // and left the real worst case wrapping.
+        // year of four wide digits.
         r.check("fit-longest-viewing-date",
                 fits("September 30, 2044", width: history.columns[4].width, font: bodyFont),
                 "'September 30, 2044' wraps in a \(history.columns[4].width)pt Viewing Date column")
@@ -342,9 +341,7 @@ extension DebugHarness {
                 fits("4444", width: PDFColumnWidth.index, font: indexFont),
                 "a four-figure index wraps in a \(PDFColumnWidth.index)pt column")
 
-        // The widest strings the two reshuffled release columns can hold.
-        // The widest VIDEO string, which is what the column is now sized by — every point
-        // above it went to Notes.
+        // The widest video string, which sizes its column.
         r.check("fit-widest-video",
                 fits("HEVC (Upscaled), Dolby Vision", width: releases.columns[6].width,
                      font: bodyFont),
@@ -709,8 +706,8 @@ extension DebugHarness {
         let datedYears = Set(specRows.map { $0[3].text })
         r.check("dr-release-dates", datedYears == ["2016.03.01 (1977)", "2018", "2019.11.05"],
                 "release date cells read \(datedYears)")
-        // The two widths this column pair was resized to: "Not purchased" and the widest
-        // date each on one line inside the standard padding.
+        // The two widths this column pair must hold: "Not purchased" and the widest date,
+        // each on one line inside the standard padding.
         let geometry = PDFPageGeometry.landscapeLetter
         let face = PDFFonts.font(size: geometry.fontSize, weight: .semibold)
         func fits(_ text: String, column: Int) -> Bool {
@@ -1159,7 +1156,7 @@ extension DebugHarness {
     /// Renders a Viewing History section long enough to wrap panes and pages, so the
     /// two-up layout can be LOOKED at rather than only counted.
     ///
-    /// The corpus above is five films — enough to prove every rule about what a row says,
+    /// The corpus above is eight films — enough to prove every rule about what a row says,
     /// and nowhere near enough to fill a pane. This draws a library-sized one into
     /// `harness-scratch-viewing-history-wide.pdf` and asserts the only things a page count
     /// can tell you: that the wrap happened at all, and that no film was lost in it.

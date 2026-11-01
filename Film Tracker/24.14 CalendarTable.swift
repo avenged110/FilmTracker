@@ -1,8 +1,8 @@
 // MARK: - CalendarTable.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// RightSidebar's modular "Details" tab, module 03.
-// Calendar table displaying viewing history.
+// The Viewing History table in RightSidebar's Details tab (module 03), in compact and detailed
+// forms. Both forms are built from one shared resolution of the viewing entries, which the PDF export also uses.
 
 import SwiftUI
 
@@ -34,10 +34,8 @@ struct CalendarTable: View {
 
 // MARK: - Table Row Models
 
-/// Row model for the standard (compact) viewing history table.
-///
-/// `id` is derived from the stored calendar entry the row was built from rather
-/// than freshly minted per rebuild — see `RowIdentityAllocator` below.
+/// Row model for the compact viewing history table. `id` is derived from the stored entry,
+/// not minted per rebuild; see `RowIdentityAllocator`.
 private struct CalendarRow: Identifiable {
     let id: String
     let date: String
@@ -55,26 +53,15 @@ private struct DetailedCalendarRow: Identifiable {
 
 // MARK: - Row Identity
 
-/// Assigns each row an identity derived from the calendar entry it was built from,
-/// stable across rebuilds.
+/// Gives each row an identity derived from the stored entry, stable across rebuilds.
 ///
-/// **Why not `UUID()`**
+/// A fresh `UUID` per rebuild would give `CustomTable`'s `ForEach` identifiers that matched
+/// nothing on screen, so every row would be recreated instead of updated. Matches
+/// `CombinedListInfo` in ListTable.swift.
 ///
-/// Both row models previously minted a fresh `UUID` per instance, so every rebuild
-/// of the cached array handed `CustomTable`'s `ForEach` a set of identifiers that
-/// matched nothing it was already showing. Adding one viewing date, or the detailed
-/// table's midnight recalculation of its "Time Ago" column, therefore tore down and
-/// recreated every row rather than updating the one or two that actually changed.
-/// Deriving identity from content matches `CombinedListInfo` in ListTable.swift,
-/// which documents the same correction.
-///
-/// The source entry — the raw `"yyyy.MM.dd"` string plus any version code — is the
-/// natural key: it is what the row is a rendering of, and it survives re-sorting.
-/// Duplicate entries would be a data anomaly rather than a normal state, but a
-/// `ForEach` fed duplicate identifiers behaves unpredictably, so repeats are
-/// disambiguated with an occurrence suffix instead of being allowed to collide.
-/// The first occurrence keeps the bare entry, so the common (unique) case produces
-/// exactly the source string.
+/// The entry (the raw `"yyyy.MM.dd"` string plus any version code) survives re-sorting, so it
+/// is the natural key. Duplicates are a data anomaly, but `ForEach` misbehaves with duplicate
+/// identifiers, so repeats get an occurrence suffix. The first occurrence keeps the bare entry.
 private struct RowIdentityAllocator {
     private var occurrences: [String: Int] = [:]
 
@@ -87,18 +74,14 @@ private struct RowIdentityAllocator {
 
 // MARK: - Shared Entry Resolution
 
-/// One viewing-history entry, resolved once for whichever of the two tables is drawing.
+/// One viewing-history entry, resolved once for both tables.
 ///
-/// Both tables render the same set of viewings in the same order with the same "Since
-/// Prior" gaps and the same row identities; they differ only in that the detailed table
-/// adds two further columns derived from fields already carried here. Keeping the common
-/// four on one model is what lets `viewingHistoryEntries(from:)` below be the single
-/// definition of all of it.
-/// Internal rather than private because the PDF stack is a THIRD consumer: the library
-/// export's "Viewing History" section (85.30) lists the same viewings, in the same order,
-/// with the same "since prior" gaps and the same version labels as the sidebar table it is
-/// a paper copy of. A separate derivation there would have been a fourth copy of the rules
-/// this type exists to state once.
+/// Both tables show the same viewings, in the same order, with the same "Since Prior" gaps and
+/// row identities. The detailed table adds two columns derived from fields carried here.
+/// `viewingHistoryEntries(from:)` is the single definition of these rules.
+///
+/// Internal, not private: the PDF's "Viewing History" section (85.30 PDFSections.swift) is a
+/// third consumer. A separate derivation there would be a fourth copy of these rules.
 struct ViewingHistoryEntry {
     /// Content-derived row identity — see `RowIdentityAllocator`.
     let id: String
@@ -115,28 +98,17 @@ struct ViewingHistoryEntry {
     let daysSincePrior: String
 }
 
-/// Resolves a stored `calendarTable` into the ordered, fully-derived rows both viewing
-/// history tables are built from.
+/// Resolves a stored `calendarTable` into the ordered, fully derived rows both tables use.
 ///
-/// This replaces two verbatim copies of the same three rules — parse-and-sort
-/// descending, allocate a stable row identity, and format the gap to the next-older
-/// entry — that sat in `ViewingHistoryTable.updateCachedTableData()` and
-/// `ViewingHistoryDetailedTable.buildTableData(referenceDay:)`. The tables' remaining
-/// builders now do nothing but map these entries onto their own row models, so the two
-/// presentations are structurally incapable of disagreeing about which viewings appear,
-/// in what order, or what gap is printed beside them.
+/// This is the one place that parses and sorts descending, allocates row identities, and
+/// formats the gap to the next-older entry. Both tables only map these entries onto their own
+/// rows, so they cannot disagree about which viewings appear, their order, or the gaps.
 ///
-/// The PDF export's viewing-history section calls this too — see `ViewingHistoryEntry`.
+/// The PDF export calls this too (see `ViewingHistoryEntry`). Unparseable entries are dropped.
 ///
-/// Unparseable entries are dropped, exactly as before — both copies already filtered
-/// them out in their `compactMap` and neither had any way to display one.
-///
-/// The gap is computed from the parsed `Date`s rather than by handing the raw strings
-/// back to `daysBetween(from:to:)`, which would parse both a second and third time. The
-/// arithmetic is that function's own — same calendar, same single `.day` component, same
-/// absolute value — applied to the very Dates it would have recovered. Its nil result
-/// (the old `daysSince = ""` fallback) was unreachable here: every entry that survives
-/// the `compactMap` above parsed successfully, so the re-parse inside it could not fail.
+/// The gap uses the parsed `Date`s, not a second parse of the strings. It uses the same
+/// calendar, `.day` component, and absolute value as the earlier per-table code. Every entry
+/// that survives the `compactMap` parsed, so the day difference is always available.
 func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry] {
     // Sort dates from most to least recent.
     // parseDate handles version codes by stripping them before parsing.
@@ -165,10 +137,8 @@ func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry
             id: identities.identity(for: item.original),
             original: item.original,
             date: item.date,
-            // Formatted from the Date parsed above rather than from the stored string,
-            // which would parse it a second time. Same output — `formatDateString` is this
-            // call after its own parse — and the version code the stored string carries
-            // was already stripped by the parse.
+            // Formatted from the parsed Date to avoid a second parse. `formatDateString` does the
+            // same after its own parse, so the output matches.
             formattedDate: formatDate(item.date),
             daysSincePrior: daysSincePrior)
     }
@@ -180,14 +150,9 @@ struct ViewingHistoryTable: View {
     @Binding var isTableExpanded: Bool
     let calendarTable: [String]
 
-    /// The rows, derived directly from the only input this table has.
-    ///
-    /// Previously an `@State` cache written from `onChange(of: calendarTable)`, which
-    /// meant a new film rendered this table twice — once with the previous film's rows,
-    /// then again once the handler replaced them. Deriving removes that second pass and
-    /// the possibility of the two ever disagreeing. Unlike ViewingHistoryDetailedTable
-    /// below, nothing here depends on the current date, so there is no invalidation to
-    /// arrange: the value is a pure function of `calendarTable`.
+    /// The rows, derived from `calendarTable` on each evaluation. Nothing here depends on the
+    /// current date, so no invalidation is needed. A cache updated from `onChange` would first
+    /// show the previous film's rows, which is why this is derived instead.
     private var tableData: [CalendarRow] {
         viewingHistoryEntries(from: calendarTable).map { entry in
             CalendarRow(id: entry.id,
@@ -235,15 +200,15 @@ struct ViewingHistoryDetailedTable: View {
                 // "Time from Today" column.
                 timeFromToday: Self.formatTimeFromToday(
                     from: calendar.startOfDay(for: entry.date), to: referenceDay),
-                // "Version" column — mirrors ViewingDatesTableContent in FSTabDetails.
+                // "Version" column, matching ViewingDatesTableContent in 30.20 FSControlHelpers.swift.
                 version: extractVersionCode(from: entry.original).displayName)
         }
     }
 
-    // Column widths — fixed to accommodate widest possible readouts.
-    // "Since Prior": same as standard table.
-    // "Time from Today": widest possible value is "99 years, 11 months ago" (19 chars).
-    // "Version": matches ViewingDatesTable in FSTabDetails.
+    // Column widths, fixed to fit the widest readouts.
+    // "Since Prior": 72 pt, 2 pt wider than the standard table's 70 pt.
+    // "Time from Today": the widest readout, "99 years, 11 months ago", is 23 characters.
+    // "Version": matches ViewingDatesTable in 30.20 FSControlHelpers.swift.
     private let dateColWidth: CGFloat = 148
     private let sinceColWidth: CGFloat = 72
     private let timeFromTodayColWidth: CGFloat = 160
@@ -270,11 +235,8 @@ struct ViewingHistoryDetailedTable: View {
 
     // MARK: - Time-from-Today Formatting
 
-    /// Computes a user-friendly string representing how long ago `viewingDay` is relative to `today`.
-    /// Rounding rules:
-    ///   ≥ 1 month  → rounded to nearest month (with year decomposition if applicable)
-    ///   < 1 month  → expressed in weeks
-    ///   < 1 week   → expressed in days
+    /// How long ago `viewingDay` was, relative to `today`: under one week in days, under one
+    /// calendar month in weeks, and otherwise whole months, split into years and months.
     static func formatTimeFromToday(from viewingDay: Date, to today: Date) -> String {
         let calendar = AppCalendar.current
 
@@ -289,8 +251,7 @@ struct ViewingHistoryDetailedTable: View {
             return "\(daysDiff) \(daysDiff == 1 ? "day" : "days") ago"
         }
 
-        // Less than ~1 month (< 30 days) → weeks.
-        // We use calendar components to determine if a full month has elapsed.
+        // Whole calendar months, from the components below.
         let components = calendar.dateComponents([.year, .month, .day], from: viewingDay, to: today)
         let totalMonths = (components.year ?? 0) * 12 + (components.month ?? 0)
 

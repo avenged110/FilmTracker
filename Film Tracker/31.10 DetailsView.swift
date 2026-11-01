@@ -12,13 +12,13 @@ import SwiftUI
 // Dates table in `FSTabDetailsView` (its `ViewingDatesRow`). The switch lives in
 // Preferences.swift with the app's other testing switches; this is the file that reads it.
 //
-// - `false` (default): Behavior is unchanged — the preference governs whether the table
-//   auto-expands when the view loads. `ViewingDatesTable` reads the preference directly
-//   and expands automatically when it is enabled.
+// - `false` (default): The preference governs whether the table auto-expands when the
+//   view loads. `ViewingDatesTable` expands automatically when it is enabled.
 //
-// - `true`: The preference is ignored by this file. `ViewingDatesRow` always passes a
-//   collapsed binding to `ViewingDatesTable`, so the table loads collapsed regardless of
-//   the preference value. The user can still expand the table manually after load.
+// - `true`: The preference is bypassed for this table. `ViewingDatesRow` passes
+//   `disableAutoExpand`, so `ViewingDatesTable` uses its live, initially collapsed state
+//   and loads collapsed regardless of the preference value. The user can still expand the
+//   table manually after load.
 
 
 // MARK: - FSTabDetailsView
@@ -26,13 +26,11 @@ import SwiftUI
 // MARK: Observation boundaries
 //
 // This body reads almost nothing of the view model itself. Every bound row is built inside
-// an `ObservationBoundary` (30_20) or a named row view below, because a `$viewModel.field`
-// binding created HERE subscribes this body to `field`, and @Observable would then re-run
-// it — every row's construction — on each change to any bound field. Measured by the
-// `filmsheet-perf` harness scenario: a Name keystroke, a Release Date step and an Edited
-// toggle each re-ran it, and opening the sheet ran it three times rather than once (the
-// deferred `availableLists` write and the viewing-dates anchor's first measurement were the
-// other two). Now each of those re-evaluates the one row that shows it.
+// an `ObservationBoundary` (30.20) or a named row view below. A `$viewModel.field` binding
+// created here would subscribe this body to `field`, so @Observable would re-run it, and
+// with it every row's construction, on each change to any bound field. The `filmsheet-perf`
+// harness scenario measures this: a Name keystroke, a Release Date step, and an Edited toggle
+// each re-evaluate only the row that shows the field.
 //
 // What the body still reads: `upNextWasFullAtOpen` (fixed for the sheet's life), the
 // `manualExtQuery` preference, and `Preferences.showInfoComplete` — the three conditions that
@@ -50,7 +48,7 @@ struct FSTabDetailsView: View {
     // Layout constants are static: they are process-wide constants drawn from
     // Preferences and never differ between instances. Keeping them static removes
     // them from per-instance allocation and eliminates implicit self captures in
-    // every closure inside body that previously referenced them. Internal to the file so
+    // every closure inside body that references them. Internal to the file so
     // the named rows below share them.
     fileprivate static let pickerWidth          = Preferences.standardPickerWidth
     fileprivate static let labelWidth           = Preferences.filmSheetLabelWidth
@@ -69,9 +67,8 @@ struct FSTabDetailsView: View {
 
     // MARK: - Auto-Add to Queue on Rotation
     // Binding for the row's checkbox. Checking it enables the feature and defaults the
-    // Picker to "Up Next" (0) if no section was previously selected; unchecking it clears
-    // the value back to nil, matching the RotationThresholdPicker's "tag 0 represents nil"
-    // pattern used elsewhere in this file for the same nil-means-unset convention.
+    // Picker to "Up Next" (0) if no section is selected; unchecking it clears
+    // the value back to nil, which means the feature is disabled for this film.
     // Read only from inside the auto-add row's ObservationBoundary.
     private var autoAddToQueueEnabledBinding: Binding<Bool> {
         Binding(
@@ -126,7 +123,7 @@ struct FSTabDetailsView: View {
         // Same scheme as the Metadata and Notes tabs, but with far less to apply
         // it to: this tab's only AppKit scroll-view stacks are `ViewingDatesTable`
         // and the Synopsis text view, and everything else is an ordinary control.
-        // See `DeferredFieldContent` (30_20_FSControlHelpers.swift).
+        // See `DeferredFieldContent` (30.20 FSControlHelpers.swift).
         //
         // `ViewingDatesTable` is NOT deferred, for two independent reasons. It
         // begins around y=334 against a viewport of roughly 460pt, so it is
@@ -147,11 +144,9 @@ struct FSTabDetailsView: View {
         // several of which are sized by wrapped description text rather than by a
         // constant this could reserve without risking a layout shift.
 
-        // VStack of HStack rows replaces Grid/GridRow. Both column widths are fixed
-        // constants (labelWidth and .infinity), so Grid's two-pass column-resolution
-        // sweep was doing zero useful negotiation work — confirming values it was
-        // already given on every sheet open. VStack/HStack produces pixel-identical
-        // output with one fewer layout container per row and no column pass.
+        // VStack of HStack rows. Both column widths are fixed constants (labelWidth and
+        // .infinity), so Grid's column negotiation has no work to do, and VStack/HStack
+        // produces the same layout with one fewer layout container per row.
         VStack(alignment: .leading, spacing: rowSpacing) {
             // Name
             ObservationBoundary {
@@ -186,7 +181,7 @@ struct FSTabDetailsView: View {
                     label("Genre / Rating:")
                     HStack(spacing: 8) {
                         // AppKit pop-ups, as every menu picker in the sheet is — see
-                        // SheetPopUpButton (30_20).
+                        // SheetPopUpButton (30.20).
                         SheetMenuPicker(selection: $viewModel.genre,
                                         items: Self.genreItems, width: pickerWidth)
                         SheetMenuPicker(selection: $viewModel.rating,
@@ -216,7 +211,7 @@ struct FSTabDetailsView: View {
                 // controls, rather than a full row gap.
                 .padding(.top, -(rowSpacing - 4))
             }
-            // Auto-Add to Queue on Rotation — the shared row (30_25); its description sits
+            // Auto-Add to Queue on Rotation — the shared row (30.25); its description sits
             // under the checkbox, styled as the Special Sorting and External IDs descriptions.
             ObservationBoundary {
                 AutoAddToQueueRow(
@@ -301,7 +296,7 @@ struct FSTabDetailsView: View {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Watched:")
                     // AppKit checkboxes rather than SwiftUI Toggles, here and below, so they are
-                    // stops in the sheet's Tab traversal — see SheetCheckbox (30_20).
+                    // stops in the sheet's Tab traversal — see SheetCheckbox (30.20).
                     SheetCheckbox(isOn: $viewModel.watched)
                 }
             }
@@ -315,13 +310,12 @@ struct FSTabDetailsView: View {
             // Hall of Fame
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
-                    // The lockout applies only to films that were NOT Hall of Fame members when
-                    // the sheet opened. A film that was already a member can always be freely
-                    // toggled: unchecking it would reduce the list to 199 on commit, and
-                    // re-checking it just restores the original state — neither action adds a
-                    // new slot. Locking the checkbox the moment the user unchecks an existing
-                    // member (before any commit) was wrong because hallOfFameIsFull still
-                    // reflects the live count, which hasn't changed yet.
+                    // The lockout applies only to films that were not Hall of Fame members when
+                    // the sheet opened. A film that was already a member can always be toggled:
+                    // unchecking it reduces the list by one on commit, and re-checking restores the
+                    // original state. Locking the checkbox as soon as an existing member is
+                    // unchecked, before any commit, would be wrong, because hallOfFameIsFull
+                    // reflects the live count, which an uncommitted uncheck has not changed.
                     let hofDisabled = viewModel.hallOfFameIsFull
                         && !viewModel.inHallOfFame
                         && !viewModel.wasOriginallyInHallOfFame
@@ -391,9 +385,6 @@ struct FSTabDetailsView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The `.task` that used to activate the scroll anchor is gone with the
-        // deferral it performed — see ViewingDatesRow.anchorOffset. Nothing else on this
-        // view needed it.
         .onReceive(AppEventBus.shared.listEvents) { event in
             switch event {
             case .deleted(let deletedListID):
@@ -504,8 +495,8 @@ private struct FilmQueueRow: View {
 // MARK: - Viewing Dates Row
 /// The Viewing Events row: the table, the scroll anchor it publishes, and the shortcut that
 /// scrolls to it and opens its add popover. Its own view so the table's binding, the release
-/// date it floors entries at, and the anchor's measured offset are observed here — the
-/// offset's first measurement used to re-run the whole tab body during the sheet's open.
+/// date it floors entries at, and the anchor's measured offset are observed here rather than
+/// by the tab body.
 private struct ViewingDatesRow: View {
     @Bindable var viewModel: FSTabDetails
     var scrollProxy: FilmSheetScrollProxy?
@@ -526,16 +517,12 @@ private struct ViewingDatesRow: View {
     // Measured y-offset of the Viewing Events row within the "filmSheetScrollContent"
     // coordinate space, published upward through ScrollAnchorPreferenceKey.
     //
-    // Used to be a deferral flag gating a background `GeometryReader`, held out of
-    // the first layout pass because the extra layout node competed with
-    // CoreAnimation's sheet-presentation animation. Both are gone:
-    // `onGeometryChange(for:of:action:)` (macOS 15) computes only the reduced value
-    // and writes here solely when it changes, contributing no layout node ever —
-    // the same first-party substitution made for `HelpPopoverButton`
-    // (90_00_GlobalUtilities.swift) and the imports session card, and the
-    // counterpart to `ScrollActivityObserver` in `ViewingDatesTable` and the
-    // reorderable lists (those only need to know *that* a scroll happened; this
-    // needs the position itself).
+    // Measured with `onGeometryChange(for:of:action:)` (macOS 15). It computes only the
+    // reduced value and writes state only when that value changes, and it adds no layout
+    // node, so it does not compete with the sheet's presentation animation. This is the same
+    // substitution as `HelpPopoverButton` (90.00 GlobalUtilities.swift). It is the counterpart
+    // to `ScrollActivityObserver` in `ViewingDatesTable` and the reorderable lists: those only
+    // need to know that a scroll happened, while this needs the position itself.
     //
     // `nil` until the first measurement lands — the row publishes no entry at all
     // rather than a placeholder zero, since a wrong anchor would scroll the clip
@@ -573,7 +560,7 @@ private struct ViewingDatesRow: View {
         // Report this row's y-offset to FilmSheetScrollProxy via ScrollAnchorPreferenceKey.
         // Reads the row's frame relative to the "filmSheetScrollContent" coordinate space,
         // which is established by FilmSheetTabContent on the outermost content wrapper —
-        // outside the .padding(26) — so the measured y-offset is a true document-relative
+        // outside the .padding(Preferences.sheetContentMargin) — so the measured y-offset is a true document-relative
         // value aligned with what NSScrollView.contentView.scroll(to:) expects.
         //
         // The transform closure captures nothing — the coordinate-space name is a
@@ -637,12 +624,10 @@ private struct SpecialSortingRow: View {
                     // Blacklisting forces the rotation threshold to 60 and disables
                     // the picker; un-blacklisting hands the field back.
                     //
-                    // What it hands back used to be unconditionally `nil` — "Use
-                    // Default" — which discarded whatever override the user had
-                    // deliberately set BEFORE blacklisting. Toggling Blacklisted on
-                    // and straight back off was therefore not a round trip: it
-                    // quietly reset a field the user never touched, on a control they
-                    // could not even reach while it was disabled.
+                    // The value handed back is the one held before blacklisting, not nil ("Use
+                    // Default"). Resetting to nil would discard an override the user set, on a control
+                    // they cannot reach while it is disabled, so a Blacklisted toggle on and straight
+                    // back off would not be a round trip.
                     //
                     // The pre-blacklist value is stashed instead and restored on the
                     // way out. The picker is `.disabled` for the whole blacklisted
@@ -652,7 +637,7 @@ private struct SpecialSortingRow: View {
                     //
                     // A film that arrives ALREADY blacklisted has nothing stashed,
                     // since no transition occurred in this session; un-blacklisting it
-                    // falls back to nil exactly as before. Only in-session transitions
+                    // falls back to nil. Only in-session transitions
                     // are reversible, which is the scope the stash can honestly cover.
                     .onChange(of: viewModel.specialSorting) { oldValue, newValue in
                         let isBlacklisted = newValue.contains(FilmSpecialSorting.blacklisted)
@@ -660,7 +645,7 @@ private struct SpecialSortingRow: View {
                         if isBlacklisted && !wasBlacklisted {
                             thresholdBeforeBlacklist = viewModel.rotationThresholdOverride
                             hasStashedThreshold = true
-                            viewModel.rotationThresholdOverride = 60
+                            viewModel.rotationThresholdOverride = FilmSpecialSorting.blacklistedRotationThreshold
                         } else if wasBlacklisted && !isBlacklisted {
                             viewModel.rotationThresholdOverride =
                                 hasStashedThreshold ? thresholdBeforeBlacklist : nil

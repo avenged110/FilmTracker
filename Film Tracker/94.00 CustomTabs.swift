@@ -50,8 +50,8 @@ struct CustomTabHeader<Tab: CustomTab>: View {
 /// The header's actual layout, equatable on everything except `onTabSelect`.
 ///
 /// Every caller passes a fresh closure on each body pass, and SwiftUI cannot compare
-/// closures, so without this the whole header was re-diffed whenever its parent updated
-/// (for RightSidebar, on every film change) even though nothing it draws had changed.
+/// closures, so without this the whole header would be re-diffed whenever its parent
+/// updated (for RightSidebar, on every film change) even though nothing it draws had changed.
 /// Ignoring the closure is safe because every caller's closure only forwards to a
 /// reference with a stable identity (a coordinator, sheet owner, or view-state manager),
 /// so a retained older closure behaves exactly like the newest one.

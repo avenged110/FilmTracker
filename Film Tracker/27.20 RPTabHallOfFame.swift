@@ -1,7 +1,7 @@
 // MARK: - RPTabHallOfFame.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Contains Hall of Fame report view and related components.
+// The Hall of Fame report: a ranked list of films, with each film's purchase standing and upgrade note. Its rows also feed the PDF export.
 
 import SwiftUI
 
@@ -10,8 +10,7 @@ struct HallOfFameView: View {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
     @State private var films: [HallOfFameFilm] = []
-    /// Bumped by every load and every drag-reorder. The mount path's off-main reconcile
-    /// applies its rows only if neither has happened since it started.
+    /// Bumped by every load and drag-reorder. The mount path's off-main reconcile applies its rows only if neither has happened since.
     @State private var loadGeneration = 0
     @State private var selection: Set<UUID> = []
 
@@ -21,8 +20,7 @@ struct HallOfFameView: View {
         noDataMessage: "Set Hall of Fame positions for films to create your personal ranking."
     )
 
-    /// Rating, then release year. Widths and gaps are the former SwiftUI row's: a 30 pt
-    /// rating with 20 pt trailing padding, then the 60 pt monospaced year.
+    /// Rating, then release year. The rating is 30 pt, plus 20 pt trailing padding. The year is 60 pt, monospaced.
     private static let trailingColumns: [ReportTableColumn<HallOfFameFilm>] = [
         ReportTableColumn(id: "rating", width: 50, trailingPad: 20, content: .rating { $0.userRating }),
         ReportTableColumn(id: "year", width: 60, font: .monospacedSystemFont(ofSize: 12, weight: .regular),
@@ -51,12 +49,8 @@ struct HallOfFameView: View {
         .focusedSceneValue(\.selectedFilmIDs, selectionState.selectedFilmIDs)
         .focusedSceneValue(\.selectedFilmID, selectionState.selectedFilmID)
         .onAppear {
-            // Mount path. Seed from the cache when available so the List renders
-            // instantly with no data work in the mount frame, then reconcile with
-            // a fresh load deferred two run-loop cycles — after the Picker
-            // menu-dismissal fade has been committed (see ReportsState.selectCategory
-            // for the deferral rationale). First-ever visit loads synchronously,
-            // exactly as before, to avoid a placeholder flash.
+            // Mount path. Seed from the cache so the list renders at once, then reconcile with a fresh load two run-loop cycles later,
+            // after the Picker's fade (see ReportsState.selectCategory). The first visit loads synchronously, to avoid a placeholder flash.
             if ReportsState.shared.hasLoadedData(for: .hallOfFame) {
                 films = ReportsState.shared.cachedHallOfFameFilms
                 DispatchQueue.main.async {
@@ -68,41 +62,39 @@ struct HallOfFameView: View {
                 loadHallOfFameFilms()
             }
         }
-        // Listen for film updates to refresh Hall of Fame data in real-time.
-        // This catches changes like films being added/removed from Hall of Fame via FilmSheet.
+        // Refresh on film updates, such as films added to or removed from the Hall of Fame in FilmSheet.
         .onFilmEvent { event in
             switch event {
             case .updated(let filmID):
-                // Check if the updated film affects Hall of Fame.
-                // Use hallOfFameFilms (the canonical UUID list) rather than
-                // dataCoordinator.films, which is the active view's filtered array
-                // and may not contain the film at all when in the Reports view.
-                // Selection cleanup rides on the reload (see pruneSelectionToLiveRows).
+                // Use dataCoordinator.hallOfFameFilms, the canonical UUID list. dataCoordinator.films is the active view's filtered array,
+                // which may not contain the film in Reports. Selection cleanup rides on the reload (see pruneSelectionToLiveRows).
                 if films.contains(where: { $0.id == filmID })
                     || dataCoordinator.hallOfFameFilms.contains(filmID) {
                     loadHallOfFameFilms()
                 }
             case .deleted(let filmIDs):
-                // Reload if any deleted film was in Hall of Fame; the reload prunes the
-                // deleted films out of the selection.
+                // Reload if a deleted film was in the Hall of Fame. The reload prunes it from the selection.
                 if films.contains(where: { filmIDs.contains($0.id) }) {
                     loadHallOfFameFilms()
                 }
-            case .added:
+            case .added(let filmID):
                 // A save never adds a film with a position: a new film the sheet puts in
                 // the Hall of Fame joins through addToHallOfFame, which posts .updated.
-                break
+                // The one film that does arrive ranked is a deletion being rolled back
+                // (its save failed): its position is restored before .added is posted,
+                // and .deleted already dropped its row here, so reload for it.
+                if dataCoordinator.hallOfFameFilms.contains(filmID) {
+                    loadHallOfFameFilms()
+                }
             case .releaseChanged:
-                // No on-screen column reads releases. (The rows' purchase standing does,
-                // but only the PDF prints it, and the export rebuilds its own rows.)
+                // No on-screen column reads releases. The purchase standing does, but only the PDF prints it, and the export rebuilds its rows.
                 break
             }
         }
     }
 
-    /// The mount path's reconciling load, with the row build off the main actor.
-    /// Event-driven reloads stay synchronous: a drag-reorder's reloads run inside the
-    /// table's own move callback and must land in the same pass.
+    /// The mount path's reconciling load, with the row build off the main actor. Event-driven reloads stay synchronous, since a drag-reorder's
+    /// reloads run inside the table's move callback and must land in the same pass.
     private func reconcileHallOfFameFilms() {
         loadGeneration += 1
         let generation = loadGeneration
@@ -110,13 +102,12 @@ struct HallOfFameView: View {
         let ranking = dataCoordinator.hallOfFameFilms
         Task {
             let rebuilt = await Task.detached(priority: .userInitiated) {
-                // The members as getHallOfFameFilms() builds them.
+                // Built the same way getHallOfFameFilms() builds them.
                 HallOfFameFilm.rows(films: ranking.compactMap { filmsMap[$0] })
             }.value
             guard generation == loadGeneration else { return }
-            // Rows built from a library or ranking that has since changed would be stale,
-            // and the change may not have triggered a reload. Fall back to the synchronous
-            // load, which reads both as they are now.
+            // Rows from a library or ranking that has since changed would be stale, and the change may not have triggered a reload.
+            // Fall back to the synchronous load, which reads both as they are now.
             guard dataCoordinator.hallOfFameFilms == ranking,
                   dataCoordinator.getAllFilmsMap() == filmsMap else {
                 loadHallOfFameFilms()
@@ -128,40 +119,27 @@ struct HallOfFameView: View {
 
     private func loadHallOfFameFilms() {
         loadGeneration += 1
-        // Built by HallOfFameFilm.rows, which the whole-library PDF export calls as well,
-        // so the ranking, the purchase standing, and the upgrade note are derived once.
+        // Built by HallOfFameFilm.rows, which the PDF export also uses. The ranking, purchase standing, and upgrade note are derived once.
         applyHallOfFameFilms(HallOfFameFilm.rows(films: dataCoordinator.getHallOfFameFilms()))
     }
 
     private func applyHallOfFameFilms(_ rebuilt: [HallOfFameFilm]) {
-
-        // Assign only on an actual change. A single drag-reorder emits one .film(.updated)
-        // per shifted member, and the .onFilmEvent handler reloads on each of them. Those
-        // events are delivered synchronously (SwiftUI's onReceive), so the array was being
-        // reassigned once per shifted film from inside the List's own onMove callback —
-        // invalidating and rebuilding the whole List mid-drag, even though handleMove had
-        // already applied the identical order locally a moment earlier. @State does not
-        // compare on assignment, so the guard has to be explicit. The mount-path reconciling
-        // load benefits identically.
+        // Assign only on an actual change. A drag-reorder emits one .film(.updated) per shifted member, and each one reloads synchronously.
+        // Reassigning on each would rebuild the List mid-drag, even though handleMove already applied the same order. @State does not compare
+        // on assignment, so the guard is explicit.
         if rebuilt != films {
             films = rebuilt
         }
 
-        // Always called: ReportsState performs its own change detection and additionally
-        // needs the first call in order to mark the category as loaded.
+        // Always called. ReportsState does its own change detection, and it needs the first call to mark the category loaded.
         ReportsState.shared.updateHallOfFameData(rebuilt)
 
         pruneSelectionToLiveRows()
     }
 
-    /// Drops any selected film that no longer has a row, after a reload has replaced
-    /// `films`. ReportsRankedListView maps the change back into SelectionState through
-    /// `handleSelectionChange`, including the clear when nothing is left.
-    ///
-    /// Replaces two per-event cleanups: the removal branch cleared the WHOLE selection when
-    /// any one film left the ranking, selected or not, and the deletion branch wrote
-    /// SelectionState directly as well as through the binding. Deferred one run loop pass
-    /// and re-derived from `films` at that point, as ReleaseWishlistView's prune is.
+    /// Drops any selected film that no longer has a row, after a reload replaces `films`. ReportsRankedListView maps the change into
+    /// SelectionState through `handleSelectionChange`, including the clear when nothing is left. It runs one run-loop pass later, from the
+    /// current `films`, as ReleaseWishlistView's prune does.
     private func pruneSelectionToLiveRows() {
         guard !selection.isEmpty, !selection.isSubset(of: Set(films.map(\.id))) else { return }
         DispatchQueue.main.async {
@@ -193,20 +171,19 @@ struct HallOfFameView: View {
     }
 
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
-        // Handle no selection (cleared).
+        // No selection.
         if newSelection.isEmpty {
             selectionState.clearImmediate()
             return
         }
 
-        // Handle multi-selection.
+        // Multi-selection.
         if newSelection.count > 1 {
             selectionState.select(newSelection)
             return
         }
 
-        // Handle single selection — newSelection.count is exactly 1 at this point,
-        // so newSelection.first is guaranteed non-nil.
+        // Single selection. The count is exactly 1 here, so `first` is non-nil.
         if let selectedFilmID = newSelection.first {
             selectionState.select(selectedFilmID)
         }
@@ -217,12 +194,8 @@ struct HallOfFameView: View {
 
 /// What the user owns of a film, reduced to the single best answer.
 ///
-/// Derived from a film's releases at load time and carried on `HallOfFameFilm` rather than
-/// recomputed by each consumer: the ranking is a property of the film, and two readers
-/// deriving it independently is how two surfaces come to disagree about the same shelf.
-///
-/// The ordering is 4K, then Blu-ray, then DVD — `ReleaseFormat.displayRank` — applied first
-/// to what has been bought and then, failing that, to what merely exists.
+/// It is derived once at load and stored on `HallOfFameFilm`, so every consumer agrees. The ordering is 4K, then Blu-ray, then DVD
+/// (`ReleaseFormat.displayRank`). It applies first to what was bought, then to what merely exists.
 enum HallOfFamePurchase: Equatable, Sendable {
     /// The best format actually owned.
     case purchased(ReleaseFormat)
@@ -238,17 +211,9 @@ enum HallOfFamePurchase: Equatable, Sendable {
         return .unavailable
     }
 
-    /// The best format the user does NOT already own at that tier, or nil when there is
-    /// nothing to upgrade to.
-    ///
-    /// This is what the report's Notes column reports as "<format> available". It answers
-    /// one question for every purchase state at once: a film owned on Blu-ray upgrades to a
-    /// 4K release if one exists, a film owned on DVD upgrades to whichever of 4K or Blu-ray
-    /// is present, a film owned on 4K has nowhere to go, and a film owned in no format at
-    /// all upgrades to the best format that exists for it.
-    ///
-    /// "Strictly better" is `ReleaseFormat.displayRank`, the app's one format ladder — so
-    /// this cannot drift out of step with the ordering every other list sorts by.
+    /// The best format the user does not already own, or nil when there is nothing better. The Notes column reports this as "<format> available".
+    /// A Blu-ray owner upgrades to 4K if one exists. A DVD owner upgrades to 4K or Blu-ray. A 4K owner has nowhere to go. A film owned in no
+    /// format upgrades to the best format available. "Better" uses `ReleaseFormat.displayRank`, the app's one format ladder.
     static func upgrade(for purchase: HallOfFamePurchase,
                         releases: [ReleaseSnapshot]) -> ReleaseFormat? {
         guard let best = best(in: releases) else { return nil }
@@ -260,11 +225,7 @@ enum HallOfFamePurchase: Equatable, Sendable {
         }
     }
 
-    /// The highest-ranked recognized format present, or nil when none is.
-    ///
-    /// An unrecognized format string is skipped rather than ranked last: this value is used
-    /// to NAME a format in the report, and a value this build cannot interpret is not a
-    /// name it can print.
+    /// The highest-ranked recognized format present, or nil if none is. An unrecognized format string is skipped, since this value names a format in the report.
     static func best(in releases: [ReleaseSnapshot]) -> ReleaseFormat? {
         releases
             .compactMap { ReleaseFormat(rawValue: $0.format) }
@@ -289,18 +250,10 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
     /// for a plain theatrical cut, neither of which is worth a line in a report.
     let version: String
 
-    /// The Hall of Fame's rows, in ranking order, from the films the store hands back in
-    /// that order.
+    /// The Hall of Fame's rows, in ranking order. This is the one definition of a row. The view and the PDF export both use it.
     ///
-    /// The single definition of what a Hall of Fame row IS. `HallOfFameView` shows these
-    /// and `LibraryPDFExporter` prints them; the export used to carry its own copy of this
-    /// mapping, which is the kind of duplication that lets one surface start reporting a
-    /// different purchase standing than the other.
-    ///
-    /// `position` is the 1-based index in the given order rather than the stored
-    /// `hofPosition`: the store has already reconciled the ranking, so the array's own
-    /// order is authoritative and a stored gap or duplicate cannot put two rows at the
-    /// same number.
+    /// `position` is the 1-based index in the given order, not the stored `hofPosition`. The store has already reconciled the ranking, so a
+    /// stored gap or duplicate cannot give two rows the same number.
     static func rows(films: [FilmSnapshot]) -> [HallOfFameFilm] {
         films.enumerated().map { index, film in
             let purchase = HallOfFamePurchase.forReleases(film.releases)
@@ -321,12 +274,8 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
 // MARK: - Version Reporting
 
 extension ViewingVersion {
-    /// The version worth REPORTING for a stored `Film.digitalVersion` code.
-    ///
-    /// Empty for an unset field and for `.theatrical`: a report lists what makes a film's
-    /// copy unusual, and the theatrical cut is the default every film is assumed to be
-    /// until something says otherwise. An unrecognized code yields nothing rather than a
-    /// guess.
+    /// The version to report for a stored `Film.digitalVersion` code. It is empty for an unset field and for `.theatrical`, since a report
+    /// lists only unusual cuts. An unrecognized code also yields nothing.
     static func reportableName(forStoredCode code: String) -> String {
         guard let version = ViewingVersion(rawValue: code), version != .theatrical else {
             return ""

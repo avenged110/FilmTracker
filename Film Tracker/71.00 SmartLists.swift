@@ -35,7 +35,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
 
     /// The title and body of the placeholder GalleryView shows when this smart list is
     /// open and empty. Pure per-case copy, so it lives here beside the case it describes
-    /// rather than as an eighteen-arm `switch` in the view: the placeholder builder is
+    /// rather than as an twenty-arm `switch` in the view: the placeholder builder is
     /// then one `StandardPlaceholder` for every list, and adding a smart list is a compile
     /// error here until its copy is written — which the view-side switch could only
     /// achieve by being exhaustive over an enum it does not own.
@@ -107,7 +107,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
     /// The six types that get a sidebar row of their own, in declaration order.
     /// Computed once and cached: both LeftSidebar's "Smart Lists" section and MenuBar's
     /// smart-list menu enumerate this on every body evaluation, and re-running the
-    /// `showsInSidebar` filter across all eighteen cases each time is pure waste.
+    /// `showsInSidebar` filter across all twenty cases each time is pure waste.
     static let sidebarCases: [SmartListType] = allCases.filter { $0.showsInSidebar }
 
     /// Returns true if this list type should appear in the sidebar
@@ -133,10 +133,9 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
     //
     // Each of these asks the same question — "is this type a member of family X?" — and
     // each is answered by `sidebarParent`, the one exhaustive switch below that assigns
-    // every smart list to its family. They used to be four hand-written exhaustive
-    // switches of their own, which meant a newly added smart list had to be spelled out
-    // in five places that all had to agree; now `sidebarParent` is the only place that
-    // has to know, and the compiler still forces it to be updated there.
+    // every smart list to its family. Because `sidebarParent` is the only place that
+    // assigns families, a new smart list needs to be added in one place, and the compiler
+    // forces that switch to be updated.
 
     /// True for "Purchased" and its 4K / Blu-ray / DVD format variants.
     var isPurchasedFormat: Bool { sidebarParent == .purchased }
@@ -169,8 +168,8 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
 
     /// The sidebar row that represents this smart list.
     ///
-    /// Every smart list is reachable from the sidebar, but only the five parents actually
-    /// have a row of their own (`showsInSidebar`); the remaining thirteen are sub-variants
+    /// Every smart list is reachable from the sidebar, but only the six parents actually
+    /// have a row of their own (`showsInSidebar`); the remaining fourteen are sub-variants
     /// selected via a picker inside their parent's view. This maps each type to the row
     /// that must be highlighted while it is displayed, and is the inverse of the
     /// `isRotationVariant` / `isPurchasedFormat` / `isUnpurchasedFormat` /
@@ -205,12 +204,11 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
     /// sub-variants in declaration order. The inverse of `sidebarParent`, and the single
     /// source of truth both for what each gallery sub-variant picker offers and for the
     /// Cmd+<digit> sub-tab order that selects the same variants from the keyboard — so the
-    /// two can no longer disagree, as they could while each spelled its own list out by
-    /// hand. A parent's own family is itself plus its variants; a sub-variant returns the
-    /// same list its parent does.
+    /// two cannot disagree, because both are derived from the same list. A parent's own
+    /// family is itself plus its variants; a sub-variant returns the same list its parent does.
     ///
     /// Cached per parent rather than recomputed: the pickers enumerate it on every body
-    /// evaluation, and re-filtering all eighteen cases each time is pure waste — the same
+    /// evaluation, and re-filtering all twenty cases each time is pure waste — the same
     /// reasoning as `sidebarCases` above.
     var familyVariants: [SmartListType] { Self.familyVariantsByParent[sidebarParent]! }
 
@@ -236,16 +234,8 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
 /// selection behind the picker at the top of the gallery for "Up for Rotation",
 /// "Purchased", "Unpurchased", "Alternate Versions", and "Filtered Library".
 ///
-/// One instance exists per family, keyed by the family's parent SmartListType. Each
-/// family previously had its own hand-written @Observable singleton (PurchasedFormatState,
-/// RotationVariantState, …) *and* its own mirror enum (PurchasedFormat, RotationVariant,
-/// SortingCategory, …) whose cases, raw strings, and ordering duplicated the family's
-/// SmartListTypes exactly and had to be kept in step with them by hand, along with a
-/// per-family `smartListType` mapping in each direction. The SmartListType is the
-/// selection now, so the five families differ only in data — `parent` — and the five
-/// call sites that had to name all five states one after another (GalleryView,
-/// ShowInListNavigation, MenuBar, KeyboardManager, ViewIdentifier.from) each collapse
-/// to a single call that cannot fall out of step with the others.
+    /// One instance exists per family, keyed by the family's parent SmartListType. The five families
+    /// differ only in data (`parent`); the SmartListType is the selection.
 @MainActor
 @Observable
 final class SmartListVariantState {
@@ -323,14 +313,10 @@ final class SmartLists: Loggable {
     private let coordinator: DataCoordinator
     
     /// Every smart list's computed membership, keyed by type. A missing key and an empty
-    /// set mean the same thing (see `ids(_:)`), so nothing has to seed all eighteen keys.
+    /// set mean the same thing (see `ids(_:)`), so nothing has to seed all twenty keys.
     ///
-    /// This was eighteen separate `Set<UUID>` properties, which forced every operation over
-    /// "all the lists" — the bulk apply, the clear, the deletion sweep, the public lookup —
-    /// to spell all eighteen names out again in the same order, and made adding a smart list
-    /// a six-file edit with nothing checking that any of the six lists were complete. Keying
-    /// by `SmartListType` lets each of those become one loop over `allCases`, which is
-    /// exhaustive by construction.
+    /// Keyed by `SmartListType`, so each operation over all the lists is one loop over `allCases`,
+    /// which is exhaustive by construction.
     private(set) var sets: [SmartListType: Set<UUID>] = [:]
 
     /// Reads one list's raw membership. Distinct from the public `filmIDs(for:)`, which
@@ -839,13 +825,8 @@ final class SmartLists: Loggable {
     /// without hopping to @MainActor; it reads only the Sendable value types it is handed
     /// and touches no actor-isolated state.
     ///
-    /// Both the bulk path (`computeSmartListSets`) and the targeted per-film path
-    /// (`applyMembership`) go through here. They previously carried a complete second copy
-    /// of every predicate — a `nonisolated static _isUpForRotation` beside a @MainActor
-    /// `isUpForRotation`, and so on for all seven rules — which the comments on them
-    /// correctly described as having to stay "byte-for-byte equivalent", because a film's
-    /// membership otherwise flips depending on which path last evaluated it. One
-    /// definition removes the obligation rather than restating it.
+    /// Both the bulk path (`computeSmartListSets`) and the targeted per-film path (`applyMembership`)
+    /// go through here, so a film's membership cannot depend on which path last evaluated it.
     ///
     /// `parseDate(from:)` (GlobalUtilities.swift) is a nonisolated global reading
     /// file-scope `DateFormatter`s that are configured once at initialization and never
@@ -994,10 +975,8 @@ final class SmartLists: Loggable {
     /// Builds every smart list's membership in a single pass over `allFilms`. Called
     /// exclusively by `calculateAllLists()`.
     ///
-    /// Previously ran synchronously on @MainActor (~200ms for 1,300 films × 18 predicates).
-    /// Now split into this pure computation stage — `nonisolated`, safe to call from a
-    /// background thread, taking and returning only Sendable values — and the @MainActor
-    /// application stage `applySmartListSets` below.
+    /// Split into a pure computation stage, `nonisolated` and safe to call from a background thread,
+    /// and the @MainActor application stage `applySmartListSets` below.
     nonisolated private static func computeSmartListSets(
         _ allFilms: [FilmSnapshot],
         today: Date
@@ -1124,9 +1103,7 @@ final class SmartLists: Loggable {
     /// Brings `sets` into agreement with `film`'s current membership, for the lists in
     /// `scope`. Lists outside `scope` are left untouched.
     ///
-    /// This replaces eighteen hand-written "was it in? should it be in? insert or remove"
-    /// blocks spread over three methods, each of which restated one predicate that
-    /// `membership(of:today:)` already owns.
+    /// Brings `sets` into agreement with `membership(of:today:)` for each list in `scope`.
     ///
     /// Iterates `allCases` rather than `scope` so the visiting order is the enum's
     /// declaration order, which puts "Up for Rotation" — the only list whose changes have

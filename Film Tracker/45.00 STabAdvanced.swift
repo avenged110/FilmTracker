@@ -3,11 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // FilmTracker.app settings window: "Advanced" tab.
 //
-// Rows are built on SettingsKit's row factory (SettingsRow / SettingsDescribedToggle /
-// SettingsControlStrip) and the Debug Logging block is the kit's SettingsLoggingSection,
-// so this tab lays out and behaves the same as the corresponding tab in every sibling
-// project. The section's own LogFileMonitor watches the log directory and gates the
-// Reveal/Clear buttons, replacing the one-second polling view model that stood here.
+// Rows are built on SettingsKit's row factory (SettingsRow / SettingsDescribedToggle / SettingsControlStrip), and the
+// Debug Logging block is the kit's SettingsLoggingSection. The section's own LogFileMonitor watches the log directory
+// and gates the Reveal and Clear buttons.
 
 import SwiftUI
 
@@ -28,13 +26,8 @@ struct AdvancedSettingsView: View, Loggable {
     @State private var showResetIgnoredPairsAlert = false
 
     var body: some View {
-        // SettingsPage with no padding: the inset is applied at the call site in
-        // SettingsSheet, which also supplies the scroll container. This tab outgrew the
-        // sheet's height, so it moved into DataCoordinatorScrollView alongside the General
-        // tab; the `maxHeight: .infinity` that used to pin a non-scrolling tab to the top of
-        // SettingsSheet's centered ZStack went with it, since a scroll view's content is
-        // top-anchored by nature and stretching it to infinity would give the scroll view
-        // nothing to scroll.
+        // SettingsPage with no padding: SettingsSheet applies the inset and supplies the scroll container. A scroll
+        // view's content is top-anchored, so this page takes its natural height rather than filling the sheet.
         SettingsPage(padding: 0) {
             SettingsRow("Show \"Complete Data\" components",
                         description: "Manually flag films as being complete and filter the gallery using this trait.",
@@ -82,6 +75,7 @@ struct AdvancedSettingsView: View, Loggable {
             // through the setter is what routes the "loggingEnabled set to …" log line
             // through Preferences' deduplicated write.
             SettingsLoggingSection(loggingEnabledKey: Preferences.loggingEnabledKey,
+                                   store: Preferences.store,
                                    title: "Debug logging") { newValue in
                 Preferences.loggingEnabled = newValue
                 AppEventBus.shared.send(.view(.preferencesChanged)) }

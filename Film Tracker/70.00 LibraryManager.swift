@@ -56,7 +56,12 @@ struct FilmManager: Loggable {
         if folderURL == nil {
             log("WARNING: posterImagesFolderURL not available, poster file cleanup will be skipped")
         }
-        await coordinator.deleteFilms(withIDs: filmIDs) {
+        await coordinator.deleteFilms(withIDs: filmIDs) { [weak coordinator] in
+            // Never delete artwork a surviving film still points at. The app always gives a
+            // film its own poster UID, but a hand-edited or malformed backup can restore two
+            // films sharing one, and deleting either would strip the other's poster.
+            let stillUsed = Set(coordinator?.getAllPosterUIDs() ?? [])
+            let posterUIDsToClean = posterUIDsToClean.filter { !stillUsed.contains($0) }
             guard !posterUIDsToClean.isEmpty else { return }
 
             log("Removing \(posterUIDsToClean.count) posters from cache...")
@@ -64,10 +69,8 @@ struct FilmManager: Loggable {
             log("Posters removed from cache")
 
             guard let folderURL else { return }
-            // Detached so the filesystem work never runs on the MainActor. Deleting a
-            // large multi-selection previously stalled the UI for up to five synchronous
-            // FileManager calls per film; nothing here touches main-actor state, so the
-            // hop costs nothing and removes the stall entirely.
+            // Detached so the filesystem work never runs on the MainActor. Nothing here touches
+            // main-actor state, so a large multi-selection delete does not block the UI.
             Task.detached(priority: .utility) {
                 Self.cleanupPosterFiles(posterUIDsToClean, in: folderURL)
             }
@@ -220,15 +223,6 @@ struct FilmManager: Loggable {
 final class ListManager: Loggable {
     nonisolated static let logTag = "[ListManager]"
     
-    // NOTE: `getListInfo(for:coordinator:)` and `getListInfos(for:coordinator:)` used to
-    // live here. Both built a ListInfo — including an O(n) `filmIDs.count` — purely to
-    // hand back one or two fields their callers actually read. The bulk variant's only
-    // caller (the Right Sidebar's List Membership table) now reads
-    // `DataCoordinator.userLists(forFilm:)`, which returns the same lists already in the
-    // canonical order it had to re-derive; the single variant's only caller
-    // (ListManagerSheet, below) wanted nothing but the name. ListInfo itself remains —
-    // it is the sidebar's row model, and there `filmCount` genuinely drives the row's
-    // contextual-menu enablement.
 
     // MARK: - Create Operations
     
@@ -280,11 +274,8 @@ final class ListManager: Loggable {
     ///
     /// The requested name is uniquified exactly as `createList` uniquifies a new one: two
     /// user-generated lists may not share a name, so renaming onto an existing one quietly
-    /// becomes "Name 1", "Name 2", and so on. Renaming was previously the one path that
-    /// allowed a collision, which meant a duplicate name could only ever be produced by a
-    /// rename — and once produced, the two lists were genuinely indistinguishable in every
-    /// surface that shows a list by name: both "Add to List" menus, "Show in List", the
-    /// Right Sidebar's List Membership table, and the sidebar rows themselves.
+    /// becomes "Name 1", "Name 2", and so on, because the two lists would otherwise be
+    /// indistinguishable in every surface that shows a list by name.
     ///
     /// The list being renamed is excluded from the comparison set, so re-saving a list's
     /// own unchanged name is a no-op rather than a rename to "Name 1", and correcting only
@@ -386,11 +377,9 @@ final class ListManager: Loggable {
         // All Films. The sidebar's own selection is NOT touched here: the
         // .deleted event posted just below is what moves selectedSidebarItem off
         // the now-gone list, and only when that list is genuinely the selected
-        // row. (This used to also broadcast a blanket "clear list selection"
-        // event, which forced the sidebar to All Films whenever the ACTIVE VIEW
-        // was this list — wrongly kicking the user off a pinned parent row such
-        // as Recents during "Show in List" navigation, where activeView and
-        // selectedSidebarItem intentionally diverge.)
+        // row. The sidebar's selection is not cleared by a blanket event, because activeView and
+        // selectedSidebarItem intentionally diverge (for example, a pinned parent row such as
+        // Recents during "Show in List" navigation).
         if wasViewingThisList {
             ViewStateManager.shared.switchToViewSync(.allFilms)
             log("Switched view to All Films after deleting active list")
@@ -815,14 +804,10 @@ struct ListManagerSheet: View, Loggable {
 /// GalleryTitleBar's TrashMenuButton, the gallery contextual menu (GalleryContextMenu),
 /// and KeyboardManager's Opt+Delete fallback.
 ///
-/// Before this existed the same three operations were written out four times, each with
-/// its own copy of the context if-chain, the membership pre-filter, the
-/// `Preferences.shouldConfirmListContents` / `Preferences.confirmGalleryDelete` gate, and
-/// the alert payload. Keeping four copies in agreement was entirely manual: the
-/// enablement test (`canRemoveFromCurrentList`) existed in two of them and inline in a
-/// third, the Film Queue branch pre-filtered its selection in all four but the
-/// user-list branch pre-filtered in none, and adding a new removable context meant
-/// finding and editing every copy by hand. All of that now lives here once.
+/// The three operations share one implementation. It owns the context if-chain, the
+/// membership pre-filter, the `Preferences.shouldConfirmListContents` /
+/// `Preferences.confirmGalleryDelete` gate, and the alert payload. Adding a new removable
+/// context means changing this one place.
 ///
 /// The one genuine behavioral difference between the hosts is preserved as an explicit
 /// parameter rather than being flattened away: the two gallery surfaces clear the
@@ -1021,12 +1006,8 @@ enum FilmRemoval: Loggable {
         guard !filmIDs.isEmpty else { return }
 
         if Preferences.confirmGalleryDelete {
-            // Deliberately NOT "Deleting N film(s) from library". With confirmation on,
-            // this method deletes nothing — it raises an alert and returns. The previous
-            // wording was emitted the instant the command was invoked, so a canceled
-            // deletion left the log claiming films had been removed, with nothing after
-            // it to say otherwise. FilmManager.deleteFilms logs the deletion proper when
-            // the alert's completion path actually calls it.
+            // Logged as a request, not a deletion: with confirmation on, this method only raises an alert.
+            // FilmManager.deleteFilms logs the deletion when the alert's completion path calls it.
             Self.log("Delete from library requested for \(filmIDs.count) film(s) — awaiting confirmation")
             AppEventBus.shared.sendAlert(.confirmDeleteFromLibrary(filmIDs: filmIDs,
                                                                    clearingSelection: clearingSelection))

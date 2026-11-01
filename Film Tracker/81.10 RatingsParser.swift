@@ -112,10 +112,11 @@ final class RatingsParser: Sendable, Loggable {
         guard let hrefStart = line.range(of: "href=\"", options: .caseInsensitive) ??
             line.range(of: "href='", options: .caseInsensitive) else { return nil }
 
-        // Find the closing quote.
+        // Find the closing quote: the same kind that opened the value. Looking for either
+        // could stop at a later attribute's quote and misread the URL.
         let searchStart = hrefStart.upperBound
-        guard let hrefEnd = line.range(of: "\"", range: searchStart..<line.endIndex) ??
-            line.range(of: "'", range: searchStart..<line.endIndex) else { return nil }
+        let quote = String(line[line.index(before: searchStart)])
+        guard let hrefEnd = line.range(of: quote, range: searchStart..<line.endIndex) else { return nil }
 
         let fullURL = String(line[searchStart..<hrefEnd.lowerBound])
         // Extract the path component from the URL.
@@ -155,8 +156,8 @@ final class RatingsParser: Sendable, Loggable {
             if let result = tryExtractYearAndRating(from: line) { return result } }
         return nil }
 
-    // Try to extract year and rating from a single line.
-    // Returns 'nil' immediately if year validation fails.
+    // Try to extract year and rating from a single line. A pattern whose year fails
+    // validation is skipped, and the next pattern is tried on the same line.
     private func tryExtractYearAndRating(from line: String) -> (String, Int)? {
         // Pattern 1: <font class="gray">YYYY</font></td><td><center>R</center>.
         if let year = extractYearPattern1(from: line) {

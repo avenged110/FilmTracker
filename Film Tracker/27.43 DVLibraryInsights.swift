@@ -1,25 +1,20 @@
 // MARK: - DVLibraryInsights.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The figures the redesigned Data Visualizations tab added on top of LibraryStatistics:
-// LibraryInsights (all-time, derived across every date series the library stores —
-// viewing history, purchase dates, lowest-price dates, date added) and
-// ViewingPeriodStatistics (one calendar year of viewing, optionally to date, with the
-// same span of the prior year beside it). Both are plain value types built in one
-// pass over FilmSnapshots, like LibraryStatistics, with no I/O; DVDataset bundles one
-// recalculation of all of them so the tab can run it off the main actor.
+// The figures the Data Visualizations tab adds on top of LibraryStatistics. LibraryInsights gives all-time figures across every date series
+// (viewings, purchases, lowest-price dates, and date added). ViewingPeriodStatistics gives one calendar year of viewing, optionally to date,
+// beside the same span of the prior year. Both are plain value types built in one pass over FilmSnapshots. DVDataset bundles one recalculation so the tab can run it off the main actor.
 
 import Foundation
 
 // MARK: - Shared Row Shapes
 
-/// One labeled tally: a count and, where the caller supplies a denominator, its share.
+/// One labeled tally: a count, plus its share when the caller supplies a denominator.
 struct DVTally: Identifiable, Equatable {
     var id: String { label }
     let label: String
     let count: Int
-    /// Whole-number share of the population the tally is drawn from; nil when the row
-    /// has no meaningful denominator (a raw count).
+    /// Whole-number share of the population, or nil when the row has no denominator (a raw count).
     let percent: Int?
 
     init(_ label: String, _ count: Int, of total: Int? = nil) {
@@ -38,15 +33,13 @@ struct DVRank: Identifiable, Equatable {
     var id: String { name + "|" + value }
     let name: String
     let value: String
-    /// Optional secondary columns (the Directors table prints rating and views per film).
+    /// Optional secondary columns, such as the rating and views per film in the Directors table.
     var extras: [String] = []
-    /// The film's release year, shown in parentheses after `name` where relevant (the
-    /// Most Rewatched card). Nil for a row this data does not apply to.
+    /// The release year, shown in parentheses after `name` where relevant (the Most Rewatched card). Nil when it does not apply.
     var year: Int? = nil
 }
 
-/// One film in the rotation "Coming Up Next Month" list, with the figures that rank it
-/// for the card's six slots: rating, then viewings, then purchased releases.
+/// One film in the "Coming Up Next Month" rotation list, with the figures that rank it for the card's six slots: rating, viewings, and purchased releases.
 struct DVUpcomingRotation: Identifiable, Equatable {
     var id: UUID { filmID }
     let filmID: UUID
@@ -74,26 +67,22 @@ struct DVUpcomingRotation: Identifiable, Equatable {
         if a.rating != b.rating { return a.rating > b.rating }
         if a.viewings != b.viewings { return a.viewings > b.viewings }
         if a.purchasedReleases != b.purchasedReleases { return a.purchasedReleases > b.purchasedReleases }
-        // Then the gallery's Title order, which ends on the film id: two films of one name
-        // cannot trade places between recalculations.
+        // Then the gallery's Title order, which ends on the film id, so two films with one name cannot swap between recalculations.
         return a.titleSort < b.titleSort
     }
 }
 
-/// One film behind a Needs Attention count — collected alongside the count itself in
-/// the same pass over films, so a row's popover can list exactly the films its own
-/// number came from with no second, separately-maintained predicate.
+/// One film behind a Needs Attention count. It is collected in the same pass as the count, so the row's popover lists exactly the films
+/// that produced the number, with no second predicate to maintain.
 struct DVNamedFilm: Identifiable, Equatable {
     var id: UUID { filmID }
     let filmID: UUID
     let name: String
     /// The film's release year, shown after the name in the popover list.
     var year: Int? = nil
-    /// Shown as a trailing "(purchased)" where a list mixes purchased and unpurchased
-    /// releases (Recordable Discs, interlaced transfers).
+    /// Shown as a trailing "(purchased)" where a list mixes purchased and unpurchased releases, such as Recordable Discs or interlaced transfers.
     var purchased = false
-    /// The film's place in the gallery's Title sort (see GalleryTitleKey). Precomputed:
-    /// lists of these are sorted by it.
+    /// The film's place in the gallery's Title sort (see GalleryTitleKey), precomputed because lists of these sort by it.
     private(set) var titleSort: GalleryTitleKey
 
     init(filmID: UUID, name: String, sortName: String = "", year: Int? = nil) {
@@ -115,9 +104,8 @@ struct DVNamedFilm: Identifiable, Equatable {
 
 }
 
-/// The Collection Growth card's two series: films by Date Added and purchased releases
-/// (top-level, as everywhere on the tab) by purchase date, as running totals at the end of
-/// every month from the first dated one through the current month.
+/// The Collection Growth card's two series, as running totals at the end of each month from the first dated month through the current one.
+/// They are films by Date Added and top-level purchased releases by purchase date.
 struct DVGrowth: Equatable {
     /// The first month plotted, as `year * 12 + month - 1`.
     let firstMonth: Int
@@ -129,8 +117,7 @@ struct DVGrowth: Equatable {
 
     var isEmpty: Bool { films.isEmpty }
 
-    /// - Parameters: months as `year * 12 + month - 1`. A month past `currentMonth` (a
-    ///   typo, a preorder) counts in the current month, so the chart ends today.
+    /// - Parameters: months as `year * 12 + month - 1`. A month past `currentMonth` (a typo, or a preorder) counts in the current month, so the chart ends today.
     init(filmMonths: [Int], purchaseMonths: [Int], currentMonth: Int, undatedFilms: Int, undatedPurchases: Int) {
         self.undatedFilms = undatedFilms
         self.undatedPurchases = undatedPurchases
@@ -160,8 +147,7 @@ struct DVGrowth: Equatable {
         self.undatedPurchases = undatedPurchases
     }
 
-    /// The same chart cut to its last `years` years (the Past 5 Years scope): the running
-    /// totals keep their all-time values, only the months before the cut are dropped.
+    /// The chart cut to its last `years` years (the Past 5 Years scope). The totals keep their all-time values, and only earlier months are dropped.
     /// Unchanged when the span is already that short.
     func lastYears(_ years: Int) -> DVGrowth {
         let drop = films.count - 1 - years * 12
@@ -184,7 +170,7 @@ struct DVGrowth: Equatable {
     }
 }
 
-/// One calendar year of dated, top-level purchases, for the Spending Trends card.
+/// One calendar year of dated top-level purchases, for the Spending Trends card.
 struct DVSpendingYear: Equatable {
     let year: Int
     var purchases = 0
@@ -193,8 +179,7 @@ struct DVSpendingYear: Equatable {
     /// Entered costs above zero, for the average price (as the Average Cost tile).
     var costSum = 0.0
     var costed = 0
-    /// The same figures cut off at today's month and day, so every year can be compared
-    /// with this one over the same span.
+    /// The same figures cut at today's month and day, so every year compares over the same span.
     var spentByThisDate = 0.0
     var purchasesByThisDate = 0
 
@@ -281,21 +266,18 @@ enum DVFormat {
 
 // MARK: - Per-film Parsed Viewing Record
 
-/// A film's viewing history parsed once, shared by both statistics types below so the
-/// dates are not re-parsed per section.
+/// A film's viewing history, parsed once and shared by both statistics types so dates are not re-parsed.
 struct DVFilmViewings: Sendable {
     let filmID: UUID
     let name: String
     let durationMinutes: Int?
     let rating: Int
     let releaseYear: Int?
-    /// Whether the film is in color, for the Viewing History month chart's color/B&W
-    /// split (see ViewingPeriodStatistics.byMonthColor).
+    /// Whether the film is in color, for the Viewing History month chart's color and B&W split (see ViewingPeriodStatistics.byMonthColor).
     let isColor: Bool
     /// The film's genre ("" when none is set), for the month chart's Genre bands.
     let genre: String
-    /// The entries `dates` and `versions` were parsed from, kept so a later
-    /// recalculation can tell whether they are still current (see `init(_:calendar:reusing:)`).
+    /// The entries `dates` and `versions` came from. A later recalculation compares them to see if they are current (see `init(_:calendar:reusing:)`).
     let calendarTable: [String]
     /// Ascending, in calendar order.
     let dates: [Date]
@@ -303,13 +285,9 @@ struct DVFilmViewings: Sendable {
     var first: Date? { dates.first }
     var last: Date? { dates.last }
 
-    /// Parses the film's viewing history, or — when `previous` is this same film's record
-    /// from an earlier recalculation and its history has not changed since — takes the
-    /// already-parsed dates from it. Parsing is the recalculation's dominant cost, and a
-    /// film event touches one film, so on every recalculation after the first nearly
-    /// every record is a copy rather than a parse. The cheap fields are always refreshed
-    /// from the snapshot: a rename or a new rating must not be missed just because the
-    /// history stood still.
+    /// Parses the viewing history, or reuses the parsed dates from `previous` when it is this film's record and its history is unchanged.
+    /// Parsing is the main cost, and most recalculations change one film, so nearly every record is reused. The cheap fields always refresh from the snapshot,
+    /// so a rename or new rating is never missed.
     init(_ film: FilmSnapshot, calendar: Calendar, reusing previous: DVFilmViewings? = nil) {
         filmID = film.id
         name = film.name
@@ -335,17 +313,13 @@ struct DVFilmViewings: Sendable {
         versions = parsed.map(\.1)
     }
 
-    /// One viewing-history entry as (local midnight, version code), or nil when it holds
-    /// no date. The canonical `yyyy.MM.dd` and `yyyy.MM.dd.XX` forms are read directly so
-    /// the `startOfDay` the general path needs is skipped too (the fast day IS midnight);
-    /// every other spelling goes through the app's general `parseDate(from:)`.
+    /// One viewing-history entry as (local midnight, version code), or nil when it holds no date. The canonical `yyyy.MM.dd` and `yyyy.MM.dd.XX` forms
+    /// are read directly, which skips `startOfDay`, since the fast path already gives midnight. Other spellings go through `parseDate(from:)`.
     static func parse(_ entry: String, calendar: Calendar) -> (Date, ViewingVersion)? {
         if entry.utf8.count == 10, let day = canonicalStoredDay(entry[...], separator: ".") {
             return (day, .none)
         }
-        // A version code is exactly two ASCII letters or digits after the eleventh
-        // character's dot. Anything else in that position (a dot, a non-ASCII character)
-        // is left to the general parser, whose dot-splitting rules decide what it means.
+        // A version code is exactly two ASCII letters or digits after the dot. Anything else there goes to the general parser.
         let bytes = Array(entry.utf8)
         if bytes.count == 13, bytes[10] == UInt8(ascii: "."), bytes[11].isASCIIAlphanumeric, bytes[12].isASCIIAlphanumeric,
            let day = canonicalStoredDay(entry.prefix(10), separator: ".") {
@@ -364,30 +338,24 @@ private extension UInt8 {
 
 // MARK: - Recalculation Dataset
 
-/// Everything one recalculation of the Data Visualizations tab produces, computed by one
-/// function so the synchronous first-visit pass and the background passes that follow it
-/// cannot drift apart. `Sendable` because the background pass builds it off the main
-/// actor and hands it back.
+/// Everything one recalculation of the Data Visualizations tab produces. One function computes it, so the first synchronous pass and the background passes
+/// cannot drift apart. It is `Sendable` because the background pass builds it off the main actor.
 struct DVDataset: Sendable {
     let stats: LibraryStatistics
     let insights: LibraryInsights
-    /// Parsed viewing histories, kept so the year stepper can rebuild the period section
-    /// without walking every film's calendar table again, and so the next recalculation
-    /// can reuse them (see `DVFilmViewings.init(_:calendar:reusing:)`).
+    /// The parsed viewing histories. The year stepper can rebuild the period section from them, and the next recalculation can reuse them
+    /// (see `DVFilmViewings.init(_:calendar:reusing:)`).
     let viewingRecords: [DVFilmViewings]
-    /// Everything the figures above were computed from. Two passes with equal inputs
-    /// produce equal figures, which is what lets `compute(films:previous:showInfoComplete:)`
-    /// skip a pass (and the page skip re-rendering) when nothing has changed.
+    /// What the figures above were computed from. Equal inputs give equal figures, so `compute(films:previous:showInfoComplete:)` can skip the pass,
+    /// and the page can skip re-rendering, when nothing has changed.
     let inputs: Inputs
 
     struct Inputs: Sendable, Equatable {
         let films: [FilmSnapshot]
         let showInfoComplete: Bool
-        /// Read by `FilmSnapshot.rotationThreshold` for every film without an override,
-        /// so the rotation figures move with it although no snapshot does.
+        /// Read by `FilmSnapshot.rotationThreshold` for films without an override, so the rotation figures change with it even though no snapshot does.
         let defaultRotationThreshold: Int
-        /// The figures are day-granular: "today" only ever enters them as its start of
-        /// day, in this calendar.
+        /// The figures are day-granular. "Today" enters only as its start of day, in this calendar.
         let day: Date
         let calendar: Calendar
 
@@ -410,15 +378,10 @@ struct DVDataset: Sendable {
         viewingRecords = records
     }
 
-    /// The same computation, awaited from the main actor: a nonisolated async function
-    /// runs on the global executor, so the caller's actor is free for the duration.
+    /// The same computation, awaited from the main actor. A nonisolated async function runs on the global executor, so the caller's actor stays free.
     ///
-    /// Returns nil when `previous` was computed from exactly these inputs — the common
-    /// case for the reconcile that follows every mount from the cache — so the caller has
-    /// nothing to apply and the page is not re-rendered for figures it already shows
-    /// (`dataviz-perf` measures such an apply at ≈40 ms of main-thread time). The
-    /// comparison runs here, off the main actor, and costs little when nothing has
-    /// changed: the snapshot arrays mostly still share storage with the library's.
+    /// Returns nil when `previous` used exactly these inputs, which is the common case after a mount from the cache. The caller then has nothing to apply,
+    /// and the page does not re-render. The comparison runs off the main actor and is cheap, since the snapshot arrays mostly share storage with the library's.
     nonisolated static func compute(films: [FilmSnapshot], previous: DVDataset?,
                                     showInfoComplete: Bool) async -> DVDataset? {
         let today = Date(), calendar = AppCalendar.current
@@ -557,13 +520,11 @@ struct LibraryInsights {
     let steelbooks: Int
     let studios: [DVTally]
     let origins: [DVTally]
-    /// Same breakdown as `studios`/`origins`, but over every top-level release regardless
-    /// of purchase status — the Studios and Labels / Regions cards' "All" tab.
-    /// `studios`/`origins` remain that pair's "Purchased Only" tab, unchanged.
+    /// The same breakdown as `studios` and `origins`, over every top-level release, purchased or not. It backs the "All" tab of the Studios and Regions cards.
+    /// `studios` and `origins` remain the "Purchased Only" tab.
     let studiosAll: [DVTally]
     let originsAll: [DVTally]
-    /// Blu-ray-only region-lock breakdown — region free, A, B, B (loosely-locked), and
-    /// Unknown (blank or unmapped) — for the Regions card's "Blu-ray region locks" bar.
+    /// Blu-ray region-lock breakdown: region free, A, B, B (loosely locked), and Unknown (blank or unmapped). It feeds the Regions card's bar.
     let blurayRegionLocks: [DVTally]
     let blurayRegionLocksAll: [DVTally]
 
@@ -571,11 +532,10 @@ struct LibraryInsights {
     let oldestYear: Int?
     let newestYear: Int?
     let bestRatedDecade: (label: String, average: Double)?
-    /// Every decade with at least `minimumRatedFilmsPerDecade` rated films, best average first
-    /// (ties: the earlier decade), with the number of rated films behind each average.
+    /// Every decade with at least `minimumRatedFilmsPerDecade` rated films, best average first (ties go to the earlier decade), with the rated count behind each average.
     let decadesByRating: [(label: String, average: Double, rated: Int)]
     static let minimumRatedFilmsPerDecade = 3
-    /// The minimum spelled out for prose ("three"); US English pinned, as the sentence around it is.
+    /// The minimum spelled out for prose ("three"), in US English to match the sentence around it.
     static let minimumRatedFilmsPerDecadeWords: String = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .spellOut
@@ -600,36 +560,27 @@ struct LibraryInsights {
     // MARK: Technical
     let filmsOnBDOr4K: Int
     let videoCodecs: [DVTally]
-    /// Same breakdown as `videoCodecs`, over every release rather than purchased ones
-    /// only — the Subtitles and Encoding card's "All" tab.
+    /// The same breakdown as `videoCodecs`, over every release rather than purchased ones only. It is the Subtitles and Encoding card's "All" tab.
     let videoCodecsAll: [DVTally]
-    /// Releases (every disc, purchased or not) with an interlaced transfer, and the films
-    /// they belong to — the Needs Attention card's row and its popover.
+    /// Releases with an interlaced transfer, purchased or not, and their films. This feeds the Needs Attention row and its popover.
     let interlacedAll: Int
     let interlacedAllItems: [DVNamedFilm]
-    /// Recordable (BD-R / DVD-R) releases: every one, the purchased ones, and the films
-    /// they belong to ("(purchased)" appended where one is purchased) — the Recordable
-    /// Discs tile and its popover.
+    /// Recordable (BD-R or DVD-R) releases, and the films they belong to. "(purchased)" is appended where one is owned. This feeds the Recordable Discs tile and its popover.
     let recordable: Int
     let recordableAll: Int
     let recordableAllItems: [DVNamedFilm]
     let handbrakeRF: [DVTally]
-    /// Same breakdown as `handbrakeRF`, but over every film with an RF value regardless
-    /// of purchase status — the Subtitles and Encoding card's "All" tab.
+    /// The same breakdown as `handbrakeRF`, over every film with an RF value, purchased or not. It is the Subtitles and Encoding card's "All" tab.
     let handbrakeRFAll: [DVTally]
-    /// Strictly `FilmSubtitles.yes` — not "On-disc only" or "Digital rip only", which are
-    /// their own rows in the Subtitles bar. Purchased-only: at least one purchased disc.
+    /// Strictly `FilmSubtitles.yes`. "On-disc only" and "Digital rip only" have their own rows in the Subtitles bar. This is purchased-only, meaning at least one purchased disc.
     let subtitlesYes: Int
     let subtitlesOnDiscOnly: Int
     let subtitlesDigitalRipOnly: Int
-    /// Same three rows and the same "purchased" gate as `subtitlesYes`/
-    /// `subtitlesOnDiscOnly`/`subtitlesDigitalRipOnly`, but over every film regardless of
-    /// purchase status — the Subtitles and Encoding card's "All" tab.
+    /// The same three rows and purchased gate as `subtitlesYes`, `subtitlesOnDiscOnly`, and `subtitlesDigitalRipOnly`, over every film. These are the "All" tab.
     let subtitlesYesAll: Int
     let subtitlesOnDiscOnlyAll: Int
     let subtitlesDigitalRipOnlyAll: Int
-    /// Denominator for the purchased-only Subtitles bar: films with at least one
-    /// purchased disc release. The "All" tab's denominator is `totalFilms`.
+    /// Denominator for the purchased-only Subtitles bar: films with at least one purchased disc. The "All" tab uses `totalFilms`.
     let subtitlesPurchasedFilmCount: Int
 
     // MARK: All-time viewing
@@ -639,17 +590,14 @@ struct LibraryInsights {
     let seasonality: [Double]
     let seasonalityLeader: String?
     let viewingYears: [Int]
-    /// Collector habits over the whole library: discovery against revisiting, film age
-    /// at viewing, purchases by calendar month, price and format by rating, 4K upgrades by
-    /// rating, and ownership by release decade.
+    /// Collector habits across the library: discovery against revisiting, film age at viewing, purchases by month, price and format by rating,
+    /// 4K upgrades by rating, and ownership by release decade.
     let habits: DVHabits
 
     // MARK: - Init
 
-    /// - Parameter viewings: The films' parsed viewing histories, one per film, when the
-    ///   caller already has them (the tab keeps them for the period section); parsed here
-    ///   otherwise. Parsing is the expensive half of this initializer, and the tab used to
-    ///   pay it twice per recalculation — once here and once for its own copy.
+    /// - Parameter viewings: The parsed viewing histories, one per film. The caller passes them when it already has them, since the tab keeps them
+    ///   for the period section. Otherwise they are parsed here. Parsing is the costly part of this initializer.
     init(films: [FilmSnapshot], viewings: [DVFilmViewings]? = nil, today: Date = Date(), calendar: Calendar = .current) {
         let currentYear = calendar.component(.year, from: today)
         let todayStart = calendar.startOfDay(for: today)
@@ -856,8 +804,7 @@ struct LibraryInsights {
         var topLevelCountAll = 0
         var bdFree = 0, bdA = 0, bdB = 0, bdBLoose = 0, bdUnknown = 0
         var bdFreeAll = 0, bdAAll = 0, bdBAll = 0, bdBLooseAll = 0, bdUnknownAll = 0
-        // Blu-ray-only region-lock bucket, shared by the "All" and "Purchased Only" tallies
-        // below so the two cannot classify a tag differently.
+        // The Blu-ray region-lock bucket, shared by the "All" and "Purchased Only" tallies so they classify tags the same way.
         func bdRegionBucket(_ tag: String) -> Int {
             if tag == ReleaseRegionRules.regionFree { return 0 }
             if tag == ReleaseRegionRules.regionA { return 1 }
@@ -932,8 +879,7 @@ struct LibraryInsights {
                     }
                 }
             }
-            // The same three-way film bucketing as LibraryStatistics.formatBreakdown, so
-            // the medians sit beside averages drawn from the same samples.
+            // The same three-way film bucketing as LibraryStatistics.formatBreakdown, so the medians and averages use the same samples.
             let bucketFormat: ReleaseFormat? = purchased4KHere ? .uhd4K : (purchasedBDHere ? .bluRay : (purchasedDVDHere ? .dvd : nil))
             if let bucketFormat {
                 for r in purchasedReleases where r.isTopLevel && r.format == bucketFormat.rawValue && r.cost > 0 {
@@ -971,9 +917,7 @@ struct LibraryInsights {
 
             var filmNeverWatchedSince = false
             for r in film.releases {
-                // Top-level only, as the Release Wishlist report lists them: a combo child
-                // mirrors its parent's wishlist position and cost, so counting it would show
-                // the pack twice here and once on the report this card opens.
+                // Top-level only, as the Release Wishlist report lists them. A combo child mirrors its parent's wishlist position and cost, so counting it would show the pack twice.
                 if r.wishlist > 0, r.isTopLevel {
                     wishItems += 1
                     wishCost += r.cost
@@ -1029,7 +973,7 @@ struct LibraryInsights {
                     }
                 }
                 guard r.isTopLevel else { continue }
-                // Package-level tallies: one per acquisition.
+                // Package-level tallies, one per acquisition.
                 purchasedCount += 1
                 discs += max(r.numberOfDiscs, 1) * max(r.numberOfCopies, 1)
                 if ReleaseIndependence.isComboPack(r.independence) { combos += 1 }
@@ -1069,7 +1013,7 @@ struct LibraryInsights {
                     if d >= yearStart { spentYear += paid }
                     if d >= priorYearStart, d <= priorYearCutoff { spentPriorSpan += paid }
 
-                    // Purchase → first viewing on or after the purchase.
+                    // Purchase to first viewing, on or after the purchase.
                     let viewsSince = v.dates.filter { $0 >= d }
                     if let firstSince = viewsSince.first {
                         let days = calendar.dateComponents([.day], from: d, to: firstSince).day ?? 0
@@ -1146,8 +1090,7 @@ struct LibraryInsights {
                 }
             }
             if film.frameRate > 0 {
-                // Always three decimal places, whole rates included ("24.000"), so the
-                // legend reads as one consistent column of figures.
+                // Always three decimal places, even for whole rates ("24.000"), for one consistent column.
                 let label = Fmt.fixed(film.frameRate, 3)
                 frameRates[label, default: 0] += 1
             }
@@ -1398,21 +1341,15 @@ struct LibraryInsights {
 
     // MARK: - Rules
 
-    /// Whether a candidate with `value` should replace the current best (a larger value
-    /// wins; on a tie the earlier name). `getAllFilms()` hands films over in Dictionary
-    /// order, which changes from launch to launch, so a strict comparison alone would name
-    /// whichever tied film happened to come first — and the figure would change between
-    /// two launches on an unchanged library.
+    /// Whether a candidate should replace the current best. A larger value wins, and on a tie the earlier name wins. Films arrive in Dictionary
+    /// order, which changes between launches, so without the name tiebreak the winner could change on an unchanged library.
     private static func prefer(_ value: Double, _ name: String, over current: (String, Double)?) -> Bool {
         guard let current else { return true }
         return value != current.1 ? value > current.1 : name < current.0
     }
 
-    /// The month a film's Date Added falls in, as `year * 12 + month - 1`. The stored form
-    /// is an ISO 8601 timestamp in UTC (StorageDateFormatters.timestamp), which the general
-    /// parser reads only through its slowest formatter; a timestamp's own year and month
-    /// are the local ones whenever its day is 2…27 (no offset moves a date a whole day), so
-    /// only the days at a month's edges take the parser, which knows the time zone.
+    /// The month a film's Date Added falls in, as `year * 12 + month - 1`. The stored form is a UTC ISO 8601 timestamp. For days 2 to 27, the
+    /// timestamp's own year and month are already local, so only days at a month's edge go to the parser, which knows the time zone.
     static func addedMonth(_ text: String, calendar: Calendar) -> Int? {
         let u = Array(text.utf8.prefix(11))
         if u.count == 11, u[4] == UInt8(ascii: "-"), u[7] == UInt8(ascii: "-"), u[10] == UInt8(ascii: "T") {
@@ -1430,13 +1367,9 @@ struct LibraryInsights {
         return year * 12 + month - 1
     }
 
-    /// True when the film's digital copy is a lower tier than the best disc it owns:
-    /// a 4K disc wants a 4K download; a Blu-ray wants a Blu-ray rip or a 1080p download;
-    /// a DVD wants a DVD rip or anything 480p and up. An empty source is unknown, not
-    /// below. The comparison is what makes "rip backlog" a list rather than a guess.
-    /// The remastered flag says nothing about the tier, so it is decoded off first: a
-    /// "Remastered 4K download" is a 4K download (read whole, it fell through to the
-    /// lowest tier and put the film in the backlog of a 4K owner).
+    /// True when the film's digital copy is a lower tier than the best disc it owns. A 4K disc wants a 4K download. A Blu-ray wants a Blu-ray
+    /// rip or a 1080p download. A DVD wants a DVD rip or anything 480p and up. An empty source is unknown, not below. The remastered flag does not
+    /// change the tier, so it is decoded first. A "Remastered 4K download" is a 4K download.
     private static func digitalSourceBelowBestDisc(_ film: FilmSnapshot, purchased4K: Bool,
                                                    purchasedBD: Bool, purchasedDVD: Bool) -> Bool {
         let source = FilmDigitalSource.decompose(film.digitalSource).source
@@ -1463,7 +1396,7 @@ struct LibraryInsights {
         return rows
     }
 
-    /// MPAA order first, anything else after in descending count.
+    /// MPAA order first, then anything else by descending count.
     private static func orderedContentRatings(_ counts: [String: Int]) -> [(String, Int)] {
         let known = ["G", "PG", "PG-13", "R", "NC-17", "Unrated", "Not Rated", "NR"]
         var rows: [(String, Int)] = []
@@ -1491,8 +1424,7 @@ struct ViewingPeriodStatistics {
     let firstTimeWatches: Int
     let rewatches: Int
     let hoursWatchedMinutes: Int
-    /// Viewings of a film with a recorded runtime — the ones `hoursWatchedMinutes` sums,
-    /// and so the divisor of the span's average runtime.
+    /// Viewings of films with a recorded runtime, which `hoursWatchedMinutes` sums. This is the divisor for the span's average runtime.
     let timedViewings: Int
     let averageRating: Double?
     let projectedYearEnd: Int?
@@ -1504,17 +1436,14 @@ struct ViewingPeriodStatistics {
     let priorHoursWatchedMinutes: Int
     let priorAverageRating: Double?
 
-    /// Jan…Dec counts for the year and the prior year (full months; the in-progress
-    /// month is flagged by `currentMonthIndex`).
+    /// Jan to Dec counts for the year and the prior year, with full months only. The in-progress month is flagged by `currentMonthIndex`.
     let byMonth: [Int]
     let priorByMonth: [Int]
-    /// Of `byMonth`/`priorByMonth`, how many of that month's viewings were of a
-    /// color film — the month chart's per-bar color/black-and-white split.
+    /// Of `byMonth` and `priorByMonth`, how many of each month's viewings were of color films. This drives the chart's color and B&W split.
     let byMonthColor: [Int]
     let priorByMonthColor: [Int]
-    /// Of `byMonth`/`priorByMonth`, each month's viewings by the film's release decade
-    /// (`DVFormat`-style "1980s", or "Unknown") and by genre ("" when none is set) — the
-    /// month chart's Release Decade and Genre bands.
+    /// Of `byMonth` and `priorByMonth`, each month's viewings by release decade ("1980s", or "Unknown") and by genre ("" when none is set).
+    /// These drive the month chart's Release Decade and Genre bands.
     let byMonthDecade: [[String: Int]]
     let priorByMonthDecade: [[String: Int]]
     let byMonthGenre: [[String: Int]]
@@ -1538,9 +1467,8 @@ struct ViewingPeriodStatistics {
             let start = calendar.date(from: DateComponents(year: y, month: 1, day: 1))!
             var end: Date
             if ytd {
-                // The same month and day in year `y`, clamped to that month's length:
-                // `date(from:)` never fails on an out-of-range day, it rolls over, so on
-                // Feb 29 an unclamped comparison span ran through Mar 1 of a common year.
+                // The same month and day in year `y`, clamped to that month's length. `date(from:)` rolls an out-of-range day over,
+                // so without the clamp, Feb 29 would run into Mar 1 of a common year.
                 let m = calendar.component(.month, from: todayStart), d = calendar.component(.day, from: todayStart)
                 let first = calendar.date(from: DateComponents(year: y, month: m, day: 1))!
                 let length = calendar.range(of: .day, in: .month, for: first)?.count ?? d
@@ -1573,7 +1501,7 @@ struct ViewingPeriodStatistics {
                 for (i, d) in v.dates.enumerated() where d >= range.start && d <= range.end {
                     n += 1
                     if i == 0 { a.firstTime += 1 }
-                    // Runs on the main thread on every stepper click.
+                    // Runs once per viewing date in the period, on every stepper click.
                     let month = calendar.component(.month, from: d) - 1
                     a.byMonth[month] += 1
                     if v.isColor { a.byMonthColor[month] += 1 }
@@ -1644,9 +1572,7 @@ struct ViewingPeriodStatistics {
 
 // MARK: - Spending Trends
 
-/// One statement on the Spending Trends card: a kicker, a headline, a line of detail and a
-/// small chart. Built once here, from the figures alone; the tab and the PDF draw it with the
-/// same canvas builder (DVK.highlightRow).
+/// One statement on the Spending Trends card: a kicker, a headline, a detail line, and a small chart. The Data Viz tab draws it with DVK.highlightRow.
 struct DVHighlight {
     enum Tint { case blue, green, purple, indigo }
     enum Chart {
@@ -1696,12 +1622,10 @@ enum DVSpendingTrends {
         return words.indices.contains(n) ? words[n] : DVFormat.count(n)
     }
 
-    /// This year's projected total. With history: what was spent so far, plus the rest of
-    /// the year as the last three earlier years with purchases spent it (weighted 3:2:1,
-    /// most recent first, so a trend in recent years carries), scaled by this year's pace
-    /// against those same years' spending by this date (clamped to ½×–2× so one big or
-    /// small start cannot run away with it). Without history: the year so far extrapolated
-    /// linearly, once a tenth of the year has passed. Nil when nothing is spent yet.
+    /// This year's projected total: the spend so far, plus the rest of the year. With history, the rest is the last three
+    /// earlier years with purchases (weighted 3:2:1, most recent first), scaled by this year's pace against those years'
+    /// spend by this date and clamped to ½× to 2×. Without history, the year so far is extrapolated linearly once a tenth
+    /// of the year has passed. Nil when nothing is spent, or when there is no history and less than a tenth has passed.
     static func projectedYearEnd(_ current: DVSpendingYear, _ earlier: [DVSpendingYear], yearElapsed: Double) -> Double? {
         let spent = current.spentByThisDate
         guard spent > 0 else { return nil }
@@ -1861,9 +1785,7 @@ enum DVSpendingTrends {
 
 // MARK: - Collector habits
 
-/// All-time figures about how the library is watched and bought, each computed in one
-/// pass over the films (DVHabits.init). Every figure here ignores the Viewing History
-/// stepper.
+/// All-time figures about how the library is watched and bought, computed in one pass over the films (DVHabits.init). None of them follow the Viewing History stepper.
 struct DVHabits {
     /// One calendar year of viewings, split by whether each was the film's first.
     struct ViewingYear: Equatable {
@@ -1877,9 +1799,7 @@ struct DVHabits {
     /// `maxViewingYears` of them (the latest).
     let viewingYears: [ViewingYear]
     static let maxViewingYears = 12
-    /// The first year with at least a quarter of the busiest year's viewings: before it,
-    /// the history is too sparse to compare (tracking had not begun in earnest), so the
-    /// trend starts there. Nil with no viewings.
+    /// The first year with at least a quarter of the busiest year's viewings. Earlier years are too sparse to compare, so the trend starts here. Nil with no viewings.
     let trackedFrom: Int?
     /// Whether any viewings fall before `trackedFrom` (and are left off the trend).
     let hasSparseEarlierYears: Bool
@@ -1890,8 +1810,7 @@ struct DVHabits {
     let medianViewingAge: Int?
     static let ageBucketLabels = ["≤1", "2–5", "6–10", "11–20", "21–30", "31–50", "51+"]
 
-    /// Dated purchased top-level releases (one per acquisition, as Purchase Facts counts)
-    /// per calendar month Jan…Dec, and what each month's averaged paid.
+    /// Dated purchased top-level releases per calendar month, Jan to Dec, and the average paid in each month.
     let purchasesByMonth: [Int]
     let averagePaidByMonth: [Double?]
     let datedPurchases: Int
@@ -1900,8 +1819,8 @@ struct DVHabits {
     private let paidSumByMonth: [Double]
     private let pricedByMonth: [Int]
 
-    /// Rating 1…10 (index 0 = rating 1): the average paid per purchased release of films
-    /// at that rating, and the share of those films whose best purchased disc is 4K.
+    /// Rating 1…10 (index 0 = rating 1): the average paid per priced, top-level purchase of films
+    /// at that rating, and the share of those films with a purchased 4K release.
     let averagePaidByRating: [Double?]
     let pricedByRating: [Int]
     let fourKShareByRating: [Int?]
@@ -1937,9 +1856,7 @@ struct DVHabits {
                 }
             }
             let purchased = film.releases.filter(\.purchased)
-            // One per acquisition: a combo child mirrors its parent's purchase date and price,
-            // so counting it would put the pack in its month twice and weight every average
-            // toward combo packs.
+            // Top-level releases only: one per acquisition. A combo child repeats its parent's date and price.
             for r in purchased where r.isTopLevel {
                 let paid = r.amountSpent > 0 ? r.amountSpent : r.cost
                 if let d = LibraryStatistics.purchaseDay(r.purchaseDate, calendar: calendar) {

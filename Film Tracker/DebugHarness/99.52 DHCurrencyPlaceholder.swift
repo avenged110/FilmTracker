@@ -210,8 +210,7 @@ extension DebugHarness {
                 r.check("t\(trial)-cost-field", model.purchased, "purchased=\(model.purchased) and no cost field after \(delayMs) ms")
                 continue
             }
-            // A reference reading of the unfocused field for this trial: taken before the
-            // click when the layout has settled, otherwise from the previous trial.
+            // A reference reading of the unfocused field for this trial, taken before the click.
             let (before, _) = render(field, in: window)
             let geoBefore = geometry(field, in: window)
             click(field)
@@ -226,7 +225,7 @@ extension DebugHarness {
             r.check("\(label)-purchased", model.purchased, "checkbox click did not set purchased")
             r.check("\(label)-editing", editing, "cost field did not take the field editor")
             guard let before, let after else { r.check("\(label)-rendered", false, "render failed"); continue }
-            let shift = after.minX - 12.25   // the settled, unfocused reading from the first run
+            let shift = after.minX - 12.25   // the settled, unfocused reading (12.25 pt) for this layout
             let line = unsafe String(format: "%@ editing=%d before[%@] after[%@] shift=%.2f\n   before: %@\n   after:  %@",
                               label, editing ? 1 : 0, before.description, after.description, shift, geoBefore, geoAfter)
             summary.append(line)
@@ -244,12 +243,11 @@ extension DebugHarness {
             await settle()
         }
         // MARK: The stale field editor
-        // The real-library log (2026-09-19) showed the mechanism: the window's shared field
-        // editor keeps the frame width of the field it served last, and only shrinks to the
-        // new cell's rect at the next layout — so a right-aligned placeholder is drawn far
-        // to the right of the clip for the first frame. Reproduced here by focusing a wide
-        // field, then a cost field, and reading the editor's width synchronously, before
-        // any run-loop turn: it must already match the clip.
+        // The mechanism: the window's shared field editor keeps the frame width of the field
+        // it served last, and shrinks to the new cell's rect only at the next layout, so a
+        // right-aligned placeholder is drawn far to the right of the clip for the first frame.
+        // This is reproduced by focusing a wide field, then a cost field, and reading the
+        // editor's width synchronously, before any run-loop turn: it must already match the clip.
         do {
             vm.addRelease(format: ReleaseFormat.bluRay.rawValue)
             for _ in 0..<12 { await turn() }

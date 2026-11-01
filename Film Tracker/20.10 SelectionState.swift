@@ -1,7 +1,7 @@
 // MARK: - SelectionState.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Global observable selection tracker, shared across all views.
+// The observable selection tracker shared by all views. It also records what kind of input produced each change.
 
 import SwiftUI
 import AppKit
@@ -34,22 +34,13 @@ extension SelectionInputKind {
     /// `tableViewSelectionDidChange`), using `NSApp.currentEvent` as the authoritative
     /// signal.
     ///
-    /// AppKit delegate callbacks fire synchronously inside the event dispatch (or the
-    /// mouse-tracking loop) of the event that produced them, so `NSApp.currentEvent` at
-    /// callback time IS the triggering event. A discrete mouse press/release can never be
-    /// an auto-repeat, so classifying it `.discrete` is exactly as authoritative as the
-    /// `NSEvent.isARepeat` signal the grid's arrow-key path already uses — and it is what
-    /// lets `RightSidebar.handleSelectionChange` resolve deliberate rapid clicking
-    /// instantly instead of tripping the `.unspecified` inter-event timing fallback
-    /// (< 0.15 s → 75 ms debounce), which was designed to protect against held-key
-    /// streams, not deliberate clicks.
+    /// AppKit delegate callbacks run inside the event that caused them, so `NSApp.currentEvent` is that event.
+    /// A discrete mouse press is never an auto-repeat, so it is classified `.discrete`. That lets
+    /// `RightSidebar.handleSelectionChange` resolve rapid clicks at once. Without this, the timing fallback
+    /// (changes less than 0.15 s apart) would debounce them. The fallback exists for held-key streams.
     ///
-    /// `.leftMouseDragged` is deliberately NOT classified `.discrete`: any drag-driven
-    /// selection churn (e.g. AppKit's own band-selection updates, should they ever reach
-    /// a delegate callback) must keep the timing fallback's debounce protection, since a
-    /// drag can produce many selection changes per second. Every non-mouse origin
-    /// (keyboard, programmatic, nil current event) also falls through to `.unspecified`,
-    /// preserving the exact pre-existing behavior for those sources.
+    /// `.leftMouseDragged` is NOT classified `.discrete`. A drag can produce many changes per second, so it keeps
+    /// the timing fallback's protection. Non-mouse origins (keyboard, programmatic, nil current event) are `.unspecified`.
     @MainActor
     static func fromCurrentAppKitEvent() -> SelectionInputKind {
         switch NSApp.currentEvent?.type {
@@ -68,10 +59,8 @@ extension SelectionInputKind {
 final class SelectionState: Loggable {
     nonisolated static let logTag = "[SelectionState]"
 
-    /// The single process-wide selection instance. FilmTrackerApp injects this same
-    /// instance into the SwiftUI environment at the root, so `@Environment(SelectionState.self)`
-    /// consumers and direct `SelectionState.shared` consumers (e.g. SubcategoryNavigation)
-    /// always observe identical state. The private init enforces the singleton.
+    /// The single process-wide selection instance. FilmTrackerApp injects it into the SwiftUI environment, so
+    /// environment consumers and `SelectionState.shared` consumers observe the same state. The private init enforces this.
     static let shared = SelectionState()
 
     private init() {}
@@ -80,13 +69,9 @@ final class SelectionState: Loggable {
     var selectedFilmIDs: Set<UUID> = [] {
         didSet { untrackedSelectedFilmIDs = selectedFilmIDs } }
 
-    /// The same value as `selectedFilmIDs`, read without registering an observation.
-    ///
-    /// For the two galleries' selection sync, which runs inside their `updateNSView`.
-    /// SwiftUI observation-tracks a representable's update, so reading `selectedFilmIDs`
-    /// there re-ran the whole update — the grid's change detection included — on every
-    /// click, although each gallery already follows selection through its own observation
-    /// loop. Written synchronously with `selectedFilmIDs`, so it is never stale.
+    /// The same value as `selectedFilmIDs`, read without registering an observation. The galleries' selection
+    /// sync runs inside `updateNSView`. Reading `selectedFilmIDs` there would re-run the whole update on every click.
+    /// It is written synchronously with `selectedFilmIDs`, so it is never stale.
     @ObservationIgnored private(set) var untrackedSelectedFilmIDs: Set<UUID> = []
 
     // Convenience property for single-selection scenarios (returns first selected UUID).
@@ -95,34 +80,33 @@ final class SelectionState: Loggable {
     /// Classifies the input that produced the selection change currently reflected in
     /// `selectedFilmIDs` (see `SelectionInputKind`).
     ///
-    /// The `keyRepeat` / `discrete` cases are sourced directly from `NSEvent.isARepeat` at
-    /// the point of key dispatch (see `GalleryCollectionView.keyDown`) rather than being
-    /// inferred from timing, so they are authoritative: `keyRepeat` is true on the very first
-    /// repeat event of a held key, and a deliberate single tap is always `discrete` no matter
-    /// how quickly it follows a previous change. Sources that cannot supply an authoritative
-    /// signal leave this `unspecified`.
+    /// The `keyRepeat` and `discrete` cases come from `NSEvent.isARepeat` at key dispatch (see
+    /// `GalleryCollectionView.keyDown`), not from timing. A deliberate tap is always `discrete`, however quickly it
+    /// follows the last change. Sources that cannot supply a signal leave this `unspecified`.
     ///
-    /// Set atomically alongside `selectedFilmIDs` by every selection-mutating call below, so
-    /// it can never go stale — there is no separate "reset" call site to forget. Consumers
-    /// (e.g. RightSidebar's adaptive debounce) should read this in the same observation cycle
-    /// that observes `selectedFilmIDs` changing.
+    /// Set together with `selectedFilmIDs` by every selection-mutating call, so it cannot go stale. Consumers such as
+    /// RightSidebar's adaptive debounce read it in the same observation cycle.
     private(set) var lastSelectionInputKind: SelectionInputKind = .unspecified
+
+    /// The selection a deferred `select` has queued but not yet written, and a counter
+    /// that lets a later call cancel it. Without these, a deferred write could land after
+    /// a newer immediate change (or a newer deferred change back to the current value,
+    /// which the redundancy guard skipped) and overwrite it with a stale selection.
+    @ObservationIgnored private var pendingFilmIDs: Set<UUID>?
+    @ObservationIgnored private var selectionGeneration = 0
+
+    /// Whether a deferred `select` is still waiting to land. The galleries skip syncing
+    /// their highlight from `selectedFilmIDs` meanwhile: it is about to change, and the
+    /// landing write triggers a fresh sync. Syncing early would briefly undo the click,
+    /// or prune the outgoing selection and cancel the click's write along with it.
+    var hasPendingSelection: Bool { pendingFilmIDs != nil }
 
     // MARK: - Selection Methods
     
-    /// PRIMARY METHOD: Call this for all UI-driven selection changes.
+    /// PRIMARY METHOD: use for all UI-driven selection changes. It defers the write by one run-loop turn, so a
+    /// change from an AppKit delegate callback does not publish during a view update.
     ///
-    /// This method wraps the update in a Task to break the synchronous chain,
-    /// preventing "Publishing changes from within view updates" errors that occur
-    /// when NSCollectionView delegate methods (didSelectItemsAt, etc.) trigger
-    /// @Published property changes during the AppKit view update cycle.
-    ///
-    /// Use this for:
-    /// - NSCollectionView delegate callbacks
-    /// - Marquee selection updates
-    /// - Any selection triggered by user interaction with UI elements
-    ///
-    /// This is the safe default that works in all contexts.
+    /// Use it for NSCollectionView delegate callbacks, marquee selection, and any user-driven selection.
     ///
     /// - Parameter inputKind: Classifies the input that produced this change (see
     ///   `SelectionInputKind`). Defaults to `.unspecified`, which is correct for callers
@@ -130,43 +114,30 @@ final class SelectionState: Loggable {
     ///   selection, etc.).
     func select(_ filmIDs: Set<UUID>, inputKind: SelectionInputKind = .unspecified) {
         // Avoid redundant publishes and downstream work when the selection is unchanged.
-        guard filmIDs != selectedFilmIDs else { return }
-        
-        // Defer the write by one run-loop turn to break the synchronous chain from
-        // AppKit view updates, preventing "Publishing changes from within view updates"
-        // errors when NSCollectionView delegate callbacks (didSelectItemsAt, etc.) trigger
-        // @Observable property mutations during the AppKit event cycle.
-        //
-        // DispatchQueue.main.async is used here instead of Task { @MainActor } because
-        // it inherits the caller's QoS automatically. AppKit delivers mouse/keyboard
-        // events at User-Interactive QoS, so a bare Task { @MainActor } — which defaults
-        // to .default — creates a priority inversion the runtime flags as:
-        // "[Internal] Thread running at User-interactive quality-of-service class waiting
-        // on a lower QoS thread running at Default quality-of-service class."
-        // Task(priority: .userInteractive) resolves this but is deprecated in Swift 6.
-        // DispatchQueue.main.async propagates the caller's QoS without any explicit hint,
-        // which is both correct and forward-compatible.
+        guard filmIDs != (pendingFilmIDs ?? selectedFilmIDs) else { return }
+        selectionGeneration &+= 1
+        let generation = selectionGeneration
+        pendingFilmIDs = filmIDs
+
+        // DispatchQueue.main.async defers the write while keeping the caller's QoS. AppKit events run at
+        // User-Interactive QoS, and a bare Task { @MainActor } runs at default QoS, which the runtime flags as a
+        // priority inversion. Task(priority: .userInteractive) avoids this but is deprecated in Swift 6.
         DispatchQueue.main.async { [weak self] in
-            self?.lastSelectionInputKind = inputKind
-            self?.selectedFilmIDs = filmIDs
+            guard let self, generation == self.selectionGeneration else { return }
+            self.pendingFilmIDs = nil
+            self.lastSelectionInputKind = inputKind
+            self.selectedFilmIDs = filmIDs
         }
     }
 
-    /// IMMEDIATE METHOD: Call this ONLY for programmatic selection changes
-    /// where you explicitly know you are NOT in a view update context.
-    ///
-    /// This provides zero-latency updates for:
-    /// - Menu bar commands (Select All, etc.)
-    /// - Keyboard shortcuts handled outside view updates
-    /// - Event bus handlers that are triggered programmatically
-    ///
-    /// WARNING: Calling this from a view update context will cause the
-    /// "Publishing changes from within view updates" error. When in doubt,
-    /// use select() instead.
+    /// IMMEDIATE METHOD: use ONLY where you know the call is not inside a view update. It applies the change
+    /// at once, for menu commands, keyboard shortcuts, and programmatic event handlers. Calling it from a view
+    /// update logs "Publishing changes from within view updates". When in doubt, use select().
     ///
     /// - Parameter inputKind: Classifies the input that produced this change (see
     ///   `SelectionInputKind`). Defaults to `.unspecified`.
     func selectImmediate(_ filmIDs: Set<UUID>, inputKind: SelectionInputKind = .unspecified) {
+        cancelPendingSelection()
         // Avoid redundant publishes and downstream work when the selection is unchanged.
         guard filmIDs != selectedFilmIDs else { return }
         
@@ -176,20 +147,9 @@ final class SelectionState: Loggable {
         selectedFilmIDs = filmIDs
     }
 
-    // Convenience function for single selection (UI-driven).
-    //
-    // nil-branch uses clearImmediate() rather than the deferred select(Set<UUID>())
-    // because a deferred nil-clear would schedule a DispatchQueue.main.async that
-    // lands after any isUpdatingSelection flag resets in the calling coordinator.
-    // That delayed clear triggers syncSelectionToView() unnecessarily, which then
-    // writes [] to collectionView.selectionIndexPaths / deselectAll — producing a
-    // spurious deselect one frame after the user's intended clear. The immediate
-    // synchronous clear avoids this and is safe because clearImmediate() only ever
-    // writes a nil→empty transition, which is idempotent and cannot cause re-entrancy.
-    //
-    // The non-nil branch routes through the deferred select([filmID]) to avoid
-    // "Publishing changes from within view updates" errors when called from AppKit
-    // delegate callbacks that fire during the AppKit event cycle.
+    // Convenience for single selection (UI-driven). A nil selection clears immediately. A deferred clear would
+    // land after the coordinator's isUpdatingSelection flag resets, and it would cause a spurious deselect one frame later.
+    // A non-nil selection is deferred, as select(_:) is, to avoid view-update publishing.
     func select(_ filmID: UUID?, inputKind: SelectionInputKind = .unspecified) {
         if let filmID = filmID {
             select([filmID], inputKind: inputKind)
@@ -210,8 +170,16 @@ final class SelectionState: Loggable {
     /// Synchronous clear for view changes.
     /// This must complete before view switches to prevent selection artifacts.
     func clearImmediate() {
+        cancelPendingSelection()
         guard !selectedFilmIDs.isEmpty else { return }
         selectedFilmIDs = []
+    }
+
+    /// Drops any deferred selection write still waiting to land.
+    private func cancelPendingSelection() {
+        guard pendingFilmIDs != nil else { return }
+        selectionGeneration &+= 1
+        pendingFilmIDs = nil
     }
     
 }

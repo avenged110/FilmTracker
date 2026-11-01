@@ -32,10 +32,9 @@ final class FilmComparison: Loggable {
     // across the lifetime of a single import pass, so reusing one snapshot array for
     // the whole batch is safe and produces identical match results.
     //
-    // Years are always compared exactly here: the ±1 year tolerance
-    // (Preferences.fuzzyImportYearMatching) is a ratings-pairing affordance and has
-    // never applied to metadata-import duplicate detection, which is this function's
-    // only caller. RatingsImporter does its own dictionary-backed matching (including
+    // Years are compared exactly here: the ±1 year tolerance
+    // (Preferences.fuzzyImportYearMatching) is a ratings-pairing affordance and does not
+    // apply to metadata-import duplicate detection, which is this function's only caller. RatingsImporter does its own dictionary-backed matching (including
     // an alternateTitle pass) and calls yearsMatch(_:_:allowFuzzy:) below directly.
     static func existingFilm(matchingTitle title: String, year: String,
         in allFilms: [FilmSnapshot]) -> FilmSnapshot? {
@@ -225,9 +224,8 @@ final class FilmComparison: Loggable {
         var lastUpdateTime = ContinuousClock.now
         let updateInterval: ContinuousClock.Duration = .milliseconds(33)
         
-        // Shared progress + cancellation check, time-gated to ~30fps. Returns true
-        // if the scan should stop. Consolidates what was previously three identical
-        // inline blocks (one per early-exit point in the pairwise loop below).
+        // Shared progress and cancellation check, time-gated to ~30fps, used at the
+        // early-exit points in the pairwise loop below. Returns true if the scan should stop.
         func checkProgressAndCancellation() async -> Bool {
             let now = ContinuousClock.now
             guard now - lastUpdateTime >= updateInterval || currentComparison == totalComparisons else {
@@ -456,17 +454,24 @@ final class FilmComparison: Loggable {
     // match, 0.5 for a moderate difference, 0.0 for a large difference.
     nonisolated private static func durationSimilarity(_ d1: String, _ d2: String) -> Double {
         func toMinutes(_ s: String) -> Int? {
+            // " mins" is stripped before " min": the other order turned "112 mins" into
+            // "112s", which then failed to parse.
             let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: " min", with: "")
                 .replacingOccurrences(of: " mins", with: "")
+                .replacingOccurrences(of: " min", with: "")
             // Handle H:MM:SS or HH:MM
             let parts = cleaned.components(separatedBy: ":")
             if parts.count == 3, let h = Int(parts[0]), let m = Int(parts[1]) {
                 return h * 60 + m
             } else if parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]) {
                 return h * 60 + m
-            } else if let mins = Int(cleaned) {
-                return mins
+            } else if let value = Double(cleaned), value.isFinite, value > 0 {
+                // The Film model stores runtimes as milliseconds ("6720000"). Reading those
+                // as minutes made any difference of even one second exceed the tolerance,
+                // so true duplicates scored as a large runtime mismatch. No film runs a
+                // thousand minutes, so a value that large is milliseconds.
+                if value >= 1000 { return DurationHelpers.storedMinutes(cleaned) }
+                return Int(value.rounded())
             }
             return nil
         }

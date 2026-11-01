@@ -108,10 +108,8 @@ enum ReleaseIndependence {
 /// stored value is a known studio or a free-text "Other"), the RightSidebar's "Source for
 /// Viewing" field (`RSBHelpers`, gated by `Preferences.abbreviateSourceStudio`) and the
 /// complete-library PDF's Notes column, which falls back to the abbreviated form when the
-/// cell would otherwise truncate. The Picker list and the abbreviation mapping each used to
-/// be a hand-maintained copy of the same names, and two copies of a twenty-entry vocabulary
-/// is a table that drifts. Adding, renaming or re-abbreviating a studio is now one edit
-/// to `entries`.
+/// cell would otherwise truncate. The Picker list and the abbreviation mapping both derive from
+/// one vocabulary (`entries`), so a studio is renamed or re-abbreviated in one place.
 ///
 /// The callers still decide WHEN to shorten; this decides only WHAT to. That split is
 /// deliberate: the sidebar's rule is a user preference plus a measurement and the PDF's is
@@ -143,7 +141,7 @@ enum ReleaseStudio {
     }
 
     /// The Picker's three tiers, each declared alphabetically and each drawn with a
-    /// divider ahead of it (see `_StudioRow.studioItems`, 33_20) — a fourth, the free-text
+    /// divider ahead of it (see `_StudioRow.studioItems`, 33.20) — a fourth, the free-text
     /// "Other" sentinel, is appended by that same Picker builder rather than living here,
     /// since it is not a stored studio name. Splitting `entries` into named tiers rather
     /// than one flat list is what lets the Picker draw those dividers at all: a flat array
@@ -249,11 +247,8 @@ enum ReleaseStudio {
 /// with no membership check (see the pickers' tag-set guarantees), so the stored set is
 /// open by design and a closed Swift type would misdescribe it.
 ///
-/// This began as a single constant for `steelbook`, on the reasoning that every other tag
-/// was "only ever a menu entry" and so a literal was harmless. THAT IS NO LONGER TRUE —
-/// the releases table branches on six of these tags by value and the right sidebar's
-/// `artworkNote` switches on eight, so the picker that writes them and the two surfaces
-/// that read them were three independent spellings of one vocabulary. They are one now.
+/// The releases table, the right sidebar's `artworkNote`, and the picker that writes them all read
+/// one vocabulary.
 ///
 /// `steelbook` keeps its own note because it carries a rule the others do not: it is the
 /// sole tag offered under EVERY combination of purchased state and independence type,
@@ -708,12 +703,9 @@ enum ReleaseMarketAvailability {
 /// The stored vocabulary for `Release.audioFormat`, plus the three quality questions
 /// consumers ask of it. Open vocabulary, as everywhere else here.
 ///
-/// Each of those questions was previously answered by a separate pair of string
-/// comparisons at each site that asked it. `_AudioSection.isObjectBased` even documented
-/// itself as "the single definition of object-based" — accurate about the two consumers it
-/// was extracted for, but the Reports tab's data-viz pass had grown a third copy of the
-/// same comparison that the extraction never reached. That is the shape this file exists
-/// to prevent: a rule that believes it is centralized while a copy of it lives elsewhere.
+/// Each question is answered once, here. Before that, each consumer compared strings on its own, and a
+/// copy of a rule could survive elsewhere after the rule was centralized (for example, the Reports
+/// data-viz pass's third copy of the object-based check).
 enum ReleaseAudioFormat {
     static let dolbyAtmos   = "Dolby Atmos"
     static let dolbyTrueHD  = "Dolby TrueHD"
@@ -803,13 +795,8 @@ enum ReleaseAudioChannels {
 // MARK: - Country of Origin Vocabulary
 /// Every country a release can be from, and everything the app says about each one.
 ///
-/// THE single source of truth for national origin. Before this existed the same list was
-/// written out three times — as the card's picker menu (`ReleaseCard`), as the sidebar's
-/// demonym switch (`RSBHelpers`), and as the PDF's import-note switch (`PDFReport`) —
-/// plus a fourth partial copy as the Region A set below, plus the literal "United States"
-/// spelled at half a dozen "is this an import?" sites. Adding a country meant finding all
-/// of them. Now a country is one row here, and the picker order, both display forms, the
-/// region rule, and the domestic test all derive from it.
+/// The single source of truth for national origin. A country is one row here; the picker order, both
+/// display forms, the region rule, and the domestic test all derive from it.
 ///
 /// - `name`: the stored `nationalOrigin` value, verbatim. Persisted as-is and never
 ///   validated on read, so the picker tolerates a stored value not in this list (see
@@ -876,13 +863,9 @@ struct ReleaseOrigin: Sendable {
 /// Which Blu-ray region codes a country of origin permits, and the resolution that follows
 /// when an origin changes underneath a stored region.
 ///
-/// The single statement of the rule. It previously lived entirely inside `_CountryRow`,
-/// which was the right place while the only consumer was the card's own region picker — but
-/// a combo-pack child's `nationalOrigin` is pushed down by `syncComboChildFields` rather
-/// than chosen on the child's card, and the card's cascade is (correctly) suppressed for
-/// children, so nothing applied the rule on that path at all. Lifting it here lets
-/// `syncComboChild` apply the identical resolution at the data layer, which is where a
-/// parent-driven origin change actually lands.
+/// The single statement of the rule, applied by the card's region picker and by `syncComboChild`.
+/// A combo-pack child's `nationalOrigin` is pushed down by its parent rather than chosen on the card,
+/// so the data layer applies the same resolution where a parent-driven origin change lands.
 ///
 /// Blu-ray only. 4K is region free by definition and DVD's region vocabulary is fixed and
 /// does not vary with origin, so neither format has a compatibility question to ask.
@@ -987,8 +970,8 @@ enum ReleaseRegionRules {
 }
 
 // MARK: - Format Vocabulary
-/// The stored vocabulary for `Release.format`, plus the per-format rules that were
-/// previously restated as a `switch` at every site that needed one.
+/// The stored vocabulary for `Release.format`, plus the per-format rules, each derived
+/// from the enum here.
 ///
 /// UNKNOWN VALUES ROUND-TRIP, exactly as they do for `ReleaseIndependence`. `format` is
 /// persisted verbatim, exported to XML backups, and read back by `SafeValueParser`, so a
@@ -1032,12 +1015,8 @@ enum ReleaseFormat: String, CaseIterable, Sendable {
     ///
     /// MARK: This switch MUST match the declaration order above
     ///
-    /// It used to read `allCases.firstIndex(of: self)`, which derived the order from the
-    /// declaration rather than restating it — strictly better as documentation, but it put
-    /// two array allocations and a linear search behind what reads as a stored constant.
-    /// `allCases` is synthesized to BUILD its array on each access, so both the index
-    /// lookup and the `??` fallback allocated, and the string-keyed
-    /// `displayRank(for:)` below added a `RawRepresentable` init on top.
+/// Ordered by `displayRank(for:)`, not `allCases.firstIndex(of:)`: `allCases` builds a new array on
+/// each access, and this runs inside a sort comparator.
     ///
     /// That cost lands in a sort comparator, evaluated twice per comparison:
     /// `FSTabReleases.unifiedReleaseOrder` (run from `releases.didSet`, so on every add,
@@ -1179,8 +1158,8 @@ enum ReleaseFormat: String, CaseIterable, Sendable {
 
 // MARK: - Release Display Labels
 /// The card's label, e.g. "Release 2", beside its format badge. Single source of truth for
-/// a string several sites previously built by interpolation, so changing the wording (the
-/// "#" that used to precede the number, say) is one edit here.
+/// a string that callers would otherwise build by interpolation, so changing the wording is one
+/// edit here.
 ///
 /// The number is the card's 1-based position within its own format's carousel, which is
 /// what the header displays; callers derive it from `FSTabReleases.displayNumbers` (or from
@@ -1410,8 +1389,8 @@ final class Release: LibraryObject {
     // MARK: - Basic Information
     @NSManaged var studio: String
     /// "yyyy.MM.dd", "yyyy" for a release known only by its year, or "" — see
-    /// ReleaseDateValue, which every reader goes through. Stored as `releaseYear` until full
-    /// dates were introduced (each old value is a valid year-only value).
+    /// ReleaseDateValue, which every reader goes through. A stored year-only value is a valid
+    /// year-only date.
     @NSManaged var releaseDate: String
     /// A year only, "" when unset. Kept strictly before releaseDate's year.
     @NSManaged var baseReleaseYear: String
@@ -1625,17 +1604,8 @@ extension Release: ExportableModel {
 
         // Export the related film ID for reconstruction during import.
         props["filmID"] = self.film?.id
-        // Export the parent release ID ONLY when a parent exists. Omitting the key for a
-        // top-level (parentless) release is the correct representation: the restorer's
-        // hierarchy pass treats an absent parentReleaseID as "top-level" — identical to how
-        // it handles legacy backups that predate this field — and emits no warning.
-        //
-        // The previous `self.parentRelease?.id as Any` form boxed Optional<UUID>.none for
-        // every parentless release, which DBReader then serialized as the literal text "nil"
-        // (it now unwraps a boxed optional, but omitting the key stays the clean form). On restore, parseOptionalUUID then logged
-        // that "nil" as a malformed UUID for every top-level release — i.e. the vast
-        // majority — polluting both the backup file and the restore log. Guarding with
-        // `if let` writes a clean UUID when a parent is present and nothing when it is not.
+        // Export the parent release ID only when a parent exists. The restorer treats an absent
+        // parentReleaseID as a top-level release, so a parentless release omits the key.
         //
         // childReleases are not exported here — they are reconstructed during restore by
         // linking each child's parentReleaseID back to its parent.

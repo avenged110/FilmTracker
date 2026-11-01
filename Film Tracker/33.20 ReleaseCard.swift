@@ -23,12 +23,11 @@ enum ReleaseCardMetrics {
     /// the other, which is exactly where a small misalignment is most visible. Only merged combo
     /// packs carry the picker.
     ///
-    /// 22 pt is that control's natural height at the regular control size, which is also the
-    /// height the header had before the merge, so reserving it keeps card height unchanged from
-    /// the previous build as well as uniform within this one.
+    /// 22 pt is that control's natural height at the regular control size. Reserving it keeps
+    /// every card the same height whether or not it carries the picker.
     static let headerControlHeight:   CGFloat = 22
     /// Layout height of a pop-up menu (ReleasePopUpButton) at the regular control size: 20,
-    /// see `SheetPopUpButton.layoutHeight` (30_20). The card's 28 pt row pitch
+    /// see `SheetPopUpButton.layoutHeight` (30.20). The card's 28 pt row pitch
     /// (20 + `rowSpacing`) depends on it.
     static let popUpLayoutHeight:     CGFloat = ReleasePopUpButton.layoutHeight
 }
@@ -89,10 +88,9 @@ private extension Text {
 /// Text rather than a disabled Picker on purpose: it conveys the same locked value without
 /// adding another NSPopUpButton to a card that already carries ~50 controls.
 ///
-/// The insets match a menu picker's own text position so the column still lines up, and they
-/// live here rather than at each call site because the two sites had drifted 2 pt apart —
-/// which made DVD cards taller than every other card, and card height has to be uniform (see
-/// ReleaseCardMetrics.headerControlHeight).
+    /// The insets match a menu picker's own text position so the column still lines up. They live
+    /// here, not at each call site, so every format's fixed value shares one inset and card height
+    /// stays uniform (see ReleaseCardMetrics.headerControlHeight).
 struct FixedValueText: View {
     private let text: String
     init(_ text: String) { self.text = text }
@@ -130,14 +128,12 @@ struct ReleaseOption: Hashable, ExpressibleByStringLiteral {
 /// render pass that changed the other control, but the cascade clearing the now-invalid value
 /// only runs after it, leaving one frame with no match.
 ///
-/// Every site previously restated its own option list a second time as a "is the stored value
-/// known?" check. Here the fallback item is derived from the same `options` array the menu is
-/// built from, so the two cannot disagree. Values outside the vocabulary entirely keep their own
-/// item rather than being masked, so they stay visible and selectable-away-from.
-///
-/// Backed by `ReleasePopUpButton` rather than a SwiftUI `Picker(.menu)`. See that type for the
-/// measurements; the short version is that SwiftUI's picker costs ~0.6 ms per menu item to
-/// build and ~0.2 ms per item on every update, and a card carries eight or nine of them.
+    /// The fallback item is derived from the same `options` array the menu is built from, so the
+    /// two cannot disagree. A value outside the vocabulary keeps its own item rather than being
+    /// masked, so it stays visible and selectable away from.
+    ///
+    /// Backed by `ReleasePopUpButton` rather than a SwiftUI `Picker(.menu)`, whose per-item cost is
+    /// too high for a card carrying eight or nine menus. See that type for details.
 struct TaggedPicker: View {
     @Binding var selection: String
     let options: [ReleaseOption]
@@ -156,10 +152,8 @@ struct TaggedPicker: View {
 
 // MARK: - Pop-up Button
 //
-// The card's single-select control is `SheetPopUpButton` (30_20), an `NSPopUpButton` driven
-// directly in place of SwiftUI's `Picker(.menu)`; the rationale and measurements live with
-// the type. This card was where the cost was measured — eight or nine menus with ~70 items
-// between them were about half of the ~110 ms it took to mount a card.
+// The card's single-select control is `SheetPopUpButton` (30.20), an `NSPopUpButton` driven
+// directly in place of SwiftUI's `Picker(.menu)`; the rationale lives with the type.
 typealias ReleasePopUpButton = SheetPopUpButton<String>
 
 extension SheetPopUpButton where Value == String {
@@ -176,24 +170,18 @@ extension SheetPopUpButton where Value == String {
 
 // MARK: - Variant-swap-safe change observation
 //
-// THE HAZARD. A merged combo pack is ONE card whose `model` is swapped between the 4K parent
-// and its bundled Blu-ray(s) by the header's segmented picker. The swap re-points the same view
-// at a different object at the same position in the view tree — the card carries no `.id()`,
-// deliberately, so switching segments reuses the layout tree rather than rebuilding fifty
-// controls.
+// THE HAZARD. A merged combo pack is ONE card whose `model` is swapped between the 4K parent and its
+// bundled Blu-ray(s) by the header's segmented picker. The swap re-points the same view at a different
+// object at the same position in the view tree. The card carries no `.id()`, on purpose, so switching
+// segments reuses the layout tree.
 //
-// `.onChange(of: model.someField)` cannot see that. All it compares is the value it read on the
-// previous body evaluation against the value now, so a swap between two releases that simply
-// hold DIFFERENT values for that field is indistinguishable from the user editing it — and the
-// handler fires, running a cascade against a card the user never touched. It needs the parent
-// and child to disagree about that particular field, which is ordinary for every field the
-// combo-pack sync does not lock, which is why it surfaced on one release and not others.
+// `.onChange(of: model.someField)` cannot tell that swap from an edit. It compares only the value read on
+// the previous body evaluation with the value now, so two releases holding different values for the field
+// look like a user change, and the handler runs a cascade against a card the user did not touch.
 //
-// THE FIX. Pair the value with the identity of the model it was read from. A swap changes the
-// id and the handler declines; a real edit keeps the id and it runs as before. Preferred over
-// giving the card an `.id(model.id)` — which would also close the hole, by rebuilding the
-// subtree instead of re-pointing it — because that would undo the layout-tree reuse the merged
-// card is built around and put a structural rebuild inside the carousel's ambient spring.
+// THE FIX. Pair the value with the identity of the model it was read from. A swap changes the id and the
+// handler declines; a real edit keeps the id and runs as before. An `.id(model.id)` would also close the
+// hole, but it rebuilds the subtree and gives up the layout-tree reuse the merged card depends on.
 private struct ModelField<Value: Equatable>: Equatable {
     let modelID: UUID
     let value: Value
@@ -273,11 +261,10 @@ struct ReleaseCardView: View {
     // single-disc pack reading "Blu-ray 1" would imply a second disc that does not exist, so a
     // lone child is named by its format alone and a dual-BD pack's two take "1" and "2".
     //
-    // Not prefixed with "Included": that a bundled disc is part of this release is already said
-    // by the segments sitting inside one card and by the "Included in Combo-pack" text on the
-    // Purchased row, and saying it a third time inside a segmented control is what pushed the
-    // picker wide. The numbers are per-pack ordinals, deliberately unrelated to the carousel's
-    // release numbering.
+// Not prefixed with "Included": that a bundled disc is part of this release is already said by the
+// segments inside one card and by the "Included in Combo-pack" text on the Purchased row. Repeating it
+// inside a segmented control makes the picker wider. The numbers are per-pack ordinals, deliberately
+// unrelated to the carousel's release numbering.
     //
     // Returns [] for an unmerged entry, which is what suppresses the picker entirely.
     @MainActor
@@ -297,10 +284,9 @@ struct ReleaseCardView: View {
 
     // MARK: - Card chrome
     // The header sits on a full-bleed band tinted by the card's format, in the manner of the
-    // right sidebar's purchase-tinted release cards (RSBCardChrome in 24_20). The color
-    // change is itself the separation from the rows below, taking the place of the divider
-    // that used to close the header; the divider's height and padding are kept as blank
-    // inset so no row moves.
+    // right sidebar's purchase-tinted release cards (RSBCardChrome in 24.20). The color
+// change is itself the separation from the rows below. The divider's height and padding are kept as
+// blank inset so no row moves.
     //
     // Every value here is a `static let` chosen from `badgeFormat` — a plain stored property
     // set by the caller — so the band registers no model subscription and costs the body
@@ -309,19 +295,15 @@ struct ReleaseCardView: View {
     /// The card is inset by SwiftUI's default padding on all sides; stated so the header
     /// band and the rows below can carry the inset separately without either drifting.
     private static let cardInset: CGFloat = 16
-    /// The band carries the card inset above and below the header, matching the card's
-    /// other three edges. The header used to sit `rowSpacing` above its divider, so the
-    /// band's lower edge now falls `cardInset - rowSpacing` further down than the divider
-    /// did; that surplus is taken back out of the blank inset above the Purchased row, so
-    /// the rows below the band are exactly where they always were.
+    /// The band carries the card inset above and below the header, matching the card's other three
+    /// edges. Its lower edge falls `cardInset - rowSpacing` below the old divider position; that surplus
+    /// is taken out of the blank inset above the Purchased row, so the rows below keep their positions.
     private static let bandGrowth: CGFloat = cardInset - ReleaseCardMetrics.rowSpacing
     /// What the header's closing `Divider()` and its `.padding(.bottom, 8)` measured.
     private static let formerDividerHeight: CGFloat = 1
     private static let formerDividerBottomPadding: CGFloat = 8
-    /// Taken off the inset above the Purchased row once the disc Stepper moved onto it. The
-    /// inset was sized for a checkbox row and left 9 pt between the band and the Stepper's
-    /// chrome, against the 8 pt between every Stepper on the card and the menus around it
-    /// (measured on a rendered card); this makes the Purchased row match.
+    /// Trims the inset above the Purchased row. The disc Stepper there would otherwise sit 1 pt further
+    /// from the band than the 8 pt used between every other control on the card.
     private static let purchasedRowTrim: CGFloat = 1
 
     /// Format tints. All three are opaque and dark enough for white lettering, so the same
@@ -345,10 +327,9 @@ struct ReleaseCardView: View {
     private static let badgeInk   = Color(nsColor: ReleaseFormatPalette.darkInk)
 
     /// Outline shared with the sidebar cards: the reorderable lists' edge treatment with
-    /// the strengths RSBCardChrome states, restated here rather than reaching into that
-    /// file's private chrome.
-    private static let borderWidth: CGFloat = FieldEdgeTreatment.borderWidth
-    private static let borderOpacity: Double = 0.32
+    /// the strengths RSBCardChrome states.
+    private static let borderWidth: CGFloat = RSBCardChrome.borderWidth
+    private static let borderOpacity: Double = RSBCardChrome.borderOpacity
     private static let borderGradient = LinearGradient(
         stops: [
             .init(color: Color(NSColor.separatorColor).opacity(borderOpacity), location: 0.0),
@@ -374,7 +355,7 @@ struct ReleaseCardView: View {
     // deliberately never reads model.contentHash: that read touches all 30+ fields and would
     // register every one as a dependency of the entire card, defeating per-property
     // invalidation. Change detection lives outside the view tree in ReleaseChangeObserver
-    // (33_00). Cascade .onChange calls that mutate other fields remain inline on their specific
+    // (33.00). Cascade .onChange calls that mutate other fields remain inline on their specific
     // sub-views.
     //
     // The only model fields this body reads directly are `isComboChild` and the format tests,
@@ -473,12 +454,12 @@ struct ReleaseCardView: View {
             HStack(spacing: ReleaseCardMetrics.controlSpacing) {
                 // MARK: Variant picker
                 //
-                // Occupies the space the Purchased/Wishlist controls used to. Present ONLY on
+                // Occupies the header's control area. Present ONLY on
                 // a merged combo pack; `variantLabels` is empty for every other card, which is
                 // why the enclosing HStack carries a fixed height — see below.
                 if !variantLabels.isEmpty {
                     // An AppKit segmented control, as the sheet's other segmented pickers
-                    // are — see SheetSegmentedControl (30_20).
+                    // are — see SheetSegmentedControl (30.20).
                     SheetSegmentedControl(selection: Binding(
                         get: { variantSelection },
                         set: { onSelectVariant?($0) }
@@ -504,13 +485,9 @@ struct ReleaseCardView: View {
                 // is the whole pack, parent and bundled discs together, whichever variant
                 // happens to be on screen; deleteRelease cascades to the children.
                 //
-                // There used to be a second, disabled treatment for a card that IS a combo-pack
-                // child, explaining that the 4K master had to go first. Merging ended it: a
-                // child is a SEGMENT inside its parent's card and is never rendered as a card
-                // of its own, so the branch became unreachable — and buildCarouselEntries
-                // promotes an ORPHANED child to a top-level card, where the lock would be
-                // exactly wrong. Both the branch and the debug override that defeated it are
-                // gone rather than left as a safety net that no longer catches anything.
+                // A child is a segment inside its parent's card and is never rendered as a card of its own. An
+                // orphaned child is promoted to a top-level card by buildCarouselEntries, where a delete lock would
+                // be wrong, so the button is always live.
                 Button(role: .destructive, action: onDelete) {
                     Circle()
                         .fill(Preferences.red)
@@ -541,9 +518,9 @@ struct ReleaseCardView: View {
 
     /// The traits menu and the artwork picker.
     ///
-    /// This row is what the "Aspect Ratio / Art:" row became once the aspect-ratio menu
-    /// moved up beside the video controls, freeing the first column for the collected
-    /// traits. See `_TraitsMenu` for what the traits are and why they are one control.
+    /// The traits menu and the artwork picker. The aspect-ratio menu lives in the Video row, so this
+    /// row's first column holds the collected traits. See `_TraitsMenu` for what the traits are and why
+    /// they are one control.
     private var traitsArtRow: some View {
         CardRow(Text("Misc. Traits / ").rowLabelSegment(dimmed: false)
                 + Text("Art:").rowLabelSegment(dimmed: model.isComboChild)) {
@@ -560,11 +537,9 @@ struct ReleaseCardView: View {
         }
     }
 
-    // The Video row carries the aspect-ratio menu in its second column, which the
-    // scanning-method / master-type pickers vacated when they became traits. It is therefore
-    // rendered for EVERY card, including a format this build does not recognize — that case
-    // used to render no row at all, which is still right for the format-specific first column
-    // but would now also hide the aspect ratio, a field unrelated to the format.
+// The Video row carries the aspect-ratio menu in its second column, so it is rendered for EVERY card,
+// including a format this build does not recognize. Hiding it there would also hide the aspect ratio,
+// which is unrelated to the format.
     private var videoRowView: some View {
         CardRow("Video:") {
             RowControls {
@@ -597,18 +572,18 @@ struct ReleaseCardView: View {
         // real stored value. See TaggedPicker.
         switch model.releaseFormat {
         case .uhd4K:
-            // masterType moved to the traits menu as "Upscaled 4K Master".
+            // masterType is the "Upscaled 4K Master" trait in _TraitsMenu.
             TaggedPicker(selection: $model.hasHDR,
                          options: Self.hdrOptions,
                          placeholder: "Select HDR…")
 
         case .bluRay:
-            // scanningMethod moved to the traits menu as "Interlaced".
+            // scanningMethod is the "Interlaced" trait in _TraitsMenu.
             TaggedPicker(selection: $model.videoFormat,
                          options: Self.bluRayCodecOptions,
                          placeholder: "Select Codec…")
 
-        // Its former second value ("Interlaced") is now the locked trait of the same name.
+        // Interlacing is fixed by the format and shown as a locked trait in _TraitsMenu.
         case .dvd:
             FixedValueText(ReleaseVideoFormat.mpeg2)
 
@@ -669,14 +644,10 @@ extension ReleaseCardView: Equatable {
 // Reading that inside THIS dedicated view's body isolates the @Observable subscription to
 // viewModel.currentIndex to a small wrapper.
 //
-// Without the isolation (the read was previously inline in headerRow and releaseYearRow), it
-// registers currentIndex as a dependency of the ENTIRE card body — so every carousel navigation
-// would re-evaluate every visible card's full body, rebuilding both CustomDateSteppers and all
-// pickers exactly when the container's spring needs the main thread. Dismiss-on-navigation
-// behavior is unchanged: the token still changes every navigation.
-//
-// The former `format` parameter is gone. It selected a per-format carousel index back when each
-// format had its own stack; there is one stack now, and the parameter had been unread since.
+// Without the isolation, the read would register currentIndex as a dependency of the entire card body,
+// so every carousel navigation would re-evaluate every visible card's full body, rebuilding both
+// CustomDateSteppers and all pickers exactly when the container's spring needs the main thread.
+// Dismiss-on-navigation behavior is unchanged: the token still changes every navigation.
 //
 // The RAW `currentIndex` is read, deliberately, not the clamped `currentCardIndex`. The clamped
 // accessor also reads `carouselEntries`, which would subscribe this wrapper to every structural
@@ -703,16 +674,13 @@ private struct CardHelpButton: View {
 // "Purchased:" — the checkbox (with the "Upcoming" badge centered in the same column) in the
 // first column, and the disc count in the second.
 //
-// The checkbox sits in the row the header's segmented picker vacated. It is a checkbox rather
-// than the former "Purchased / Unpurchased" segmented pair: the field is a plain Bool, and a
-// two-segment picker over a Bool spends a full picker's width restating what a checkbox says
-// in a glyph. The purchased cascade hangs off `model.purchased` in _PurchaseRows, not off the
-// control that writes it.
+// The checkbox is a plain Bool, so it is a checkbox rather than a two-segment picker, which would spend a
+// full picker's width restating what a checkbox says in a glyph. The purchased cascade hangs off
+// `model.purchased` in _PurchaseRows, not off the control that writes it.
 //
-// The disc count moved here from the release-date row, which the full release date now fills.
-// Its Stepper is taller than the checkbox, so this row — and the card with it — is a few
-// points taller than before; every row below keeps its spacing, and the card stays one height
-// across formats and purchase states, which the carousel depends on (see
+// The disc count sits in the second column. Its Stepper is taller than the checkbox, so the row is a few
+// points taller than the checkbox alone would make it. Every row below keeps its spacing, and the card
+// stays one height across formats and purchase states, which the carousel depends on (see
 // ReleaseCardMetrics.headerControlHeight).
 //
 // Each column is its own struct, so a click on the checkbox, a step of the disc count, and a
@@ -730,7 +698,7 @@ private struct _PurchasedRow: View {
                         // Combo-pack children mirror the parent's purchased state. The
                         // representable mirrors this onto the NSButton as `isEnabled` plus
                         // `refusesFirstResponder`, so a disabled checkbox is neither clickable
-                        // nor a Tab stop and never draws a focus ring — see SheetCheckbox (30_20).
+                        // nor a Tab stop and never draws a focus ring — see SheetCheckbox (30.20).
                         .disabled(model.isComboChild)
                     if model.isComboChild {
                         Spacer().frame(width: ReleaseCardMetrics.controlSpacing)
@@ -799,11 +767,9 @@ private struct _DiscCount: View {
             // annotates the value rather than being one, and pluralized from the live
             // binding so it tracks each click.
             //
-            // Sized to the LONGER of the two forms in both states, via a hidden "discs"
-            // that reserves width with the live text overlaid on its leading edge.
-            // Pluralization otherwise changed the width of the pair, and because the pair
-            // is centered in the column, half that change moved the Stepper — the whole
-            // unit visibly jumped as the user stepped between 1 and 2.
+// Sized to the LONGER of the two forms in both states, via a hidden "discs" that reserves width with the
+// live text overlaid on its leading edge. Without the reserved width, the centered pair would shift
+// whenever the label changed length.
             //
             // A hidden sizer rather than a hard-coded width: the string widths are the
             // font's business and change with the user's text size. `.hidden()` keeps it
@@ -826,10 +792,8 @@ private struct _DiscCount: View {
         .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .center)
     }
 
-    /// How far the centered unit sits left of the base-year Stepper: measured with the
-    /// `card-perf` harness scenario and `-FTDebugCardPerfFrames`, which put the disc Stepper
-    /// at x = 426 and the base-year Stepper at x = 432 in card coordinates (with the tighter
-    /// Stepper chrome; re-measure if that padding changes).
+    /// How far the centered unit sits left of the base-year Stepper. Measured with the `card-perf`
+    /// harness scenario and `-FTDebugCardPerfFrames`; re-measure if the Stepper padding changes.
     private static let alignmentShift: CGFloat = 6
 }
 
@@ -839,20 +803,12 @@ private struct _DiscCount: View {
 // `model.studio` in agreement with them. Subscriptions to studioSelection, studioCustomText,
 // and isComboChild are registered against _StudioRow.body rather than ReleaseCardView.body.
 //
-// MARK: Why this row in particular
+// MARK: Why the handlers read through onFieldChange
 //
-// The two handlers below use `onFieldChange`, which builds its `ModelField` comparand FROM THE
-// BODY — so `of: model.studioCustomText` is a genuine value read in whatever body the modifier
-// is attached to. While this row was a computed property on ReleaseCardView, that read belonged
-// to the card: every keystroke in the "Other" field invalidated all twelve rows, both
-// MultiSelectMenus (thirty Toggles, each with a freshly allocated Binding), both
-// CustomDateSteppers, and every Picker — for a change that alters one text field and one
-// opacity.
-//
-// That made it the only remaining per-KEYSTROKE field read on the card body. The other
-// body-level reads each gate a branch in another row and change on a click rather than a
-// character. `model.notes` looks similar but is only ever reached through a Binding, which
-// registers its read inside the TextField.
+// `onFieldChange` builds its `ModelField` comparand from the body it is attached to, so each handler's read
+// of a studio field belongs to this struct's body. Had the row stayed a computed property on
+// ReleaseCardView, every keystroke in the "Other" field would invalidate the whole card. `model.notes`
+// looks similar but is only reached through a Binding, which registers its read inside the TextField.
 //
 // MARK: Variant-swap safety is unchanged
 //
@@ -902,23 +858,17 @@ private struct _StudioRow: View {
                     model.studioCustomText = ""
                 }
             }
-            // In the tree only while "Other" is selected. It used to be always present and
-            // opacity-toggled, on the theory that the row height had to be held — but the
-            // menu beside it is already the row's 22 pt, so the row is the same height with
-            // or without the field, and an NSTextField that is invisible on nineteen cards
-            // in twenty is a real view AppKit still creates, lays out, and walks. Height
-            // pinned to the same 22 pt so the roundedBorder TextField's internal vertical
-            // padding cannot inflate the row when it is present.
+            // Present only while "Other" is selected. The row is the same height without it, so omitting the
+            // field costs no layout, while a field hidden on most cards would still be created and laid out on
+            // each of them. The field is pinned to the 22 pt header control height, so the roundedBorder
+            // TextField's internal vertical padding cannot inflate the row when it is present.
             if model.studioSelection == "Other" {
                 TextField("Studio name", text: $model.studioCustomText)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: ReleaseCardMetrics.pickerWidth,
                            height: ReleaseCardMetrics.headerControlHeight)
-                    // The field is 22 pt and the row is the menu's 20; the same −1 pt
-                    // vertical padding the whole row used to carry, applied to the one
-                    // control that needs it, so the field overhangs the row by a point at
-                    // each edge exactly as it always has and the card's height never moves
-                    // when it appears.
+                    // The field is 22 pt and the menu is 20. The −1 pt vertical padding lets the field overhang
+                    // the row by a point at each edge, which keeps the card's height unchanged when it appears.
                     .padding(.vertical, -1)
                     .disabled(model.isComboChild)
                     .onFieldChange(of: model.studioCustomText, on: model) { _, newText in
@@ -956,7 +906,7 @@ private struct _StudioRow: View {
 //      range floor and that cap, wrapping back to the floor at the top instead of pushing the
 //      release year up.
 //   2. Value correction (ReleaseCardModel.enforceReleaseYearOrder) — the authoritative
-//      invariant, driven by the .onChange handlers below. It also covers the paths a range
+//      invariant, driven by the onFieldChange handlers below. It also covers the paths a range
 //      cannot: field activation, a release year stepped down onto a committed base year,
 //      parent→child sync, and load.
 //
@@ -985,24 +935,16 @@ private struct _ReleaseYearRow: View {
 
         // MARK: Explicit observation of baseReleaseYear
         //
-        // Every other field this row displays is read somewhere in the logic below, which is
-        // what registers it with @Observable. `baseReleaseYear` was the exception: the row only
-        // passed `$model.baseReleaseYear` to CustomDateStepper, and forming a Binding does NOT
-        // read the property — so nothing in the view tree observed the value itself.
+        // Forming a Binding does not read the property, and this row otherwise reads baseReleaseYear only
+        // indirectly. Without this read, a write that changes the base year alone (a post-sync enforcement
+        // pass, or a load-time repair) would leave the base-year Stepper showing its previous value.
         //
-        // That left the base-year Stepper's displayed number dependent on some OTHER field
-        // changing in the same pass. It holds for the common corrections, but not for a write
-        // touching the base year alone — syncComboChild's post-sync enforcement pass, or a
-        // load-time repair — after which the Stepper kept showing the year it was last
-        // rendered with while the model held another.
-        //
-        // The read is deliberate and its result deliberately unused.
+        // The read is deliberate and its result is unused.
         _ = model.baseReleaseYear
 
         // MARK: Base-year availability
-        // The base year is offerable only when a year strictly earlier than the release year
-        // exists inside the range. Two conditions, and the second is the one the original
-        // gating (`!model.hasReleaseYear` alone) missed:
+        // The base year is offerable only when a year strictly earlier than the release year exists inside
+        // the range. Both conditions are required:
         //
         //   • the release year must be committed — the base year qualifies it; and
         //   • the release year must sit above the range floor — if it is ON the floor, every
@@ -1029,11 +971,9 @@ private struct _ReleaseYearRow: View {
         // step past it. A 2010 release year on a Blu-ray thus cycles the base year 2006...2009
         // and wraps 2009 → 2006.
         //
-        // This is the whole reason the release year is never carried upward by the base year
-        // any more: an explicitly entered release year is not something a click on the OTHER
-        // Stepper should overwrite. The relationship is kept by capping the subservient field
-        // instead. (It also subsumes the combo-child case, where the release year is inherited
-        // and its Stepper disabled — that card used to be the only one capped this way.)
+        // An explicitly entered release year is never overwritten by a click on the other Stepper. The
+        // relationship is kept by capping the subservient field instead. That also covers a combo-pack child,
+        // whose release year is inherited and whose Stepper is disabled.
         //
         // max() with the floor keeps the range constructible in the degenerate case where the
         // release year sits on the floor: the Stepper is disabled there anyway (see
@@ -1049,8 +989,7 @@ private struct _ReleaseYearRow: View {
         // MARK: Row composition
         //
         // "Released:" — the release date, a slash, the base release year, and the help
-        // button, in that order, set out the way the Cost / Spent row sets out its pair. The
-        // disc count that used to fill the second column is on the Purchased row now.
+        // button, in that order, set out the way the Cost / Spent row sets out its pair.
         //
         // A plain HStack rather than RowControls, whose only addition is a `maxWidth: .infinity`
         // frame this row does not need — and CardRow's own note warns that even a sized inner
@@ -1128,7 +1067,7 @@ private struct _ReleaseYearRow: View {
                     // HelpPopoverButton handles vertical-scroll dismissal separately via its own
                     // minY observer; this token covers the horizontal case that minY cannot
                     // detect, since a carousel slide moves the card in x only. The
-                    // currentCardIndex read is deliberately inside CardHelpButton's own body so
+                    // raw currentIndex read is deliberately inside CardHelpButton's own body so
                     // navigation does not invalidate this row — see CardHelpButton.
                     CardHelpButton(
                         helpText: "Some releases are reissues of prior ones with slight variations, yet retain the same on-disc film version/mastering. The first field refers to this specific release, while the optional second field pertains to the earliest permutation of this release.",
@@ -1146,11 +1085,9 @@ private struct _ReleaseYearRow: View {
         // Re-entry is self-limiting: the corrective write fires these handlers once more, at
         // which point the ordering holds and enforceReleaseYearOrder returns on its fast path.
         //
-        // All four are scoped to this release — see onFieldChange. `baseReleaseYear` and its
-        // flag are explicitly NOT locked to the parent (a bundled disc may be a reprint of an
-        // earlier release), so a merged card's two variants routinely disagree about them and
-        // every variant swap used to run an enforcement pass against the release being switched
-        // to.
+        // All four are scoped to this release (see onFieldChange). `baseReleaseYear` and its flag are not
+        // locked to the parent, since a bundled disc may be a reprint of an earlier release. A merged card's
+        // two variants can therefore disagree about them.
         // The release year moved: the base year follows it down, or is cleared when the
         // release year lands on the range floor and leaves nothing beneath it.
         .onFieldChange(of: model.releaseYear, on: model) { _, _ in
@@ -1164,7 +1101,7 @@ private struct _ReleaseYearRow: View {
         }
         // Activation transitions. The first click on an unset field commits its displayed
         // value without stepping it (CustomDateStepper.shouldActivateInsteadOfIncrement). That
-        // value is usually the one the model already holds, so no value onChange fires and a
+        // value is usually the one the model already holds, so no value change fires and a
         // conflict introduced purely by a field coming into existence would go uncorrected
         // until the next step. Either way the base year is the
         // field that gives way:
@@ -1178,11 +1115,9 @@ private struct _ReleaseYearRow: View {
         //     conflict to resolve.
         .onFieldChange(of: model.hasReleaseYear, on: model) { _, isActive in
             guard isActive else {
-                // Release year cleared: the base year has nothing left to qualify, so it is
-                // cleared with it and its Stepper disabled. Writing the flag unconditionally
-                // would be a redundant no-op write on every deactivation of an already-unset
-                // base year, which .onChange(of: model.hasBaseReleaseYear) would then have to
-                // absorb; the guard keeps this to the one case that needs it.
+                // Release year cleared: the base year has nothing left to qualify, so it is cleared with it and
+                // its Stepper disabled. The guard writes the flag only when it is set, so an already-unset base
+                // year is not rewritten on every deactivation.
                 if model.hasBaseReleaseYear { model.hasBaseReleaseYear = false }
                 return
             }
@@ -1271,8 +1206,6 @@ private struct _TypeVersionsRow: View {
                 // flash to collide with the alert.
                 //
                 // This is why nothing here mirrors, shadows, or forces the displayed value.
-                // Every previous attempt to correct the display after the fact was correcting a
-                // divergence that only existed because something had been written.
                 ReleasePopUpButton(selection: Binding(
                     get: { model.independence },
                     set: { newValue in
@@ -1291,23 +1224,18 @@ private struct _TypeVersionsRow: View {
                        height: ReleaseCardMetrics.popUpLayoutHeight, alignment: .leading)
                 // Combo-pack children have their independence locked to "Combo-pack".
                 .disabled(model.isComboChild)
-                // There is no `.id()` rebuild here any more. It cleared the NSPopUpButton
-                // MENU's stale selected-item marking after a declined confirmation;
-                // ReleasePopUpButton re-selects from the binding on the same turn as the
-                // declined write, so the marking is never stale to begin with.
+                // No `.id()` rebuild is needed to clear the menu's selection: ReleasePopUpButton re-selects from
+                // the binding on the same turn as a declined write.
                 //
-                // No cascade here. Everything that follows from a Type change — the artwork
-                // reset, the multi-pack flag, market availability, and the combo-pack
-                // reconciliation — is applied by FSTabReleases.commitIndependence at the write
-                // itself. It used to be an .onChange on this row, which only ran if the row
-                // was mounted AND showing this release when the value landed.
+                // No cascade here. Everything that follows from a Type change (the artwork reset, the multi-pack
+                // flag, market availability, and the combo-pack reconciliation) is applied by
+                // FSTabReleases.commitIndependence at the write itself, so it does not depend on this row being
+                // mounted or showing the release.
                 MultiSelectMenu(selection: $model.includedVersions,
                                 vocabulary: .includedVersions,
                                 placeholder: "Select Versions…")
                     .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
-                    // Combo-pack children cannot change their included versions independently;
-                    // this field is not in the locked set but is meaningless for a child card.
-                    // We leave it editable (it has no locked-field constraint per spec).
+                    // No `.disabled` here, so this stays editable on combo-pack children.
             }
         }
     }
@@ -1319,7 +1247,7 @@ private struct _TypeVersionsRow: View {
 // Seen — plus the purchased cascade. Both rows' subscriptions to purchased and independence,
 // and the cascade's read of purchased, are registered against this struct's body rather than
 // ReleaseCardView's: ticking the Purchased checkbox swaps two rows' subtrees and leaves the
-// other ten untouched, where it used to re-evaluate the whole card.
+// other ten untouched.
 //
 // A VStack at the card's row spacing rather than a Group, so the cascade below attaches to ONE
 // view — a modifier on a Group is applied to each of its elements, and the cascade would fire
@@ -1341,18 +1269,11 @@ private struct _PurchaseRows: View {
         .onFieldChange(of: model.purchased, on: model) { _, newValue in
             guard !model.isComboChild else { return }
             if !newValue {
-                // MARK: Artwork is cleared EXCEPT where it stays valid
+                // MARK: Artwork is cleared except where it stays valid
                 //
-                // "Steelbook" is the one artwork tag _ArtworkPicker offers regardless of
-                // purchased state — every other option is gated behind the Purchased control
-                // and the Type picker, which is why the field is cleared here at all. Clearing
-                // it unconditionally discarded a still-selectable value: un-ticking Purchased
-                // on a steelbook silently deleted the fact that it is one, and re-ticking did
-                // not bring it back.
-                //
-                // Same distinction the independence cascade (FSTabReleases.commitIndependence) draws with
-                // `stayedWithinComboForms`: a cascade may retract a value the NEW vocabulary
-                // cannot express, and must not retract one it still can.
+                // Steelbook is offered under every purchased state and type (see _ArtworkPicker), so it is kept.
+                // The independence cascade (FSTabReleases.commitIndependence) follows the same rule through
+                // `stayedWithinComboForms`: a value is retracted only when the new vocabulary cannot express it.
                 if model.hasArtwork != ReleaseArtwork.steelbook {
                     model.hasArtwork    = ""
                 }
@@ -1363,25 +1284,12 @@ private struct _PurchaseRows: View {
                 model.hasPurchaseDate   = false
                 // MARK: Both directions, not just the locking one
                 //
-                // The `if` arm applies the lock a non-4K combo-pack disc carries. The `else if`
-                // retracts it, and is not symmetry for its own sake: this is the moment
-                // _MarketAvailabilityPicker comes back into the tree, and the last point at
-                // which a stranded "Combo-pack only" can still be caught.
-                //
-                // The picker's read-side clamp maps that tag to the placeholder when the
-                // release is not combo-locked, but the clamp does not WRITE — it covers the
-                // single frame between a tag set changing and the picker's own independence
-                // cascade updating the value, and that cascade fires on a CHANGE to
-                // independence. A value already wrong when the picker mounted never produces
-                // one. So the tag survived behind a control showing "Select Availability…",
-                // persisted on every save, and went on being displayed raw by the releases
-                // table, the sidebar, and the wishlist report.
-                //
-                // Not reachable by ordinary editing, which is why it went unnoticed: the
-                // purchase arm below clears the field on the way in. A restored or hand-edited
-                // record can arrive holding it, and un-ticking Purchased is where the user
-                // meets it. Cleared rather than substituted — there is no correct availability
-                // to guess at.
+                // The `if` arm applies the lock a non-4K combo-pack disc carries. The `else if` retracts it. The
+                // picker's read-side clamp only covers a single frame and does not write, so a stale "Combo-pack
+                // only" must be cleared here. Otherwise a value already wrong when the picker mounted would persist
+                // and be shown raw by the releases table, the sidebar, and the wishlist report. A restored or
+                // hand-edited record can arrive holding it, and un-ticking Purchased is where the user meets it.
+                // It is cleared rather than substituted, since there is no correct availability to guess at.
                 if (model.isBluRay || model.isDVD)
                     && ReleaseIndependence.isComboPack(model.independence) {
                     model.marketAvailability = [ReleaseMarketAvailability.comboPackOnly]
@@ -1390,14 +1298,11 @@ private struct _PurchaseRows: View {
                     model.marketAvailability = []
                 }
             } else {
-                // Clearing the wishlist position goes through the same helper the Wishlisted
-                // trait uses, so "leaving the wishlist" means one thing however it is reached.
+                // Clearing the wishlist position goes through the same helper the Wishlisted trait uses, so leaving
+                // the wishlist means one thing however it is reached.
                 //
-                // The helper vacates the slot and nothing more: positions are issued above
-                // every position in use across the library, so a hole cannot cause the next
-                // assignment to collide. (It used to compact this film's survivors to keep the
-                // sequence gap-free, and that compaction was itself the collision, since it
-                // renumbered across slots other films owned. See handleWishlistToggle.)
+                // The helper vacates the slot and nothing more. Positions are issued above every position in use
+                // across the library, so a gap cannot cause a later assignment to collide. See handleWishlistToggle.
                 //
                 // Guarded on `> 0` so the common case stays a no-op and writes nothing.
                 if model.wishlist > 0 {
@@ -1430,11 +1335,9 @@ private struct _PurchaseRows: View {
             CardRow("Lowest Price:", dimmed: model.isComboChild) {
                 HStack(spacing: ReleaseCardMetrics.controlSpacing) {
                     // Locked for combo-pack children (lowestPrice mirrors the parent 4K
-                    // release). `isDisabled` is the whole of the lock, exactly as for the two
-                    // fields in the purchased branch above: CurrencyInputField applies
-                    // `.disabled(isDisabled)` to its own body on top of dimming the "$" and "."
-                    // A second `.disabled(model.isComboChild)` used to sit here as well; it
-                    // changed nothing and made the parameter read as styling-only.
+                    // release). `isDisabled` is the whole of the lock, exactly as for the two fields in the purchased
+                    // branch above: CurrencyInputField applies `.disabled(isDisabled)` to its own body on top of
+                    // dimming the "$" and ".".
                     CurrencyInputField(value: $model.lowestPrice, isDisabled: model.isComboChild)
                         .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
                     // _MarketAvailabilityPicker is an isolated struct — its @Observable
@@ -1512,17 +1415,15 @@ private struct _NotesRow: View {
 // MARK: - Country Row (Observation Isolation)
 // Subscriptions to model.nationalOrigin, model.format, model.regionLock,
 // model.regionLockBypass, and model.isComboChild are registered against _CountryRow.body, not
-// ReleaseCardView.body, so changes to them re-evaluate only this struct. Absorbs the former
-// countryRow and regionPickerView computed properties, cascades intact.
+// ReleaseCardView.body, so changes to them re-evaluate only this struct.
 private struct _CountryRow: View {
     @Bindable var model: ReleaseCardModel
 
     /// Which Blu-ray region locks a country of origin permits.
     ///
-    /// Delegates to `ReleaseRegionRules`, the single statement of the rule. It was written out
-    /// three times inside this struct, and consolidating those was only half the job:
-    /// `syncComboChildFields` has to apply the same rule when it pushes an origin onto a
-    /// combo-pack child, and it is not a view and cannot reach into this file.
+    /// Delegates to `ReleaseRegionRules`, the single statement of the rule. `syncComboChildFields` applies
+    /// the same rule when it pushes an origin onto a combo-pack child. That code is not a view and cannot
+    /// reach into this file.
     private static func regionScope(for origin: String) -> (aOnly: Bool, bOnly: Bool) {
         ReleaseRegionRules.scope(for: origin)
     }
@@ -1601,11 +1502,9 @@ private struct _CountryRow: View {
                          options: Self.bluRayRegionOptions(regionAOnly: regionAOnly,
                                                            regionBOnly: regionBOnly),
                          placeholder: "Select Region…")
-            // Scoped to this release. This row is reached only on the Blu-ray branch, so
-            // today a 4K↔Blu-ray swap rebuilds it rather than re-pointing it and these could
-            // not misfire — but that immunity is an accident of which branch each variant
-            // lands in, and `regionLock` is a child-owned field the variants may legitimately
-            // disagree about. Scoping makes the safety intrinsic.
+            // Scoped to this release. Which branch each variant of a merged pack lands in is incidental, and
+            // `regionLock` is a child-owned field the variants can disagree about, so the scoping must hold on
+            // its own.
             .onFieldChange(of: model.regionLock, on: model) { _, newValue in
                 model.regionLockBypass = (newValue == ReleaseRegionRules.looselyLockedTag)
             }
@@ -1652,10 +1551,8 @@ private struct _AudioRow: View {
     /// The formats that carry their channel layout in the bitstream rather than as a fixed bed,
     /// and for which the Channels picker is therefore locked to 7.1.
     ///
-    /// The single definition of "object-based", so the control that LOCKS the field and the
-    /// cascade that CLEARS it cannot drift apart — they were two copies of the same pair of
-    /// string comparisons, which is how the cascade came to clear the field in a case the lock
-    /// never applied to.
+    /// The single definition of "object-based", so the control that locks the field and the cascade that
+    /// clears it cannot drift apart.
     private static func isObjectBased(_ audioFormat: String) -> Bool {
         ReleaseAudioFormat.isObjectBased(audioFormat)
     }
@@ -1702,11 +1599,8 @@ private struct _AudioRow: View {
                     TaggedPicker(selection: $model.audioFormat,
                                  options: Self.hdAudioFormats,
                                  placeholder: "Select Format…")
-                    // Scoped to this release — see onFieldChange. Switching the card to a
-                    // bundled Blu-ray and back is not an edit of the audio format, and
-                    // used to run this cascade against whichever release was switched TO:
-                    // returning to a 7.1 parent whose format is not object-based landed in
-                    // the clear arm below and blanked its channels.
+                    // Scoped to this release, see onFieldChange. A merged card's switch to a bundled Blu-ray and
+                    // back is not an edit of the audio format.
                     .onFieldChange(of: model.audioFormat, on: model) { oldValue, newValue in
                         // Cascade: lock channels to 7.1 for object-based formats.
                         if Self.isObjectBased(newValue) {
@@ -1717,10 +1611,10 @@ private struct _AudioRow: View {
                             // 7.1 in the field was placed by the arm above and the picker was
                             // disabled — so it is this cascade's own value to retract.
                             //
-                            // Testing the OLD value is the whole of the fix. Without it any
+                            // Testing the old value is what keeps the retraction safe. Without that test, any
                             // move between two non-object formats that both legitimately carry
-                            // 7.1 — DTS-HD MA to Dolby TrueHD, TrueHD to LPCM — silently
-                            // discarded a layout the user had selected on an enabled picker.
+                            // 7.1 — DTS-HD MA to Dolby TrueHD, TrueHD to LPCM — would silently
+                            // discard a layout the user had selected on an enabled picker.
                             model.audioChannels = ""
                         }
                     }
@@ -1736,19 +1630,15 @@ private struct _AudioRow: View {
 
 // MARK: - Traits Menu (Observation Isolation)
 //
-// The one control behind six previously-scattered fields: Remastered, Wishlist, the
+// The one control behind six fields: Remastered, Wishlist, the
 // Progressive/Interlaced picker, the Native 4K/Upscaled picker, Subtitles, and the
 // Pressed/Recordable picker.
 //
 // MARK: Why these six and not others
 //
-// Every one is a BOOLEAN dressed differently. Three were literal checkboxes; the other three
-// were two-segment pickers over a field whose vocabulary has exactly two values, one of which
-// is the default a new release is created with. So each field's whole information content is
-// "is this release the non-default one?", and a two-segment picker spends a full picker's
-// width saying that. Because a new release holds every one of those defaults, "Select Traits…"
-// accurately describes a fresh card — with one deliberate exception: a DVD is born interlaced,
-// so its menu opens reading "Interlaced".
+// Each is a Bool or a two-value field, so each one's whole information is "is this release the non-default
+// one?" A new release holds every default, so "Select Traits…" describes a fresh card. The one exception is
+// a DVD, which is always interlaced, so its menu opens reading "Interlaced".
 //
 // MARK: Why the selection is not a [String] like the other two multi-select menus
 //
@@ -1765,9 +1655,8 @@ private struct _AudioRow: View {
 // disc is a BD-R or a DVD-R depending on which it is, so the trait carries the format's own
 // name while both spellings write the same "Recordable" tag the rest of the app reads.
 //
-// "Interlaced" is additionally LOCKED ON for DVD: every DVD is interlaced, which the card
-// previously stated as static text in the Video row. A locked-on trait is checked and disabled
-// rather than hidden, because hiding it would silently drop the one fact that text conveyed.
+// "Interlaced" is additionally LOCKED ON for DVD, because every DVD is interlaced. A locked-on trait
+// is checked and disabled rather than hidden, because hiding it would silently drop that fact.
 private struct _TraitsMenu: View {
     @Bindable var model: ReleaseCardModel
     let viewModel: FSTabReleases
@@ -1857,9 +1746,8 @@ private struct _TraitsMenu: View {
         //     already owned.
         //
         //   • Combo-pack child. A bundled disc's wishlist state mirrors its parent's and is
-        //     written by syncComboChildFields. This used to be offered and disabled; hidden is
-        //     more accurate, because a disabled row still asserts the trait is a property of
-        //     THIS release, and it is not. (Contrast the DVD "Interlaced" row, which stays
+        //     written by syncComboChildFields. The row is hidden rather than disabled, because a disabled row
+        //     still asserts the trait is a property of THIS release, and it is not. (Contrast the DVD "Interlaced" row, which stays
         //     visible-and-locked: that one IS a fact about the disc in front of the user.)
         //
         // Withholding keeps both states unreachable rather than adding a second mechanism to
@@ -1927,10 +1815,9 @@ private struct _TraitsMenu: View {
 // itself is not reused because it is a `.menu` picker by construction, and a two-value field is
 // exactly what a segmented control is right for — the guarantee transfers, not the control.
 //
-// The 144 pt frame is unchanged, so the ordinary two-segment case is bit-for-bit what it was. A
-// third segment squeezes three into that same width rather than widening the row, which keeps
-// the card's uniform height intact on the anomalous path — a card of a different height is
-// visible against its neighbors on every carousel navigation.
+// The 144 pt frame holds the ordinary two-segment case. A third segment is squeezed into the same width
+// rather than widening the row, which keeps the card's uniform height on the anomalous path, where a card
+// of a different height would be visible against its neighbors on every carousel navigation.
 private struct _ConditionPicker: View {
     @Bindable var model: ReleaseCardModel
 
@@ -1973,9 +1860,8 @@ private struct _ArtworkPicker: View {
     ///
     /// The unconditional seed below is load-bearing beyond this control: it is what makes
     /// "Steelbook" valid under every type and purchased state, and therefore what the purchased
-    /// and independence cascades' Steelbook exemptions assert. Named through
-    /// `ReleaseArtwork.steelbook` so all three read one definition — they were three separate
-    /// literals, and two disagreed about the rule.
+    /// and independence cascades' Steelbook exemptions assert. It is named through
+    /// `ReleaseArtwork.steelbook`, so every reader shares one definition.
     ///
     /// "Combo-pack (multi-pack)" offers both pack-qualified "Yes" tags. Its bundled Blu-ray
     /// child carries plain "Combo-pack" but mirrors the parent's artwork, so a child is given
@@ -2007,11 +1893,8 @@ private struct _ArtworkPicker: View {
     }
 
     var body: some View {
-        // Bound straight to model.hasArtwork. A clamp was tried here and reverted: its closures
-        // captured a tag snapshot from the render pass that created them and could detach from
-        // the content's own re-evaluation, leaving a new release permanently showing only the
-        // placeholder. TaggedPicker derives its fallback from the same `options` this body
-        // computes, so there is no second source to fall out of step.
+        // Bound straight to model.hasArtwork. TaggedPicker derives its fallback from the same `options` this
+        // body computes, so there is no second source to fall out of step.
         //
         // Artwork reset on a type change is handled by FSTabReleases.commitIndependence;
         // combo-pack children take the parent's value via syncComboChildFields.
@@ -2159,12 +2042,9 @@ private struct _MarketAvailabilityPicker: View {
 // array's order (`canonicalized` ranks by position in that same array), so the two cannot
 // drift apart.
 //
-// Canonicalization rather than sort-on-insert: sorting only the array being appended to
-// normalizes it relative to its existing contents, so an array that arrived already out of
-// order — from a pre-normalization build, a restored backup, a hand-edited record — stayed out
-// of order, and two releases holding the same set rendered as "Theatrical, Extended" and
-// "Extended, Theatrical". Rebuilding from the vocabulary on every commit makes the stored
-// order a pure function of the selected SET.
+// Canonicalization rather than sort-on-insert. Sorting only the array being appended to leaves an array
+// that arrived out of order still out of order, so the stored order is rebuilt from the vocabulary on
+// every commit. The stored order is then a pure function of the selected set.
 //
 // Unrecognized values (kept rather than dropped, per the same data-preservation rule as the
 // pickers' tag-set guarantees) are placed after all known values and sorted
@@ -2213,11 +2093,9 @@ struct ReleaseOptionVocabulary: Sendable {
     /// `Film.digitalVersion`. Both enumerate ViewingVersion, so neither menu can list an
     /// option the other lacks; the canonical ORDER is that enum's case order.
     ///
-    /// This was a hand-written literal, and it had already drifted from the enum: it offered
-    /// "Television Edit" and "Colorized" and the enum did not.
     static let includedVersions = ReleaseOptionVocabulary(
         ViewingVersion.selectableNames,
-        // Renamed 2026-09-11; records written under the old names fold into the new ones.
+        // Former names, renamed 2026-09-11, fold into the current ones.
         aliases: ["Television Edit": ViewingVersion.televisionEdit.displayName,
                   "International": ViewingVersion.international.displayName])
 
@@ -2229,9 +2107,8 @@ struct ReleaseOptionVocabulary: Sendable {
 
 // MARK: - Multi-Select Menu
 // The single Menu implementation behind both multi-select controls on a release card
-// (Included Versions and Aspect Ratio). These were two structs with identical bodies,
-// differing only in which array they bound to and which vocabulary they listed — exactly what
-// ReleaseOptionVocabulary parameterizes.
+// (Included Versions and Aspect Ratio). It is parameterized by the array it binds to and the vocabulary
+// it lists.
 //
 // Both Toggle arms rebuild the whole array from the resulting Set rather than inserting or
 // removing in place, so the committed order is a pure function of the selected SET. See
@@ -2282,14 +2159,14 @@ private struct MultiSelectMenu: View {
 // MARK: - Release Format Palette
 
 /// The release card's format band tints and badge inks, as sRGB `NSColor`s so AppKit-drawn
-/// views (the Release Wishlist's format badges, 27.01) can use them directly. The values are
-/// the ones the card has always used: `Color(red:green:blue:)` and `Color(white:)` are sRGB.
+/// views (the Release Wishlist's format badges, 27.30) can use them directly. The values are
+/// `Color(red:green:blue:)` and `Color(white:)` are sRGB, so the values carry over unchanged.
 enum ReleaseFormatPalette {
     static let tint4K     = NSColor(srgbRed: 0.05, green: 0.05, blue: 0.06, alpha: 1)
     static let tintBluRay = NSColor(srgbRed: 0.10, green: 0.22, blue: 0.42, alpha: 1)
     static let tintDVD    = NSColor(srgbRed: 0.30, green: 0.30, blue: 0.30, alpha: 1)
     /// Preferences.darkGray, for a format string this build does not recognize.
-    static let tintUnknown = NSColor(srgbRed: 0.34, green: 0.34, blue: 0.35, alpha: 1)
+    static let tintUnknown = NSColor(Preferences.darkGray)
     /// Near-white: the card's badge plate, and the lettering on a dark tint.
     static let lightInk   = NSColor(srgbRed: 0.93, green: 0.93, blue: 0.93, alpha: 1)
     /// Near-black: the card's badge lettering.

@@ -232,9 +232,9 @@ extension FilmQueue {
 // MARK: - Film Queue Assignment
 
 /// The single shared entry point behind every "Add to Queue" menu — the gallery
-/// contextual menu (23_80_GalleryMenu.swift), the MenuBar's "Film" menu
-/// (12_00_MenuBar.swift), and the GalleryTitleBar's selection menu button
-/// (23_70_GalleryTitleBar.swift). Centralizing it here guarantees the three surfaces
+/// contextual menu (23.80 GalleryMenu.swift), the MenuBar's "Film" menu
+/// (12.00 MenuBar.swift), and the GalleryTitleBar's selection menu button
+/// (23.70 GalleryTitleBar.swift). Centralizing it here guarantees the three surfaces
 /// cannot diverge in how they resolve membership, enforce mutual exclusivity, or defer
 /// their work, exactly as FilmRemoval does for the three removal commands.
 @MainActor
@@ -260,10 +260,8 @@ enum FilmQueueAssignment: Loggable {
     /// Toggles every supplied film's membership in `section`: if every film already
     /// occupies exactly that section, removes them from the Film Queue entirely; otherwise
     /// assigns them all to `section`, moving any that currently occupy a different one.
-    /// Films already in `section` alongside films that are not are treated as the "not yet
-    /// unanimous" case and are unified into `section`, exactly as the old assign-only
-    /// behavior did — only a selection that is ALREADY entirely in `section` reads as a
-    /// request to remove it, which is what turns the menu item into a checkbox-style toggle.
+    /// Films already in `section` alongside films that are not are unified into `section`. Only a selection that
+    /// is already entirely in `section` reads as a request to remove it, which makes the menu item a checkbox-style toggle.
     ///
     /// The add reconciliation itself is not performed here: it lives in
     /// DataCoordinator.enforceFilmQueueExclusivity, which every add path already routes
@@ -326,11 +324,11 @@ enum FilmQueueAssignment: Loggable {
     /// Places the moved films back in view after a section change.
     ///
     /// A section move reorders the Film Queue's film array without changing its contents,
-    /// so the moved film keeps its selection but can land anywhere — commonly far below the
-    /// viewport, since "Later" sits at the end of a queue of any size. Nothing repositioned
-    /// the gallery for it: the grid's post-edit scroll (GallerySubview's Priority 1 branch)
-    /// is driven by `.film(.updated)`, and a membership change posts `.list` events instead,
-    /// so both gallery styles simply redrew around a selection the user could no longer see.
+    /// so the moved film keeps its selection but can land anywhere, commonly far below the
+    /// viewport, since "Later" sits at the end of a queue of any size. Nothing else repositions
+    /// the gallery for it: the post-edit scroll (GallerySubview's Priority 1 branch) is driven by
+    /// `.film(.updated)`, and a membership change posts `.list` events, so the gallery would redraw
+    /// without scrolling to the moved selection.
     ///
     /// The fix routes through GalleryScrollIntent rather than a new event, because both
     /// styles already implement the reuse-path branch that consumes one — and this is
@@ -378,12 +376,10 @@ enum FilmQueueFilter: String, CaseIterable, Hashable, Sendable {
     /// The token that distinguishes this tab's persisted ViewState slot from its
     /// siblings', or nil for `.all`.
     ///
-    /// nil for `.all` deliberately: the Queue's unnarrowed tab keeps the flat,
-    /// unqualified "filmQueue" persistence key it has always used, so every sort, filter
-    /// and grid/list choice a user made there before the three section tabs gained slots
-    /// of their own is still read back into the tab they made it on. The three section
-    /// tabs each append their token and therefore start from ViewState's own defaults,
-    /// which is the correct starting point for a tab the user has not yet configured.
+    /// nil for `.all` deliberately: the unnarrowed tab keeps the flat, unqualified "filmQueue"
+    /// persistence key, so the sort, filter, and grid/list choices a user has made there still apply to it.
+    /// The three section tabs each append their token and start from ViewState's defaults, the right
+    /// starting point for a tab the user has not configured yet.
     ///
     /// Deliberately NOT the raw value: these tokens become dictionary keys inside a
     /// persisted preference, so they must stay stable even if a section's display name is

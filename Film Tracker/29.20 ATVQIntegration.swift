@@ -548,7 +548,7 @@ final class ATVQClient: Loggable {
     private static func encode(_ films: [FilmSnapshot], posterFolder: URL) async throws -> Data {
         let entries: [(ATVQFilm, URL?)] = films.map { film in
             let minutes = (Double(film.effectiveDuration) ?? 0) / 60_000
-            let runtime = minutes > 0 ? Int(minutes.rounded()) : nil
+            let runtime = minutes > 0 && minutes < 1e9 ? Int(minutes.rounded()) : nil
             let entry = ATVQFilm(
                 id: film.id, title: film.name, year: film.releaseYear, genre: film.genre,
                 rating: film.rating, duration: runtime.map(durationText) ?? "",

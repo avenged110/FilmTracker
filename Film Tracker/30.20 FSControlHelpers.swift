@@ -6,7 +6,7 @@
 // Contains stateful UI components tied to FilmSheet data model concepts
 // (dates, steppers, lists). Changes to tab functionality or data schema are
 // localized here, independently of the low-level text/input primitives in
-// FSTextComponents.swift.
+// FSTextHelpers.swift (30.10).
 //
 // It also hosts the chrome shared across the sheet's list components: the
 // `ListCircleButton` family, the `ListImportPopover` bulk-entry sheet, the
@@ -14,8 +14,8 @@
 // `listContainerChrome(height:)` modifier every table's container is drawn
 // with, the `ListRowMetrics` geometry they are laid out on, and
 // `ListImportCommit`, the cap-and-replace rule they all apply. The three
-// reorderable lists themselves live in 30_30_FSStringList.swift,
-// 30_40_FSFramesList.swift, and 30_50_FSTextList.swift; none imports another,
+// reorderable lists themselves live in 30.30 FSStringList.swift,
+// 30.40 FSFramesList.swift, and 30.50 FSTextList.swift; none imports another,
 // and all three draw their controls from here. `ScrollActivityObserver`, the
 // AppKit-level scroll signal they use to dismiss their open popovers, is here
 // for the same reason.
@@ -30,18 +30,17 @@ import SwiftUI
 import AppKit
 
 // MARK: - Shared Color Constants
-// Constructed once at process launch — avoids repeated NSColor→Color bridging
-// allocations on every render of StandardStepper and RatingStepper.
+// Constructed once, on first use, rather than on every render of StandardStepper and
+// RatingStepper, which would repeat the NSColor→Color bridging each time.
 private let disabledControlTextColor  = Color(NSColor.disabledControlTextColor)
 // The placeholder shade shared by every un-activated stepper in the app — the same
 // color CustomDateStepper's year and full-date placeholders use.
 private let tertiaryLabelColor        = Color(NSColor.tertiaryLabelColor)
 // The Steppers' fill and border are `stepperChrome(filled:)` (90.00 GlobalUtilities.swift),
 // shared with InputUtilities.swift's so the two files' Steppers cannot drift.
-// Backing fill for the circular control family. Bridged once here rather than
-// inside ListCircleButtonStyle.makeBody, which runs for every one of the ~80
-// circular controls a populated Metadata tab carries and re-ran the NSColor→Color
-// conversion each time.
+// Backing fill for the circular control family. Bridged once here rather than inside
+// ListCircleButtonStyle.makeBody, which runs for every circular control a populated
+// Metadata tab carries.
 private let listButtonBackingFill     = Color(nsColor: .windowBackgroundColor)
 
 // MARK: - Observation Boundary
@@ -76,9 +75,9 @@ struct ObservationBoundary<Content: View>: View {
 
 /// One display frame, in the units `Task.sleep(for:)` takes.
 ///
-/// File scope rather than a static on `DeferredFieldContent`, because that type is
-/// generic and Swift does not permit static stored properties there — the same
-/// language rule `ListRowMetrics` exists to satisfy for `StringListAddRow`.
+/// File scope rather than a static on `DeferredFieldContent`: a static stored property on a
+/// generic type is duplicated for each `Content` specialization, and this value is the same
+/// for all of them.
 ///
 /// 16ms is one frame at 60Hz. The value only has to be long enough that the frame
 /// the placeholder was laid out in has actually been presented before the real
@@ -93,12 +92,12 @@ private let deferredFieldFrameInterval: Duration = .milliseconds(16)
 /// **What this is for**
 ///
 /// The FilmSheet's Metadata tab is built the first time the user activates it, and
-/// everything on it is constructed in that one synchronous pass — including ten
-/// `ReorderableStringList`s and two `FixedHeightScrollingTextView`s, each of which
-/// is an AppKit scroll view with its own hosted subtree. The sheet is 600pt square,
-/// so only the first few of those can be inside the viewport when the tab appears;
-/// the rest are built, laid out, and rendered below the fold before a single frame
-/// is shown, which is the whole of the "click and wait" the tab exhibits.
+/// everything on it is constructed in that one synchronous pass, including several
+/// `ReorderableStringList`s and `FixedHeightScrollingTextView`s, each an AppKit scroll
+/// view with its own hosted subtree. The sheet is 600pt square, so only the first few
+/// of those can be inside the viewport when the tab appears. The rest are built, laid
+/// out, and rendered below the fold before a single frame is shown, which is the
+/// "click and wait" the tab exhibits.
 ///
 /// Deferring the off-screen ones does not make the total work smaller — it takes it
 /// off the critical path between the click and the first frame, and spreads what is
@@ -178,33 +177,26 @@ struct DeferredFieldContent<Content: View>: View {
 
 // MARK: - Shared List Control Family
 //
-// The circular button family and the bulk-entry popover used by the three
-// reorderable list components (30_30_FSStringList.swift, 30_40_FSFramesList.swift,
-// and 30_50_FSTextList.swift) and by ViewingDatesTable below. They live here because they are shared: FilmSheet-wide
-// chrome belongs with the sheet's other domain-level controls rather than inside
-// one particular consumer.
+// The circular button family and the bulk-entry popover, used by the three reorderable list
+// components (30.30 FSStringList.swift, 30.40 FSFramesList.swift, 30.50 FSTextList.swift) and by
+// SavedSearchSheet (50.32) and MultiFilmSheetView (52.10). They live here because they are shared:
+// sheet-wide chrome belongs with the sheet's other domain-level controls, not inside one consumer.
 
 // MARK: - Shared Field Label
 
 /// The leading label of a FilmSheet form row.
 ///
-/// One definition of a construct that had eight byte-identical spellings across the
-/// sheet — `label(_:)` in `FSTabDetailsView`, `FSTabMetadataView` and `FSTabNotesView`;
-/// `topLabel(_:)` and `topListLabel(_:)`; the inline "Hall of Fame:" and "Legend:" rows
-/// that bypassed their own file's helper; and the row-count labels in
-/// `FilmSheetListRow` and its former text-list twin — each restating the same
-/// frame/lineLimit/truncationMode chain. Every one of them is a label in the same
-/// column of the same sheet, so the width and truncation behavior are not eight
-/// independent choices that happen to agree; they are one choice written down eight
-/// times.
+/// The leading label of a form row in the FilmSheet's tabs and list components. Every such
+/// label shares one frame, lineLimit, and truncationMode chain, so their width and truncation
+/// rule is defined once here.
 ///
-/// The variants that differ do so only in a modifier applied *after* this chain — a top
-/// offset or padding, or the Hall of Fame row's secondary foreground style when the
-/// toggle is locked — so they compose from this rather than restating it.
+/// Variants that differ apply a modifier after this chain, such as a top offset, padding, or
+/// the Hall of Fame row's secondary foreground style when the toggle is locked. They compose
+/// from this view rather than restating the chain.
 ///
-/// `width` defaults to `Preferences.filmSheetLabelWidth`, which is what all three tabs'
-/// private `labelWidth` constants already resolve to; it stays a parameter for
-/// `NotesLegendSection`, which receives its width from its parent.
+/// `width` defaults to `Preferences.filmSheetLabelWidth`, the value the tabs' `labelWidth`
+/// constants resolve to. It stays a parameter for `NotesLegendSection`, which receives its width
+/// from its parent.
 struct FilmSheetFieldLabel: View {
     let text: String
     let width: CGFloat
@@ -224,22 +216,13 @@ struct FilmSheetFieldLabel: View {
 
 // MARK: - Shared List Row Metrics
 
-/// Row geometry shared by `ReorderableStringList` (30_30_FSStringList.swift) and
-/// `ReorderableFramesList` (30_40_FSFramesList.swift), and by the rows and add
-/// rows each of them builds.
+/// Row geometry shared by `ReorderableStringList` (30.30 FSStringList.swift) and
+/// `ReorderableFramesList` (30.40 FSFramesList.swift), and by the rows and add rows each builds.
+/// The two tables are meant to be visually interchangeable within a tab, so a value that both
+/// must share lives here, where a change applies to both.
 ///
-/// These values were previously restated in four places — `StringListMetrics`
-/// and `AddRowMetrics` in one file, and two separate blocks of `private static`
-/// constants in the other — with comments at each site instructing the reader to
-/// keep them in step by hand. That is exactly the arrangement `FieldEdgeTreatment`
-/// was created to retire for the container chrome, and the argument is the same
-/// here: the two tables are meant to be visually interchangeable within a tab, so
-/// a row height or a glyph size changed in one and not the other is a defect with
-/// nothing to flag it.
-///
-/// Only values that genuinely have to agree across both components live here.
-/// Anything specific to one table — the frames list's index column and metadata
-/// block, for instance — stays with that table.
+/// Only values that genuinely have to agree across both components live here. Anything specific
+/// to one table, such as the frames list's index column and metadata block, stays with that table.
 enum ListRowMetrics {
 
     /// Height of a row's content, excluding the list's per-row insets.
@@ -270,16 +253,11 @@ enum ListRowMetrics {
     /// size, so it is set fractionally smaller.
     static let plusGlyphSize: CGFloat = 9.5
 
-    /// `xmark` is heavier still. Where `plus` draws two strokes that stop short
-    /// of its box, `xmark` draws two diagonals that run corner to corner, so its
-    /// drawn extent at a given nominal size exceeds the "+"'s by roughly the
-    /// diagonal-to-side ratio. Matching the two on nominal size — which is what
-    /// the clear-table control did before this value existed — therefore still
-    /// left the "✕" reading as the larger mark of the pair.
-    ///
-    /// Set 1.5pt below `plusGlyphSize` so the two read as the same size rather
-    /// than measure as it. Derived from that constant rather than stated
-    /// absolutely, so the pair cannot drift apart if the "+" is ever retuned.
+    /// `xmark` is heavier still. Where `plus` draws two strokes that stop short of its box,
+    /// `xmark` draws two diagonals that run corner to corner, so at the same nominal size its
+    /// drawn extent is larger. Matching nominal sizes would leave the "✕" reading as the larger
+    /// mark, so it is set 1.5pt below `plusGlyphSize`. It is derived from that constant rather
+    /// than stated absolutely, so the pair cannot drift apart if the "+" is retuned.
     static let xmarkGlyphSize: CGFloat = plusGlyphSize - 1.5
 
     /// Glyph size for the bulk-import control.
@@ -304,7 +282,7 @@ enum ListRowMetrics {
 
     /// The `listRowInsets` every row of every one of the three tables carries.
     ///
-    /// Previously restated as a literal `EdgeInsets(...)` at six call sites —
+    /// Declared once rather than restated as a literal `EdgeInsets(...)` at six call sites —
     /// two per table, one for the entry rows and one for the add row. All six
     /// were built from `rowVerticalInset` already, so the values could not
     /// disagree; what they could disagree about is the *shape*, since a leading
@@ -321,12 +299,9 @@ enum ListRowMetrics {
     /// `rowCount` is the number of rows actually drawn, which for all three
     /// tables is their entry count plus the unconditional trailing add row.
     ///
-    /// Derived here rather than at each table because the relationship between
-    /// a row's total height, the `List`'s own internal padding, and the frame
-    /// the container is given is the thing that has to hold: get it wrong and
-    /// the alternating background either overruns the border or falls short of
-    /// it. All three tables computed it identically; now they state only how
-    /// many rows they draw.
+    /// Derived here so that the row total, the `List`'s internal padding, and the frame the
+    /// container is given stay in agreement. If they drift apart, the alternating background
+    /// overruns the border or falls short of it. Tables state only how many rows they draw.
     static func listHeight(rowCount: Int) -> CGFloat {
         CGFloat(rowCount) * rowTotalHeight + listPadding
     }
@@ -363,10 +338,8 @@ extension NSView {
     /// and the one whose `hitTest` gate distinguishes an active tab from a
     /// hidden-but-mounted one.
     ///
-    /// Both consumers need exactly that view for exactly that reason —
-    /// `ListAddRowRevealer` below to scroll to a row, and `RowClickReporter`
-    /// (30_30_FSStringList.swift) to decide whether a click reached its tab — so
-    /// the walk is declared once rather than carried in two copies.
+    /// Both consumers need exactly that view: `ListAddRowRevealer` below to scroll to a row, and
+    /// `RowClickReporter` (30.30 FSStringList.swift) to decide whether a click reached its tab.
     ///
     /// The identity check guards against an implementation of
     /// `enclosingScrollView` that returns the receiver, which would otherwise
@@ -393,12 +366,11 @@ extension NSView {
 /// the user is about to reach for moves down — and, near the fold, can leave the
 /// viewport entirely, forcing a manual scroll after every addition.
 ///
-/// **Why this rather than the scroll proxy:** `FilmSheetScrollProxy` scrolls to a
-/// named anchor, which would require every table to publish one, its tab to route
-/// it, and the proxy to be threaded down — the arrangement the old external "+"
-/// button used, retired with it. This needs no anchor, proxy, or tab cooperation:
-/// the view measures itself against whatever scroll view it's inside, so all three
-/// tables get identical behavior from one attachment, in any tab.
+/// **Why this rather than the scroll proxy:** `FilmSheetScrollProxy` scrolls to a named
+/// anchor, which would require every table to publish one, its tab to route it, and the
+/// proxy to be threaded down. This needs no anchor, proxy, or tab cooperation: the view
+/// measures itself against whatever scroll view it is inside, so all three tables get
+/// identical behavior from one attachment, in any tab.
 ///
 /// **Minimal scrolling, only when needed:** done via `NSView.scrollToVisible(_:)`,
 /// AppKit's own "scroll the least amount that reveals this rectangle" — a no-op when
@@ -414,13 +386,9 @@ struct ListAddRowRevealer: NSViewRepresentable {
     /// move the viewport.
     let token: Int
 
-    // No `bottomPadding` parameter. It was a customization point with no
-    // customizer: all three tables construct this as `ListAddRowRevealer(token:)`
-    // and took the default, which is `ListRowMetrics.addRowRevealPadding`. That
-    // constant is derived from the tables' own shared geometry precisely so all
-    // three agree, so a per-instance override was never something a caller
-    // should reach for — reading the shared value directly is what keeps them
-    // agreeing. See `ListRowMetrics.addRowRevealPadding`.
+    // No `bottomPadding` parameter. Every table uses the default, which is
+    // `ListRowMetrics.addRowRevealPadding`, derived from the shared geometry so that all
+    // tables agree. A per-instance override would break that agreement.
 
     @MainActor
     final class Coordinator {
@@ -461,27 +429,24 @@ struct ListAddRowRevealer: NSViewRepresentable {
 
     /// How many further turns the reveal will re-measure on before giving up.
     ///
-    /// **Why more than one.** A single-entry commit grows the table by one row,
-    /// and one hop is enough for that: the document view's own height is either
-    /// already correct or short by less than the shortfall the scroll needs, so
-    /// the clamped scroll lands within the clearance and reads as correct. A
-    /// bulk import commits *many* rows at once, and there the enclosing sheet's
-    /// document view — a SwiftUI hosting view, sized from the table's row count
-    /// through `listContainerChrome(height:)` — has not yet grown when the first
-    /// hop runs. `scrollToVisible` clamps to the document bounds it is given, so
-    /// that pass scrolls to the *old* bottom and stops, leaving the add row well
-    /// below the fold. That is the reported failure: the reveal fires, it is
-    /// simply measuring a document that has not finished growing.
+    /// **Why more than one.** A single-entry commit grows the table by one row, and one hop is
+    /// enough for that: the document view's height is either already correct or short by less
+    /// than the scroll needs, so the clamped scroll lands within the clearance. A bulk import
+    /// commits *many* rows at once, and there the enclosing sheet's document view, a SwiftUI
+    /// hosting view sized from the table's row count through `listContainerChrome(height:)`,
+    /// has not yet grown when the first hop runs. `scrollToVisible` clamps to the document
+    /// bounds it is given, so that pass scrolls to the old bottom and stops, leaving the add
+    /// row below the fold. The reveal fires, but it measures a document that has not finished
+    /// growing.
     ///
     /// `layoutSubtreeIfNeeded` cannot close that on its own — it forces AppKit's
     /// pending layout, not SwiftUI's next render pass, so a height that arrives
     /// with that pass is invisible to it.
     ///
-    /// Re-measuring instead: each pass scrolls with what it can see, and stops
-    /// as soon as a pass finds the geometry unchanged from the one before —
-    /// which is the normal single-row case ending after its second pass, with
-    /// its second scroll a no-op. The cap bounds the rare case where something
-    /// else is animating the document's height, so this can never spin.
+    /// Re-measuring instead: each pass scrolls with what it can see, and stops as soon as a
+    /// pass finds the geometry unchanged from the one before. The normal single-row case ends
+    /// after its second pass, whose scroll is a no-op. The cap bounds the rare case where
+    /// something else is animating the document's height, so this can never spin.
     private static let settlePasses = 6
 
     @MainActor
@@ -544,13 +509,12 @@ struct ListAddRowRevealer: NSViewRepresentable {
 
 extension View {
 
-    /// The list style, outline, clip, and shadow every one of the sheet's three
-    /// reorderable tables is drawn in, applied to the `List` itself.
+    /// The list style, outline, clip, and shadow of the sheet's three reorderable tables,
+    /// applied to the `List` itself.
     ///
-    /// The values already come from `FieldEdgeTreatment`, so the three tables can't
-    /// disagree about a radius or shadow opacity. What they could disagree about — and
-    /// what this consolidates — is the *order* modifiers are applied in, which is
-    /// load-bearing:
+    /// The values come from `FieldEdgeTreatment`, so the tables cannot disagree about a radius
+    /// or shadow opacity. What they could disagree about is the *order* modifiers are applied
+    /// in, which is load-bearing:
     ///
     ///   - Sizing before the clip, so the rounded rect and stroke resolve against the
     ///     container's final bounds. Clipping first resolves the shape against the
@@ -564,8 +528,7 @@ extension View {
     ///     the finished shape. Shadows don't participate in layout, so the table's
     ///     bounds are unchanged.
     ///
-    /// A reordering introduced in one table and not the others would be a defect with
-    /// nothing to flag it — which is what a shared declaration retires.
+    /// A shared declaration keeps the three tables from drifting apart in that order.
     ///
     /// `.continuous` is stated here because all three consumers are tables.
     /// `FixedHeightScrollingTextView` rounds with the default circular style instead —
@@ -575,7 +538,7 @@ extension View {
         self
             // The list style the three tables share: inset, alternating row bands, and
             // no scrolling of their own (each is sized to its full content by `height`).
-            // Applied here, first, exactly where each table used to apply it itself.
+            // Applied first, before the frame and clip.
             .listStyle(.inset(alternatesRowBackgrounds: true))
             .scrollDisabled(true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -598,24 +561,18 @@ extension View {
 
 // MARK: - Shared Bulk-Import Control
 
-/// The bulk-import control that sits in the add row of all three reorderable
-/// tables, immediately left of the "+", together with the popover it anchors.
+/// The bulk-import control in the add row of the three reorderable tables, immediately left of
+/// the "+", together with the popover it anchors. Only the tooltip and the reset before the popover
+/// opens differ per table. Sharing the rest keeps the look and behavior, including the `isActive`
+/// binding that holds the accent fill while the popover is open, from drifting apart.
 ///
-/// The three tables' copies were identical in all seven arguments that determine
-/// how it looks and behaves, differing only in tooltip text and what the click
-/// resets before presenting — seven places the three could silently fall out of
-/// step, including the `isActive` binding that holds the accent fill while the
-/// popover is open.
+/// Rationale:
 ///
-/// Rationale, kept once here rather than restated at each site:
-///
-///   - Permanently gray, NOT gated on the table's entry cap. It's an alternative
-///     route in, not the primary action (the green "+" is). Gating it would also be
-///     invisible: `ListCircleButton` signals "disabled" via `disabledFill`, the
-///     exact `Color.gray.opacity(0.5)` this already carries, so a disabled instance
-///     would look live and do nothing. The cap is enforced instead in the popover's
-///     own Import button and in each table's commit, which bounds the array
-///     regardless of what the popover allowed.
+///   - Permanently gray, NOT gated on the table's entry cap. It is an alternative route in, not
+///     the primary action (the green "+" is). Gating it would also be invisible: `ListCircleButton`
+///     signals "disabled" via `disabledFill`, the same `Color.gray.opacity(0.5)` this already
+///     carries, so a disabled instance would look live and do nothing. The cap is enforced in the
+///     popover's own Import button and in each table's commit, which bounds the array regardless.
 ///   - The filled `list.clipboard.fill` at a reduced glyph size is deliberate;
 ///     see `ListRowMetrics.importGlyphSize`.
 ///
@@ -661,26 +618,21 @@ struct ListBulkImportButton<PopoverContent: View>: View {
 
 // MARK: - Shared Popover Delete Button
 
-/// The Delete button offered by every editing popover on the sheet — the frames
-/// list's, the text list's, and `ViewingDatesTable`'s.
+/// The Delete button in the editing popovers of the frames list, the text list (30.40, 30.50), and `ViewingDatesTable`.
 ///
-/// Red label text, with NO destructive role, and drawn with an explicit blend
-/// mode. All three carried a byte-identical copy of this together with a
-/// paragraph explaining it; the explanation, stated once:
+/// Red label text, with NO destructive role, and drawn with an explicit blend mode.
 ///
-/// Dropping the role was the first half of this: SwiftUI's macOS push-button
-/// style renders a `.destructive` label through its own tint treatment, which
-/// composites over whatever `.foregroundStyle` supplied. That alone did not
-/// finish the job, because the remaining washout is not the button's doing at
-/// all — it is the popover's.
+/// The role is omitted because SwiftUI's macOS push-button style renders a `.destructive` label
+/// through its own tint treatment, which composites over whatever `.foregroundStyle` supplied.
+/// Dropping the role does not fix the washout by itself. The rest of it comes from the popover,
+/// which the blend mode below addresses.
 ///
 /// An `NSPopover` hosts its content over a vibrant material, and SwiftUI
 /// content in a vibrant context is composited through a blend that pulls
 /// saturated colors toward the material behind them. Red is the most saturated
 /// thing in these views, so it is the one that visibly desaturates — the "faded
-/// salmon" reading. `FSTabPoster`'s "Delete Poster" uses the identical color and
-/// looks correct precisely because it is NOT in a popover; it draws onto the
-/// sheet's opaque surface.
+/// salmon" reading. `FSTabPoster`'s "Delete Poster" (35.00) uses the identical color and
+/// looks correct because it is NOT in a popover; it draws onto the sheet's opaque surface.
 ///
 /// Stating a blend mode opts this leaf out of the inherited vibrant blend and
 /// draws the literal color. `.normal` is the default everywhere else, so on any
@@ -700,11 +652,10 @@ struct PopoverDeleteButton: View {
 
     /// Binds Opt+Delete to this button while its popover is up.
     ///
-    /// Opt-in rather than unconditional, because only the reorderable lists
-    /// want it: their popover IS the row's editor, so "delete" while it is open
-    /// unambiguously means this row. `ViewingDatesTable`'s popover edits a
-    /// selection that persists after dismissal, and binding a destructive key to
-    /// it would be a different and less obvious gesture, so it does not opt in.
+    /// Opt-in rather than unconditional, because only the reorderable lists want it: their popover
+    /// IS the row's editor, so "delete" while it is open unambiguously means this row. `ViewingDatesTable`
+    /// edits a value that persists after dismissal, so the same key would be a less obvious gesture there,
+    /// and it does not opt in.
     ///
     /// A `keyboardShortcut` rather than an event monitor is what makes this
     /// correctly scoped for free. Key equivalents are dispatched to the key
@@ -734,29 +685,22 @@ struct PopoverDeleteButton: View {
 
 // MARK: - Shared Bulk-Import Commit
 
-/// The cap-and-replace rule every one of the three tables applies to a bulk
-/// import.
-///
-/// All three carried the identical logic: reject an empty or over-cap batch,
-/// replace outright in Replace mode, and otherwise append and bound the result.
-/// That last clause is the one worth centralizing — appending is the single
-/// route by which a permitted import can still push a list past its cap.
+/// The cap-and-replace rule the three tables apply to a bulk import: reject an empty or over-cap
+/// batch, replace outright in Replace mode, and otherwise append and bound the result. The append
+/// bound is the one that matters, since appending is the only route by which a permitted import
+/// could push a list past its cap.
 ///
 /// **The append bound rejects; it does not truncate**
 ///
-/// This previously appended and then applied `prefix(cap)`, which silently
-/// discarded the overflow. With 25 of 30 slots used, a ten-entry paste imported
-/// five and dropped five, with the popover's readout reporting "10 entries
-/// detected" in its ordinary color and the Import button enabled throughout —
-/// data the user supplied, accepted, and then lost with nothing to indicate it.
+/// Truncating with `prefix(cap)` would silently discard the overflow. With 25 of 30 slots used, a
+/// ten-entry paste would import five and drop five while the popover still reported ten entries
+/// detected, which loses data the user supplied with nothing to indicate it.
 ///
-/// The rule is now all-or-nothing on both paths: a batch that does not fit is
-/// refused outright and the array is left exactly as it was. That is only safe
-/// to do here because the popover no longer offers to submit such a batch —
-/// `ListImportPopover.effectiveLimit` measures the *headroom* in append mode
-/// rather than the raw cap, so an over-headroom paste disables Import, colors
-/// its readout red, and states the room remaining — all before it is committed. This guard is the model-level restatement of that
-/// UI rule, on the same terms every other cap check in these tables follows.
+/// The rule is all-or-nothing on both paths: a batch that does not fit is refused, and the array
+/// is left exactly as it was. That is safe because the popover does not offer to submit such a
+/// batch. `ListImportPopover.effectiveLimit` measures the *headroom* in append mode rather than the
+/// raw cap, so an over-headroom paste disables Import, colors its readout red, and states the room
+/// remaining, all before it is committed. This guard is the model-level form of that UI rule.
 ///
 /// Returns the array to write rather than mutating one `inout`. Deliberate: the
 /// tables' arrays are reached through a `Binding` onto an `@Observable` model,
@@ -781,8 +725,7 @@ enum ListImportCommit {
                          cap: Int) -> [String]? {
         guard !incoming.isEmpty else { return nil }
         if replacing {
-            // The whole array is being written, so the batch is measured
-            // against the cap itself.
+            // The whole array is being written, so the batch is measured against the cap itself.
             guard incoming.count <= cap else { return nil }
             return incoming
         }
@@ -927,11 +870,9 @@ extension View {
 /// Silent when the view is not inside a scroll view, so it is safe to attach
 /// anywhere.
 ///
-/// Declared here rather than inside any one consumer's file: it began as a
-/// private type in 30_40_FSFramesList.swift, and the string list and
-/// `ViewingDatesTable` need exactly the same behavior. Sharing it is what keeps
-/// the three tables from acquiring three separately-maintained copies of one
-/// notification observer.
+/// Declared here rather than inside one consumer's file, because the reorderable lists and
+/// `ViewingDatesTable` need the same behavior. Sharing it keeps them from maintaining separate
+/// copies of one notification observer.
 struct ScrollActivityObserver: NSViewRepresentable {
 
     let onScroll: () -> Void
@@ -1047,13 +988,12 @@ private extension Color {
 /// resolves the enabled/active fill vocabulary before handing this style the
 /// single fill it draws.
 ///
-/// A `ButtonStyle` is the framework's own hook for pressed-state rendering, used
-/// here in place of a `.onLongPressGesture(minimumDuration: 0, pressing:)` that
-/// was previously layered over a `.plain` button purely to observe the same
-/// state — putting a gesture recognizer on every control in every row, competing
-/// for the same mouseDown the row's drag session needs. A style observes the
-/// press without recognizing anything, so nothing contends for the event, and
-/// activation semantics are untouched — a `ButtonStyle` governs presentation only.
+/// A `ButtonStyle` is the framework's own hook for pressed-state rendering. It is used here
+/// instead of a `.onLongPressGesture(minimumDuration: 0, pressing:)` layered over the button,
+/// which would put a gesture recognizer on every control in every row, competing for the mouseDown
+/// the row's drag session needs. A style observes the press without recognizing anything, so
+/// nothing contends for the event, and activation semantics are untouched: a `ButtonStyle`
+/// governs presentation only.
 ///
 /// **Shadow clipping**
 ///
@@ -1104,10 +1044,9 @@ struct ListCircleButtonStyle: ButtonStyle {
     /// How far the fill AND the glyph are darkened while the control is
     /// disabled, and how far the finished control is faded.
     ///
-    /// Deliberately far heavier than the press response rather than reusing it:
-    /// the press treatment, calibrated to be felt while held and forgotten on
-    /// release, still left a disabled "+" reading as live — it falls back to
-    /// the exact gray the fully live bulk-import button beside it already wears.
+    /// Deliberately far heavier than the press response. The press treatment, felt only while
+    /// held, leaves a disabled "+" reading as live, because it falls back to the same gray as the
+    /// fully live bulk-import button beside it.
     ///
     /// Darkening and fading together, not either alone: darkening alone only
     /// deepens a color the eye reads as "import," while fading alone leaves a
@@ -1122,9 +1061,8 @@ struct ListCircleButtonStyle: ButtonStyle {
     // SF Symbols are laid out on a typographic box, not a tight bounding box: the
     // drawn strokes of `plus` and `minus` sit slightly right of and below the
     // center of the box the symbol reports. `.overlay` centers the reported box,
-    // so the strokes land off-center — and since the discrepancy is a property of
-    // the box, scaling the glyph scales the error with it, which is why enlarging
-    // the symbol never squared it up.
+    // so the strokes land off-center. The discrepancy is a property of the box, so
+    // scaling the glyph scales the error with it.
     //
     // The remedy is a translation, not a size change: shift the glyph back by the
     // amount the box is biased. Half a point is one physical pixel on a Retina
@@ -1182,12 +1120,10 @@ struct ListCircleButtonStyle: ButtonStyle {
     /// reading the cross high in the circle. Backing that out lands the glyph on
     /// its reported box, which is where it belongs.
     ///
-    /// Kept as a named constant rather than dropped in favor of the family
-    /// default for the reason `plusGlyphOffset` is: zero here is a measured
-    /// per-symbol result, not an absence of one. Omitting it would silently
-    /// inherit `defaultGlyphOffset`'s half point — the very correction this
-    /// symbol was measured NOT to want — and having the value named is what lets
-    /// every in-table "✕" be moved together if it ever wants finessing. More
+    /// Kept as a named constant, as `plusGlyphOffset` is: zero here is a measured per-symbol
+    /// result, not an absence of one. Omitting it would silently inherit `defaultGlyphOffset`'s
+    /// half point, which this symbol was measured NOT to want. Naming it lets every in-table "✕"
+    /// move together. More
     /// negative moves it left and up.
     static let xmarkGlyphOffset = CGSize(width: 0, height: 0)
 
@@ -1241,11 +1177,10 @@ struct ListCircleButtonStyle: ButtonStyle {
                     .offset(x: glyphOffset.width, y: glyphOffset.height)
                     // Darkened in step with the fill.
                     //
-                    // The press response used to reach the fill only, so the
-                    // white glyph stayed at full brightness over a fill that had
-                    // dropped 18% — the contrast between them went UP while the
-                    // control was held, which read as the glyph lighting rather
-                    // than the button dimming.
+                    // The glyph darkens with the fill. If only the fill darkened, the white
+                    // glyph would hold full brightness over a dimmer fill, so the contrast
+                    // would rise while the control is held, which reads as the glyph lighting
+                    // rather than the button dimming.
                     //
                     // `colorMultiply` rather than a second darkened color: the
                     // label is supplied by the caller and is not necessarily a
@@ -1284,15 +1219,13 @@ struct ListCircleButtonStyle: ButtonStyle {
 
 // MARK: - List Button Factory
 
-/// Shared visual treatment for every circular control on the FilmSheet — the
-/// trailing "+" and import buttons and the per-row edit and delete buttons of
-/// `ReorderableStringList` (30_30_FSStringList.swift), the "+" and per-row info
-/// buttons of `ReorderableFramesList` (30_40_FSFramesList.swift), and the "+"
-/// button of `ViewingDatesTable` below.
+/// Shared visual treatment for every circular control on the FilmSheet: the trailing "+" and
+/// import buttons, and the per-row edit and delete buttons of `ReorderableStringList`
+/// (30.30 FSStringList.swift), the "+" and per-row info buttons of `ReorderableFramesList`
+/// (30.40 FSFramesList.swift), and the controls in the other sheets that use the family.
 ///
-/// It lives here rather than beside any one of them because it is shared by all
-/// of them: a control family whose definition sat inside one consumer's file
-/// would make every other consumer depend on that file for its chrome.
+/// It lives here rather than in any one consumer's file, so no consumer depends on another's file
+/// for its chrome.
 ///
 /// The point is a single place to tune the family's appearance. Anything that
 /// legitimately varies between instances is a parameter; anything that should
@@ -1515,6 +1448,18 @@ enum ListPopoverDismissal {
     #endif
 }
 
+// MARK: - Entry Popover Metrics
+/// The one size every popover the FilmSheet presents from a table is drawn at — the
+/// viewing-dates add and edit popovers, the bulk-import popovers, the text list's entry
+/// editor, the frames table's — and the sidebar's calendar popover with them.
+/// `ViewingDatesTable`'s popovers set it; the others were narrowed to match.
+enum EntryPopoverMetrics {
+    /// Content width, exclusive of `padding`.
+    static let width: CGFloat = 290
+    /// Inset on every side of the content.
+    static let padding: CGFloat = 16
+}
+
 // MARK: - Bulk Import Popover
 
 /// The comma/line-separated bulk-entry sheet shared by the reorderable list
@@ -1526,11 +1471,9 @@ enum ListPopoverDismissal {
 /// limit of 99 gets the identical control with 99 in its messaging and its
 /// enablement rule.
 ///
-/// `ReorderableStringList` and `ReorderableTextList` present it.
-/// `ReorderableFramesList` presents its own two-list `PairedFramesImportPopover`
-/// (30_40_FSFramesList.swift) instead, borrowing only `parseItems` from here, so
-/// every table accepts the same separators.
-///
+/// `ReorderableStringList` and `ReorderableTextList` present it. `ReorderableFramesList` presents
+/// its own two-list popover, `PairedFramesImportPopover`, which borrows only `parseItems` from here
+/// so that every table accepts the same separators.
 struct ListImportPopover: View {
 
     /// Singular noun for the thing being imported — "Cast Member" gives
@@ -1543,66 +1486,39 @@ struct ListImportPopover: View {
 
     /// How many entries the destination table is holding right now.
     ///
-    /// Supplied so the popover can state and enforce the limit that actually
-    /// applies to the mode the user is in. Appending is bounded by the
-    /// *headroom* — `maxItems - currentCount` — not by `maxItems`, and the
-    /// difference between those two is exactly the band in which a paste used to
-    /// be accepted and then silently truncated by the commit. Replacing is
-    /// bounded by `maxItems`, because it discards what is there first.
+    /// Supplied so the popover can state and enforce the limit that applies to the mode the user
+    /// is in. Appending is bounded by the *headroom*, `maxItems - currentCount`, not by `maxItems`.
+    /// Replacing is bounded by `maxItems`, because it discards what is there first.
     ///
-    /// It is also the single quantity the two locked states of the Replace
-    /// toggle are derived from; see `isAtCapacity` and `hasEntries`, which used
-    /// to arrive as their own parameters.
+    /// It is also the single quantity the two locked states of the Replace toggle derive from; see
+    /// `isAtCapacity` and `hasEntries`.
     ///
-    /// Required rather than defaulted: a caller that omitted it would be told
-    /// its table was empty — full headroom, an unlocked toggle — whatever it
-    /// actually held.
+    /// Required rather than defaulted: a caller that omitted it would be told its table was empty,
+    /// with full headroom and an unlocked toggle, whatever it actually held.
     let currentCount: Int
 
     @Binding var replaces: Bool
 
-    /// The entry text, and the single source the readout and the Import button are
-    /// computed from. Opens empty on every presentation (see `onAppear`).
+    /// The entry text, and the single source the readout and the Import button are computed from.
+    /// Opens empty on every presentation (see `onAppear`).
     ///
-    /// Local `@State` rather than a binding to the presenter's storage, which is what
-    /// it once was and which did not reliably re-evaluate this view: a popover's
-    /// content is hosted in its own window with its own update graph, so a write that
-    /// invalidates the *presenter* is no guarantee that the presented content is
-    /// re-evaluated in step. The symptom was a readout that would turn red on the way
-    /// up but not turn back on the way down. Writing local state invalidates *this*
-    /// view by definition, so every keystroke recomputes the parse, the count, the
-    /// color, and the button's enablement together.
-    ///
-    /// Nothing is mirrored back. The presenter's copy existed so a reopened popover
-    /// could restore a draft, but every table cleared it before presenting, so it was
-    /// never read.
+    /// Local `@State` rather than a binding to the presenter's storage. A popover's content is hosted
+    /// in its own window with its own update graph, so an invalidation of the presenter does not
+    /// reliably re-evaluate the presented content. Writing local state invalidates this view directly,
+    /// so every keystroke recomputes the parse, the count, its color, and the button's enablement
+    /// together. Nothing is mirrored back to the presenter.
     @State private var draft: String = ""
 
     /// Working copy of the Replace toggle, mirrored back to `replaces`.
     ///
-    /// Local for the same reason `draft` is: the mode is now an *input to a
-    /// computation this view performs*. The limit sentence, readout color, and
-    /// Import button's enablement all derive from `effectiveLimit`, which asks
-    /// whether the user is replacing or appending — so if a write to `replaces`
-    /// doesn't re-evaluate this view, the three go stale together and the popover
-    /// states one limit while enforcing another.
+    /// Local for the same reason as `draft`: the mode feeds computations this view performs (the limit
+    /// sentence, the readout color, and the Import button's enablement), so a change must invalidate
+    /// this view directly. `replaces` stays mirrored so the caller's storage remains the single value
+    /// the commit reads.
     ///
-    /// `replaces` is `@State` on the *presenting* component, and a popover's
-    /// content is hosted in its own window with its own update graph — a write
-    /// that invalidates the presenter is no guarantee the presented content
-    /// re-evaluates in step. That was tolerable while the toggle merely recorded
-    /// a preference the commit read later; it isn't now that the popover computes
-    /// from it. Writing local state invalidates *this* view by definition, so a
-    /// click on the checkbox recomputes the sentence, the count's color, and the
-    /// button together. `replaces` is kept mirrored so the caller's storage
-    /// remains the single value the commit reads.
-    ///
-    /// Optional, `nil` until the first `onAppear`, so the one body evaluation
-    /// that precedes seeding reads the caller's mode rather than this property's
-    /// default. A plain `Bool` defaulting to `false` would render that first
-    /// frame as "appending" even for a table presenting at its cap — which the
-    /// caller has already forced to Replace — stating a limit of zero before
-    /// correcting itself. See `mode`.
+    /// Optional, `nil` until the first `onAppear`, so the first body evaluation reads the caller's mode.
+    /// A `Bool` defaulting to `false` would briefly show "appending" for a table already forced to
+    /// Replace at its cap. See `mode`.
     @State private var replaceLocal: Bool? = nil
 
     /// The mode in force: the local mirror once seeded, the caller's value
@@ -1638,11 +1554,8 @@ struct ListImportPopover: View {
     /// locked, and colored red, which states the constraint at the moment it
     /// applies instead of after the fact.
     ///
-    /// Derived rather than taken as a parameter. It was previously passed in as
-    /// `!canAdd` by all three tables while `currentCount`'s predecessor was
-    /// passed separately, which is two arguments that must always agree about
-    /// the same array — the arrangement `ListRowMetrics` and `FieldEdgeTreatment`
-    /// exist to retire elsewhere in these files.
+    /// Derived from `currentCount` rather than passed in separately. Two arguments that must agree
+    /// about the same array could drift apart.
     private var isAtCapacity: Bool { currentCount >= maxItems }
 
     /// Whether the destination table currently holds anything at all.
@@ -1666,26 +1579,15 @@ struct ListImportPopover: View {
     let onImport: ([String]) -> Void
     let onCancel: () -> Void
 
-    /// Content width, exclusive of `padding`.
-    ///
-    /// 290 rather than the 320 this control used to carry, so that every popover
-    /// the FilmSheet presents from a table — this one, the text list's entry
-    /// editor, and both of the frames table's — is one width, and that width is
-    /// `ViewingDatesTable`'s. That table's add and edit popovers were already
-    /// 290 + 16pt of padding on each side, and they are the popovers a user sees
-    /// most often on this sheet, so they are the reference the others match
-    /// rather than the other way around. Nothing here needed the extra 30pt: the
-    /// widest element is the entry area, which fills whatever width it is given.
-    private static let width: CGFloat = 290
-    private static let padding: CGFloat = 16
+    /// Content width and padding: `EntryPopoverMetrics`, narrowed from the 320 this
+    /// control used to carry. Nothing here needed the extra 30pt: the widest element
+    /// is the entry area, which fills whatever width it is given.
+    private static let width = EntryPopoverMetrics.width
+    private static let padding = EntryPopoverMetrics.padding
     private static let footnoteSize: CGFloat = 11
-    /// Visible lines in the entry area before it begins scrolling.
-    ///
-    /// Four rather than three. Pasted lists routinely run past a single visible
-    /// line, and the fourth line buys a meaningful amount of reviewable text for
-    /// one row of popover height. Shared by every table that presents this
-    /// control, which is the point — the string lists and the text lists get the
-    /// same entry area, as they do every other part of this popover.
+    /// Visible lines in the entry area before it begins scrolling. Pasted lists routinely run past
+    /// one line, and four lines show a useful amount of text for a modest popover height. Every
+    /// table that presents this control gets the same entry area.
     private static let visibleLines: Int = 4
 
     // MARK: Parsing
@@ -1709,21 +1611,14 @@ struct ListImportPopover: View {
     /// Appending keeps what is there, so only the headroom is — clamped at zero,
     /// since a table at or (defensively) beyond its cap has none.
     ///
-    /// **Why this is not the old "projected total" rule**
+    /// **Why the existing entries move into the limit, not the count**
     ///
-    /// An earlier version compared `current.count + parsed.count` against
-    /// `maxItems`, and was replaced because the warning appeared to stick on the
-    /// way back down: the readout counted entries *typed* while the condition
-    /// counted the projected *result*, so trimming a paste to 30 left the
-    /// warning up beside a readout saying "30 entries detected". The two were
-    /// measuring different quantities.
-    ///
-    /// This restores the bound the append path genuinely has without
-    /// reintroducing that mismatch, by moving the existing entries out of the
-    /// count and into the *limit*. Both the readout and the rule that colors it
-    /// count entries typed; only the number they are compared against changes
-    /// with the mode. So the readout clears the moment the paste is short enough
-    /// to be imported whole, which is precisely when Import becomes enabled.
+    /// Comparing `current.count + parsed.count` against `maxItems` would make the warning stick
+    /// after a trim: the readout counts entries *typed*, while that condition would count the
+    /// projected *result*. Trimming a paste to 30 would leave the warning up beside a readout that
+    /// says "30 entries detected". So both the readout and its color count entries typed, and only
+    /// the number they are compared against changes with the mode. The readout clears the moment the
+    /// paste is short enough to import whole, which is exactly when Import becomes enabled.
     private var effectiveLimit: Int {
         mode ? maxItems : max(0, maxItems - currentCount)
     }
@@ -1839,25 +1734,16 @@ struct ListImportPopover: View {
 
                 Spacer(minLength: 8)
 
-                // Shown only once something has been entered. With an empty
-                // field there is nothing to report, and a permanent "No entries
-                // detected." read as an error before the user had done anything.
+                // Shown only once something has been entered. An empty field has nothing to report.
                 if !parsed.isEmpty {
                     // Colored off `isOverflowing` — the exact term the Import
                     // button is disabled on — rather than off a separately
                     // written comparison. One rule, so the red and the disabled
                     // button can only ever appear and clear together.
                     //
-                    // The readout still counts entries *typed*, which is what
-                    // keeps it in step with its own color: the mode's headroom
-                    // is expressed in the limit it is compared against, not by
-                    // adding the table's existing entries into the number shown.
-                    // See `effectiveLimit` for the earlier version that got this
-                    // wrong in the opposite direction.
-                    //
-                    // Pluralized rather than reading "1 entries detected", which
-                    // is the count the popover shows most often on a short paste
-                    // and the one place the readout was visibly wrong.
+                    // The readout counts entries *typed*, which keeps it in step with its own
+                    // color. The mode's headroom is expressed in the limit it is compared against,
+                    // not by adding the table's existing entries into the number shown.
                     Text(parsed.count == 1
                          ? "1 entry detected"
                          : "\(parsed.count) entries detected")
@@ -1896,11 +1782,9 @@ struct ListImportPopover: View {
             // written to both copies, so the local mirror and the caller's
             // storage can never begin a session disagreeing.
             //
-            // Belt to the presenting table's braces: each one seeds `replaces`
-            // from its own cap state before setting the presentation flag, and
-            // resolving it here as well makes the two locked rules properties of
-            // the control itself rather than of three call sites that must
-            // remember them. At the cap, replacing is the only mode that can do
+            // The presenting table also sets `replaces` before presenting. Resolving it here as
+            // well makes the two locked rules properties of the control itself, rather than of
+            // each call site. At the cap, replacing is the only mode that can do
             // any work, so it is forced ON; with nothing to replace, the two
             // modes are identical, so it is locked OFF. The two conditions are
             // mutually exclusive given a positive cap, so their order is
@@ -1936,11 +1820,9 @@ struct ListImportPopover: View {
         .onDisappear {
             submitAction.setHandler(nil)
         }
-        // Mirrored back on every change, so the caller's storage stays the one
-        // value the commit reads. The
-        // mirror-back runs in the same update the toggle's write triggers, and
-        // Import is necessarily a later interaction, so the commit can never
-        // read a mode the user has since changed.
+        // Mirrored back on every change, so the caller's storage stays the one value the commit
+        // reads. The mirror-back runs in the same update as the toggle's write, and Import is
+        // necessarily a later interaction, so the commit never reads a stale mode.
         .onChange(of: replaceLocal) { _, newValue in
             guard let newValue else { return }
             if replaces != newValue { replaces = newValue }
@@ -1972,7 +1854,7 @@ struct StandardStepper: View {
                 // text out of content-driven animation, keeping it visually static.
                 .contentTransition(.identity)
         }
-        // 1 pt tighter than the original padding(4), as every Stepper widget in the family is.
+        // 1 pt tighter than padding(4), as every Stepper widget in the family is.
         .padding(3)
         // A windowBackgroundColor fill (slightly darker than the controlBackgroundColor of
         // the surrounding ReleaseCard) so the Stepper reads as an interactive control.
@@ -2021,8 +1903,7 @@ struct HBRFValueStepper: View {
         HStack(spacing: 8) {
             Text(isActivated ? "\(value)" : Self.placeholder)
                 .frame(width: 41, alignment: .trailing)
-                // Tertiary, not secondary, for the placeholder — the shade
-                // CustomDateStepper's un-activated year and date fields use.
+                // Tertiary for the placeholder, the shade CustomDateStepper's un-activated fields use.
                 .foregroundStyle(isActivated ? Color.primary : tertiaryLabelColor)
                 // Same rationale as StandardStepper above — prevent an ambient spring
                 // transaction from animating this label's geometry.
@@ -2035,7 +1916,7 @@ struct HBRFValueStepper: View {
                 onDelete: { value = 0 }
             )
         }
-        // 1 pt tighter than the original padding(4), matching StandardStepper.
+        // 1 pt tighter than padding(4), matching StandardStepper.
         .padding(3)
         .stepperChrome(filled: true)
     }
@@ -2089,7 +1970,7 @@ struct RatingStepper: View {
                 onDelete: { value = 0 }
             )
         }
-        // 1 pt tighter than the original padding(4), matching StandardStepper.
+        // 1 pt tighter than padding(4), matching StandardStepper.
         .padding(3)
         .stepperChrome(filled: true)
     }
@@ -2102,7 +1983,7 @@ struct RatingStepper: View {
 struct ViewingDatesTable: View, Loggable {
     nonisolated static let logTag = "[ViewingDatesTable]"
 
-    // Shared formatters — reused across all calls to avoid repeated ~0.5ms init cost.
+    // Shared formatters, reused across calls rather than rebuilt each time.
     //
     // displayFormatter is local: "MMMM d, yyyy" is this table's own presentation and
     // is written nowhere. databaseFormatter is the one that matters — it writes the
@@ -2194,9 +2075,6 @@ struct ViewingDatesTable: View, Loggable {
     private enum PendingPopoverReopen: Equatable { case add, edit }
     @State private var pendingPopoverReopen: PendingPopoverReopen?
 
-    // The `scrollMonitorActive` deferral flag that used to sit here is gone with
-    // the GeometryReader it gated — see the scroll monitor in `body`.
-
     // Read calendar table from the binding
     private var calendarTable: [String] {
         calendarTableBinding.wrappedValue
@@ -2240,15 +2118,9 @@ struct ViewingDatesTable: View, Loggable {
             // table's 24pt header band rather than on a list row. The offset is
             // what states that, and it has to move with the diameter.
             //
-            // The offset is 0 — measured against the rendered result rather than
-            // derived, which is the correction the geometric argument needed.
-            //
-            // That argument ran: the factory reserves a 2pt shadow margin, so
-            // centering a 22pt circle in a 24pt header band puts the padded
-            // view's top at (24 - 22) / 2 - 2 = -1. It assumed the header band
-            // begins at this HStack's top edge, and it does not — the band sits
-            // 1pt lower than the arithmetic supposed, so every value derived
-            // that way lands 1pt high. Hence 0 rather than -1.
+            // The offset is 0. Centering the padded control in the 24pt header band gives
+            // (24 - 22) / 2 - 2 = -1, but the band begins 1pt lower than that arithmetic
+            // assumes, so the rendered result is correct at 0.
             //
             // Nothing downstream absorbs the extra size. The padded control is
             // 26pt tall against a table at least 167pt tall (24pt header plus
@@ -2271,25 +2143,17 @@ struct ViewingDatesTable: View, Loggable {
             .offset(y: 0)
             .popover(isPresented: $showAddPopover, arrowEdge: .trailing) {
                 addDatePopover
-                    .frame(width: 290)
-                    .padding(16)
+                    .frame(width: EntryPopoverMetrics.width)
+                    .padding(EntryPopoverMetrics.padding)
             }
         }
-        // Scroll-position monitor, done in AppKit rather than in SwiftUI.
+        // Scroll-position monitor, done in AppKit rather than in SwiftUI. A `GeometryReader`
+        // reading `frame(in: .global)` would force an extra layout pass. `ScrollActivityObserver`
+        // watches the enclosing clip view's `boundsDidChangeNotification`, which AppKit posts
+        // anyway, so it adds no layout on any pass.
         //
-        // This used to be a `GeometryReader` reading `frame(in: .global)`, held
-        // out of the first layout pass behind a deferral flag because the second
-        // layout pass it forces competed with CoreAnimation's sheet-presentation
-        // animation. `ScrollActivityObserver` needs no such deferral: it watches
-        // the enclosing clip view's `boundsDidChangeNotification` — a signal
-        // AppKit posts for its own purposes anyway — so it contributes no layout
-        // at all, on the first pass or any later one, and the flag and its
-        // `.task` are gone with it.
-        //
-        // The guards matter as much as the observer: a clip view's bounds also
-        // change on resize, and with no popover open both branches are a read of
-        // a `Bool` and nothing else. No state is written, so SwiftUI does no
-        // work.
+        // The guards matter as much as the observer: a clip view's bounds also change on resize,
+        // and with no popover open both branches only read a `Bool`. No state is written.
         .background(
             ScrollActivityObserver {
                 if showAddPopover { showAddPopover = false }
@@ -2497,8 +2361,8 @@ struct ViewingDatesTable: View, Loggable {
 
     /// True when `date` falls on the same calendar day (ignoring any version code) as
     /// an entry already present in the calendar table. A film may only have one viewing
-    /// event per calendar day — this mirrors the same base-date invariant WatchDetails.
-    /// addViewing() enforces for the CalendarPopover flow.
+    /// event per calendar day. `addViewing()` in WatchDetails (24.12) enforces the same
+    /// base-date invariant for the CalendarPopover flow.
     /// - Parameter excludingEntry: When editing an existing entry, pass its current full
     ///   dateString (selectedDateID) so the entry being edited never collides with itself
     ///   — e.g. when only its version code changed and its date did not.
@@ -2596,11 +2460,11 @@ private struct ViewingDatesTableContent: View {
                     set: { if !$0 { showEditPopover = false } }
                 ), arrowEdge: .trailing) {
                     editPopoverContent
-                        .frame(width: 290)
-                        .padding(16)
+                        .frame(width: EntryPopoverMetrics.width)
+                        .padding(EntryPopoverMetrics.padding)
                 }
         }
-        // The reorderable lists' outer chrome (see `listContainerChrome`): content clipped
+        // The outer chrome of the reorderable lists (see `listContainerChrome`): content clipped
         // inside the border's 1pt ring, the fading outline stroked into that ring, and the
         // shadow cast by the finished shape. The shadow rides on an opaque backing plate
         // rather than the table itself, so the collapsed table's "Show All" button and
@@ -2642,7 +2506,10 @@ struct DurationHelpers {
     /// read the field their own way, together, because the bands must match the sort; see
     /// MetadataCache's `.duration` case.)
     nonisolated static func storedMinutes(_ milliseconds: String?) -> Int? {
-        guard let milliseconds, let value = Double(milliseconds), value > 0 else { return nil }
+        // `isFinite` and the upper bound keep a corrupt stored value ("inf", "1e300") from
+        // trapping in the Int conversion below.
+        guard let milliseconds, let value = Double(milliseconds), value > 0, value.isFinite,
+              value < 1e15 else { return nil }
         return Int(value / 1000 / 60)
     }
 
@@ -2688,20 +2555,18 @@ extension NSControl.ControlSize {
 // MARK: - Checkbox
 //
 // The sheet's checkbox: an `NSButton` checkbox driven directly, in place of SwiftUI's
-// `Toggle`. Used by the ReleaseCard's Purchased control and by the plain checkboxes on the
-// Details and Metadata tabs.
+// `Toggle`. Used by the ReleaseCard's Purchased control (33.20) and by the checkboxes on the
+// Details, Metadata, and frames-list controls.
 //
 // MARK: Why not the SwiftUI Toggle
 //
 // Keyboard focus, not cost. SwiftUI's checkbox is an NSButton too (a private subclass), but
-// one that REFUSES first responder — SwiftUI keeps the checkbox out of AppKit's responder
-// chain and moves keyboard focus to it through its own focus engine, with the hosting view
-// standing in as the first responder. That engine is the one thing the sheet's Tab traversal
-// deliberately bypasses (FilmSheetKeyLoop, 30_01, walks AppKit first responders by
-// geometry), so a SwiftUI Toggle could never be a stop in it: Tab from the Releases tab's
-// focus sink is meant to land on the Purchased checkbox first, and it landed on the Studio
-// pop-up instead. An NSButton of our own accepts first responder like every other control,
-// draws AppKit's focus ring when it has it, and toggles on Space.
+// one that REFUSES first responder. SwiftUI keeps the checkbox out of AppKit's responder chain
+// and moves keyboard focus to it through its own focus engine, with the hosting view standing in
+// as the first responder. The sheet's Tab traversal bypasses that engine: FilmSheetKeyLoop
+// (30.01 FilmSheetView.swift) walks AppKit first responders by geometry. A SwiftUI Toggle could
+// therefore never be a stop in it. An NSButton of our own accepts first responder like every
+// other control, draws AppKit's focus ring when it has it, and toggles on Space.
 //
 // MARK: What is kept identical
 //
@@ -2732,10 +2597,10 @@ struct SheetCheckbox: NSViewRepresentable {
         // pack re-points the card at another release without rebuilding it.
         context.coordinator.isOn = $isOn
         if button.title != title { button.title = title }
-        // The environment's control size, as SheetPopUpButton mirrors it: every sheet site
-        // is regular (the button's own default, so nothing changes there); the Data
-        // Visualizations tab's Compare checkbox is small. The title's font follows the
-        // size, as AppKit's own small checkbox's does.
+        // The environment's control size, as SheetPopUpButton mirrors it. Every sheet call
+        // site is regular, the button's own default, so nothing changes there. A small
+        // size is followed as well, and the title's font follows the size, as AppKit's own
+        // small checkbox's does.
         // Keyed off the font, not the control size, for the reason SheetPopUpButton gives:
         // a zero-frame button already reports `.small`, so a size guard alone would never
         // install the small font.
@@ -2766,22 +2631,20 @@ struct SheetCheckbox: NSViewRepresentable {
 //
 // The sheet's single-select control: an `NSPopUpButton` driven directly, in place of SwiftUI's
 // `Picker(.menu)`. Every menu-style picker in the FilmSheet is one of these — the release
-// card's (through `TaggedPicker` / `ReleasePopUpButton`, 33_20), the Details and Metadata
+// card's (through `TaggedPicker` / `ReleasePopUpButton`, 33.20), the Details and Metadata
 // tabs' (through `SheetMenuPicker` below), the frames-list fade rows' and the viewing-date
 // popovers'.
 //
 // MARK: Why not the SwiftUI Picker
 //
-// Measured with the `card-perf` harness scenario (99.32), a SwiftUI menu Picker costs about
-// 1.5 ms plus 0.6 ms PER MENU ITEM to mount, and 0.5 ms plus 0.2 ms per item on every
-// re-evaluation of the body that holds it. A release card carries eight or nine of them with
-// ~70 items between them, which was roughly half of the ~110 ms it took to mount a card — and
-// therefore half of the Phase A turn that sits between an arrow press and the first frame of
-// the navigation spring. The other tabs carry fewer, but the per-item cost is the same
-// wherever the picker sits. What SwiftUI builds at the end of all that is an ordinary
-// `NSPopUpButton` (a private subclass) holding plain `NSMenuItem`s with plain titles; the cost
-// is its per-item view adaptor, not AppKit. Building the same menu here costs under 1 ms
-// however many items it has, and an update a quarter of a millisecond.
+// The `card-perf` harness scenario (99.50) shows that a SwiftUI menu Picker's cost to mount
+// and to re-evaluate grows with its item count. A release card carries eight or nine pickers
+// with about 70 items between them, which is a large share of the time it takes to mount a
+// card, and therefore of the turn between an arrow press and the first frame of the navigation
+// spring. Other tabs carry fewer pickers, but the per-item cost is the same wherever a picker
+// sits. What SwiftUI builds is an ordinary `NSPopUpButton` (a private subclass) holding plain
+// `NSMenuItem`s with plain titles; the cost is its per-item view adaptor, not AppKit. Building
+// the same menu directly in AppKit costs about the same regardless of item count.
 //
 // MARK: What is kept identical
 //
@@ -2798,10 +2661,9 @@ struct SheetCheckbox: NSViewRepresentable {
 // The coordinator writes the chosen tag through the binding and then selects whatever the
 // binding REPORTS afterward. For an ordinary field those agree. For the release card's Type
 // picker they may not: its binding declines a write that needs confirming (see
-// `_TypeVersionsRow`, 33_20), and the menu would otherwise go on marking the abandoned choice
+// `_TypeVersionsRow`, 33.20), and the menu would otherwise go on marking the abandoned choice
 // as selected until something else pushed a value down. Re-selecting from the binding on the
-// same turn is what made the former `.id(model.independenceRevision)` rebuild — and the
-// revision counter behind it — unnecessary.
+// same turn means the menu never needs a view rebuild to show the binding's value.
 struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
     /// One menu row. A separator carries no tag and can never be selected; a disabled option
     /// keeps its row (and stays selected if it is the stored value) but cannot be chosen.
@@ -2820,9 +2682,9 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
     /// Layout height of the button at the regular control size.
     ///
     /// 20, not the 25 pt the NSPopUpButton's frame measures: SwiftUI lays the control out by
-    /// its alignment rect and lets the bezel overhang it, which is what SwiftUI's own
-    /// `Picker(.menu)` did too — its layout height was 20 with a 25 pt frame. Measured by the
-    /// `card-perf` harness scenario's frame dump before and after the control was replaced.
+    /// its alignment rect and lets the bezel overhang it, as it does for its own
+    /// `Picker(.menu)`, whose layout height is 20 with a 25 pt frame. Measured by the
+    /// `card-perf` harness scenario's frame dump.
     nonisolated static var layoutHeight: CGFloat { 20 }
 
     @Binding var selection: Value
@@ -2835,8 +2697,8 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
     var reassertsSelectionAfterWrite = true
 
     /// `items` plus the tag-set guarantee: a selection no row carries gets a row of its own,
-    /// titled with the raw stored value, so a value outside the vocabulary stays visible and
-    /// selectable-away-from rather than rendering as a blank menu.
+    /// titled with the raw stored value, so a value outside the vocabulary stays visible rather
+    /// than rendering as a blank menu.
     private var effectiveItems: [Item] {
         let hasTag = items.contains { item in
             switch item {
@@ -2987,9 +2849,9 @@ struct SheetMenuPicker<Value: Hashable>: View {
 // MARK: - Segmented Control
 //
 // The sheet's segmented picker: an `NSSegmentedControl` driven directly, in place of SwiftUI's
-// `Picker(.segmented)`. Used by the release card's variant switcher and Condition row (33_20),
-// the Details tab's Queue Membership row (31_10), the frames popover's "Mark with" row
-// (30_40), and the import Details popover's category header (28_00), which disables the
+// `Picker(.segmented)`. Used by the release card's variant switcher and Condition row (33.20),
+// the Details tab's Queue Membership row (31.10), the frames popover's "Mark with" row
+// (30.40), and the import Details popover's category header (28.00), which disables the
 // segments with nothing to show through `Segment.isEnabled`.
 //
 // MARK: Why not the SwiftUI Picker
@@ -3005,7 +2867,7 @@ struct SheetMenuPicker<Value: Hashable>: View {
 // MARK: What is kept identical
 //
 // Configured exactly as SwiftUI's adaptor configures its control, read off that control by
-// the `segmented-equivalence` harness scenario (99.32): `.automatic` style, `.selectOne`
+// the `segmented-equivalence` harness scenario (99.50): `.automatic` style, `.selectOne`
 // tracking, `.fillEqually` distribution, regular control size, 13 pt system font, centered
 // labels, no per-segment width, vertical hugging at `.defaultHigh`.
 //
@@ -3032,13 +2894,12 @@ private struct SegmentedMetricsKey: Hashable {
 /// Measured (minimum, ideal) width and height per segment set, shared by every
 /// `SheetSegmentedControl` in the process.
 ///
-/// File scope because the control is generic, and Swift does not permit static stored
-/// properties there. Measuring is a CoreUI metrics query per segment — about a millisecond for
-/// the Queue Membership row's four — and every FilmSheet builds a fresh control showing the
-/// same four labels, so before this each open measured them again. The `filmsheet-perf`
-/// harness scenario's open loop sampled `intrinsicContentSize` under `sizeThatFits` as the
-/// largest single item in the Details tab's first layout. Bounded by the handful of distinct
-/// segment sets the app has.
+/// File scope rather than a static on this generic type, so every specialization shares one cache.
+/// Measuring is a CoreUI metrics query per segment, about a millisecond for the Queue Membership
+/// row's four. Every FilmSheet builds a fresh control showing the same four labels, so the cache
+/// spares each open from measuring them again. The `filmsheet-perf` harness scenario's open loop
+/// sampled `intrinsicContentSize` under `sizeThatFits` as the largest single item in the Details
+/// tab's first layout. The cache is bounded by the handful of distinct segment sets the app has.
 @MainActor private var segmentedMetricsCache: [SegmentedMetricsKey: (min: CGFloat, ideal: CGFloat, height: CGFloat)] = [:]
 
 struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
@@ -3106,9 +2967,8 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView control: NSSegmentedControl,
                       context: Context) -> CGSize? {
-        // The height is measured with the widths and cached alongside them. It was read off
-        // `intrinsicContentSize` on every call — a CoreUI metrics query per segment, and
-        // SwiftUI asks several times per layout pass.
+        // The height is cached with the widths. `intrinsicContentSize` is a CoreUI metrics query
+        // per segment, and SwiftUI asks several times per layout pass.
         let (minWidth, idealWidth, height) = context.coordinator.metrics(of: control)
         if let width = proposal.width, width.isFinite {
             return CGSize(width: max(width, minWidth), height: height)
@@ -3193,13 +3053,12 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
                 selection.wrappedValue = tag
             }
             // Unlike SheetPopUpButton, the binding is NOT re-read here. The release card's
-            // variant switcher writes through a binding whose getter answers from the
-            // card's own state, which the swap updates a turn later — re-selecting from it
-            // on the click put the OLD segment back for that turn, so the clicked segment
-            // flashed to unfilled and then filled again when the swap landed. AppKit has
-            // already moved the selection to the clicked segment; the next updateNSView
-            // reconciles it with the binding, which for a declined write is where it is
-            // put back.
+            // variant switcher writes through a binding whose getter answers from the card's
+            // own state, which the swap updates a turn later. Re-selecting from it on the click
+            // would put the old segment back for that turn, so the clicked segment would flash
+            // unselected before the swap lands. AppKit has already moved the selection, and the
+            // next updateNSView reconciles it with the binding, which is where a declined write
+            // is put back.
         }
     }
 }

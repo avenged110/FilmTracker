@@ -1,12 +1,12 @@
-// MARK: - LibraryPDFReport.swift
+// MARK: - PDFReport.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // Builds the complete-library table — one row per film — as a PDFTableSection.
 //
-// Layer three of the PDF stack described at the top of PDFCore.swift (88.00). This file
+// Layer three of the PDF stack described at the top of PDFCore.swift (85.00). This file
 // owns the table's MEANING: which columns exist, what each cell says about a film, and
 // which fill each state earns. It draws nothing itself; `LibraryPDFExporter` (43.10) hands
-// the section it produces to `PDFTableRenderer` (88.10).
+// the section it produces to `PDFTableRenderer` (85.10).
 //
 // Every measurement the table depends on lives in `LibraryTableLayout` below, in one block,
 // so the layout can be retuned without reading the derivation rules — and every color comes
@@ -50,9 +50,9 @@ struct LibraryTableLayout {
     /// past which no reasonable title is still ambiguous. Every point freed by tightening a
     /// measured column ends up here or in Notes.
     var title: CGFloat = 139
-    /// The release year. Measured against four PROPORTIONAL digits — "2000" is 19.1pt in
-    /// SF Pro against 18.4pt in SF Mono, so dropping the fixed-width face made this column
-    /// wider, not narrower. The index column keeps the fixed-width face and its own width.
+    /// The release year. Measured against four PROPORTIONAL digits: "2000" is 19.1pt in
+    /// SF Pro against 18.4pt in SF Mono, so the year is sized for the proportional face. The
+    /// index column keeps the fixed-width face and its own width.
     var year: CGFloat = 20
     /// The digital source badge. Measured against "remaster" (28.1pt with padding).
     var source: CGFloat = 29
@@ -91,16 +91,13 @@ struct LibraryTableLayout {
     /// The chroma badge. Sized by its "Color" header (12.2pt of text) rather than by the
     /// "B&W" (11.8pt) it holds, which is the narrower of the two by a hair.
     ///
-    /// One point wider than the "Chr." abbreviation it replaced needed, and that point came
-    /// from Notes. "Chr." was shortened to save six points against the full word "Chroma";
-    /// "Color" says the same thing, costs one, and does not have to be decoded.
+    /// The full word is used rather than an abbreviation: "Color" says the same thing, costs
+    /// about a point, and does not have to be decoded.
     var chroma: CGFloat = 19
     /// The custom-edit badge. Sized by "Cust." (18.1pt), the first line of its two-row
     /// header — wider than the "yes" it holds.
     var customEdit: CGFloat = 19
-    /// The most recent viewing date. Measured against "Sep 21, 2025" (38.1pt) — trimmed
-    /// back to just clear of that once the table had been seen, with the points handed to
-    /// the title.
+    /// The most recent viewing date. Measured against "Sep 21, 2025" (38.1pt).
     var lastWatched: CGFloat = 42
 
     // MARK: Page
@@ -166,7 +163,7 @@ enum LibraryPDFReport {
     /// gallery orders them by name — sort name when the film carries one, otherwise its
     /// title.
     ///
-    /// Shared rather than restated because the document now has three per-film sections
+    /// Shared rather than restated because the document has three per-film sections
     /// (this table, Viewing History, and Disc-based Releases) and their whole point is that
     /// a reader can carry a film's position from one to the next. A second copy of these
     /// four lines is all it would take for two of them to disagree.
@@ -627,8 +624,8 @@ enum LibraryPDFReport {
         var studios: [String] = []
 
         // Leads the cell: a disc that will not play on the user's hardware is the one fact
-        // here that changes what they can do with the shelf copy. The column now truncates
-        // rather than wrapping, so lead position is also what guarantees it survives.
+        // here that changes what they can do with the shelf copy. The column truncates
+        // rather than wrapping, so leading position is also what guarantees it survives.
         let lock = regionLockNote(film)
         if let lock { items.append(PDFNoteList.Item(lock, preservesCase: true)) }
 

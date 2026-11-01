@@ -22,10 +22,10 @@
 //     is drawn: in the rows of the removed card that are still on screen and not yet
 //     covered by the card sliding up over it, that gives its visible opacity frame by frame.
 //
-// Before the 2026-10-05 fix, a removal while scrolled to the bottom of a list taller than
-// the window failed here: the document shrank in one step, NSClipView clamped the offset in
-// the same frame, every card leapt down a full card height, and the bottom card's fade
-// happened entirely below the viewport.
+// A removal while scrolled to the bottom of a list taller than the window is the case this
+// guards. If the document shrinks in one step, NSClipView clamps the offset in the same frame,
+// every card leaps down a full card height, and the bottom card's fade happens below the
+// viewport.
 
 #if DEBUG
 
@@ -295,8 +295,8 @@ extension DebugHarness {
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
 
         /// The window server can still re-place a window for a moment after it is sized
-        /// and activated (seen on the first cases of a run: the window slid sideways
-        /// mid-capture, out from under the fixed capture rectangle). Re-asserts the
+        /// and activated; a window that slides mid-capture moves out from under the fixed
+        /// capture rectangle. Re-asserts the
         /// frame until it has held still across five reads 100 ms apart.
         func steadyWindow() async -> Bool {
             var still = 0
@@ -388,8 +388,8 @@ extension DebugHarness {
             let screenHeight = NSScreen.screens.first?.frame.height ?? 0
             let rect = CGRect(x: onScreen.minX, y: screenHeight - onScreen.maxY,
                               width: onScreen.width, height: onScreen.height)
-            // The window server may not have the freshly mounted list yet (seen on the first
-            // case after launch): wait until a capture shows card pixels down the card column.
+            // The window server may not have the freshly mounted list yet: wait until a capture
+            // shows card pixels down the card column.
             var drawn = false
             for _ in 0..<30 where !drawn {
                 if let capture = unsafe windowImageFunction,

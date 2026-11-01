@@ -26,14 +26,9 @@ enum SettingsTabBlurb: CaseIterable, Hashable {
 
 /// The blurb at the top of the Export and Restore tabs, in a box every tab sizes alike.
 ///
-/// The height comes from laying out EVERY blurb, hidden, in a ZStack behind the visible
-/// one: a ZStack is as tall as its tallest child, so the box is exactly the natural height
-/// of the longest description, measured by the same engine that draws it and at the same
-/// width. Two earlier attempts reserved the space arithmetically instead — first
-/// `lineLimit(_:reservesSpace:)`, then an explicit `frame(height:)` off the font's line
-/// height — and both were a point or two out of step with how `Text` actually wraps, which
-/// is what made the two tabs disagree and then truncated the Export blurb to two lines.
-/// Nothing here is a measurement, so there is nothing left to be wrong about.
+/// The height comes from laying out every blurb, hidden, in a ZStack behind the visible one. A ZStack is as tall
+/// as its tallest child, so the box is exactly the natural height of the longest description, measured by the
+/// same engine that draws it, at the same width.
 ///
 /// Alignment is `.topLeading`, so on the tab with the shorter blurb the reserved slack
 /// trails below the text rather than centering it.
@@ -165,17 +160,12 @@ struct MultiSelectPicker<Option: Identifiable & Hashable>: View {
 /// Fill and outline are the path bar's, so the tab's three surfaces read as one family; the
 /// "Backup Information from Selected File" box in the Restore tab carries the same chrome.
 ///
-/// The height is a CONSTANT, not content-derived. The original version ended its stack with
-/// a `Spacer(minLength: 0)`, which made each block a vertically greedy child of the tab's
-/// VStack: the two blocks split the tab's slack and each grew to 177.5pt around a 20pt row,
-/// and they resized again whenever the progress row below them claimed or released its own
-/// space. Pinning the height fixes both — the blocks cannot move, and the slack they used to
-/// absorb now sits in the tab's Spacer, between the second block and the progress row.
+/// The height is a constant rather than content-derived. A content-sized block holding a greedy child would take a
+/// share of the tab's slack and resize whenever the progress row below it changed size. Pinning the height keeps
+/// the blocks still, and the slack sits in the tab's Spacer between the second block and the progress row.
 private struct ExportBlock<Content: View>: View {
-    /// 72pt, against ~61pt of content (8 padding + 12.3 caption + 6 + 1 divider + 6 + 20 row
-    /// + 8 padding). A quarter off the greedy 177.5pt would have been 133, but the tab has
-    /// 535pt to work in and 133s put the layout 1pt over it — the overflow that pushed the
-    /// tab past the sheet. This is the density the Restore tab's info box uses.
+    /// 72 pt, against about 61 pt of content: 8 pt padding, 12 pt caption, 6 pt spacing, 1 pt divider, 6 pt spacing,
+    /// 20 pt row, 8 pt padding. This is the density the Restore tab's info box uses.
     static var height: CGFloat { 72 }
 
     let title: String
@@ -189,11 +179,9 @@ private struct ExportBlock<Content: View>: View {
             Divider()
 
             // The row is centered in whatever is left below the divider rather than
-            // hugging it. An expanding frame rather than a pair of Spacers: Spacers would
-            // each pick up the stack's 6pt spacing and push the row off-center by half of
-            // it. Safe here in a way it was not before — the block's height is fixed, so
-            // this frame divides a known remainder instead of making the block itself
-            // greedy inside the tab's stack.
+            // hugging it. An expanding frame rather than a pair of Spacers: Spacers would each pick up the stack's 6pt spacing and
+            // push the row off-center by half of it. Safe because the block's height is fixed, so this frame divides a
+            // known remainder.
             content()
                 .frame(maxHeight: .infinity)
         }
@@ -265,7 +253,9 @@ struct ExportSettingsView: View {
             .overlay(
                 Button(action: { viewModel.selectDestination() }) {
                     Rectangle().foregroundStyle(.clear) }
-                .buttonStyle(.plain))
+                .buttonStyle(.plain)
+                // Locked with the "Select Destination…" button below while an export runs.
+                .disabled(viewModel.isExporting))
 
             HStack(spacing: 12) {
                 Button {
@@ -420,14 +410,10 @@ final class ExportViewModel: Loggable {
     /// the row out, and only then clears progress. `startedAt` is the instant the work
     /// itself began — i.e. after the fade-in, not before it.
     ///
-    /// The alert is raised HERE, and specifically in the same MainActor turn that lowers
-    /// `isExporting`, because those two are what closes the tab's last race. `isExporting`
-    /// is the whole basis of `SettingsCoordinator.isSheetDismissBlocked` — lowering it
-    /// re-enables the tab bar, the Close button, Escape and Return. The caller used to
-    /// raise the alert AFTER awaiting this method, which put the fade's 250ms between the
-    /// unlock and the alert: a Close or a tab switch landing in that window tore down the
-    /// view that owns the `.alert` modifier, and the user's export finished with no
-    /// confirmation at all.
+    /// The alert is raised here, in the same MainActor turn that lowers `isExporting`. `isExporting` is the basis of
+    /// `SettingsCoordinator.isSheetDismissBlocked`, so lowering it re-enables the tab bar, Close, Escape and Return.
+    /// If the alert came after the fade, a Close or tab switch in that window could tear down the view that owns
+    /// the alert, and the export would finish with no confirmation.
     ///
     /// There is no "the alert is now on screen" callback to wait for — SwiftUI's `.alert`
     /// offers none — but none is needed, because the ordering can be made structural
@@ -576,11 +562,13 @@ final class ExportViewModel: Loggable {
                 // be read" are indistinguishable, and acting on the second would delete every
                 // poster the user owns while the films that reference them are still intact.
                 // So the two states differ only in which layer declines: `nil` stops at
-                // DBExporter, empty stops at the pruner. Do not "fix" the pruner's guard to
-                // make this comment's earlier wording come true.
+                // DBExporter, empty stops at the pruner. Do not weaken the pruner's guard so that the two states
+                // behave the same.
                 let posterUIDsTakenAt = Date()
-                let posterUIDs: Set<String>? = self.dataCoordinator.map {
-                    Set($0.getAllPosterUIDs()) }
+                // `nil` (no pruning) when this session's library state is unreliable.
+                let posterUIDs: Set<String>? = self.dataCoordinator
+                    .flatMap { $0.isLibraryStateUnreliable ? nil : $0 }
+                    .map { Set($0.getAllPosterUIDs()) }
 
                 let result = try await exporter.createCompleteBackup(
                     filename: filename,
@@ -610,8 +598,8 @@ final class ExportViewModel: Loggable {
 
     /// Renders the library PDF into the tab's shared destination folder.
     ///
-    /// Unlike the earlier standalone button, this does NOT prompt for a folder of its own:
-    /// the destination section above applies to every export in the tab. It also drives the
+    /// This does NOT prompt for a folder of its own. The destination section above applies to every export in the
+    /// tab, and this drives the
     /// same `isExporting`/`progress` pair the backup does, which is what puts one progress
     /// component — and one sheet lock — behind both pipelines.
     func exportLibraryPDF() {

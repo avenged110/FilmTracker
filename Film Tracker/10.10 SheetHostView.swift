@@ -1,7 +1,7 @@
 // MARK: - SheetHostView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Invisible view that centralizes all sheet presentation logic with unified sheet coordinator.
+// Defines the app's sheet types and their coordinator, and the invisible host view that presents the active sheet.
 
 import SwiftUI
 
@@ -27,9 +27,8 @@ enum SheetContent {
 
 /// Unified sheet wrapper with stable ID
 struct AppSheet: Identifiable, Equatable {
-    // Equality is determined solely by id. SheetContent contains non-Equatable associated
-    // values (e.g. FilmSheet class references), so Equatable is implemented manually.
-    // Two AppSheet instances with the same id represent the same logical sheet presentation.
+    // Equality is by id alone, because SheetContent holds non-Equatable values (such as FilmSheet
+    // references). Equal ids mean the same logical presentation.
     static func == (lhs: AppSheet, rhs: AppSheet) -> Bool { lhs.id == rhs.id }
 
     let id: String
@@ -47,12 +46,11 @@ struct AppSheet: Identifiable, Equatable {
         }
     }
     
-    /// The presentation id a film sheet for `filmID` will carry.
+    /// The presentation id of a film sheet for `filmID`.
     ///
-    /// Split out of the factory below so a caller can ask whether that sheet is
-    /// presentable BEFORE constructing the FilmSheet the factory demands — see the note
-    /// on SheetHostView.handleAddFilm. One definition, so the id a path tests and the id
-    /// it later registers cannot drift apart.
+    /// Callers ask whether that sheet is presentable before building its FilmSheet (see the
+    /// note on SheetHostView.handleAddFilm). One definition keeps the tested id and the
+    /// registered id from drifting apart.
     static func filmSheetID(for filmID: UUID?) -> String {
         filmID.map { "film-\($0.uuidString)" } ?? "film-new"
     }
@@ -149,9 +147,17 @@ final class SheetCoordinator: Loggable {
     }
     
     /// Dismiss the currently active sheet
-    func dismissSheet() {
+    func dismissSheet(id: String? = nil) {
+        // The sheet being dismissed, resolved now. A dismissal arriving late — the
+        // outgoing sheet's onDisappear fires only once its dismiss animation ends — must
+        // not clear a different sheet requested in the meantime.
+        let target = id ?? activeSheet?.id
         // Defer state change to next run loop to avoid "publishing changes during view update" error
         Task { @MainActor in
+            guard let target, activeSheet?.id == target else {
+                Self.log("Sheet dismissal skipped (no longer the active sheet)")
+                return
+            }
             if let current = activeSheet {
                 Self.log("Sheet dismissed: \(current.displayName)")
                 activeSheet = nil
@@ -172,11 +178,9 @@ struct SheetHostView: View, Loggable {
     @Environment(SelectionState.self) private var selectionState
     @Environment(SheetCoordinator.self) private var sheetCoordinator
     
-    // State to track a pending backup URL for the already-open-Settings edge case.
-    // When Settings is already open and .openSettingsWithBackup arrives, the URL
-    // cannot be embedded in a new AppSheet (re-presenting would dismiss/re-show the
-    // sheet). Instead it is staged here and forwarded to SettingsCoordinator, which
-    // SettingsSheet observes via onChange to navigate and load the file in-place.
+    // Holds a backup URL for an already-open Settings sheet. A new AppSheet cannot carry it,
+    // since re-presenting would dismiss and re-show the sheet. onChange below sends it on the
+    // event bus, and SettingsSheet navigates to Restore and loads the file in place.
     @State private var pendingBackupURL: URL?
     
     var body: some View {
@@ -187,28 +191,17 @@ struct SheetHostView: View, Loggable {
             .sheet(item: Bindable(sheetCoordinator).activeSheet) { sheet in
                 sheetContent(for: sheet)
                     .onDisappear {
-                        sheetCoordinator.dismissSheet()
+                        sheetCoordinator.dismissSheet(id: sheet.id)
                     }
             }
-            // Terminate-after-sheet-dismiss observer.
-            //
-            // When the database-error recovery flow sets pendingTerminationAfterSheetDismiss
-            // and dismisses the Settings sheet, we need to call NSApp.terminate(nil) at the
-            // precise moment AppKit stops blocking termination due to an attached sheet.
-            //
-            // AppKit's sheet window remains physically attached to the main window until the
-            // dismiss animation COMPLETES, well after the SwiftUI binding clears — calling
-            // NSApp.terminate(nil) before then is silently ignored. NSWindow.didEndSheetNotification
-            // fires only once endSheet: has fully executed and the sheet is detached, so it is
-            // the reliable signal. SwiftUI's .sheet(item:) is built on AppKit's native sheet
-            // mechanism, so it's guaranteed to fire here.
-            //
-            // The pendingTerminationAfterSheetDismiss guard makes this a no-op for normal sheet
-            // dismissals; it only acts when the quit-from-locked-restore path staged a pending
-            // termination.
+            // Terminates the app once a sheet dismissed by the locked-restore quit path has detached.
+            // AppKit ignores NSApp.terminate while a sheet is attached, and the sheet stays attached
+            // until its dismiss animation completes, after the SwiftUI binding has cleared. So the
+            // reliable signal is NSWindow.didEndSheetNotification. The flag makes this a no-op for
+            // ordinary dismissals.
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { note in
-                // An alert closing on a sheet (SavedSearchSheet's, FilmSheet's) posts this
-                // too, with the sheet's window as its object; the sheet is still on screen.
+                // An alert closing from a sheet posts this too, with the alert's window as the
+                // object. The sheet itself is still on screen.
                 if let window = note.object as? NSWindow, window.sheetParent != nil { return }
                 // Clear the physical-presence flag when AppKit confirms the sheet window
                 // has fully detached. This is the authoritative "sheet is gone" signal —
@@ -234,32 +227,21 @@ struct SheetHostView: View, Loggable {
             .onReceive(AppEventBus.shared.uiCommands) { command in
                 handleUICommand(command)
             }
-            // Re-anchor an open sheet after a display-configuration change.
+            // Re-anchors an open sheet after a display-configuration change. AppKit can position a
+            // sheet against stale screen geometry (a long-standing issue that plain NSWindow sheets
+            // share, so there is no first-party fix). The sheet can end up off-screen or offset from
+            // its parent; it stays attached and works, only its frame is wrong. Most reliably seen on
+            // an external-display connect or disconnect while the Mac is locked or asleep.
             //
-            // Workaround for a long-standing AppKit issue (also reproducible with plain
-            // NSWindow/NSApp.beginSheet, so it's not SwiftUI-specific and there's no
-            // first-party opt-out): if the set of attached displays changes while a sheet
-            // is on screen, AppKit's sheet-positioning math can be computed against stale
-            // screen geometry, leaving the sheet centered on the old, now-nonexistent
-            // display arrangement — partially or fully off-screen, or offset from its
-            // parent window. The sheet itself stays correctly attached and functional;
-            // only its frame is wrong. Observed most reliably with an external-display
-            // connect/disconnect while the Mac is locked or asleep.
-            //
-            // On didChangeScreenParametersNotification, if a sheet is attached to the main
-            // window, its frame is recomputed explicitly — recentered horizontally and
-            // top-aligned beneath the title bar (the standard resting position) — using
-            // animator-free, synchronous math so it can't race the dismiss/present
-            // animations tracked elsewhere in this file.
+            // On didChangeScreenParametersNotification, reanchorAttachedSheetIfNeeded() recenters the
+            // sheet and top-aligns it beneath the title bar, using synchronous frame math so it cannot
+            // race the present and dismiss animations.
             .onReceive(NotificationCenter.default.publisher(
                 for: NSApplication.didChangeScreenParametersNotification)) { _ in
                 reanchorAttachedSheetIfNeeded()
             }
-            // Forward a staged backup URL to an already-open SettingsSheet.
-            // pendingBackupURL is set by handleOpenSettingsWithBackup when Settings is
-            // already active and cannot be re-presented. Broadcasting via the event bus
-            // reaches SettingsSheet's onChange handler, which navigates to the Restore
-            // tab and calls loadBackupFile(_:) without dismissing the sheet.
+            // Forwards a staged backup URL to an already-open SettingsSheet. Sending it on the event
+            // bus makes SettingsSheet navigate to the Restore tab and load the file without dismissing.
             .onChange(of: pendingBackupURL) { _, newURL in
                 guard let url = newURL else { return }
                 AppEventBus.shared.send(.view(.loadBackupFile(url)))
@@ -349,10 +331,9 @@ struct SheetHostView: View, Loggable {
     
     // MARK: - Display-Change Sheet Recovery
 
-    /// Recomputes and resets the frame of any sheet currently attached to the main
-    /// window, correcting the misalignment that can follow a display-configuration
-    /// change (see the doc comment on the didChangeScreenParametersNotification
-    /// subscription above for the full rationale).
+    /// Recomputes and resets the frame of any sheet attached to the main window, correcting the
+    /// misalignment a display-configuration change can cause (see the comment on the
+    /// didChangeScreenParametersNotification subscription above).
     ///
     /// No-op when no sheet is attached, which is the overwhelmingly common case this
     /// notification fires for (e.g. a resolution or scaling change with no sheet open).
@@ -392,19 +373,14 @@ struct SheetHostView: View, Loggable {
     // MARK: - Sheet Presentation Handlers
     // MARK: Why every film path asks BEFORE it builds
     //
-    // Constructing a FilmSheet is not free and is not free of side effects. Its init
-    // eagerly builds all five tab view models (deliberately — see FilmSheet's note on
-    // why they are not lazy), which reads the film out of MemoryStore five times, loads
-    // and repairs every release, and arms a ReleaseChangeObserver per release. Doing
-    // that before learning whether the sheet may even be presented threw the whole
-    // graph away whenever another sheet was open.
+    // Building a FilmSheet is costly and has side effects. Its init builds all of its tab view
+    // models, which reads the film from MemoryStore, loads and repairs every release, and arms a
+    // ReleaseChangeObserver per release. Building one only to learn another sheet is open
+    // discards that work.
     //
-    // For handleAddFilm the ordering was not merely wasteful, it was destructive: the
-    // selection was cleared unconditionally on the line above the construction, so
-    // pressing Cmd+N while Settings, the Duplicate Finder, or the List Manager was open
-    // wiped the user's selection and then declined to open anything, with no way to get
-    // it back. `canPresentSheet(id:)` answers the same question `requestSheet` does
-    // without committing to it, so every path can decline before it touches anything.
+    // handleAddFilm once cleared the selection before that check, so Cmd+N with Settings, the
+    // Duplicate Finder or the List Manager open wiped the selection and opened nothing. Every path
+    // now asks `canPresentSheet(id:)` first, which answers as `requestSheet` would, without committing.
 
     /// Asks whether a film sheet for `filmID` may be presented, logging a refusal.
     private func canPresentFilmSheet(for filmID: UUID?) -> Bool {
@@ -446,7 +422,7 @@ struct SheetHostView: View, Loggable {
     }
 
     private func handleEditFilm(initialTab: FilmTab = .details) {
-        // More than one film: the bulk editor, whatever tab was asked for (it has none).
+        // More than one film: the bulk editor, whatever tab was asked for.
         if selectionState.selectedFilmIDs.count > 1 {
             handleEditFilms(selectionState.selectedFilmIDs)
             return
@@ -497,32 +473,23 @@ struct SheetHostView: View, Loggable {
 
         // MARK: The film's sheet is already open
         //
-        // `requestSheet` accepts a request whose id matches the active sheet, but treats
-        // it as a no-op re-presentation: it keeps the live sheet and does not adopt the
-        // one just handed to it. That is right for the general case and was wrong for
-        // this one, because this path is the only one that CONFIGURES the sheet it
-        // builds — `initialTab: .releases` plus the requested format. Both were built
-        // into an instance that was then dropped on the floor, so invoking "Edit Film
-        // Releases" on a film whose sheet was already open appeared to do nothing.
-        //
-        // Routed into the live instance instead, which is what the user asked for either
-        // way: switch it to the Releases tab and reveal the requested format's first
-        // card. `selectedTab`'s didSet records the tab in `appearedTabs`, so a Releases
-        // tab that had never been visited is built by this exactly as a click on the tab
-        // strip would build it.
+        // `requestSheet` treats a request for the active sheet's id as a no-op re-presentation and
+        // keeps the live sheet. That is fine in general, but this path configures the sheet it builds
+        // (the Releases tab and format), so those settings would be lost. Route the request into the
+        // live instance instead: switch it to the Releases tab and reveal the format's first card.
+        // `selectedTab`'s didSet records the tab in `appearedTabs`, so an unvisited Releases tab is built
+        // exactly as a click on the tab strip would build it.
         if let liveSheet = sheetCoordinator.activeFilmSheet(for: selectedID) {
             log("FilmSheet for \(selectedID) already open — routing releases request into it")
             liveSheet.selectedTab = .releases
             if let format {
-                // revealFirstCard, not openOnFirstCard: the latter writes currentIndex
-                // directly and is only correct before the carousel's first render (see
-                // its doc comment). This carousel is on screen and may be mid-animation,
-                // so the move goes through the navigation pipeline.
-                // Commit first, for the same reason the carousel's own navigation does:
-                // resolveFirstCard may change the destination card's displayed VARIANT, which
-                // swaps the model under a card that keeps its SwiftUI identity. A TextField
-                // still holding the window's field editor would be rebound in place, leaving
-                // the editor clipped to stale geometry. See selectVariant in ReleasesView.
+                // revealFirstCard, not openOnFirstCard: openOnFirstCard writes the index directly and is
+                // only correct before the first render (see its doc comment). This carousel is on screen,
+                // possibly mid-animation, so the move goes through the navigation pipeline. Commit first,
+                // as the carousel's own navigation does: resolveFirstCard may change the destination
+                // card's displayed variant, which swaps the model under a card with a stable identity. A
+                // TextField still holding the field editor would then be rebound in place. See selectVariant
+                // in ReleasesView.
                 commitPendingFieldEdit()
                 liveSheet.releasesTab.revealFirstCard(ofFormat: format)
                 log("Revealing the first \(format) release in the open sheet")
@@ -540,12 +507,9 @@ struct SheetHostView: View, Loggable {
                                   filmID: selectedID,
                                   initialTab: .releases)
 
-        // If a format was requested, position the carousel on that format's first card.
-        //
-        // Applied here, to the freshly constructed sheet, rather than being stashed for the
-        // tab to consume on appear: the carousel is a single unified stack now, so "open on
-        // this format" is a starting INDEX, and an index applied in `onAppear` would land
-        // one body pass too late — the tab would render its first card and then jump.
+        // If a format was requested, position the carousel on that format's first card. This is
+        // done on the new sheet here, not in the tab's onAppear: the carousel is one stack, so the
+        // format is a starting index, and an index set in onAppear would land a body pass late.
         if let format {
             filmSheet.releasesTab.openOnFirstCard(ofFormat: format)
             log("Opening releases carousel on the first \(format) release")
@@ -591,11 +555,9 @@ struct SheetHostView: View, Loggable {
 
 
     private func handleOpenSettingsWithBackup(file: URL?) {
-        // Case A: Settings is already open.
-        // Re-presenting (creating a new AppSheet with id "settings") would cause a
-        // visible dismiss-and-reshow. Instead, stage the URL in pendingBackupURL —
-        // SettingsSheet observes this via onChange and navigates to the Restore tab
-        // then begins loading the file in-place, with no sheet dismissal.
+        // Case A: Settings is already open. Re-presenting (a new AppSheet with id "settings")
+        // would dismiss and re-show it. Stage the URL in pendingBackupURL instead: onChange
+        // forwards it on the event bus, and SettingsSheet loads the file in place.
         if let current = sheetCoordinator.activeSheet, current.id == "settings" {
             log("Settings already open — forwarding backup URL in-place")
             pendingBackupURL = file

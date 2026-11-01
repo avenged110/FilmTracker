@@ -222,7 +222,7 @@ extension DebugHarness {
 
         // A repeat add of the identical set must insert nothing: the dedupe is what the
         // existing-membership lookup at the top of batchAddFilmsToLists exists to provide,
-        // and it is the part of that method this audit rewrote.
+        // and it is the part of that method most exposed to regression.
         coordinator.addFilmsToList(filmIDs: added, listID: listID)
         _ = await drainOperations(coordinator)
         rows = persistedMembershipFilmIDs(coordinator, listID: listID)
@@ -261,7 +261,7 @@ extension DebugHarness {
             detail: "store holds \(Set(rows).count), MemoryStore holds \(inMemory.count)"))
 
         // --- Film Queue section move ----------------------------------------------------
-        // A move is an exclusivity removal plus an add. Both halves now ride in one tracked
+        // A move is an exclusivity removal plus an add. Both halves ride in one tracked
         // operation and one database transaction, so the assertion is on the committed
         // result: the film holds a membership row in its new section and in NO other.
         let mover = corpus[12].id
@@ -290,9 +290,9 @@ extension DebugHarness {
         return checks
     }
 
-    /// Two user-generated lists must never share a name, in any casing. Creating one has
-    /// always uniquified; renaming onto an existing name used to be the one path that did
-    /// not, which made a rename the only way to produce a duplicate — and a duplicate is
+    /// Two user-generated lists must never share a name, in any casing. Creating one uniquifies
+    /// its name, and renaming must too, or a rename would be the only way to produce a
+    /// duplicate. A duplicate is
     /// indistinguishable from its twin in every surface that shows a list by name.
     ///
     /// Driven through `ListManager`, not `DataCoordinator`, because that is where the rule
@@ -319,7 +319,7 @@ extension DebugHarness {
             passed: name(of: first) == "Naming Probe" && name(of: second) == "Naming Probe 1",
             detail: "'\(name(of: first))' and '\(name(of: second))'"))
 
-        // Rename onto an existing name — the case this audit fixed.
+        // Rename onto an existing name must uniquify.
         _ = ListManager.updateListName(second, newName: "Naming Probe",
                                              coordinator: coordinator)
         _ = await drainOperations(coordinator)
@@ -375,13 +375,13 @@ extension DebugHarness {
 
     // MARK: - Scenario: Audit Fixes
 
-    /// Pins the fixes from the 2026-09-28 audit, each against the persisted store as well as
+    /// Pins the audit fixes, each against the persisted store as well as
     /// memory — the gaps they close were all invisible in memory alone:
-    ///   - the "Add Viewing Event" quick-add derives `viewCount` (it left the stored count stale);
+    ///   - the "Add Viewing Event" quick-add derives `viewCount`, so the stored count is current;
     ///   - a wishlist reorder carries each position down to the release's combo-pack children;
     ///   - `commitPendingWritesForExport` commits what is still inside a debounce window —
     ///     a Hall of Fame / wishlist reorder and a settings change — so an export sees it;
-    ///   - search upper bounds (`<`, `N-`) no longer match films that have no value at all.
+    ///   - search upper bounds (`<`, `N-`) do not match films that have no value at all.
     private static func auditFixesScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "audit-fixes")
         let store = coordinator.memoryStoreForTesting
@@ -561,7 +561,8 @@ extension DebugHarness {
         r.check("range/rating-7-9", ids(.rating, "7-9", in: band) == names(7...9), "\(ids(.rating, "7-9", in: band))")
         r.check("range/rating-open-8-is-still-at-most",
                 ids(.rating, "8-", in: band) == names(1...8), "\(ids(.rating, "8-", in: band))")
-        r.check("range/rating-reversed-matches-nothing", ids(.rating, "9-7", in: band).isEmpty, "reversed range matched")
+        r.check("range/rating-reversed-is-same-span",
+                ids(.rating, "9-7", in: band) == names(7...9), "\(ids(.rating, "9-7", in: band))")
         r.check("range/duration-60-120",   // minutes: Band n runs n * 20
                 ids(.duration, "60-120", in: band) == names(3...6), "\(ids(.duration, "60-120", in: band))")
         r.check("range/year-unchanged", ids(.year, "1992-1994", in: band) == names(2...4), "\(ids(.year, "1992-1994", in: band))")
@@ -814,11 +815,11 @@ extension DebugHarness {
         }
 
         // --- Film Queue exclusivity: a cross-section add is an enforcement removal PLUS an
-        //     add, and both now ride in ONE tracked write against one database transaction
+        //     add, and both ride in ONE tracked write against one database transaction
         //     (DataManager.moveFilmsBetweenLists), with one composed rollback. The
         //     dispatched-a-tracked-write check below therefore expects a single injected
         //     failure, not two — a second would mean the halves had come apart again, which
-        //     is what used to let a committed removal survive a failed add and leave the
+        //     is what would let a committed removal survive a failed add and leave the
         //     film in no section at all. The film's initial section was established during
         //     setup, before the baseline digest, so it is part of the state the whole
         //     sequence must return to. ------------------------------------------------------
@@ -966,9 +967,9 @@ extension DebugHarness {
         // so a new case belongs at the end where it shifts nothing.
         //
         // Array elements whose own TEXT is entity-shaped. XMLParser hands the writer's JSON
-        // back with every entity already resolved, so the importer's array branch used to
-        // unescape a SECOND time: "&amp;" came back as "&", "&lt;p&gt;" as "<p>", and the
-        // "&quot;" case produced bare quotes that broke the JSON outright — losing the WHOLE
+        // back with every entity already resolved, so a second unescape in the array branch
+        // would turn "&amp;" into "&", "&lt;p&gt;" into "<p>", and the
+        // "&quot;" case would produce bare quotes that broke the JSON outright — losing the WHOLE
         // field rather than one element. Distinct from RT ArrayWithSpecials, which carries
         // the raw characters and always round-tripped correctly.
         add("RT ArrayWithEntityText") {
@@ -977,15 +978,15 @@ extension DebugHarness {
             $0.alternateTitle = ["R&amp;B &apos;74"]
         }
         // A LITERAL backslash before an apostrophe, in both a String field and an array
-        // element. DBPackager used to run a `\'` → `'` cleanup over every outgoing string,
-        // and it damaged each of these differently:
-        //   • notes lost its backslashes outright, unrecoverably.
+        // element. DBPackager must not run a `\'` → `'` cleanup over outgoing strings, because
+        // it damages each of these:
+        //   • notes would lose its backslashes outright, unrecoverably.
         //   • cast arrives at the packager as JSON in which the backslash is already
         //     encoded as `\\`; the cleanup matched the `\'` inside that `\\'` and produced
-        //     `\'`, which is not a legal JSON escape. The array then failed to decode on
-        //     restore and the WHOLE field came back empty — one apostrophe losing an entire
+        //     `\'`, which is not a legal JSON escape. The array would then fail to decode on
+        //     restore and the WHOLE field would come back empty — one apostrophe losing an entire
         //     cast list. Distinct from RT ArrayWithSpecials, whose D'Onofrio carries a bare
-        //     apostrophe and always round-tripped correctly.
+        //     apostrophe and round-trips correctly.
         // The read-side counterpart in DBImporter.decodeArray is unaffected and still
         // repairs genuinely legacy files that carry the invalid escape.
         add("RT BackslashApostrophe") {
@@ -1189,11 +1190,11 @@ extension DebugHarness {
                     "watched → \(String(describing: watched))")
         }
 
-        // An empty String stays an empty String rather than collapsing to a null. Before the
-        // declared-type attribute the two were indistinguishable on read (both are an empty
-        // element), which was harmless only because every String field on these models is
+        // An empty String stays an empty String rather than collapsing to a null. The declared-type attribute
+        // keeps the two distinct on read. Without it both read as an empty element, which is
+        // harmless only because every String field on these models is
         // non-optional and defaults to "" anyway. Pinned here so the distinction is not lost
-        // again the moment an optional String field is added.
+        // the moment an optional String field is added.
         if let object = parsedByID[corpus[13].id.uuidString.uppercased()] {
             r.check("field:empty-string-stays-a-string",
                     object.properties["notes"] as? String == "",
@@ -1643,8 +1644,8 @@ extension DebugHarness {
         // Every .ftbackup the user already owns was written without `type="string"`, so those
         // files still take the original inference path. This restores a hand-written legacy
         // package to prove two things at once: that such a file still restores at all, and
-        // that the values inference misreads are no longer ERASED — the boolean- and
-        // array-shaped strings that previously came back as "" now come back as text.
+        // that the values inference misreads are not ERASED — the boolean- and
+        // array-shaped strings come back as text, not as "".
         let legacyID = UUID()
         let legacyURL = (DebugSandbox.rootURL ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("legacy.ftbackup", isDirectory: true)
@@ -1694,17 +1695,16 @@ extension DebugHarness {
             r.check("legacy-real-array-intact", film.cast == ["Real", "Array"],
                     "cast → \(film.cast)")
 
-            // The apostrophe fallback in DBImporter.decodeArray, which now runs only AFTER
+            // The apostrophe fallback in DBImporter.decodeArray, which runs only after
             // a verbatim decode fails. This legacy array carries the invalid `\\'` escape, so
-            // the verbatim decode fails and the fallback repairs it — exactly as before the
-            // ordering change. A correctly written backup never reaches that path, which is
-            // what stopped it corrupting valid JSON (see RT BackslashApostrophe).
+            // the verbatim decode fails and the fallback repairs it. A correctly written backup
+            // never reaches that path, which is what keeps valid JSON from being corrupted (see RT BackslashApostrophe).
             r.check("legacy-apostrophe-escape-repaired",
                     film.directors == ["D'Onofrio, Vincent"],
                     "directors → \(film.directors)")
 
-            // The two shapes that used to be erased. Inference still misreads them in a
-            // legacy file — nothing in it says they are strings — but the restore now
+            // The restore keeps the two shapes that inference misreads. Inference still misreads them in a
+            // legacy file — nothing in it says they are strings — but the restore
             // reconstructs the text instead of substituting an empty string.
             r.check("legacy-boolean-text-not-erased", film.notes == "true",
                     "notes → \(String(reflecting: film.notes)) (was \"\" before the fix)")
@@ -1734,7 +1734,7 @@ extension DebugHarness {
         // Three releases in one file: the two defects and a well-ordered control, so a guard
         // that simply blanked every base year would fail this scenario rather than pass it.
         //
-        // Those three carry the pre-rename `releaseYear` key, as every backup written before
+        // Those three carry the `releaseYear` key, as every backup written before
         // full release dates does, so they also prove the legacy key is still read. Two more
         // carry the current `releaseDate` key with a full date — one well-ordered, one
         // inverted — proving the guard compares the base year against the date's YEAR. A
@@ -1972,7 +1972,7 @@ extension DebugHarness {
 
         // --- rule/*: exhaustive per-field truth table -------------------------------------
         // Every (sheet, loaded, stored, current) over the field's distinct values, with the
-        // other 55 fields held at independent values so cross-talk would show. Expected
+        // other fields held at independent values so cross-talk would show. Expected
         // outcome from indices alone: edited → sheet; untouched elsewhere → sheet; else current.
         var ruleCases = 0
         var ruleFailures: [String] = []
@@ -2050,7 +2050,7 @@ extension DebugHarness {
                     FilmField.coupled.reduce(0) { $0 + $1.count } == Set(FilmField.coupled.flatMap { $0 }).count, "")
         }
 
-        // --- identity/*: nothing changed underneath → the merge IS the old whole save ------
+        // --- identity/*: nothing changed underneath → the merge equals a whole-object save ------
         do {
             var rng = SeededGenerator(seed: 0x5EED_F11E)
             var mismatches = 0, iterations = 0
@@ -2264,7 +2264,7 @@ extension DebugHarness {
         }
 
         // 7. A value the tabs normalize on load is still written when nothing else
-        //    changed it — the repair the whole-object save made, kept.
+        //    changed it — a repair the save still makes.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fRepair.id)
             sheet.detailsTab.name = "Merge Repair Renamed"
@@ -2298,10 +2298,10 @@ extension DebugHarness {
         }
 
         // 9. Edits on three tabs with no background change: the saved film equals
-        //    what the whole-object save would have written, field for field.
+        //    the sheet's assembled snapshot, field for field.
         do {
             // `expected` is the sheet's own whole-object assembly, taken just before the
-            // save — exactly what the save wrote before it merged, load repairs included.
+            // save — the value the sheet holds at save time, load repairs included.
             let sheet = FilmSheet(coordinator: coordinator, filmID: fCross.id)
             sheet.detailsTab.name = "Merge Cross Renamed"
             sheet.metadataTab.studio = ["Cross Studio"]
@@ -2446,7 +2446,7 @@ extension DebugHarness {
         c.releaseYear = currentYear
         c.enforceReleaseYearOrder()
         r.check("card/order-collapsed-range-current-release", !c.hasBaseReleaseYear)
-        // The previous behavior, unchanged: a release year inside the range.
+        // A release year inside the range is unaffected.
         let p = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
         p.hasReleaseYear = true
         p.releaseYear = 2010
@@ -2642,13 +2642,12 @@ extension DebugHarness {
 
 // MARK: - Scenario: Membership Cascade
 //
-// DataManager deletes a film's or a list's ListMembership rows by hand before it deletes the
-// film or list. The SwiftData build needed that: its cascade missed rows created in the same
-// session, and the misses survived as orphans. This scenario decides whether Core Data's
+// Deleting a film or a list relies on Core Data's delete rules to remove its ListMembership
+// rows. This scenario decides whether Core Data's
 // delete rules alone (Film.memberships and ListObject.memberships cascade; ListMembership.film
 // and .list nullify) can be trusted.
 //
-// The explicit deletes have since been removed, so this now guards the delete rules alone.
+// There are no explicit deletes, so this guards the delete rules alone.
 // Every case runs on its own on-disk store (`cascade/…`). After every
 // step the store FILE is read with raw SQL, not through Core Data, so the audit does not trust
 // the layer it audits. It must match a shadow model of the films, lists and (film, list)
@@ -2898,7 +2897,7 @@ extension DebugHarness {
             }
 
             // Everything in one DataManager session: the rows were created by the context
-            // that deletes them. This is the SwiftData failure the explicit deletes guarded.
+            // that deletes them. This is the case the delete rules must handle.
             await run("same-session") { p in
                 let f = try await p.insertFilms(12, seed: 0xCA5C_0010)
                 let l = try await p.createLists(4)
@@ -3034,7 +3033,7 @@ extension DebugHarness {
             await run("foreign-insert") { p in
                 let f = try await p.insertFilms(4, seed: 0xCA5C_0070)
                 let l = try await p.createLists(3)
-                try await p.add([f[0], f[1]], to: [l[0]])   // DataManager now holds both relationships
+                try await p.add([f[0], f[1]], to: [l[0]])   // DataManager holds both relationships
                 let foreign = p.container.makeMainContext()
                 let film0 = try foreign.fetch(Film.request(.equals("id", f[0]))).first!
                 let film2 = try foreign.fetch(Film.request(.equals("id", f[2]))).first!

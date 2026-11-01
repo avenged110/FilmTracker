@@ -51,8 +51,8 @@ private struct BackupInfoBox: View {
             Divider()
 
             HStack(alignment: .center, spacing: 16) {
-                // Three rows rather than two: the button takes width out of the box, and
-                // the old two-row split would have had to crowd or truncate against it.
+                // Three rows, because the button takes width out of the box and two rows would have to crowd or
+                // truncate against it.
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 16) {
                         item("Format:", info.format)
@@ -328,7 +328,7 @@ final class RestoreViewModel: Loggable {
         var formattedCreationDate: String? {
             // Try with fractional seconds first, then without, to handle both
             // ISO 8601 variants that backup files may contain.
-            // Leading whitespace skipped, as the ISO8601DateFormatter these replaced skipped it.
+            // Leading whitespace is skipped.
             let trimmed = String(created.drop(while: \.isWhitespace))
             let date = (try? Self.isoParser.parse(trimmed)) ?? (try? Self.isoParserNoFrac.parse(trimmed))
             return date.map { Self.displayFormatter.string(from: $0) }
@@ -347,7 +347,7 @@ final class RestoreViewModel: Loggable {
     func selectBackupFile() {
         Task { @MainActor in
             // This avoids the "dyn.*" ad-hoc type mismatch that causes grayed-out items.
-            let ftbackupTypes = UTType.types(tag: "ftbackup", tagClass: .filenameExtension,
+            let ftbackupTypes = UTType.types(tag: BackupFilename.fileExtension, tagClass: .filenameExtension,
                 conformingTo: .package)
             
             // Prefer the canonical types if found, otherwise allow any package (still
@@ -374,7 +374,7 @@ final class RestoreViewModel: Loggable {
             
             // Safety: Double-check that the selected file has a .ftbackup extension
             // in case filtering fell back to '.package' type.
-            guard url.pathExtension.lowercased() == "ftbackup" else {
+            guard BackupFilename.isBackup(url) else {
                 validationErrorMessage =
                     "The selected file is not a valid Film Tracker backup (.ftbackup)."
                 showValidationError = true
@@ -385,9 +385,17 @@ final class RestoreViewModel: Loggable {
         }
     }
     
+    /// Bumped by every loadBackupFile call. A validation reports only while it is still the
+    /// newest one, so a second file arriving mid-validation (two backups double-clicked in
+    /// Finder) can never be overtaken by the first one's slower result, nor have its
+    /// spinner cleared by it.
+    private var validationGeneration = 0
+
     func loadBackupFile(_ url: URL) {
         isValidating = true
         backupInfo = nil
+        validationGeneration += 1
+        let generation = validationGeneration
         
         Task {
             do {
@@ -446,6 +454,7 @@ final class RestoreViewModel: Loggable {
                           ) else { return 0 }
                     return contents.count
                 }.value
+                guard generation == validationGeneration else { return }
                 
                 // RestoreViewModel is @MainActor-isolated; the unstructured Task {}
                 // created within that context inherits the same isolation. All code in
@@ -466,14 +475,17 @@ final class RestoreViewModel: Loggable {
                 )
                 isValidating = false
             } catch let error as DBImporterError {
+                guard generation == validationGeneration else { return }
                 validationErrorMessage = Self.formatValidationError(error)
                 isValidating = false
                 showValidationError = true
             } catch let error as DBRestorerError {
+                guard generation == validationGeneration else { return }
                 validationErrorMessage = Self.formatRestoreError(error)
                 isValidating = false
                 showValidationError = true
             } catch {
+                guard generation == validationGeneration else { return }
                 validationErrorMessage = "An unexpected error occurred: \(error.localizedDescription)"
                 isValidating = false
                 showValidationError = true

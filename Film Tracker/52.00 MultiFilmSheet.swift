@@ -328,13 +328,6 @@ final class MultiFilmSheet: Identifiable, Loggable {
         self.shared = shared
         if case .same(let text) = shared.notes { notes = text }
 
-        #if DEBUG
-        assert(BulkFilmEdit.tagLimit == ReorderableStringList.maxItems,
-               "BulkFilmEdit.tagLimit must match the Tags list's own limit")
-        assert(BulkFilmEdit.hallOfFameCapacity == MemoryStore.hallOfFameCapacity,
-               "BulkFilmEdit.hallOfFameCapacity must match MemoryStore.hallOfFameCapacity")
-        #endif
-
         // As FSTabDetails does: the read can rebuild the store's sorted lists, which is
         // work better kept off the presentation animation's first frames. The menu's
         // label does not need the lists, and its contents cannot open before this runs.

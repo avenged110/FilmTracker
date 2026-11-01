@@ -1,10 +1,8 @@
 // MARK: - DVComponents.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Data Visualizations tab's shared pieces that are not drawing nodes: the style
-// constants, the delta a stat tile shows, a line chart's geometry (drawn by DVK.lineChart,
-// 27.44), and the SwiftUI popover a Needs Attention row opens. The page itself is drawn by
-// the canvas (27.44 / 27.45), on screen and in the library PDF alike.
+// Shared Data Visualizations pieces that are not drawing code: the style constants, the stat tile delta, the line chart geometry
+// (drawn by DVK.lineChart, 27.44), and the popover a Needs Attention row opens. The canvas (27.44 and 27.45) draws the page on screen and in the PDF.
 
 import SwiftUI
 
@@ -17,29 +15,22 @@ enum DVStyle {
     static let gap: CGFloat = 16
     /// Gap between stat tiles, which sit tighter than cards.
     static let tileGap: CGFloat = 12
-    /// Fill and track opacities of every horizontal and vertical bar — the same
-    /// pairing the tab's previous PercentFillBar used, so the redesign keeps its tint.
+    /// Fill and track opacities for every horizontal and vertical bar.
     static let fillOpacity: CGFloat = 0.7
     static let trackOpacity: CGFloat = 0.1
-    /// Narrowest a card may be laid out before its row sheds a column. Raised from 236 so
-    /// a three- or four-column row drops to two columns earlier, before its cards get
-    /// skinny enough to trigger their own internal layout shuffles.
+    /// Narrowest a card may be laid out before its row drops a column. The value keeps three- or four-column rows from making cards so narrow that they reflow internally.
     static let minCardWidth: CGFloat = 280
-    /// For cards whose rows carry long labels or several fixed columns (ranked tables,
-    /// source ladders, ten-bar charts): they shed a column sooner than a simple card.
+    /// For cards with long labels or several fixed columns (ranked tables, source ladders, ten-bar charts). They drop a column sooner than a simple card.
     static let minTextCardWidth: CGFloat = 320
     static let minTileWidth: CGFloat = 144
-    /// For a five-tile row (Library Overview, Purchases and Spending): wide enough that
-    /// the row drops to two balanced rows of three before a tile's title or footnote
-    /// truncates, the way the Viewing History tiles' six-across row already does at 144.
+    /// For a five-tile row (Library Overview, Purchases and Spending). It is wide enough that the row drops to two rows of three before a tile's title
+    /// or footnote truncates, as the six-across Viewing History row does at 144.
     static let minWideTileWidth: CGFloat = 190
     static let minWideCardWidth: CGFloat = 360
-    /// Fixed content height for the Most Rewatched card's row list — ten compact
-    /// rank rows plus their spacing — so the card's height is constant by construction
-    /// regardless of the scope switch or how many rows a library actually has.
+    /// Fixed content height for the Most Rewatched list: ten compact rank rows plus spacing. The card's height stays constant whatever the scope or row count.
     static let mostRewatchedListHeight: CGFloat = 244
 
-    /// The Spending Trends statements: chart column width, bar plot height, outline radius.
+    /// Spending Trends statements: chart width, bar plot height, and outline radius.
     static let highlightChartWidth: CGFloat = 240
     static let highlightChartHeight: CGFloat = 56
     static let highlightOutlineRadius: CGFloat = 6
@@ -53,7 +44,7 @@ struct DVDelta: Equatable {
     let text: String
     let direction: Direction
 
-    /// A count delta: current minus prior, "▲ 9" / "▼ 5" / "▬ 0".
+    /// A count delta, current minus prior: "▲ 9", "▼ 5", or "▬ 0".
     init(current: Int, prior: Int, suffix: String = "") {
         let diff = current - prior
         direction = diff > 0 ? .up : (diff < 0 ? .down : .flat)
@@ -84,13 +75,9 @@ struct DVDelta: Equatable {
 
 // MARK: - Attention Popover
 
-/// The popover a Needs Attention row opens: a fixed header — just the "Create New List
-/// With These Items" button, centered — atop a divider, with the matching titles in a
-/// scrollview below. The same fixed-header/scrolling-body composition and sizing as
-/// ImportsView's per-session "Details" popover (SessionDetailsPopover); the row's own
-/// label already reads as the popover's title by virtue of anchoring to it, so nothing
-/// here restates it. Every row opens one, listing exactly the films its count was drawn
-/// from, so no row merely displays a number with nothing behind it.
+/// The popover a Needs Attention row opens. It has a fixed header with a centered "Create New List With These Items" button, a divider,
+/// and a scrolling list of matching titles. The layout matches ImportsView's SessionDetailsPopover. The row's label already serves as the title.
+/// The list shows exactly the films behind the row's count.
 struct DVAttentionPopover: View {
     let label: String
     let items: [DVNamedFilm]
@@ -110,9 +97,7 @@ struct DVAttentionPopover: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Fixed header: just the list-creation button, centered. Pre-fills the new
-            // list's name with this row's own label, so the user can just press Return
-            // to accept it or edit it first.
+            // Fixed header: the list-creation button. It pre-fills the list name with this row's label.
             Button("Create New List With These Items") {
                 AppEventBus.shared.sendCommand(
                     .showListCreationFromSelection(filmIDs: Set(items.map(\.filmID)), prefillName: label))
@@ -129,14 +114,9 @@ struct DVAttentionPopover: View {
             Divider()
                 .padding(.horizontal, Self.headerHorizontalPadding)
 
-            // Scrollable title list, exactly the films `count` was drawn from. A plain
-            // VStack, not LazyVStack: with LazyVStack, the ScrollView cannot know the
-            // list's true content height until each row has been laid out once, so it
-            // estimates and corrects as rows scroll into view — visible as the scrollbar
-            // (and content) subtly jumping mid-scroll, independent of frame rate. Every
-            // row here is one Text at a fixed size, so eagerly laying out even the
-            // largest list (low hundreds of films) is cheap, and doing so upfront gives
-            // the ScrollView an exact content height from the first frame.
+            // Scrollable list of the films `count` was drawn from. It uses a plain VStack, not LazyVStack. A lazy stack estimates its height
+            // and corrects it during scrolling, which makes the scrollbar jump. Each row is one fixed-size Text, so laying out even a list of
+            // several hundred films up front is cheap, and it gives the ScrollView an exact height from the first frame.
             if items.isEmpty {
                 Text("No Items")
                     .font(.caption)
@@ -146,8 +126,7 @@ struct DVAttentionPopover: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(sortedItems.enumerated()), id: \.offset) { _, item in
-                            // Name, then the release year (tertiary) and, where the list
-                            // mixes purchased and unpurchased releases, "(purchased)" (secondary).
+                            // Name, then the release year (tertiary), then "(purchased)" (secondary) where the list mixes purchased and unpurchased releases.
                             (Text(item.name)
                              + Text(item.year.map { " (\(String($0)))" } ?? "").foregroundStyle(.tertiary)
                              + Text(item.purchased ? " (purchased)" : "").foregroundStyle(.secondary))
@@ -190,8 +169,7 @@ struct DVLineChartSpec {
         let values: [Double]
         let color: NSColor
     }
-    /// A label under the axis at a point's index. `value` orders thinning (years that are
-    /// multiples of the step survive).
+    /// A label under the axis at a point's index. `value` orders thinning, so years that are multiples of the step survive.
     struct Mark {
         let index: Int
         let value: Int
@@ -219,8 +197,7 @@ struct DVLineChartSpec {
     static let minMarkSpacing: CGFloat = 40
     static let tickFontSize: CGFloat = 9
 
-    /// The Spending Trends long-term line: no grid, a light area, a dot at the end, and
-    /// the first and last years under it.
+    /// The Spending Trends long-term line: no grid, a light area, a dot at the end, and the first and last years below it.
     static func sparkline(_ values: [Double], first: String, last: String, color: NSColor) -> DVLineChartSpec {
         DVLineChartSpec(series: [Series(values: values, color: color)],
                         marks: [Mark(index: 0, value: 0, text: first), Mark(index: max(0, values.count - 1), value: 1, text: last)],
@@ -258,8 +235,7 @@ struct DVLineChartSpec {
         return (CGFloat(chars) * 5.5 + 6).rounded(.up)
     }
 
-    /// The plotting area inside the chart's rect: the gutter on the left, the marks below,
-    /// headroom above for the top tick label (or the end dot).
+    /// The plot area inside the chart rect: the gutter on the left, the marks below, and headroom above for the top tick label or end dot.
     func plot(in rect: CGRect) -> CGRect {
         let bottom = marks.isEmpty ? 0 : Self.markGap + Self.markHeight
         let head: CGFloat = showsGrid ? 6 : 4
@@ -295,15 +271,13 @@ struct DVLineChartSpec {
         return path
     }
 
-    /// A gridline's rect: the baseline is the bar charts' 1 pt rule along the bottom; the
-    /// others are 1 pt lines on their value, snapped to the pixel grid at `scale`.
+    /// A gridline's rect. The baseline is a 1 pt rule along the bottom. The others are 1 pt lines at their value, snapped to the pixel grid at `scale`.
     func gridline(_ tick: Double, in plot: CGRect, scale: CGFloat) -> CGRect {
         let y = tick == 0 ? plot.maxY - 1 : (self.y(tick, in: plot) * scale).rounded() / scale
         return CGRect(x: plot.minX, y: y, width: plot.width, height: 1)
     }
 
-    /// The marks drawn at this plot width: all of them, or those whose value is a multiple
-    /// of the smallest step (1, 2, 5, 10…) that spaces them `minMarkSpacing` apart.
+    /// The marks drawn at this plot width: all of them, or those whose value is a multiple of the smallest step (1, 2, 5, 10…) that keeps them `minMarkSpacing` apart.
     func visibleMarks(plotWidth: CGFloat) -> [Mark] {
         guard thinsMarks, marks.count > 1, pointCount > 1 else { return marks }
         let spacing = plotWidth * CGFloat(marks[1].index - marks[0].index) / CGFloat(pointCount - 1)

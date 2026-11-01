@@ -1,11 +1,10 @@
 // MARK: - GalleryMenu.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Secondary-click (contextual) menu for gallery items, shared by both gallery
-// styles: the NSCollectionView grid (GallerySubview) and the NSTableView list
-// (GalleryListView). Every item mirrors the behavior of its counterpart in the
-// MenuBar's "Film" menu (12_00_MenuBar.swift) and the GalleryTitleBar's
-// SelectionMenuButton / TrashMenuButton (23_70_GalleryTitleBar.swift).
+// The secondary-click (contextual) menu for gallery items, shared by the grid (GallerySubview)
+// and the list (GalleryListView). Its items match their counterparts in the MenuBar's "Film"
+// menu (12.00 MenuBar.swift) and in GalleryTitleBar's SelectionMenuButton and TrashMenuButton
+// (23.70 GalleryTitleBar.swift).
 
 import AppKit
 
@@ -13,20 +12,17 @@ import AppKit
 
 /// Action target for a contextual-menu item, carrying its own closure.
 ///
-/// NSMenuItem holds `target` weakly, so each instance is ALSO stored in its item's
-/// `representedObject` (a strong reference), keeping the target alive for exactly as
-/// long as the item itself. This avoids subclassing NSMenuItem, whose NSCoding
-/// initializer requirement would have to be satisfied for no benefit here.
+/// NSMenuItem holds `target` weakly, so each instance is also stored in its item's
+/// `representedObject` (a strong reference), keeping the target alive as long as the item.
+/// This avoids subclassing NSMenuItem, whose NSCoding initializer would have to be satisfied
+/// for no benefit.
 ///
-/// The closure runs through `deferPastMenuDismissal` (90_00_GlobalUtilities.swift)
-/// rather than directly. Every action in this menu either presents a sheet
-/// (FilmSheet, ListManagerSheet), presents a confirmation alert, or performs a full
-/// view switch; running any of those while AppKit is still tearing down the menu's own
-/// window risks the same presentation glitches the sub-category pickers already defer
-/// around. Deferring uniformly leaves no per-item decision to get wrong.
+/// The closure runs through `deferPastMenuDismissal` (90.00 GlobalUtilities.swift). Every
+/// action here presents a sheet or an alert, or switches views. Running one while AppKit is
+/// still tearing down the menu risks the presentation glitches the sub-category pickers
+/// already defer around. Deferring uniformly leaves no per-item decision to get wrong.
 ///
-/// The selector is `fire(_:)` rather than the more obvious `perform(_:)`: the latter
-/// would collide with NSObject's own `perform:` selector.
+/// The selector is `fire(_:)` because `perform(_:)` would collide with NSObject's `perform:`.
 @MainActor
 private final class GalleryMenuAction: NSObject {
     private let handler: @MainActor () -> Void
@@ -44,36 +40,31 @@ private final class GalleryMenuAction: NSObject {
 
 // MARK: - SelectionMenuModel
 
-/// The data behind the gallery's selection menus, resolved as plain values with no view
-/// state of its own.
+/// The data behind the gallery's selection menus, resolved as plain values with no view state.
 ///
-/// The two gallery surfaces present the identical three submenus — "Add to Queue", "Add
-/// to List", "Show in List" — but cannot share their construction: GalleryContextMenu
-/// builds an NSMenu, while GalleryTitleBar's SelectionMenuButton builds SwiftUI Menus.
-/// What they CAN share is every decision about what those menus should contain, which is
-/// what lives here. Each surface is then a thin translation of these results into its own
-/// item type, so the two can only ever differ in presentation, never in content.
+/// The two gallery surfaces show the same three submenus ("Add to Queue", "Add to List",
+/// "Show in List") but cannot share their construction: GalleryContextMenu builds an NSMenu,
+/// and GalleryTitleBar's SelectionMenuButton builds SwiftUI menus. They can share every
+/// decision about what the menus contain, which is what lives here. Each surface translates
+/// these results into its own item type, so the two can differ only in presentation.
 ///
-/// Deliberately NOT shared with the MenuBar's equivalents (AddToListMenuItems /
-/// ShowInListMenuItems, 12_00_MenuBar.swift): those are `Commands` views whose contents
-/// are instantiated lazily by AppKit when their menu is first opened, and which populate
-/// themselves from `onAppear`. Reusing them from an always-on-screen toolbar button would
-/// present them before that lifecycle had ever run, showing an empty menu.
+/// Not shared with the MenuBar's AddToListMenuItems or ShowInListMenuItems (12.00 MenuBar.swift).
+/// Those are `Commands` views that AppKit instantiates lazily and that populate from
+/// `onAppear`, so an always-on-screen toolbar button would show them before that lifecycle
+/// ran, as an empty menu.
 ///
-/// Every method is a pure read of MemoryStore-backed caches (dictionary lookups plus one
-/// small sort), cheap enough to call synchronously at menu-build time.
+/// Every method is a pure read of MemoryStore-backed caches (dictionary lookups plus a small
+/// sort), cheap enough to call synchronously when the menu is built.
 @MainActor
 enum SelectionMenuModel {
 
-    /// The user-generated lists the selection can still be added to, plus whether the
-    /// library contains any list at all.
+    /// The user lists the selection can still join, plus whether the library has any list.
     ///
-    /// A single selection offers only the lists the film is not already a member of; a
-    /// multiple selection offers every list, since "add" is a no-op for films that are
-    /// already members. The two counts are returned separately because the two empty
-    /// states need different placeholder text — see addToListPlaceholderTitle
-    /// (GlobalUtilities.swift). getAllLists() returns the user lists in displayOrder and
-    /// already excludes the internal Film Queue lists.
+    /// A single selection offers only the lists the film is not already in. A multiple
+    /// selection offers every list, since adding a film already in a list is a no-op. The two
+    /// values are separate because the empty states need different placeholder text (see
+    /// addToListPlaceholderTitle, GlobalUtilities.swift). getAllLists() returns the user lists
+    /// in displayOrder and already excludes the internal Film Queue lists.
     static func addToListOptions(filmIDs: Set<UUID>,
                                  coordinator: DataCoordinator)
     -> (lists: [MemoryList], hasAnyLists: Bool) {
@@ -89,26 +80,24 @@ enum SelectionMenuModel {
         return (allLists, !allLists.isEmpty)
     }
 
-    /// The navigable user lists containing a single film, in the canonical list order.
-    /// `userLists(forFilm:)` excludes the internal Film Queue lists, which are not
-    /// navigable user lists and must not appear in a "Show in List" menu, and applies the
-    /// same ordering rule the sidebar and the Right Sidebar's membership table use.
+    /// The navigable user lists containing a single film, in canonical order.
+    /// `userLists(forFilm:)` excludes the internal Film Queue lists, which must not appear in
+    /// a "Show in List" menu. It uses the same ordering as the sidebar and the Right Sidebar's
+    /// membership table.
     static func listsContaining(filmID: UUID, coordinator: DataCoordinator) -> [MemoryList] {
         coordinator.userLists(forFilm: filmID)
     }
 
-    /// Every smart list containing a single film, in SmartListType.allCases order.
-    /// Returns empty when the smart lists feature is switched off, since nothing is
-    /// computed or navigable in that state.
+    /// Every smart list containing a single film, in SmartListType.allCases order. Returns
+    /// empty when the smart lists feature is off.
     static func smartListsContaining(filmID: UUID, coordinator: DataCoordinator) -> [SmartListType] {
         guard Preferences.smartLists else { return [] }
         return coordinator.getSmartListTypes(forFilm: filmID)
     }
 
-    /// The Film Queue section every selected film already occupies, or nil when the
-    /// selection is empty, unqueued, or split across sections. Drives the checkmark in
-    /// both surfaces' "Add to Queue" submenu: the marked section is precisely the one
-    /// whose selection would change nothing.
+    /// The Film Queue section every selected film already occupies, or nil when the selection
+    /// is empty, unqueued, or split. Drives the checkmark in both surfaces' "Add to Queue"
+    /// submenu. Choosing the marked section removes the selection from the queue.
     static func unanimousQueueSection(filmIDs: Set<UUID>,
                                       coordinator: DataCoordinator) -> FilmQueueSection? {
         FilmQueueSection.allCases.first {
@@ -116,11 +105,9 @@ enum SelectionMenuModel {
         }
     }
 
-    /// True if at least one selected film already occupies some Film Queue section.
-    /// Drives the "Add to Queue" submenu's own label: once any selected film is actually
-    /// in the queue, the submenu's items can remove as well as add, so the label switches
-    /// to "Manage Queue Membership" to reflect that. A selection with none of its films
-    /// queued keeps the plain "Add to Queue" label, since every item there can only add.
+    /// True if any selected film is in a Film Queue section. Drives the submenu label: once a
+    /// selected film is queued, the items can also remove, so the label becomes "Manage Queue
+    /// Membership". Otherwise it stays "Add to Queue", since every item then only adds.
     static func anyFilmInQueue(filmIDs: Set<UUID>, coordinator: DataCoordinator) -> Bool {
         filmIDs.contains { !coordinator.filmQueueListIDs(forFilm: $0).isEmpty }
     }
@@ -128,14 +115,12 @@ enum SelectionMenuModel {
 
 // MARK: - GalleryContextMenu
 
-/// Builds the gallery contextual menu for a given set of target films.
+/// Builds the gallery contextual menu for a set of target films.
 ///
-/// The caller (GallerySubview.Coordinator / DraggableListView.Coordinator) is
-/// responsible for resolving which films the menu acts on — see each coordinator's
-/// `contextMenu(for…)` method for the selection rules — and for returning nil from its
-/// `menu(for:)` override when the secondary-click did not land on an item, so clicks in
-/// the inter-item padding, the row inset margins, or the empty space below the content
-/// remain a no-op.
+/// Each coordinator (GallerySubview.Coordinator, DraggableListView.Coordinator) resolves which
+/// films the menu acts on (see its `contextMenu(for…)` method). It returns nil from
+/// `menu(for:)` when the click missed an item, so clicks in the padding, row insets, or empty
+/// space do nothing.
 @MainActor
 enum GalleryContextMenu: Loggable {
     nonisolated static let logTag = "[GalleryContextMenu]"
@@ -160,10 +145,9 @@ enum GalleryContextMenu: Loggable {
               let appState = AppDelegate.appState,
               let coordinator = AppDelegate.dataCoordinator else { return nil }
 
-        // Mirrors MenuBar.isSheetActive: no film operation may be initiated from behind
-        // an active sheet or a database-error alert. A sheet blocks the main window in
-        // practice, so this is belt-and-braces rather than load-bearing — but it keeps
-        // this menu's gating identical to every other entry point for these commands.
+        // Mirrors MenuBar.isSheetActive. No film operation may start behind an active sheet or
+        // database-error alert. A sheet blocks the main window in practice, so this is a
+        // safeguard, but it keeps this menu's gating identical to every other entry point.
         guard appState.sheetCoordinator.activeSheet == nil,
               !appState.isSheetPresented,
               !appState.isDatabaseErrorAlertActive else { return nil }
@@ -171,17 +155,16 @@ enum GalleryContextMenu: Loggable {
         let isSingleSelection = filmIDs.count == 1
 
         let menu = NSMenu()
-        // Explicit enablement throughout: with autoenablesItems left on, AppKit would
-        // override every isEnabled value set below via the validateMenuItem(_:) protocol.
+        // Enablement is set explicitly. With autoenablesItems on, AppKit would override every
+        // isEnabled value below through validateMenuItem(_:).
         menu.autoenablesItems = false
 
         // MARK: Edit section
         //
-        // Both commands are resolved by SheetHostView against SelectionState rather than an
-        // explicitly passed ID. That is safe here because the calling coordinator makes the
-        // menu's films the live selection before this menu is built. As in the menu bar,
-        // Edit Metadata… takes any selection — more than one film opens the MultiFilmSheet —
-        // while Edit Releases… is for exactly one film (SelectionState.selectedFilmID).
+        // SheetHostView resolves both commands against SelectionState, not a passed ID. This is
+        // safe because the calling coordinator makes the menu's films the live selection first.
+        // As in the menu bar, Edit Metadata… takes any selection (more than one film opens
+        // MultiFilmSheet), and Edit Releases… takes exactly one film (SelectionState.selectedFilmID).
         menu.addItem(actionItem(titled: "Edit Metadata…") {
             AppEventBus.shared.sendCommand(.editFilm)
         })
@@ -194,9 +177,9 @@ enum GalleryContextMenu: Loggable {
 
         // MARK: List membership section
         //
-        // "Add to Queue" sits above "Add to List" and offers the three internal Film
-        // Queue sections. It is present for any selection size and in every view,
-        // including the Film Queue itself — where it acts as a move between sections.
+        // "Add to Queue" sits above "Add to List" and offers the three Film Queue sections. It
+        // appears for any selection size and in every view, including the Film Queue, where it
+        // moves films between sections.
         let addToQueueTitle = SelectionMenuModel.anyFilmInQueue(filmIDs: filmIDs, coordinator: coordinator)
             ? "Manage Queue Membership" : "Add to Queue"
         let addToQueue = NSMenuItem(title: addToQueueTitle, action: nil, keyEquivalent: "")
@@ -217,24 +200,18 @@ enum GalleryContextMenu: Loggable {
 
         // MARK: Removal section
         //
-        // "Remove from List" appears whenever the active view is one where "remove from
-        // THIS list" is a distinct operation from "remove from every list" — a
-        // user-generated list or the Film Queue — irrespective of how many films are
-        // selected. Every film visible in such a view is by definition a member of that
-        // same list, so a multiple selection is just as coherent a target as a single
-        // one, exactly as in MenuBar and TrashMenuButton. The view test is the same
-        // ViewCapabilities flag TrashMenuButton uses, so the two can never disagree
-        // about when the item is meaningful.
+        // "Remove from List" appears in any view where removing from THIS list differs from
+        // removing from every list (a user list or the Film Queue), for any selection size.
+        // Every visible film is a member of that list, so a multiple selection is as valid a
+        // target as a single one, as in MenuBar and TrashMenuButton. The view test is the
+        // ViewCapabilities flag TrashMenuButton uses, so the two always agree.
         //
-        // Enablement, the confirmation-preference gating, the membership pre-filter, and
-        // the alert payloads all live in FilmRemoval (LibraryManager.swift), shared with
-        // the MenuBar's "Film" menu, the GalleryTitleBar's TrashMenuButton, and
-        // KeyboardManager's Opt+Delete, so no two of those four can disagree about what
-        // these three commands do. `clearingSelection: true` is this surface's one local
-        // choice: the films visibly leave the view under the user's cursor, so the
-        // selection is cleared once an unconfirmed removal completes — matching
-        // TrashMenuButton and differing, as it always has, from the MenuBar and keyboard
-        // paths.
+        // Enablement, confirmation gating, membership pre-filtering, and alert payloads live in
+        // FilmRemoval (LibraryManager.swift). The MenuBar's "Film" menu, TrashMenuButton, and
+        // KeyboardManager's Opt+Delete use the same code, so the four cannot disagree.
+        // `clearingSelection: true` is this surface's one local choice. The films leave the view
+        // under the cursor, so the selection clears once an unconfirmed removal completes, as in
+        // TrashMenuButton. The MenuBar and keyboard paths differ, as they always have.
         if appState.selectedSidebarItem.capabilities.showsRemoveFromListInTrashMenu {
             let enabled = FilmRemoval.canRemoveFromCurrentList(filmIDs: filmIDs,
                                                               appState: appState,
@@ -287,21 +264,17 @@ enum GalleryContextMenu: Loggable {
 
     // MARK: - Submenus
 
-    /// One item per Film Queue section, in queue order — the AppKit rendering of
-    /// SelectionMenuModel, shared verbatim in content with the GalleryTitleBar's
-    /// "Add to Queue" submenu.
+    /// One item per Film Queue section, in queue order: the AppKit rendering of
+    /// SelectionMenuModel, with the same content as GalleryTitleBar's "Add to Queue" submenu.
     ///
-    /// Every section is always offered, for any selection size. Choosing one assigns the
-    /// entire selection to it, moving any film that currently sits in a different section
-    /// — the reconciliation is DataCoordinator.enforceFilmQueueExclusivity's job, reached
-    /// through the shared FilmQueueAssignment.toggle (29_00_FilmQueue.swift).
+    /// Every section is always offered. Choosing one moves the whole selection into it, out of
+    /// any other section. DataCoordinator.enforceFilmQueueExclusivity handles the reconciliation,
+    /// reached through FilmQueueAssignment.toggle (29.00 FilmQueue.swift).
     ///
-    /// A section is checkmarked only when EVERY selected film already occupies it; a mixed
-    /// selection therefore shows no checkmark, correctly signaling that a choice here
-    /// will unify the selection. Choosing the checked section again removes the selection
-    /// from the Film Queue — FilmQueueAssignment.toggle re-tests live membership and takes
-    /// the remove branch — matching the Toggle items of the title-bar and MenuBar hosts
-    /// (AddToQueueMenuBody, 23.72 SelectionMenu.swift).
+    /// A section is checkmarked only when every selected film is in it. A mixed selection shows
+    /// no checkmark. Choosing the checked section removes the selection from the Film Queue:
+    /// FilmQueueAssignment.toggle re-tests live membership and takes the remove branch, as the
+    /// Toggle items in AddToQueueMenuBody (23.72 SelectionMenu.swift) do.
     private static func makeAddToQueueSubmenu(filmIDs: Set<UUID>,
                                               coordinator: DataCoordinator) -> NSMenu {
         let submenu = NSMenu()
@@ -309,11 +282,11 @@ enum GalleryContextMenu: Loggable {
 
         let currentSection = SelectionMenuModel.unanimousQueueSection(filmIDs: filmIDs,
                                                                       coordinator: coordinator)
-        // allCases is declared in queue order (Up Next → Soon → Later); sorted explicitly
-        // so the menu cannot silently reorder if a case is ever inserted out of order.
+        // Sorted explicitly, as in AddToQueueMenuBody, so the menu stays in queue order if a
+        // case is ever inserted out of order.
         for section in FilmQueueSection.allCases.sorted(by: { $0.queueOrder < $1.queueOrder }) {
-            // "Up Next" is unavailable when the selection would not fit; evaluated as the
-            // menu is built, so it is always current when the menu opens.
+            // "Up Next" is disabled when the selection would not fit. This is evaluated at build
+            // time, so it is current when the menu opens.
             let blocked = section == .upNext
                 && FilmQueue.upNextOverflow(adding: filmIDs, coordinator: coordinator) > 0
             submenu.addItem(actionItem(titled: section.displayName,
@@ -325,10 +298,9 @@ enum GalleryContextMenu: Loggable {
         return submenu
     }
 
-    /// The AppKit rendering of SelectionMenuModel.addToListOptions, including the leading
-    /// "Create New List from Selection…" entry and the divider that follows it. Shared
-    /// verbatim in content with the GalleryTitleBar's "Add to List" submenu, and matching
-    /// the MenuBar's AddToListMenuItems.
+    /// The AppKit rendering of SelectionMenuModel.addToListOptions, led by "Create New List
+    /// from Selection…" and a divider. Its content matches GalleryTitleBar's "Add to List"
+    /// submenu and the MenuBar's AddToListMenuItems.
     private static func makeAddToListSubmenu(filmIDs: Set<UUID>,
                                              coordinator: DataCoordinator) -> NSMenu {
         let submenu = NSMenu()
@@ -342,8 +314,8 @@ enum GalleryContextMenu: Loggable {
         let options = SelectionMenuModel.addToListOptions(filmIDs: filmIDs,
                                                           coordinator: coordinator)
 
-        // Two distinct empty states, one placeholder each — see
-        // addToListPlaceholderTitle (GlobalUtilities.swift).
+        // Two empty states, each with its own placeholder (see addToListPlaceholderTitle,
+        // GlobalUtilities.swift).
         guard !options.lists.isEmpty else {
             submenu.addItem(disabledItem(
                 titled: addToListPlaceholderTitle(hasAnyLists: options.hasAnyLists)))
@@ -355,8 +327,7 @@ enum GalleryContextMenu: Loggable {
             submenu.addItem(actionItem(titled: truncateListName(list.listName)) {
                 Self.log("Adding \(filmIDs.count) film(s) to list \(listID)")
                 Task {
-                    // Batched background operation; progress indication is LeftSidebar's
-                    // responsibility, exactly as on the MenuBar and title-bar paths.
+                        // Progress indication is LeftSidebar's job, as on the MenuBar and title-bar paths.
                     FilmManager.addFilmsToList(filmIDs, listID: listID,
                                                coordinator: coordinator)
                 }
@@ -365,10 +336,9 @@ enum GalleryContextMenu: Loggable {
         return submenu
     }
 
-    /// The AppKit rendering of SelectionMenuModel.listsContaining: the navigable user
-    /// lists containing the single selected film, with a checkmark on the one currently
-    /// being viewed. Shared verbatim in content with the GalleryTitleBar's "Show in List"
-    /// submenu, and matching the MenuBar's ShowInListMenuItems.
+    /// The AppKit rendering of SelectionMenuModel.listsContaining, with a checkmark on the list
+    /// being viewed. Its content matches GalleryTitleBar's "Show in List" submenu and the
+    /// MenuBar's ShowInListMenuItems.
     private static func makeShowInListSubmenu(filmIDs: Set<UUID>,
                                               appState: AppState,
                                               coordinator: DataCoordinator) -> NSMenu {
@@ -380,12 +350,10 @@ enum GalleryContextMenu: Loggable {
             return submenu
         }
 
-        // "Smart Lists" submenu, pinned to the top with a divider beneath it — mirroring
-        // how "Create New List from Selection…" leads makeAddToListSubmenu. Present only
-        // for a single selection (guaranteed by the guard above, which returns the
-        // "Multiple Films Selected" placeholder instead) and only while the smart lists
-        // feature is switched on: with it off, none of the lists is computed or navigable,
-        // so the submenu and its divider are omitted entirely rather than shown empty.
+        // The "Smart Lists" submenu leads the list, with a divider beneath, as "Create New List
+        // from Selection…" leads makeAddToListSubmenu. The guard above ensures a single
+        // selection. The submenu appears only while the smart lists feature is on. With it off,
+        // nothing is computed or navigable, so the submenu and its divider are omitted.
         if Preferences.smartLists {
             let smartList = NSMenuItem(title: "Smart Lists", action: nil, keyEquivalent: "")
             smartList.submenu = makeSmartListsSubmenu(filmID: filmID, coordinator: coordinator)
@@ -405,24 +373,22 @@ enum GalleryContextMenu: Loggable {
             let isCurrent = appState.selectedSidebarItem == .list(listID)
             submenu.addItem(actionItem(titled: truncateListName(list.listName),
                                        state: isCurrent ? .on : .off) {
-                // Navigation, selection preservation, and the scroll-to-top placement all
-                // live in ShowInListNavigation (GlobalUtilities.swift), shared with
-                // ShowInListMenuItems in the MenuBar so the two cannot diverge.
-                // Re-selecting the list already being viewed remains a no-op — handled
-                // inside navigate, which matches the Toggle binding's `if $0` gate.
+                // Navigation and selection preservation live in ShowInListNavigation
+                // (GlobalUtilities.swift), shared with the MenuBar's ShowInListMenuItems.
+                // Re-selecting the list being viewed is a no-op in navigate, matching the
+                // Toggle binding's `if $0` gate.
                 ShowInListNavigation.navigate(to: .list(listID), preserving: filmID)
             })
         }
         return submenu
     }
 
-    /// The "Smart Lists" sub-submenu: every smart list containing the single selected film,
-    /// in SmartListType.allCases order, with a checkmark on the one currently displayed.
+    /// The "Smart Lists" submenu: every smart list containing the selected film, in
+    /// SmartListType.allCases order, with a checkmark on the one displayed.
     ///
-    /// Sub-variants ("Purchased 4K", "Viewed Over One Year Ago", "Blacklisted", …) appear
-    /// alongside their parents rather than being folded into them, since each is a distinct
-    /// destination. Membership comes from DataCoordinator.getSmartListTypes(forFilm:), the
-    /// same source ShowInListMenuItems uses.
+    /// Sub-variants (for example "Purchased 4K") appear alongside their parents, since each is
+    /// a distinct destination. Membership comes from DataCoordinator.getSmartListTypes(forFilm:),
+    /// the same source ShowInListMenuItems uses.
     private static func makeSmartListsSubmenu(filmID: UUID,
                                               coordinator: DataCoordinator) -> NSMenu {
         let submenu = NSMenu()
@@ -437,10 +403,9 @@ enum GalleryContextMenu: Loggable {
         }
 
         for type in types {
-            // Checked against the active ViewIdentifier, not selectedSidebarItem: the
-            // thirteen sub-variants share their parent's sidebar row, so the sidebar item
-            // cannot distinguish "Purchased" from "Purchased 4K". activeView always names
-            // the exact smart list on screen.
+            // Checked against activeView, not selectedSidebarItem. The thirteen sub-variants
+            // share their parent's sidebar row, so the sidebar item cannot tell "Purchased" from
+            // "Purchased 4K". activeView names the exact smart list on screen.
             let isCurrent = ViewStateManager.shared.activeView == .smartList(type)
             submenu.addItem(actionItem(titled: type.rawValue,
                                        state: isCurrent ? .on : .off) {

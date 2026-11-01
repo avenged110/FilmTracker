@@ -1,7 +1,8 @@
 // MARK: - ReportTrackers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Contains "Purchase and Expense Tracker" and "Price Tracker" report views.
+// The Purchase and Expense Tracker and Price Tracker report views. Each lists releases from the library, with the rows
+// built by ReleaseData's shared helpers, which the PDF export also uses.
 
 import SwiftUI
 
@@ -10,8 +11,7 @@ import SwiftUI
 struct CostTrackerView: View {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @State private var releases: [ReleaseData] = []
-    /// Bumped by every load. The mount path's off-main reconcile applies its rows only if
-    /// nothing has loaded since it started, so it can never overwrite newer data.
+    /// Bumped by every load. The mount path's off-main reconcile applies its rows only if nothing has loaded since it started.
     @State private var loadGeneration = 0
     
     var body: some View {
@@ -48,13 +48,9 @@ struct CostTrackerView: View {
         )
     }
 
-    /// Mount path. When the category has been loaded before this launch, the cached
-    /// rows are assigned immediately — rendering the table with zero library work in
-    /// the mount frame — and the fresh scan is deferred two run-loop cycles so it
-    /// lands after the Picker menu-dismissal fade has been committed (see
-    /// ReportsState.selectCategory for the deferral rationale). On the first-ever
-    /// visit the scan runs synchronously, exactly as before, to avoid a visible
-    /// "No Data" placeholder flash.
+    /// Mount path. If the category loaded earlier this launch, the cached rows show at once with no library work. The fresh scan
+    /// then runs two run-loop cycles later, after the Picker's fade (see ReportsState.selectCategory). On the first visit the scan runs
+    /// synchronously, to avoid a visible "No Data" flash.
     private func seedThenReloadPurchasedReleases() {
         if ReportsState.shared.hasLoadedData(for: .costTracker) {
             releases = ReportsState.shared.cachedReleases(for: .costTracker)
@@ -68,8 +64,8 @@ struct CostTrackerView: View {
         }
     }
 
-    /// The mount path's reconciling load, with the row build and the sort off the main
-    /// actor (see ReleaseData.reconciledRows). Event-driven reloads stay synchronous.
+    /// The mount path's reconciling load. The row build and sort run off the main actor (see ReleaseData.reconciledRows).
+    /// Event-driven reloads stay synchronous.
     private func reconcilePurchasedReleases() {
         loadGeneration += 1
         let generation = loadGeneration
@@ -79,9 +75,8 @@ struct CostTrackerView: View {
                 for: .costTracker, filmsMap: filmsMap, defaultSortOrder: ReleaseData.costTrackerDefaultSort,
                 build: ReleaseData.costTrackerRows)
             guard generation == loadGeneration else { return }
-            // Rows built from a library that has since changed would be stale, and the change
-            // may not have triggered a reload (a film absent from the seeded rows is not
-            // reloaded for). Fall back to the synchronous load, which reads it as it is now.
+            // Rows from a library that has since changed would be stale, and the change may not have triggered a reload.
+            // Fall back to the synchronous load, which reads the current library.
             guard dataCoordinator.getAllFilmsMap() == filmsMap else {
                 loadPurchasedReleases()
                 return
@@ -93,22 +88,16 @@ struct CostTrackerView: View {
 
     private func loadPurchasedReleases() {
         loadGeneration += 1
-        // The row set comes from ReleaseData.costTrackerRows, which the whole-library PDF
-        // export calls as well. The predicate and the field mapping live in exactly one
-        // place, so the table and the printed sheet cannot come to disagree about which
-        // releases qualify or what a row says.
+        // The row set comes from ReleaseData.costTrackerRows, which the PDF export also uses. The predicate and field mapping live in one place,
+        // so the table and the printed sheet cannot disagree.
         applyPurchasedReleases(ReleaseData.costTrackerRows(films: dataCoordinator.getAllFilms()))
     }
 
     private func applyPurchasedReleases(_ loadedReleases: [ReleaseData]) {
         releases = loadedReleases
-        // Push the result to ReportsState directly rather than relying solely on
-        // ReportsReleaseTableView's onChange(of: releases) — that handler never
-        // fires when the scan result equals the current value (notably [] == []
-        // on a first load with no qualifying data), which would leave the
-        // category unmarked as loaded and force this full-library scan back into
-        // the mount frame on every visit. updateData is idempotent, so the
-        // duplicate call from onChange when data is non-empty is harmless.
+        // Push the result to ReportsState directly. The onChange(of: releases) handler does not fire when the result equals the current value,
+        // such as [] on a first load with no qualifying data. Without this call, the category would stay unmarked as loaded and the scan
+        // would run in the mount frame on every visit. updateData is idempotent, so a duplicate call from onChange is harmless.
         ReportsState.shared.updateData(loadedReleases, for: .costTracker)
     }
 }
@@ -151,8 +140,7 @@ struct PriceTrackerView: View {
         )
     }
 
-    /// Mount path — cache-seeded with a deferred reconciling scan.
-    /// See CostTrackerView.seedThenReloadPurchasedReleases for the full rationale.
+    /// Mount path: cache-seeded, with a deferred reconciling scan. See CostTrackerView.seedThenReloadPurchasedReleases.
     private func seedThenReloadPriceTrackerData() {
         if ReportsState.shared.hasLoadedData(for: .priceTracker) {
             releases = ReportsState.shared.cachedReleases(for: .priceTracker)
@@ -188,13 +176,13 @@ struct PriceTrackerView: View {
 
     private func loadPriceTrackerData() {
         loadGeneration += 1
-        // Shared with the PDF export — see CostTrackerView.loadPurchasedReleases.
+        // Shared with the PDF export. See CostTrackerView.loadPurchasedReleases.
         applyPriceTrackerData(ReleaseData.priceTrackerRows(films: dataCoordinator.getAllFilms()))
     }
 
     private func applyPriceTrackerData(_ loadedReleases: [ReleaseData]) {
         releases = loadedReleases
-        // See CostTrackerView.loadPurchasedReleases for why this direct push exists.
+        // See CostTrackerView.loadPurchasedReleases for why this direct push is needed.
         ReportsState.shared.updateData(loadedReleases, for: .priceTracker)
     }
 }
@@ -218,18 +206,11 @@ struct ReportsReleaseTableView: View, Loggable {
     @State private var selection: Set<UUID> = []
     @State private var sortOrder: [KeyPathComparator<ReleaseData>]
 
-    // Memoized sort result. Recomputed only when `releases` or `sortOrder`
-    // actually changes, via the onChange handlers below. Using a computed
-    // property here would re-sort the full array on every body re-evaluation
-    // (e.g. selection changes, SelectionState changes, showStatusBar changes),
-    // each of which would also trigger NSTableView.reloadData() — significant
-    // unnecessary work on large datasets.
+    // Memoized sort result, recomputed only when `releases` or `sortOrder` changes, via the onChange handlers below.
+    // A computed property would re-sort on every body pass, such as selection changes, and each sort would reload the table.
     @State private var sortedReleases: [ReleaseData] = []
 
-    // (No row windowing. Under SwiftUI's Table every row handed over had a real reload cost,
-    // so this view capped the table at 50 rows behind a "Show More" button. ReportTable is a
-    // data-source NSTableView that builds only the rows on screen, so the full sorted set
-    // costs what the first screenful does.)
+    // No row windowing. ReportTable builds only the rows on screen, so the full sorted set costs about what the first screen does.
 
     init(
         category: ReportsCategory,
@@ -273,12 +254,8 @@ struct ReportsReleaseTableView: View, Loggable {
         }
         .reportsStatusBarInset()
         .onAppear {
-            // Restore the sort order that was active the last time this category
-            // was shown. This keeps the user's column sort across tab switches,
-            // and it is load-bearing for the mount-path fast sort below: the
-            // sorted array cached in ReportsState was computed under that order,
-            // so seeding a different (default) order here would force a full
-            // re-sort inside the mount frame — exactly the cost being removed.
+            // Restore the sort order from the last visit, so the column sort survives tab switches. The mount-path cache was sorted under
+            // that order, so a default order here would force a full re-sort in the mount frame.
             if let saved = ReportsState.shared.savedSortOrder(for: category) {
                 sortOrder = saved
             }
@@ -286,56 +263,41 @@ struct ReportsReleaseTableView: View, Loggable {
             ReportsState.shared.updateSortOrder(sortOrder, for: category)
         }
         .onChange(of: releases) { _, newReleases in
-            // Recompute the memoized sort whenever the underlying data changes.
+            // Recompute the memoized sort when the data changes.
             recomputeSort(newReleases, using: sortOrder)
             // Update ReportsState with current data for export.
             ReportsState.shared.updateData(newReleases, for: category)
-            // Reconcile the table selection against the freshly loaded rows so any
-            // selection that referenced a now-absent release is dropped.
+            // Drop any selected release that is no longer in the loaded rows.
             reconcileSelection(against: newReleases)
         }
-        // Sync SelectionState changes back to local table selection.
-        // This ensures the table selection clears when SelectionState is cleared externally
-        // (e.g., switching views, clearing selection programmatically).
+        // Clears the table selection when SelectionState is cleared elsewhere, such as on a view switch.
         .onChange(of: selectionState.selectedFilmIDs) { _, newSelectedFilmIDs in
             // If SelectionState was cleared, clear the local table selection
             if newSelectedFilmIDs.isEmpty && !selection.isEmpty {
                 selection = []
             }
         }
-        // Listen for film events to refresh table data in real-time. This catches
-        // changes like releases being added/removed/modified via FilmSheet.
-        //
-        // Each case simply triggers a reload when the event could affect this table;
-        // the actual selection cleanup (clearing rows that disappear from the reloaded
-        // data) is handled centrally in `reconcileSelection(against:)`, invoked from
-        // `.onChange(of: releases)` once the new data has landed. Centralizing it there
-        // means the cleanup always evaluates the freshly loaded rows rather than a
-        // captured (and therefore stale) copy of `releases`, and it is deferred to the
-        // next run loop pass so the prune executes after the Table has re-rendered with
-        // the updated data source — preventing NSTableView from re-syncing a stale row
-        // selection back into the binding.
+        // Refresh on film events, such as releases added, removed, or edited in FilmSheet. Each case reloads when the event could affect this table.
+        // Selection cleanup is in `reconcileSelection(against:)`, called from `.onChange(of: releases)` with the fresh rows. It runs a run-loop pass
+        // later, so NSTableView does not re-sync a stale selection back into the binding.
         .onFilmEvent { event in
             switch event {
             case .updated(let filmID):
-                // A metadata update only matters if the film is currently shown
-                // (e.g. its title changed). Release-level changes arrive separately
-                // as `.releaseChanged`, so a non-displayed film cannot newly qualify here.
+                // Only matters if the film is shown, such as a title change. Release changes arrive as `.releaseChanged`.
                 guard releases.contains(where: { $0.filmID == filmID }) else { break }
                 onDataChange()
 
             case .deleted(let filmIDs):
-                // Only reload if any deleted film had releases in our table.
+                // Reload only if a deleted film had releases in this table.
                 guard releases.contains(where: { filmIDs.contains($0.filmID) }) else { break }
                 onDataChange()
 
             case .releaseChanged:
-                // Reload unconditionally — a release change can add a film to the table
-                // (marking purchased / adding price data) or remove it (clearing those).
+                // Always reload. A release change can add a film (marking it purchased or adding price data) or remove one.
                 onDataChange()
 
             case .added:
-                // New films might have qualifying release data — reload to check.
+                // A new film may have qualifying release data.
                 onDataChange()
             }
         }
@@ -343,12 +305,8 @@ struct ReportsReleaseTableView: View, Loggable {
 
     // MARK: - Selection Reconciliation
 
-    /// Drops any selected release IDs that are no longer present in `newReleases`,
-    /// then lets the resulting `selection` change flow through `handleSelectionChange`
-    /// to keep `SelectionState` in sync. The prune is deferred by one run loop pass so
-    /// it lands after the Table has reloaded with `newReleases`; clearing in the same
-    /// pass as the data-source reload can cause the backing NSTableView to re-sync the
-    /// stale row selection back into the binding.
+    /// Drops selected release IDs that are no longer in `newReleases`. The change flows through `handleSelectionChange` to keep
+    /// `SelectionState` in sync. The prune waits one run-loop pass, so the table has reloaded first and cannot re-sync a stale selection.
     private func reconcileSelection(against newReleases: [ReleaseData]) {
         guard !selection.isEmpty else { return }
         let validIDs = Set(newReleases.map(\.releaseID))
@@ -360,13 +318,8 @@ struct ReportsReleaseTableView: View, Loggable {
     
     // MARK: - Custom Sort
 
-    /// Recomputes `sortedReleases` for the given inputs, consulting the
-    /// ReportsState per-category sorted cache first. On mount, the seeded data
-    /// array is the exact instance held by the cache, so the equality check
-    /// short-circuits on buffer identity and this is O(1) — the full sort
-    /// (localized string comparisons on every element) only runs when the data
-    /// or the sort order has genuinely changed, which the deferral in the
-    /// seed-then-reload mount path keeps out of the menu-fade window.
+    /// Recomputes `sortedReleases` for the inputs, checking the ReportsState cache first. On mount, the data is the cached instance, so the equality
+    /// check is O(1). The full sort runs only when the data or order changes.
     private func recomputeSort(
         _ items: [ReleaseData],
         using order: [KeyPathComparator<ReleaseData>]
@@ -398,18 +351,14 @@ struct ReportsReleaseTableView: View, Loggable {
             return
         }
         
-        // Handle single selection. `newSelection.count` is exactly 1 at this point — the
-        // empty and multi cases both returned above — so `first` is non-nil by
-        // construction and the defensive `guard let` that used to stand here could never
-        // take its else branch. Matches HallOfFameView.handleSelectionChange.
+        // Single selection. The empty and multi cases have returned, so `first` is non-nil. Matches HallOfFameView.handleSelectionChange.
         guard let selectedReleaseID = newSelection.first else { return }
 
         // Look up the release data to get the film ID
         if let releaseData = releases.first(where: { $0.releaseID == selectedReleaseID }) {
             selectionState.select(releaseData.filmID)
         } else {
-            // Release not found in array - this is an error condition
-            // Log it and clear selection to prevent stale state
+            // Not found in the array, which is an error. Log it and clear the selection to prevent stale state.
             log("ERROR: Selected release \(selectedReleaseID) not found in releases array")
             selectionState.clearImmediate()
         }
@@ -422,8 +371,7 @@ struct ReleaseData: Identifiable, Equatable {
     let releaseID: UUID
     let filmID: UUID
     let filmTitle: String
-    /// The film's sort name (from `FilmSnapshot.sortName`). Empty when the film has no
-    /// explicit sort override, in which case `filmTitle` is used as the sort key.
+    /// The film's sort name (`FilmSnapshot.sortName`). Empty when there is no override, so `filmTitle` is the sort key.
     let filmSortName: String
     let cost: Double
     let amountSpent: Double
@@ -463,14 +411,12 @@ struct ReleaseData: Identifiable, Equatable {
         self.studio = studio
         self.condition = condition
         self.notes = notes
-        // Precomputed once per row: stripArticles is a unicode-scalar walk with
-        // allocations, and a sort compares each row O(log n) times.
+        // Precomputed once per row, since stripArticles allocates and a sort compares each row many times.
         self.titleSort = GalleryTitleKey(name: filmTitle, sortName: filmSortName,
                                          year: Int(filmYear) ?? 0, filmID: filmID)
     }
 
-    /// The row's place in the gallery's Title sort — what the Title column sorts by, and
-    /// the tiebreak under every other column.
+    /// The row's place in the gallery's Title sort. It orders the Title column and breaks ties in the other columns.
     let titleSort: GalleryTitleKey
 
     // Cost Tracker formatters
@@ -498,12 +444,8 @@ struct ReleaseData: Identifiable, Equatable {
         formatDate(lowestPriceDate)
     }
     
-    // "May 1, 2024" for a stored date, or the stored text itself when it is not one.
-    //
-    // Read with the app's one date parser. Purchase and lowest-price dates are stored as
-    // `yyyy.MM.dd` (`StorageDateFormatters.dot`), which the private formatter list this
-    // replaced — dash and slash spellings only — never matched, so both tracker date
-    // columns showed the raw stored string.
+    // "May 1, 2024" for a stored date, or the stored text if it does not parse. Dates are stored as `yyyy.MM.dd`, which the app's
+    // shared parser reads.
     private func formatDate(_ dateString: String) -> String {
         guard !dateString.isEmpty else { return "—" }
         guard let date = parseDate(from: dateString) else { return dateString }
@@ -513,21 +455,9 @@ struct ReleaseData: Identifiable, Equatable {
 
 // MARK: - Release Data Row Building
 
-/// The two tracker tabs' row sets and their orderings, in one place.
-///
-/// These used to exist twice: once in `CostTrackerView`/`PriceTrackerView`, which build
-/// what the table shows, and once in `LibraryPDFExporter`, which builds what the printed
-/// sheet shows. The two restated the same qualifying predicate, the same field mapping,
-/// and — imperfectly — the same order, and the PDF copy had already drifted: it sorted
-/// with a bare `>` on the date string and no tiebreak, so rows sharing a purchase date
-/// came out in whatever order `getAllFilms()` happened to hand them over (it is
-/// `Array(films.values)` over a Dictionary, which is unordered), giving a different
-/// printed order on each export and one that never matched the screen.
-///
-/// One definition each removes the drift by construction.
+/// The two tracker tabs' row sets and orderings. The table and the PDF export share these, so they cannot drift apart.
 extension ReleaseData {
-    /// The Purchase and Expense Tracker's rows: purchased top-level releases carrying
-    /// cost or spend data. Unsorted — the table applies the user's column order.
+    /// The Purchase and Expense Tracker's rows: purchased top-level releases with cost or spend data. Unsorted, since the table applies the column order.
     static func costTrackerRows(films: [FilmSnapshot]) -> [ReleaseData] {
         var rows: [ReleaseData] = []
         for film in films {
@@ -555,8 +485,7 @@ extension ReleaseData {
         return rows
     }
 
-    /// The Price Tracker's rows: unpurchased top-level releases carrying a lowest-price
-    /// observation. Unsorted, as `costTrackerRows`.
+    /// The Price Tracker's rows: unpurchased top-level releases with a lowest-price observation. Unsorted, like `costTrackerRows`.
     static func priceTrackerRows(films: [FilmSnapshot]) -> [ReleaseData] {
         var rows: [ReleaseData] = []
         for film in films {
@@ -584,26 +513,22 @@ extension ReleaseData {
         return rows
     }
 
-    /// A tracker tab's rows, built and sorted off the main actor for the mount path's
-    /// reconciling load.
+    /// A tracker tab's rows, built and sorted off the main actor for the mount path's reconciling load.
     struct Reconciled {
         let category: ReportsCategory
         let rows: [ReleaseData]
         let sorted: [ReleaseData]
         let sortOrder: [KeyPathComparator<ReleaseData>]
 
-        /// Records the sort in ReportsState's sorted cache, so the table's recomputeSort
-        /// finds it there instead of sorting on the main actor. Called only when the rows
-        /// are applied, so a dropped result never displaces a newer entry.
+        /// Records the sort in ReportsState's cache, so the table finds it there. Called only when the rows apply, so a dropped result cannot replace a newer entry.
         @MainActor
         func primeSortCache() {
             ReportsState.shared.updateSortedReleases(sorted, for: category, data: rows, sortOrder: sortOrder)
         }
     }
 
-    /// The sort is done under the order the table will use — the saved one, else the
-    /// default, as ReportsReleaseTableView.onAppear picks. If the order changes before the
-    /// rows land, the cache simply misses and the table sorts as it always has.
+    /// The sort uses the order the table will use: the saved order, else the default, as ReportsReleaseTableView.onAppear picks. If the order
+    /// changes before the rows land, the cache misses and the table sorts as usual.
     @MainActor
     static func reconciledRows(
         for category: ReportsCategory,
@@ -613,7 +538,7 @@ extension ReleaseData {
     ) async -> Reconciled {
         let order = ReportsState.shared.savedSortOrder(for: category) ?? defaultSortOrder
         let (rows, sorted) = await Task.detached(priority: .userInitiated) {
-            // Array(values) is exactly what getAllFilms() returns for this dictionary.
+            // Array(values) matches what getAllFilms() returns for this dictionary.
             let rows = build(Array(filmsMap.values))
             return (rows, ReleaseData.sorted(rows, using: order))
         }.value
@@ -627,13 +552,11 @@ extension ReleaseData {
     /// The sortable columns' keys, as `ReportTableColumn.sortKey` names them.
     private static let sortKeys = ["filmTitle", "purchaseDate", "lowestPriceDate", "studio", "condition", "notes"]
 
-    /// The comparator a header key sorts by. Title sorts by `titleSort`, the gallery's
-    /// order; the rest by their stored strings, under English rules (a String key path's
-    /// default comparator, `.localizedStandard`, follows the system language).
+    /// The comparator for a header key. Title sorts by `titleSort`, the gallery's order. The rest sort by their strings under English
+    /// rules, since a String key path's default comparator follows the system language.
     private static func comparator(forKey key: String, order: SortOrder) -> KeyPathComparator<ReleaseData>? {
         switch key {
-        // The gallery's Title order (sort name, articles stripped, numbers last), not
-        // the raw title.
+        // The gallery's Title order (sort name, articles stripped, numbers last), not the raw title.
         case "filmTitle":       return KeyPathComparator(\.titleSort, order: order)
         case "purchaseDate":    return KeyPathComparator(\.purchaseDate, comparator: EnglishText.standardComparator, order: order)
         case "lowestPriceDate": return KeyPathComparator(\.lowestPriceDate, comparator: EnglishText.standardComparator, order: order)
@@ -661,23 +584,13 @@ extension ReleaseData {
     static let priceTrackerDefaultSort: [KeyPathComparator<ReleaseData>] =
         [comparator(forKey: "lowestPriceDate", order: .reverse)!]
 
-    /// Sorts `items` by the given column order, applying a title tiebreaker whenever every
-    /// active comparator treats two items as equal. The tiebreaker mirrors the gallery
-    /// view's title sort: article-stripped, numbers-last, `englishStandardCompare`.
-    /// Swift's `sorted(by:)` is a stable sort, so items that also tie on title retain
-    /// their original relative order.
-    ///
-    /// The tiebreak is what makes the result a TOTAL order, and so what makes it
-    /// reproducible: without it the order among equal keys is inherited from the input,
-    /// which for anything derived from `getAllFilms()` is a Dictionary's unordered values.
+    /// Sorts `items` by the column order. If every comparator ties, a title tiebreaker applies, using the gallery's title order.
+    /// The tiebreak makes the result a total order, so it is reproducible. Without it, equal keys would keep the input order, which comes from an unordered Dictionary.
     static func sorted(
         _ items: [ReleaseData],
         using order: [KeyPathComparator<ReleaseData>]
     ) -> [ReleaseData] {
-        // No active sort descriptor: preserve the input order (stable no-op). Unreachable
-        // in practice — both tracker tabs open with a non-empty default and
-        // ReportsState.savedSortOrder reports an empty stored order as nil — so this is
-        // left exactly as it was rather than given a new fallback ordering of its own.
+        // No active sort: keep the input order. Unreachable in practice, since both tabs open with a non-empty default.
         guard !order.isEmpty else { return items }
 
         return items.sorted { lhs, rhs in
@@ -689,10 +602,8 @@ extension ReleaseData {
                 case .orderedSame:       continue
                 }
             }
-            // All comparators tied → the gallery's title order (which ends on the film id),
-            // and then the release's own id: two purchased copies of ONE film tie on
-            // everything else, and `items` arrives in `getAllFilms()`'s Dictionary order,
-            // reseeded every launch, so without it a double dip's rows could swap.
+            // All comparators tied. Use the gallery's title order (which ends on the film id), then the release id. Two copies of one film tie
+            // on everything else, and the input order changes each launch, so without the release id their rows could swap.
             if lhs.titleSort != rhs.titleSort { return lhs.titleSort < rhs.titleSort }
             return lhs.releaseID.uuidString < rhs.releaseID.uuidString
         }

@@ -2,9 +2,9 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // Centralized EventKit management with proper authorization and caching.
-// Enhanced with robust permission change detection and UI notification.
+// Notifies UI components when authorization changes.
 
-import Foundation
+import AppKit
 import os
 import EventKit
 
@@ -52,6 +52,8 @@ final class EventKitManager: Loggable {
         startObservingAuthorizationChanges(knownStatus: ready?.status)
         // Start observing calendar-set changes from the system
         startObservingStoreChanges()
+        // Re-read the status whenever the app comes back to the front
+        startObservingActivation()
     }
     
     // MARK: - Properties
@@ -76,6 +78,9 @@ final class EventKitManager: Loggable {
 
     /// Token for the EKEventStoreChanged observation (see startObservingStoreChanges).
     private var storeChangeObserver: (any NSObjectProtocol)?
+
+    /// Token for the didBecomeActive observation (see startObservingActivation).
+    private var activationObserver: (any NSObjectProtocol)?
     
     // MARK: - Authorization Observation
     
@@ -148,11 +153,8 @@ final class EventKitManager: Loggable {
 
     /// Observes `EKEventStoreChanged` and drops the calendar cache when it fires.
     ///
-    /// `getWritableCalendars` caches for five minutes, and nothing previously invalidated
-    /// that on an external edit — so a calendar renamed, added, or deleted in Calendar.app
-    /// stayed in the picker for up to five minutes, and selecting a deleted one made
-    /// `createEvent` throw and silently return false. EventKit posts this notification for
-    /// exactly that case; one line of invalidation closes the window.
+    /// Calendars are cached for five minutes, so an external edit (a calendar renamed, added, or
+    /// deleted in Calendar.app) must invalidate that cache. EventKit posts this notification for it.
     private func startObservingStoreChanges() {
         storeChangeObserver = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
@@ -163,6 +165,32 @@ final class EventKitManager: Loggable {
                 guard let self else { return }
                 self.log("EKEventStoreChanged received — invalidating calendar cache")
                 self.invalidateCalendarCache()
+            }
+        }
+    }
+
+    /// Re-reads the authorization status each time Film Tracker becomes active.
+    ///
+    /// The polling above only runs while the status is `.notDetermined`, and a settled
+    /// status was otherwise cached for the rest of the session. But a settled status can
+    /// still change: the user can turn calendar access off (or back on) in System Settings
+    /// › Privacy & Security › Calendars. With the stale `.fullAccess` cached, the calendar
+    /// picker kept offering calendars and every "Add to Calendar" failed quietly; with a
+    /// stale `.denied`, access granted there went unnoticed until relaunch. Changing that
+    /// setting means visiting System Settings, so coming back to the front is when to look.
+    private func startObservingActivation() {
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let cached = self.cachedAuthStatus else { return }
+                let live = EKEventStore.authorizationStatus(for: .event)
+                guard live != cached else { return }
+                self.log("Authorization status changed while inactive: \(cached.rawValue) → \(live.rawValue)")
+                if !(live == .fullAccess || live == .writeOnly) { self.invalidateCalendarCache() }
+                self.handleAuthorizationStatusChange(from: cached, to: live)
             }
         }
     }
@@ -353,11 +381,8 @@ final class EventKitManager: Loggable {
     }
     
     /// Invalidates the calendar cache, forcing a reload on next access.
-    /// Private: the two former internal call sites both invalidated and then immediately
-    /// called getWritableCalendars(forceReload: true), which bypasses and overwrites the
-    /// cache anyway, so those invalidations were no-ops and have been removed. The only
-    /// caller left is the EKEventStoreChanged observer below, which genuinely needs it.
-    /// (A `calendar(withIdentifier:)` lookup also lived here with no callers anywhere in
+    /// Private: its only caller is the EKEventStoreChanged observer. Other callers that need fresh
+    /// data call getWritableCalendars(forceReload: true), which replaces the cache outright.
     /// the project; it has been removed.)
     private func invalidateCalendarCache() {
         log("Invalidating calendar cache")

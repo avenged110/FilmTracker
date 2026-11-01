@@ -12,7 +12,7 @@
 //   • CustomDateStepper.steppedYear(from:by:) and its activation rule
 //     ← 91.00 InputUtilities.swift
 //
-// The three sources are transcribed rather than imported, exactly as the
+// The three sources are transcribed rather than imported, as the
 // ReleaseCardStateEquivalence harness carries its own ReleaseCardModel: the shipped code
 // lives inside SwiftUI views and an @Observable app target that cannot be built with
 // swiftc alone. Any edit to the originals must be mirrored here — the tests below are

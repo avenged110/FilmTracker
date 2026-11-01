@@ -325,7 +325,7 @@ extension DebugHarness {
         var mismatches: [String] = []
         var stepsWithOrders = 0, rebuilds = 0, drops = 0
         // Every step is checked against a full reference sort of every order, so the walk's
-        // cost is linear in its length; `all` takes a shorter walk, `full` the long one.
+        // cost is linear in its length. The `full` harness suite (`isThorough`) takes the long walk.
         let steps = isThorough ? 900 : 250
         for step in 0..<steps {
             let op = Int.random(in: 0...99, using: &generator)
@@ -615,8 +615,7 @@ extension DebugHarness {
         await coordinator.deleteFilms(withIDs: doomed)
         compareAfter("deleteFilms (2)")
         // A changed default rotation threshold rewrites ~every entry, but only `rotationDate`
-        // moves: the orders must survive it (the threshold change is what made this work
-        // necessary) and still equal the full sort afterward.
+        // moves: the orders must survive it and still equal the full sort afterward.
         let thresholdBefore = Preferences.defaultRotationThreshold
         let nextThreshold = Preferences.rotationThresholdOptions.first { $0 != thresholdBefore } ?? thresholdBefore
         Preferences.defaultRotationThreshold = nextThreshold

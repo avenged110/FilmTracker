@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The reorderable frames/time-code table used by the FilmSheet Notes tab.
 //
-// Split out of 30_20_FSControlHelpers.swift alongside the parallel split of
-// ReorderableStringList into 30_30_FSStringList.swift. The two list components
+// Split out of 30.20 FSControlHelpers.swift alongside the parallel split of
+// ReorderableStringList into 30.30 FSStringList.swift. The two list components
 // remain separate types: a frames entry is a four-field comma-packed record with
 // its own popover-driven editor, whereas a string-list entry is a bare value
 // edited in place, so unifying them would mean one component carrying two
@@ -14,23 +14,20 @@
 // `ListCircleButtonStyle` (the circular control family), `ListImportPopover`
 // (the bulk-entry sheet and its parsing rule), and `ListRowMetrics` (shared row
 // and control geometry) — so both tables' chrome is tuned in one place. Container
-// chrome comes from `FieldEdgeTreatment` in 30_10_FSTextHelpers.swift likewise.
+// chrome comes from `FieldEdgeTreatment` in 30.10 FSTextHelpers.swift likewise.
 //
 // MARK: Why this is one table and not two
 //
-// This component used to be instantiated twice on the Notes tab — once over
-// `handbrakeFrames`, once over `correspondingTimecodes` — as parallel tables by
-// convention only: entry n of one described the same moment as entry n of the
-// other, with nothing enforcing it. A delete, reorder, or flag toggle on one
-// table and not the other silently desynchronized the pair.
+// The two arrays were kept in step by convention only: entry n of one described the same
+// moment as entry n of the other, with nothing enforcing it. A delete, reorder, or flag
+// toggle on one table and not the other silently desynchronized the pair.
 //
-// The storage format is unchanged — two `[String]` arrays of four-field records —
-// which is what keeps the right sidebar's read-only Notes tab (24_30_RTabNotes.swift)
-// working untouched, with the two tables still separate there where horizontal
-// space doesn't allow a combined view. What changed is that the FilmSheet presents
-// them as one table of paired rows: a row carries a frame, a time code, and ONE
-// set of flags, and every write path writes both arrays together. Divergence is no
-// longer something the user has to avoid — it's something this component can't produce.
+// The storage format is unchanged — two `[String]` arrays of four-field records — which
+// keeps the right sidebar's read-only Notes tab (24.30 RTabNotes.swift) working untouched,
+// with its two tables still separate where horizontal space doesn't allow a combined view.
+// The FilmSheet presents them as one table of paired rows: a row carries a frame, a time
+// code, and ONE set of flags, and every write path writes both arrays together. Divergence
+// is something this component cannot produce.
 //
 // Legacy records whose two arrays are of unequal length display as-is (the
 // shorter side renders blank) and normalize on the first write of any kind, by
@@ -59,12 +56,10 @@ enum MarkStyle: String, Hashable {
     case number   = "number"
     case none     = "no"
 
-    // No `displayName`: the only picker offering these cases labels them with its
-    // own literals, so the property had no callers. `CaseIterable` is gone for
-    // the same reason — `allCases` was never read, and the picker deliberately
-    // offers only the glyph-bearing cases (`.none` is expressed by the row's
-    // toggle rather than by its own segment), so an iterable list would
-    // misdescribe the control.
+    // No `displayName` and no `CaseIterable`. The picker supplies its own labels and
+    // offers only the glyph-bearing cases: `.none` is expressed by the row's toggle,
+    // not by a segment, so an iterable list would misdescribe the control.
+
 
     var symbolName: String {
         switch self {
@@ -75,23 +70,17 @@ enum MarkStyle: String, Hashable {
         }
     }
 
-    // `fromString` is gone with its single caller. It was a hand-written switch over the
-    // three raw values — exactly what `MarkStyle(rawValue:) ?? .none` already does — and
-    // FramesEntryParser.parse now uses the failable initializer directly so that an
-    // unrecognized token is distinguishable from a legitimate "no" rather than being
-    // folded into it. A defaulting helper cannot express that distinction, which is why
-    // it could not simply be kept alongside.
+    // Parsing uses the failable `init(rawValue:)` rather than a defaulting helper, so an
+    // unrecognized token stays distinguishable from a stored "no" (see FramesEntryParser.parse).
 }
 
 // MARK: - Frames Entry Parser
 
 /// Reads the four-field, comma-packed string a frames entry is stored as.
 ///
-/// Shared rather than duplicated. The FilmSheet's editable rows and the right
-/// sidebar's read-only Notes tab both display the same records, and both used to
-/// carry their own byte-identical copy of this function — two parsers for one
-/// storage format, either of which could be corrected without the other. The
-/// format is defined once here, and `PairedFramesRecord` is what writes it.
+/// Shared by the FilmSheet's editable rows and the right sidebar's read-only Notes
+/// tab, which display the same records. The format is defined once here, and
+/// `PairedFramesRecord` is what writes it.
 ///
 /// A string that is not four fields is treated as a bare text entry with no
 /// metadata, which is what pre-metadata records look like: the whole string is
@@ -111,22 +100,16 @@ enum FramesEntryParser {
 
     static func parse(_ entry: String) -> Entry {
         let components = entry.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
-        // Four fields is necessary but NOT sufficient to call this a record.
+        // Four fields is necessary but not sufficient. A bare-text note with exactly three
+        // commas, such as "reel 2, 3, 4, and 5", must not parse as a record: it would be
+        // truncated to its first field, and the next write would keep only that text.
+        // PairedFramesRecord.cleaned strips commas before writing, so new data cannot
+        // produce that state.
         //
-        // The count alone used to decide it, which misread any bare-text entry that
-        // happened to contain exactly three commas — a legacy or imported note like
-        // "reel 2, 3, 4, and 5" — as a record, silently truncating it to its first field
-        // and reading the rest as metadata. New data cannot reach that state
-        // (PairedFramesRecord.cleaned strips commas out of the text before writing), but
-        // records predating that rule can, and the misparse is destructive on the next
-        // write because only the truncated text survives.
-        //
-        // Every record this app has EVER written puts an exact enum raw value in each of
-        // the three metadata fields (PairedFramesRecord.make interpolates `.rawValue`),
-        // so requiring them to parse is a free, strictly sharper test. Deriving the
-        // accepted tokens from the enums rather than from a literal list is what keeps it
-        // free: adding a MarkStyle or AudioFadeStyle case widens this automatically and
-        // cannot leave the parser rejecting records a later build writes.
+        // Every record written here puts an exact enum raw value in each metadata field
+        // (PairedFramesRecord.make interpolates `.rawValue`), so requiring those fields to
+        // parse is a strict test at no cost. The accepted tokens come from the enums rather
+        // than a literal list, so adding a case widens the test automatically.
         guard components.count == 4,
               let mark    = MarkStyle(rawValue: components[1]),
               let fadeIn  = AudioFadeStyle(rawValue: components[2]),
@@ -138,12 +121,10 @@ enum FramesEntryParser {
     /// Whether any entry in `entries` carries at least one of the three glyph-bearing
     /// metadata fields — the mark, the fade-in style, or the fade-out style.
     ///
-    /// This is the gate on the Legend section in both the FilmSheet's Notes tab and the
-    /// right sidebar's Notes tab. Those two used to show the legend whenever either
-    /// frames table held *any* entry, which meant a table of plain, unannotated frames
-    /// still explained eight glyphs that were nowhere on screen. The predicate lives
-    /// here, beside the parser that defines what a glyph-bearing record looks like, so
-    /// that adding a fourth metadata field later cannot leave one of the two tabs
+    /// The gate on the Legend section in both the FilmSheet's Notes tab and the right
+    /// sidebar's Notes tab. A table of plain, unannotated frames must not show a legend
+    /// for glyphs that are not on screen. The predicate lives beside the parser that
+    /// defines a glyph-bearing record, so a future metadata field cannot leave either tab
     /// gating on a stale definition.
     ///
     /// Short-circuits on the first annotated entry, and parses nothing beyond it.
@@ -174,12 +155,10 @@ struct PairedFramesDraft {
 /// Builds the four-field records the two arrays store, and defines how one row's
 /// two drafted text fields become the pair of records that row writes.
 ///
-/// One place rather than three. The add popover, the per-row edit popover, and
-/// the bulk import all produce the same shape, and each used to carry its own
-/// string interpolation and its own trim-and-strip sequence. Those three agreed
-/// by inspection; here they agree by construction — which matters considerably
-/// more now that each of them writes TWO records that must carry identical
-/// metadata.
+/// One place for the shape. The add popover, the per-row edit popover, and the bulk
+/// import all produce it. Defining it here makes them agree by construction rather than
+/// by inspection, which matters because each of them writes TWO records that must carry
+/// identical metadata.
 enum PairedFramesRecord {
 
     /// Stands in for a side of a row the user left blank.
@@ -250,10 +229,9 @@ enum PairedFramesRecord {
 // Both `ReorderableFramesList.addPopoverContent` and
 // `PairedFramesListRow.editPopoverContent` render an identical triple of rows: a
 // mark-style row and two fade-style rows (fade-in, fade-out), above an identical
-// pair of labeled text fields. Previously these were inlined at both call sites
-// as two copies of the same ~55 lines. The helper views below consolidate that
-// layout so the two popovers share a single source of truth for every row's
-// structure, spacing, disabled styling, and list of selectable fade styles.
+// pair of labeled text fields. The helper views below give both popovers one
+// definition of each row's structure, spacing, disabled styling, and list of
+// selectable fade styles.
 //
 // The helpers are fileprivate because they are only used within this file and
 // nowhere else in the codebase.
@@ -270,13 +248,13 @@ fileprivate struct FramesMarkRow: View {
     var body: some View {
         HStack(spacing: 6) {
             // An AppKit checkbox, so it is a stop in the popover's Tab walk — see
-            // SheetCheckbox (30_20).
+            // SheetCheckbox (30.20).
             SheetCheckbox(isOn: $enabled)
             Text("Mark with:")
                 .font(.system(size: 12))
                 .foregroundStyle(enabled ? .primary : disabledControlTextColor)
             // An AppKit segmented control, as the sheet's other segmented pickers are —
-            // see SheetSegmentedControl (30_20).
+            // see SheetSegmentedControl (30.20).
             SheetSegmentedControl(selection: $style, segments: Self.styleSegments)
                 .frame(width: 165)
                 .disabled(!enabled)
@@ -302,13 +280,13 @@ fileprivate struct FramesFadeRow: View {
     var body: some View {
         HStack(spacing: 6) {
             // An AppKit checkbox, so it is a stop in the popover's Tab walk — see
-            // SheetCheckbox (30_20).
+            // SheetCheckbox (30.20).
             SheetCheckbox(isOn: $enabled)
             Text(leadingLabel)
                 .font(.system(size: 12))
                 .foregroundStyle(enabled ? .primary : disabledControlTextColor)
             // An AppKit pop-up, as every menu picker in the sheet is — see
-            // SheetPopUpButton (30_20).
+            // SheetPopUpButton (30.20).
             SheetMenuPicker(selection: $style, items: Self.styleItems, width: 85)
                 .disabled(!enabled)
             Text("in FCP.")
@@ -342,7 +320,7 @@ fileprivate enum FramesRangeText {
     /// rather than scrolled through.
     ///
     /// Applies only when `Preferences.strictFramesTableChecking` is on; the
-    /// permissive field is uncapped, exactly as it always was.
+    /// permissive field is uncapped.
     ///
     /// Held here rather than beside the table's geometry constants deliberately.
     /// Those live on `ReorderableFramesList`, which is a `View` and therefore
@@ -359,7 +337,7 @@ fileprivate enum FramesRangeText {
     /// a multi-character form is never matched by one of its own characters.
     ///
     /// Records predate this mode, and were typed by hand — a hyphen or an em dash
-    /// is as likely as the en dash this mode now writes. All three are read back
+    /// is as likely as the en dash this mode writes. All three are read back
     /// as the same range so that opening an old record for editing shows two
     /// halves rather than one half containing a dash.
     private static let recognizedSeparators = [" – ", " — ", " - ", "–", "—", "-"]
@@ -435,15 +413,10 @@ fileprivate enum FramesRangeText {
 /// fitting, and falls back to the plain flexible run that the tables drew
 /// before it existed for everything else.
 ///
-/// **Why the widths are measured rather than derived.** An earlier version
-/// estimated glyph advances as fractions of the point size. The estimates ran
-/// low, the sub-columns came out narrower than a full "00:00:00", and both ends
-/// of every range truncated — the one outcome this view must not produce, since
-/// a value that fit as a single run cannot stop fitting merely because it has
-/// been distributed across sub-columns. The widths now come from AppKit's own
-/// text measurement of the exact strings involved, at the exact font the labels
-/// draw in, so the aligned group is the width of the widest range the column
-/// can hold as a single run: two full time codes plus the separator between them.
+/// **Why the widths are measured.** Glyph advances estimated as fractions of the point
+/// size run low, which truncates both ends of a range. Measuring the exact strings with
+/// AppKit, at the font the labels draw in, keeps the aligned group as wide as the widest
+/// range the column can hold as a single run: two full time codes and the separator.
 ///
 /// The caller supplies the surrounding frame and alignment; this view sizes to
 /// its content in both modes.
@@ -459,11 +432,9 @@ struct TimeCodeRangeText: View {
     /// The shape a half can hold, with `#` standing for a numeral. The half
     /// sub-column is measured against this shape filled with the widest numeral.
     ///
-    /// The widest numeral rather than "0": the system face's numerals are
-    /// proportional (at 12pt "1" is 5.6pt, "0" 7.6pt, "4" 7.7pt), so "00:00:00"
-    /// is not the widest code. Measured against it, a half like "04:44:48"
-    /// overran its sub-column and that row fell back to the plain run, leaving
-    /// its dash out of line with the rest of the column.
+    /// The widest numeral rather than "0". The system face's numerals are proportional, so
+    /// "00:00:00" is not the widest code, and a half such as "04:44:48" would overrun a
+    /// sub-column sized from it.
     private static let referenceShape = "##:##:##"
 
     /// The two sub-column widths for a given point size.
@@ -706,7 +677,7 @@ fileprivate struct StrictFramesRangeRow: View {
     }
 
     /// Both halves use a fixed `PairedEntryFields.fieldWidth` rather than
-    /// `maxWidth: .infinity`, since the row no longer divides the popover's free
+    /// `maxWidth: .infinity`, since the row does not divide the popover's free
     /// width between them. A strict field holds at most six digits
     /// (`FramesRangeText.frameDigitLimit`) or an eight-character time code
     /// ("00:00:00"), and `fieldWidth` fits exactly that, with the field's own
@@ -743,7 +714,7 @@ fileprivate struct StrictFramesRangeRow: View {
                        alignment: .natural,
                        placeholder: placeholder,
                        advancesOnFill: advancesOnFill)
-            // Fixed width and fixed height both now — see the note above the
+            // Fixed width and fixed height — see the note above the
             // row's `body`. The `width:height:` overload is what takes both as
             // plain fixed values; the `minHeight:maxHeight:` pair only exists
             // on the flexible overload, which does not accept `width:` at all
@@ -788,30 +759,15 @@ fileprivate struct PairedEntryFields: View {
     fileprivate static let labelWidth: CGFloat = 80
     fileprivate static let rowSpacing: CGFloat = 7
 
-    /// The width of one strict-mode half-field (`StrictFramesRangeRow`'s
-    /// `leading`/`trailing` fields).
+    /// The width of one strict-mode half-field (`StrictFramesRangeRow`'s `leading` and
+    /// `trailing` fields). It is sized to the widest value a field holds, the time code
+    /// "00:00:00" in `DigitTextField`'s 13pt monospaced digit font, plus the bezel's own
+    /// insets. The field's `isScrollable` cell is the safety margin for a value that
+    /// briefly runs longer mid-edit.
     ///
-    /// Sized to what the fields actually hold — up to six digits
-    /// (`FramesRangeText.frameDigitLimit`) or an eight-character time code
-    /// ("00:00:00") — rather than an equal split of the popover's width.
-    /// `DigitTextField` sets its cell's `isScrollable`, so a value that briefly
-    /// runs longer mid-edit scrolls in place instead of clipping.
-    ///
-    /// 78, not the original 62/72 estimates. The binding constraint is the time
-    /// code: `DigitTextField` draws at `monospacedDigitSystemFont(ofSize: 13)`,
-    /// where "00:00:00" measures ~51pt of glyphs plus a rounded-bezel cell's own
-    /// insets/border. 62 left the last digits scrolling against the edge while
-    /// typing — the fallback `isScrollable` is meant for, not the normal case.
-    /// 82 was reached by measuring the rendered field rather than deriving it
-    /// (the bezel spends more around its text than arithmetic suggested) and
-    /// seats the full code outright; trimmed by 4pt per field afterward to tighten
-    /// the popover now that the field group is right-aligned rather than
-    /// hugging the label. The trailing `isScrollable` cell remains the safety
-    /// margin for a value that briefly runs longer mid-edit.
-    ///
-    /// Both field kinds take the same width deliberately: the frame fields hold
-    /// at most six digits (~47pt) and would fit in less, but different widths
-    /// per half would read as misalignment rather than a tighter fit.
+    /// Both field kinds take this width. The frame fields hold at most six digits and
+    /// would fit in less, but different widths per half would read as misalignment rather
+    /// than a tighter fit.
     fileprivate static let fieldWidth: CGFloat = 78
 
     /// The rendered width of the "–" separator `StrictFramesRangeRow` draws
@@ -890,7 +846,7 @@ struct ReorderableFramesList: View {
     @Binding var timecodes: [String]
 
     /// Which build wave this table belongs to. `0` — the default — builds it
-    /// synchronously, exactly as before.
+    /// synchronously.
     ///
     /// The gate lives INSIDE this component rather than at the call site, and
     /// that placement is the point: the stand-in has to be the table's exact
@@ -902,7 +858,7 @@ struct ReorderableFramesList: View {
     /// whole tab again. Read here, they are already this view's own inputs and
     /// cost nothing new.
     ///
-    /// See `DeferredFieldContent` (30_20_FSControlHelpers.swift) for the rest.
+    /// See `DeferredFieldContent` (30.20 FSControlHelpers.swift) for the rest.
     var renderWave: Int = 0
 
     /// Tells any row holding an open popover to close it.
@@ -958,14 +914,13 @@ struct ReorderableFramesList: View {
     @State private var addEntryFadeOut = AudioFadeStyle.scurve
 
     /// Hard cap on row count, matching the two-digit index column the rows
-    /// render. Named rather than repeated as a literal at the sites that enforce
-    /// it, which previously had to be kept in step by hand.
+    /// render. Named so that every site enforcing the cap shares one value.
     private static let maxItems = 99
 
     // MARK: Row Geometry
     //
     // Row height, per-row inset, list padding, and every control dimension come
-    // from `ListRowMetrics` (30_20_FSControlHelpers.swift), shared with
+    // from `ListRowMetrics` (30.20 FSControlHelpers.swift), shared with
     // `ReorderableStringList` so the sheet's tables cannot drift apart. Only the
     // measurements specific to this table live here.
 
@@ -1054,40 +1009,23 @@ struct ReorderableFramesList: View {
 
     /// Gap between the index/frames group and the time-code column.
     ///
-    /// Tightened from the row's original uniform 8pt spacing to 6pt, to help
-    /// fund the frames column's widened value, while staying visibly wider
-    /// than the tighter, intra-group gaps (`indexTrailingGap`,
-    /// `metadataGlyphSpacing`, `pairGroupSpacing`) so the boundary between
-    /// distinct columns still reads as more significant than the boundary
-    /// between elements grouped within one.
+    /// Kept visibly wider than the tighter, intra-group gaps (`indexTrailingGap`,
+    /// `metadataGlyphSpacing`, `pairGroupSpacing`), so the boundary between distinct
+    /// columns reads as more significant than the boundary between elements grouped
+    /// within one.
     fileprivate static let indexGroupTrailingGap: CGFloat = 6
 
-    /// Gap between the time-code column and the metadata glyph block.
-    ///
-    /// Tightened from the row's original uniform 8pt spacing to 6pt, for the
-    /// same reason as `indexGroupTrailingGap` and to the same value, so the
-    /// two column boundaries either side of the flexible time-code column
-    /// remain visually consistent with each other.
+    /// Gap between the time-code column and the metadata glyph block. Set to match
+    /// `indexGroupTrailingGap`, so the two boundaries either side of the flexible
+    /// time-code column stay visually consistent.
     fileprivate static let timecodeTrailingGap: CGFloat = 6
 
     /// Width of the frames column.
     ///
-    /// Fixed rather than sized to content, so every row's frame number begins at
-    /// the same x and — because this column no longer varies — so does every
-    /// row's time code. The metadata glyphs already worked this way; the two text
-    /// columns now match them, which is what lets the table be read down a
-    /// column instead of across each row.
-    ///
-    /// Widened from 96pt through several earlier compressions of the metadata
-    /// glyph block (see `metadataGlyphSpacing`'s and `pairGroupSpacing`'s
-    /// history), then grown substantially further here — funded first by
-    /// tightening `indexTrailingGap`, `indexGroupTrailingGap`, and
-    /// `timecodeTrailingGap`, with the remainder necessarily coming out of the
-    /// flexible time-code column's own width, since no further gap could be
-    /// tightened without the row's distinct columns losing their separation
-    /// entirely. The time-code column, being the one flexible element in the
-    /// row, is the correct place for a requirement this size to land once the
-    /// fixed gaps have given up what they reasonably can.
+    /// Fixed rather than sized to content, so every row's frame number begins at the same
+    /// x and, because this column is fixed, so does every row's time code. The
+    /// metadata glyphs already worked this way. The time-code column is the one flexible
+    /// element in the row, so it absorbs whatever width the fixed columns and gaps leave.
     fileprivate static let frameColumnWidth: CGFloat = 108
 
     /// Shared by the add and edit popovers, so the two are the same size and
@@ -1108,7 +1046,7 @@ struct ReorderableFramesList: View {
     /// its checkbox, label, menu, and suffix). The field row, wider than before
     /// (see `fieldWidth`), comes to 80 + 7 + 82 + 7 + 12 + 7 + 82 = 277pt — still
     /// not the widest.
-    fileprivate static let entryPopoverWidth: CGFloat = 290
+    fileprivate static let entryPopoverWidth = EntryPopoverMetrics.width
 
     /// The number of paired rows the table shows.
     ///
@@ -1243,10 +1181,10 @@ struct ReorderableFramesList: View {
         // the same order. The order is load-bearing: sizing before the clip is
         // what keeps the last alternating background band's overhang from
         // escaping it as a one-point sliver below the border. The full account is
-        // on `listContainerChrome(height:)` (30_20_FSControlHelpers.swift).
+        // on `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
         // Scroll detection, done in AppKit rather than in SwiftUI.
-        // `ScrollActivityObserver` (30_20_FSControlHelpers.swift) watches the
+        // `ScrollActivityObserver` (30.20 FSControlHelpers.swift) watches the
         // enclosing clip view's bounds — the signal AppKit already posts for its
         // own use — so SwiftUI does no work at all until something actually has
         // to change, which with the per-row `.onReceive` means only when a
@@ -1367,7 +1305,7 @@ struct ReorderableFramesList: View {
             // Bulk import, in the slot immediately left of the "+", from the
             // shared control all three tables present it with. The account of
             // why it is permanently gray and deliberately NOT gated on `canAdd`
-            // lives on `ListBulkImportButton` (30_20_FSControlHelpers.swift).
+            // lives on `ListBulkImportButton` (30.20 FSControlHelpers.swift).
             ListBulkImportButton(
                 isPresented: $showImportPopover,
                 help: "Add multiple entries from comma-separated lists",
@@ -1403,7 +1341,7 @@ struct ReorderableFramesList: View {
             .popover(isPresented: $showAddPopover, arrowEdge: .trailing) {
                 addPopoverContent
                     .frame(width: Self.entryPopoverWidth)
-                    .padding(16)
+                    .padding(EntryPopoverMetrics.padding)
             }
         }
         .frame(height: ListRowMetrics.rowContentHeight)
@@ -1416,13 +1354,12 @@ struct ReorderableFramesList: View {
     ///
     /// A dedicated two-field popover rather than the shared `ListImportPopover`:
     /// this table imports two parallel lists at once, and that control is built
-    /// around a single entry area. The parsing rule, the cap arithmetic, and the
-    /// commit rule are still the shared ones — see `PairedFramesImportPopover`
-    /// and `commitImport`.
+    /// around a single entry area. The parsing rule is the shared one
+    /// (`ListImportPopover.parseItems`). The cap rule is restated per column; see
+    /// `PairedFramesImportPopover` and `commitImport`.
     ///
-    /// The control moved into the add row; the state and the commit did not. The
-    /// presentation flag, the replace toggle, and `commitImport` all stay on this
-    /// type, because the arrays are here and the cap is here.
+    /// The presentation flag, the replace toggle, and `commitImport` stay on this
+    /// type, because the arrays and the cap are here.
     private var importPopoverContent: some View {
         PairedFramesImportPopover(
             maxItems: Self.maxItems,
@@ -1616,28 +1553,22 @@ struct ReorderableFramesList: View {
 
     /// Empties both arrays, deferred by one main-loop turn.
     ///
-    /// **Why the hop.** The alert's dismissal is an AppKit animation, and the
-    /// button's action runs while that animation's CoreAnimation transaction is
-    /// still open. Emptying the arrays there removes every row from the List
-    /// inside that transaction, so the row-removal animation and the alert's own
-    /// fade are committed together — which is what produces a torn or skipped
-    /// dismissal. `DispatchQueue.main.async` puts the mutation on the following
-    /// turn of the run loop, after the alert's transaction has closed, so the
-    /// two animate independently and in order.
+    /// **Why the hop.** The alert's dismissal is an AppKit animation, and the button's
+    /// action runs while that animation's CoreAnimation transaction is still open.
+    /// Emptying the arrays there would remove every row inside that transaction, so the
+    /// row removal and the alert's fade would commit together, which can tear or skip the
+    /// dismissal. `ListPopoverDismissal.nextTurn` defers the mutation by one main-actor
+    /// turn, after the alert's transaction has closed, so the two animate independently
+    /// and in order.
     ///
-    /// `ListPopoverDismissal.nextTurn` — a `Task { @MainActor in }` hop that a save
-    /// can settle early — rather than `DispatchQueue.main.async`, on the same
-    /// reasoning `ListPopoverDismissal` sets out: this is dispatched from a
-    /// SwiftUI button action rather than from a synchronous AppKit event
-    /// callback, so there is no QoS to inherit and the concurrency-native form
-    /// is the correct one. It also keeps the closure clear of
-    /// `DispatchQueue`'s `@Sendable` requirement, which the captured `Binding`s
-    /// would not satisfy.
+    /// The hop is a `Task { @MainActor }` rather than `DispatchQueue.main.async`. The
+    /// closure is dispatched from a SwiftUI button action, so there is no QoS to inherit,
+    /// and the concurrency-native form also avoids `DispatchQueue`'s `@Sendable`
+    /// requirement, which the captured `Binding`s would not satisfy.
     ///
-    /// No delay beyond the hop. Yielding one turn is what closes the alert's
-    /// transaction, which is the whole problem; waiting out the full dismissal
-    /// animation on top of that would leave a table the user has already
-    /// confirmed clearing visibly populated for another fifth of a second.
+    /// No delay beyond that one turn. Yielding a turn is what closes the alert's
+    /// transaction; waiting out the full dismissal animation would leave a table the user
+    /// has just confirmed clearing visibly populated for longer than necessary.
     ///
     /// Editors are closed first and synchronously. A row popover left open
     /// across this would be anchored to a row that is about to stop existing.
@@ -1947,13 +1878,11 @@ struct ReorderableFramesList: View {
     /// unchanged when it is already that long.
     ///
     /// The flags describe the ROW, not either half of it (see `commitImport`), so a
-    /// placeholder must repeat them. Padding with a fixed unannotated placeholder (the
-    /// former `PairedFramesRecord.missing`) did not: replacing the Frames column with fewer
-    /// entries than the table had rows, or the first write to a legacy uneven pair, left
-    /// every padded row with a flagless frame record beside an annotated time code. The
-    /// row's glyphs vanished here — `PairedFramesListRow.flags` prefers the frame record —
-    /// while the right sidebar's time-code table still drew them, and the row's next Update
-    /// rewrote both halves from the frame side, dropping the marks for good.
+    /// placeholder repeats them. A fixed unannotated placeholder would leave a padded row
+    /// with a flagless frame record beside an annotated time code. `PairedFramesListRow.flags`
+    /// reads the frame record first, so the row's glyphs would vanish while the sidebar's
+    /// time-code table still drew them, and the row's next Update would rewrite both halves
+    /// from the frame side and drop the marks.
     ///
     /// A counterpart position with no flags, or past its end, yields the plain unannotated
     /// placeholder ("—, no, none, none"), so every other padding case writes what it always
@@ -1986,8 +1915,8 @@ struct ReorderableFramesList: View {
 
 /// A self-contained row view for `ReorderableFramesList`.
 ///
-/// Each row owns its own popover state, which is what eliminated the shared-state
-/// race that used to keep the "info" popover from re-opening after being closed.
+/// Each row owns its own popover state, so one row's open or closed state cannot
+/// affect another's.
 ///
 /// It receives its two records as plain values rather than as bindings. A row is
 /// a pair addressed by position across two arrays, and only the table can write
@@ -2036,17 +1965,13 @@ private struct PairedFramesListRow: View {
     @State private var entryFadeOutEnabled = false
     @State private var entryFadeOut = AudioFadeStyle.scurve
 
-    // Parse results, computed once per construction. The table constructs a row
-    // only when its own body re-runs — which is exactly when a record can have
-    // changed — so parsing here costs the same as the `@State` cache these used
-    // to be (whose initial-value expression was evaluated on every construction
-    // anyway, then discarded). Plain values also cannot lag the records they
-    // describe: the cache needed an `onChange` per record to catch up, which ran
-    // a second body pass after every reorder, import, or edit.
+    // Parse results, computed once per construction. The table constructs a row only
+    // when its own body re-runs, which is when a record can have changed. Plain values
+    // cannot lag the records they describe; a cached `@State` copy would need an
+    // `onChange` per record to stay current.
     //
-    // Declared through `FramesEntryParser.Entry` rather than by restating the
-    // tuple, so their shape cannot fall out of step with what the parser
-    // actually returns.
+    // Declared through `FramesEntryParser.Entry` rather than by restating the tuple, so
+    // their shape cannot fall out of step with what the parser actually returns.
     private let parsedFrame: FramesEntryParser.Entry
     private let parsedTimecode: FramesEntryParser.Entry
 
@@ -2073,11 +1998,10 @@ private struct PairedFramesListRow: View {
 
     /// The metadata this row displays and edits.
     ///
-    /// Taken from the frames record when there is one, and from the time-code
-    /// record otherwise. The two agree in everything this component writes —
-    /// that is the entire point of the pairing — so the preference only ever
-    /// resolves a legacy pair that was allowed to diverge, and committing any
-    /// edit rewrites both sides from this single set.
+    /// Taken from the frames record when there is one, and from the time-code record
+    /// otherwise. The two agree in everything this component writes, which is the point
+    /// of the pairing. The choice matters only for a legacy pair that diverged, and
+    /// committing any edit rewrites both sides from this single set.
     private var flags: (mark: MarkStyle, fadeIn: AudioFadeStyle, fadeOut: AudioFadeStyle) {
         frameRecord != nil
             ? (parsedFrame.mark, parsedFrame.fadeIn, parsedFrame.fadeOut)
@@ -2106,8 +2030,7 @@ private struct PairedFramesListRow: View {
                 // numerals that the rows from 10 up form. Padding fills that
                 // place, which also makes the index exactly three glyphs on
                 // every row: the assumption `clearButtonCenteringOffset` is
-                // derived from, and now true of the whole table rather than of
-                // most of it.
+                // derived from, and it holds for every row.
                 //
                 // Two places suffices because `maxItems` caps the table at 99
                 // rows.
@@ -2145,8 +2068,8 @@ private struct PairedFramesListRow: View {
 
             // Metadata glyphs with fixed-width containers for alignment. One set
             // per ROW, not per array: the pair carries one mark and one pair of
-            // fades, which is what removes the hand-synchronization this
-            // component was combined to eliminate.
+            // fades, which removes the hand-synchronization the combined table exists
+            // to prevent.
             // Spacings and container widths come from the table's geometry
             // constants rather than from literals here, so the block and the
             // `metadataBlockWidth` the add row's stand-in is sized to are
@@ -2173,7 +2096,7 @@ private struct PairedFramesListRow: View {
                     HStack(spacing: ReorderableFramesList.fadeGlyphSpacing) {
                         Group {
                             if marks.fadeIn != .none {
-                                Image(systemName: "arrow.up.right.circle.fill")
+                                Image(systemName: ContentGlyphs.audioFadeIn)
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                             } else {
@@ -2196,7 +2119,7 @@ private struct PairedFramesListRow: View {
                     HStack(spacing: ReorderableFramesList.fadeGlyphSpacing) {
                         Group {
                             if marks.fadeOut != .none {
-                                Image(systemName: "arrow.down.right.circle.fill")
+                                Image(systemName: ContentGlyphs.audioFadeOut)
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                             } else {
@@ -2263,7 +2186,7 @@ private struct PairedFramesListRow: View {
             .popover(isPresented: $showPopover, arrowEdge: .trailing) {
                 editPopoverContent
                     .frame(width: ReorderableFramesList.entryPopoverWidth)
-                    .padding(16)
+                    .padding(EntryPopoverMetrics.padding)
             }
         }
         .frame(height: ListRowMetrics.rowContentHeight)
@@ -2308,7 +2231,7 @@ private struct PairedFramesListRow: View {
 
                 // Shared with the text list's and `ViewingDatesTable`'s Delete
                 // buttons; the full account of the treatment is on
-                // `PopoverDeleteButton` (30_20_FSControlHelpers.swift).
+                // `PopoverDeleteButton` (30.20 FSControlHelpers.swift).
                 //
                 // Dismiss BEFORE mutating. The delete removes this row, which
                 // tears down the view the popover is anchored to; ordering it
@@ -2478,13 +2401,11 @@ private struct PairedFramesImportPopover: View {
     /// the whole sheet behind a paste that had not been imported yet.
     @State private var submitAction = FieldSubmitAction()
 
-    /// Content width, exclusive of `padding`, and the same 290 every other
-    /// FilmSheet popover is now stated in — `ViewingDatesTable`'s add and edit
-    /// popovers being the reference. Nothing here needed the extra 50pt: both
-    /// entry areas fill whatever width they are given, and the instruction
-    /// paragraph above them already wraps.
-    private static let width: CGFloat = 290
-    private static let padding: CGFloat = 16
+    /// Content width and padding: `EntryPopoverMetrics`. Nothing here needed the
+    /// extra 50pt this used to carry: both entry areas fill whatever width they are
+    /// given, and the instruction paragraph above them already wraps.
+    private static let width = EntryPopoverMetrics.width
+    private static let padding = EntryPopoverMetrics.padding
     private static let footnoteSize: CGFloat = 11
     /// Visible lines in each entry area before it begins scrolling.
     private static let visibleLines: Int = 3
@@ -2576,7 +2497,7 @@ private struct PairedFramesImportPopover: View {
     /// it. Appending keeps what is there, so only the headroom is — clamped at
     /// zero.
     ///
-    /// One limit per column rather than one for the popover, now that the two
+    /// One limit per column rather than one for the popover, because the two
     /// columns can be written with different dispositions. The pair is exactly
     /// equivalent to the rule the commit enforces: the resulting table is
     /// `max(frames.count, timecodes.count)` rows, so it fits the cap precisely
@@ -2590,10 +2511,8 @@ private struct PairedFramesImportPopover: View {
 
     /// The separator and pairing rules, which never change.
     ///
-    /// Split away from the room sentence so that the half of this paragraph that
-    /// is fixed is laid out as fixed. The two used to be interpolated together,
-    /// which made a constant statement share a line box with a varying one and
-    /// left the whole block's height at the mercy of a checkbox.
+    /// Kept apart from the room sentence, which varies, so the fixed text does not share a
+    /// line box with it and the block's height does not depend on a checkbox.
     private static let entryRules = "Separate entries with commas or line breaks. Lists are paired in order; if one is longer than the other, unmatched entries will be automatically populated with a “\(PairedFramesRecord.missingText)”."
 
     /// How much room is left, for the two columns together when one number
@@ -2723,7 +2642,7 @@ private struct PairedFramesImportPopover: View {
             // opposite and entirely unremarkable reason, so it takes the
             // system's disabled text color instead.
             // An AppKit checkbox beside its label rather than a Toggle wrapping it, so
-            // the box is a stop in the popover's Tab walk (SheetCheckbox, 30_20). The
+            // the box is a stop in the popover's Tab walk (SheetCheckbox, 30.20). The
             // label still toggles it on click, as a Toggle's label would.
             HStack(spacing: Preferences.spacingAfterCheckbox) {
                 SheetCheckbox(isOn: modeBinding)
@@ -2785,12 +2704,11 @@ private struct PairedFramesImportPopover: View {
         // Return runs Import; Option-Return enters a line break.
         .fieldSubmitAction(submitAction)
         .onAppear {
-            // Every presentation opens empty. The drafts used to be mirrored to the
-            // caller so a reopened popover could restore them, but every table clears
-            // that storage in `onOpen` before presenting, so the restore never had
-            // anything to restore. Reset here rather than relied upon from the
-            // property initializers, for the reason the per-list switches below give:
-            // SwiftUI may reuse this node for a later presentation.
+            // Every presentation opens empty. The drafts are not mirrored to the caller:
+            // every table clears its storage in `onOpen` before presenting. Reset here
+            // rather than relied upon from the property initializers, for the reason the
+            // per-list switches below give: SwiftUI may reuse this node for a later
+            // presentation.
             if !framesDraft.isEmpty { framesDraft = "" }
             if !timecodesDraft.isEmpty { timecodesDraft = "" }
             // The mode this presentation opens in, resolved once and then
@@ -2852,22 +2770,12 @@ private struct PairedFramesImportPopover: View {
     /// The room sentence, drawn at a height that is the same in every state this
     /// popover can be in.
     ///
-    /// **Why not `lineLimit(_:reservesSpace:)`.** That is what this was, and it
-    /// very nearly worked: the block reserved two lines whether the sentence
-    /// used one or two, so checking a per-list "Replace existing entries" switch
-    /// — which is what makes the two columns' limits diverge and the sentence
-    /// grow from its one-line equal form to its two-line divergent one — no
-    /// longer moved the entry areas by a whole line. What it did still move them
-    /// by was a point or two, and the `.fixedSize(vertical:)` beside it is why.
-    /// `reservesSpace` sets a *floor* of `roomLines` line heights; `fixedSize`
-    /// then asks for the text's own *ideal* height, which for a genuinely
-    /// wrapped two-line sentence is the measured height of two laid-out line
-    /// fragments — leading included, and not identical to twice the reserved
-    /// line height. The larger of the two won, so the one-line state was drawn
-    /// at the reserved height and the two-line state at the measured one. The
-    /// pair could not simply be separated, either: without `fixedSize` the text
-    /// resolves at its single-line ideal and truncates inside the space it has
-    /// already been given, rather than wrapping into it.
+    /// **Why not `lineLimit(_:reservesSpace:)`.** Combining `lineLimit` with `fixedSize`
+    /// gives the one-line and two-line states different heights. `reservesSpace` sets a
+    /// floor of line heights, while `fixedSize` asks for the text's measured ideal height,
+    /// which differs from the reserved one. The larger value wins, so the states drift
+    /// apart by a point or two. Removing `fixedSize` truncates the text rather than
+    /// wrapping it into the reserved space.
     ///
     /// **What this does instead.** An invisible `Text` of exactly `roomLines`
     /// empty lines sets the height, and the real sentence is drawn over it as an
@@ -2971,8 +2879,7 @@ enum AudioFadeStyle: String, Hashable {
         }
     }
     
-    // `fromString` is gone with its two callers, for the same reason MarkStyle's is: it
-    // was literally `AudioFadeStyle(rawValue: str) ?? .none`, and FramesEntryParser.parse
-    // now needs the failable initializer's nil to tell an unrecognized token apart from a
-    // stored "none".
+    // Parsing uses the failable `init(rawValue:)`, so an unrecognized token stays
+    // distinguishable from a stored "none" (see FramesEntryParser.parse).
+
 }

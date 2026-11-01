@@ -1,20 +1,17 @@
 // MARK: - PosterCache.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// In-memory NSImage cache for film posters, following a metadata-first / images-progressive
-// pattern: loadMetadata() sets isReady (UI may proceed) while images are restored from disk
-// and filled in the background via restoreCacheFromMetadata() and completeCache().
+// In-memory cache of decoded poster images. Metadata loads first so the UI can proceed, and images are
+// restored from disk in the background.
+
 
 import AppKit
 import Synchronization
 
-/// A poster freshly decoded off the main actor, on its way into the MainActor cache.
+/// A decoded poster passed from a background task to the main actor.
 ///
-/// NSImage is explicitly not Sendable, so the one handoff that needs it — a decode task's
-/// result — carries it in this box instead of the whole app treating NSImage as Sendable.
-/// `@unchecked` is sound because the image is created by `loadDecodedImage(from:)` and
-/// never touched again by the thread that made it: ownership moves, nothing is shared.
-/// Unwrapped as soon as it reaches the main actor; nothing else should hold one.
+/// NSImage is not Sendable, so this box carries it across the handoff. `@unchecked` is sound because the
+/// image is never touched again by the thread that created it.
 private struct DecodedPoster: @unchecked Sendable {
     let image: NSImage
 }
@@ -30,25 +27,9 @@ final class PosterCache: Loggable {
     // UI can proceed when isReady = true; images load progressively from disk.
     private(set) var isReady: Bool = false
 
-    // @ObservationIgnored on everything below except isReady is deliberate and load-bearing.
-    //
-    // PosterCache is @Observable, and GalleryItemView.body, PosterThumbnailView.body
-    // (GalleryListView), and Header's poster loader all call getImageWithFallback /
-    // getImageSync directly from within their SwiftUI bodies. Under @Observable's
-    // per-property tracking, reading `cache[uid]` from inside a tracked body registers
-    // a dependency on the *entire* `cache` dictionary, not just the one key that was
-    // read. Without @ObservationIgnored, every poster insertion anywhere — the
-    // background restoreCacheFromMetadata/completeCache pass, a bulk import via
-    // addPosters, or a single FSTabPoster edit via addPoster/removePoster — would
-    // invalidate and re-run the body of every currently-mounted gallery cell that has
-    // ever read the cache, even though only one poster actually changed. That is a
-    // needless multiplication of SwiftUI body re-evaluations racing against real
-    // scroll/layout work, especially during initial load ramp-up or import.
-    //
-    // isReady is the sole property genuinely meant to drive reactive UI (GalleryView
-    // gates its content on it), so it alone remains tracked. Everything else here is
-    // read via explicit method calls for a point-in-time snapshot and must not
-    // participate in observation.
+    // Everything except isReady is @ObservationIgnored. Under @Observable, reading `cache[uid]` in a SwiftUI
+    // body would subscribe that body to the whole dictionary, so every insertion would re-run every mounted cell.
+    // isReady drives the UI (GalleryView gates content on it), so it alone stays observed.
     @ObservationIgnored private var cache: [String: NSImage] = [:]
     @ObservationIgnored private var cachedPosterUIDs: Set<String> = []
     @ObservationIgnored private var isMetadataLoaded = false
@@ -69,25 +50,14 @@ final class PosterCache: Loggable {
 
     // MARK: - Population Window Tracking
     //
-    // True from launch until the startup population pipeline (restoreCacheFromMetadata →
-    // completeCache) has finished making the entire library resident — the FilmTracker
-    // analog of the reference design's ThumbnailCache.isRestoringActiveFolder. The gallery
-    // grid's Coordinator polls this from its warming-scoped scroll-prefetch tick (see
-    // GallerySubview's "Warming-Scoped Scroll Prefetch" section): while true, scrolling
-    // ahead of the restore's own progress triggers a look-ahead background load of the
-    // approaching band; the moment this goes false the observer self-uninstalls, so the
-    // mechanism costs nothing for the remainder of the session (the reference design's
-    // history shows an UNSCOPED version of the same mechanism causes its own steady-state
-    // micro-stutter, which is exactly why it is gated to this transient window).
+    // True from launch until the startup population pipeline (restoreCacheFromMetadata, then completeCache) has
+    // made the whole library resident. While true, GallerySubview's scroll prefetch loads the band ahead of the
+    // user. Once false, that observer uninstalls.
     //
-    // Set false by markPopulationComplete(), called from FilmTrackerApp's Step 3 launch
-    // task immediately after completeCache resolves. Deliberately NOT reset to true by
-    // clearMemory(): that memory-pressure path repopulates on demand via the existing
-    // synchronous fallback, and re-arming scroll observers mid-session for that rare case
-    // is not worth the added lifecycle complexity.
+    // Set false by markPopulationComplete(). clearMemory() does not re-arm it, because memory-pressure reloads
+    // happen on demand.
     //
-    // @ObservationIgnored: this is polled from AppKit notification handlers, never read
-    // inside a SwiftUI body, so it must not participate in observation.
+    // @ObservationIgnored: this is polled from AppKit notification handlers, never read in a SwiftUI body.
     @ObservationIgnored private(set) var isPopulating = true
 
     /// Marks the startup population pipeline as finished. See `isPopulating` above.
@@ -95,22 +65,10 @@ final class PosterCache: Loggable {
         guard isPopulating else { return }
         isPopulating = false
 
-        // Retire the one-shot launch pre-paint warm at the same moment.
-        //
-        // registerLaunchDisplayOrder() is normally consumed by the first non-empty gallery
-        // render, a few hundred milliseconds into launch. But it is gated on !newFilms.isEmpty
-        // at both call sites, so a launch that lands on an EMPTY view (a filtered All Films, an
-        // empty list, a library with no films yet) never consumes it. Left armed, that has two
-        // consequences for the rest of the session: both gallery styles keep rebuilding the
-        // O(N) posterUID array on every single update pass just to re-test the gate, and the
-        // first later navigation to a populated view pays a synchronous, main-thread, parallel
-        // decode of up to launchBlockingWarmCount posters — a blocking wait that is correct at
-        // launch, where there is no window content to stall, and simply a hitch anywhere else.
-        //
-        // By this point the entire library is resident in `cache`, so the warm's own
-        // `cache[$0] == nil` filter would already reduce it to a no-op; retiring the flag makes
-        // that explicit and also stops the per-pass array construction. The restore's priority
-        // hint has likewise already been consumed, so nothing downstream still needs it.
+        // Retire the one-shot launch warm. It is consumed only by a non-empty launch view, so an empty launch
+        // view would leave it armed. Armed, it keeps the display-order array rebuilding on every update pass, and a
+        // later navigation to a populated view would pay a blocking decode on the main thread. The library is
+        // already resident by now, so the warm would be a no-op anyway.
         earlyLaunchWarm = nil
         if !hasPerformedLaunchBlockingWarm {
             hasPerformedLaunchBlockingWarm = true
@@ -122,47 +80,25 @@ final class PosterCache: Loggable {
 
     // MARK: - Launch Pre-Paint Warm
     //
-    // One-shot, launch-only, SYNCHRONOUS pre-paint warm — ported from the reference
-    // design's ThumbnailCache.warmLaunchViewport(for:). Loads the first
-    // `launchBlockingWarmCount` posters of the launch view's DISPLAY ORDER into memory,
-    // fully decoded, before returning — so every gallery cell configured later in the
-    // same main-actor turn (the first reloadData) finds its image already resident on
-    // its very first configure. This is what makes launch paint real posters instead of
-    // placeholders: any asynchronous scheme, however fast, races window appearance.
+    // One-shot, launch-only, synchronous pre-paint warm. It loads the first `launchBlockingWarmCount` posters of
+    // the launch view's display order, fully decoded, before returning. Cells configured later in the same
+    // main-actor turn then find their images already resident. The loads run in parallel across cores.
     //
-    // This REPLACES the previous implicit mechanism (each visible cell paying its own
-    // synchronous, SERIAL getImageWithFallback disk-decode on the main thread at first
-    // configure) with a single PARALLEL load fanned across all cores via
-    // concurrentPerform — the same total work finished in a fraction of the wall time,
-    // and sized to roughly two-plus worst-case viewports so an immediate fling from the
-    // very first frame stays inside pre-warmed rows long enough for the restore's
-    // display-ordered head phase to take over seamlessly.
-    //
-    // The registered display order also becomes the restore's priority ordering (see
-    // restoreCacheFromMetadata), so background population proceeds top-of-grid first.
+    // The registered display order also becomes the restore's priority ordering (see restoreCacheFromMetadata).
     @ObservationIgnored private var hasPerformedLaunchBlockingWarm = false
 
     /// Cheap gate the gallery views check before building the (O(N)) display-order
     /// array on each update pass — true only until the one-shot warm has run.
     var needsLaunchWarm: Bool { !hasPerformedLaunchBlockingWarm }
 
-    /// Number of leading grid items the launch-only blocking warm loads before first
-    /// paint. Sized to roughly two-plus worst-case viewports (largest realistic
-    /// viewport ≈ 56 tiles at 7 columns), matching the reference design's sizing
-    /// rationale. The wait is tightly bounded: the loads fan across all cores and are
-    /// paid once per session, before any window content exists to block.
+    /// Number of leading grid items the launch-only warm loads before first paint, roughly two worst-case viewports.
     private static let launchBlockingWarmCount = 128
 
-    /// Registers the launch view's display-ordered posterUIDs (first non-empty gallery
-    /// data to render, grid or list), performs the one-shot blocking pre-paint warm of
-    /// the leading `launchBlockingWarmCount` posters, and stores the full ordering as
-    /// the background restore's priority hint. Idempotent after the first effective
-    /// call; callers gate on `needsLaunchWarm` to avoid building the array at all on
-    /// subsequent passes.
+    /// Registers the launch view's display-ordered poster UIDs, performs the one-shot warm of the leading
+    /// `launchBlockingWarmCount` posters, and stores the full ordering as the restore's priority hint. Callers
+    /// check `needsLaunchWarm` first, so the array is not built on later passes.
     ///
-    /// MUST be called with UIDs in GRID (display) order, BEFORE the first reloadData
-    /// of the launch view — the warm covers `prefix(count)` on the premise that
-    /// "first in the array" == "top of the grid."
+    /// UIDs must be in grid (display) order, and this must run before the launch view's first reload.
     func registerLaunchDisplayOrder(_ posterUIDs: [String]) {
         guard !hasPerformedLaunchBlockingWarm else { return }
         let ordered = posterUIDs.filter { !$0.isEmpty }
@@ -207,13 +143,10 @@ final class PosterCache: Loggable {
 
     // MARK: - Early Launch Warm
     //
-    // registerLaunchDisplayOrder can only run once the launch view has films, after the
-    // window is built, and its decode blocks the main thread. The posters it wants are almost
-    // always the ones the previous launch wanted: the launch view and its sort rarely change
-    // between sessions. So each launch records the UIDs it warmed, and the next launch decodes
-    // those on a background thread from FilmTrackerApp.init, while AppKit builds the window.
-    // registerLaunchDisplayOrder then installs whichever of them the real order still wants
-    // and decodes only the rest. A wrong guess costs only the background decode.
+    // The early warm decodes the posters the previous launch warmed. The launch view and its sort rarely change
+    // between sessions, so each launch records its warmed UIDs. The next launch decodes them in the background from
+    // FilmTrackerApp.init. registerLaunchDisplayOrder installs the ones still wanted and decodes the rest. A wrong
+    // guess costs only the background decode.
     @ObservationIgnored private var earlyLaunchWarm: EarlyLaunchWarm?
     @ObservationIgnored private let launchWarmOrderFileName = "poster_launch_order.json"
 
@@ -247,20 +180,14 @@ final class PosterCache: Loggable {
         }
     }
 
-    /// Synchronous, parallel disk-load + decode of `posterUIDs`, fanned across all
-    /// cores with `DispatchQueue.concurrentPerform` — used ONLY by
-    /// registerLaunchDisplayOrder's launch-time pre-paint warm, where blocking the
-    /// caller is the entire point (the images must be resident before the current
-    /// main-actor turn yields to the first paint). Each iteration runs the same
-    /// loadDecodedImage(from:) primitive every other populating path uses, so a
-    /// pre-warmed image is indistinguishable from a restored one. Missing files
-    /// (films without posters) simply yield nothing; results order is irrelevant.
+    /// Synchronous, parallel disk load and decode of `posterUIDs`, using `DispatchQueue.concurrentPerform`. Used
+    /// only by the launch warm, where blocking the caller is intended. Each image goes through `loadDecodedImage(from:)`,
+    /// as every other load does. Missing files yield nothing.
     private nonisolated static func loadImagesBlocking(
         _ posterUIDs: [String], in folderURL: URL
     ) -> [(String, NSImage)] {
         guard !posterUIDs.isEmpty else { return [] }
-        // A Mutex rather than a lock-and-array box: the compiler checks that each image is
-        // handed in (`sending`) rather than shared, so no `@unchecked` is needed.
+        // The Mutex lets the compiler verify that each image is handed off rather than shared.
         let results = Mutex<[(String, NSImage)]>([])
         DispatchQueue.concurrentPerform(iterations: posterUIDs.count) { index in
             let posterUID = posterUIDs[index]
@@ -271,9 +198,7 @@ final class PosterCache: Loggable {
         return results.withLock { $0 }
     }
 
-    /// Display-ordered restore priority hint, set by registerLaunchDisplayOrder.
-    /// Consumed (read once) by restoreCacheFromMetadata to load top-of-grid posters
-    /// first. @ObservationIgnored for the same reason as every other bookkeeping field.
+    /// Display-order hint set by registerLaunchDisplayOrder and read once by restoreCacheFromMetadata.
     @ObservationIgnored private var restorePriorityOrder: [String] = []
 
     init() { log("PosterCache initialized (metadata-first, images-progressive)") }
@@ -285,28 +210,13 @@ final class PosterCache: Loggable {
         return cache[posterUID]
     }
 
-    /// Synchronous image retrieval with disk fallback on cache miss.
-    /// Returns the cached image if available; otherwise loads from disk, stores in cache,
-    /// and returns the image. Returns nil only if the file doesn't exist.
+    /// Returns the cached image, or loads and decodes it from disk on a miss. Returns nil only if the file does not exist.
     ///
-    /// This is the canonical single-path method for all synchronous image access that
-    /// needs a disk fallback. Used by GalleryItem (scroll display, via
-    /// refreshTileContent) and GalleryListView (row display). Centralizes the
-    /// cache-miss → disk-load → cache-store pattern that would otherwise be duplicated
-    /// across call sites.
+    /// Used by GalleryItem (via refreshTileContent) and GalleryListView. Disk I/O on the main thread is acceptable
+    /// here, because the background pipeline makes misses rare during normal scrolling.
     ///
-    /// NOTE: Disk I/O on the main thread is acceptable here because PosterCache's
-    /// background loading pipeline (restoreCacheFromMetadata + completeCache) ensures
-    /// cache misses are extremely rare during normal scrolling.
-    ///
-    /// This path uses `Self.loadDecodedImage(from:)` — NOT `NSImage(contentsOf:)` — so
-    /// the JPEG bitmap is fully decoded before the image is stored and returned.
-    /// `NSImage(contentsOf:)` only reads file bytes; AppKit would defer the actual
-    /// decode until first draw, paying that cost on the main thread mid-scroll the
-    /// instant the tile becomes visible. Decoding here makes the per-miss cost
-    /// slightly higher (read + decode instead of read only) but eliminates the
-    /// deferred draw-time decode of the same image, so net main-thread cost is
-    /// equal or lower — and the image is permanently hitch-free thereafter.
+    /// Loads through `loadDecodedImage(from:)`, not `NSImage(contentsOf:)`. The latter defers JPEG decoding to the
+    /// first draw, which would happen on the main thread mid-scroll.
     func getImageWithFallback(for posterUID: String) -> NSImage? {
         guard !posterUID.isEmpty else { return nil }
         
@@ -325,20 +235,10 @@ final class PosterCache: Loggable {
         return image
     }
 
-    /// Cache-only poster lookup for drag-preview thumbnails. Returns nil for an
-    /// empty posterUID or a cache miss — it deliberately never falls back to disk.
+    /// Cache-only lookup for drag-preview thumbnails. Returns nil for an empty UID or a miss, and never reads from disk.
     ///
-    /// Both gallery view styles resolve their flyback drag-preview image while
-    /// still inside their respective NSView's mouseDown drag-detection tracking
-    /// loop (GalleryCollectionView's manual drag path, GalleryListView's native
-    /// NSTableView path). That loop runs on the main thread elevated to
-    /// User-Interactive QoS. getImageWithFallback's synchronous disk read can
-    /// hand off to lower-QoS kernel/IO threads, and the main thread blocking on
-    /// that handoff while still elevated is a priority inversion (confirmed via
-    /// Thread Performance Checker on the list-view path). A cache miss here is
-    /// rare — PosterCache's background restore keeps the cache warm — and the
-    /// drag-preview thumbnail is purely cosmetic, so showing no poster on a miss
-    /// is preferable to risking a main-thread stall during drag initiation.
+    /// It is called inside a mouseDown drag-tracking loop, which runs at elevated QoS. A synchronous disk read there
+    /// risks a priority inversion. The preview is cosmetic, so a missing poster is acceptable.
     func dragPreviewImage(for posterUID: String) -> NSImage? {
         guard !posterUID.isEmpty else { return nil }
         return getImageSync(for: posterUID)
@@ -349,9 +249,7 @@ final class PosterCache: Loggable {
     // Primarily used for prefetching and background population.
     func getImageAsync(for posterUID: String) async -> NSImage? {
         if let cached = cache[posterUID] {
-            // Counter increments and stat logging are only useful when logging is on;
-            // skip them entirely during normal (logging-off) operation to avoid the
-            // Date() allocation and timeIntervalSince arithmetic on every async access.
+            // Counters are updated only when logging is on.
             if Logger.isLoggingEnabled {
                 cacheHits += 1
                 logStatsIfNeeded()
@@ -375,26 +273,15 @@ final class PosterCache: Loggable {
     }
 
     // MARK: - Metadata Loading
-    // STARTUP: Disk I/O and JSON decoding now run on a background
-    // thread via Task.detached, enabling true parallelism with other startup work.
-    // Previously this ran entirely on MainActor, blocking the main thread and
-    // preventing the async let in initializeApp() from actually parallelizing.
+    // STARTUP: disk I/O and JSON decoding run on a background task, in parallel with other startup work.
     func loadMetadata() async {
-        // Load-once. A repeat call would re-read the on-disk set and overwrite
-        // cachedPosterUIDs wholesale, silently discarding every UID added since the first
-        // load by prefetchPosters(), addPosters(), or addPoster() — and, if the file is
-        // gone or unreadable by then, replacing a populated set with an empty one. The
-        // isMetadataLoaded flag already existed for restoreCacheFromMetadata's benefit;
-        // this makes it govern entry as well.
+        // Load once. A repeat call would overwrite UIDs added since the first load.
         guard !isMetadataLoaded else {
             log("Poster cache metadata already loaded — skipping")
             return
         }
 
-        // Timed so the three concurrent Phase 1 jobs can be compared against each other.
-        // The claim this measurement exists to confirm or refute is that this load always
-        // finishes well ahead of the snapshot cache decode, and therefore never gates the
-        // launch progress indicator.
+        // Timed for the startup breakdown log.
         let loadStart = ContinuousClock.now
 
         guard let url = cacheMetadataURL else {
@@ -405,8 +292,7 @@ final class PosterCache: Loggable {
             return
         }
 
-        // Use URL.resourceValues to check file existence — avoids the deprecated .path
-        // String conversion and bridges directly into the modern URL resource API.
+        // Check existence through the URL resource API.
         let exists = (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
         guard exists else {
             log("No cache metadata found at \(url.lastPathComponent) - starting with empty cache")
@@ -416,8 +302,7 @@ final class PosterCache: Loggable {
             return
         }
 
-        // Perform disk read and JSON decoding on a background thread.
-        // This frees MainActor to begin other startup work concurrently.
+        // Read and decode off the main actor.
         let loaded: Set<String>? = await Task.detached(priority: .userInitiated) {
             do {
                 let data = try Data(contentsOf: url)
@@ -438,8 +323,7 @@ final class PosterCache: Loggable {
         log("STARTUP BREAKDOWN (poster metadata) — total: \((ContinuousClock.now - loadStart).formattedMilliseconds) | entries: \(cachedPosterUIDs.count)")
         
         isMetadataLoaded = true
-        // Set isReady after metadata loads.
-        // UI can now proceed - images will load progressively.
+        // Images then load progressively.
         isReady = true
     }
 
@@ -459,29 +343,13 @@ final class PosterCache: Loggable {
         
         log("Restoring cache from \(cachedPosterUIDs.count) poster UIDs (background)")
 
-        // Best-effort ordering handoff: yield the main actor once before snapshotting
-        // the UID list, giving SwiftUI's first render pass — and with it the gallery's
-        // first updateNSView, which calls registerLaunchDisplayOrder — a chance to run
-        // first so restorePriorityOrder is populated. If the render hasn't happened yet
-        // (or the app launched into a posterless view), the restore proceeds exactly as
-        // before with an unordered snapshot: correctness is unaffected either way, and
-        // the launch blocking warm independently guarantees the visible viewport.
+        // Yield once, so the first SwiftUI render can register the display order before the snapshot is taken.
         await Task.yield()
 
         let startTime = Date()
 
-        // TWO-PHASE, DISPLAY-ORDERED RESTORE (reconciled from the reference design's
-        // ThumbnailCache.restore head/tail split):
-        //
-        // Ordering — when a display-order hint was registered, load those UIDs first,
-        // in grid order, followed by any remaining metadata UIDs (posters not in the
-        // launch view, e.g. filtered out). Without a hint, the unordered metadata set
-        // is used exactly as before.
-        //
-        // Priority — the first `restoreHeadCount` UIDs (the grid's topmost region, the
-        // band the user sees and scrolls first) load at `.userInitiated`; everything
-        // after loads at `.utility`, so the long remainder of a large library populates
-        // without competing with the main thread's own user-interactive work.
+        // Display-ordered restore. Launch-view posters load first, in grid order. The first `restoreHeadCount`
+        // load at `.userInitiated`, and the rest at `.utility`.
         let uidsToLoad: [String]
         if restorePriorityOrder.isEmpty {
             uidsToLoad = Array(cachedPosterUIDs)
@@ -506,48 +374,17 @@ final class PosterCache: Loggable {
         let batchSize = min(30, max(10, totalCount / 20))
         var loadedCount = 0
 
-        // Restore accounting. `loadedCount` alone cannot explain the outcome, because a
-        // UID in the metadata reaches the end of a batch by three different routes and
-        // only one of them is a load:
-        //
-        //   - Already resident: populated by the launch pre-paint warm (or by an earlier
-        //     batch). Skipped deliberately; not a failure.
-        //   - Loaded: read and decoded from disk here.
-        //   - Failed: the file is gone or unreadable. These are exactly the UIDs the stale
-        //     cleanup at the end of this method prunes from the metadata, so counting them
-        //     gives that cleanup a cross-check rather than leaving it to be inferred.
-        //
-        // Tracking all three makes the completion line self-verifying: the three must sum
-        // to `totalCount`, so a discrepancy is visible in the log rather than silent.
+        // Each UID ends in one of three outcomes: already resident, loaded, or failed. The three sum to `totalCount`,
+        // which the completion log checks.
         var alreadyResidentCount = 0
         var failedCount = 0
 
-        // Progress milestones by CROSSING, not by exact equality.
-        //
-        // This previously read `if loadedCount % 200 == 0`, which was wrong in both
-        // directions and is worth spelling out so it is not reintroduced:
-        //
-        //   - It fired spuriously. `0 % 200 == 0` is true, so every batch that loaded
-        //     nothing logged "Restored 0/N". On a warm launch the pre-paint warm has
-        //     already populated the head of the display order — which is exactly where
-        //     `restorePriorityOrder` places the first batches — so the leading batches
-        //     load nothing and the same zero line was emitted several times in a row.
-        //   - It fired almost never when it mattered. Batches yield an irregular number
-        //     of images (0…batchSize, depending on cache overlap and read failures), so
-        //     `loadedCount` has to LAND on a multiple of 200 rather than pass one. A
-        //     1,241-image restore produced zero genuine progress lines.
-        //
-        // Comparing against a milestone that advances past whatever value was actually
-        // reached fixes both: one line per 200 images loaded, no line when nothing was,
-        // and no dependence on batches dividing evenly into the interval.
+        // Progress is logged when the count crosses a milestone. An exact-equality check would miss most batches.
         let progressInterval = 200
         var nextProgressMilestone = progressInterval
         var loggedResidentCoverage = false
 
-        // Running offset of the first UID in the current batch, used to decide the
-        // batch's load priority (head vs. tail). Batches are contiguous slices of
-        // uidsToLoad, so this exactly partitions the head/tail boundary (a batch
-        // straddling the boundary loads at the head's priority — harmless).
+        // Offset of the current batch's first UID, used to choose its load priority.
         var batchOffset = 0
 
         for batch in uidsToLoad.chunked(into: batchSize) {
@@ -560,18 +397,7 @@ final class PosterCache: Loggable {
                 return
             }
 
-            // Resident UIDs are filtered out HERE, on MainActor, rather than inside each
-            // child task. This is where `cache` lives, so the check is a direct read with
-            // no snapshot to capture and no hop, and — unlike the previous arrangement —
-            // no task is spawned at all for a UID that is already in hand. The filter is
-            // re-run per batch (not once before the loop) so images loaded by batch N are
-            // correctly excluded from batch N+1, which is the same reason the snapshot it
-            // replaces was taken per batch.
-            //
-            // It also separates the two reasons a UID can produce no image: skipped
-            // because resident (counted here) versus attempted and failed (counted below).
-            // The child tasks previously returned nil for both, which is what made the
-            // outcome unaccountable.
+            // Resident UIDs are filtered out here, on MainActor, so no task is spawned for them. This runs per batch.
             let pending = batch.filter { cache[$0] == nil }
             alreadyResidentCount += batch.count - pending.count
 
@@ -601,35 +427,19 @@ final class PosterCache: Loggable {
                     loadedCount += 1
                 }
 
-                // Every pending UID that produced no image was a genuine read failure —
-                // resident UIDs never entered `pending`.
+                // A pending UID with no image is a read failure.
                 failedCount += pending.count - batchResults.count
             }
 
-            // One line each time the load count passes a milestone, with the milestone
-            // then advanced past the value actually reached so an oversized jump cannot
-            // emit two lines or skip the next threshold.
+            // Advance the milestone past the current count.
             if loadedCount >= nextProgressMilestone {
                 log("Restored \(loadedCount)/\(totalCount) posters")
                 nextProgressMilestone =
                     ((loadedCount / progressInterval) + 1) * progressInterval
             }
 
-            // Emitted at most once, at the boundary where the already-resident run ends
-            // and real loading begins. This is the information the repeated "Restored 0/N"
-            // lines were accidentally conveying — that the restore opened on posters it
-            // already had — stated once and quantified, instead of as a run of identical
-            // zeroes whose length happened to encode it.
-            //
-            // Deliberately worded without attributing the residents to the launch
-            // pre-paint warm and without claiming they form a contiguous head of the
-            // display order, because neither is guaranteed. When `restorePriorityOrder` is
-            // empty (the app launched into a posterless view, so no display-order hint was
-            // ever registered) `uidsToLoad` is an unordered set and the residents are
-            // scattered through it. A scroll-driven prefetch or a poster edit landing while
-            // this loop runs can also populate the cache concurrently. The pre-paint warm
-            // is the usual explanation, not the only one, so the line reports the count it
-            // actually measured and leaves the cause to the reader.
+            // Logged once: the number of already-resident posters before the first disk load. The cause is not
+            // attributed, because the pre-paint warm is the usual explanation, not the only one.
             if !loggedResidentCoverage, loadedCount > 0 {
                 loggedResidentCoverage = true
                 if alreadyResidentCount > 0 {
@@ -640,18 +450,14 @@ final class PosterCache: Loggable {
         }
         
         let duration = Date().timeIntervalSince(startTime)
-        // The three outcomes are reported together because they must sum to totalCount;
-        // stating them side by side makes that identity checkable at a glance, and makes
-        // `failedCount` agree with the stale-UID count logged just below.
+        // The three outcomes are reported together. They must sum to totalCount.
         log("Cache restoration complete: \(loadedCount) loaded, "
             + "\(alreadyResidentCount) already resident, \(failedCount) failed "
             + "— \(loadedCount + alreadyResidentCount)/\(totalCount) resident "
             + "in \(Fmt.fixed(duration, 2))s")
 
-        // Clean up stale UIDs: any posterUID in the metadata that failed to load from disk
-        // (file deleted externally, disk error, etc.) must be removed from cachedPosterUIDs.
-        // Without this, completeCache() skips these UIDs because it thinks they're already
-        // cached, and the poster is never reloaded from the source images folder.
+        // Remove UIDs whose files failed to load, for example because they were deleted externally. Otherwise
+        // completeCache() would skip them, and they would never reload.
         let loadedKeys = Set(cache.keys)
         let staleUIDs = cachedPosterUIDs.subtracting(loadedKeys)
         if !staleUIDs.isEmpty {
@@ -661,24 +467,15 @@ final class PosterCache: Loggable {
         }
     }
 
-    /// Number of leading display-order UIDs the restore loads at `.userInitiated`
-    /// (the "head" phase) before dropping to `.utility` for the remainder — sized, per
-    /// the reference design, to comfortably cover the initial viewport plus the first
-    /// stretch of scrolling on any window size (roughly the first 85 rows at 7
-    /// columns), while remaining small enough that the phase finishes within a few
-    /// hundred milliseconds of launch.
+    /// Number of leading display-order UIDs the restore loads at `.userInitiated`. Sized to cover the initial
+    /// viewport and the first stretch of scrolling.
     private static let restoreHeadCount = 600
 
     // MARK: - Warming-Window Prefetch Ingestion
     //
-    // Background load-and-commit for a scroll-driven look-ahead band, called by
-    // GallerySubview's warming-scoped prefetch (see that file's "Warming-Scoped Scroll
-    // Prefetch" section) while `isPopulating` is true. Loads at `.userInitiated` — the
-    // user is actively scrolling toward these posters, making them the most urgent
-    // pending work — one tier above the restore's own tail phase, so a prefetch burst
-    // naturally jumps the queue. Committed images are indistinguishable from restored
-    // ones. No metadata save: every UID here already exists on disk and is covered by
-    // the restore/completeCache pipeline's own throttled saves.
+    // Background load and commit for a scroll-driven look-ahead band. Called by GallerySubview's warming-scoped
+    // prefetch while `isPopulating` is true. Loads at `.userInitiated`, above the restore's tail phase. No metadata
+    // save is needed, because every UID here is already on disk.
     func prefetchPosters(_ posterUIDs: [String]) async {
         let pending = posterUIDs.filter { !$0.isEmpty && cache[$0] == nil }
         guard !pending.isEmpty else { return }
@@ -727,15 +524,8 @@ final class PosterCache: Loggable {
             return
         }
         
-        // Filter out already-cached UIDs, and deduplicate.
-        //
-        // getAllPosterUIDs() returns one entry per FILM, so two films sharing a posterUID
-        // (combo packs, re-releases, deliberate duplicates) yield the same UID twice.
-        // addPosters() snapshots cachedPosterUIDs ONCE before its batch loop rather than
-        // per-batch, so a duplicate landing in a later batch is not filtered by that
-        // snapshot and gets loaded and decoded a second time. Collapsing here is both the
-        // cheaper and the more honest fix — it also makes the count in the log below
-        // reflect the actual work about to be performed.
+        // Deduplicate. Films can share a poster UID, and addPosters snapshots the cache once, so duplicates would
+        // load twice.
         var seen = Set<String>()
         let uncachedUIDs = allPosterUIDs.filter {
             !$0.isEmpty && !cachedPosterUIDs.contains($0) && seen.insert($0).inserted
@@ -751,13 +541,7 @@ final class PosterCache: Loggable {
     }
 
     // MARK: - Metadata Persistence
-    // Disk I/O and JSON encoding run on a background thread via Task.detached, matching
-    // MetadataCache.save() and MemoryStoreCache.save(). Previously the encode, the
-    // directory creation, and the atomic write all executed inline on MainActor: this
-    // method is async but had no suspension point around its I/O, so the main thread
-    // blocked for the whole write. That mattered most exactly when it was least
-    // affordable — saveMetadataThrottled() fires from addPosters() as the startup
-    // population pipeline completes each batch, and again from the shutdown flush.
+    // Encoding and writing run on a background task, so the main thread does not block on the write.
     func saveMetadata() async {
         // Before loadMetadata() the set says nothing about the posters on disk; writing it
         // (a quit during launch) replaced the file with an empty list.
@@ -932,26 +716,12 @@ final class PosterCache: Loggable {
         }
     }
 
-    /// - Parameter priority: detached-task priority for the disk read + decode.
-    ///   Defaults to `.userInitiated` (all pre-existing call sites are unchanged);
-    ///   the restore's tail phase passes `.utility` so bulk background population
-    ///   never competes with the main thread at equal footing.
+    /// - Parameter priority: priority of the detached disk read and decode. Restore tail batches pass `.utility`.
     private nonisolated func loadImage(posterUID: String,
                                        priority: TaskPriority = .userInitiated) async -> DecodedPoster? {
         guard let folderURL = Preferences.posterImagesFolderURL else { return nil }
 
-        // Task.detached replaces the previous DispatchQueue.global(qos:).async +
-        // withCheckedContinuation pattern: it is the idiomatic Swift Concurrency way
-        // to push work off the current executor without inheriting actor isolation,
-        // and is consistent with the Task.detached usage throughout the rest of the app.
-        //
-        // The load itself goes through loadDecodedImage(from:) — CGImageSource with
-        // kCGImageSourceShouldCacheImmediately — rather than NSImage(contentsOf:), so
-        // every image entering the cache via this path (restoreCacheFromMetadata,
-        // completeCache/addPosters, addPoster, getImageAsync) is already fully decoded
-        // on this background thread. No deferred main-thread decode cost remains for
-        // any of them, at any point in the session — including posters added by
-        // imports or FSTabPoster edits long after launch.
+        // Decoding happens off the main thread, so every image entering the cache is already decoded.
         let imageURL = folderURL.appendingPathComponent("\(posterUID).jpg")
         return await Task.detached(priority: priority) {
             Self.loadDecodedImage(from: imageURL).map(DecodedPoster.init)
@@ -960,30 +730,13 @@ final class PosterCache: Loggable {
 
     // MARK: - Decoded Loading
     //
-    // The single load-and-decode primitive behind every disk read in this cache
-    // (loadImage(posterUID:) for all background population paths, and
-    // getImageWithFallback for the rare synchronous main-thread miss). Unlike
-    // NSImage(contentsOf:) — which reads file bytes but defers JPEG rasterization
-    // until first draw, silently pushing that cost onto the main thread mid-scroll —
-    // this decodes the full bitmap on the calling thread via CGImageSource with
-    // kCGImageSourceShouldCacheImmediately, so by the time the image reaches a
-    // gallery cell the bitmap is already resident and drawing is a straight
-    // composite. This makes the cache-population passes the decode passes: no
-    // separate library-wide warming sweep is required afterward.
+    // The shared load-and-decode primitive for every disk read in this cache. It decodes the full bitmap on the
+    // calling thread, so drawing is a plain composite.
 
-    /// Loads a single poster from disk, fully decoded. Returns nil when the file does
-    /// not exist or cannot be decoded — preserving getImageWithFallback's
-    /// "nil only if the file doesn't exist" contract. Safe to call from any
-    /// concurrency context (nonisolated static, pure I/O + decode). Internal rather
-    /// than private so FSTabPoster's stored-poster preview decodes the same way.
+    /// Loads a single poster, fully decoded. Returns nil if the file is missing or cannot be decoded. Safe from any
+    /// concurrency context. Internal, so FSTabPoster's preview decodes the same way.
     nonisolated static func loadDecodedImage(from url: URL) -> NSImage? {
-        // Cheap existence check first: CGImageSourceCreateWithURL logs a noisy
-        // "*** ERROR: can't open ..." console message for a missing file rather than
-        // failing silently. Films without posters routinely reach this path (an
-        // entirely normal condition, not an error), so checking first avoids invoking
-        // CGImageSource at all — and skips the queue hop — for that expected case,
-        // with no change in behavior: the function still returns nil exactly as
-        // before whenever the file is absent.
+        // Check existence first. CGImageSource logs an error for a missing file, and missing posters are expected.
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         return posterDecodeQueue.sync { decodeImage(from: url) }
     }
@@ -1001,22 +754,11 @@ final class PosterCache: Loggable {
         return image
     }
 
-    /// Dedicated queue for all poster decode work. ImageIO's decode machinery uses its
-    /// own internal, process-wide synchronization that a lower-priority thread can hold
-    /// regardless of which queue dispatched it: with decodes now issued from both
-    /// `.userInitiated` background population tasks and the main thread (the
-    /// getImageWithFallback miss path), a lower-QoS decode holding that lock could
-    /// stall a higher-QoS one waiting on it — a real priority inversion. Routing every
-    /// decode through one `.userInitiated` concurrent queue closes that gap. Concurrent
-    /// (not serial): the population paths already bound how many decodes are in flight
-    /// via their own TaskGroup batch sizes, so this queue simply needs to allow that
-    /// same parallelism, not add its own serialization.
+    /// Queue for all poster decodes. ImageIO takes a process-wide lock, so a low-priority decode could stall a
+    /// high-priority one. Routing every decode through one `.userInitiated` queue avoids that inversion. The queue is
+    /// concurrent, so the population batches keep their own parallelism.
     ///
-    /// `nonisolated` is required (not just on the functions that use it): PosterCache
-    /// is `@MainActor`, so its static members are actor-isolated by default, and the
-    /// decode functions above are themselves `nonisolated`. Safe to mark: DispatchQueue
-    /// is an immutable, thread-safe reference type, and this is a `let` never mutated
-    /// after init.
+    /// `nonisolated` is required because PosterCache is `@MainActor`. The queue is an immutable, thread-safe `let`.
     private nonisolated static let posterDecodeQueue = DispatchQueue(
         label: "com.filmtracker.poster-decode",
         qos: .userInitiated,

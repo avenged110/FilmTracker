@@ -1,18 +1,17 @@
 // MARK: - FSSharedFields.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Field controls the FilmSheet's Details tab and the MultiFilmSheet both show: the Queue
-// Membership picker, the automatic-queueing row, the List Membership and Special Sorting
-// menus, and the Rotation Threshold picker. Moved here from DetailsView (31.10) unchanged,
-// except that each can also show a blank "nothing chosen" state, which only the
-// MultiFilmSheet asks for. Also the mixed-state checkbox the MultiFilmSheet's flags use.
+// Field controls shared by the FilmSheet's Details tab and the MultiFilmSheet: the Queue Membership
+// picker, the automatic-queueing row, the List Membership and Special Sorting menus, and the Rotation
+// Threshold picker. Each can also show a blank "Select…" state, which only the MultiFilmSheet uses.
+// Also holds the mixed-state checkbox that the MultiFilmSheet's flags use.
 
 import SwiftUI
 
 // MARK: - Film Queue Picker
 /// Segmented picker with four equal-width segments — "None", "Up Next", "Soon", "Later" —
 /// bound to a film's Film Queue section. An AppKit segmented control, as the sheet's other
-/// segmented pickers are — see SheetSegmentedControl (30_20).
+/// segmented pickers are — see SheetSegmentedControl (30.20).
 ///
 /// `tag` maps each segment to the binding's value: the FilmSheet binds the section itself
 /// ("None" is nil); the MultiFilmSheet binds a BulkField, whose `.unchanged` is no segment's
@@ -81,12 +80,10 @@ struct AutoAddToQueueRow: View {
         HStack(alignment: .top, spacing: columnSpacing) {
             FilmSheetFieldLabel("", width: labelWidth)
                 .padding(.top, 2)
-            // A checkbox beside its label rather than a Toggle wrapping it, so the box
-            // is a stop in the sheet's Tab traversal (SheetCheckbox, 30_20). The two
-            // text runs still toggle it on click, as a Toggle's label would.
-            // The checkbox is centered on the "Add to … Queue" line through the
-            // rotationLine guide, rather than placed by a top padding that drifted out of
-            // line with the menu beside it.
+            // A checkbox beside its label rather than a Toggle wrapping it, so the box is a
+            // stop in the sheet's Tab traversal (SheetCheckbox, 30.20). The two text runs
+            // still toggle it on click, as a Toggle's label would. The checkbox is centered
+            // on the "Add to … Queue" line through the rotationLine guide.
             HStack(alignment: .rotationLine, spacing: 4) {
                 Group {
                     if let onCheckboxClick {
@@ -113,9 +110,8 @@ struct AutoAddToQueueRow: View {
                     }
                     .alignmentGuide(.rotationLine) { $0[VerticalAlignment.center] }
                     .padding(.top, 4)
-                    // Intentionally ommitted the 2 point vertical padding reduction seen
-                    // with other checkbox + Picker rows elsewhere in the codebase as this
-                    // unexpectedly causes unnaturally thin margins here.
+                    // Omits the 2-point vertical padding reduction that other checkbox and
+                    // Picker rows use, which would make the margins here unnaturally thin.
                     Text(description)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -190,13 +186,10 @@ struct MixedStateCheckbox: NSViewRepresentable {
 /// `Menu` label, so both read as the same kind of form field as the sheet's text inputs
 /// rather than as a system pop-up button.
 ///
-/// Factored out because `ListMembershipMenu` and `SpecialSortingMenu` are the same control
-/// wearing different contents: they differ only in what their `displayText` says and in
-/// which set they consult for the empty/secondary styling, both of which stay at the call
-/// site. Keeping the chrome in one place is what stops the two from drifting apart
-/// visually — they are two rows of the same form column on the Details tab, left-aligned
-/// to the same label width, where a divergence in corner radius or padding would read as
-/// one of them being a different kind of control.
+/// `ListMembershipMenu` and `SpecialSortingMenu` differ only in their content: what `displayText`
+/// says, and which set decides the empty/secondary styling, both of which stay at the call site.
+/// Sharing one definition keeps their corner radius and padding from drifting apart, since they
+/// are two rows of the same form column on the Details tab.
 private extension View {
     func menuFieldChrome() -> some View {
         self
@@ -310,12 +303,11 @@ struct SpecialSortingMenu: View {
     }
 
     private func toggleExclusive(_ option: String, isOn: Bool) {
-        // Mutate a local copy and commit it in a single write. Calling .remove()/.insert()
-        // directly on `selectedTags` (a @Binding) would round-trip through its get-mutate-set
-        // cycle on every call — up to three separate writes to viewModel.specialSorting for
-        // one tap — firing checkForChanges() and onChange(of:) multiple times with transient
-        // intermediate states. Batching avoids that, matching GalleryFilterMenu's pattern of
-        // building a local Set and committing once.
+        // Mutate a local copy and commit it in one write. Calling .remove()/.insert() directly on
+        // `selectedTags` (a @Binding) would go through its get-mutate-set cycle on each call: up to
+        // three writes to viewModel.specialSorting per tap, each firing checkForChanges() and
+        // onChange(of:) with transient intermediate states. GalleryFilterMenu builds a local Set and
+        // commits once for the same reason.
         var updated = selectedTags
         if isOn {
             for sibling in FilmSpecialSorting.exclusiveOptions where sibling != option {
@@ -386,11 +378,10 @@ struct RotationThresholdPicker: View {
 
     /// "Use Default" (tag 0 represents nil), a separator, then `optionItems`.
     ///
-    /// Built per body rather than once, because the first row names the default threshold,
-    /// which is a user setting (General settings). As a `static let` the title was fixed at
-    /// whatever the default was the first time any FilmSheet opened, so changing the setting
-    /// later left every subsequent sheet advertising the old value. Nine rows, and
-    /// SheetPopUpButton rebuilds its NSMenu only when the rows actually differ.
+    /// Built per body, because the first row names the default threshold, a user setting
+    /// (General settings). A static value would keep advertising the default from when it was
+    /// first built. The list is eight items, and SheetPopUpButton rebuilds its NSMenu only when
+    /// the rows actually differ.
     private static func items(defaultThreshold: Int, isUnset: Bool) -> [SheetPopUpButton<Int>.Item] {
         (isUnset ? [.placeholder(tag: unsetTag, title: unsetMenuTitle)] : [])
             + [.option(tag: 0, title: "Use Default (\(formatAsYears(defaultThreshold)))"), .separator]

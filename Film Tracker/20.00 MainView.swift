@@ -1,13 +1,17 @@
 // MARK: - MainView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Primary window construction for FilmTracker.app with DataCoordinator integration.
+// Builds the main window: the sidebar and gallery layout, the toolbar, search handling, and navigation between views.
+// It is wired to DataCoordinator and AppState.
 
 import SwiftUI
 import CoreData
 import Combine
 
 struct MainView: View, Loggable {
+    /// Width of each icon-only toolbar button, so the row spaces evenly.
+    static let toolbarButtonWidth: CGFloat = 22
+
     nonisolated static let logTag = "[MainView]"
 
     @Environment(\.managedObjectContext) private var modelContext
@@ -127,12 +131,9 @@ struct MainView: View, Loggable {
     private var mainContentArea: some View {
         MainContentSwitcher()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // One toolbar item holding all five buttons rather than five items: SwiftUI's
-            // toolbar bridge pays per item at launch (about 21 ms for these five). The
-            // buttons keep the toolbar button style inside the item and the HStack's 8 pt
-            // spacing reproduces the toolbar's own gaps exactly. The trailing 9 pt stands
-            // in for the former fixed-width spacer item, which doubled the gap before the
-            // search field; title bar renders of the two layouts are pixel-identical.
+            // One toolbar item holds all five buttons, because SwiftUI's toolbar bridge pays a cost per item at
+            // launch. The 8 pt HStack spacing matches the toolbar's gaps, and the 9 pt trailing padding stands in
+            // for the former spacer item.
             .toolbar {
                 ToolbarItem(placement: .automatic) {
                     HStack(spacing: 8) {
@@ -265,12 +266,9 @@ struct MainView: View, Loggable {
         } else {
             // Search cleared - return to previous view only if still in search.
             if case .libraryItem(.search) = appState.selectedSidebarItem {
-                // Resolve the destination first: previousSidebarItem is captured at search
-                // entry and can be invalidated while the search session is still open (e.g.
-                // the user deletes the list they searched from, or disables smart lists).
-                // LeftSidebar only redirects selectedSidebarItem when that item is the one
-                // currently displayed — which it never is while search is showing — so the
-                // stale value would otherwise be navigated back to.
+                // Resolve the destination first. previousSidebarItem is captured at search entry and can become invalid
+                // while search is open, for example if the user deletes the list they searched from. LeftSidebar redirects
+                // only the displayed item, which is never the search view, so the stale value must be checked here.
                 let destination = resolvedPreviousSidebarItem()
                 if destination != previousSidebarItem {
                     Self.log("Search-exit: previous item \(previousSidebarItem) no longer valid — falling back to \(destination)")
@@ -283,25 +281,19 @@ struct MainView: View, Loggable {
                 // BEFORE setting selectedSidebarItem. This ensures dataCoordinator.films is
                 // populated with the destination view's films before SwiftUI renders the new
                 // GalleryView instance, so GallerySubview.updateNSView fires with correct
-                // data on its very first call. Without this, the first updateNSView receives
-                // the stale search results (still in dataCoordinator.films at render time),
-                // consuming GalleryScrollIntent and computing scroll geometry against the
-                // wrong film set — producing a multi-frame blank gap before the correct films
-                // arrive in a subsequent update pass.
+                // data on its first call. Otherwise the gallery would scroll against the stale
+                // search results still in dataCoordinator.films, leaving a blank gap until the
+                // correct films arrive.
                 //
-                // This mirrors the same pre-load pattern used on search entry (see
-                // switchToViewSync(.search) above). The subsequent switchToViewSync call from
-                // GalleryView.handleSidebarChange is a no-op: isViewChange=false,
-                // stateChanged=false → no reload triggered.
+                // This mirrors the pre-load on search entry (see switchToViewSync(.search)
+                // above). The later switchToViewSync call from GalleryView.handleSidebarChange
+                // is a no-op, so no second reload runs.
                 //
-                // The pre-load is unconditional — it runs on every search exit, not only the
-                // selection-preservation path — and it deliberately happens BEFORE the
-                // preservation decision below, because it is what makes that decision exact
-                // (see the membership check).
+                // The pre-load runs on every search exit, not only the selection-preservation
+                // path. It runs before the preservation decision below, which depends on it.
                 //
-                // The candidate selection is captured before the pre-load so the decision is
-                // made against the selection as it stood in the search results, independent
-                // of anything the reload might touch.
+                // The candidate selection is captured before the pre-load, so the decision uses
+                // the selection as it stood in the search results.
                 let candidateFilmID: UUID? = selectionState.selectedFilmIDs.count == 1
                     ? selectionState.selectedFilmID
                     : nil
@@ -318,16 +310,9 @@ struct MainView: View, Loggable {
                 // destination gallery (whichever style — grid or list — is currently active)
                 // so the film appears in the topmost row of the viewport.
                 //
-                // Membership is tested against dataCoordinator.films, which the pre-load
-                // above just populated with the destination's real, final film set. That set
-                // already has the destination's own sort, membership, sub-category tab, and
-                // — critically — its active FilterOptions applied. An earlier hand-rolled
-                // per-view membership helper checked raw view membership only, so a film
-                // excluded by the destination's active filters was preserved as "selected"
-                // while being absent from the grid, leaving SelectionState and the right
-                // sidebar pointing at a film the user could not see or deselect. Using the
-                // loaded set is both exact and self-maintaining: a new view type needs no
-                // new membership case here.
+                // Membership is tested against dataCoordinator.films, which the pre-load above has
+                // just populated with the destination's final set, including sort, tab, and active
+                // FilterOptions. Raw view membership would keep a film that the filters hide selected.
                 if Preferences.maintainSelectionOnSearchExit,
                    let selectedFilmID = candidateFilmID,
                    destination.capabilities.isValidSearchExitDestination,
@@ -337,28 +322,19 @@ struct MainView: View, Loggable {
                     appState.armSearchExitSelectionPreservation(filmID: selectedFilmID)
                     appState.cancelTokenSearchSelectionPreservation()
 
-                    // Hand the scroll target to the destination gallery, addressed to
-                    // the destination ViewIdentifier so no other (stale) instance can
-                    // consume or clear it during the transition. Both gallery styles —
-                    // GallerySubview (grid) and DraggableListView (list) — resolve the
-                    // scroll in their own scroll view's viewWillDraw(), so the
-                    // destination's first painted frame is already positioned at the
-                    // selected film regardless of which style is currently active. The
-                    // film's row is placed at the top of the viewport (as far as the
-                    // content allows), like Cmd+L, even if the film is already visible.
+                    // Hands the scroll target to the destination gallery, addressed to its
+                    // ViewIdentifier so no stale instance can consume it. Both gallery styles
+                    // resolve the scroll in viewWillDraw(), so the first painted frame is already
+                    // positioned. The film moves to the top of the viewport, as with Cmd+L.
                     GalleryScrollIntent.shared.set(filmID: selectedFilmID,
                                                    targetViewID: destinationViewID)
-                    // And hand it keyboard focus. The preserved film reads to the user as
-                    // "still selected in the gallery I came back to", and before the
-                    // search that gallery was where the arrow keys went; the destination
-                    // is a fresh instance, though, and without this it never becomes first
-                    // responder — the arrows are dead until a Tab press moves focus to
-                    // where it already appears to be. Addressed like the scroll intent,
-                    // and armed under the same preference gate.
+                    // Also hands over keyboard focus. The destination is a fresh instance that
+                    // would otherwise never become first responder, leaving the arrow keys dead
+                    // until Tab is pressed. Addressed like the scroll intent, under the same gate.
                     GalleryFocusIntent.shared.set(targetViewID: destinationViewID)
                 } else {
-                    // No preservation on this exit — make sure a preserve ID left over from
-                    // an earlier, abandoned transition cannot be honored by navigate(to:).
+                    // No preservation on this exit. Clears any preserve ID left by an earlier,
+                    // abandoned transition so navigate(to:) cannot honor it.
                     appState.armSearchExitSelectionPreservation(filmID: nil)
                 }
 
@@ -376,17 +352,11 @@ struct MainView: View, Loggable {
         ViewIdentifier.from(item)
     }
 
-    /// Resolves `previousSidebarItem` to a destination that is still valid at search-exit
-    /// time. `previousSidebarItem` is captured when search is entered and is not updated
-    /// while the search session is open, so a user-generated list that existed then may
-    /// have been deleted since.
+    /// Checks that `previousSidebarItem` is still valid at search exit. It is captured on entry
+    /// and not updated during the search, so the list may have been deleted since.
     ///
-    /// LeftSidebar already redirects to All Films when a list is deleted — but only when
-    /// that list is the item currently selected, which it never is while the search view
-    /// is displayed. Without this check, exiting search restores `.list(deletedID)`:
-    /// MainContentSwitcher builds a GalleryView keyed to a list that no longer exists,
-    /// `updateListInfo` resolves it to nil, and the LeftSidebar is asked to highlight a
-    /// row that isn't there.
+    /// LeftSidebar redirects a deleted list only when that list is selected, which never happens
+    /// while search is shown. Without this check, exiting search would restore a deleted list.
     ///
     /// Returns All Films for a list that no longer exists; otherwise returns
     /// `previousSidebarItem` unchanged.
@@ -396,6 +366,9 @@ struct MainView: View, Loggable {
             return .libraryItem(.allFilms)
         case .savedSearch(let id) where SavedSearchStore.shared.search(id) == nil:
             return .libraryItem(.allFilms)
+        case .smartList where !Preferences.smartLists:
+            // Smart lists were turned off while the search was open.
+            return .libraryItem(.allFilms)
         default:
             return previousSidebarItem
         }
@@ -403,10 +376,9 @@ struct MainView: View, Loggable {
 
     // MARK: - Saved Search Editing
 
-    /// Opens a saved search in the field. The same eager promotion to the search view as
-    /// handleActivateTokenSearch, for the same race; the view being left becomes the search-
-    /// exit destination, so clearing the field returns there. Updating it from the title bar's
-    /// "Update Saved Search…" goes to the saved search's own view instead (SavedSearchSheet.save).
+    /// Opens a saved search in the field. It promotes to the search view eagerly, as
+    /// handleActivateTokenSearch does. The view being left becomes the exit destination.
+    /// "Update Saved Search…" in the title bar goes to the saved search's own view instead.
     private func handleOpenSavedSearchInField(_ id: UUID) {
         guard let search = SavedSearchStore.shared.search(id) else { return }
         let current = appState.selectedSidebarItem
@@ -414,8 +386,7 @@ struct MainView: View, Loggable {
         ViewStateManager.shared.switchToViewSync(
             .search, matchingStyleOf: isAlreadyInSearch ? nil : viewIdentifier(for: current))
         searchController.applySavedSearch(search)
-        // Focus the field with the caret after the query, once the field has taken the
-        // query and the switch to the search view has settled.
+        // Focuses the field with the caret after the query, once the search view has settled.
         DispatchQueue.main.async {
             guard let item = NSApp.keyWindow?.toolbar?.items.lazy
                     .compactMap({ $0 as? NSSearchToolbarItem }).first else { return }
@@ -428,9 +399,8 @@ struct MainView: View, Loggable {
 
     // MARK: - Token Search Activation
     
-    /// Handles the .activateTokenSearch UICommand fired by sidebar "Search" buttons.
-    /// Saves the current view as the return destination, then activates a programmatic
-    /// token search so the user sees instant results with no intermediate state.
+    /// Handles the .activateTokenSearch command from the sidebar "Search" buttons. It saves the
+    /// current view as the return destination, then runs a token search with instant results.
     private func handleActivateTokenSearch(field: SearchField, value: String) {
         // Save the current sidebar item as the return destination, matching the
         // same guard used in handleSearchContentChange to prevent search→search cycles.
@@ -444,41 +414,27 @@ struct MainView: View, Loggable {
             previousSidebarItem = current
         }
 
-        // Eagerly switch ViewStateManager to the search view before the token is applied
-        // so that triggerSearchImmediate() inside programmaticTokenSearch finds an active
-        // search context and writes the query correctly (mirrors handleSearchContentChange).
-        // Also suppress the selection clear that handleViewChange would normally fire:
-        // since the currently-selected film is guaranteed to appear in the results, passing
-        // the selection through produces a smoother experience.
+        // Switches to the search view before the token is applied, so triggerSearchImmediate()
+        // finds an active search context (as in handleSearchContentChange). It also suppresses
+        // the selection clear in handleViewChange, since the selected film stays in the results.
         //
-        // The flag is set ONLY when this call will actually cause a sidebar transition.
-        // These Search buttons live in the RightSidebar, which is displayed alongside the
-        // search view itself, so activating one while already in search assigns
-        // selectedSidebarItem its existing value — a no-op that never fires onChange, and
-        // therefore never runs the handleViewChange that consumes the flag. Setting it
-        // unconditionally left it armed indefinitely, causing the *next* genuine view
-        // change (to any view) to silently skip its selection and focus-ring clear.
+        // The suppression flag is set only when this call causes a sidebar transition. Otherwise
+        // it would stay armed and skip the selection clear on the next real view change.
         if !isAlreadyInSearch {
             appState.armTokenSearchSelectionPreservation()
         }
-        // matchingStyleOf: current seeds this search session's initial grid/list style
-        // from the view being left, matching the standard search-entry path in
-        // handleSearchContentChange — see switchToViewSync's doc comment for rationale.
-        // When already in search there is no view being left, so no seed is supplied and
-        // switchToViewSync preserves whatever style the live session is using.
+        // matchingStyleOf seeds the search's grid or list style from the view being left, as in
+        // handleSearchContentChange (see switchToViewSync). Already in search, no seed is passed.
         ViewStateManager.shared.switchToViewSync(
             .search,
             matchingStyleOf: isAlreadyInSearch ? nil : viewIdentifier(for: current))
 
-        // Apply the token and trigger immediate search. This also sets hasContent = true,
-        // which fires onChange(of: searchController.hasContent) → handleSearchContentChange,
-        // but handleSearchContentChange guards against overwriting previousSidebarItem or
-        // calling switchToViewSync again when already in the search view.
+        // Applies the token and runs the search. This sets hasContent, which calls
+        // handleSearchContentChange. That handler does not overwrite previousSidebarItem here.
         searchController.programmaticTokenSearch(field: field, value: value)
 
-        // Switch the sidebar item last so MainView's onChange(of: selectedSidebarItem) fires
-        // after the search state is fully set up, preventing any window where the search view
-        // is visible but the query hasn't been applied yet.
+        // The sidebar item is switched last, so the search state is complete before the search
+        // view appears.
         appState.navigate(to: .libraryItem(.search))
         
         Self.log("Activated token search: \(field.displayName) = \"\(value)\"")
@@ -510,7 +466,7 @@ private struct AddNewToolbarButton: View {
         } label: {
             Image(systemName: "plus")
                 .offset(y: 1)
-                .frame(width: 22)
+                .frame(width: MainView.toolbarButtonWidth)
         }
         .help("Add film")
     }
@@ -527,12 +483,9 @@ private struct ImportToolbarMenu: View {
 
     var body: some View {
         Menu {
-            // Neither item is locked while an import runs: both only navigate, and
-            // reaching the Imports view is exactly what a user wants to do mid-import.
-            // The import-in-progress lock lives on the Imports title bar's "Select
-            // Files" button, the one control that actually starts one. Each item is
-            // still disabled when its own tab is already the one on screen, where
-            // selecting it would do nothing.
+            // Neither item is locked during an import, since both only navigate. The lock is on
+            // the Imports title bar's "Select Files" button. Each item is disabled when its own
+            // tab is already on screen.
             Button("Import Metadata…") {
                 AppEventBus.shared.sendCommand(.navigateToImportsMetadata)
             }
@@ -558,7 +511,7 @@ private struct AddNewListToolbarButton: View {
             AppEventBus.shared.sendCommand(.showListCreation)
         } label: {
             Image(systemName: "note.text.badge.plus")
-                .frame(width: 22)
+                .frame(width: MainView.toolbarButtonWidth)
         }
         .help("Create new list")
     }
@@ -574,7 +527,7 @@ private struct NewSavedSearchToolbarButton: View {
             SavedSearchActions.newSearch()
         } label: {
             Image(systemName: "plus.magnifyingglass")
-                .frame(width: 22)
+                .frame(width: MainView.toolbarButtonWidth)
         }
         .help("Create new saved search")
     }
@@ -591,7 +544,7 @@ private struct ScanDuplicatesToolbarButton: View {
             AppEventBus.shared.send(.ui(.findDuplicates))
         } label: {
             Image(systemName: "rectangle.and.text.magnifyingglass")
-                .frame(width: 22)
+                .frame(width: MainView.toolbarButtonWidth)
         }
         .help("Scan library for duplicates")
     }
@@ -606,8 +559,7 @@ private struct MainContentSwitcher: View {
     var body: some View {
         let selectedItem = appState.selectedSidebarItem
         
-        // Determine if this view should show the sidebar and status bar
-        // Both the sidebar and status bar share this same visibility logic; see
+        // The sidebar and status bar share this visibility rule. See
         // ViewCapabilities.showsGalleryChrome (ViewState.swift) for the per-view rules.
         let showsChrome = selectedItem.capabilities.showsGalleryChrome
         
@@ -625,7 +577,7 @@ private struct MainContentSwitcher: View {
                 if showStatusBar && showsChrome {
                     VStack(spacing: 0) {
                         StatusBar()
-                            .frame(height: 29)
+                            .frame(height: StatusBar.height)
                             .background(Color(NSColor.controlBackgroundColor))
                             .overlay(Divider(), alignment: .top)
                     }
@@ -635,20 +587,12 @@ private struct MainContentSwitcher: View {
             // when space is constrained at smaller window sizes
             .layoutPriority(0)
             
-            // Conditionally show the sidebar. This genuinely destroys and recreates
-            // RightSidebar when showsChrome flips — every piece of its @State
-            // (selectedFilm, hasSelection, the table-expansion flags, neighborsReadyFilmID)
-            // is discarded and starts fresh on the way back in. RightSidebar resolves its
-            // content only from onChange(of: selectionState.selectedFilmIDs), which does
-            // not fire on mount, so a selection that OUTLIVED the flip would come back as
-            // the "Nothing Selected" placeholder over a live selection.
-            //
-            // That cannot happen today because both paths that flip this flag clear the
-            // selection first: a full view switch (handleViewChange, above) and a Reports
-            // category switch to/from Data Visualizations (ReportsView's onChange of
-            // selectedCategory). Any future view that toggles showsGalleryChrome while
-            // preserving selection must either clear it likewise or give RightSidebar a
-            // mount-time resolve.
+            // The sidebar is shown conditionally. Flipping showsChrome destroys and recreates
+            // RightSidebar, discarding all of its @State. RightSidebar resolves its content only
+            // on selection change, not on mount, so a selection that survived the flip would
+            // show as "Nothing Selected". Both flipping paths clear the selection first: a view
+            // switch (handleViewChange) and a Reports category change (ReportsView). Any future
+            // view that toggles this flag must clear the selection too, or add a mount-time resolve.
             if showsChrome {
                 Divider()
                 
@@ -660,8 +604,8 @@ private struct MainContentSwitcher: View {
                     .layoutPriority(1)
             }
         }
-        // Disable animations on the layout container only to prevent 'jiggle' on
-        // left sidebar state change, but allow animations in child views.
+        // Disables animations on the layout container to prevent a jiggle when the left sidebar
+        // changes. Child views still animate.
         .transaction { transaction in
             transaction.animation = nil
         }
@@ -671,16 +615,13 @@ private struct MainContentSwitcher: View {
 
     /// Returns the appropriate content view with stable identity.
     ///
-    /// Only three sidebar items render something other than the gallery; the remaining six
-    /// are all a plain `GalleryView(sidebarItem: item)` differing solely in the item they
-    /// are mounted for, which also gives them their stable `.id`. Those six share one branch rather than being written out
-    /// separately, so a modifier added to the gallery here is added once instead of six
-    /// times. The switch stays exhaustive with no `default`, so a new SidebarItem case is
-    /// still a compile error until it is placed on the correct side of this split.
+    /// Only three sidebar items render something other than the gallery. The other six are a plain
+    /// `GalleryView(sidebarItem:)` that differ only in the item, which also gives each a stable `.id`.
+    /// They share one branch, so a gallery modifier is added once. The switch has no `default`,
+    /// so a new SidebarItem case is a compile error until it is placed.
     ///
-    /// (The Film Queue is one of the six: it reuses the standard gallery pipeline — grid +
-    /// title bar + right sidebar — with its section-divider grouping driven entirely inside
-    /// GallerySubview / the layout, gated to that view.)
+    /// The Film Queue is one of the six. It uses the standard gallery pipeline, and its section
+    /// dividers come from GallerySubview and the layout.
     @ViewBuilder
     private func contentView(for item: SidebarItem) -> some View {
         switch item {
@@ -695,14 +636,9 @@ private struct MainContentSwitcher: View {
                 .id("imports")
         case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
              .libraryItem(.filmQueue), .smartList, .list, .savedSearch:
-            // `item` IS the identity. Each of the six is a distinct SidebarItem value, so
-            // this is exactly as discriminating as the six hand-written strings it
-            // replaces ("gallery-all-films", "gallery-smartlist-<type>", "gallery-list-
-            // <uuid>", …) — including per-smart-list-type and per-list-UUID distinctness —
-            // with no string table to keep in step with the enum. That distinctness is
-            // load-bearing: navigating between two gallery-backed views must tear the old
-            // GalleryView down and mount a fresh one, which parts of the scroll-handoff
-            // machinery rely on (see GalleryScrollIntent.consumableOnReuse).
+            // `item` is the identity. Each sidebar item is distinct, including per smart-list
+            // type and per list UUID. Navigating between two gallery views must mount a fresh
+            // GalleryView, which the scroll handoff relies on (see GalleryScrollIntent.consumableOnReuse).
             GalleryView(sidebarItem: item)
                 .id(item)
         }
@@ -795,18 +731,13 @@ private struct SidebarChangeModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.onChange(of: appState.selectedSidebarItem) { oldItem, newItem in
-            // Defer handler work to next run loop to prevent "Publishing changes from
-            // within view updates" errors. selectionState.clearImmediate() is an
-            // @Observable mutation that must not fire synchronously inside the onChange
-            // callback while SwiftUI is mid-render.
+                // Defers the handler to the next run loop. selectionState.clearImmediate() is an
+            // @Observable mutation and must not run during SwiftUI's render, which would produce
+            // "Publishing changes from within view updates" errors.
             //
-            // DispatchQueue.main.async is used rather than Task { @MainActor in }
-            // because onChange fires on the AppKit event thread at User-Interactive QoS.
-            // A bare Task defaults to .default QoS, producing the "Thread running at
-            // User-interactive quality-of-service class waiting on a lower QoS thread"
-            // runtime warning. DispatchQueue.main.async inherits the caller's QoS
-            // automatically, avoiding that inversion — consistent with SelectionState.select()
-            // and RecentsState.selectCategory().
+            // DispatchQueue.main.async is used instead of Task { @MainActor in }. onChange runs at
+            // User-Interactive QoS, and a bare Task defaults to a lower QoS, which triggers a
+            // priority-inversion warning. DispatchQueue.main.async keeps the caller's QoS.
             DispatchQueue.main.async {
                 action(oldItem, newItem)
             }
@@ -855,10 +786,9 @@ private struct SearchFieldModifier: ViewModifier {
 private struct SearchFieldSuggestions: View {
     let searchController: SearchController
     let dataCoordinator: DataCoordinator
-    /// The field holds keyboard focus. The drop-down opens whenever its content goes from
-    /// empty to not, focused or not; clearing the field on leaving search did exactly that
-    /// (it empties the field, which brings the recent searches in), popping the menu up
-    /// over the view just switched to. Recents are therefore offered only while focused.
+    /// The field holds keyboard focus. The drop-down opens whenever its content goes from empty to
+    /// not empty, focused or not. Clearing the field on leaving search would pop the menu over the
+    /// new view, so recent searches are offered only while focused.
     let isFieldFocused: Bool
     @AppStorage(preference: Preferences.showSearchSuggestionsKey)
         private var showSearchSuggestions: Bool
@@ -942,9 +872,8 @@ private struct SearchFieldSuggestions: View {
 
     @ViewBuilder
     private func fieldSuggestions(_ suggestedFields: [SearchField]) -> some View {
-        // Both mode flags are derived from the same searchText and are identical for every
-        // row, so they are resolved once here rather than re-scanning the string twice per
-        // suggested field (up to 40 redundant scans per keystroke).
+        // Both mode flags come from the same searchText, so they are resolved once here
+        // rather than rescanned for each suggested field.
         let isOrMode = searchController.isOrMode
         let isInvertedMode = searchController.isInvertedMode
 

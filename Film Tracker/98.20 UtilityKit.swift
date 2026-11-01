@@ -1,6 +1,7 @@
 // MARK: - UtilityKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
+// Drop-in SwiftUI/AppKit utilities: an NSScrollView-backed scroll view and an async NSOpenPanel presenter.
 //
 // STANDARDIZED SWIFTUI/APPKIT UTILITIES — one file, drop into any project.
 //
@@ -120,8 +121,7 @@
 // — defense in depth alongside any event-shield overlay the consumer adds (Film
 // Tracker's FilmSheet uses a TabEventShield).
 //
-// isHidden is deliberately avoided, despite also achieving full hit-test exclusion
-// (and being the original implementation). Toggling isHidden from true back to
+// isHidden is deliberately avoided, even though it also excludes hit testing. Toggling isHidden from true back to
 // false — which happens on every tab activation, not just once — makes AppKit
 // treat the scroll view as newly appearing, triggering its automatic "flash scroll
 // indicators" behavior regardless of whether content actually scrolled. Consumers
@@ -158,16 +158,11 @@
 //
 // Horizontal swipe recognition (deliberately not in this utility)
 // ───────────────────────────────────────────────────────────────
-// This utility previously included a HorizontalSwipeScrollView subclass
-// overriding scrollWheel(with:) to recognize a horizontal two-finger tab-navigation
-// swipe, plus a `class func isCompatibleWithResponsiveScrolling() -> Bool { true }`
-// meant to keep that override eligible for NSScrollView's responsive scrolling path.
-// Neither survived scrutiny: the compatibility method is an *instance* method on
-// NSClipView, not a class method on NSScrollView, so the declaration never
-// overrode anything and did nothing once `override` was removed to make it
-// compile; and even with that dead code gone, scrolling remained measurably
-// short of a plain NSScrollView's baseline smoothness — the scrollWheel(with:)
-// override itself was the remaining cost.
+// The utility does not subclass the scroll view to override scrollWheel(with:) for horizontal
+// two-finger swipes. That override made scrolling measurably less smooth than a plain
+// NSScrollView. The responsive-scrolling compatibility method such an override would need is an
+// *instance* method on NSClipView, not a class method on NSScrollView, so a class-level
+// declaration would not take effect.
 //
 // A consumer that needs swipe recognition installs a standalone NSEvent local monitor
 // instead (Film Tracker's RightSidebar does). A local monitor intercepts events before
@@ -535,10 +530,9 @@ struct AppKitScrollStyle: Equatable {
 /// outer SwiftUI environment at all (which is why consumers re-inject what they need through
 /// `Modifier`, itself part of the value), so nothing the hosted tree reads has moved. The
 /// hand-off is not free — it invalidates the hosting view's intrinsic size, and the next
-/// constraint pass re-measures the entire hosted tree. Measured by Film Tracker's
-/// `dataviz-measure` harness scenario: leaving the Data Visualizations tab delivered exactly such an
-/// update to the outgoing page, whose full re-measure (~100 ms) then ran in the display
-/// cycle's constraint phase, before the layout phase that removed it.
+/// constraint pass re-measures the entire hosted tree. When a page is leaving, such an update to
+/// the outgoing page would run a full re-measure (about 100 ms, per the `dataviz-measure` harness
+/// scenario) in the constraint phase, before the layout phase that removes it.
 @MainActor
 enum AppKitScrollRevision {
     private static var counter = 0
@@ -607,9 +601,9 @@ struct ShrinkAnchor: Equatable {
 /// A fresh scroll view cannot measure its inset until AppKit has tiled its scroller,
 /// which happens after the hosted content's first layout — and, with an autohiding
 /// scroller, only once that content has proven taller than the viewport. When the person
-/// has "Show scroll bars" set to "Always", every mount of a tall page was therefore laid
-/// out at the full width first and corrected, a scroller's width narrower, a few hundred
-/// milliseconds later: a visible squeeze every time the tab was shown. Content that is
+/// has "Show scroll bars" set to "Always", a tall page is laid out first at the full width
+/// and then corrected once the narrower width is known, which shows as a squeeze each time
+/// the tab appears. Content that is
 /// always taller than the viewport (`alwaysOverflows`) always has the legacy scroller
 /// beside it, so it starts with that scroller's width and the first layout is the final
 /// one. Everything else starts at 0, as before — its height (and so whether a scroller
@@ -699,8 +693,7 @@ private struct AppKitScrollContentWrapper<Content: View, Modifier: ViewModifier>
 /// key through every node of the hosted tree on each layout pass, whether or not
 /// anything in the tree writes it. In Film Tracker exactly one consumer publishes
 /// anchors (the FilmSheet Details tab, for `.openViewingDatesAddPopover`); the other
-/// five — including the two longest trees, the Imports session list and the General
-/// settings tab — publish none, and install no reader either.
+/// consumers publish none and install no reader either.
 ///
 /// `isEnabled` is derived from the proxy's `tracksAnchors` on the representable, so
 /// it is fixed for the lifetime of any given call site. The `if` therefore never
@@ -821,8 +814,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         /// the entire hosted tree, and doing that for a scroll view the person cannot
         /// see is pure cost. It matters most for the tabbed consumers that actually pass
         /// this flag — FilmSheet's three scrollable tabs and RightSidebar's tab plane —
-        /// where leaving a tab otherwise re-measured the whole subtree being hidden, on
-        /// the very frame it stopped being visible.
+        /// where leaving a tab would otherwise re-measure the whole subtree being hidden,
+        /// on the very frame it stopped being visible.
         ///
         /// Nothing is lost by deferring: the buffered tree is applied in updateNSView
         /// before the view is shown again, so a reactivated tab is never displayed
@@ -1028,10 +1021,9 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         //      shortens the document and lifts the content back to its top. On screen,
         //      nothing moves.
         //
-        // An earlier form scrolled the clip view per display frame on an AppKit copy
-        // of the spring. Its motion matched SwiftUI's curve exactly, but its start
-        // could only be estimated, and rows that should have stood still drifted by
-        // up to 9 px; the single clock removes the question.
+        // The hold uses SwiftUI's own clock, so the start of the motion is known rather than
+        // estimated. A per-frame AppKit copy of the spring would have to estimate that start,
+        // and rows that should stand still could drift by several pixels.
 
         /// Minimum-height constraint on the document view while a shrink is held.
         private var shrinkHold: NSLayoutConstraint?
@@ -1163,8 +1155,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // at a different proposal — every time the constraints are refreshed, i.e. on
         // every rootView hand-off and every width change. Neither constrains anything
         // here: the width is pinned to the clip view by the container, and the height is
-        // exactly the content's (see the constraints below). `dataviz-profile` measured
-        // the min-size pass alone at a sixth of a resize step and a third of a mount.
+        // exactly the content's (see the constraints below).
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.wantsLayer = true
@@ -1251,14 +1242,10 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
         // queue: nil makes NotificationCenter invoke the block synchronously on
         // the posting thread, which for NSScrollView's live-scroll notifications
-        // is always the main thread. This matters for correctness, not just for
-        // the two saved allocations per gesture: the previous form hopped through
-        // both OperationQueue.main and a Task, so `isLiveScrolling` did not
-        // actually become true until a later run-loop turn — leaving a window at
-        // the very start of a scroll in which an updateNSView pass could still
-        // push a fresh rootView into the hosting view and compete with in-flight
-        // scroll frames, which is precisely what the flag exists to prevent. The
-        // same applied in reverse at didEndLiveScroll. MainActor.assumeIsolated
+        // is always the main thread. This matters for correctness: `isLiveScrolling`
+        // becomes true immediately, so no updateNSView pass can push a fresh rootView
+        // into the hosting view at the start of a scroll, where it would compete with
+        // in-flight scroll frames. The same applies at didEndLiveScroll. MainActor.assumeIsolated
         // is the sanctioned way to enter main-actor isolation synchronously from
         // a callback AppKit already guarantees is on the main thread.
         let willStart = NotificationCenter.default.addObserver(
@@ -1354,7 +1341,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // Deliberately keyed on an explicit token rather than inferred from the content:
         // only the consumer knows which changes are a new subject and which are an
         // in-place edit of the current one. Consumers that pass no key (the default)
-        // keep the previous behavior exactly — the scroll position is never touched.
+        // keep the existing behavior — the scroll position is never touched.
         //
         // Ordered after the rootView hand-off so the offset applies to the new content,
         // and skipped on the first update (`appliedResetKey` starts nil) because a
@@ -1400,9 +1387,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // does in the display cycle's LAYOUT phase — after the CONSTRAINT phase. In between,
         // the constraint pass still reaches the hosting view, whose graph has been reset by
         // this teardown, and asks it for its intrinsic size: a full rebuild and measurement of
-        // the entire hosted tree for a view about to be discarded. Measured by Film
-        // Tracker's `dataviz-measure` harness scenario: ~110–125 ms of every exit from the Data
-        // Visualizations tab. Removing an already-removed view is a no-op, so SwiftUI's own
+        // the entire hosted tree for a view about to be discarded, about 110–125 ms per exit from
+        // the Data Visualizations tab in the `dataviz-measure` harness scenario. Removing an already-removed view is a no-op, so SwiftUI's own
         // removal of the host afterward is unaffected.
         scrollView.removeFromSuperview()
     }
@@ -1508,11 +1494,9 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 // and returns the person's choice through `async`, so a call site is one `await` instead
 // of a completion handler and a hand-configured panel.
 //
-// Film Tracker's version, with two additions: `treatsFilePackagesAsDirectories` (from
-// Monolingual's copy), and `OpenPanelPresenter.defaults` plus per-call overrides for the
-// four things every copy hard-coded — the initial folder, the size, resizability and
-// movability. Every default is Film Tracker's, so a call site written for any existing
-// copy behaves exactly as it did.
+// This is Film Tracker's version, with `treatsFilePackagesAsDirectories` and
+// `OpenPanelPresenter.defaults` plus per-call overrides for the initial folder, the size,
+// resizability and movability. Every default is Film Tracker's.
 
 /// Project-wide defaults for every panel `OpenPanelPresenter` shows. Set once, at launch,
 /// through `OpenPanelPresenter.defaults`, only where they differ from Film Tracker's.
@@ -1577,9 +1561,8 @@ struct OpenPanelConfiguration {
     var isResizable: Bool?
     var isMovable: Bool?
 
-    // Parameter order is every existing copy's, with the additions where their copies put
-    // them (Monolingual's after `allowedContentTypes`) or at the end, so every existing
-    // call site compiles unchanged.
+    // Parameters are in the order the presenter's earlier copies used, with the additions
+    // placed where those copies put them or at the end, so existing call sites compile unchanged.
     init(
         canChooseFiles: Bool = true,
         canChooseDirectories: Bool = false,

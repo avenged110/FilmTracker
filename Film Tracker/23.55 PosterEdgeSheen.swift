@@ -1,22 +1,17 @@
 // MARK: – PosterEdgeSheen.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// A soft, inward-fading "inner shadow" band along the edges of a poster, so the poster's
-// hard rectangular edge rolls off into the image instead of reading as a razor line -- the
-// same trick app icons use to fake a matte sheen around their rim.
+// A soft, inward-fading "inner shadow" along the poster edges, so the hard edge fades into the image instead of
+// reading as a sharp line.
 //
-// Performance model: the band is NOT drawn per poster. It is rasterized exactly once per
-// (cornerRadius, inset) pair into a small RGBA texture (transparent center, translucent edges)
-// and then stretched over every poster as a 9-slice image, so the corner tiles keep their rounded
-// inner-shadow shape and the straight edges keep their fixed point width no matter what size the
-// poster is. On the grid that is a single extra layer-backed NSView per cell whose layer `contents`
-// is the shared CGImage -- pure GPU compositing, no CPU drawing on reuse, scroll, or live resize. On
-// the list it is one `Image.resizable(capInsets:)` overlay per row drawing  the same kind of shared
-// texture. Nothing about PosterCache or the decoded posters changes.
+// Performance: the band is rasterized once per (cornerRadius, inset) pair into a small RGBA texture, transparent in the
+// center and translucent at the edges. Every poster then stretches that texture as a 9-slice image, so corners keep their
+// rounded shape and the edges keep a fixed point width at any size. On the grid, each cell has one layer-backed view whose
+// `contents` is the shared CGImage, so there is no CPU drawing on reuse, scroll, or resize. On the list, each row gets one
+// `Image.resizable(capInsets:)` overlay that draws the same shared texture. PosterCache is unchanged.
 //
-// Everything about the effect lives in this file; each call site is a one-liner. To remove
-// the effect, delete this file and the two call sites (GalleryTileContentView and
-// PosterThumbnailView).
+// All of the effect lives in this file. Each call site is one line. To remove the effect, delete this file and the two
+// call sites (GalleryTileContentView and PosterThumbnailView).
 
 import AppKit
 import SwiftUI
@@ -25,15 +20,11 @@ import SwiftUI
 enum PosterEdgeSheen {
 
     // MARK: - Tuning
-    /// One profile per poster site. `cornerRadius` must match the clip the site applies so
-    /// the corner fall-off hugs the visible corner. Every site clips with the continuous
-    /// ("squircle") corner curve -- `RoundedRectangle(style: .continuous)` in SwiftUI (whose
-    /// default is `.circular`, so each site passes it explicitly) or
-    /// `CALayer.cornerCurve = .continuous` on the grid -- and the texture is rendered for that
-    /// same curve. `inset` is the shadow's Gaussian blur radius, NOT the visible reach: the
-    /// band fades to nothing at roughly half of it (measured ~3pt for the grid), peaking at
-    /// about `opacity` * 0.4 at the very edge. Scaled down where the grid's reach would
-    /// swallow a small image.
+    /// One profile per poster site. `cornerRadius` must match the site's clip, so the corner fall-off hugs the visible corner.
+    /// Every site clips with the continuous corner curve (`RoundedRectangle(style: .continuous)` in SwiftUI, or
+    /// `CALayer.cornerCurve = .continuous` on the grid), and the texture is rendered to the same curve. `inset` is the shadow's
+    /// blur radius, not the visible reach. The band fades to nothing at about half of it, and peaks at about `opacity` * 0.4 at
+    /// the edge. It is scaled down where the grid's reach would swallow a small image.
     struct Profile: Hashable {
         var cornerRadius: CGFloat
         var inset: CGFloat
@@ -48,8 +39,8 @@ enum PosterEdgeSheen {
         static let header = Profile(cornerRadius: 6, inset: 4, opacity: 0.55)
     }
 
-    /// Texture pixel density. The texture is tiny either way, so 2x is used unconditionally
-    /// and the layer/image scale is declared to match; a 1x screen just downsamples it.
+    /// Texture pixel density. The texture is small, so 2x is always used, and the layer and image scale match it. A 1x screen
+    /// downsamples it.
     private static let textureScale: CGFloat = 2
 
     // MARK: - Shared Textures

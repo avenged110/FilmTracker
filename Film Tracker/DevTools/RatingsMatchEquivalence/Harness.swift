@@ -4,8 +4,8 @@
 //
 // Ratings-import matching equivalence harness — shared model + the two algorithms.
 //
-// `Old` is a faithful transcription of the two hand-written matching passes that
-// lived in "81.00 RatingsImporter.swift" before the consolidation (each pass had
+// `Old` is a faithful transcription of the two hand-written matching passes in
+// "81.00 RatingsImporter.swift" that the consolidation replaced (each pass had
 // its own copy of the exact-dictionary lookup, the fuzzy fallback, and the
 // existing-rating/allowUpdates outcome ladder). `New` is a transcription of the
 // consolidated `findMatch`/`recordMatch` pair that replaced them.
@@ -47,9 +47,9 @@ struct Prefs { let allowUpdates: Bool; let fuzzyTitle: Bool; let fuzzyYear: Bool
 
 // MARK: - Matching primitives (identical to the app; shared by both algorithms)
 
-// FilmComparison.yearsMatch(_:_:allowFuzzy:). The old RatingsImporter had its own
-// private copy of this; the consolidation deleted it in favor of FilmComparison's.
-// Both spellings are reproduced below and cross-checked by main.swift.
+// FilmComparison.yearsMatch(_:_:allowFuzzy:). Ratings matching no longer keeps a
+// private copy of this; `ratingsImporterCopy` reproduces the removed one so main.swift
+// can cross-check it against FilmComparison's.
 enum Years {
     static func filmComparison(_ y1: String, _ y2: String, allowFuzzy: Bool) -> Bool {
         if y1.isEmpty && y2.isEmpty { return true }

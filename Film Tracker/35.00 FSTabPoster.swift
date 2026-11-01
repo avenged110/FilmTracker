@@ -165,11 +165,9 @@ final class FSTabPoster {
             // keeping a dismissed FSTabPoster (and its owner FilmSheet) alive for the
             // duration of the background I/O.
             //
-            // The selection being replaced is remembered so a failed read or decode can put
-            // it back. Clearing to nil instead stranded an earlier successful pick: its
-            // preview and temporary posterUID stayed on screen, but with no pending URL the
-            // save took processPendingPoster's no-change branch and wrote that temporary UID
-            // — one with no file behind it — as the film's poster.
+            // The replaced selection is kept so a failed read or decode can restore it. Clearing it to nil would
+            // leave a temporary posterUID with no pending URL, and the save would write that UID, which has no file
+            // behind it, as the film's poster.
             let previousPendingURL = self.pendingPosterURL
             self.pendingPosterURL = selectedURL
 
@@ -313,16 +311,9 @@ final class FSTabPoster {
                 // Confirm the file is on disk before caching. Caching a UID whose write
                 // silently failed would leave a stale entry that can never be displayed.
                 //
-                // A single check, not a poll. This used to loop on `fileExists` for up to
-                // five wall-clock seconds, sleeping 50 ms between attempts — but
-                // PosterConverter writes with a synchronous `Data.write(to:options:.atomic)`
-                // and only calls the success completion AFTER that write returns, so the
-                // file is always present on the first look. The loop, its timeout branch,
-                // and the cancellation plumbing threaded through it were unreachable; worse,
-                // the imagined five-second window was cited as justification elsewhere (see
-                // FilmSheet.cancel(), whose comment has been corrected). A negative result
-                // here now means the write genuinely did not produce a file, which is worth
-                // logging rather than waiting on.
+                // A single existence check. PosterConverter writes synchronously and calls its completion only after
+                // the write returns, so the file is present on the first look. A negative result means the write did
+                // not produce a file, and it is logged.
                 if !newUID.isEmpty, let folderURL = Preferences.posterImagesFolderURL {
                     let fileURL = folderURL.appendingPathComponent("\(newUID).jpg")
                     if FileManager.default.fileExists(atPath: fileURL.path(percentEncoded: false)) {
@@ -438,11 +429,8 @@ struct FSTabPosterView: View {
                     Button {
                         viewModel.deletePoster()
                     } label: {
-                        // Red mimics the system's .destructive role while enabled. When
-                        // disabled (nothing to delete), the label falls back to .secondary
-                        // at reduced opacity — plain .secondary alone still read as too
-                        // prominent for a disabled control, and hierarchical .tertiary
-                        // didn't match a normal disabled button label either.
+                        // Red mirrors the system's destructive role while enabled. Disabled, with nothing to delete, the
+                        // label falls back to dimmed secondary.
                         Text("Delete Poster")
                             .foregroundStyle(viewModel.cannotDeletePoster
                                 ? Color.secondary.opacity(0.5) : Color.red)

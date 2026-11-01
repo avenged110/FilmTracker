@@ -97,7 +97,8 @@ extension DebugHarness {
 
     /// Makes `window` key, asking again every 100 ms for up to 3 s. One request can lose:
     /// activation is cooperative, and mid-suite another scenario's window may still be
-    /// settling. Asked once, the Return-key and tab-cycle checks failed intermittently.
+    /// settling. The Return-key and tab-cycle checks depend on key status, so the request is
+    /// repeated rather than made once.
     static func makeKey(_ window: NSWindow) async -> Bool {
         for _ in 0..<30 where !window.isKeyWindow {
             window.makeKeyAndOrderFront(nil)
@@ -245,8 +246,7 @@ extension DebugHarness {
             r.check("found-controls", false, "carousel \(String(describing: carousel)), checkbox \(String(describing: checkbox)), notes \(String(describing: notes)), flipped \(host.isFlipped)")
             return r
         }
-        // From card-perf's frames: the checkbox's center sits 75 pt below the card's top (76
-        // before the Stepper chrome lost 1 pt of padding a side, which shortened its row), and
+        // From card-perf's frames: the checkbox's center sits 75 pt below the card's top, and
         // the card ends 16 pt (its inset) below the Notes field.
         let checkboxCenterFromCardTop: CGFloat = 75
         let cardTop = checkbox.midY - checkboxCenterFromCardTop
@@ -300,8 +300,9 @@ extension DebugHarness {
             log("card-perf: window ordered in at \(window.frame), onScreen=\(window.isOnActiveSpace)")
         }
 
-        // Ordered on screen? No — but the window has to exist for AppKit to install the
-        // platform views, and layoutSubtreeIfNeeded runs the hosting view's update pass.
+        // The window is ordered in only with -FTDebugCardPerfVisible. It must exist either way,
+        // so AppKit installs the platform views, and layoutSubtreeIfNeeded runs the hosting
+        // view's update pass.
         typealias Host = NSHostingView<CardSlot>
 
         var mount: [Sample] = [], swap: [Sample] = [], swapSameFormat: [Sample] = []
@@ -1327,9 +1328,9 @@ extension DebugHarness {
 // have ink below that, so the extra lines were drawn rather than clipped. A row is compared
 // by its ink extent: the rows that hold ink must be the same rows (any vertical move, even
 // one device pixel, changes them), and each row's leftmost and rightmost ink may differ by
-// one pixel. A wrapped message's Text is the full message width, and its centered first
-// line lands on a different subpixel from a one-line Text's (measured: half a point left,
-// rows identical), which changes the antialiasing but not the position.
+// one pixel. A wrapped message's Text is the full message width, so its centered first line
+// lands on a subpixel position that differs from a one-line Text's. That changes the
+// antialiasing but not the position.
 //
 // `import-details-segments` (in `all`): hosts the real import Details popover (28_00) for a
 // session with additions and updates only, and reads its NSSegmentedControl back: All,
@@ -1678,7 +1679,7 @@ extension DebugHarness {
         r.check("child-click-from-elsewhere", views.activeView == .smartList(.purchased4K) && state.selected == .purchased4K
                     && appState.selectedSidebarItem == .smartList(.purchased) && highlighted(outline) == "Purchased 4K", snapshot())
 
-        // The parent row from another view resets the family, as before.
+        // The parent row from another view resets the family.
         appState.navigate(to: .libraryItem(.allFilms))
         await settle(400)
         _ = await click("Purchased")
@@ -1706,9 +1707,9 @@ extension DebugHarness {
 // asked how the fade went — it is the thing being measured — but the window server sees every
 // alpha step the menu's tracking loop commits.
 //
-// Run twice in one process: once with SwiftUI's `Picker(.menu)` (the control before
-// 2026-09-23, restored through `debugForcesSwiftUISubcategoryMenuPicker`) and once with the
-// shipping NSPopUpButton. A leg's fade is healthy when it steps down to zero without a gap
+// Run twice in one process: once with SwiftUI's `Picker(.menu)`, which the flag
+// `debugForcesSwiftUISubcategoryMenuPicker` restores, and once with the shipping
+// NSPopUpButton. A leg's fade is healthy when it steps down to zero without a gap
 // longer than a few frames; the SwiftUI leg is expected to report the selection landing
 // mid-fade and is recorded as metrics, while the checks gate only the shipping control.
 extension DebugHarness {
@@ -1894,8 +1895,8 @@ extension DebugHarness {
                     lastChange = s.time; lastAlpha = a; distinct += 1
                 }
             }
-            // A window pulled before its alpha reached zero stalled from its last step until
-            // then; one ordered out after reaching zero (the normal case, ~40 ms later) did not.
+            // A window pulled before its alpha reached zero stalls from its last step until it
+            // is removed. One ordered out after reaching zero, the normal case, does not stall.
             if let vanish, zero == nil || vanish.time < zero!.time {
                 reading.longestStall = max(reading.longestStall, vanish.time - lastChange)
                 reading.lastAlphaBeforeVanish = samples.last { $0.time < vanish.time && $0.alpha != nil }?.alpha ?? 1
@@ -2528,9 +2529,9 @@ extension DebugHarness {
         ReportsState.shared.selectCategory(.dataVisualizations, persist: false, immediate: true)
         await settle(3000)
         shot("1-top")
-        // A left-opening popover's arrow tip (the window's trailing edge, less its 1 pt
-        // margin) on the content's leading edge — not 20 pt short of it, as when the
-        // hosting controller's default size settled after the popover was shown.
+        // A left-opening popover's arrow tip must sit on the content's leading edge, which is
+        // the window's trailing edge less its 1 pt margin. A gap of about 20 pt means the
+        // hosting controller's size settled late.
         if let page = views(window.contentView!).compactMap({ $0 as? DVCanvasPageView }).first,
            let (popWindow, anchor) = page.debugShowFirstPopover() {
             await settle(800)
@@ -2659,8 +2660,8 @@ extension DebugHarness {
 // MARK: - releases-settle
 //
 // The Releases tab's deferred work against a save, and the load repairs a save must carry.
-// Headless on purpose: every behavior checked here now lives in FSTabReleases, and proving it
-// runs with NO card mounted is the point of moving the independence cascade off the view.
+// Headless on purpose. Every behavior checked here lives in FSTabReleases, and the checks prove
+// it runs with no card mounted. The independence cascade belongs to the view model, not the card.
 //
 //   • delete-settle      — a save mid-fly-up deletes the release, and the fly-up's own
 //                          completion afterwards changes nothing.
@@ -2679,10 +2680,10 @@ extension DebugHarness {
     /// A combo child whose every user-editable field matches a freshly created one, so
     /// retyping its parent needs no confirmation.
     ///
-    /// The format-default fields are read from `ReleaseFormat.newReleaseDefaults` — the same
-    /// source `FSTabReleases.makeComboChild` applies — rather than restated. Restated, they
-    /// drifted: Blu-ray gained default video format and included versions, and a "pristine"
-    /// child missing both counted as edited, so the reduction prompted instead of deleting.
+    /// The format-default fields are read from `ReleaseFormat.newReleaseDefaults`, the same
+    /// source `FSTabReleases.makeComboChild` applies, rather than restated here. A restated copy
+    /// would drift: a pristine child missing a default such as video format or included
+    /// versions would count as edited, and the reduction would prompt instead of deleting.
     private static func pristineChildSnapshot(id: UUID, parent: UUID, sortOrder: Int) -> ReleaseSnapshot {
         let defaults = ReleaseFormat.newReleaseDefaults(for: ReleaseFormat.bluRay.rawValue)
         return ReleaseSnapshot(id: id, format: ReleaseFormat.bluRay.rawValue,
@@ -2865,7 +2866,7 @@ extension DebugHarness {
 //   • list-settle       — a list commit still held for its popover's close animation
 //                         lands in a save that starts inside the hold, exactly once; one
 //                         that stopped at its duplicate prompt blocks the save instead;
-//                         and an unsettled commit still runs on its own timer, as before.
+//                         and an unsettled commit still runs on its own timer.
 extension DebugHarness {
 
     static func filmSheetSaveScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -2981,7 +2982,7 @@ extension DebugHarness {
             // No leftovers from anything earlier in the run.
             ListPopoverDismissal.settlePending()
 
-            // Timer path unchanged: a commit nobody settles runs by itself, once.
+            // Timer path: a commit nobody settles runs by itself, once.
             var timerRuns = 0
             ListPopoverDismissal.afterClose { timerRuns += 1 }
             r.check("list-settle/held-until-close", timerRuns == 0 && ListPopoverDismissal.pendingCount == 1,
@@ -3345,8 +3346,8 @@ extension DebugHarness {
 // and wraps.
 // report-gutter-deselect: a click in a ReportTable's inset margin clears the selection.
 // jump-menu-width (opt-in, not in `all`): the Releases jump menu keeps one width with and
-// without the cart glyph. Its width checks have always passed, but about one run in four
-// never sees a purchased row, so its precondition check fails intermittently.
+// without the cart glyph. The width checks need a purchased row, so the precondition check
+// fails when the run has none.
 // All four need an unlocked screen (a key window).
 extension DebugHarness {
 
@@ -3514,10 +3515,10 @@ extension DebugHarness {
     }
 
     // alert-collision: requests that arrive while an AlertHostView alert is open. Each waits
-    // its turn in arrival order and acts on its OWN payload — a second request can neither
-    // retarget the open alert nor lose itself (both happened when every alert was a flag
-    // over shared payload fields); the menu stays locked across the hand-off between
-    // them; and a burst of one notice is a single alert carrying the latest detail.
+    // its turn in arrival order and acts on its OWN payload. A second request must neither
+    // retarget the open alert nor lose itself, so each alert carries its own payload rather
+    // than sharing fields. The menu stays locked across the hand-off between them, and a burst
+    // of one notice is a single alert carrying the latest detail.
     static func alertCollisionScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "alert-collision")
         let a = makeSnapshot(name: "Collision A")
@@ -3643,8 +3644,8 @@ extension DebugHarness {
         await clearAll()
 
         // 6. A later failure while the first is ON SCREEN does not stack a second alert.
-        // (The open alert keeps the text it was drawn with; SwiftUI does not redraw an
-        // open alert, and never did here.)
+        // The open alert keeps the text it was drawn with, because SwiftUI does not redraw
+        // an open alert.
         AppEventBus.shared.sendAlert(.showPersistenceFailure(error: "early fault"))
         await settle()
         AppEventBus.shared.sendAlert(.showPersistenceFailure(error: "later fault"))

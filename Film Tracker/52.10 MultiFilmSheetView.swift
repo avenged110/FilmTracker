@@ -2,10 +2,10 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // The MultiFilmSheet's view: a 600×600 sheet laid out as the FilmSheet is — title strip,
-// tab bar (CustomTabs, 94_00), a fixed band saying what the sheet does, the active tab
+// tab bar (CustomTabs, 94.00), a fixed band saying what the sheet does, the active tab
 // (Details: the fields, scrolling beneath the band; Selected Films: the films, in the list
 // gallery's table), and the Cancel / Update gutter. The fields are the FilmSheet's own
-// controls (FSSharedFields, 30_25), each opening to what the films share.
+// controls (FSSharedFields, 30.25), each opening to what the films share.
 
 import SwiftUI
 import AppKit
@@ -42,7 +42,7 @@ struct MultiFilmSheetView: View {
     static let colSpacing: CGFloat = 16
     static let rowSpacing: CGFloat = 10
     /// The fields' side margin — the FilmSheet tabs'.
-    static let sideMargin: CGFloat = 26
+    static let sideMargin = Preferences.sheetContentMargin
     /// The change marker's slot at the end of every row, kept whether or not the marker
     /// shows so nothing moves when it appears: the Details tab's Name row's help button
     /// slot (22 pt, 6 pt from the field).

@@ -160,8 +160,8 @@ for perm in [[a, b, c], [c, b, a], [b, a, c], [a, c, b], [b, c, a], [c, a, b]] {
 }
 
 // ── 4. The deleted year-matching copy ────────────────────────────────────────
-// The consolidation deleted RatingsImporter's private yearsMatch in favor of
-// FilmComparison's. They are only interchangeable if they agree everywhere.
+// The removed RatingsImporter yearsMatch copy must agree with FilmComparison's
+// everywhere, or the consolidation would change matching behavior.
 print("4. yearsMatch: RatingsImporter's deleted copy vs FilmComparison's")
 let yearInputs = ["", " ", "0", "1899", "1999", "2000", "2001", "2024", "n/a", "19999", "-1", "2 0 2 0"]
 var yearChecks = 0

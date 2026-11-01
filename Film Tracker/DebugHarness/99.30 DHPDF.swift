@@ -188,8 +188,8 @@ extension DebugHarness {
         }
 
         try? await PDFTableRenderer.render(section, into: context, geometry: LibraryTableLayout.standard.geometry)
-        // A second section at the PORTRAIT geometry. The assembled export no longer mixes
-        // orientations, but the renderer's per-page media box still must handle it — so it
+        // A second section at the PORTRAIT geometry. The assembled export keeps one
+        // orientation, but the renderer's per-page media box must still handle a mix, so it
         // is exercised here rather than assumed.
         try? await PDFTableRenderer.render(
             PDFTableSection(title: "Portrait Probe",
@@ -307,9 +307,9 @@ extension DebugHarness {
 
                 let text = (0..<assembled.pageCount)
                     .compactMap { assembled.page(at: $0)?.string }.joined()
-                // Two report sheets remain, and both must be present: Data Visualizations
-                // always has something to say about a non-empty library, and the corpus is
-                // ranked above so the Hall of Fame does too.
+                // Two report sheets follow the library table, and both must be present: Data
+                // Visualizations always has something to say about a non-empty library, and the
+                // corpus is ranked above so the Hall of Fame does too.
                 r.check("export-includes-hall-of-fame",
                         text.contains(ReportsCategory.hallOfFame.displayName),
                         "the Hall of Fame sheet is missing from the assembled document")
@@ -320,12 +320,12 @@ extension DebugHarness {
                         text.contains(LibraryTableLayout.standard.sectionTitle),
                         "the library table's own title is missing")
 
-                // The three superseded sheets must be GONE, not merely skipped for want of
-                // data — the corpus above has priced purchases and would have produced a
-                // tracker sheet under the old section list. Asserted by their headings,
-                // because that is what a reader would see if one came back — each page's
-                // first line, not its whole text, since the rendered Data Visualizations
-                // page names the Release Wishlist report in a card's caption.
+                // The cost-tracker, price-tracker and wishlist sheets must be absent, not merely
+                // skipped for want of data: the corpus above has priced purchases, so a tracker
+                // sheet would print if one were in the section list. Asserted by their headings,
+                // because that is what a reader would see — each page's first line, not its whole
+                // text, since the rendered Data Visualizations page names the Release Wishlist
+                // report in a card's caption.
                 let headings = (0..<assembled.pageCount).compactMap {
                     assembled.page(at: $0)?.string?.split(separator: "\n").first.map(String.init)
                 }
@@ -670,19 +670,16 @@ extension DebugHarness {
     /// Pins the population each Data Visualizations percentage is a share OF, and the
     /// determinism of the tracker orderings the PDF prints.
     ///
-    /// Every check here failed before the corresponding fix. Three of the statistics
-    /// divided a count of one thing by a count of another:
+    /// Each statistic divides its count by the population that count is drawn from:
     ///
     ///   • the audio-channel breakdown counts a combo pack's child disc (it has its own
-    ///     mix) but was divided by `totalPurchasedReleases`, which counts top-level
-    ///     releases only — so the shares could sum past 100%;
-    ///   • "Missing artwork" counts FILMS but was divided by a count of RELEASES;
-    ///   • "Lossy Blu-ray audio" counts FILMS but was divided by a count of top-level
-    ///     4K/Blu-ray RELEASES, which is not even a superset of its numerator.
+    ///     mix), so its denominator counts that child too, not only top-level releases;
+    ///   • "Missing artwork" counts FILMS, so it divides by a count of films;
+    ///   • "Lossy Blu-ray audio" counts FILMS, so it divides by films holding a 4K or
+    ///     Blu-ray release, which is a superset of its numerator.
     ///
-    /// The corpus is built so each of those three denominators is a DIFFERENT number from
-    /// the one previously used — a corpus where they coincide would pass either way and
-    /// prove nothing.
+    /// The corpus makes each of those denominators differ from the wrong candidate; a corpus
+    /// where they coincide would pass either way and prove nothing.
     @MainActor
     private static func reportsStatisticsScenario(
         coordinator: DataCoordinator
@@ -691,7 +688,7 @@ extension DebugHarness {
 
         // A 4K combo pack: one purchase, two discs, each with its own audio mix. The child
         // carries the lossy track, so it is the child alone that puts this film in the
-        // lossy tally — the case the old release-counting denominator could not contain.
+        // lossy tally — the case a release-counting denominator could not contain.
         let comboParentID = UUID()
         let comboFilm = makeSnapshot(name: "Stats Combo", releases: [
             ReleaseSnapshot(id: comboParentID, purchased: true,
@@ -719,7 +716,7 @@ extension DebugHarness {
             // Carries a channel tag of its own, which is what makes the audio-tagged
             // population (4) differ from the purchased top-level population (3). Without
             // that divergence the two denominators coincide and the check below would pass
-            // against the old, wrong one.
+            // against a wrong one.
             ReleaseSnapshot(purchased: true, format: ReleaseFormat.dvd.rawValue,
                             audioFormat: ReleaseAudioFormat.dolbyDigital,
                             audioChannels: ReleaseAudioChannels.stereo20,
@@ -778,8 +775,8 @@ extension DebugHarness {
                 "\(stats.missingReleaseArtwork) film(s), expected 1")
 
         // The combo's CHILD Blu-ray is the lossy one, so the film counts. Two films have a
-        // 4K or Blu-ray release. The old denominator counted top-level 4K/BD releases — 3
-        // here — and would have reported 33%.
+        // 4K or Blu-ray release. A release-counting denominator would count the top-level
+        // 4K/BD releases, 3 here, and would report 33%.
         r.check("lossy-audio-over-films-with-hd-discs",
                 stats.lossyBDAudio == 1 && stats.lossyBDAudioPercent == 33,
                 "\(stats.lossyBDAudio) film(s), \(stats.lossyBDAudioPercent)% "
@@ -797,8 +794,7 @@ extension DebugHarness {
         // recorded and must not drag the average down to $15, which is what averaging over
         // every purchased release rather than over `cost > 0` would produce. So the average
         // is $20, and the $20 and $10 discs are the two at or below it. This is the single
-        // number the display string and the at-or-below column both now come from; they
-        // were computed separately, from two identical filters, before.
+        // number the display string and the at-or-below column both come from.
         r.check("average-cost-single-definition", stats.averageCost == "$20.00",
                 "averageCost = \(stats.averageCost), expected $20.00")
         r.check("at-or-below-average-uses-that-average",
@@ -838,12 +834,8 @@ extension DebugHarness {
         // particular order. Two of the three purchases here share a purchase date, so only
         // the title tiebreak can make the resulting order the same twice.
         //
-        // This used to drive `LibraryPDFExporter.exportData(for: .costTracker, …)`, because
-        // the property under test was that the EXPORT applied a total order. That sheet is
-        // gone — the Disc-based Releases section supersedes it — so the check now drives
-        // the rule where it still ships: the pair `ReportTrackers` calls to fill the
-        // on-screen tab. The rule is the same one and the corpus still pins it; what is no
-        // longer covered, because it no longer exists, is a PDF that depended on it.
+        // The check drives the pair `ReportTrackers` calls to fill the on-screen tab, which is
+        // where this rule ships. The PDF export does not print a cost sheet.
         func sortedCostRows(_ films: [FilmSnapshot]) -> [ReleaseData] {
             ReleaseData.sorted(ReleaseData.costTrackerRows(films: films),
                                using: ReleaseData.costTrackerDefaultSort)
@@ -868,8 +860,7 @@ extension DebugHarness {
                 "rows: \(forward.map(\.filmTitle))")
 
         // The tracker date columns read the spelling the Releases tab actually writes
-        // (`yyyy.MM.dd`), not only the legacy dash form — they used to print the stored
-        // dot string raw.
+        // (`yyyy.MM.dd`), not only the legacy dash form.
         let trackerRow = { (purchase: String, lowest: String) in
             ReleaseData(releaseID: UUID(), filmID: UUID(), filmTitle: "Row", filmSortName: "",
                         cost: 1, amountSpent: 1, lowestPrice: 1, purchaseDate: purchase,

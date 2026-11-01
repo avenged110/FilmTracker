@@ -177,8 +177,7 @@ class UpNextSlotView: NSView {
             .withSymbolConfiguration(config)
     }
 
-    /// Hover changes only the glyph's color. Pressing (and a drop) changes the fill, which
-    /// is what hover used to do.
+    /// Hover changes only the glyph's color. Pressing and dropping change the fill.
     private var glyphColor: NSColor {
         isDropTarget ? .controlAccentColor : (isHovered ? .secondaryLabelColor : .tertiaryLabelColor)
     }
@@ -225,12 +224,10 @@ class UpNextSlotView: NSView {
     /// free (UpNextSlots.isOpen). Subclasses add their own container's check.
     ///
     /// Every interaction goes through this, because the view's existence alone proves
-    /// nothing. A collection view keeps a decoration it has stopped laying out — hidden in
-    /// its reuse queue, or fading out under a film that has taken its cell — and the
-    /// override of `hitTest` below bypasses NSView's own refusal to hit a hidden view. With
-    /// seven films in "Up Next" and one slot after them, adding an eighth left that slot's
-    /// view over the new film's cell: the film drew, but a click on it reached the stale
-    /// slot and opened the slot sheet.
+    /// nothing. A collection view can keep a decoration it has stopped laying out (hidden in
+    /// its reuse queue, or fading out under a film that has taken its cell), and the
+    /// override of `hitTest` below bypasses NSView's refusal to hit a hidden view. Without this
+    /// check, a stale slot view could take a click meant for the film drawn over it.
     ///
     /// Not gated on `window`: AppKit reads that property unsafely (an unowned reference), and
     /// a view outside any window is never hit-tested or offered a drop in the first place.

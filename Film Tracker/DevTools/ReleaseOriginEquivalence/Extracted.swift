@@ -3,13 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /// Every country a release can be from, and everything the app says about each one.
 ///
-/// THE single source of truth for national origin. Before this existed the same list was
-/// written out three times — as the card's picker menu (`ReleaseCard`), as the sidebar's
-/// demonym switch (`RSBHelpers`), and as the PDF's import-note switch (`PDFReport`) —
-/// plus a fourth partial copy as the Region A set below, plus the literal "United States"
-/// spelled at half a dozen "is this an import?" sites. Adding a country meant finding all
-/// of them. Now a country is one row here, and the picker order, both display forms, the
-/// region rule, and the domestic test all derive from it.
+/// THE single source of truth for national origin. A country is one row here, and the
+/// picker order, both display forms, the region rule, and the domestic test all derive
+/// from it, so adding a country is a single edit.
 ///
 /// - `name`: the stored `nationalOrigin` value, verbatim. Persisted as-is and never
 ///   validated on read, so the picker tolerates a stored value not in this list (see
@@ -54,8 +50,8 @@ struct ReleaseOrigin: Sendable {
     static func lookup(_ name: String) -> ReleaseOrigin? { byName[name] }
 
     /// True for a release from anywhere but `domestic`. An EMPTY origin is the unset
-    /// state, not a foreign one, and says nothing either way — every consumer of this
-    /// question had written that clause out by hand, identically.
+    /// state, not a foreign one, and says nothing either way. Every consumer uses this
+    /// clause rather than writing it out.
     static func isImport(_ name: String) -> Bool {
         !name.isEmpty && name != domestic
     }

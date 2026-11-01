@@ -3,8 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Root content view that displays the film grid or list for the active view (all films,
 // user list, smart list, recents, etc.). ViewStateManager, SearchController, and PosterCache
-// are @Observable singletons accessed directly; per-property tracking replaces the
-// narrow ObservableObject proxy classes that were previously needed.
+// are @Observable singletons, so views track only the properties they read.
 
 import SwiftUI
 import Combine
@@ -17,27 +16,20 @@ struct GalleryView: View, Loggable {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
 
-    /// The sidebar item this instance was mounted for. MainContentSwitcher remounts
-    /// GalleryView on every sidebar change, and SwiftUI gives the OUTGOING instance one
-    /// more update pass, with the destination's state already in place, before removing
-    /// it. See isOutgoing.
+    /// The sidebar item this instance was mounted for. SwiftUI gives the outgoing instance one more
+    /// update pass after a sidebar change, so isOutgoing skips rendering on that pass.
     let sidebarItem: SidebarItem
 
-    /// The list currently being viewed, or nil in any non-list view. Still needed by the
-    /// loading/placeholder logic below; the companion cachedListName it used to carry is
-    /// gone, because the only consumer of a list *name* here — GalleryTitleBar's removal
-    /// commands — now resolves the active list from appState.selectedSidebarItem via
-    /// FilmRemoval instead of receiving a one-render-stale copy of it.
+    /// The list being viewed, or nil in a non-list view. Used by the loading and placeholder logic.
+    /// Removal commands resolve the active list through FilmRemoval instead.
     @State private var cachedListID: UUID?
     @State private var viewID = UUID()
     @State private var hasInitialized = false
     @State private var hasLoadedInitialView = false  // Prevents duplicate loads
     @State private var scrollRequest: FilmScrollRequest?
     
-    /// Holds Combine subscriptions for gallery event handlers. Plain reference type — not an
-    /// ObservableObject — because it has no @Published properties. Using @StateObject for a
-    /// class with zero published state causes SwiftUI to register observation bookkeeping
-    /// that can never fire, wasting memory and CPU on every body evaluation.
+    /// Holds the Combine subscriptions for gallery event handlers. It is a plain reference type with
+    /// no published state, so it is not an ObservableObject.
     @State private var eventHandler = SubscriptionHolder()
 
     private var viewStateManager: ViewStateManager { ViewStateManager.shared }
@@ -50,21 +42,13 @@ struct GalleryView: View, Loggable {
             .transaction { $0.animation = nil; $0.disablesAnimations = true }
             
             ZStack {
-                // The state of the films on screen, which lags activeState only across a Film
-                // Queue tab switch — see ViewStateManager.displayedGalleryState.
+                // The films on screen. This lags activeState only during a Film Queue tab switch (see
+                // ViewStateManager.displayedGalleryState).
                 let shown = viewStateManager.displayedGalleryState(
                     loadedQueueFilter: dataCoordinator.loadedFilmQueueFilter)
                 if !isOutgoing && !dataCoordinator.films.isEmpty && PosterCache.shared.isReady && !shouldShowLoading {
-                    // showSectionDividers is read HERE, from `shown`, rather than inside
-                    // either style. Not because the styles could not observe it: SwiftUI
-                    // does track @Observable reads made in updateNSView, and re-runs it when
-                    // one changes (the reason SelectionState.untrackedSelectedFilmIDs
-                    // exists). It is because `shown` is the state of the films on screen,
-                    // which differs from activeState across a Film Queue tab switch, and the
-                    // style chosen just below comes from it: taking the dividers flag from
-                    // the same value keeps the two from ever describing different tabs.
-                    // Passed down, a change is an ordinary value change on the
-                    // representable, which schedules the update pass that applies it.
+                    // showSectionDividers is read here, from `shown`, so the style and the dividers always come from
+                    // the same tab. Passing it down makes a change an ordinary value change on the representable.
                     if shown.isListView {
                         GalleryListView(activeViewID: viewStateManager.activeView,
                                         scrollRequest: scrollRequest,
@@ -84,9 +68,7 @@ struct GalleryView: View, Loggable {
                         .onAppear { LaunchReveal.shared.placeholderAppeared() }
                 }
                 
-                // At launch the spinner belongs to LaunchReveal: absent on a warm launch, and
-                // on a cold one an AppKit overlay that stays mounted to fade out under the
-                // gallery's fade-in. After the reveal, the ordinary spinner below.
+                // At launch LaunchReveal owns the spinner. Afterward the ordinary spinner below takes over.
                 if LaunchReveal.shared.isActive {
                     if LaunchReveal.shared.showsSpinner {
                         LaunchSpinnerOverlay(dismissing: !shouldShowLoading)
@@ -102,21 +84,9 @@ struct GalleryView: View, Loggable {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .transaction { $0.animation = nil; $0.disablesAnimations = true }
-        // NOTE: No .focusedSceneValue(\.selectedFilmIDs / \.selectedFilmID) here — deliberately.
-        //
-        // FilmTrackerApp already publishes both values scene-wide at the root (see
-        // 10_00_FilmTrackerApp.swift, WindowGroup content), unconditionally and with the
-        // identical values, which is what keeps MenuBar's @FocusedValue enablement working
-        // in every view — including Reports and Imports, where no GalleryView is mounted.
-        // Publishing them here as well was purely redundant, and it carried a real cost:
-        // reading selectionState.selectedFilmIDs in this body subscribed the ENTIRE
-        // GalleryView body to every selection change, so each gallery click re-evaluated
-        // the title bar and re-ran GallerySubview.updateNSView (including its O(N)
-        // film-order scan and selection re-sync) for no benefit — the Coordinator's own
-        // withObservationTracking loop already syncs NSCollectionView selection directly.
-        // With the duplicate publishers removed, this body no longer observes selection at
-        // all, and selection changes flow only through the paths that need them
-        // (Coordinator observation loop, RightSidebar, StatusBar, MenuBar via the root).
+        // No .focusedSceneValue for selectedFilmIDs or selectedFilmID here. FilmTrackerApp publishes both
+        // at the scene root, which keeps MenuBar's @FocusedValue working in every view. Reading selection in
+        // this body would also re-evaluate the whole gallery on every click.
         .onAppear {
             initializeIfNeeded()
             setupEventHandlersIfNeeded()
@@ -135,46 +105,19 @@ struct GalleryView: View, Loggable {
     
     // MARK: - Computed Properties
 
-    /// True for the one update pass this instance receives after the sidebar has moved to
-    /// another item, just before SwiftUI removes it. The destination's films, active view
-    /// and grid/list style are already in place by then (AppState.navigate switches before
-    /// it flips), so rendering the gallery on that pass is pure waste: it reloaded the
-    /// outgoing grid with the destination's films, and when the two views differ in
-    /// style it built the destination's style in this dying instance, alongside the one
-    /// the fresh instance builds. Dropping the gallery instead dismantles it, which its
-    /// removal was about to do anyway. Its dismantleNSView still banks the outgoing scroll
-    /// origin under the outgoing view, because no update pass has moved its currentViewID.
+    /// True for the one update pass after the sidebar has moved to another item, just before SwiftUI
+    /// removes this instance. The destination's state is already in place, so this pass renders nothing.
+    /// dismantleNSView still saves the outgoing scroll origin.
     private var isOutgoing: Bool {
         appState.selectedSidebarItem != sidebarItem
     }
 
-    /// The subtitle provider for the view currently being rendered.
+    /// The subtitle provider for the view being rendered. It is derived rather than stored. A cached
+    /// @State rebuilt in onChange ran after the body that read it, so the first render of a new view
+    /// used the previous view's provider and showed stale date subtitles.
     ///
-    /// Derived, not stored. It was previously an `@State` cache rebuilt from
-    /// `.onChange(of: viewStateManager.activeView)` and `.onChange(of:
-    /// appState.selectedSidebarItem)`, and that is what produced stale date
-    /// subtitles in Recents: `onChange` runs AFTER the body evaluation that
-    /// observed the new value, so the first render of a newly-active view
-    /// necessarily carried the PREVIOUS view's provider. `GallerySubview` sees a
-    /// changed `activeViewID` on that same pass, judges it a view switch, and
-    /// reloads — configuring cells with the outgoing category's dates. The
-    /// corrected provider arrived one pass later, by which point the reload had
-    /// already happened and, if the incoming film set matched on the count and
-    /// endpoint heuristics, no second reload followed to replace the text. The
-    /// result was a subtitle that neither matched the grid's ordering nor the
-    /// value in `MetadataCache` — and that a tab round-trip fixed, because the
-    /// return trip's first pass finally had the right provider in hand.
-    ///
-    /// Computing it in the body removes the lag entirely: the provider is always
-    /// built from the very `ViewIdentifier` being handed to `GallerySubview` in
-    /// the same expression, so the two cannot disagree by construction. There is
-    /// no longer any state to keep in sync, and no key to guard it with.
-    ///
-    /// Allocating a small struct with a captured `DateType` per body evaluation
-    /// is not a cost worth caching against — `GallerySubview` is an
-    /// `NSViewRepresentable` whose `updateNSView` already runs on every parent
-    /// render regardless, and the closure is invoked only during actual cell
-    /// configuration.
+    /// Building it in the body keeps it in step with the ViewIdentifier passed to GallerySubview. The
+    /// allocation is cheap, and the closure runs only during cell configuration.
     private var subtitleProvider: GallerySubtitleProvider? {
         guard case .libraryItem(.recents) = appState.selectedSidebarItem,
               let category = viewStateManager.activeView.recentsCategory else { return nil }
@@ -188,34 +131,23 @@ struct GalleryView: View, Loggable {
     private var shouldShowPlaceholder: Bool {
         guard dataCoordinator.isInitialized, PosterCache.shared.isReady, dataCoordinator.films.isEmpty else { return false }
 
-        // The spinner and a placeholder are mutually exclusive: while the view is
-        // genuinely awaiting films, it says so with the spinner alone. Without this guard a
-        // user list whose films hadn't loaded yet drew "List is Empty" under the spinner,
-        // because cachedListID alone qualifies for a placeholder below.
+        // The spinner and the placeholder are mutually exclusive. While films are still loading, only the
+        // spinner shows. Otherwise an empty user list would show "List is Empty" under it.
         guard !shouldShowLoading else { return false }
 
-        // Recents, smart lists, the Film Queue, and Unwatched always show a
-        // placeholder when empty — see ViewIdentifier.treatsEmptyAsValidState.
+        // Recents, smart lists, the Film Queue, and Unwatched show a placeholder when empty. See
+        // ViewIdentifier.treatsEmptyAsValidState.
         if viewStateManager.activeView.treatsEmptyAsValidState {
-            // The Film Queue is empty until films are assigned to a section, which is a
-            // perfectly valid state that should show its own placeholder rather than blank space.
+            // An empty Film Queue is a valid state and shows its own placeholder.
             return true
         }
 
         return !dataCoordinator.hasDatabaseFilms || isNarrowed || cachedListID != nil
     }
 
-    /// True while a search query, search tokens, or a filter could account for an empty
-    /// result. The spinner and the placeholder both read this one property, so every
-    /// empty, ready state falls to exactly one of them. When they tested narrowing
-    /// separately, the placeholder missed search tokens: in the window after a token was
-    /// confirmed but before `activeState.searchQuery` carried it, the spinner stood down
-    /// for the tokens while the placeholder waited for the query, and the gallery drew a
-    /// blank frame between "Enter Search Token" and "No Results".
-    ///
-    /// Search tokens are read from SearchController.currentTokens, the authoritative source
-    /// for whether a token search is active, whether or not the query has reached
-    /// activeState yet.
+    /// True while a search query, search tokens, or a filter could explain an empty result. The spinner
+    /// and the placeholder both read this, so each empty state falls to exactly one of them. Tokens come
+    /// from SearchController.currentTokens, which is current before activeState.searchQuery catches up.
     private var hasSearchContent: Bool {
         !viewStateManager.activeState.searchQuery.isEmpty || !SearchController.shared.currentTokens.isEmpty
     }
@@ -224,29 +156,18 @@ struct GalleryView: View, Loggable {
         hasSearchContent || !viewStateManager.activeState.filterOptions.isEmpty
     }
 
-    /// True only while the gallery is genuinely waiting for films it knows exist: the
-    /// infrastructure is still initializing, or the view's unnarrowed source (the
-    /// database, or the user list) has films but none have arrived yet.
-    ///
-    /// Anything that can legitimately narrow the result to nothing — a filter, a search
-    /// query, or search tokens — rules the spinner out, because an empty result is then
-    /// an answer rather than a wait. That rule applies to user lists exactly as it does to
-    /// All Films: previously the list branch checked only that the list had films, so
-    /// filtering a list and then removing every matching film from it left the list
-    /// non-empty, the result empty, and the spinner drawn over the "No Results" placeholder
-    /// indefinitely.
+    /// True only while the gallery is waiting for films it knows exist. A filter, query, or token can
+    /// narrow the result to nothing. In that case the empty result is an answer, so the spinner stays off.
+    /// This applies to user lists as well as All Films.
     private var shouldShowLoading: Bool {
         guard dataCoordinator.isInitialized, PosterCache.shared.isReady else { return true }
 
-        // Recents, smart lists, the Film Queue, and Unwatched treat empty as a valid
-        // state — see ViewIdentifier.treatsEmptyAsValidState.
+        // Empty is a valid state for these views (see ViewIdentifier.treatsEmptyAsValidState).
         guard !viewStateManager.activeView.treatsEmptyAsValidState,
               dataCoordinator.films.isEmpty else { return false }
 
-        // Token-only searches (e.g. OR operations) count as narrowing. Without that there
-        // was a one-run-loop window after OR-token confirmation where searchQuery was
-        // still "" but films was [] (filter pending), causing the spinner to appear and
-        // never clear.
+        // Token-only searches, such as OR, count as narrowing. Without this, the spinner could stay up
+        // after an OR token is confirmed.
         guard !isNarrowed else { return false }
 
         if let listID = cachedListID {
@@ -346,21 +267,17 @@ struct GalleryView: View, Loggable {
     @ViewBuilder
     private func filmQueuePlaceholder() -> some View {
         let selectedFilter = FilmQueueFilterState.shared.selectedFilter
-        // dataCoordinator.films is already filtered to the selected section (see
-        // DataCoordinator.loadFilms), so it being empty only tells us the CURRENT section
-        // is empty — it says nothing about the queue as a whole. getFilmQueueFilmIDs()
-        // (unfiltered, all three sections) is the only reliable way to distinguish "the
-        // queue itself has nothing in it yet" from "this section happens to be empty."
+        // dataCoordinator.films is filtered to the selected section, so an empty result says only that the
+        // current section is empty. getFilmQueueFilmIDs() covers all three sections and is the reliable check.
         if selectedFilter == .all || dataCoordinator.getFilmQueueFilmIDs().isEmpty {
-            // Either viewing "All" and it's empty, or every section is empty — the queue
-            // as a whole has nothing assigned to it yet.
+            // The queue as a whole has nothing assigned yet.
             StandardPlaceholder(
                 glyph: ViewGlyphs.filmQueue.outline,
                 title: "Your Queue Is Empty",
                 message: "Assign films to the Up Next, Soon, or Later section from a film's Details tab to build your queue."
             )
         } else {
-            // The queue has films overall, but none currently assigned to this section.
+            // The queue has films overall, but none in this section.
             StandardPlaceholder(
                 glyph: ViewGlyphs.filmQueue.outline,
                 title: "\(selectedFilter.displayName) Is Empty",
@@ -425,10 +342,8 @@ struct GalleryView: View, Loggable {
         }
     }
     
-    /// Empty-state placeholder for any smart list. The per-list copy is data on
-    /// `SmartListType.emptyState` (SmartLists.swift), beside the case it describes, so
-    /// this is one placeholder for all eighteen rather than an eighteen-arm switch that
-    /// repeated the same glyph and the same call over and over.
+    /// Empty-state placeholder for any smart list. The per-list copy is on `SmartListType.emptyState`, so
+    /// one placeholder covers all twenty cases.
     private func smartListPlaceholder(for type: SmartListType) -> some View {
         let copy = type.emptyState
         return StandardPlaceholder(
@@ -449,12 +364,8 @@ struct GalleryView: View, Loggable {
         LaunchReveal.shared.galleryViewAppeared()
         Self.log("GalleryView appeared (instance: \(viewID))")
 
-        // NOTE: No singleton registration here — deliberately. The sub-category state
-        // singletons (RecentsState, the format/variant/sorting states) route their
-        // shared switch sequence through SubcategoryNavigation, which reaches the
-        // process-wide SelectionState.shared and AppDelegate.appState directly (both
-        // are set at process init, before any UI interaction), so the former
-        // setAppState/setSelectionState registration dance is no longer needed.
+        // No singleton registration is needed here. The sub-category state singletons reach the shared
+        // SelectionState and AppState directly, through SubcategoryNavigation.
 
         updateListInfo()
         
@@ -466,10 +377,8 @@ struct GalleryView: View, Loggable {
         }
     }
     
-    /// Re-subscribes event handlers on every appear.
-    /// Called from onAppear so that subscriptions are restored after onDisappear
-    /// canceled them. initializeIfNeeded() only runs once (guarded by hasInitialized),
-    /// so event-handler setup cannot live there — it must be idempotent and repeatable.
+    /// Re-subscribes event handlers on every appear, since onDisappear cancels them. initializeIfNeeded()
+    /// runs only once, so the setup must be idempotent and repeatable here.
     private func setupEventHandlersIfNeeded() {
         // If cancellables are already populated the handlers are still active.
         guard eventHandler.cancellables.isEmpty else { return }
@@ -492,33 +401,19 @@ struct GalleryView: View, Loggable {
     private func setupEventHandlers() {
         let handler = eventHandler
         
-        // Note: search query changes are applied synchronously by SearchController.triggerSearch()
-        // via a direct ViewStateManager.updateSearchQuery() call. No AppEventBus subscriber is
-        // needed here — the synchronous path is both faster and race-condition-free.
+        // Search query changes are applied synchronously by SearchController.triggerSearch(), so no event
+        // subscriber is needed.
         
-        // NOTE: there is deliberately no .membershipChanged subscription here. The gallery's
-        // own contents are already kept current by DataCoordinator.addFilmsToList /
-        // removeFilmsFromList, which call refreshFilms() themselves whenever the affected
-        // list is the one on screen; the subscription that used to live here existed solely
-        // to maintain a cached list film count that no view ever read, and every event it
-        // handled cost a RunLoop hop plus a redundant @State write that invalidated this
-        // whole view's body.
+        // There is deliberately no .membershipChanged subscription. DataCoordinator.addFilmsToList and
+        // removeFilmsFromList call refreshFilms() themselves when the affected list is on screen.
         
-        // Film changes, and smart-list recalculations underneath an open smart list. Each
-        // one that can change what this view shows is noted on the holder, which flushes
-        // once per turn however many arrive (see SubscriptionHolder.noteChange) and reloads
-        // the view only if no full load has happened since the latest of them.
+        // Film changes and smart-list recalculations underneath an open smart list. Each change that can
+        // alter this view is noted on the holder. The holder flushes once per turn and reloads only if no full
+        // load has happened since the latest change. A single edit loads itself in DataCoordinator.reloadCurrentView,
+        // so it is not reloaded again. A burst of per-film events costs one load.
         //
-        // Both conditions are what keep a change to one load. A single edit is announced
-        // and then loaded by DataCoordinator itself, in that order (see
-        // DataCoordinator.reloadCurrentView), so by the flush it is already on screen and
-        // reloading it again was pure duplication. A burst of per-film events — a Hall of
-        // Fame reorder, an import, a ratings rollback — used to cost one full load per
-        // event; it now costs one load for the burst, or none when its sender loaded after.
-        //
-        // Synchronous, with no receive(on:): the load generation has to be read at the
-        // moment of the event, before the sender's own reload moves it on. The flush itself
-        // stays one turn later, exactly where the reload used to happen.
+        // The subscription runs synchronously, so the load generation is read at the moment of the event, before
+        // the sender's own reload moves it on. Only the flush waits one turn.
         AppEventBus.shared.filmEvents
             .sink { [weak dataCoordinator] event in
                 guard let dataCoordinator else { return }
@@ -529,10 +424,7 @@ struct GalleryView: View, Loggable {
                 case .added:
                     break
                 case .deleted:
-                    // Already loaded, finally, by every sender: each reloads the view after
-                    // removing the films from MemoryStore and before posting this, and no
-                    // membership the event changes can alter that load — the films are gone.
-                    // See DataCoordinator.deleteFilms.
+                    // Already loaded by every sender, which reloads after removing the films from MemoryStore. The films are gone, so no membership change can alter that load. See DataCoordinator.deleteFilms.
                     return
                 case .releaseChanged:
                     return
@@ -541,19 +433,11 @@ struct GalleryView: View, Loggable {
             }
             .store(in: &handler.cancellables)
 
-        // Smart list membership changed underneath an open gallery. Two independent sources
-        // post this: the daily midnight rotation recalculation and the rotation-family display
-        // filters (both of which affect only "Up for Rotation" / "Viewed Over One Year Ago"),
-        // and any full recalculation, which replaces the membership of ALL smart lists —
-        // startup's deferred calculation, re-enabling the feature, a database restore/import,
-        // or a bulk rotation-threshold reset.
-        //
-        // Because a full recalculation can change any list, this must refresh whenever the
-        // active view is a smart list of any kind. Scoping it to only the two rotation lists
-        // left every other smart list showing pre-recalculation membership until the user
-        // navigated away and back. Non-smart-list views are still skipped entirely, and
-        // forceReload is an in-memory filtered pass, so the occasional redundant refresh from
-        // a rotation-only broadcast is negligible.
+        // Smart list membership changed underneath an open gallery. Two sources post this: the midnight
+        // rotation recalculation, and any full recalculation (startup, re-enabling the feature, a restore or import,
+        // or a rotation-threshold reset). A full recalculation can change any list, so this refreshes whenever the
+        // active view is any smart list. Non-smart-list views are skipped. The refresh is an in-memory filter pass,
+        // so an occasional redundant refresh costs little.
         AppEventBus.shared.viewEvents
             .filter { if case .smartListsRecalculated = $0 { return true } else { return false } }
             .sink { [weak dataCoordinator] _ in
@@ -570,25 +454,19 @@ struct GalleryView: View, Loggable {
         Self.log("Event handlers setup complete (instance: \(viewID))")
     }
 
-    /// The deferred half of the change handlers above, run once per turn by the holder.
-    /// `reload` is false when DataCoordinator has fully loaded the view since the latest
-    /// change, which is the case for every edit it announces itself.
+    /// The deferred half of the change handlers, run once per turn by the holder. `reload` is false when
+    /// DataCoordinator has fully loaded the view since the latest change, as it does for every edit it announces.
     ///
-    /// No other signal is sent to the gallery. A reload that changes the films reaches it
-    /// through `dataCoordinator.films`, and a post-edit scroll through `scrollRequest`; a
-    /// reload that changes nothing has nothing to show. (A `forceReloadID` bump used to go
-    /// with every reload, and its only effect was a gallery update pass in exactly that
-    /// last case: GallerySubview decided its reloads from the films alone.)
+    /// No other signal is sent. A reload that changes films reaches the gallery through `dataCoordinator.films`,
+    /// and a post-edit scroll through `scrollRequest`.
     private func flushChanges(reload: Bool, scrollTarget: UUID?) {
         if reload {
             Self.log("Film or smart-list change not yet loaded - reloading current view state")
             // Refresh data without reloading view state, keeping search query intact.
             ViewStateManager.shared.forceReload()
         }
-        // Signal the gallery to evaluate the post-edit scroll position. The request is
-        // one-shot on the gallery's side (each carries a fresh token and is acted on once),
-        // so it is simply left in place rather than cleared on a later turn — clearing it
-        // cost every edit a second full gallery update pass.
+        // Signals the gallery to evaluate the post-edit scroll. The request is one-shot on the gallery's side, so
+        // it is left in place rather than cleared later.
         if let scrollTarget { scrollRequest = FilmScrollRequest(filmID: scrollTarget) }
     }
 
@@ -602,60 +480,40 @@ struct GalleryView: View, Loggable {
         
         Self.log("Sidebar selection changed: \(String(describing: newItem))")
 
-        // For a gallery-backed destination AppState.navigate(to:) has already run this
-        // same preparation, and the switch, before the flip that fired this handler (see
-        // prepareSidebarTransition), so here every step below re-applies an outcome that
-        // is already in place and is a no-op. It remains the path for every other
-        // destination, exactly as before.
+        // For a gallery-backed destination, AppState.navigate(to:) has already run this preparation before the
+        // flip. Here every step re-applies a result already in place, so it is a no-op. It is the path for every
+        // other destination.
         let isSubcategoryView = Self.prepareSidebarTransition(from: oldItem, to: newItem)
 
-        // Selection clearing is now handled by MainView.handleViewChange()
-        // to ensure it happens reliably for all view switches, including
-        // when switching between different GalleryView instances with stable .id()
+        // Selection clearing is handled by MainView.handleViewChange(), which covers every view switch.
         
         updateListInfo()
         
-        // Only call switchToViewSync if NOT switching to a subcategory-tab view (each
-        // such state's own ensureInitialViewLoad, called above, already handles the
-        // switch).
+        // switchToViewSync runs only for views that are not subcategory tabs. Those handle their own switch.
         if !isSubcategoryView {
             ViewStateManager.shared.switchToViewSync(viewIDFromSidebar())
         }
     }
 
-    /// Every subcategory-tab state (Recents, Unwatched, and any future addition) whose
-    /// initial-load/reset lifecycle must be synchronized with sidebar navigation. See
-    /// SubcategoryViewState's doc comment (ViewState.swift) — adding a new
-    /// subcategory-tab view means adding its state here; the sidebar transition itself
-    /// never needs to change.
+    /// Every subcategory-tab state (Recents, Unwatched, and any future addition) whose initial-load and reset
+    /// lifecycle must sync with sidebar navigation. See SubcategoryViewState (ViewState.swift). A new subcategory
+    /// tab adds its state here. The sidebar transition itself does not change.
     private static var subcategoryStates: [any SubcategoryViewState] {
         [RecentsState.shared, UnwatchedState.shared]
     }
 
-    /// The model-side half of a sidebar transition: intent invalidation, the
-    /// subcategory-tab lifecycle, and the smart-list picker resync. Returns whether
-    /// `newItem` is scoped to a subcategory-tab state (whose ensureInitialViewLoad has
-    /// then already performed the view switch, unless it had nothing left to do).
-    ///
-    /// Shared by handleSidebarChange and preSwitchBeforeSidebarFlip. Every step is
-    /// idempotent, which is what lets both run for the same navigation.
+    /// The model-side half of a sidebar transition: intent invalidation, the subcategory-tab lifecycle, and the
+    /// smart-list picker resync. Returns whether `newItem` is a subcategory-tab view, whose ensureInitialViewLoad has
+    /// already switched the view. Shared by handleSidebarChange and preSwitchBeforeSidebarFlip. Every step is idempotent.
     static func prepareSidebarTransition(from oldItem: SidebarItem, to newItem: SidebarItem) -> Bool {
-        // A genuine navigation invalidates any unconsumed scroll intent addressed to a
-        // view OTHER than the destination — e.g. a grid⟷list toggle handoff whose
-        // destination style never mounted before the user navigated elsewhere. Without
-        // this, a stale target addressed to the view being left could linger and
-        // trigger a surprise scroll on some later, unrelated visit. An intent addressed
-        // to the destination itself — the search-exit handoff, which MainView sets
-        // immediately before the sidebar flip that fires this very handler — must
-        // survive here so the destination gallery's makeNSView can consume it.
+        // A real navigation invalidates any unconsumed scroll intent aimed at a view other than the destination. Without
+        // this, a stale target could cause a surprise scroll on a later visit. An intent aimed at the destination, such as
+        // the search-exit handoff, must survive so the destination's makeNSView can consume it.
         GalleryScrollIntent.shared.clear(unlessTargeting: ViewIdentifier.from(newItem))
         GalleryFocusIntent.shared.clear(unlessTargeting: ViewIdentifier.from(newItem))
 
-        // Synchronize every subcategory-tab state's initial-load/reset lifecycle with
-        // this navigation, and determine whether newItem is scoped to any of them
-        // (in which case ensureInitialViewLoad, called below, already performs the
-        // view switch, so the final switchToViewSync call must be skipped for it).
-        // See SubcategoryViewState's doc comment (ViewState.swift).
+        // Syncs each subcategory-tab state with this navigation and checks whether newItem belongs to one. If it does,
+        // ensureInitialViewLoad has already switched the view, so the final switchToViewSync is skipped.
         var isSubcategoryView = false
         for state in subcategoryStates {
             let wasActive = oldItem == state.scopedSidebarItem
@@ -674,24 +532,11 @@ struct GalleryView: View, Loggable {
         
         // Sync the smart list family's sub-variant picker when switching to a smart list
         if case .smartList(let parent) = newItem {
-            // Sync the sub-variant pickers to the smart list that is ACTUALLY being
-            // displayed, not merely to the sidebar row being switched to.
-            //
-            // For an ordinary sidebar click the two are the same thing: activeView still
-            // holds the outgoing view (or a smart list from a different family), the
-            // fallback below selects `parent`, and each picker resets to its parent
-            // default exactly as before.
-            //
-            // They diverge for the two navigations that promote ViewStateManager to the
-            // destination BEFORE flipping the sidebar — ShowInListNavigation and the
-            // search-exit pre-load. Those can land on a sub-variant that has no sidebar row
-            // of its own ("Purchased 4K", "Viewed Over One Year Ago", "Blacklisted", …),
-            // where syncing to `parent` would reset the picker to "All" while the films on
-            // screen are the sub-variant's — leaving the control disagreeing with the
-            // content. Honoring the loaded view keeps the two in agreement in every case.
-            //
-            // The sidebarParent test is what makes this safe: a loaded smart list from an
-            // unrelated family can never be mistaken for a sub-variant of `parent`.
+            // Syncs the sub-variant pickers to the smart list actually displayed, not just the sidebar row clicked. For an
+            // ordinary sidebar click the two are the same, so each picker resets to its parent. They differ for
+            // ShowInListNavigation and the search-exit pre-load, which promote the view before the flip. Those can land on a
+            // sub-variant with no sidebar row of its own, such as "Purchased 4K". Syncing to the parent would then disagree
+            // with the films on screen. The sidebarParent test keeps an unrelated family from being mistaken for a sub-variant.
             var resolved = parent
             if let displayed = ViewStateManager.shared.activeView.smartListType,
                displayed.sidebarParent == parent {
@@ -703,28 +548,12 @@ struct GalleryView: View, Loggable {
         return isSubcategoryView
     }
 
-    /// Promotes ViewStateManager (and so dataCoordinator.films) to a gallery-backed
-    /// destination BEFORE AppState flips selectedSidebarItem. Called only from
-    /// AppState.navigate(to:).
+    /// Promotes ViewStateManager, and so dataCoordinator.films, to a gallery view BEFORE AppState flips
+    /// selectedSidebarItem. Called only from AppState.navigate(to:).
     ///
-    /// MainContentSwitcher keys GalleryView on the sidebar item, so the flip mounts a
-    /// fresh GalleryView, and that view's first body builds its gallery from whatever
-    /// activeView, activeState.isListView and films hold at that instant. When the switch
-    /// ran afterwards (from onAppear / handleSidebarChange), that was still the OUTGOING
-    /// view: every sidebar switch built and fully reloaded a gallery of the previous
-    /// view's films, then reloaded it again with the destination's — and when the two
-    /// views differ in grid/list style, built the wrong style outright, reloaded it, tore
-    /// it down and built the right one. Switching first makes the fresh mount's first pass
-    /// the only reload, in the correct style.
-    ///
-    /// This is the ordering ShowInListNavigation, the search-exit pre-load and the
-    /// MenuBar's smart-list commands already use. It also lets prepareScrollHandoff bank
-    /// the outgoing origin from the outgoing gallery while it is genuinely still mounted,
-    /// which is the moment its own doc comment asks for.
-    ///
-    /// Unconditional switch, even for a subcategory-tab view: its ensureInitialViewLoad
-    /// switches only on the first entry after a reset, and when it does, this call is a
-    /// no-op re-entry to the same view.
+    /// MainContentSwitcher keys GalleryView on the sidebar item, so the flip mounts a fresh GalleryView. Its first
+    /// body reads whatever view is active at that moment. Switching first makes that first pass the only reload, in
+    /// the correct style. The switch is unconditional. For a subcategory tab it is a no-op re-entry after the first switch.
     static func preSwitchBeforeSidebarFlip(from oldItem: SidebarItem, to newItem: SidebarItem) {
         _ = prepareSidebarTransition(from: oldItem, to: newItem)
         ViewStateManager.shared.switchToViewSync(ViewIdentifier.from(newItem))
@@ -745,8 +574,7 @@ struct GalleryView: View, Loggable {
 
     private func clearFiltersAndSearch() {
         Self.log("Clearing filters and search")
-        // One committed state change rather than two, so this costs a single film reload
-        // instead of two before the search-exit navigation below triggers its own.
+        // One committed state change, so only one film reload runs.
         ViewStateManager.shared.clearFiltersAndSearch()
         SearchController.shared.clearSearch()
     }
@@ -760,11 +588,9 @@ struct GalleryView: View, Loggable {
 
 // MARK: - SubscriptionHolder
 
-/// Manages Combine subscriptions for gallery event handlers with proper lifecycle cleanup,
-/// and coalesces the changes they report into one flush per turn. Plain reference type —
-/// not ObservableObject — because it holds no @Observable properties that SwiftUI needs to
-/// observe. No deinit: each AnyCancellable cancels itself when the set releases it, which
-/// is exactly what an explicit removeAll() there did.
+/// Manages Combine subscriptions for gallery event handlers, cancels them on teardown, and coalesces their
+/// changes into one flush per turn. It is a plain reference type. No deinit is needed, since each AnyCancellable
+/// cancels when the set releases it.
 @MainActor
 private final class SubscriptionHolder {
     var cancellables = Set<AnyCancellable>()
@@ -776,18 +602,14 @@ private final class SubscriptionHolder {
     private weak var coordinator: DataCoordinator?
     private var flush: ((_ reload: Bool, _ scrollTarget: UUID?) -> Void)?
     private var isFlushScheduled = false
-    /// Carries the turn's one flush request to the main run loop. The same hop the change
-    /// handlers used to take themselves (`receive(on: RunLoop.main)`), and deliberately not
-    /// DispatchQueue.main.async: a run-loop delivery lands before SwiftUI's update for the
-    /// turn, so the scroll request it sets joins the sender's own reload in ONE gallery
-    /// update pass, where a main-queue block arrived after it and cost a second.
+    /// Carries the turn's flush request to the main run loop. A run-loop delivery lands before SwiftUI's update for
+    /// the turn, so the scroll request joins the sender's reload in one gallery update pass. DispatchQueue.main.async
+    /// would arrive too late and cost a second pass.
     private let flushRequests = PassthroughSubject<Void, Never>()
     private var flushSubscription: AnyCancellable?
 
-    /// Records a change this view may not have loaded yet, and schedules the turn's one
-    /// flush. The flush reloads only if no full load has happened since the LATEST change:
-    /// a load after the last change covers every change before it, and a change after the
-    /// last load leaves the view behind.
+    /// Records a change the view may not have loaded yet, and schedules the turn's flush. The flush reloads only if
+    /// no full load has happened since the latest change. A load after the last change covers every earlier change.
     func noteChange(coordinator: DataCoordinator,
                     flush: @escaping (_ reload: Bool, _ scrollTarget: UUID?) -> Void) {
         generationAtLatestChange = coordinator.fullLoadGeneration
@@ -813,7 +635,7 @@ private final class SubscriptionHolder {
         flush?(reload, target)
     }
 
-    /// Also drops a flush already scheduled: canceling its subscription cancels its delivery.
+    /// Also drops a flush already scheduled, since canceling the subscription cancels its delivery.
     func cancel() {
         cancellables.removeAll()
         flushSubscription = nil
@@ -824,9 +646,8 @@ private final class SubscriptionHolder {
     }
 }
 
-/// A post-edit request to keep a film in view, handed from GalleryView to both gallery
-/// styles. The token makes two requests for the same film distinct, so a gallery can act on
-/// each exactly once by remembering the last one it saw.
+/// A post-edit request to keep a film in view, handed from GalleryView to both gallery styles. The token makes two
+/// requests for the same film distinct, so each gallery acts on each one once.
 struct FilmScrollRequest: Equatable {
     let filmID: UUID
     let token = UUID()
@@ -834,44 +655,35 @@ struct FilmScrollRequest: Equatable {
 
 // MARK: - Launch Reveal
 
-/// How the gallery first appears at launch. The snapshot cache's fingerprint verdict is
-/// known ~175 ms into the process, well before the window paints, so the launch can pick
-/// its look up front. A warm launch (cache hit, ~200 ms from first paint to gallery at any
-/// library size) holds the main window transparent and shows it in the completion of the
-/// Core Animation transaction that carries the gallery's first content, so the window's
-/// first visible frame is the loaded gallery. A cold launch shows the spinner from first
-/// paint and crossfades it with the gallery; both fades are Core Animation opacity
-/// animations, run by the render server, so the main thread's post-launch work cannot
-/// stall them.
+/// How the gallery first appears at launch. The snapshot cache's verdict is known early, so the launch picks its
+/// look up front. A warm launch (cache hit) holds the main window transparent and shows it with the gallery's first
+/// content, so the first visible frame is the loaded gallery. A cold launch shows the spinner and crossfades it
+/// with the gallery. Both fades are Core Animation opacity animations, so main-thread work cannot stall them.
 @MainActor @Observable
 final class LaunchReveal {
     static let shared = LaunchReveal()
 
     static let fadeDuration: CFTimeInterval = 0.2
 
-    /// The early pipeline's verdict, written from its background task. nil until known,
-    /// which reads as cold: a spinner is the safe default.
+    /// The early pipeline's verdict, written from its background task. nil means unknown, which is treated as cold.
     private nonisolated static let prediction = OSAllocatedUnfairLock<Bool?>(initialState: nil)
 
     nonisolated static func recordSnapshotPrediction(hit: Bool) {
         prediction.withLock { $0 = hit }
     }
 
-    /// True until the launch reveal has finished; GalleryView then draws its ordinary spinner.
+    /// True until the launch reveal finishes. GalleryView then draws its ordinary spinner.
     private(set) var isActive = true {
         didSet { if !isActive { allowMenuRefresh() } }
     }
 
-    /// False until the launch's gallery (or its placeholder) is on screen. MenuBar reads none
-    /// of the library-derived values that change as the first data lands until this flips,
-    /// so its re-render (~30 ms of rebuilt submenus) runs after the first frame instead of
-    /// in front of it. Nobody can open a menu before the window is visible.
+    /// False until the launch's gallery (or its placeholder) is on screen. MenuBar holds its library-derived refresh
+    /// until then, so the rebuild runs after the first frame. Nobody can open a menu before the window is visible.
     private(set) var menuRefreshAllowed = LaunchExperiment.noMenuGate
 
-    /// Flips `menuRefreshAllowed` on a later main-queue turn than the one that shows the
-    /// window, so the window's commit is not held behind the menu work. Reached from every
-    /// path that ends the reveal (`isActive` going false) and from `showHeldWindow`; the
-    /// backstop in `initializationFinished` covers a reveal that never ends.
+    /// Flips `menuRefreshAllowed` on a later main-queue turn than the one that shows the window, so the window's commit
+    /// is not held behind menu work. It runs from every path that ends the reveal, and from showHeldWindow. The backstop
+    /// in initializationFinished covers a reveal that never ends.
     private func allowMenuRefresh() {
         guard !menuRefreshScheduled else { return }
         menuRefreshScheduled = true
@@ -888,12 +700,10 @@ final class LaunchReveal {
 
     @ObservationIgnored private var menuRefreshScheduled = false
 
-    /// False while a warm launch holds its window hidden; true from the moment the window can
-    /// be seen (at once on a cold launch, whose window shows its spinner). MenuBar builds its
-    /// two costliest submenus' items (View ▸ Left Sidebar and Sort By, ~38 ms at launch) only
-    /// once this is true, so a warm launch builds them after its first frame. Neither has a
-    /// shortcut the menu actually delivers: KeyboardManager's key monitor handles ⌘0–⌘9 and
-    /// ⌥⌘S before menu key equivalents are matched, and Sort By has none.
+    /// False while a warm launch holds its window hidden. It becomes true when the window can first be seen. MenuBar
+    /// builds its costliest submenus (View > Left Sidebar and Sort By) only after this, so a warm launch builds them
+    /// after its first frame. Neither has a shortcut the menu delivers, because KeyboardManager's key monitor handles
+    /// those keys first.
     private(set) var menuContentAllowed = LaunchExperiment.noMenuGate
 
     private func allowMenuContent() {
@@ -902,8 +712,8 @@ final class LaunchReveal {
         menuContentAllowed = true
     }
 
-    /// Decided on first read and then fixed, so the spinner never vanishes mid-launch. Only
-    /// a predicted hit that turns out a miss changes it, toward showing the spinner.
+    /// Decided on first read and then fixed, so the spinner never vanishes mid-launch. Only a predicted hit that turns
+    /// out a miss changes it, toward showing the spinner.
     var showsSpinner: Bool {
         if snapshotDidMiss { return true }
         if let decided = spinnerDecision { return decided }
@@ -916,13 +726,13 @@ final class LaunchReveal {
     private var snapshotDidMiss = false
     @ObservationIgnored private var hasRevealed = false
 
-    /// The main window while a warm launch holds it transparent; nil once shown.
+    /// The main window while a warm launch holds it transparent. nil once it is shown.
     @ObservationIgnored private weak var heldWindow: NSWindow?
     @ObservationIgnored private(set) var didHoldWindow = false
     @ObservationIgnored private var galleryMounted = false
 
-    /// From LaunchWindowHold, as the main window's root view joins its window, before
-    /// the window's first frame. Holds it only on a predicted warm launch.
+    /// From LaunchWindowHold, as the main window's root view joins its window, before the first frame. Holds it only on a
+    /// predicted warm launch.
     func windowWillAppear(_ window: NSWindow) {
         guard isActive, !didHoldWindow, !showsSpinner else {
             // Not held: the window is about to be seen as it is.
@@ -935,10 +745,9 @@ final class LaunchReveal {
         LaunchTimeline.mark("windowHeld")
     }
 
-    /// Shows the held window on the main queue's next turn, which runs after this turn's
-    /// Core Animation commit, so the window appears with whatever this update pass put in
-    /// it. Not a CATransaction completion block: that waits for every animation added in
-    /// the transaction to finish, and held the window ~470 ms past the commit.
+    /// Shows the held window on the main queue's next turn, after this turn's Core Animation commit, so it appears with
+    /// whatever this update pass put in it. A CATransaction completion block would wait for every animation to finish,
+    /// which delays the window.
     private func showHeldWindowOnCommit() {
         guard heldWindow != nil else { return }
         DispatchQueue.main.async {
@@ -972,12 +781,10 @@ final class LaunchReveal {
         isActive = false
     }
 
-    /// Initialization is done. A launch into a view without a gallery has nothing to wait
-    /// for, so its window shows with this update. The backstop shows the window if a
-    /// mounted gallery never reports (a bug, logged), so a launch can never stay invisible.
+    /// Initialization is done. A launch into a view without a gallery shows its window with this update. The backstop
+    /// shows the window if a mounted gallery never reports, so a launch cannot stay invisible.
     func initializationFinished() {
-        // A reveal that never ends (a gallery that never reports, a spinner never
-        // dismissed) must not leave the menu bar showing pre-load state.
+        // A reveal that never ends must not leave the menu bar showing pre-load state.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             MainActor.assumeIsolated { self.allowMenuRefresh() }
         }
@@ -997,10 +804,8 @@ final class LaunchReveal {
         }
     }
 
-    /// Called by the gallery style that draws first, in the update pass that loads its
-    /// first films, before its reloadData. Warm: the held window shows when this pass's
-    /// transaction commits. Cold: the fade-in is added to the scroll view's layer in this
-    /// transaction, so it starts when that first content commits.
+    /// Called by the gallery style that draws first, in the update pass that loads its first films, before reloadData.
+    /// Warm: the held window shows when this pass's transaction commits. Cold: the fade-in starts with that first content.
     func galleryWillAppear(_ scrollView: NSScrollView) {
         guard isActive, !hasRevealed else { return }
         hasRevealed = true
@@ -1021,8 +826,7 @@ final class LaunchReveal {
         finishAfterFade()
     }
 
-    /// Ends the reveal once the fades are done. Also reached by the spinner overlay when it
-    /// dismisses without a gallery (the launch view is empty and shows a placeholder).
+    /// Ends the reveal once the fades are done. Also reached when the spinner overlay dismisses without a gallery.
     func finishAfterFade() {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.fadeDuration + 0.05) {
             MainActor.assumeIsolated { self.isActive = false }
@@ -1030,8 +834,8 @@ final class LaunchReveal {
     }
 }
 
-/// Placed in the main window's root view. Its view joining the window is the earliest
-/// point the window exists, before its first frame, and is where a warm launch hides it.
+/// Placed in the main window's root view. Its joining the window is the earliest point the window exists, and is where a
+/// warm launch hides it.
 struct LaunchWindowHold: NSViewRepresentable {
     final class HoldView: NSView {
         override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -1045,9 +849,8 @@ struct LaunchWindowHold: NSViewRepresentable {
     func updateNSView(_ view: HoldView, context: Context) {}
 }
 
-/// The launch spinner, in AppKit so its fade-out is a Core Animation animation like the
-/// gallery's fade-in. Matches the SwiftUI spinner: a regular spinning indicator centered
-/// on a half-opacity control background.
+/// The launch spinner, in AppKit, so its fade-out is a Core Animation animation like the gallery's fade-in. It matches the
+/// SwiftUI spinner: a regular spinning indicator on a half-opacity control background.
 private struct LaunchSpinnerOverlay: NSViewRepresentable {
     let dismissing: Bool
 

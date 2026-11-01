@@ -5,9 +5,9 @@
 // Opt-in (`-FTDebugHarness resize-perf`); not part of `all`, because its output is a
 // measurement rather than a verdict.
 //
-// Complements DHResizeProfiler (99.30), which observes a REAL drag and answers "is the app
+// Complements DHResizeProfiler (99.60), which observes a REAL drag and answers "is the app
 // the bottleneck?". A synthetic sweep cannot answer that (see the long note at the top of
-// 99.30) -- but it CAN answer the narrower question this file exists for: how much
+// 99.60), but it CAN answer the narrower question this file exists for: how much
 // main-thread work does one width step cost, and how does that cost differ between the two
 // geometric regimes the grid has?
 //
@@ -22,11 +22,9 @@
 // recorded, exactly as card-perf measures. Posters are synthesized into the sandbox's poster
 // folder so cells carry real image layers, not placeholders.
 //
-// Baseline (2026-09-19, 24 visible cells, 2pt steps, Debug build): RESIZE median ~2.9ms /
-// p90 ~3.5ms; TRANSLATE median ~1.8ms / p90 ~2.3ms. In the TRANSLATE regime no per-cell
-// layout runs at all (prepare() once per step; GalleryItem.viewDidLayout and
-// GalleryTileContentView.layout() never fire, verified with temporary counters) -- the cost
-// is the collection view re-issuing attributes plus the Core Animation commit. The
+// In the TRANSLATE regime no per-cell layout runs: prepare() runs once per step, and
+// GalleryItem.viewDidLayout and GalleryTileContentView.layout() do not fire. The cost is the
+// collection view re-issuing attributes plus the Core Animation commit. The
 // `translate-not-heavier` check turns a regression of that property into a failure.
 
 #if DEBUG

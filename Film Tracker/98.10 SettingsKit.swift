@@ -1,6 +1,7 @@
 // MARK: - SettingsKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
+// Drop-in settings window kit: builds a tabbed NSWindow from a configuration value and includes reusable settings controls.
 //
 // STANDARDIZED SETTINGS WINDOW UTILITY — drop in, describe the window, done.
 //
@@ -1110,11 +1111,16 @@ public struct SettingsLoggingSection: View, Loggable {
     /// `onChange` receives the new value and runs BEFORE the logger is torn down, for the
     /// project's own side effects (posting a preferences-changed notification, reconciling
     /// a menu). The shutdown/forced-log handling below is done for you.
+    ///
+    /// `store` must likewise be the suite the project's `Preferences` reads (a project that
+    /// redirects its defaults, as a debug sandbox does, passes that suite here); `.standard`
+    /// otherwise.
     public init(loggingEnabledKey: String,
+                store: UserDefaults = .standard,
                 title: String = "Debug Logging",
                 caption: String = "Messages are buffered before being written to disk every ten seconds.",
                 onChange: ((Bool) -> Void)? = nil) {
-        self._loggingEnabled = AppStorage(wrappedValue: false, loggingEnabledKey)
+        self._loggingEnabled = AppStorage(wrappedValue: false, loggingEnabledKey, store: store)
         self.title = title
         self.caption = caption
         self.onChange = onChange

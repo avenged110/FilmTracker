@@ -1,8 +1,8 @@
 // MARK: - ViewGlyphs.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Single source of truth for the SF Symbols that identify a *view* — the sidebar rows,
-// the GalleryTitleBar, and the gallery's empty-state placeholders.
+// The single source for the SF Symbols that identify a view: sidebar rows, the GalleryTitleBar, and the
+// gallery's empty-state placeholders.
 
 import Foundation
 
@@ -72,7 +72,7 @@ enum ViewGlyphs {
     /// A user-created list.
     static let userList = Glyph.uniform("list.and.film")
     /// Every smart list. `SmartListType.icon` and the smart-list placeholders both
-    /// resolve here, so all eighteen types stay in lockstep by construction.
+    /// resolve here, so all twenty types stay in lockstep.
     static let smartList = Glyph("sparkles.rectangle.stack")
 
     // MARK: - Search
@@ -117,4 +117,18 @@ enum ViewGlyphs {
     /// the same symbol the session card uses for its own failure line, so the sidebar
     /// badge and the card the user lands on read as one signal.
     static let importsFailure = Glyph.uniform("exclamationmark.triangle.fill")
+}
+
+// MARK: - Content Glyphs
+/// Symbols that mark a kind of *content* rather than a view, named once because more
+/// than one file draws them — and some sites key behavior off the name (WatchDetails'
+/// disc tint, RSBHelpers' size overrides), which a literal swapped at one call site
+/// would silently break.
+enum ContentGlyphs {
+    /// A physical release: the Releases tab, its tables, and the sidebar's disc rows.
+    static let disc = "opticaldisc.fill"
+    /// A frames-table section whose audio fades in.
+    static let audioFadeIn = "arrow.up.right.circle.fill"
+    /// A frames-table section whose audio fades out.
+    static let audioFadeOut = "arrow.down.right.circle.fill"
 }

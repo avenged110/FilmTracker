@@ -1,12 +1,9 @@
 // MARK: - DVCanvasKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// A small retained layout-and-drawing vocabulary the Data Visualizations page (27.45) is
-// drawn with, by Core Graphics / Core Text, into the tab's one AppKit view and into the
-// library PDF alike. Its layout follows SwiftUI's rules — stacks with spacing, layout
-// priority and flexibility ordering, fixed / min / max-width frames, padding, backgrounds
-// clipped to continuous rounded rects, single- and multi-line text boxes with SwiftUI's
-// line metrics — so the page reads and resizes like the SwiftUI page it replaced.
+// A small retained layout-and-drawing kit for the Data Visualizations page (27.45), drawn with Core Graphics and Core Text. It draws into the
+// tab's AppKit view and into the library PDF. Its layout follows SwiftUI's rules: stacks with spacing, priority and flexibility, fixed, min,
+// and max-width frames, padding, clipped rounded backgrounds, and text with SwiftUI's line metrics. The page therefore resizes like the SwiftUI page it replaced.
 
 import AppKit
 import SwiftUI   // Shape paths (RoundedRectangle geometry) and, in a PDF, symbol outlines.
@@ -57,8 +54,7 @@ struct DVGraphics {
     }
 }
 
-/// Shape paths from SwiftUI's own shapes, so corners are the continuous curves the rest of
-/// the app draws (RoundedRectangle's default style). Cached by size and radius.
+/// Shape paths from SwiftUI's own shapes, so corners are continuous like the rest of the app (RoundedRectangle's default style). Cached by size and radius.
 @MainActor
 enum DVShapes {
     private static var cache: [String: CGPath] = [:]
@@ -76,8 +72,7 @@ enum DVShapes {
         return translated(base, to: rect.origin)
     }
 
-    /// The cached shape moved to `origin`. `addPath(_:transform:)` is the pointer-free
-    /// spelling of `copy(using:)`: the same elements, transformed.
+    /// The cached shape moved to `origin`, via `addPath(_:transform:)`.
     private static func translated(_ base: CGPath, to origin: CGPoint) -> CGPath {
         let path = CGMutablePath()
         path.addPath(base, transform: CGAffineTransform(translationX: origin.x, y: origin.y))
@@ -135,8 +130,7 @@ struct DVFont: Hashable {
     static func == (a: DVFont, b: DVFont) -> Bool { a.size == b.size && a.weight == b.weight && a.mono == b.mono }
 
     @MainActor var nsFont: NSFont { DVFontBook.font(self) }
-    /// SwiftUI's one-line Text box: the ascender and descender each rounded out to whole
-    /// points (measured: 10 pt → 13 tall with its baseline 10 down; 20 pt → 24 / 19).
+    /// SwiftUI's one-line Text box, with the ascender and descender each rounded to whole points. For example, 10 pt gives a 13 pt box with its baseline 10 pt down.
     @MainActor var lineHeight: CGFloat { DVFontBook.metrics(self).height }
     @MainActor var baseline: CGFloat { DVFontBook.metrics(self).baseline }
 }
@@ -170,8 +164,7 @@ struct DVRun {
     let paint: DVPaint
 }
 
-/// A shaped single line, cached by content. Colors come from the context at draw time so a
-/// cached line serves both appearances; multi-color lines are rebuilt per appearance.
+/// A shaped single line, cached by content. Colors come from the context at draw time, so one cached line serves both appearances. Multi-color lines are rebuilt per appearance.
 @MainActor
 final class DVLine {
     let ctLine: CTLine
@@ -238,8 +231,7 @@ extension DVGraphics {
     func draw(_ line: DVLine, at origin: CGPoint, width: CGFloat, paint: DVPaint, scaleToFit: CGFloat? = nil) {
         var ct = line.ctLine
         var scaleFactor: CGFloat = 1
-        // Snapping a box to device pixels can take up to a pixel off a width that was laid
-        // out at exactly the text's own: that much is rounding, not too little room.
+        // Snapping to device pixels can take up to a pixel off a width laid out at the text's exact width. That is rounding, not too little room.
         let tolerance = 1 / max(scale, 1) + 0.01
         if line.rawWidth > width + tolerance {
             if let minScale = scaleToFit {
@@ -252,8 +244,7 @@ extension DVGraphics {
         ctx.saveGState()
         ctx.setFillColor(paint.cgColor)
         if scaleFactor != 1 {
-            // Shrunk about the box's leading baseline, the way minimumScaleFactor shrinks a
-            // centered one-line box: same box, smaller glyphs, vertically centered.
+            // Shrunk about the leading baseline, as minimumScaleFactor shrinks a centered one-line box: same box, smaller glyphs, vertically centered.
             let lh = line.font.lineHeight, bl = line.font.baseline
             let shrunkBaseline = (lh - lh * scaleFactor) / 2 + bl * scaleFactor
             ctx.translateBy(x: origin.x, y: origin.y + shrunkBaseline)
@@ -269,8 +260,7 @@ extension DVGraphics {
     }
 }
 
-/// Wrapped text laid out at a width: each line's range, for up to `lineLimit` lines (the
-/// last one truncated when text remains).
+/// Wrapped text laid out at a width, for up to `lineLimit` lines. The last line is truncated if text remains.
 @MainActor
 final class DVParagraph {
     let lines: [CTLine]
@@ -305,10 +295,8 @@ final class DVParagraph {
                 let rest = CTTypesetterCreateLine(typesetter, CFRange(location: start, length: length - start))
                 let restWidth = CGFloat(CTLineGetTypographicBounds(rest, nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(rest))
                 if restWidth > width + 0.01 {
-                    // The ellipsis in the attributes of the character it replaces: that one
-                    // character's run, with its text swapped out (attributes are kept). Read
-                    // this way rather than through attributes(at:effectiveRange:), whose
-                    // out-pointer is unsafe even when passed nil.
+                    // The ellipsis takes the attributes of the character it replaces, by swapping that run's text.
+                    // This avoids attributes(at:effectiveRange:), whose out-pointer is unsafe even when nil.
                     let ellipsis = NSMutableAttributedString(attributedString:
                         attr.attributedSubstring(from: NSRange(location: start, length: 1)))
                     ellipsis.mutableString.setString("\u{2026}")
@@ -338,7 +326,7 @@ final class DVParagraph {
 
 // MARK: - Nodes
 
-/// A width-independent value computed once per node (its horizontal sizing).
+/// A width-independent value, computed once per node (its horizontal sizing).
 final class DVOnce<T> {
     var value: T?
     @inline(__always) func get(_ make: () -> T) -> T {
@@ -347,9 +335,8 @@ final class DVOnce<T> {
     }
 }
 
-/// The last layout a container computed, keyed by width: every node is asked for its height
-/// by its parent and again when drawn, so without this a deep tree re-measures its leaves
-/// once per ancestor query.
+/// The last layout a container computed, keyed by width. Parents ask for heights, and drawing asks again, so this stops a deep tree from
+/// re-measuring its leaves once per ancestor query.
 final class DVMemo<T> {
     var width: CGFloat = .nan
     var value: T?
@@ -413,10 +400,8 @@ extension DVNode {
     func controls(_ rect: CGRect, into: inout [(any DVControl, CGRect)]) {}
 }
 
-/// A node that lays out `children` and does nothing else itself: HStack, VStack and
-/// Spread. Each supplies only its layout (`rects`); drawing, hit areas and embedded
-/// controls are delegated to the children in those rects here, rather than in three
-/// identical copies.
+/// A node that only lays out `children`: HStack, VStack, and Spread. Each supplies its `rects`. Drawing, hit areas, and controls
+/// are delegated to the children here, rather than repeated in three copies.
 fileprivate protocol DVContainer: DVNode {
     var children: [any DVNode] { get }
     /// Each child's rect within `rect`, in `children` order.
@@ -436,9 +421,8 @@ extension DVContainer {
     }
 }
 
-/// An AppKit control embedded in the page. Laid out as SwiftUI laid out the representable it
-/// replaces: by `layoutSize`, with the control's frame positioned so its alignment rect
-/// fills that box.
+/// An AppKit control embedded in the page. It is laid out as the SwiftUI representable it replaces: by `layoutSize`, with its
+/// alignment rect filling that box.
 @MainActor
 protocol DVControl: AnyObject {
     var view: NSView { get }
@@ -450,8 +434,7 @@ protocol DVControl: AnyObject {
 
 // MARK: Text node
 
-/// SwiftUI `Text` with `.font`, `.foregroundStyle`, `.lineLimit`, tail truncation, and
-/// optionally `.minimumScaleFactor`.
+/// SwiftUI `Text` with `.font`, `.foregroundStyle`, `.lineLimit`, tail truncation, and optionally `.minimumScaleFactor`.
 @MainActor
 struct DVText: DVNode {
     let runs: [DVRun]
@@ -556,7 +539,7 @@ struct DVSpacer: DVNode {
     func draw(_ g: DVGraphics, _ rect: CGRect) {}
 }
 
-/// An SF Symbol drawn as `Image(systemName:).font(.system(size:weight:))` draws it.
+/// An SF Symbol, sized and weighted as `Image(systemName:).font(.system(size:weight:))` draws it.
 @MainActor
 struct DVSymbol: DVNode {
     let name: String
@@ -583,8 +566,7 @@ struct DVSymbol: DVNode {
         guard opacity > 0, rect.intersects(g.dirty), let image else { return }
         let box = CGRect(x: rect.minX, y: rect.midY - size.height / 2, width: size.width, height: size.height)
         if g.vector {
-            // In a PDF the mask below, or the symbol image drawn directly, embeds a bitmap;
-            // SwiftUI's renderer records the symbol's outline as paths.
+            // A PDF needs vector output. The mask below would embed a bitmap, so SwiftUI's renderer draws the symbol's outline instead.
             let color = NSColor(cgColor: paint.opacity(opacity).cgColor) ?? paint.color
             let fontWeight: Font.Weight = weight == .semibold ? .semibold : (weight == .medium ? .medium : (weight == .bold ? .bold : .regular))
             let renderer = ImageRenderer(content: Image(systemName: name)
@@ -681,8 +663,7 @@ struct DVFrame: DVNode {
     func controls(_ rect: CGRect, into: inout [(any DVControl, CGRect)]) { child.controls(childRect(rect), into: &into) }
 }
 
-/// A node at least `minHeight(width)` tall, its child filling the height it is given — a
-/// card kept as tall as the tallest content a sibling card could ever need at that width.
+/// A node at least `minHeight(width)` tall, with its child filling that height. It keeps a card as tall as a sibling card could need at that width.
 @MainActor
 struct DVMinHeight: DVNode {
     let child: any DVNode
@@ -750,10 +731,8 @@ struct DVDecorated: DVNode {
 
 // MARK: Stacks
 
-/// `HStack(alignment:spacing:)`, sized by SwiftUI's stack rule: children are offered the
-/// remaining width in priority order (highest `layoutPriority` first, with the minimum widths
-/// of every lower-priority child held back), and within a priority from least to most
-/// flexible, each offered an equal share of what is left.
+/// `HStack(alignment:spacing:)`, sized by SwiftUI's stack rule. Children are offered the remaining width by priority, highest first, with the
+/// minimum widths of lower-priority children held back. Within a priority, children are offered space from least to most flexible, each an equal share.
 @MainActor
 struct DVHStack: DVContainer {
     enum Alignment { case center, top, bottom, firstBaseline, lastBaseline }
@@ -795,15 +774,13 @@ struct DVHStack: DVContainer {
             var lowerMin: CGFloat = 0
             for q in groups[(gi + 1)...] { lowerMin += minByPriority[q] ?? 0 }
             var available = remaining - lowerMin
-            // Spacers go last and take what the others leave; until then only their
-            // minimum lengths are held back.
+            // Spacers go last and take what the others leave. Until then, only their minimum lengths are held back.
             let isSpacer = (0..<n).map { children[$0] is DVSpacer }
             var members = (0..<n).filter { prio[$0] == p && !isSpacer[$0] }
             members.sort { (sizings[$0].max - sizings[$0].min) < (sizings[$1].max - sizings[$1].min) }
             let spacers = (0..<n).filter { prio[$0] == p && isSpacer[$0] }
             var spacerMin = spacers.reduce(CGFloat(0)) { $0 + sizings[$1].min }
-            // Room for every member at its widest: each takes it. An even split would
-            // short a member wider than the share while a narrower one left room unused.
+            // If every member fits at its widest, each takes that. An even split would shortchange a wide member while a narrow one left room unused.
             let allFit = members.reduce(CGFloat(0)) { $0 + sizings[$1].max } <= available - spacerMin + 0.001
             var left = members.count
             for i in members {
@@ -858,8 +835,7 @@ struct DVHStack: DVContainer {
 
     func height(_ width: CGFloat) -> CGFloat { layout(width).height }
 
-    /// A row's first baseline is its topmost child baseline and its last the lowest (measured:
-    /// a Text beside a two-line stack aligns by the stack's first line, not its own).
+    /// The row's first baseline is its topmost child's, and its last is the lowest. A Text beside a two-line stack aligns by the stack's first line.
     func firstBaseline(_ width: CGFloat) -> CGFloat? {
         let l = layout(width)
         return children.indices.compactMap { i in children[i].firstBaseline(l.widths[i]).map { l.tops[i] + $0 } }.min()
@@ -883,9 +859,8 @@ struct DVHStack: DVContainer {
 
 }
 
-/// `VStack(alignment: .leading, spacing:)`. Every child is offered the full width; children
-/// narrower than it sit at the leading edge (each draws within its own sizing). When placed
-/// taller than its natural height, the extra goes to its Spacers (children that fill).
+/// `VStack(alignment: .leading, spacing:)`. Every child is offered the full width, and narrower children sit at the leading edge. When placed
+/// taller than its natural height, the extra goes to its Spacers, which are the children that fill.
 @MainActor
 struct DVVStack: DVContainer {
     let children: [any DVNode]
@@ -929,11 +904,8 @@ struct DVVStack: DVContainer {
         return nil
     }
 
-    /// Each child's height when the stack is placed `total` tall. At its natural height that
-    /// is each child's own; taller, SwiftUI's stack rule applies: children are offered the
-    /// height left in order from least to most flexible, each an equal share of what remains,
-    /// and each takes its share clamped to its own range (a fixed child keeps its height, a
-    /// filling child never goes below its natural height).
+    /// Each child's height when the stack is placed `total` tall. At its natural height, each child keeps its own. Taller, SwiftUI's stack rule
+    /// applies. Children are offered height from least to most flexible, each an equal share of what remains. A fixed child keeps its height, and a filling child never drops below its natural height.
     func heights(_ width: CGFloat, total: CGFloat) -> [CGFloat] {
         let natural = natural(width)
         let gaps = spacing * CGFloat(max(0, children.count - 1))
@@ -971,9 +943,7 @@ struct DVVStack: DVContainer {
 
 }
 
-/// A column of rows that fills whatever height its card gives it by opening up the gaps
-/// between rows equally (never below `minSpacing`); its own height is only its natural one,
-/// so it can never make the card taller. Each child keeps its natural height.
+/// A column of rows that fills the height its card gives it, by opening the gaps between rows equally (never below `minSpacing`). Its own height is only its natural one, so it never makes the card taller.
 @MainActor
 struct DVSpread: DVContainer {
     let children: [any DVNode]
@@ -1052,10 +1022,8 @@ struct DVOverlay: DVNode {
     func controls(_ rect: CGRect, into: inout [(any DVControl, CGRect)]) { base.controls(rect, into: &into) }
 }
 
-/// The first variant that fits the width it is given, as `ViewThatFits(in: .horizontal)`:
-/// each variant carries the width it needs to show without truncating, and the last is
-/// used (truncating) when none fits. Lets a card shorten its wording ("days" → "d") rather
-/// than clip it, re-chosen on every layout so it expands again as the window widens.
+/// The first variant that fits the width it is given, as `ViewThatFits(in: .horizontal)` does. Each variant carries the width it needs. The last
+/// is used, truncated, when none fits. A card can shorten its wording ("days" to "d") instead of clipping, and it re-chooses on every layout.
 @MainActor
 struct DVFirstFit: DVNode {
     let variants: [(needs: CGFloat, node: any DVNode)]
@@ -1108,8 +1076,7 @@ struct DVKBar {
     var color: NSColor = .systemBlue
     var dimmed = false
     var valueLabel: String? = nil
-    /// Drawn inside the bar near its top, small and faint, as the Purchases by Year bands
-    /// show their counts; omitted when the bar is too short to hold it.
+    /// Drawn inside the bar near the top, small and faint, as the Purchases by Year bands show counts. Omitted when the bar is too short.
     var insideLabel: String? = nil
 }
 
@@ -1136,8 +1103,7 @@ enum DVK {
 
     // MARK: Section
 
-    /// A section's band: a 20 pt bold title, a 10 pt detail at its baseline, and a 2 pt rule
-    /// along the bottom of a 46 pt band, like the gallery's section dividers.
+    /// A section's band: a 20 pt bold title, a 10 pt detail at its baseline, and a 2 pt rule along the bottom of a 46 pt band, like the gallery's dividers.
     static func sectionBand(_ title: String, _ detail: String?) -> any DVNode {
         let row = DVHStack(spacing: 8, alignment: .lastBaseline, [
             DVText(title, .system(20, .bold), .primary),
@@ -1152,7 +1118,7 @@ enum DVK {
         return DVFrame(child: stack, height: 46)
     }
 
-    /// A section: the band (24 pt below the previous section) and the rows, 16 apart.
+    /// A section: the band, placed 24 pt below the previous section, then the rows 16 pt apart.
     static func section(_ title: String, detail: String? = nil, first: Bool = false, _ content: [any DVNode]) -> any DVNode {
         let band = DVDecorated(child: sectionBand(title, detail),
                                insets: NSEdgeInsets(top: first ? 0 : 24, left: 0, bottom: 0, right: 0))
@@ -1161,12 +1127,9 @@ enum DVK {
 
     // MARK: Card
 
-    /// A card: a title row (title, and a trailing note or node — a legend, a scope control),
-    /// an optional wrapping subtitle, then the content. With `action` the whole card is
-    /// clickable and its title row ends in a chevron, centered on the title. `subtitleNode`
-    /// (a legend) sits where a subtitle would. The title keeps its full width first; the
-    /// trailing note or node takes the rest, so a legend wraps only when the title row is
-    /// truly full rather than at an even split with the title.
+    /// A card: a title row (title, plus a trailing note or node such as a legend or scope control), an optional wrapping subtitle, then the content.
+    /// With `action`, the whole card is clickable, and a chevron ends the title row. `subtitleNode` (a legend) sits where a subtitle would. The title
+    /// keeps its full width first, so a legend wraps only when the title row is full.
     static func card(title: String? = nil, trailing: String? = nil, trailingNode: (any DVNode)? = nil,
                      subtitle: String? = nil, subtitleNode: (any DVNode)? = nil, bottomAligned: Bool = false, action: (() -> Void)? = nil,
                      _ content: [any DVNode]) -> any DVNode {
@@ -1218,9 +1181,8 @@ enum DVK {
                            background: DVPaint(color: color, opacity: 0.14), radius: 4)
     }
 
-    /// A stat tile: title, value (with an optional delta chip or trailing note, and a chevron
-    /// when it opens something — or, with `popoverID`, an info glyph, the tile opening that
-    /// popover as a Needs Attention row does), and a two-line footnote.
+    /// A stat tile: a title, a value with an optional delta chip or trailing note, and a two-line footnote. A chevron marks an action. With `popoverID`,
+    /// an info glyph marks a tile that opens a popover, as Needs Attention rows do.
     static func statTile(title: String, value: String, color: NSColor = .labelColor, trailing: String? = nil,
                          delta: DVDelta? = nil, footnote: String? = nil, action: (() -> Void)? = nil,
                          popoverID: String? = nil) -> any DVNode {
@@ -1349,9 +1311,8 @@ enum DVK {
         }, labels: bars.map(\.label))
     }
 
-    /// The Viewings by Month palette. The comparison year is the same color-over-gray split,
-    /// dimmed and shifted in hue (blue toward indigo, gray toward blue); dynamic, so each
-    /// blend resolves in the drawing appearance.
+    /// The Viewings by Month palette. The comparison year uses the same split, dimmed and shifted in hue (blue toward indigo, gray toward blue).
+    /// The colors are dynamic, so each blend resolves in the drawing appearance.
     static let monthBlue = DVPaint(color: .systemBlue, opacity: DVStyle.fillOpacity)
     static let monthGray = DVPaint(color: .systemGray, opacity: DVStyle.fillOpacity)
     static let monthPriorBlue = DVPaint(color: blend(.systemBlue, 0.4, .systemIndigo), opacity: DVStyle.fillOpacity * 0.5)
@@ -1388,9 +1349,8 @@ enum DVK {
         }
     }
 
-    /// One month bar: its bands stacked top first in `paints`, a top-rounded column, each
-    /// band's count inside it when there is room. `striped` alternates each band with the
-    /// other year's paint for it (`altPaints`) in 45° stripes (the month in progress).
+    /// One month bar: its bands stacked top first, in a top-rounded column, with each band's count inside when there is room. When `striped`, each band
+    /// alternates with the other year's paint (`altPaints`) in 45° stripes, which marks the month in progress.
     private static func monthBar(_ g: DVGraphics, _ rect: CGRect, value: Int, bands: [Int],
                                  paints: [DVPaint], altPaints: [DVPaint], striped: Bool) {
         guard rect.height > 0, value > 0 else { return }
@@ -1417,9 +1377,8 @@ enum DVK {
         }
     }
 
-    /// Viewings per month: the year shown beside the comparison year (when there is one),
-    /// each bar split into its bands (`paints`, the comparison year's in `priorPaints`) with
-    /// their counts; the month in progress (`dimmed`) striped with both years' paints.
+    /// Viewings per month. The year shows beside the comparison year when there is one. Each bar is split into bands with their counts, and the
+    /// month in progress (`dimmed`) is striped with both years' paints.
     static func monthColorBars(_ bars: [DVKMonthBar], paints: [DVPaint] = [monthBlue, monthGray],
                                priorPaints: [DVPaint] = [monthPriorBlue, monthPriorGray],
                                height: CGFloat = 150, spacing: CGFloat = 8) -> any DVNode {
@@ -1435,8 +1394,7 @@ enum DVK {
         return DVColumns(count: bars.count, spacing: spacing, chartHeight: height, draw: { g, i, col in
             let bar = bars[i]
             let total = barHeight(bar.value)
-            // The two years side by side, 3 pt apart, splitting the column equally; with no
-            // comparison the year shown takes the whole column.
+            // The two years sit side by side, 3 pt apart, each taking half the column. With no comparison, the shown year takes the whole column.
             let ghostH = bar.ghost.map(barHeight) ?? 0
             let hasGhost = bar.ghost != nil
             let half = (col.width - 3) / 2
@@ -1459,10 +1417,8 @@ enum DVK {
 
     // MARK: Rows
 
-    /// Label at the leading edge, value at the trailing edge. `year` follows the label in
-    /// tertiary, as one line (a film's release year). With `popoverID`, an info glyph trails
-    /// the value and a click opens that popover, as a Needs Attention row does;
-    /// `reserveInfoSpace` keeps the glyph's room (unseen) so the value lines up with such rows.
+    /// Label at the leading edge, value at the trailing edge. `year` follows the label in tertiary. With `popoverID`, an info glyph trails the value,
+    /// and a click opens the popover. `reserveInfoSpace` keeps the glyph's space, unseen, so the value lines up with such rows.
     static func factRow(label: String, year: Int? = nil, value: String, valueColor: NSColor = .labelColor, indented: Bool = false,
                         indentWidth: CGFloat = 20, reserveChevronSpace: Bool = false, popoverID: String? = nil,
                         reserveInfoSpace: Bool = false, compactLabel: String? = nil, compactValue: String? = nil) -> any DVNode {
@@ -1637,8 +1593,7 @@ struct DVWrap: DVNode {
     var spacing: CGFloat = 8
     var lineSpacing: CGFloat = 4
 
-    /// Never wider than its items on one line: in a card's title row a legend that took the
-    /// whole offer would leave the Spacer nothing, and sit against the title.
+    /// Never wider than its items on one line. In a card's title row, a legend that took the whole offer would leave the Spacer no room.
     var sizing: DVSizing {
         let widths = items.map { $0.sizing.max == .infinity ? $0.sizing.min : $0.sizing.max }
         return DVSizing(min: 0, max: widths.reduce(0, +) + spacing * CGFloat(max(0, items.count - 1)))
@@ -1711,9 +1666,8 @@ struct DVColumns: DVNode {
 
 // MARK: - Year bars
 
-/// One bar per year across the whole span, fitted to the width at any size: no per-bar
-/// labels (there can be a hundred), only the first and last years under the axis and the
-/// decades between them that have room. Hovering a bar shows its year and count.
+/// One bar per year across the span, fitted to the width at any size. There are no per-bar labels, since there can be a hundred. The axis shows the
+/// first and last years and any decades with room. Hovering a bar shows its year and count.
 @MainActor
 struct DVYearBars: DVNode {
     let values: [(year: Int, count: Int)]
@@ -1745,9 +1699,8 @@ struct DVYearBars: DVNode {
         let peak = values.reduce(0) { max($0, $1.count) }
         let paint = DVPaint(color: color, opacity: DVStyle.fillOpacity)
         let radius: CGFloat = slot(0, rect).width >= 6 ? 2 : 0
-        // In the PDF (vector, so a reader can zoom in) each count rides in its bar: a font
-        // sized to the narrowest slot's widest count, inside the top of the bar, or just above
-        // a bar too short to hold it.
+        // In the PDF, where vector text stays sharp when zoomed, each count sits inside the top of its bar. The font fits the narrowest slot.
+        // A bar too short to hold its count gets the count just above it.
         let countFont: DVFont? = g.vector ? {
             let digits = String(values.reduce(0) { max($0, $1.count) }).count
             return .mono(min(8, max(2, slot(0, rect).width * 0.8 / (0.62 * CGFloat(digits)))))
@@ -1804,9 +1757,8 @@ struct DVYearBars: DVNode {
 
 // MARK: - Flow columns
 
-/// Equal (or weighted, on one row) columns at `minColumnWidth`, rows balanced,
-/// each child placed at the row's height when it fills (cards) or its own (tiles, attention
-/// cards).
+/// Equal columns, or weighted ones on one row, at least `minColumnWidth` wide, with balanced rows. A child fills the row's height when it can (cards),
+/// or keeps its own (tiles and attention cards).
 @MainActor
 struct DVFlow: DVNode {
     let minColumnWidth: CGFloat

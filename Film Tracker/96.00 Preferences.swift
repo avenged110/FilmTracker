@@ -23,11 +23,9 @@ struct Preferences: Loggable {
     //
     // The registered defaults are installed HERE, inside the same initializer, so there is
     // no way to reach the suite without them: every accessor below goes through `defaults`,
-    // and a lazy static runs its initializer to completion before the first access
-    // returns. Registration used to be a separate lazy static that each SETTER forced and
-    // only some getters did, which left the guarantee resting on AppDelegate calling
-    // ensureDefaultsRegistered() before any early read — a `bool(forKey:)` issued before
-    // that returns false for a preference whose registered default is true.
+    // and a lazy static runs its initializer to completion before the first access returns.
+    // An early read therefore never sees an unregistered value, such as `bool(forKey:)`
+    // returning false for a preference whose registered default is true.
     private static var defaults: UserDefaults { shared.store }
     private static let shared = SharedDefaults({
         let resolved: UserDefaults
@@ -149,10 +147,9 @@ struct Preferences: Loggable {
     /// symbol marking a purchased disc-based source is shown whatever that preference says.
     /// When `false` the disc follows the preference like every other glyph in the module.
     ///
-    /// The disc is the one glyph that predates the rest — it marked a purchased disc long
-    /// before the module had a glyph vocabulary — so it is the one worth being able to keep
-    /// while the newer ones are turned off. Implemented in 24.12 WatchDetails.swift
-    /// (`sourceValueGlyph`).
+    /// The disc is kept separate from the other glyphs because it marks a purchased disc, a
+    /// fact about the film rather than decoration, so it can stay visible while the others are
+    /// turned off. Implemented in 24.12 WatchDetails.swift (`sourceValueGlyph`).
     static let purchasedDiscGlyphVisibilityOverride = true
 
     /// Verbose per-film logging during a ratings import. Enabling it measurably slows the
@@ -174,6 +171,8 @@ struct Preferences: Loggable {
     // Fixed label-column width for FilmSheet rows (hard-clipped; not a minimum)
     static let filmSheetLabelWidth: CGFloat = 128
     static let filmSheetReleasesLabelWidth: CGFloat = 122
+    // Inset around each FilmSheet / MultiFilmSheet / Settings tab's content.
+    static let sheetContentMargin: CGFloat = 26
     static let standardPickerWidth: CGFloat = 180
     static let spacingBeforeCheckbox: CGFloat = 20 // Space between Picker/Stepper and checkbox
     static let spacingAfterCheckbox: CGFloat = 6   // Space between checkbox and label text
@@ -329,7 +328,11 @@ struct Preferences: Loggable {
         static let loggingEnabled =
             "preferences.loggingEnabled"
         static let atvq =
-            "preferences.atvq" }
+            "preferences.atvq"
+        // CalendarPopover's remembered calendar. Predates the "preferences." prefix; the
+        // stored spelling is kept so existing selections survive.
+        static let lastSelectedCalendarID =
+            "LastSelectedCalendarID" }
 
     // Expose the key strings for use by other modules that need to post/update.
     // (This keeps a single canonical definition of the key names.)
@@ -374,6 +377,7 @@ struct Preferences: Loggable {
     static let allowUpdatesForDuplicateRatingsKey    = Keys.allowUpdatesForDuplicateRatings
     static let showInfoCompleteKey                   = Keys.showInfoComplete
     static let showWatchDetailsAnnotationGlyphsKey   = Keys.showWatchDetailsAnnotationGlyphs
+    static let lastSelectedCalendarIDKey             = Keys.lastSelectedCalendarID
     // NOTE: overrideDateClampKey is intentionally NOT included in SettingsManager's
     // export/restore pipeline or SettingsObject's persisted schema. See the
     // overrideDateClamp property below for the full rationale — this preference
@@ -444,9 +448,9 @@ struct Preferences: Loggable {
             Keys.atvq: false ] }
 
     /// Forces the `defaults` static — and with it the registration — to initialize.
-    /// Registration is a property of `defaults` itself now, so every accessor is covered
-    /// whether or not this is called; AppDelegate still calls it at launch so the suite is
-    /// resolved before any I/O-dependent subsystem runs.
+    /// Registration is a property of `defaults`, so every accessor is covered whether or not
+    /// this is called. AppDelegate still calls it at launch so the suite is resolved before
+    /// any I/O-dependent subsystem runs.
     static func ensureDefaultsRegistered() { _ = defaults }
 
     // MARK: - Toggles
@@ -504,7 +508,7 @@ struct Preferences: Loggable {
     // Governs which class of user-generated list changes triggers a confirmation alert
     // when confirmListEdits is enabled. The scope has no effect when confirmListEdits is false.
     //
-    // .both        → alerts for all list-related changes (default; matches prior behavior)
+    // .both        → alerts for all list-related changes (default)
     // .listOnly    → alerts only for changes to the list itself (delete, rename, duplicate)
     // .contentsOnly → alerts only for changes to list contents (remove, clear)
     enum ListEditScope: Int {
@@ -565,16 +569,14 @@ struct Preferences: Loggable {
                 logMessage: "onlyNotifyForWishlisted set to \(newValue)") } }
 
     // MARK: - Gallery Sorting Sections
-    // NOTE: there is no preference here any more. Whether a gallery inserts labeled
+    // NOTE: there is no global preference here. Whether a gallery inserts labeled
     // divider bands derived from its active sort option — alphabetical letters for Title,
     // one band per year for Year, runtime brackets for Duration, relative-age brackets for
     // the three date sorts, and one band per discrete step for Rating and Recorded View
     // Count (see GallerySections.swift for the per-option derivation) — is per-view state,
     // stored as ViewState.showSectionDividers in the viewSortStates dictionary below and
-    // chosen from each view's own Sort menu. The global `showGallerySortingSections`
-    // preference this replaced is gone entirely, including from the backup schema; a
-    // restored pre-change backup simply carries no value for it, and every view starts
-    // from the same `false` default it always shipped with.
+    // chosen from each view's own Sort menu. The backup schema has no key for a global
+    // setting, and a backup that carries no value for it leaves every view at the `false` default.
 
     static var largeGalleryGrid: Bool {
         get { return defaults.bool(forKey: Keys.largeGalleryGrid) }
@@ -614,13 +616,11 @@ struct Preferences: Loggable {
     //
     // It exists so that "newly up for rotation" means genuinely newly up for rotation
     // ACROSS LAUNCHES, not merely "present in a freshly populated in-memory set". Without
-    // it, every launch treated the entire rotation list as new and re-ran auto-enqueue over
-    // the whole library — silently undoing any Film Queue placement the user had made by
-    // hand in a previous session.
+    // it, every launch would treat the entire rotation list as new and re-run auto-enqueue
+    // over the whole library, undoing any Film Queue placement the user made by hand.
     //
     // `nil` (key absent) is meaningful and distinct from an empty set: it means "no baseline
-    // has been established", which happens on the first launch after this feature was added
-    // and after a database restore. In that state SmartLists adopts whatever it computes
+    // has been established", which happens before the first evaluation and after a database restore. In that state SmartLists adopts whatever it computes
     // without auto-enqueueing anything, because it has no prior state to legitimately
     // compare against and must not act on a difference it cannot verify.
     static var knownUpForRotationFilmIDs: Set<UUID>? {
@@ -784,7 +784,7 @@ struct Preferences: Loggable {
     enum TabRememberScope: Int {
         case recents = 0   // Remember Recents' last-selected sub-tab only
         case reports = 1   // Remember Reports' last-selected sub-tab only
-        case both    = 2   // Remember both (default; matches prior behavior)
+        case both    = 2   // Remember both (default)
     }
 
     static var rememberTabSelection: Bool {
@@ -827,10 +827,9 @@ struct Preferences: Loggable {
         set {
             // Written directly to UserDefaults without firing postPreferenceChangedEvent.
             // This is a high-frequency UI state value (fires on every tab switch) that no
-            // other subsystem needs to react to — it is only read back at the next launch.
-            // Routing through setIfChanged → postPreferenceChangedEvent → SettingsManager
-            // sync would introduce a 4–6 second write delay, causing the value to be lost
-            // if the user quits before the background sync completes.
+            // other subsystem needs to react to; it is only read back at the next launch.
+            // Routing it through setIfChanged would defer the write until the background
+            // SettingsManager sync completes, and the value could be lost if the user quits first.
             //
             // synchronize() forces an immediate flush of the UserDefaults in-memory state
             // to the backing plist file. Without it, macOS batches the write lazily and
@@ -1044,8 +1043,7 @@ struct Preferences: Loggable {
     // it is safe to toggle at any time. Views observe it through @AppStorage rather than this
     // accessor, which is what makes a change in Settings redraw an open sidebar immediately.
     //
-    // Was an internal testing constant before it was promoted here; see
-    // Preferences.purchasedDiscGlyphVisibilityOverride, which still governs whether the
+    // Preferences.purchasedDiscGlyphVisibilityOverride still governs whether the
     // "Source for Viewing" disc glyph answers to this preference at all.
     static var showWatchDetailsAnnotationGlyphs: Bool {
         get { return defaults.bool(forKey: Keys.showWatchDetailsAnnotationGlyphs) }

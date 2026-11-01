@@ -360,8 +360,8 @@ extension DebugHarness {
         /// overlay scroller fades on its own clock after a programmatic scroll).
         ///
         /// The window server can re-place the window (or someone can move it) between
-        /// working out the rectangle and grabbing it; seen 2026-10-05, when one capture held
-        /// the window shrunk into a corner of the rectangle. So the frame is pinned first,
+        /// working out the rectangle and grabbing it, and a capture can then hold the window
+        /// shrunk into a corner of the rectangle. So the frame is pinned first,
         /// and a grab counts only when the window held still across it.
         let pinnedFrame = window.frame
         func capture(_ sv: NSScrollView) async -> Data? {
@@ -444,7 +444,7 @@ extension DebugHarness {
                 // The same pixels, to within one 8-bit level per channel. Core Animation
                 // composites a tree with spacers in it slightly differently: at the top of
                 // the list, a few dozen pixels along the viewport's bottom edge come out one
-                // level apart (seen 2026-10-05: 29 pixels, 0.157 vs 0.153 gray). Anything
+                // level apart. Anything
                 // laid out differently — a card, a shadow, a line a pixel out of place —
                 // differs by far more than that.
                 var detail = "offset \(Int(y))"
@@ -506,13 +506,11 @@ extension DebugHarness {
 // does while an import runs, every 500 ms (updateSessionProgress) — while ImportHistory's
 // full load runs, over and over. Every context shares the store's one SQLite connection, so
 // a main-thread save waits for the load's fetch; at a lower QoS than the main thread that
-// wait is a priority inversion. (Settings once saved here too; they now save on
-// DataManager's queue.) The launch itself overlaps the first load with DataManager's
+// wait is a priority inversion. The launch itself overlaps the first load with DataManager's
 // bootstrap saves. libRPAC does not print outside Xcode: run it under lldb with
 // /usr/lib/libRPAC.dylib in DYLD_INSERT_LIBRARIES and a breakpoint on libRPAC's
-// `generateCulledBacktrace`, which stops on every priority inversion it detects. While the
-// load ran at `.utility`, every run stopped in `NSSQLDefaultConnectionManager
-// _checkoutConnectionOfType:` under a save.
+// `generateCulledBacktrace`, which stops on every priority inversion it detects. With the load
+// at `.utility`, a save stops in `NSSQLDefaultConnectionManager _checkoutConnectionOfType:`.
 //
 // Without libRPAC it still measures what an inversion costs: the worst main-thread save
 // (`worstSaveMs`), and checks that every save landed and the index followed the last one.

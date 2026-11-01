@@ -34,13 +34,11 @@ final class FSTabNotes {
     // Change tracking.
     var hasChanges: Bool = false
     
-    // Formatter for WRITING the edit date — DTO conversion and the change-detection
-    // baseline that is derived from it. Reading goes through parseDate instead; see
-    // loadData for why a strict single-format read was silently destructive.
+    // Formatter for WRITING the edit date and the change-detection baseline derived from it. Reading goes
+    // through parseDate; see loadData for why a strict single-format read is unsafe.
     //
-    // The shared "yyyy-MM-dd" storage formatter — the same object the parseDate branch
-    // that reads these strings back uses, so writer and reader cannot disagree. Sharing
-    // it also keeps the ~0.5ms DateFormatter initialization to one instance app-wide.
+    // This is the shared "yyyy-MM-dd" storage formatter, the object the parseDate dash branch reads with, so
+    // writer and reader cannot disagree. Sharing it also keeps DateFormatter setup to one instance app-wide.
     private static let editDateFormatter = StorageDateFormatters.dash
 
     // Flag to suppress change tracking during initial data load.
@@ -75,29 +73,13 @@ final class FSTabNotes {
         tools = film.tools
         editedHBRFValue = film.editedHBRFValue
         
-        // Convert editDate String to Date and track if it has a value.
+        // Read through parseDate, the app's canonical parser, not editDateFormatter, which is for writing only.
         //
-        // Read through parseDate — the app's canonical parser — rather than through
-        // editDateFormatter, which is kept below for WRITING only.
+        // parseDate reads "yyyy-MM-dd" identically to the formatter and also recovers the other shapes the app
+        // can store. A value no parser can read still activates the picker, showing today's date, so the user can
+        // see and correct it. That fallback logs a warning, because saving then overwrites the stored value.
         //
-        // The formatter accepts exactly "yyyy-MM-dd". Any other stored shape (including
-        // the app's own canonical "yyyy-MM-dd'T'HH:mm:ss'Z'" that FSTabDetails writes for
-        // releaseDate, the "yyyy.MM.dd" the releases tab writes, or anything a restore or
-        // an import produced) returned nil and fell back to `Date()` — TODAY — while
-        // still setting hasEditDate = true. captureOriginalValues() then recorded today's
-        // date as the baseline, so the sheet did not look dirty, and the next save
-        // silently rewrote the film's edit date to whatever day the sheet happened to be
-        // opened. A stored value the user never touched, replaced without a prompt.
-        //
-        // parseDate handles "yyyy-MM-dd" identically — its dash branch reads through the
-        // very same StorageDateFormatters.dash this tab writes with, so "identically" is
-        // now identity rather than two configurations that match — and the overwhelmingly
-        // common case is byte-for-byte unchanged, with no film's baseline moving. It only adds recovery for the shapes that previously silently lost data.
-        //
-        // The `?? Date()` remains for a value that no parser can make sense of, matching
-        // the precedent in FSTabDetails' releaseDate load path: a non-empty but
-        // unparseable value still activates the picker rather than being hidden as unset,
-        // so the user can see and correct it.
+        // The `?? Date()` fallback matches FSTabDetails' releaseDate load path.
         if film.editDate.isEmpty {
             editDate = Date()
             hasEditDate = false
@@ -210,18 +192,13 @@ struct FilmNotesFields: Sendable, Equatable {
 struct FSTabNotesView: View {
     @Bindable var viewModel: FSTabNotes
 
-    // No scroll proxy. This tab carried one only so its call site looked uniform
-    // with the Details tab's; it was never read here or handed to any child, and
-    // the two commands that once scrolled this tab are gone. Nothing on the tab
-    // publishes a scroll anchor either, so a proxy would have had no target even
-    // if something called it. The list tables reveal a freshly committed row
-    // through `ListAddRowRevealer`, which locates its own enclosing scroll view
-    // and needs neither an anchor nor a proxy.
+    // This tab has no scroll proxy. The list tables reveal a freshly committed row through
+    // `ListAddRowRevealer`, which locates its own enclosing scroll view and needs neither an anchor nor a proxy.
 
     // Layout constants are static: they are process-wide constants drawn from
     // Preferences and never differ between instances. Keeping them static removes
     // them from per-instance allocation and eliminates implicit self captures in
-    // every closure inside body that previously referenced them.
+    // every closure inside body that would otherwise reference them.
     private static let labelWidth: CGFloat = Preferences.filmSheetLabelWidth
     // Vertical offset that lines a topLeading label up with the first line of
     // the content beside it. Only the Legend row still uses it — every list row
@@ -229,15 +206,6 @@ struct FSTabNotesView: View {
     // `ReorderableStringList.labelTopOffset` itself.
     private static let topAlignmentOffset: CGFloat = 2
     
-    // The two lifted popover triggers and two scroll anchors that used to sit here
-    // are gone with the Opt+A/Opt+S shortcuts that drove them — back when a frames
-    // table's add control was a "+" fixed beside its top edge, reachable while the
-    // row it created was below the fold. Every table's add control is now its own
-    // last row, unclickable unless already visible, and scrolls itself into view
-    // after each commit (`ListAddRowRevealer`), so there's nothing left for an
-    // external trigger or scroll anchor to do. The `UICommand` cases and
-    // KeyboardManager branches went with them, as did the Software Tools list's
-    // own anchor, "notes.tools".
 
     // Single-string Bindings for the two single-element array fields.
     // Defined here on the View struct (a value type) rather than as computed
@@ -246,40 +214,34 @@ struct FSTabNotesView: View {
     // only when body is re-evaluated, which is already gated by the view's
     // observation tracking scope.
     private var notesOnAudioTimingText: Binding<String> {
-        Binding(
-            get: { viewModel.notesOnAudioTiming.first ?? "" },
-            set: { newValue in
-                if newValue.isEmpty {
-                    viewModel.notesOnAudioTiming = []
-                } else if viewModel.notesOnAudioTiming.isEmpty {
-                    viewModel.notesOnAudioTiming = [newValue]
-                } else {
-                    viewModel.notesOnAudioTiming[0] = newValue
-                }
-            }
-        )
+        firstElementBinding(\.notesOnAudioTiming)
     }
 
     private var specialAudioNotesText: Binding<String> {
-        Binding(
-            get: { viewModel.specialAudioNotes.first ?? "" },
+        firstElementBinding(\.specialAudioNotes)
+    }
+
+    /// The field edits the array's FIRST entry only. A restored backup or an older build can
+    /// hold more than one (the right sidebar lists them all), so clearing the field removes
+    /// just that first entry and keeps the rest, rather than emptying the whole array behind
+    /// entries the field never showed.
+    private func firstElementBinding(_ keyPath: ReferenceWritableKeyPath<FSTabNotes, [String]>) -> Binding<String> {
+        let model = viewModel
+        return Binding(
+            get: { model[keyPath: keyPath].first ?? "" },
             set: { newValue in
+                let current = model[keyPath: keyPath]
                 if newValue.isEmpty {
-                    viewModel.specialAudioNotes = []
-                } else if viewModel.specialAudioNotes.isEmpty {
-                    viewModel.specialAudioNotes = [newValue]
+                    model[keyPath: keyPath] = Array(current.dropFirst())
+                } else if current.isEmpty {
+                    model[keyPath: keyPath] = [newValue]
                 } else {
-                    viewModel.specialAudioNotes[0] = newValue
+                    model[keyPath: keyPath][0] = newValue
                 }
             }
         )
     }
     
-    // The `pluralMap` lookup table and the `pluralizedLabel` helper that read it
-    // are gone. Both existed only to build the Warnings and Notes labels in this
-    // body, which is what put those two arrays in this view's observation set.
-    // The labels are now supplied to `FilmSheetListRow` fully formed, so
-    // there is no table to consult and nothing to derive.
 
     // MARK: - Label helpers
     // Encapsulates the fixed-width, left-aligned, single-line label pattern used by
@@ -290,25 +252,14 @@ struct FSTabNotesView: View {
         FilmSheetFieldLabel(text, width: Self.labelWidth)
     }
 
-    // The `topLabel` helper that used to sit here has no callers left. Every row
-    // that needed it — Warnings, Notes, and the Legend — is now built through a
-    // child view that draws its own label. Warnings and Notes take the rule from
-    // `ReorderableStringList.labelTopOffset`, the same as every other list row on
-    // the sheet; the Legend still receives `Self.topAlignmentOffset` as
-    // `labelTopPadding`, because it pairs with a plain `VStack` rather than a
-    // `List` and so keeps the older offset.
 
     // Variant for rows that pair with ReorderableStringList or
     // ReorderableFramesList. Both sit lower than a plain field, because the
     // inset List they are built on adds its own top padding.
     //
-    // This used to take the paired list's item count, because that padding was
-    // applied only when the list held content and a fixed offset therefore lined
-    // up in one state and not the other. Both lists now always draw at least
-    // their trailing add row, so the padding is unconditional and one constant
-    // covers both states. The rule is still ReorderableStringList's own, so the
-    // label, the list's first row, and the list's bulk-import button stay
-    // aligned by construction rather than by constants kept in step by hand.
+    // Both lists always draw at least their trailing add row, so the padding is unconditional. The rule is
+    // ReorderableStringList's own, so the label, the list's first row, and its bulk-import button stay aligned by
+    // construction rather than by constants kept in step by hand.
     //
     // .offset rather than .padding: the alignment constants are signed, so
     // either element can be nudged upward, which padding cannot express.
@@ -318,9 +269,6 @@ struct FSTabNotesView: View {
             .offset(y: ReorderableStringList.labelTopOffset)
     }
 
-    // `scrollAnchor(_:)` moved into `FilmSheetListRow`, the only thing
-    // that used it. The two frames rows below used to publish their own anchors
-    // inline as well; both are gone with the shortcuts that targeted them.
 
     var body: some View {
         let _ = FilmSheetBodyProbe.hit("notes")
@@ -341,14 +289,11 @@ struct FSTabNotesView: View {
 
         // MARK: Build waves
         //
-        // Same scheme as the Metadata tab, and for the same reason: this tab is
-        // built the first time the user activates it, and it carries seven
-        // AppKit scroll-view stacks — four `List`-backed tables and three
-        // `NSTextView`s — every one of which was previously constructed before
-        // the tab's first frame was shown. Fields that cannot be on screen at
-        // that moment are given a non-zero wave so their construction lands a
+        // Same scheme as the Metadata tab, and for the same reason: this tab is built on first activation, and it
+        // carries seven AppKit scroll-view stacks (four `List`-backed tables and three `NSTextView`s).
+        // Fields that cannot be on screen at that moment are given a non-zero wave so their construction lands a
         // few frames later. See `DeferredFieldContent`
-        // (30_20_FSControlHelpers.swift).
+        // (30.20 FSControlHelpers.swift).
         //
         // Where the line is drawn, computed against the minimum height every
         // field above can collapse to, since that is the arrangement that pulls
@@ -371,45 +316,28 @@ struct FSTabNotesView: View {
         // conditional, has no height that could be reserved without evaluating
         // the condition the section exists to keep out of this body.
 
-        // The `showLegend` precomputation that used to sit here is gone with the
-        // inline conditional it fed. It read two of the view model's arrays, which
-        // is precisely what kept this body being invalidated by frames-list edits;
-        // the condition now lives in `NotesLegendSection`, which is the only thing
-        // that has to re-evaluate when it changes.
 
-        // VStack of HStack rows replaces Grid/GridRow. Both column widths are fixed
-        // constants (labelWidth and .infinity), so Grid's two-pass column-resolution
-        // sweep was doing zero useful negotiation work — confirming values it was
-        // already given on every sheet open. VStack/HStack produces pixel-identical
-        // output with one fewer layout container per row (~13 rows) and no column pass.
+        // Both column widths are fixed (labelWidth and .infinity), so a VStack of HStack rows lays out the same as
+        // a Grid, with less work and no column pass.
         //
-        // Every row that binds a field is built inside `ObservationBoundary` (30_20) or
-        // reaches its field by key path (`FilmSheetListRow`, `NotesLegendSection`): a
-        // `$viewModel.field` binding created in this body subscribes it to `field`, so a
-        // Release keystroke, a Description keystroke or a new frames entry re-ran the whole
-        // tab — measured by the `filmsheet-perf` harness scenario.
+        // Rows that bind a field are built inside `ObservationBoundary` (30.20) or reach their field by key path
+        // (`FilmSheetListRow`, `NotesLegendSection`). A `$viewModel.field` binding created in this body subscribes
+        // the body to `field`, so each binding must stay out of this body. The `filmsheet-perf` harness scenario
+        // checks this.
         VStack(alignment: .leading, spacing: rowSpacing) {
             // Release — single-line text field
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
-                    // `label`, not a top-aligned variant. This row pairs with a plain
-                    // single-line TextField in a center-aligned stack, so the 2pt top
-                    // padding the top-aligned label carries — which exists to line a
-                    // label up with the first line of multi-line content — grew the
-                    // label's box and pushed its glyphs below the field's centerline.
+                    // `label`, not a top-aligned variant. This row sits in a center-aligned stack beside a plain
+                    // single-line field, and a top padding would push the label's glyphs below the field's centerline.
                     // Every other single-line field row on this sheet uses `label`.
                     label("Release:")
                     TextField("Release Used", text: $viewModel.releaseUsed)
                         .textFieldStyle(.roundedBorder)
                 }
             }
-            // Software Tools — top-aligned. Uses the reorderable list, as every
-            // string-list row on this tab now does.
-            //
-            // Built through the shared row rather than inline so this body never
-            // reads `tools` — see FilmSheetListRow. Inline, the label's
-            // count read put the array in this view's observation set, so every
-            // entry committed in the list re-rendered the whole tab.
+            // Software Tools, top-aligned. Built through the shared row so this body never reads `tools`; see
+            // FilmSheetListRow.
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.tools,
                                    singularLabel: "Software Tool:",
@@ -433,12 +361,9 @@ struct FSTabNotesView: View {
                     }
                 }
             }
-            // Warnings — top-aligned. Built through the shared row for the same
-            // reason the Software Tools list is: inline, the label's count read
-            // put `warning` in THIS view's observation set, so every entry added
-            // or removed in the list re-rendered the whole tab.
+            // Warnings, top-aligned. Built through the shared row so this body never reads `warning`.
             //
-            // `editor: .popover` (`ReorderableTextList`, 30_50_FSTextList.swift)
+            // `editor: .popover` (`ReorderableTextList`, 30.50 FSTextList.swift)
             // rather than the inline string list. Warnings and Notes routinely hold a
             // paragraph, and the string list edits an entry in place through a
             // one-line field — a sliding window onto text there is no way to see
@@ -497,22 +422,10 @@ struct FSTabNotesView: View {
                              columnSpacing: colSpacing,
                              renderWave: 1,
                              editor: .popover)
-            // HandBrake frames and their time codes — one table, top-aligned.
-            //
-            // These were two `ReorderableFramesList` instances, one per array,
-            // and keeping them in step was left entirely to the user: entry n of
-            // one described the same moment as entry n of the other, and the
-            // mark and the two fade flags had to be set identically on both by
-            // hand. A delete, a reorder, or a flag set on one and not the other
-            // desynchronized the pair silently.
-            //
-            // The two arrays are unchanged and are still stored, loaded, and
-            // saved separately — the right sidebar's Notes tab still draws them
-            // as two tables, where the horizontal space does not allow anything
-            // else. What is combined is the editing surface: one row now carries
-            // a frame, its time code, and ONE set of flags, and every write path
-            // writes both arrays together. See the header of
-            // 30_40_FSFramesList.swift.
+            // HandBrake frames and their time codes: one table, top-aligned. Each row carries a frame, its time code,
+            // and one set of flags. The two arrays are still stored, loaded, and saved separately, and the right
+            // sidebar's Notes tab still draws them as two tables. Every write path writes both arrays together. See
+            // the header of 30.40 FSFramesList.swift.
             ObservationBoundary {
                 HStack(alignment: .top, spacing: colSpacing) {
                     topListLabel("HandBrake Frames:")
@@ -523,13 +436,9 @@ struct FSTabNotesView: View {
                     )
                 }
             }
-            // Legend — conditional; shown only when an entry in one of the two
-            // tables actually carries a glyph the legend explains. The condition
-            // lives inside the child rather than here so
-            // that reading the two arrays does not put them in THIS view's
-            // observation set: adding a single frame entry previously invalidated
-            // the whole tab body, rebuilding both frames lists, every text view,
-            // and both editable lists.
+            // Legend: conditional, shown only when an entry in one of the two tables carries a glyph the legend
+            // explains. The condition lives inside the child, so reading the two arrays does not put them in this
+            // view's observation set.
             NotesLegendSection(model: viewModel,
                                framesKeyPath: \.handbrakeFrames,
                                timecodesKeyPath: \.correspondingTimecodes,
@@ -538,32 +447,9 @@ struct FSTabNotesView: View {
                                labelTopPadding: Self.topAlignmentOffset)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // The `.onReceive(AppEventBus.shared.uiCommands)` sink that used to sit
-        // here is gone with the two commands it handled. It scrolled to one of
-        // the frames anchors and then set that table's external add trigger, a
-        // two-step dance that existed only because the add control could be
-        // invoked while the row it produced was off screen. That control is now
-        // the table's own last row and reveals itself after every commit, so
-        // both steps have nothing left to do.
     }
 }
 
-// The `FilmSheetEditableListRow` that used to sit here is gone with the last two
-// callers of `EditableStringList`. Warnings and Notes are now drawn by
-// `FilmSheetListRow` (30_30_FSStringList.swift) with `editor: .popover`, and the
-// Software Tools list above by the same row with its default inline editor — the
-// same labeled row every list on the Metadata tab uses. Moving a field between
-// the two lists is a change to that one argument.
-//
-// The two types differed only in which list they paired with and, consequently,
-// in how their label was nudged into line with it: this one took a
-// `labelTopPadding` because it cleared the first text field of a plain `VStack`,
-// where the surviving row applies `ReorderableStringList.labelTopOffset` itself
-// to clear the internal top padding of an inset `List`. With one list left there
-// is one rule, and it lives with the list that defines it rather than being
-// passed in from each tab. The observation boundary both types existed to draw —
-// reaching the array by key path so the tab's body never reads it — is unchanged
-// and is documented on the surviving type.
 
 // MARK: - Legend Section
 
@@ -574,16 +460,11 @@ struct FSTabNotesView: View {
 ///
 /// **Why the condition lives here rather than in the tab's body**
 ///
-/// Same observation boundary as `FilmSheetListRow`. Evaluating the arrays in the tab's
-/// body put both of them in the tab's observation set, so adding one frame entry
-/// invalidated the entire tab. Moving the read into the one view whose appearance actually
-/// depends on it confines the invalidation to this row.
-///
-/// This note used to add that `ReorderableFramesList` receiving the arrays as `Binding`s was
-/// harmless, because constructing a `Binding` from `@Bindable` does not read the value it
-/// projects. The `filmsheet-perf` harness scenario measured otherwise: with the bindings
-/// created in the tab's body, a new frames entry still re-ran that body. The frames row is
-/// now built inside an `ObservationBoundary` (30_20) as well.
+/// Same observation boundary as `FilmSheetListRow`. Reading the arrays in the tab's body would put both of them
+/// in the tab's observation set, so adding one frame entry would invalidate the entire tab. Reading them here
+/// confines the invalidation to this row. The frames table is built inside an `ObservationBoundary` (30.20)
+/// for the same reason, and its bindings are created there too. The `filmsheet-perf` harness scenario
+/// measures this.
 ///
 /// Read-only, so a plain stored reference rather than `@Bindable`: `@Observable`
 /// tracking applies to any property read inside a `View` body, and nothing here
@@ -636,8 +517,8 @@ private struct LegendContent: View {
             LegendRow(glyph: "asterisk", label: "See notes")
             LegendRow(glyph: "chevron.up", label: "See notes")
             LegendRow(glyph: "number", label: "See notes")
-            LegendRow(glyph: "arrow.up.right.circle.fill", label: "Audio fade-in for this section")
-            LegendRow(glyph: "arrow.down.right.circle.fill", label: "Audio fade-out for this section")
+            LegendRow(glyph: ContentGlyphs.audioFadeIn, label: "Audio fade-in for this section")
+            LegendRow(glyph: ContentGlyphs.audioFadeOut, label: "Audio fade-out for this section")
 
             Text("Final Cut Pro audio fade effects:")
                 .font(.system(size: 13))

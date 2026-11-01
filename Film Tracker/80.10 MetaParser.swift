@@ -40,9 +40,15 @@ final class MetaParser: Loggable {
             var posterUID = ""
             if let artworkData = metadata.artworkData {
                 Self.log("Extracting poster artwork...")
-                posterUID = try await extractPoster(artworkData)
-                pendingPosterUIDs.append(posterUID)
-                Self.log("Poster extracted successfully: \(posterUID)")
+                // Unreadable artwork costs the film its poster, not the whole import: the
+                // rest of the metadata is still good, and a poster can be added later.
+                do {
+                    posterUID = try await extractPoster(artworkData)
+                    pendingPosterUIDs.append(posterUID)
+                    Self.log("Poster extracted successfully: \(posterUID)")
+                } catch {
+                    Self.log("WARNING: Artwork could not be processed (\(error.localizedDescription)); importing without a poster")
+                }
             } else { Self.log("No artwork data found in file") }
             // Create the FilmSnapshot DTO from the parsed metadata.
             let film = createSnapshot(id: filmID, posterUID: posterUID, metadata: metadata)
@@ -80,8 +86,8 @@ final class MetaParser: Loggable {
         Self.log("Cleared all pending films") }
 
     // Records that a pending poster now belongs to an existing library film, so a later
-    // rollback keeps its file. Its reservation is released with the rest, exactly as
-    // before: the adopting film already references it in MemoryStore.
+    // rollback keeps its file. Its reservation is released with the rest; the adopting film
+    // already references it in MemoryStore.
     func adoptPoster(_ posterUID: String) {
         adoptedPosterUIDs.insert(posterUID) }
 
@@ -90,8 +96,8 @@ final class MetaParser: Loggable {
         Self.log("Rolling back \(pendingFilms.count) pending imports")
         // Delete any poster images that were generated during the import.
         guard let folderURL = Preferences.posterImagesFolderURL else { return }
-        // Adopted posters are skipped: a canceled import used to delete the artwork it had
-        // just given an existing film, leaving that film pointing at a missing file.
+        // Adopted posters are skipped: the film they were given to still references them, so a
+        // rollback must not delete them.
         for posterUID in pendingPosterUIDs where !adoptedPosterUIDs.contains(posterUID) {
             let posterURL = folderURL.appendingPathComponent("\(posterUID).jpg")
             try? FileManager.default.removeItem(at: posterURL)
@@ -117,10 +123,15 @@ final class MetaParser: Loggable {
 
             // Extract duration from asset.
             let durationCMTime = try await asset.load(.duration)
-            parsed.duration = Fmt.fixed(durationCMTime.seconds * 1000, 0)
+            // An indefinite or invalid CMTime reports NaN seconds; formatting that stored the
+            // text "nan" as the runtime and also blocked the iTunes duration atom fallback
+            // below, which only fills an empty duration.
+            let durationSeconds = durationCMTime.seconds
+            if durationSeconds.isFinite, durationSeconds > 0 {
+                parsed.duration = Fmt.fixed(durationSeconds * 1000, 0)
+            }
 
             // Extract frame rate and aspect ratio from video track.
-            // Added aspect ratio extraction
             let tracks = try await asset.loadTracks(withMediaType: .video)
             if let firstVideoTrack = tracks.first {
                 let frameRate = try await firstVideoTrack.load(.nominalFrameRate)
@@ -604,7 +615,9 @@ final class MetaParser: Loggable {
         // Check if comments contain "B&W" to set color boolean.
         let isColor = !metadata.comments.contains("B&W")
         // Check if comments contain "edited" to set edited boolean.
-        let isEdited = metadata.comments.lowercased().contains("edited")
+        // Whole word only: a substring test read "unedited" as edited.
+        let isEdited = metadata.comments.range(of: #"\bedited\b"#,
+                                               options: [.regularExpression, .caseInsensitive]) != nil
         // Extract and convert quality value from comments (format: "quality ##").
         let qualityValueString = extractQualityValue(from: metadata.comments)
         let qualityValue = convertQualityValue(qualityValueString)
@@ -637,7 +650,7 @@ final class MetaParser: Loggable {
             dateAdded: dateAdded,
             // Intentionally empty — NOT an oversight, and not a value to "fix" by writing
             // Date() here. "" is the sentinel for "never modified since import"; see the
-            // lastModified declaration in 61_00_FilmObj.swift for the display semantics that
+            // lastModified declaration in 61.00 FilmObj.swift for the display semantics that
             // depend on it and for why the snapshot cache's validity check depends on it too.
             lastModified: "",
             // Imported films are NOT presumed watched. A file arriving through the

@@ -1,10 +1,8 @@
 // MARK: - UnwatchedView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Displays the Unwatched library section (Unwatched / Not Rated tabs) using the
-// standard GalleryView. Uses a segmented picker in GalleryTitleBar, mirroring the
-// Film Queue's segmented display filter, and the same ensureInitialViewLoad /
-// resetInitialization lifecycle RecentsState uses for its own sub-category tabs.
+// The Unwatched library section (Unwatched and Not Rated tabs), shown in the standard GalleryView. The segmented picker sits in
+// GalleryTitleBar, as in the Film Queue. Its lifecycle matches RecentsState's ensureInitialViewLoad and resetInitialization.
 
 import Foundation
 
@@ -26,12 +24,9 @@ enum UnwatchedCategory: String, CaseIterable, Codable, Sendable {
 
 // MARK: - Unwatched State
 
-/// Manages the currently selected Unwatched-view tab. Mirrors RecentsState's
-/// ensureInitialViewLoad/resetInitialization lifecycle so GalleryView can drive the
-/// initial load the same way it does for Recents. Unlike RecentsState, the selected
-/// tab is not persisted across launches — like the smart-list variant states
-/// (SmartListVariantState's per-family instances), it always starts on
-/// its first tab ("Unwatched").
+/// Manages the selected Unwatched tab. It follows RecentsState's ensureInitialViewLoad and resetInitialization lifecycle,
+/// so GalleryView drives the initial load the same way. Unlike Recents, the tab is not persisted across launches. It always
+/// starts on "Unwatched", as the smart-list variant states do.
 @MainActor
 @Observable
 final class UnwatchedState: SubcategoryViewState {
@@ -59,14 +54,12 @@ final class UnwatchedState: SubcategoryViewState {
     }
 
     func selectCategory(_ category: UnwatchedCategory) {
-        // Don't skip if it's the same category - we might need to reload.
+        // Don't skip a repeated category, since it may need a reload.
         let categoryChanged = category != selectedCategory
-        // selectedCategory updates synchronously so the segmented control reflects the
-        // new choice immediately with no visual flicker.
+        // selectedCategory updates synchronously, so the segmented control shows the new choice at once.
         selectedCategory = category
 
-        // No parent sidebar item is passed: selectedSidebarItem is already pinned to
-        // .libraryItem(.unwatched) for every tab, exactly like RecentsState.
+        // No parent sidebar item is passed, since selectedSidebarItem is already .libraryItem(.unwatched) for every tab, as in RecentsState.
         SubcategoryNavigation.performSwitch(
             clearingSelection: categoryChanged,
             to: .unwatched(category))

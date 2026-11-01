@@ -43,13 +43,10 @@ final class RecentsState: SubcategoryViewState {
         hasInitializedView = false
     }
     
-    /// - Parameter persist: Whether this selection represents a deliberate tab CHOICE by
-    ///   the user, and should therefore be remembered across sessions. True for the
-    ///   gallery Picker, the Recents tab menu, and the Opt+Cmd+# in-view tab shortcuts.
-    ///   False for navigation INTO Recents (Cmd+3 / the Go menu row), which merely needs
-    ///   a category to display and must not overwrite what the user last chose — passing
-    ///   true there is what silently reset the remembered sub-tab to the first tab.
-    /// - Parameter immediate: Switch views in this turn; see SubcategoryNavigation.performSwitch.
+    /// - Parameter persist: True for a deliberate tab choice, which is remembered across sessions. That covers the gallery Picker,
+    ///   the Recents tab menu, and the Opt+Cmd+# shortcuts. False for navigation into Recents (Cmd+3 or the Go menu). That only
+    ///   needs a category to show, and must not overwrite the remembered choice. Passing true there once reset it to the first tab.
+    /// - Parameter immediate: Switch views in this turn. See SubcategoryNavigation.performSwitch.
     func selectCategory(_ category: RecentsCategory, persist: Bool = true, immediate: Bool = false) {
         // Don't skip if it's the same category - we might need to reload
         let categoryChanged = category != selectedCategory
@@ -62,13 +59,9 @@ final class RecentsState: SubcategoryViewState {
             Preferences.lastRecentsCategory = category.rawValue
         }
 
-        // Standard sub-category switch: clear the selection (only when the category
-        // genuinely changed — pressing the same category's shortcut twice, the "might
-        // need to reload" case above, must not clear a selection nothing has actually
-        // left) and defer the view switch past the menu-dismissal animation. No parent
-        // sidebar item is passed: selectedSidebarItem is already pinned to
-        // .libraryItem(.recents) for every category. See SubcategoryNavigation's doc
-        // comment for the full selection-clear and deferral rationale.
+        // Standard sub-category switch. The selection clears only when the category changed, so repeating a shortcut does not
+        // clear a selection. The view switch waits for the menu dismissal animation. No parent sidebar item is passed, since
+        // selectedSidebarItem is already .libraryItem(.recents). See SubcategoryNavigation for the deferral rationale.
         SubcategoryNavigation.performSwitch(
             clearingSelection: categoryChanged,
             to: .recents(category),

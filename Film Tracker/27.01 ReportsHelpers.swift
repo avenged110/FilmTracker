@@ -8,12 +8,9 @@ import AppKit
 
 // MARK: - Gallery Title Order
 
-/// A film's place in the gallery's Title sort, as one Comparable value, so a report list or
-/// table column orders titles exactly as the gallery does: `MetadataCache.compareTitles`'
-/// rules, in its order — titles starting with a letter before those starting with a digit,
-/// then `englishStandardCompare` on the article-stripped sort name (or name), then
-/// release year, then film id. The id makes it a total order, so equal titles cannot trade
-/// places between loads; descending is the exact reverse, as the gallery's swap is.
+/// A film's place in the gallery's Title sort, as one Comparable value, so report lists order titles as the gallery does. The rules follow
+/// `MetadataCache.compareTitles`: letter-led titles before digit-led ones, then `englishStandardCompare` on the article-stripped sort name
+/// (or name), then release year, then film id. The id makes the order total, so equal titles stay put between loads.
 struct GalleryTitleKey: Comparable, Sendable {
     let startsWithNumber: Bool
     let key: String
@@ -45,9 +42,8 @@ struct GalleryTitleKey: Comparable, Sendable {
 
 // MARK: - Empty State Configuration
 
-/// Describes the two placeholder states common to data-backed report tabs:
-/// one for when the library is completely empty, and one for when the library
-/// has films but the tab's specific dataset is empty.
+/// Describes the two placeholder states for data-backed report tabs: one when the library is empty, and one when the library has films
+/// but the tab's dataset is empty.
 struct EmptyStateConfig {
     let glyph: String
     let noFilmsMessage: String
@@ -56,11 +52,8 @@ struct EmptyStateConfig {
 
 // MARK: - Reports Empty State Wrapper
 
-/// A generic container that wraps a report tab's content behind the standard
-/// two-stage empty-state guard used across all data-backed tabs. When the
-/// library has no films the first placeholder is shown; when the tab-specific
-/// dataset is empty the second placeholder is shown; otherwise `content` is
-/// presented.
+/// Wraps a report tab's content in the standard two-stage empty-state guard. With no films, the first placeholder shows. With an empty
+/// tab dataset, the second shows. Otherwise `content` is shown.
 ///
 /// Usage:
 /// ```swift
@@ -79,8 +72,7 @@ struct ReportsEmptyStateWrapper<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        // A Group, not a ZStack: exactly one of the three arms is ever present, so the
-        // stack was a layout container with nothing to stack.
+        // A Group, since only one of the three arms is ever present.
         Group {
             if totalFilmCount == 0 {
                 StandardPlaceholder(
@@ -104,9 +96,7 @@ struct ReportsEmptyStateWrapper<Content: View>: View {
 
 // MARK: - Reports Status Bar Inset Modifier
 
-/// Applies the standard `.safeAreaInset(edge: .bottom)` spacer used by all
-/// report tab views to prevent their content from scrolling under the
-/// StatusBar when it is visible.
+/// Applies the standard `.safeAreaInset(edge: .bottom)` spacer, so report content does not scroll under the StatusBar when it is visible.
 struct ReportsStatusBarInset: ViewModifier {
     @AppStorage(preference: Preferences.showStatusBarKey) private var showStatusBar: Bool
 
@@ -114,15 +104,14 @@ struct ReportsStatusBarInset: ViewModifier {
         content
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if showStatusBar {
-                    Color.clear.frame(height: 29)
+                    Color.clear.frame(height: StatusBar.height)
                 }
             }
     }
 }
 
 extension View {
-    /// Reserves space at the bottom of a report tab view for the StatusBar
-    /// when it is visible, preventing content from scrolling beneath it.
+    /// Reserves space at the bottom for the StatusBar when it is visible.
     func reportsStatusBarInset() -> some View {
         modifier(ReportsStatusBarInset())
     }
@@ -130,10 +119,8 @@ extension View {
 
 // MARK: - Reports Ranked List View
 
-/// The ranked list both ordered report tabs use (Hall of Fame, Release Wishlist): a headerless
-/// `ReportTable` whose first two columns are always the position ("12.") and the name, and whose
-/// remaining columns the caller supplies. Handles status bar spacing and selection
-/// synchronization with `SelectionState`.
+/// The ranked list used by Hall of Fame and Release Wishlist. It is a headerless `ReportTable` whose first two columns are always the
+/// position ("12.") and the name. The caller supplies the rest. It handles status bar spacing and selection sync with `SelectionState`.
 ///
 /// **Row anatomy:**
 /// ```
@@ -187,14 +174,8 @@ struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID =
 
 // MARK: - Ranked Item Protocol
 
-/// An `Identifiable` type that carries an explicit 1-based sort position.
-///
-/// Required by `ReportsRankedListView`, which reads `position` directly. It used to be
-/// optional — the list took any `Identifiable` and fell back to a `firstIndex` search when
-/// the item did not conform — but both row types (`HallOfFameFilm`, `WishlistRelease`)
-/// have always conformed, so that path was a linear scan per row, behind a per-row
-/// existential cast, that nothing ever reached. Requiring the conformance deletes both and
-/// makes the position a compile-time guarantee rather than a runtime fallback.
+/// An `Identifiable` type with an explicit 1-based sort position. `ReportsRankedListView` reads `position` directly. Both row types conform,
+/// so the conformance is required rather than falling back to a search.
 protocol RankedItem: Identifiable {
     var position: Int { get }
 }
@@ -204,20 +185,14 @@ protocol RankedItem: Identifiable {
 // The one table every Reports tab uses: a plain NSTableView driven directly, in place of
 // SwiftUI's `Table` (the two trackers) and `List` (the two ranked lists).
 //
-// WHY. Measured with the `reports-hitch` / `reports-loop` harness scenarios (99.50) on a
-// library-shaped corpus, a sub-tab switch into a SwiftUI Table or List held the main thread
-// for ~185 ms before its first frame, against 30–60 ms for a gallery sub-tab — the "hitch"
-// every Reports tab had. The profile put nearly all of it in the per-cell SwiftUI machinery:
-// every cell is its own NSHostingView, measured through `sizeThatFits` for NSTableView's
-// automatic row heights (`_uncachedAutomaticRowHeight`, ~16% of main-thread samples) and given
-// fresh Auto Layout constraints (`NSHostingView._willUpdateConstraintsForSubtree`, ~20%). Here a
-// row is a fixed height and a cell is one reused NSTextField or a view that draws itself.
+// WHY. A sub-tab switch into a SwiftUI Table or
+// List blocked the main thread before its first frame, more than a gallery sub-tab did. Most of that time went to the per-cell SwiftUI
+// machinery. Each cell was its own NSHostingView, measured for automatic row heights and given fresh Auto Layout constraints. Here a
+// row has a fixed height, and a cell is one reused view or one that draws itself.
 //
-// WHAT IS KEPT. The inset, alternating-row style both SwiftUI controls rendered with; native
-// header sorting mapped onto the tabs' existing `KeyPathComparator` orders (so ReportsState's
-// saved sort and the PDF export are untouched); multi-selection through the same
-// `Set<UUID>` binding; drag-to-reorder with SwiftUI `onMove`'s (IndexSet, destination)
-// meaning, which is also NSTableView's "drop above row" index.
+// WHAT IS KEPT. The inset, alternating-row style. Header sorting maps onto the tabs' existing `KeyPathComparator` orders, so the saved sort
+// and PDF export are unchanged. Multi-selection uses the same `Set<UUID>` binding. Drag-to-reorder uses SwiftUI `onMove`'s (IndexSet,
+// destination) meaning, which matches NSTableView's "drop above row" index.
 
 /// One column of a `ReportTable`.
 struct ReportTableColumn<Row> {
@@ -273,8 +248,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
     var onSort: (([(key: String, ascending: Bool)]) -> Void)? = nil
     /// Non-nil enables drag-to-reorder: (source rows, destination) exactly as SwiftUI's onMove.
     var onMove: ((IndexSet, Int) -> Void)? = nil
-    /// Space above the first row. The headerless ranked lists use 5, the gap SwiftUI's
-    /// `List(.inset)` left there.
+    /// Space above the first row. The headerless ranked lists use 5, which matches SwiftUI's `List(.inset)`.
     var topInset: CGFloat = 0
 
     static var rowDragType: NSPasteboard.PasteboardType { .init("app.FilmTracker.reportTableRow") }
@@ -308,8 +282,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             } else {
                 tc.resizingMask = [.autoresizingMask, .userResizingMask]
             }
-            // Header titles stay leading-aligned whatever the column's content alignment,
-            // as SwiftUI's Table drew them.
+            // Header titles stay leading-aligned, whatever the column's content alignment.
             if let key = column.sortKey {
                 tc.sortDescriptorPrototype = NSSortDescriptor(key: key, ascending: true)
             }
@@ -323,14 +296,9 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         table.delegate = coordinator
         if onMove != nil {
             table.registerForDraggedTypes([Self.rowDragType])
-            // `.none`: the table draws no drop feedback of its own; ReportNSTableView draws
-            // the sidebar's indicator, a line with a circle at its leading end, instead.
-            // Neither `.regular` nor `.sourceList` draws the circle in an `.inset` table —
-            // both gave the bare line. The source row stays put during the drag and the rows
-            // slide to their new places only on the drop (see `move`).
-            // `.gap` (rows sliding apart during the drag) was tried twice and glitched: the
-            // picked-up row jumped above the cursor, rows overlapped, and the gap misbehaved,
-            // even with mid-drag reloads deferred and the drop's move animated locally.
+            // `.none`: the table draws no drop feedback. ReportNSTableView draws the sidebar-style indicator instead, since the built-in styles
+            // do not draw the circle in an `.inset` table. The source row stays put during the drag, and rows slide only on the drop (see `move`).
+            // `.gap` was tried and glitched, so it is not used.
             table.draggingDestinationFeedbackStyle = .none
             table.setDraggingSourceOperationMask(.move, forLocal: true)
         }
@@ -346,10 +314,8 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentInsets = NSEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
         }
-        // NSTableView fits its columns to its width only when that width CHANGES, so the
-        // columns' starting widths would otherwise stand on the first layout — overflowing
-        // sideways when they add up to more than the view. Fit them once, when the table
-        // first has a real width.
+        // NSTableView fits its columns only when its width changes, so the starting widths would overflow sideways if they sum to more than the view.
+        // Fit them once, when the table first has a real width.
         scroll.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             coordinator, selector: #selector(Coordinator.clipFrameDidChange(_:)),
@@ -371,8 +337,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         private var columnsByID: [String: ReportTableColumn<Row>] = [:]
         private var hasFittedColumns = false
 
-        /// Target/selector observer of the clip view's frame: NotificationCenter drops it
-        /// when the coordinator deallocates, so no token or deinit is needed.
+        /// Target/selector observer of the clip view's frame. NotificationCenter drops it when the coordinator deallocates, so no deinit is needed.
         @objc func clipFrameDidChange(_ notification: Notification) { fitColumnsOnce() }
 
         func fitColumnsOnce() {
@@ -381,8 +346,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             hasFittedColumns = true
             table.sizeToFit()
         }
-        /// Set while the coordinator itself changes the table, so the delegate callbacks
-        /// those changes raise are not reported back as user actions.
+        /// Set while the coordinator changes the table, so the delegate callbacks are not reported back as user actions.
         private var isApplying = false
 
         func apply(_ parent: ReportTable, force: Bool) {
@@ -397,9 +361,8 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
                 table.reloadData()
             } else if parent.rows != rows {
                 if parent.rows.map(\.id) == rows.map(\.id) {
-                    // Same rows in the same order: typically the renumbered ranks arriving
-                    // after a drop `move` has already animated. Refresh the cells in place;
-                    // a full reload would cut the slide short.
+                    // Same rows in the same order, typically renumbered ranks after a drop `move` has animated. Refresh the cells in place, since a
+                    // full reload would cut the slide short.
                     rows = parent.rows
                     table.reloadData(forRowIndexes: IndexSet(integersIn: 0..<rows.count),
                                      columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
@@ -476,8 +439,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
                        row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
             guard parent?.onMove != nil else { return false }
             var source = IndexSet()
-            // The dragged rows' pasteboard items, read straight off the pasteboard: the same
-            // items enumerateDraggingItems visited, without its unsafe stop pointer.
+            // The dragged rows' pasteboard items, read directly. This avoids the unsafe stop pointer of enumerateDraggingItems.
             for item in info.draggingPasteboard.pasteboardItems ?? [] {
                 if let string = item.string(forType: ReportTable.rowDragType),
                    let index = Int(string) { source.insert(index) }
@@ -485,13 +447,9 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             return move(source, to: row)
         }
 
-        /// The drop's effect: SwiftUI `onMove` semantics, (source rows, destination row in the
-        /// pre-move index space). Separate from the drag plumbing so the harness can drive it.
-        ///
-        /// The rows slide to their new places here, animated, BEFORE `onMove` reports the new
-        /// order. That leaves `rows` already in the order SwiftUI sends back, so the update
-        /// that follows only refreshes cells (`apply`'s same-order path) instead of reloading
-        /// the table, which would snap the rows into place.
+        /// The drop's effect, with SwiftUI `onMove` semantics: (source rows, destination in the pre-move index space). It is separate from
+        /// the drag plumbing so the harness can drive it. The rows slide to their places first, animated, before `onMove` reports the new order.
+        /// The next update then only refreshes cells, rather than reloading and snapping the rows into place.
         @discardableResult
         func move(_ source: IndexSet, to row: Int) -> Bool {
             guard let onMove = parent?.onMove, !source.isEmpty, row >= 0, row <= rows.count,
@@ -499,9 +457,8 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             if let table {
                 isApplying = true
                 table.beginUpdates()
-                // Each moveRow shifts the indexes after it; the offsets track that. Rows from
-                // above the destination land just above it, in order; rows from below it land
-                // just after the previous one.
+                // Each moveRow shifts later indexes, and the offsets track that. Rows from above the destination land just above it, in order.
+                // Rows from below land just after the previous one.
                 var aboveOffset = 0
                 var belowOffset = 0
                 for index in source {
@@ -530,22 +487,18 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
     }
 }
 
-/// ReportTable's NSTableView: the gallery list's side-padding deselect
-/// (DraggableListTableView.mouseDown, 23_30_GalleryListView.swift), nothing else.
+/// ReportTable's NSTableView. It adds only the gallery list's side-padding deselect (DraggableListTableView.mouseDown, 23.30 GalleryListView.swift).
 ///
-/// With the `.inset` style the margins flanking each row's highlight resolve to a row but to
-/// no column. A click there clears the selection and is absorbed, so NSTableView cannot read
-/// it as a row gesture — the same "clicking on nothing" the empty space below the last row
-/// already is.
+/// With `.inset`, the margins beside each row's highlight belong to a row but to no column. A click there clears the selection and is absorbed,
+/// as a click on empty space below the last row is.
 final class ReportNSTableView: NSTableView {
     private(set) var dropIndicator: ReportDropIndicatorView?
 
-    /// Places the drop indicator on the boundary above `row` (`numberOfRows` = below the last).
+    /// Places the drop indicator on the boundary above `row`. `numberOfRows` means below the last row.
     func showDropIndicator(aboveRow row: Int) {
         guard numberOfRows > 0, numberOfColumns > 0 else { hideDropIndicator(); return }
         let y = row < numberOfRows ? rect(ofRow: row).minY : rect(ofRow: numberOfRows - 1).maxY
-        // Spans the row content: from the first cell's leading edge to the last cell's
-        // trailing edge, which is where the inset style's highlight sits.
+        // Spans the row content, from the first cell's leading edge to the last cell's trailing edge, where the inset highlight sits.
         let reference = min(row, numberOfRows - 1)
         let minX = frameOfCell(atColumn: 0, row: reference).minX
         let maxX = frameOfCell(atColumn: numberOfColumns - 1, row: reference).maxX
@@ -559,7 +512,7 @@ final class ReportNSTableView: NSTableView {
             return view
         }()
         if indicator.frame != frame { indicator.frame = frame }
-        // Row views the table adds while scrolling would otherwise stack above it.
+        // Row views added while scrolling would otherwise cover it.
         if subviews.last !== indicator { addSubview(indicator, positioned: .above, relativeTo: nil) }
         indicator.isHidden = false
     }
@@ -582,7 +535,7 @@ final class ReportNSTableView: NSTableView {
     }
 
     #if DEBUG
-    /// Full reloads so far, for the harness: a drop must animate, not reload.
+    /// Full reloads so far, for the harness. A drop must animate, not reload.
     private(set) var fullReloadCount = 0
     override func reloadData() {
         fullReloadCount += 1
@@ -600,8 +553,7 @@ final class ReportNSTableView: NSTableView {
     }
 }
 
-/// The sidebar-style drop indicator ReportNSTableView shows between rows: a hollow circle at
-/// the leading end and a line running from it, in the accent color.
+/// The sidebar-style drop indicator that ReportNSTableView shows between rows: a hollow circle at the leading end, with a line in the accent color.
 final class ReportDropIndicatorView: NSView {
     static let circleDiameter: CGFloat = 6
     static let lineWidth: CGFloat = 2
@@ -628,12 +580,8 @@ final class ReportDropIndicatorView: NSView {
     }
 }
 
-/// A report table cell. It draws its own content — text, the badge, or the rating — rather
-/// than hosting an NSTextField: a new table builds every visible cell at once (a Reports tab
-/// switch mounts a fresh table), and per-cell text fields were about a fifth of that switch
-/// in the `reports-loop` profile, between their construction, their text layers, and the row
-/// key-view loop each one joins. Cells never edit or take focus, so nothing is lost; the text
-/// is exposed to accessibility as a static text element.
+/// A report table cell. It draws its own text, badge, or rating, rather than hosting an NSTextField. A Reports tab switch builds every visible
+/// cell at once, and per-cell text fields cost a large share of that (`reports-loop` profile). Cells never edit or take focus, and the text is exposed as a static text element.
 final class ReportTableCellView: NSTableCellView {
     private enum Drawn { case text(String), runs([ReportTextRun]), badge(ReportBadge), rating(Int) }
     private var drawn: Drawn = .text("")
@@ -642,9 +590,7 @@ final class ReportTableCellView: NSTableCellView {
     private var isSecondary = false
     private var trailingPad: CGFloat = 0
 
-    /// The rating star at 10 pt in the given color. The size and the color go in as ONE
-    /// configuration: a second `withSymbolConfiguration` call replaces the first rather than
-    /// adding to it, which drew the star at the default size.
+    /// The rating star at 10 pt in the given color. Size and color go in as one configuration, because a second `withSymbolConfiguration` replaces the first.
     private static func star(_ color: NSColor) -> NSImage? {
         NSImage(systemSymbolName: "star.fill", accessibilityDescription: "Rating")?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
@@ -652,10 +598,8 @@ final class ReportTableCellView: NSTableCellView {
     }
     /// Room left of the plate for the shadow's blur.
     private static let badgeOutsideAllowance: CGFloat = 3
-    /// The badge's drop shadow: heavier than the release cards' (`rsbBadgeShadow`), since the
-    /// plate here has no outline to set it off the row. NSShadow offsets are in the base
-    /// coordinate space, which is y-up even in this flipped view, so a negative height drops
-    /// the shadow downward.
+    /// The badge's drop shadow, heavier than the release cards' badge shadow (RSBCardChrome), since this plate has no outline. NSShadow
+    /// offsets use the y-up base space even in this flipped view, so a negative height drops the shadow downward.
     private static let badgeShadow: NSShadow = {
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(0.75)
@@ -746,17 +690,14 @@ final class ReportTableCellView: NSTableCellView {
             text.draw(with: NSRect(x: 0, y: floor((bounds.height - height) / 2), width: width, height: height),
                       options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
         case .badge(let badge):
-            // 10 pt heavy, centered on a 4 pt-radius continuous-corner plate one point taller than the text above
-            // and below — the SwiftUI row's `.padding(.vertical, 1)`. The plate and lettering
-            // colors are fixed per badge, so they read the same on a selected row.
+            // 10 pt heavy, centered on a 4 pt-radius continuous-corner plate, 1 pt taller than the text above and below (the SwiftUI row's
+            // `.padding(.vertical, 1)`). The plate and lettering colors are fixed, so they read the same on a selected row.
             let badgeFont = NSFont.systemFont(ofSize: 10, weight: .heavy)
             let attributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: badge.ink]
             let text = badge.text as NSString
             let size = text.size(withAttributes: attributes)
-            //
-            // The plate carries a drop shadow and no outline. It starts `badgeOutsideAllowance`
-            // in from the leading edge so the shadow is not clipped by the cell; the trailing
-            // side spills into `trailingPad`, which is far wider.
+            // The plate starts `badgeOutsideAllowance` in from the leading edge, so the cell does not clip its shadow. The trailing side spills
+            // into `trailingPad`, which is wider.
             let plateHeight = ceil(size.height) + 2
             let plate = NSRect(x: Self.badgeOutsideAllowance, y: floor((bounds.height - plateHeight) / 2),
                                width: width, height: plateHeight)

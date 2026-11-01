@@ -2,11 +2,11 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 //
-// Proves two 2026-09-27 replacements (Strict Memory Safety pass):
+// Proves two replacements:
 //
 // 1. `Fmt` (90.00 GlobalUtilities) produces the same bytes as the `String(format:)` calls
-//    it replaced.
-// 2. The Sendable `Date.ISO8601FormatStyle` values that replaced the app's eight
+//    it replaces.
+// 2. The Sendable `Date.ISO8601FormatStyle` values that replace the app's eight
 //    `ISO8601DateFormatter` statics differ from them only as intended: formatting truncates
 //    where the formatter rounded (never later than the true instant, less than one unit
 //    earlier, same shape, timestamp strings still sort in date order), and parsing is equal

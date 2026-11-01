@@ -84,7 +84,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     // MARK: - Parser Safety Limits
     // These caps prevent a crafted XML file from causing unbounded memory
     // allocation or pathological parse times. The limits are set well above
-    // any realistic backup size (a 100 000-film library would be ~5 000 objects).
+    // any realistic backup size.
     //
     // maxObjectCount:      100 000 objects — generous ceiling for any real library.
     // maxElementDepth:     50 — the valid schema is 5 levels deep; 50 is a wide margin.
@@ -125,9 +125,8 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     // CDATA content must not be trimmed because leading/trailing whitespace is significant.
     private var currentPropertyHasCDATA: Bool = false
     // The value of the Property element's `type` attribute, when the writer supplied one.
-    // Only "string" is currently emitted (see ExportedObject.propertyTypes). Absent for every
-    // backup written before the attribute existed, in which case the inference path below is
-    // used exactly as it always was.
+    // Only "string" is currently emitted (see ExportedObject.propertyTypes). Backups written
+    // before the attribute existed omit it, and those values take the inference path below.
     private var currentPropertyDeclaredType: String?
     
     func parse(data: Data) throws -> ParsedBackup {
@@ -231,8 +230,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     
     func parser(_ parser: XMLParser, foundCharacters string: String) {
         // Guard against unbounded text accumulation from a crafted node.
-        // UTF-8 byte count is a conservative proxy; .utf8.count is O(n) but
-        // only runs while we are still under the limit.
+        // The UTF-8 byte count is a conservative proxy for the node's size.
         let incoming = string.utf8.count
         let existing  = currentText.utf8.count
         guard existing + incoming <= Self.maxTextNodeBytes else {
@@ -266,7 +264,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?) {
-        elementStack.removeLast()
+        if !elementStack.isEmpty { elementStack.removeLast() }
         // Trim whitespace for regular text nodes only. CDATA content is never trimmed
         // because leading/trailing whitespace in notes, descriptions, etc. is intentional.
         let trimmed = currentPropertyHasCDATA ? currentText : currentText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -391,12 +389,11 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
             // Decode the text EXACTLY as XMLParser handed it over.
             //
             // XMLParser has already resolved every entity reference in the document, so the
-            // string reaching this point is the writer's JSON verbatim. Running xmlUnescape
-            // over it — as this branch used to, unconditionally — is a SECOND unescape, and
-            // it rewrites any array element whose own content contains an entity-shaped
-            // literal. "Tom &amp; Jerry" came back as "Tom & Jerry"; "&lt;REC&gt;" as
-            // "<REC>"; and "He said &quot;hi&quot;" produced quotes that broke the JSON
-            // outright, so the decode failed and the WHOLE field was restored empty.
+            // string reaching this point is the writer's JSON verbatim. Unescaping it again
+            // would rewrite any array element whose own content contains an entity-shaped
+            // literal: "Tom &amp; Jerry" would come back as "Tom & Jerry", and "He said
+            // &quot;hi&quot;" would produce quotes that break the JSON, so the whole field
+            // would restore empty.
             //
             // The unescaped form is kept only as a FALLBACK, tried after the verbatim decode
             // fails. That preserves any hypothetical backup whose arrays really were written
@@ -409,12 +406,11 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
                 // FALLBACK ONLY — never attempted before the verbatim decode above.
                 //
                 // Handles backslash-escaped apostrophes from upstream metadata: patterns
-                // like D\'Onofrio are invalid JSON (JSON has no \' escape sequence). This
-                // affects ~147 films with actor names containing apostrophes.
+                // like D\'Onofrio are invalid JSON (JSON has no \' escape sequence).
                 //
                 // It runs SECOND for the same reason the xmlUnescape fallback below does.
-                // Applied first — as it used to be — it corrupted the healthy case to
-                // rescue the broken one: JSONEncoder writes a literal backslash as `\\`, so
+                // Applied first, it would corrupt the healthy case to rescue the broken one:
+                // JSONEncoder writes a literal backslash as `\\`, so
                 // an element genuinely containing a backslash before an apostrophe produces
                 // the valid JSON `["D\\'Onofrio"]`, which CONTAINS the two-character
                 // sequence `\'`. The cleanup matched inside that `\\'`, rewrote it to `\'`,
@@ -468,7 +464,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
             return string
         }
         
-        // Handle legacy array format (for backward compatibility)
+        // Legacy `<Array>` element format, which older writers produced
         if string.hasPrefix("<Array>") && string.hasSuffix("</Array>") {
             return parseArrayValue(string)
         }
@@ -478,16 +474,14 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     }
     
     private func parseArrayValue(_ string: String) -> [String] {
-        // Legacy array format cap — matches the JSON array path's implicit upper
-        // bound via the object count limit (each film's arrays are bounded in practice,
-        // but we enforce a hard ceiling here as a defense-in-depth measure).
+        // Legacy array format cap: a defense-in-depth ceiling on the number of items.
         let maxItems = 10_000
         var result: [String] = []
         let content = string
             .replacingOccurrences(of: "<Array>", with: "")
             .replacingOccurrences(of: "</Array>", with: "")
         
-        // Simple regex-free parsing
+        // Simple regex-free parsing (scans for <Item> ... </Item> pairs)
         var current = content
         while let startRange = current.range(of: "<Item>"),
               let endRange = current.range(of: "</Item>") {

@@ -1,8 +1,7 @@
 // MARK: - DragDropSupport.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Centralized drag-and-drop support for FilmTracker gallery items.
-// Uses simple pasteboard types (no Info.plist registration required).
+// Drag-and-drop support for gallery items. It uses standard pasteboard types, so no Info.plist registration is needed.
 
 import AppKit
 import SwiftUI
@@ -258,25 +257,16 @@ struct FilmDragImageProvider {
 // MARK: - Drag Dismissal Notification
 
 extension Notification.Name {
-    /// Posted by drop destinations' `concludeDragOperation` overrides (e.g.
-    /// LeftSidebar) so a custom drag-preview window can be dismissed in lockstep
-    /// with AppKit's synchronous drop teardown, rather than waiting for
-    /// `draggingSessionEnded`/`endedAt`, which AppKit defers until after its own
-    /// drag-completion rendering pass. Consumed by `GalleryDragEngine`'s list-path
-    /// flyback window (see `dismissFlybackImmediately`); a no-op for the grid path,
-    /// which uses the native dragging-item preview and has no window to dismiss.
+    /// Posted by drop destinations' `concludeDragOperation` overrides (for example LeftSidebar), so a custom
+    /// drag-preview window is dismissed in step with AppKit's synchronous drop teardown. It is consumed by the list
+    /// path's flyback window (see `dismissFlybackImmediately`). The grid path has no window, so it ignores this.
     static let dismissDragPreviewImmediately = Notification.Name("FilmTracker.dismissDragPreviewImmediately")
 
-    /// Posted by `GalleryDragEngine` from both of its session-end callbacks — the
-    /// NSDraggingSource `draggingSession(_:endedAt:operation:)` (NSCollectionView grid
-    /// path) and `draggingSessionEnded(at:operation:)` (NSTableView list path, forwarded
-    /// by the table delegate's endedAt). AppKit defers these callbacks until after its
-    /// own drag-completion rendering pass, which makes this notification the earliest
-    /// structurally guaranteed moment at which the main thread is free of drag-teardown
-    /// work. AlertHostView uses it to arm presentation of the Film Queue drop
-    /// confirmation alert, so Core Animation can drive the alert's appear animation
-    /// without contention. Posted unconditionally for every session end (successful,
-    /// failed, or canceled); observers with nothing pending treat it as a no-op.
+    /// Posted by `GalleryDragEngine` from both session-end callbacks: NSDraggingSource's
+    /// `draggingSession(_:endedAt:operation:)` (grid) and `draggingSessionEnded(at:operation:)` (list, forwarded by
+    /// the table delegate). AppKit runs these after its own drag-completion rendering, so this is the earliest point
+    /// at which the main thread is free of drag teardown. AlertHostView uses it to arm the Film Queue drop confirmation.
+    /// It is posted for every session end, and observers with nothing pending ignore it.
     static let dragSessionDidEnd = Notification.Name("FilmTracker.dragSessionDidEnd")
 
     /// Posted by `DragSessionMonitor.clickWindowDidClose()` when a gallery item-hit
@@ -300,21 +290,16 @@ extension Notification.Name {
 /// Process-wide, main-actor-confined record of whether an app-originated drag session
 /// (grid or list, via GalleryDragEngine) is currently in flight.
 ///
-/// This exists so that consumers whose work is expensive but not time-critical — most
-/// importantly RightSidebar's selection-driven content resolution — can structurally
-/// defer that work while a drag session is in flight, rather than executing it inside
-/// the drag session's run loop where it contends with drop-target tracking and
-/// AppKit's own session servicing. (The preview image itself is now composited and
-/// moved by the window server — see `GalleryDragEngine.nativeDragPreview` — so it can
-/// no longer hitch from main-thread contention; this deferral keeps the *rest* of the
-/// session, including drop-target highlighting and the session's start/teardown
-/// frames, equally free of avoidable main-thread load.) The flag is flipped by GalleryDragEngine at the exact structural
-/// boundaries of the session (immediately before `beginDraggingSession` /
-/// `prepareDrag`, and inside both session-end callbacks), so it is never inferred from
-/// timing and can never disagree with AppKit's own session lifecycle. Deferral
-/// consumers pair a read of this flag with the `.dragSessionDidEnd` notification —
-/// which GalleryDragEngine posts from those same end callbacks — to know exactly when
-/// the deferred work may safely run.
+/// Lets consumers with expensive, non-urgent work, chiefly RightSidebar's selection-driven content resolution,
+/// defer it while a drag is in flight. Otherwise the work would run inside the drag's run loop and contend with
+/// drop-target tracking. The preview image itself is moved by the window server, so it does not hitch. This
+/// deferral keeps the rest of the session, including drop highlighting and the start and teardown frames, free of
+/// avoidable main-thread load.
+///
+/// GalleryDragEngine sets the flag at the structural boundaries of the session: immediately before
+/// `beginDraggingSession` or `prepareDrag`, and inside both session-end callbacks. It is never inferred from timing.
+/// Deferral consumers pair a read of this flag with `.dragSessionDidEnd`, which GalleryDragEngine posts from those
+/// same end callbacks, to know when the deferred work may run.
 ///
 /// A plain class (not @Observable) by design: consumers read it imperatively at
 /// decision points; nothing should re-render merely because a drag started.
@@ -336,16 +321,11 @@ final class DragSessionMonitor {
     /// `isDeferralWindowActive`.
     private var isClickWindowOpen = false
 
-    /// The composite deferral gate consumers should read: true while EITHER a click
-    /// gesture is still ambiguous OR a drag session is in flight. RightSidebar defers
-    /// its selection-driven content resolution for the whole span, flushing on
-    /// `.dragDeferralWindowDidEnd` (plain click) or `.dragSessionDidEnd` (drag) —
-    /// both structural lifecycle boundaries, never wall-clock timers. The visible
-    /// costs are bounded and deliberate: for a plain click the sidebar content
-    /// arrives at mouseUp (the pre-mouseDown-commit historical timing; the focus
-    /// ring itself still appears at mouseDown), and for a drag it arrives at session
-    /// end — in exchange, a drag's session start can never contend with the sidebar
-    /// rebuild on the main thread.
+    /// The composite deferral gate. It is true while a click gesture is ambiguous or a drag session is in flight.
+    /// RightSidebar defers its selection-driven content resolution for the whole span. It flushes on
+    /// `.dragDeferralWindowDidEnd` (plain click) or `.dragSessionDidEnd` (drag). Both are structural boundaries, not
+    /// timers. For a plain click the sidebar content arrives at mouseUp, while the focus ring appears at mouseDown.
+    /// For a drag it arrives at session end, so the drag start never contends with the sidebar rebuild.
     var isDeferralWindowActive: Bool { isClickWindowOpen || isDragSessionActive }
 
     /// Called by the gallery views' mouseDown handling when a click lands on an item
@@ -398,24 +378,12 @@ final class DragSessionMonitor {
 /// mouseDown) lands mid-drag, the preview continues tracking at full frame rate
 /// because the app process is not in its render loop at all.
 ///
-/// The list path's visible drag preview is instead a separate, manually
-/// positioned borderless NSWindow (the "flyback window" — see the Flyback
-/// Window State fields and the NSTableView Drag Pipeline section below),
-/// updated on every `draggingSession(_:movedTo:)` callback. This mirrors the
-/// grid's own original design, before it was replaced with the native preview
-/// above specifically to eliminate a main-thread-contention hitch. Re-adopting
-/// it for the list path was a deliberate choice after the native preview proved
-/// unable to track the cursor correctly for an NSTableView-originated session
-/// across several independent fix attempts (screen-point vs. view-space frames,
-/// NSEvent.mouseLocation vs. the delegate's own screenPoint, and the legacy
-/// dragImageForRows offset parameter) — NSTableView's own native row-drag
-/// machinery does not expose the same reliable frame-reconfiguration contract
-/// the grid's manually-driven `beginDraggingSession` call does. The list path
-/// does not have the grid's original hitch problem in the first place: the
-/// RightSidebar content-rebuild contention that motivated retiring the flyback
-/// window for the grid is now handled structurally, for both paths, by
-/// DragSessionMonitor's deferral gate — so the flyback window's own per-frame
-/// main-thread cost is no longer competing with that same problem here.
+/// The list path instead shows a separate, manually positioned borderless NSWindow (the
+/// "flyback window"; see Flyback Window State and the NSTableView Drag Pipeline below). It
+/// updates on every `draggingSession(_:movedTo:)` callback. The native preview could not
+/// track the cursor for NSTableView-originated sessions, despite several fix attempts, so
+/// the list path keeps the flyback window. The grid's hitch is handled for both paths by
+/// DragSessionMonitor's deferral gate.
 ///
 /// Callers provide two callbacks:
 ///   getDragFilmIDs  — returns the Set<UUID> to drag given the click point in the view
@@ -448,16 +416,10 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
 
     // MARK: - Flyback Window State (NSTableView / list path only)
     //
-    // The grid path (startManualDrag) uses the NATIVE, window-server-driven
-    // dragging-item preview (see nativeDragPreview) and never touches any of the
-    // fields below. The list path uses a separate, manually-positioned borderless
-    // NSWindow instead — reinstated after the native per-item preview proved
-    // unable to track the cursor correctly for NSTableView-originated sessions
-    // (the session's own coordinate-space/anchor contract for reconfigured
-    // dragging items did not behave as documented in practice, across several
-    // independent fix attempts). This is a return to this app's original,
-    // proven-reliable list-view drag preview mechanism, now integrated with
-    // DragSessionMonitor's click-window/session bookkeeping.
+    // The grid path (startManualDrag) uses the native dragging-item preview (see
+    // nativeDragPreview) and never touches these fields. The list path uses a separate,
+    // manually positioned borderless NSWindow, integrated with DragSessionMonitor's
+    // click-window and session bookkeeping.
     private var dragStartScreen: NSPoint = .zero
     private var dragImageSize: NSSize = .zero
     private var dragCursorOffset: NSPoint = .zero
@@ -467,16 +429,12 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
 
     override init() {
         super.init()
-        // Observe the cross-actor dismissal notification posted by drop
-        // destinations' concludeDragOperation overrides (e.g. LeftSidebar), so the
-        // flyback window can be hidden in lockstep with AppKit's synchronous drop
-        // teardown rather than waiting for draggingSessionEnded, which AppKit defers
-        // until after its own drag-completion rendering pass. A harmless no-op for
-        // the grid path's own GalleryDragEngine instance, since flybackWindow is
-        // never populated there.
-        // Target/selector registration: NotificationCenter drops it when this object
-        // deallocates, so no token (and no deinit) is needed. The post comes from
-        // concludeDragOperation, on the main thread.
+        // Observes the dismissal notification that drop destinations (e.g. LeftSidebar) post
+        // from concludeDragOperation. The flyback window hides with AppKit's synchronous drop
+        // teardown, not at draggingSessionEnded, which AppKit defers. It is a no-op for the
+        // grid's GalleryDragEngine, which never creates a flyback window.
+        // The target/selector registration needs no token or deinit, since NotificationCenter
+        // drops it when this object deallocates.
         NotificationCenter.default.addObserver(
             self, selector: #selector(dismissDragPreviewNotified(_:)),
             name: .dismissDragPreviewImmediately, object: nil)
@@ -514,13 +472,9 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
     func mouseUpForDrag() {
         isDragInitiated = false
         mouseDownEvent = nil
-        // Safety net for the (theoretical) case where sessionWillBegin() was marked
-        // but the dragging session never actually tracked, so no session-end callback
-        // will ever fire. During a genuine session AppKit consumes the mouseUp and this
-        // method is never invoked, and after a normal session end the flag is already
-        // false — so this branch is unreachable in every normal flow and exists purely
-        // to guarantee the monitor (and any consumer waiting on .dragSessionDidEnd)
-        // can never be left stuck by an abnormal session start.
+        // Safety net: if sessionWillBegin() was marked but the session never tracked, no
+        // session-end callback fires and the monitor would stay stuck. In a normal flow AppKit
+        // consumes the mouseUp, and the flag is already false, so this branch is not reached.
         if DragSessionMonitor.shared.isDragSessionActive {
             DragSessionMonitor.shared.sessionDidEnd()
             NotificationCenter.default.post(name: .dragSessionDidEnd, object: nil)
@@ -529,17 +483,10 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
 
     // MARK: - Drag Initiation
 
-    /// - Parameter currentLocationInView: the LIVE cursor position at the moment the
-    ///   drag distance threshold was crossed. Used only for the drag preview's visual
-    ///   starting point (the native dragging item's anchored frame) — never
-    ///   for resolving WHICH film(s) are being dragged. Identity resolution instead
-    ///   uses `potentialDragStart`, the position recorded at mouseDown: by the time
-    ///   the ≥4pt threshold trips, the cursor has necessarily moved away from that
-    ///   point, and even a few points of drift can land `indexPathForItem(at:)` on a
-    ///   neighboring grid cell — silently swapping in an adjacent film. Freezing
-    ///   identity to the original mouseDown point guarantees the film actually
-    ///   grabbed is always the one the user clicked, regardless of how far (or in
-    ///   which direction) the cursor has since moved.
+    /// - Parameter currentLocationInView: the live cursor position when the drag threshold was
+    ///   crossed. It sets only the preview's visual starting point, never which films are dragged.
+    ///   Identity comes from `potentialDragStart`, the mouseDown position. Even a few points of
+    ///   drift could land `indexPathForItem(at:)` on a neighboring cell and swap in another film.
     private func startManualDrag(with event: NSEvent, currentLocationInView: NSPoint) {
         guard let sourceView,
               let getDragFilmIDs else {
@@ -548,20 +495,16 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         let filmIDs = getDragFilmIDs(potentialDragStart)
         guard !filmIDs.isEmpty else { return }
 
-        // Use the film actually clicked at mouseDown for the poster preview — not
-        // whatever is currently under the (moved) cursor — so the image always
-        // reflects what the user grabbed.
+        // The poster preview uses the film clicked at mouseDown, not whatever is under the
+        // moved cursor.
         let clickedID = getClickedFilmID?(potentialDragStart)
         let posterID = clickedID ?? filmIDs.first
         let posterImage: NSImage? = posterID.flatMap { getPosterImage?($0) }
 
         let pasteboardItem = NSDraggingItem(pasteboardWriter: FilmDragPasteboardWriter(filmIDs: filmIDs))
 
-        // Native, window-server-driven drag preview: the composed ghost-poster image
-        // becomes the dragging item's own contents, anchored so it sits relative to
-        // the cursor exactly where the retired flyback window used to. From here on,
-        // AppKit and the window server keep it glued to the cursor with zero app-side
-        // per-frame work — see the class-level comment.
+        // Native drag preview: the ghost-poster image becomes the dragging item's contents,
+        // anchored to the cursor. AppKit keeps it there with no per-frame work in the app.
         let preview = Self.nativeDragPreview(
             filmCount: filmIDs.count,
             posterImage: posterImage,
@@ -570,30 +513,21 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         )
         pasteboardItem.setDraggingFrame(preview.frame, contents: preview.image)
 
-        // Mark the session live BEFORE beginDraggingSession: the run loop may drain
-        // queued main-queue work (including SelectionState's deferred selection write)
-        // as soon as the session starts, and any deferral consumer reading
-        // DragSessionMonitor must already see the session as active at that point.
+        // Marks the session live BEFORE beginDraggingSession. The run loop may drain queued
+        // work, including SelectionState's deferred write, as soon as the session starts.
         DragSessionMonitor.shared.sessionWillBegin()
         let session = sourceView.beginDraggingSession(with: [pasteboardItem], event: event, source: self)
-        // Let AppKit drive the cancel fly-back natively: on a canceled/failed drop the
-        // system slides the dragging image back to its starting frame off the app's
-        // main thread — replacing the custom performFlyBack window animation, and with
-        // the bonus that draggingSession(_:endedAt:) (and therefore .dragSessionDidEnd
-        // and RightSidebar's deferred content flush) is delivered only after that
-        // return animation has fully settled.
+        // AppKit runs the cancel fly-back natively, off the main thread. draggingSession(_:endedAt:)
+        // and .dragSessionDidEnd arrive only after that animation settles.
         session.animatesToStartingPositionsOnCancelOrFail = true
         session.draggingFormation = .none
     }
 
     // MARK: - Native Drag Preview
 
-    /// Composes the drag preview image (ghost poster + count badge, via
-    /// FilmDragImageProvider) together with the cursor anchor offset: the cursor
-    /// rests one quarter of the poster's width and height in from the image's visual
-    /// top-left corner. Shared by both paths — the grid path's `startManualDrag`
-    /// (via `nativeDragPreview` below) and the list path's `prepareDrag` — so the
-    /// poster size and cursor-anchor ratio can never drift out of sync between them.
+    /// Composes the drag preview image (ghost poster and count badge, via FilmDragImageProvider)
+    /// and the cursor anchor. The cursor sits one quarter of the poster's width and height in
+    /// from its top-left corner. Both paths share this, so their sizes and anchors match.
     private static func composeDragPreview(
         filmCount: Int,
         posterImage: NSImage?
@@ -607,14 +541,10 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         return (image, NSPoint(x: posterSize.width / 4, y: posterSize.height / 4))
     }
 
-    /// Preview math used by the grid path's `startManualDrag`: frame expressed in
-    /// `view`'s own coordinate space, as required when the dragging item is
-    /// configured BEFORE `beginDraggingSession(with:event:source:)` (AppKit
-    /// interprets pre-session dragging frames in the source view's space). The
-    /// list path does not use this — see the Flyback Window State fields and the
-    /// class-level doc comment above for why. The unflipped branch below is
-    /// handled anyway so the math can never silently break for a future source
-    /// view, even though the grid's real source view is flipped.
+    /// Preview math for the grid path's `startManualDrag`. The frame is in `view`'s coordinate
+    /// space, because AppKit reads pre-session dragging frames in the source view's space. The
+    /// list path does not use this. The unflipped branch is kept for a future source view, even
+    /// though the grid's source view is flipped.
     static func nativeDragPreview(
         filmCount: Int,
         posterImage: NSImage?,
@@ -646,18 +576,14 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        // The native dragging image's teardown — instant hide on a successful drop,
-        // system-driven fly-back on cancel/fail — is fully AppKit's responsibility
-        // now; there is nothing visual left to dismiss here.
+        // AppKit tears down the native dragging image, so nothing visual is left to dismiss.
         //
-        // Clear the monitor BEFORE posting .dragSessionDidEnd below, so any observer
-        // reacting to the notification already reads the session as inactive.
+        // The monitor is cleared BEFORE .dragSessionDidEnd is posted, so observers already read
+        // the session as inactive.
         DragSessionMonitor.shared.sessionDidEnd()
-        // Announce the session's true end — AppKit delivers this callback only after
-        // its drag-completion rendering pass (including the native cancel fly-back
-        // animation, when one runs), so observers (AlertHostView's deferred Film Queue
-        // drop confirmation, RightSidebar's deferred content resolution) can now do
-        // their work without teardown contention.
+        // AppKit delivers this callback after its drag-completion pass, including any cancel
+        // fly-back. Observers (AlertHostView's deferred Film Queue confirmation, RightSidebar's
+        // deferred content resolution) can run without contention.
         NotificationCenter.default.post(name: .dragSessionDidEnd, object: nil)
     }
 
@@ -666,18 +592,9 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
     // NSTableView detects drag gestures from within its own mouseDown event-tracking
     // loop and calls the delegate. We hook in here rather than via mouseDown overrides.
     //
-    // This path uses a separate, manually-positioned borderless NSWindow (the
-    // "flyback window") as the visible drag preview, rather than the grid path's
-    // native dragging-item image. See the "Flyback Window State" fields above for
-    // why: the native per-item preview, reconfigured mid-session via
-    // `enumerateDraggingItems`, could not be made to track the cursor correctly
-    // for an NSTableView-originated session across several independent attempts
-    // (screen-point vs. view-space frames, NSEvent.mouseLocation vs. the
-    // delegate's own screenPoint, and the legacy dragImageForRows offset
-    // parameter). The flyback window sidesteps all of that: it is positioned by
-    // simple, direct screen-point arithmetic in `prepareFlybackWindow` and
-    // `dragMoved(to:)`, with no dependency on any AppKit-native per-item frame
-    // contract at all.
+    // This path shows a manually positioned borderless NSWindow (the "flyback window") instead
+    // of the native dragging item. The native preview could not track the cursor here. The
+    // flyback window uses screen-point arithmetic in `prepareFlybackWindow` and `dragMoved(to:)`.
 
     /// Called by the NSTableViewDelegate's willBeginAt callback. Marks the session
     /// live in DragSessionMonitor and prepares the flyback window at the drag's

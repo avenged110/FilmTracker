@@ -191,11 +191,10 @@ public final class DBReader {
         var exportedObjects: [ExportedObject] = []
         var assignedIDs: Set<String> = []
 
-        // Single reusable JSON encoder for every [String] array property across all
-        // objects. JSONEncoder allocation is not free, and the previous code created a
-        // fresh encoder for each array field of each object — tens of thousands of
-        // allocations on a large library. exportAll runs entirely on the MainActor, so
-        // reusing one encoder across the loop is safe (no concurrent access).
+        // One JSON encoder serves every [String] array property across all objects, because
+        // JSONEncoder allocation is not free and a large library has tens of thousands of
+        // array fields. The whole loop runs in one isolation (the caller's), so the encoder
+        // is never used concurrently.
         let jsonEncoder = JSONEncoder()
 
         // One moment for the whole backup. Each entity is a separate fetch, and a write
@@ -210,19 +209,17 @@ public final class DBReader {
             try? context.setQueryGenerationFrom(.current)
         }
 
-        // Single pass: fetch all entities once and cache results.
-        // Previously this was two passes (count then export), doubling database I/O.
+        // Single pass: fetch all entities once and cache the results, so the database is
+        // read once.
         var totalObjectsToExport = 0
         var cachedFetches: [String: [any ExportableModel]] = [:]
         
         for t in types {
-            // Cancellation is checked here and once per chunk below rather than only
-            // between phases. The read is the longest MainActor stretch of an export and
-            // the one the user is most likely to be looking at when they press Cancel, and
-            // aborting inside it is completely clean: nothing has been written yet, so the
-            // only cost of stopping is the work already done. `Task.yield()`, which is all
-            // this loop used to do, never throws — so a canceled export used to read the
-            // entire library out of the store before noticing at the phase boundary.
+            // Cancellation is checked here and once per chunk below, not only between phases.
+            // The read is the longest stretch of an export, and aborting inside it is clean:
+            // nothing has been written yet, so the only cost of stopping is the work already
+            // done. `Task.yield()` never throws and cannot observe cancellation, so it is not
+            // a substitute for this check.
             try Task.checkCancellation()
             do {
                 let fetched = try t.fetchAll(in: context)
@@ -243,10 +240,9 @@ public final class DBReader {
         var exportedSoFar = 0
         
         // Foreground exports convert in chunks of 100 with a yield between them. Background
-        // exports run off the main thread (BackgroundExportReader), so they no longer need
-        // one-object chunks to keep the UI responsive; they instead work in short time
-        // slices with a pause between, which keeps their CPU and store I/O footprint small
-        // at low priority. Completion time is deliberately not a concern for them.
+        // exports run off the main thread (BackgroundExportReader) in chunks of 25, paced by
+        // time slices with a pause between them. That keeps their CPU and store I/O footprint
+        // small at low priority. Completion time is deliberately not a concern for them.
         let chunkSize = isBackgroundExport ? 25 : 100
         let backgroundSliceBudget: Duration = .milliseconds(2)
         let backgroundPause: Duration = .milliseconds(5)

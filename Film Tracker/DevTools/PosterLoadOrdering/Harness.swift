@@ -6,7 +6,7 @@
 //
 // WHAT IS Modeled
 // ────────────────
-// `Header.loadImageFromCache(_:)` (24_11_Header.swift), in both its OLD and NEW
+// `Header.loadImageFromCache(_:)` (24.11 Header.swift), in both its OLD and NEW
 // forms, against a poster cache whose completions can be resumed in any order the
 // test chooses. Everything irrelevant to ordering is stripped: an "image" is just
 // the UID it was loaded for, so a wrong image is directly observable.
@@ -28,7 +28,7 @@
 //   • .capturedSnapshot — the copy carries the environment as it stood when the
 //     closure was formed, so the guard compares `uid` against the value it was
 //     already equal to and can never fail. (This is the behavior the property
-//     wrapper's storage implies, and the reading the audit assumed.)
+//     wrapper's storage implies.)
 //   • .liveRead        — the read somehow observes the current environment, so the
 //     guard does reject a superseded load.
 //
@@ -143,8 +143,8 @@ final class HeaderModel {
 
     // MARK: OLD
 
-    /// Verbatim structure of the shipped implementation before the fix: no request
-    /// record, no cancellation, and a guard that re-reads the environment.
+    /// Verbatim structure of the pre-fix implementation: no request record, no
+    /// cancellation, and a guard that re-reads the environment.
     private func loadOld(_ posterUID: String?) {
         guard let uid = posterUID, !uid.isEmpty else {
             displayedImage = nil

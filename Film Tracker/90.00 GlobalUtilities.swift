@@ -22,16 +22,15 @@ import Combine
 /// colors, because no built-in color combines the two halves this needs:
 ///   - Light mode wants a fill that reads as a shade *darker* than the surfaces around
 ///     it, the way `unemphasizedSelectedContentBackgroundColor` does (~0.86 white).
-///     `underPageBackgroundColor`, used here previously, renders at ~0.59 white in light
-///     mode regardless of appearance — visibly too dark against a light-mode card.
-///   - Dark mode wants to stay close to `underPageBackgroundColor`'s own dark value
-///     (~0.157 white): light enough to read as its own surface against
-///     `controlBackgroundColor` (~0.118) and `windowBackgroundColor` (~0.196), but dark
-///     enough that the low-alpha `tertiaryLabelColor` placeholder text every un-activated
-///     Stepper shows stays legible against it.
-///     `unemphasizedSelectedContentBackgroundColor`'s own dark value (~0.275) was tried
-///     first and reads fine as a fill on its own, but it lightens that placeholder text
-///     to the edge of legibility (contrast ratio ~1.55, down from ~2.0).
+///     `underPageBackgroundColor` renders at ~0.59 white in light mode regardless of
+///     appearance, which is visibly too dark against a light-mode card.
+///   - Dark mode stays close to `underPageBackgroundColor`'s own dark value (~0.157
+///     white): light enough to read as its own surface against `controlBackgroundColor`
+///     (~0.118) and `windowBackgroundColor` (~0.196), but dark enough that the low-alpha
+///     `tertiaryLabelColor` placeholder text every un-activated Stepper shows stays
+///     legible against it. `unemphasizedSelectedContentBackgroundColor`'s dark value
+///     (~0.275) reads fine as a fill, but it lightens that placeholder text to the edge
+///     of legibility (contrast ratio ~1.55, down from ~2.0).
 ///
 /// `NSColor(name:dynamicProvider:)` is what every system semantic color is itself built
 /// from: the returned color carries both variants, and AppKit re-resolves it against the
@@ -83,9 +82,8 @@ extension View {
 /// leave the other importing a vocabulary named for its neighbor.
 ///
 /// The two fields are never compared against each other, so a divergence between the two
-/// lists could not corrupt data — but it could silently leave a ratio selectable on a film
-/// and not on its releases, and the lists were maintained as two byte-identical
-/// twenty-element literals in two files with nothing tying them together.
+/// lists could not corrupt data, but it could silently leave a ratio selectable on a film
+/// and not on its releases. Keeping one list here prevents that.
 ///
 /// ORDER IS LOAD-BEARING on the release side: `ReleaseOptionVocabulary` derives each tag's
 /// rank from its position here and uses that rank to rebuild a stored selection in
@@ -156,12 +154,8 @@ enum ViewingVersion: String, CaseIterable, Hashable {
 
     /// Every real version, in menu order — `allCases` without the `.none` placeholder.
     ///
-    /// The single enumeration behind every version menu in the app. The release card's
-    /// "Included Versions" control used to carry its own hand-written list of the same
-    /// options, and the two had already drifted: that list offered "Television Edit" and
-    /// "Colorized", which this enum did not, so the same logical choice was offerable on a
-    /// release and unrepresentable on the film. Both menus now enumerate this, and a case
-    /// added here appears in both by construction. See ReleaseOptionVocabulary.
+    /// The single enumeration behind every version menu in the app, so a case added here
+    /// appears in each of them by construction. See ReleaseOptionVocabulary.
     static let selectable: [ViewingVersion] = allCases.filter { $0 != .none }
 
     /// The display names of `selectable`, in the same order — what the release card's
@@ -176,9 +170,8 @@ enum ViewingVersion: String, CaseIterable, Hashable {
 // MARK: Why a cache at all
 //
 // `Calendar.current.component(.year, from: Date())` is not a field read — it resolves the
-// user's current calendar and performs a full date decomposition, and it was being spelled
-// out independently by two types (FSTabReleases and CustomDateStepper) whose accessors are
-// read on genuinely hot paths: the release card's purchase-year range is read per row
+// user's current calendar and performs a full date decomposition. Two types (FSTabReleases
+// and CustomDateStepper) read it on genuinely hot paths: the release card's purchase-year range is read per row
 // evaluation and again inside every ordering-rule enforcement pass, and CustomDateStepper's
 // `@State private var year` default expression is evaluated on EVERY construction of that
 // view — SwiftUI re-runs a View's init on each parent body pass, and Swift evaluates a
@@ -187,12 +180,11 @@ enum ViewingVersion: String, CaseIterable, Hashable {
 //
 // MARK: Why a time window rather than a launch-time constant
 //
-// Both original accessors were deliberately computed rather than stored, with the same
-// stated reason: an app session left running across midnight on December 31 must not keep
-// reporting last year. That requirement is preserved — the value is simply allowed to be
-// at most `maxAge` old, so the boundary is crossed within a minute of the actual rollover
-// instead of instantly. Nothing in this app distinguishes those two, and every consumer
-// (year ranges, new-release defaults) is a bound or a seed, not a timestamp.
+// The year is derived rather than stored, so an app session left running across midnight on
+// December 31 does not keep reporting last year. The value may be at most `maxAge` old, so
+// the boundary is crossed within a minute of the actual rollover. Nothing in this app
+// distinguishes those two, and every consumer (year ranges, new-release defaults) is a
+// bound or a seed, not a timestamp.
 //
 // A negative age is treated as stale, so a clock moved backwards re-derives rather than
 // serving a value from a future that no longer applies.
@@ -297,33 +289,20 @@ final class CurrentDay {
 
 // MARK: - Date Parsing and Formatting Utilities
 
-// Cached DateFormatter for parseDate to avoid repeated allocations.
-// DateFormatter creation is expensive (~0.5ms per instantiation).
-// These formatters are written only once at initialization and are read-only thereafter.
-// DateFormatter is Sendable in the macOS 15 SDK and is documented as safe for concurrent
-// read access, so no nonisolated(unsafe) annotation is required — parseDate(from:) is a
-// nonisolated global function and may be called from any thread or actor.
 /// The two date spellings the database stores, configured once.
 ///
-/// Both formats had accumulated a copy per reader and per writer — five of `.dot`
-/// (here, `ViewingDatesTable.databaseFormatter`, `FSTabReleases.releaseDateFormatter`,
-/// `WatchDetails.viewingDateFormatter`, `CalendarPopover.baseDateFormatter`) and three
-/// of `.dash` (here, `FSTabDetails.releaseDateFormatter`, `FSTabNotes.editDateFormatter`),
-/// every one of them the same four lines. The agreement between them is load-bearing —
-/// the FilmSheet writes these strings and the sidebar, calendar and gallery parse them
-/// back, and the comparisons between the two sides are plain string comparisons — so it
-/// was being maintained by hand, with comments at most of those sites naming their
-/// siblings and instructing the reader to keep the configurations in step.
+/// Readers and writers across the app share these formatters. The agreement between them
+/// is load-bearing: the FilmSheet writes these strings, the sidebar, calendar and gallery
+/// parse them back, and the comparisons between the two sides are plain string
+/// comparisons. Defining each format once keeps that agreement by construction.
 ///
-/// Defining them once makes that agreement hold by construction rather than by
-/// convention. The sites above keep their own named constants, because the name is what
-/// says which of the two spellings a given call site means; they now alias these instead
-/// of re-deriving them.
+/// Call sites keep their own named constants (for example, `ViewingDatesTable.databaseFormatter`),
+/// because the name says which of the two spellings a call site means. Those constants alias these.
 ///
 /// Locale and time zone are pinned so both always produce Gregorian dates regardless of
 /// the user's locale. Neither is mutated after initialization, and `DateFormatter` is
 /// documented as safe for concurrent read access (and is `Sendable` in the macOS 15 SDK),
-/// so these are shared across actors exactly as the per-site copies already were.
+/// so these are shared across actors.
 enum StorageDateFormatters {
     /// `"yyyy.MM.dd"` — viewing-date (`calendarTable`) and release-purchase dates.
     nonisolated static let dot: DateFormatter = {
@@ -346,17 +325,13 @@ enum StorageDateFormatters {
     /// ISO 8601 with fractional seconds (`"2026-01-24T10:30:00.000Z"`) — the film's
     /// `lastModified` and `dateAdded` timestamps.
     ///
-    /// The writers of those two fields — the FilmSheet save, WatchDetails' quick-add
-    /// (via DataCoordinator), and both halves of the metadata importer — each carried a
-    /// private copy of this configuration, with comments instructing the reader to keep
-    /// them matching. The readers (`RSBHelpers.formatFullTimestamp`, `parseDate`) accept
-    /// several spellings, so a drift would not have failed loudly; it would have produced
-    /// two timestamp formats in one column. One definition, as with `dot` and `dash`.
+    /// Every writer of those two fields (the FilmSheet save, WatchDetails' quick-add via
+    /// DataCoordinator, and the metadata importer) uses this one configuration. The readers
+    /// (`RSBHelpers.formatFullTimestamp`, `parseDate`) accept several spellings, so a drift
+    /// would not fail loudly; it would produce two timestamp formats in one column.
     ///
-    /// A Sendable value style, "2026-09-27T12:34:56.789Z". It truncates to the
-    /// millisecond where the `ISO8601DateFormatter` it replaced (2026-09-27) rounded, so a
-    /// value can read 1 ms earlier than the old spelling would have; order is unaffected
-    /// (DevTools/ISO8601StyleEquivalence).
+    /// A Sendable value style that writes "2026-09-27T12:34:56.789Z". Values are truncated
+    /// to the millisecond, and ordering is preserved (see DevTools/ISO8601StyleEquivalence).
     static let timestamp = Date.ISO8601FormatStyle(timeZoneSeparator: .colon, includingFractionalSeconds: true)
 
     /// The calendar `dot` and `dash` parse with — Gregorian (what `en_US_POSIX` selects,
@@ -419,8 +394,7 @@ nonisolated enum AppCalendar {
 /// and asking the pinned Gregorian calendar for that day costs a few microseconds and
 /// yields the same instant: the day's first moment in the formatters' time zone. Any
 /// string that is not exactly this shape (a one-digit month, a four-digit year below
-/// 1000, a version suffix not yet stripped) is declined, so the formatters still decide
-/// everything they used to.
+/// 1000, a version suffix not yet stripped) is declined, and the formatters decide it.
 ///
 /// The formatters are strict about midnight itself, and this reproduces that: in a zone
 /// whose DST change falls at 00:00, a day with no midnight (the clocks jump to 01:00)
@@ -470,17 +444,13 @@ func canonicalStoredDay(_ text: Substring, separator: Character,
 /// shape `StorageDateFormatters.timestamp` writes for `dateAdded` and `lastModified` — or
 /// nil for anything else.
 ///
-/// The second fast path of `parseDate(from:)`. Those strings decline every cheaper parser
-/// in its chain and are read only by the `yyyy-MM-dd'T'HH:mm:ss.SSSZ` formatter, fifth in
-/// line, after four failed ICU parses: about 140 µs each, which made the two fields most of
-/// the cost of building MetadataCache (≈420 ms of a 500 ms full rebuild for 1,400 films)
-/// and of every `#added` search. The string names a UTC instant, so no calendar or time
-/// zone is involved: the digits are the whole answer. The value is built the way the
-/// formatter builds it — whole milliseconds since 1970, divided once — so the two agree
-/// bit for bit: checked 2026-10-27 against the formatter chain on every stored date
-/// string of a 1,400-film library (8,344 strings, 2,799 of them timestamps; none
-/// differed), at ~1 µs a timestamp against ~147 µs. A leap second, an
-/// out-of-range field or any other shape is declined and goes to the formatters as before.
+/// The second fast path of `parseDate(from:)`. These strings decline every cheaper parser
+/// in the chain, so they reach the `yyyy-MM-dd'T'HH:mm:ss.SSSZ` formatter only after four
+/// failed ICU parses. That path dominated the cost of building MetadataCache and of every
+/// `#added` search. The string names a UTC instant, so no calendar or time zone is
+/// involved: the digits are the whole answer. The value is built the way the formatter
+/// builds it (whole milliseconds since 1970, divided once), so the two agree bit for bit.
+/// A leap second, an out-of-range field or any other shape is declined and goes to the formatters.
 func canonicalStoredTimestamp(_ text: Substring) -> Date? {
     let u = Array(text.utf8)
     guard u.count == 24, u[4] == 45, u[7] == 45, u[10] == 84, u[13] == 58, u[16] == 58,
@@ -548,12 +518,10 @@ private let timestampDateFormatters: [DateFormatter] = {
 }()
 
 // Output format style for date display (e.g., "November 4, 2025").
-// Date.FormatStyle is a value type, fully Sendable, and backed by the same ICU
-// infrastructure as DateFormatter — but without the bridging overhead or
-// thread-safety constraints that required nonisolated(unsafe) on the old formatter.
-// Locale is pinned to en_US to guarantee consistent English output regardless of
-// the system language setting, matching the behavior of the previous DateFormatter, and
-// the calendar to Gregorian, which the locale alone does not do (see AppCalendar).
+// Date.FormatStyle is a value type and fully Sendable, backed by the same ICU infrastructure
+// as DateFormatter. Locale is pinned to en_US for consistent English output regardless of
+// the system language setting, and the calendar to Gregorian, which the locale alone does
+// not do (see AppCalendar).
 private let displayDateStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: AppCalendar.gregorian)
     .month(.wide)
     .day(.defaultDigits)
@@ -623,7 +591,7 @@ func extractVersionCode(from dateString: String?) -> ViewingVersion {
 /// Handles all supported formats robustly:
 /// - "YYYY.MM.DD" (primary/dot format)
 /// - "YYYY.MM.DD.XX" (dot format with version code, e.g., ".TH")
-/// - "YYYY-MM-DD" (dash format for compatibility)
+/// - "YYYY-MM-DD" (dash format)
 /// - ISO8601 timestamps (e.g., "2026-01-24T10:30:00Z")
 /// - Additional timestamp variants (with/without timezone)
 /// - "MM/dd/yyyy" and "M/d/yyyy" (slash formats)
@@ -656,7 +624,7 @@ func parseDateWithFormatters(datePortion: String, dateString: String) -> Date? {
         return date
     }
     
-    // Try "yyyy-MM-dd" format for compatibility
+    // Try "yyyy-MM-dd" format
     if let date = dashDateFormatter.date(from: datePortion) {
         return date
     }
@@ -689,11 +657,8 @@ func formatDateString(_ dateString: String?) -> String {
 /// "November 4, 2025" — for a caller that has the `Date` in hand.
 ///
 /// `formatDateString` parses and then formats, which is right when a stored string is all
-/// the caller has. A caller that parsed the string a moment ago — to sort by it, say —
-/// would otherwise pay for a second parse it has no use for, and the viewing-history rows
-/// did exactly that for every entry of every film in the library: parse to sort, then parse
-/// again to print. At ten thousand entries, that second parse was most of the cost of
-/// building the section.
+/// the caller has. A caller that has already parsed the string (to sort by it, say) should
+/// use this function rather than paying for a second parse.
 func formatDate(_ date: Date) -> String {
     displayDateStyle.format(date)
 }
@@ -776,14 +741,10 @@ func formatDateWithTimeAgo(_ dateString: String?) -> String {
 // of `SmartLists`' rotation/one-year checkers, and the cached rotation date behind
 // `MetadataCache`'s "Recently Come Up for Rotation" list and its subtitles.
 //
-// Routing all of them through one function is the whole point, not a style
-// preference: the predecessor rounded the *label* up to the following month while
-// every other consumer measured against the raw anniversary, producing
-// "September 2026 (0 days away)" on August 5th — two different rules applied to
-// one value. Splitting the rule again would reintroduce that bug spread across
-// views instead of contained in one string: a film could sit in the "Up for
-// Rotation" smart list and be auto-enqueued into Up Next while the sidebar
-// simultaneously insisted it was three weeks away.
+// Every consumer must apply the same rule. If the label rounded up while another consumer
+// measured against the raw anniversary, a value could read "September 2026 (0 days away)"
+// on August 5th. A film could also sit in the "Up for Rotation" smart list and be
+// auto-enqueued into Up Next while the sidebar showed it three weeks away.
 
 /// The date on which a film becomes up for rotation: its viewing anniversary,
 /// rounded up to midnight on the 1st of the following month.
@@ -838,9 +799,8 @@ func rotationEligibilityDate(from lastWatchedDate: Date, months: Int, calendar: 
 ///
 /// Deliberately takes a `Date` rather than a date string: its callers have
 /// already obtained the exact instant they intend to name from
-/// `rotationEligibilityDate`, and re-deriving that instant from a string inside
-/// the formatter is what previously allowed the label and the value it labeled
-/// to be computed by two different rules.
+/// `rotationEligibilityDate`. Re-deriving that instant from a string inside the
+/// formatter would let the label and the value it names come from two different rules.
 ///
 /// - Parameter date: The date whose month should be named.
 /// - Returns: Formatted string in the form of "November 2026".
@@ -885,16 +845,11 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
     // anything is measured, and every tier below is computed from these two
     // values rather than from the raw `Date()`.
     //
-    // This is the second half of the "September 2026 (0 days away)" fix. The
-    // target is a parsed date, i.e. always midnight; "now" is whatever time of
-    // day it happens to be. `Calendar.dateComponents` truncates toward zero, so
-    // from 2026-08-05 at 2:00 PM to 2026-08-06 at midnight it returned 0 whole
-    // days — the calculation reported "0 days away" for a date a full calendar
-    // day in the future, and did so for the entire final day of every waiting
-    // period regardless of threshold. The same truncation shaved up to a day off
-    // the week and month tiers too, since both are measured from the same
-    // endpoints; it simply went unnoticed there because a day is below their
-    // display granularity.
+    // The target is a parsed date, always midnight; "now" is whatever time of day it
+    // is. `Calendar.dateComponents` truncates toward zero, so from 2026-08-05 at 2:00 PM
+    // to 2026-08-06 at midnight it returns 0 whole days. Without normalization, the
+    // final day of every waiting period would read "0 days away" for a date a full day
+    // ahead. The same truncation would shave up to a day off the week and month tiers.
     //
     // Comparing whole days is also the right unit for this field on its own
     // terms: the value it describes is a calendar date with no time component,
@@ -903,17 +858,15 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
     let target = calendar.startOfDay(for: futureDate)
 
     // Compute the total elapsed days from today to the future date. With both
-    // endpoints on day boundaries this is now an exact whole-day count rather
-    // than a floor of a partial-day span.
+    // endpoints on day boundaries this is an exact whole-day count.
     let dayComponents = calendar.dateComponents([.day], from: now, to: target)
     guard let dayDiff = dayComponents.day else { return "Unknown" }
 
     // Guard against non-future dates. Reached only if a caller passes today or
     // earlier; `WatchDetails` never does, because a rotation date at or before
     // the current moment is answered with "Ready for viewing" before this
-    // function is consulted. "Today" rather than "0 days away" so that, if some
-    // future caller does land here, it reads as a statement of fact instead of
-    // as the arithmetic failure the old wording was mistaken for.
+    // function is consulted. "Today" rather than "0 days away" so that a caller
+    // which does reach this guard reads a statement of fact, not an arithmetic result.
     if dayDiff <= 0 { return "Today" }
 
     // ── Tier 1: Days (< 7) — exact, no rounding. ─────────────────────────────
@@ -972,13 +925,11 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
 /// and the gallery contextual menu (GalleryContextMenu.makeAddToListSubmenu) — whenever
 /// that menu has no list left to offer.
 ///
-/// The two ways of having nothing to offer are genuinely different and must not share a
-/// single string. With lists in the library and one film selected, an empty menu means
-/// the film is already a member of every one of them. With no lists in the library at
-/// all, it means there is nothing to add anything to yet — reporting that as "Already a
-/// Member of All Lists" is simply false, and it was previously shown in exactly that
-/// case by all three menus. "No Lists Available" matches the wording ListsMenu already
-/// uses for the same empty-library state.
+/// The two ways of having nothing to offer are different and must not share a single
+/// string. With lists in the library and one film selected, an empty menu means the film
+/// is already a member of every one of them. With no lists in the library at all, there
+/// is nothing to add anything to yet, so "Already a Member of All Lists" would be false.
+/// "No Lists Available" matches the wording ListsMenu uses for the same empty-library state.
 func addToListPlaceholderTitle(hasAnyLists: Bool) -> String {
     hasAnyLists ? "Already a Member of All Lists" : "No Lists Available"
 }
@@ -1056,10 +1007,8 @@ struct PrivateSymbol {
 /// back. Each concrete picker differs only in its option list, its style, and which shared
 /// state object it reads and writes, so each is a thin wrapper supplying those.
 ///
-/// Six wrappers use this today — the Recents, Unwatched, Film Queue and smart-list variant
-/// pickers in GalleryTitleBar, plus the Reports and Imports tab pickers, which were
-/// hand-written copies of this same shape before it moved here from GalleryTitleBar's
-/// private scope.
+/// Six wrappers use this today: the Recents, Unwatched, Film Queue and smart-list variant
+/// pickers in GalleryTitleBar, plus the Reports and Imports tab pickers.
 ///
 /// Each wrapper keeps its own reference to its state object rather than letting the title
 /// bar read the value and pass it down: the read then registers against the wrapper's
@@ -1168,8 +1117,8 @@ struct GenericTitleBar<LeadingContent: View, TrailingButtons: View>: View {
             .frame(minHeight: 30, maxHeight: 30)
             .background(Color(NSColor.controlBackgroundColor))
             .overlay(Divider(), alignment: .bottom) }
-        // Disable animations on the entire VStack to prevent window chrome
-        // from animating when sidebar opens/closes.
+        // Disable animations on the entire VStack so window chrome does not
+        // animate when the sidebar opens or closes.
         .transaction { transaction in
             transaction.animation = nil
             transaction.disablesAnimations = true } }
@@ -1210,7 +1159,7 @@ struct HelpPopoverButton: View {
     var autoDismissDuration: Double = 10
     /// Optional dismiss token. When this value changes, any open popover is immediately
     /// closed. Pass `AnyHashable(someEquatableValue)` to enable carousel-style dismissal.
-    /// Defaults to `nil`; omitting it preserves the pre-existing behavior exactly.
+    /// Defaults to `nil`; omitting it leaves the popover's behavior unchanged.
     var dismissToken: AnyHashable? = nil
 
     @State private var isShowingPopover = false
@@ -1227,32 +1176,25 @@ struct HelpPopoverButton: View {
                     .frame(width: 260)
             }
             // Position-change dismissal: close an open popover whenever the button's
-            // vertical position in global coordinates changes — i.e., the user scrolled
+            // vertical position in global coordinates changes, i.e. the user scrolled
             // the enclosing container or the button's host view moved vertically.
             //
-            // Implemented with the first-party onGeometryChange(for:of:action:) modifier
-            // (macOS 15 SDK) rather than the previous background GeometryReader, which
-            // was a greedy, layout-participating view: as a .background it added an
-            // extra layout node to EVERY HelpPopoverButton, including one per release
-            // card in the FilmSheet Releases carousel, contributing to the peak initial
-            // layout pass that competes with the sheet presentation animation — the
-            // same contention the sheet's other geometry consumers were rewritten to
-            // avoid (ScrollActivityObserver in 30_20_FSControlHelpers.swift;
-            // FSTabDetailsView's scroll anchor uses the same onGeometryChange
-            // substitution). Its content closure also re-evaluated on EVERY geometry
-            // change, including per-frame horizontal offsets during the carousel's
-            // spring slide where minY never changes — pure per-frame overhead.
-            // onGeometryChange computes only the reduced value (minY) and fires the
-            // action solely when it changes, with no layout node and no view-tree work
-            // during animation frames.
+            // Uses the macOS 15 onGeometryChange(for:of:action:) modifier. A background
+            // GeometryReader would add a layout-participating node to every
+            // HelpPopoverButton, including one per release card in the FilmSheet Releases
+            // carousel, during the sheet's peak initial layout pass. The same substitution
+            // is used by ScrollActivityObserver (30.20 FSControlHelpers.swift) and by
+            // FSTabDetailsView's scroll anchor. A GeometryReader's content also re-runs on
+            // every geometry change, including per-frame horizontal offsets during the
+            // carousel's spring slide, where minY never changes. onGeometryChange computes
+            // only minY and fires the action solely when it changes.
             //
-            // Behavior is preserved exactly: any vertical movement (scrolling, card
-            // fly-up) closes an open popover. Unlike the GeometryReader's onChange, the
-            // action also fires once with the initial value on mount; the
-            // isShowingPopover guard makes that a no-op, since @State isShowingPopover
-            // always starts false for a new view identity. The transform closure
-            // captures nothing, satisfying strict-concurrency requirements regardless
-            // of the closure's Sendable annotation in the SDK.
+            // Any vertical movement (scrolling, card fly-up) closes an open popover. The
+            // action also fires once with the initial value on mount; the isShowingPopover
+            // guard makes that a no-op, since @State isShowingPopover starts false for a
+            // new view identity. The transform closure captures nothing, satisfying
+            // strict-concurrency requirements regardless of the closure's Sendable
+            // annotation in the SDK.
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.frame(in: .global).minY
             } action: { _ in
@@ -1398,8 +1340,8 @@ nonisolated enum ExportStaging: Loggable {
         guard let root = rootURL else { throw CocoaError(.fileNoSuchFile) }
         let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        // Staged exports are transient and can be gigabytes with posters: keep them out of
-        // Time Machine, as the temporary directory they used to be built in was.
+        // Staged exports are transient and can be gigabytes with posters, so they are kept out of
+        // Time Machine backups.
         var rootForValues = root
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -1560,8 +1502,8 @@ struct StandardPlaceholder: View {
     // centers the STRUT's center (the `anchor` guide) rather than the content's, so the
     // glyph, the title, and the message's first line land on the same points in every
     // placeholder; a message that wraps to more lines, and the action button, only
-    // extend downward. (Centering the content itself moved all of it up by half of
-    // every extra line.) Both stay inside the ZStack's bounds, so the button hit-tests
+    // extend downward. Centering the content itself would move all of it up by half of
+    // every extra line. Both stay inside the ZStack's bounds, so the button hit-tests
     // normally.
     var body: some View {
         ZStack(alignment: .top) {
@@ -1742,8 +1684,8 @@ extension UUID {
 
 /// Writes `message` to standard error as-is (no newline added). The same unbuffered write as
 /// `fputs(message, stderr)`, without touching the C `stderr` global, which Strict Memory
-/// Safety flags as unsafe; a closed stderr is ignored, as `fputs` ignored it. Mirrors
-/// DebugLogKit's private helper of the same purpose.
+/// Safety flags as unsafe. A closed stderr is ignored. Mirrors DebugLogKit's private helper
+/// of the same purpose.
 nonisolated func printToStandardError(_ message: String) {
     try? FileHandle.standardError.write(contentsOf: Data(message.utf8))
 }
@@ -2151,13 +2093,13 @@ nonisolated enum Fmt {
 /// a library's titles, Swedish and Danish move Å/Ä/Ö/Ø past Z, and Turkish changes how
 /// "I" folds. Pinning the locale keeps Film Tracker's order one order everywhere.
 ///
-/// Measured 2026-10-27 on an English system: identical results to the calls they replace
-/// on 400,000 random pairs (letters each language treats specially, accents, ligatures,
-/// fullwidth digits, punctuation) and on the full title order of a 1,400-film library;
-/// under Czech, Swedish, Turkish, Lithuanian, Danish and Spanish first languages these
-/// still give the English results where the old calls did not. An `NSLocale` held once and
-/// handed to `NSString.compare` costs the same as `localizedStandardCompare` (6.5 vs 6.6 ms
-/// to sort 1,400 titles); bridging a Swift `Locale` on every call cost 8.8 ms.
+/// On an English system, the pinned calls return the same results as the system-language
+/// calls they replace, checked on 400,000 random pairs (letters each language treats
+/// specially, accents, ligatures, fullwidth digits, punctuation) and on a full title order.
+/// Under Czech, Swedish, Turkish, Lithuanian, Danish and Spanish first languages, the pinned
+/// calls keep the English order. Holding one `NSLocale` and passing it to `NSString.compare`
+/// costs about the same as `localizedStandardCompare`; bridging a Swift `Locale` on every call
+/// is measurably slower.
 nonisolated enum EnglishText {
     static let locale = Locale(identifier: "en_US")
     fileprivate static let nsLocale = NSLocale(localeIdentifier: "en_US")

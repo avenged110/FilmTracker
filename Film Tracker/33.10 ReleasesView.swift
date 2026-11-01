@@ -2,7 +2,7 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 // SwiftUI view layer for the "Releases" tab of FilmSheet.
-// The view model and data models live in FSTabReleases.swift (33_00).
+// The view model and data models live in FSTabReleases.swift (33.00).
 
 import SwiftUI
 
@@ -11,12 +11,10 @@ import SwiftUI
 // Every navigation entry point (swipe, arrow key, arrow button) routes through this so all
 // three behave identically.
 //
-// The commit and the step MUST land in the same run-loop turn. Deferring the index mutation
-// with DispatchQueue.main.async does not buy a turn — main-queue blocks are drained within the
-// same run-loop iteration, ahead of the Core Animation commit observer that fires on
-// beforeWaiting — so both halves landed in one CATransaction anyway, but as two separate
-// invalidation passes inside it. The spring was then established against a partially committed
-// transaction, which is the truncated slide.
+// The commit and the step MUST land in the same run-loop turn. Splitting them across a deferral, even
+// with DispatchQueue.main.async, lets them land as two invalidation passes inside one Core Animation
+// transaction. The spring is then established against a partially committed transaction, which truncates
+// the slide.
 @MainActor
 private func navigateCarousel(_ step: () -> Void) {
     commitPendingFieldEdit()
@@ -48,9 +46,8 @@ private func navigateCarousel(_ step: () -> Void) {
 // the next click installs a fresh one against current geometry. It also commits the in-flight
 // edit to the model that was actually being edited, which is the correct destination for it.
 //
-// Every OTHER path that swaps a card's model already commits first — navigateCarousel for the
-// three navigation entry points, the delete confirmations, and the independence picker. This
-// closes the one that did not.
+// Every other path that swaps a card's model commits first: navigateCarousel for the three navigation
+// entry points, the delete confirmations, and the independence picker. This path does the same.
 @MainActor
 private func selectVariant(_ variant: Int, forCard id: UUID, in viewModel: FSTabReleases) {
     commitPendingFieldEdit()
@@ -78,7 +75,7 @@ func commitPendingFieldEdit() {
 
 // MARK: - ReleaseCardFocusRegion
 // An invisible AppKit view sized to the card it sits behind, registered with
-// FilmSheetKeyLoop (30_01) so Tab traversal on the Releases tab can be confined to the
+// FilmSheetKeyLoop (30.01) so Tab traversal on the Releases tab can be confined to the
 // current card's own frame. The same shape as CarouselHitRegion: `hitTest` returns nil so
 // it never intercepts a click, and it refuses first responder so it is never itself a stop
 // in the loop it defines.
@@ -123,7 +120,7 @@ struct FSTabReleasesView: View {
 
     /// Height reserved for the header's control row, so the row does not resize when the
     /// cap help button appears. See the frame in `carouselHeader`.
-    static let headerControlHeight: CGFloat = 22
+    static let headerControlHeight = ReleaseCardMetrics.headerControlHeight
     /// Center-to-center distance between two adjacent cards in the stack. `cardWidth` plus
     /// the gutter that keeps the neighboring cards visibly separate as they slide past.
     private static let cardStep: CGFloat = 556
@@ -132,7 +129,7 @@ struct FSTabReleasesView: View {
     /// ONE constant because the two must agree: a spacer of a different width would shift
     /// the ZStack's geometry as cards mount and unmount, so the offsets computed from
     /// `cardStep` would land differently depending on which cards happened to be inside the
-    /// mount window. It was written as the same literal in both places.
+    /// mount window.
     private static let cardWidth: CGFloat = 536
 
     @State private var keyMonitor: Any?
@@ -173,44 +170,31 @@ struct FSTabReleasesView: View {
     }
     @State private var swipeState = SwipeState()
 
-    // Axis-lock tuning, carried over from the reference implementation.
+    // Axis-lock tuning.
     /// Movement below this is too noisy to call a direction on.
     private static let axisLockDeadZone: CGFloat = 6
     /// How decisively horizontal must beat vertical to lock in as a swipe.
     private static let axisLockRatio: CGFloat = 1.4
     /// Horizontal travel a gesture must cover before it commits to a card.
     ///
-    /// Larger than the axis-lock dead zone on purpose: the dead zone only has to be big
-    /// enough to call a direction, while this decides a navigation the user cannot take
-    /// back partway through.
+    /// Larger than the axis-lock dead zone on purpose: the dead zone only has to be big enough to call a
+    /// direction, while this decides a navigation the user cannot take back partway through.
     ///
-    /// MARK: Why this is the carousel's largest source of INCONSISTENT latency
+    /// This is a distance, but trackpad events arrive at a roughly fixed rate, one `.changed` per display
+    /// frame, not at a fixed distance. So the number of events needed to clear it, and the wall-clock delay
+    /// before the carousel moves, scales inversely with swipe speed. A flick clears it on the first event,
+    /// while a deliberate swipe may take several. That spread is paid before the navigation spring starts,
+    /// so tuning `navigationSpring.response` cannot reduce it. The arrow keys have no accumulation phase and
+    /// stay consistent.
     ///
-    /// This is a distance, but trackpad events arrive at a fixed RATE — roughly one `.changed`
-    /// per display frame — not at a fixed distance. So the number of events needed to clear it,
-    /// and therefore the wall-clock delay before the carousel is even asked to move, scales
-    /// inversely with how fast the user swiped:
+    /// Lowering the threshold compresses that spread toward the fast end, which makes the latency repeatable
+    /// rather than merely faster on average. It is deliberately not replaced with a velocity projection, which
+    /// would fire flicks sooner and widen the spread.
     ///
-    ///     flick        ~20-40 pt per event   ->  clears on event 1        ~8 ms
-    ///     ordinary     ~8-12 pt per event    ->  clears on event 2        ~16 ms
-    ///     deliberate   ~2-4  pt per event    ->  clears on event 4-7   35-115 ms
-    ///
-    /// That spread is paid entirely BEFORE the navigation spring exists, so no amount of tuning
-    /// on `navigationSpring.response` can touch it — which is why the same gesture reads as
-    /// instant one time and as visibly delayed the next, while the arrow keys (which have no
-    /// accumulation phase at all) stay consistent.
-    ///
-    /// 8 rather than the 14 it was, and the 20 before that. Lowering it compresses the slow end
-    /// of that table toward the fast end — a deliberate swipe now clears in 2-3 events rather
-    /// than 4-7 — which is what makes the gesture's latency repeatable rather than merely
-    /// faster on average. It is deliberately NOT replaced with a velocity projection: projecting
-    /// would fire a flick even sooner and WIDEN the spread, which is the opposite of the goal.
-    ///
-    /// Still above the 6 pt axis-lock dead zone, so the lock (6 pt plus a 1.4x horizontal
-    /// margin) always resolves first and this only ever decides whether an already-horizontal
-    /// gesture was deliberate. The margin over the dead zone is thinner than it was, which is
-    /// acceptable here specifically because the Releases tab scrolls vertically nowhere: there
-    /// is no vertical gesture on this tab for a swipe to be confused with.
+    /// Still above the 6 pt axis-lock dead zone, so the lock (6 pt plus a 1.4x horizontal margin) always
+    /// resolves first, and this only decides whether an already-horizontal gesture was deliberate. The margin
+    /// over the dead zone is acceptable because the Releases tab has no vertical scrolling, so no vertical
+    /// gesture can be confused with a swipe.
     private static let discreteSwipeThreshold: CGFloat = 8
 
     // MARK: - Carousel Hit Region
@@ -243,34 +227,16 @@ struct FSTabReleasesView: View {
     // The set of card indices mounted as real ReleaseCardViews. Every other index renders as
     // an inert fixed-size spacer.
     //
-    // WHY IT IS BOUNDED. This was a set that only ever grew, so a few hundred milliseconds
-    // after the tab opened every card was mounted for the life of the sheet. Profiling at 3
-    // cards versus 30 (Time Profiler, Release, main thread) showed card BODIES never
-    // re-evaluating — the observation isolation works — while AttributeGraph scaled with the
-    // mounted count:
+    // WHY IT IS BOUNDED. Every mounted card adds AttributeGraph layout work to each frame of the navigation
+    // spring, because `.equatable()` gates card bodies but not layout. Unbounded, the spring dirties every
+    // mounted card's offset attribute on every frame, and the cost grows with the number of cards. Bounding
+    // the mounted set keeps the per-frame cost O(1) in release count.
     //
-    //     AG::Graph::propagate_dirty      20 ms  →  207 ms   (10.4x, for 10x the cards)
-    //     AG::Subgraph::update            36 ms  →  282 ms
-    //     AG::Graph::UpdateStack::update  55 ms  →  420 ms
-    //
-    // and main-thread busy time over one alert presentation went 528 ms → 3.13 s. The
-    // mechanism is layout, not body evaluation: `.equatable()` gates bodies but not layout, so
-    // the spring dirtied every mounted card's offset attribute every frame and propagate_dirty
-    // walked into each card's entire layout tree. Bounding the mounted set makes the per-frame
-    // cost O(1) in release count by construction.
-    //
-    // WHY THE WINDOW IS DERIVED, NEVER STORED. It is a pure function of (current index, card
-    // count, hydration radius), computed in `body`, with nothing to reconcile — when the index
-    // moves, the window moves in the same body evaluation that read it.
-    //
-    // The first version stored it as @State and re-centered it on a deferred schedule, on the
-    // theory that mounting must be kept out of animation frames. That put a mount and an
-    // unmount inside the spring's settle phase, which is plainly visible as a jerk in exactly
-    // the part of the motion that makes a spring read as a spring. Deferring was the error —
-    // see navigateCarousel at the top of this file, where deferring the index mutation
-    // produced a truncated slide for the same reason. Deriving makes both unrepresentable:
-    // there is no second pass to land anywhere, no schedule to tune, and no state that can
-    // disagree with the index.
+    // WHY THE WINDOW IS DERIVED, NEVER STORED. It is a pure function of (current index, card count, hydration
+    // radius), computed in `body`, with nothing to reconcile: when the index moves, the window moves in the
+    // same body evaluation that reads it. Storing it would need a second pass to re-center the window, and
+    // that pass would put a mount and an unmount inside the spring's settle phase, where it shows as a jerk.
+    // Navigation keeps mounting out of the animation for the same reason (see navigateCarousel).
     @State private var hydrationRadius: Int = 0
 
     /// Guards a stale hydration phase from landing after a newer hydration superseded it.
@@ -280,34 +246,22 @@ struct FSTabReleasesView: View {
     /// first appears (or when it gains its first card after being empty), and never ramps
     /// again for the life of the sheet.
     private static let visibleRadius: Int = 1
-    /// How far beyond the visible neighbors the window mounts. 1 — the same as
-    /// `visibleRadius`, so nothing is mounted that cannot be seen.
+    /// How far beyond the visible neighbors the window mounts. 1, the same as `visibleRadius`, so nothing is
+    /// mounted that cannot be seen. A radius of 2 would mount two cards at distance 2, where cardOpacity is
+    /// exactly 0: mounted, focusable, walked by AppKit on every responder change, and drawing nothing.
     ///
-    /// It was 2, keeping five cards live rather than three. Measured against the alert
-    /// presentation spike (a view-tree census and main-thread sampler around each
-    /// presentation, since removed), that spike cost ~0.78 ms per first-responder-capable
-    /// view in the window across 14 alerts and four runs, and this constant is the only thing
-    /// that sets how many such views there are: each card carries 22. The two cards radius 2
-    /// added sat at distance 2, where cardOpacity is exactly 0 — mounted, focusable, walked by
-    /// AppKit on every responder change, and drawing nothing.
-    ///
-    /// The mount-ahead cost is unchanged either way: Phase A centers the window on the
-    /// destination a full run-loop turn before the index moves, so a step mounts exactly one
-    /// new card at radius 1 just as it did at radius 2. What radius 1 gives up is a margin
-    /// against pop-in — a newly mounted card is immediately visible at 50% opacity, so its
-    /// controls have to finish assembling within Phase A's turn. They do: a card mounts in
-    /// ~55 ms on the main thread (see the `card-perf` harness scenario), well inside the turn
-    /// that precedes the index change.
+    /// The mount-ahead cost is the same at either radius. Phase A centers the window on the destination a full
+    /// run-loop turn before the index moves, so a step mounts exactly one new card. Radius 1 gives up only the
+    /// margin against pop-in: a newly mounted card is immediately visible at 50% opacity, so its controls must
+    /// finish assembling within Phase A's turn. Mounting a card fits within that turn.
     private static let prefetchRadius: Int = 1
 
-        // MARK: Two ranges, not a Set
-        //
-        // This was a Set<Int> built by unioning two more — three heap allocations and a hash
-        // of every member on every body pass, to describe at most two contiguous runs of five
-        // indices. A window is a RANGE by construction (a center and a radius), so membership
-        // is two integer comparisons and the whole value fits in registers.
-        //
-        // Deliberately not Equatable and not stored: derived in `body` and passed down.
+    // MARK: Two ranges, not a Set
+    //
+    // A window is a range by construction (a center and a radius), so membership is two integer comparisons
+    // and the whole value fits in registers.
+    //
+    // Deliberately not Equatable and not stored: derived in `body` and passed down.
     private struct MountWindow {
         private let primary: ClosedRange<Int>?
         private let secondary: ClosedRange<Int>?
@@ -391,9 +345,8 @@ struct FSTabReleasesView: View {
         // mounted. False only during the first turns after the carousel gains cards, which is
         // exactly when an add or delete should not land.
         //
-        // The isEmpty term is load-bearing. An empty carousel never hydrates, so without it
-        // this reads as permanently un-ready — which disabled the add control forever and
-        // stranded a user who deleted their last release.
+        // The isEmpty term is load-bearing. An empty carousel never hydrates, so without it this would read as
+        // permanently un-ready and disable the add control.
         let carouselReady = entries.isEmpty || radius >= Self.visibleRadius
 
         VStack(alignment: .leading, spacing: 0) {
@@ -427,8 +380,7 @@ struct FSTabReleasesView: View {
 
             // MARK: Trackpad horizontal swipe
             //
-            // Structured as the reference implementation's scrollWheel handler: reset on
-            // .began, accumulate and axis-lock on .changed, decide on .ended. Momentum is
+            // Reset on .began, accumulate and axis-lock on .changed, decide on .ended. Momentum is
             // deliberately not handled — `event.phase` alone drives this, so the gesture ends
             // when the fingers lift, not when inertia decays.
             let swipe = swipeState
@@ -508,17 +460,15 @@ struct FSTabReleasesView: View {
 
                 // Tab is not handled here: the sheet-level monitor in FilmSheetView takes
                 // it for every tab, and on this one confines it to the current card — see
-                // FilmSheetKeyLoop (30_01).
+                // FilmSheetKeyLoop (30.01).
 
                 let firstResponder = NSApp.keyWindow?.firstResponder
                 let isTextInputActive = firstResponder is NSTextView
                     || firstResponder is NSTextField
                     || firstResponder is NSSegmentedControl
 
-                // Option+arrow used to cycle the format tabs. There are no format tabs any
-                // more — every format shares one stack — so the modifier is left to the
-                // responder chain rather than being given a second, redundant meaning
-                // alongside the plain arrows.
+                // Option+arrow is left to the responder chain. The plain arrows are the only carousel navigation
+                // keys, so the modifier is not given a second, redundant meaning here.
                 guard !event.modifierFlags.contains(.option) else { return event }
 
                 guard event.keyCode == 123 || event.keyCode == 124 else { return event }
@@ -571,7 +521,7 @@ struct FSTabReleasesView: View {
     // MARK: - Carousel Header
     //
     // The card-selection ("jump") menu and the "Add New Release" menu. The segmented format
-    // picker is gone — with one stack there is nothing to select between — and "+" became a
+    // picker is gone — with one stack there is nothing to select between — and "+" is a
     // menu because with no selected format the format has to be part of the ask.
     @ViewBuilder
     private func carouselHeader(
@@ -601,9 +551,9 @@ struct FSTabReleasesView: View {
 
                 addReleaseMenu(canAddRelease: canAddRelease, carouselReady: carouselReady)
             }
-            // Fixed height, so the row does not resize under the help button: the button is
-            // 22 pt and a bordered menu is 21, so a row sized to its tallest child grew by a
-            // point the moment the button faded in — pushing every card down mid-fade.
+            // Fixed height, so the row does not resize under the help button. The button is 22 pt and a bordered
+            // menu is 21, so a row sized to its tallest child would grow by a point as the button fades in, pushing
+            // every card down mid-fade.
             .frame(height: Self.headerControlHeight)
             .animation(.easeInOut(duration: 0.25), value: entries.isEmpty)
             // The cap button's fade. Keyed separately from the placeholder transition
@@ -624,14 +574,9 @@ struct FSTabReleasesView: View {
     /// `jumpToCard` declines while the carousel is busy, and a control that displayed the
     /// declined choice would show a card the carousel never traveled to.
     ///
-    /// UNCONDITIONALLY ENABLED. This control used to gate on
-    /// `carouselReady && !viewModel.isTransitioning && entries.count >= 2`, which was sound
-    /// on its own terms and still produced bad behavior. `carouselReady` is false for the
-    /// first moments after the tab appears, so opening the sheet flickered the control from
-    /// disabled to enabled; and the whole expression is recomputed continuously, so a
-    /// single-release film could see the control re-enable mid-session whenever one of the
-    /// other two terms changed — a disabled state that did not stay disabled, which reads as
-    /// a glitch rather than as a rule.
+    /// UNCONDITIONALLY ENABLED. A gate on `carouselReady`, `isTransitioning`, or the entry count would flicker
+    /// the control while the sheet opens, and would re-enable it mid-session on a single-release film. A disabled
+    /// state that comes and goes reads as a glitch rather than as a rule.
     ///
     /// Nothing downstream depends on the gate. `onSelect` ignores a no-op selection, and
     /// `viewModel.jumpToCard` declines outright while the carousel is busy — with
@@ -722,7 +667,7 @@ struct FSTabReleasesView: View {
             .padding(.horizontal, 9)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .zIndex(10)
-            // Fade the arrow buttons in/out when the format gains or loses all its cards.
+            // Fade the arrow buttons in/out when the carousel gains or loses all its cards.
             // Keyed on showPlaceholder (not carouselEntries.isEmpty) so it stays in sync
             // with the branch condition — both flip together in the same animation context.
             .opacity(showPlaceholder ? 0 : 1)
@@ -753,9 +698,8 @@ struct FSTabReleasesView: View {
                 // Last card deleted. The ForEach is already empty, so the placeholder's
                 // transition has nothing left to ghost.
                 //
-                // hydrationRadius is deliberately NOT zeroed: the window is derived from the
-                // release count, so zeroing it only marked the carousel un-hydrated — which
-                // disabled the add control and stranded the user with no way back.
+                // hydrationRadius is deliberately NOT zeroed. Zeroing it would mark the carousel un-hydrated and
+                // disable the add control.
                 withAnimation(.easeIn(duration: 0.25)) {
                     showPlaceholder = true
                 }
@@ -785,22 +729,20 @@ struct FSTabReleasesView: View {
         }
         // No .onChange watching the current index: the mounted window follows the index by
         // derivation in `body`, and a handler that reconciled it would reintroduce the second
-        // invalidation pass that caused the jerk in the spring's tail. No format-switch
+        // invalidation pass that shows up as a jerk in the spring's tail. No format-switch
         // handler either — with one stack there is no switch.
     }
 
     // MARK: - Card Stack
-    // The ZStack of positioned, animated ReleaseCardView instances for the active format.
+    // The ZStack of positioned, animated ReleaseCardView instances for the carousel.
     @ViewBuilder
     private func cardStack(
         entries: [ReleaseCarouselEntry],
         idx: Int,
         mountedCards: MountWindow
     ) -> some View {
-        // An ordinary ForEach, evaluated on each structural change. It used to be built
-        // once and stored inside a CarouselDragLayer so that a ~120 Hz live-drag gesture
-        // re-ran only that wrapper rather than re-iterating this ForEach; with swipes now
-        // discrete there is no per-frame gesture input to isolate it from.
+        // An ordinary ForEach, evaluated on each structural change. Swipes are discrete, so no per-frame gesture
+        // input needs to be isolated from it.
         ZStack {
             // Each card is a ReleaseCardView backed by a ReleaseCardModel (@Observable).
             // Field mutations go directly to model properties — @Observable invalidates
@@ -851,12 +793,9 @@ struct FSTabReleasesView: View {
                                 requestDelete(id: entry.parent.id)
                             }
                         )
-                        // No .focusable(index == idx) here. It never excluded descendants from
-                        // the focus ring the way its old comment claimed, but it did cost:
-                        // toggling focusability invalidates the window's key view loop, which
-                        // AppKit rebuilds by walking every focusable view in the WINDOW, on two
-                        // cards per navigation. .focusEffectDisabled() stays — it is
-                        // environment-propagated and never depended on this.
+                        // No `.focusable(index == idx)` here. Toggling focusability invalidates the window's key view loop,
+                        // which AppKit rebuilds by walking every focusable view in the window, on two cards per navigation.
+                        // `.focusEffectDisabled()` is environment-propagated and does not depend on this.
                         .focusEffectDisabled()
                     }
                 }
@@ -879,20 +818,19 @@ struct FSTabReleasesView: View {
                 //
                 // ORDER IS LOAD-BEARING: it must sit below .offset, so the offset is applied
                 // to the group. Above it, the offset would be inside the isolation and
-                // isolate nothing. Still true even though this slot's own offset is now
+                // isolate nothing. Still true even though this slot's own offset is
                 // static: the attribute the strip dirties is this group's position.
                 //
                 // Safe here specifically because a card's INTERNAL geometry is static —
                 // nothing inside ReleaseCardView animates its own frame — so there is no
                 // in-card animation whose semantics the grouping could change. It neither
                 // rasterizes nor flattens the render tree, so unlike .compositingGroup it
-                // does not touch the hosted NSViews (see the note in FSTextHelpers 30_10 on
+                // does not touch the hosted NSViews (see the note in FSTextHelpers 30.10 on
                 // what flattening a layer tree containing one does).
                 .geometryGroup()
-                // NO per-card .animation modifiers here — every curve lives on the ZStack
-                // container below. A per-card .animation overrides the inherited ambient
-                // transaction for whatever it scopes, which is what prevented the container's
-                // spring from reaching .offset(x:) and eliminated the bounce.
+                // NO per-card .animation modifiers here. Every curve lives on the ZStack container below. A per-card
+                // .animation would override the inherited transaction for whatever it scopes, so the container's
+                // spring would not reach .offset(x:).
                 //
                 // x is the static strip placement. y is genuinely per-card: it is the
                 // deletion fly-up, which is one card leaving on its own and is driven by the
@@ -917,7 +855,7 @@ struct FSTabReleasesView: View {
                 // CONSEQUENCE, HANDLED ELSEWHERE: unlike `.disabled` this does not remove
                 // the card's controls from AppKit's key view loop, so a native Tab could walk
                 // into an off-screen card. It cannot here: the sheet's key monitor takes Tab
-                // away from AppKit and FilmSheetKeyLoop (30_01) confines it to the current
+                // away from AppKit and FilmSheetKeyLoop (30.01) confines it to the current
                 // card by geometry.
                 .allowsHitTesting(isMounted && index == idx)
             }
@@ -929,17 +867,11 @@ struct FSTabReleasesView: View {
         // -idx * cardStep, and that one number is the only position the navigation spring
         // interpolates.
         //
-        // This is what makes lock-step structural rather than coincidental. Before this, each
-        // slot carried its own `(index - idx) * cardStep` offset: N separate animatable
-        // attributes that all had to be picked up by the same transaction, given the same
-        // start time, and ticked on the same frames to stay glued. That is not a guarantee
-        // SwiftUI makes. When one attribute was established a beat late — most likely under
-        // back-to-back navigation, where a step begins against a graph still busy with the
-        // last one — that card sat still while its neighbors set off, then caught up and
-        // overlapped them on the way to its resting place. Cards cannot drift apart now
-        // because there is no longer any per-card quantity for them to drift in: their
-        // relative spacing is layout, fixed at `cardStep`, and a single spring carries all of
-        // them at once.
+        // Lock-step is structural rather than coincidental. Per-slot offsets would be N separate animatable
+        // attributes that all had to be picked up by the same transaction and tick on the same frames, which
+        // SwiftUI does not guarantee. An attribute established a beat late would sit still while its neighbors
+        // moved, then overlap them on the way to rest. Cards cannot drift apart: their spacing is layout,
+        // fixed at `cardStep`, and a single spring carries all of them at once.
         //
         // geometryGroup below it for the same reason each card has one: children resolve
         // against the strip as a unit, so the spring dirties the strip's position rather than
@@ -976,23 +908,21 @@ struct FSTabReleasesView: View {
         // something different (whether the preference may skip the prompt) and the two must not
         // be conflated.
         //
-        // Neither form names the card. "Blu-ray Release 2" was written into the sentence back
-        // when the alert could be raised for a card the user was not looking at; every route in
-        // now targets the CENTERED card — the card's own delete button, the menu command, both
-        // of which act on the current entry — so the name restated what was on screen behind
-        // the alert. The demonstrative is what the user is actually looking at.
+        // Neither form names the card. Every route into this alert acts on the CENTERED card (the card's own
+        // delete button and the menu command, both of which act on the current entry), so the demonstrative is
+        // what the user is looking at.
         let isComboPack = viewModel.model(id)
             .map { ReleaseIndependence.isComboPack($0.independence) } ?? false
 
         // How many bundled discs go with this card. Only the "always confirm" rule below reads
-        // it; the message no longer counts them, because "combo-pack release" already says a
+        // it; the message does not count them, because "combo-pack release" already says a
         // pack is going and the discs in a pack are not separable from it.
         //
         // Asked of the view model rather than computed here. Stale child UUIDs whose models are
         // not in the session are pruned off the parent as part of answering, so the
         // confirmation neither warns about a child that doesn't exist nor leaves the parent
-        // inconsistent — but the pruning is hierarchy state, which this view is no longer a
-        // writer of. See FSTabReleases.liveChildCount(of:).
+        // inconsistent. The pruning is hierarchy state, and this view does not write hierarchy state. See
+        // FSTabReleases.liveChildCount(of:).
         let childCount = viewModel.model(id).map { viewModel.liveChildCount(of: $0) } ?? 0
 
         // Always confirm if there are combo-pack children, regardless of preference.
@@ -1070,8 +1000,8 @@ struct FSTabReleasesView: View {
 
         // The radius the ramp climbs to.
         //
-        // Floored at `visibleRadius` because the two constants are tuned independently (see
-        // the EXPERIMENT note on prefetchRadius) and a prefetchRadius below it breaks this
+        // Floored at `visibleRadius` because the two constants are tuned independently. A `prefetchRadius`
+        // below it would break this
         // method twice over. `1...prefetchRadius` is a ClosedRange, which TRAPS when its
         // upper bound falls below its lower — so a prefetchRadius of 0 is a crash on tab
         // open, not a degraded window. And `carouselReady` gates every structural mutation on
@@ -1106,13 +1036,6 @@ extension FSTabReleasesView: Equatable {
 }
 
 // MARK: - Alert Text Formatting
-//
-// There is deliberately no `comboChildClause` any more. It built "the 2 associated combo-pack
-// releases" for both destructive alerts, from the era when the alerts described the bundled
-// discs as separate releases. Neither alert counts them now: the delete alert says
-// "this combo-pack release" and treats the pack as the single thing it is on screen, and the
-// type-change alert names the discs as Blu-rays directly, since only a combo pack can raise it.
-// Both strings live at their call sites, which is where the sentence around them lives.
 enum ReleasesFormatting {
     /// The text behind the header's cap help button.
     ///
@@ -1257,9 +1180,8 @@ private struct ReleaseJumpMenu: NSViewRepresentable {
         // every format inherits the same tab stop, so the column stays aligned.
         let font = NSFont.menuFont(ofSize: 0)
         let formatGap = ceil((" " as NSString).size(withAttributes: [.font: font]).width)
-        // 2 pt, not more: with the glyph, the widest title plus the popup's chrome must
-        // stay inside headerMenuWidth (169 of 170 pt at 2; 171 at the former 4, which grew
-        // the control by a point whenever a purchased release was selected).
+        // 2 pt keeps the widest title, the glyph, and the popup's chrome inside headerMenuWidth (170 pt). A larger
+        // gap would widen the control whenever a purchased release is selected.
         let glyphGap: CGFloat = 2
         // The font is re-obtained (above) rather than read from the `font` static: this is a
         // static initializer and therefore runs nonisolated, where a main-actor-isolated

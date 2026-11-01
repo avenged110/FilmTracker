@@ -15,10 +15,8 @@ import CryptoKit
 enum LibraryStore: Loggable {
     nonisolated static let logTag = "[LibraryStore]"
 
-    /// The store file's name. Deliberately not SwiftData's `default.store`: the Core Data
-    /// build starts from an empty store and the library comes back by restoring a backup, so
-    /// the store beside it is never opened, migrated or deleted — it stays a
-    /// rollback until the user removes it.
+    /// The store file's name. It differs from SwiftData's `default.store`, so an old store is
+    /// never opened or migrated by this build.
     static let storeFileName = "FilmTracker.sqlite"
 
     /// Where the store lives: the debug sandbox's folder when one is active, otherwise
@@ -62,8 +60,7 @@ enum LibraryStore: Loggable {
         container.loadPersistentStores { _, error in loadError = error }
         if let loadError { throw loadError }
 
-        // The view context is what SwiftData's mainContext was: main-queue, merging every
-        // background save as it lands, no undo manager.
+        // Main-queue context that merges every background save as it lands; no undo manager.
         let view = container.viewContext
         view.automaticallyMergesChangesFromParent = true
         view.mergePolicy = NSMergePolicy.mergeByPropertyObjectTrump
@@ -111,9 +108,8 @@ enum LibraryStore: Loggable {
 /// constrains IDs to be unique. Core Data refuses that migration outright ("constraint
 /// violation during attempted migration"), and the library would not open.
 ///
-/// Looks only at tables that don't yet have the unique index the constraint creates (so a
-/// store already migrated costs one read of sqlite_master) and changes nothing unless one of
-/// them repeats an ID. Works in SQL on the store's own tables, before Core Data opens it: the
+/// Looks only at tables that lack the unique index the constraint creates (so a store already
+/// migrated needs only catalog reads), and changes nothing unless one of them repeats an ID. Works in SQL on the store's own tables, before Core Data opens it: the
 /// old schema's model no longer exists in this build. The first row of each ID (lowest Z_PK) is kept, and every reference to a removed row is
 /// moved to the kept one first, so nothing is left pointing at a deleted row. A (film, list)
 /// pair this leaves twice is removed by DataManager.cleanupOrphanedAndDuplicateMemberships.
@@ -221,7 +217,7 @@ enum StoreDeduplicator: Loggable {
 /// A restore never writes into the library's store while the app has it open. It builds the
 /// restored library in a separate store beside it (`stagedStoreURL`), proves it, and leaves
 /// a marker; the next launch swaps it in before anything opens the store
-/// (`applyIfPending`, called from FilmTrackerApp.createModelContainer).
+/// (`applyIfPending`, called from FilmTrackerApp.applyPendingRestore() at launch).
 ///
 /// So nothing in the running session can reach the restored store: a late write from it
 /// lands in the old store, which the swap sets aside as `rollbackStoreURL`. A restore that
@@ -819,8 +815,7 @@ extension NSPersistentContainer {
 
 // MARK: - Context Executor
 
-/// Runs an actor's jobs on its managed object context's private queue — what SwiftData's
-/// `DefaultSerialModelExecutor` did for `@ModelActor`. Because every job runs inside
+/// Runs an actor's jobs on its managed object context's private queue. Because every job runs inside
 /// `perform`, the actor's methods use its context directly, with no `perform` of their own,
 /// and the queue confinement Core Data requires holds by construction.
 final class ContextExecutor: SerialExecutor, @unchecked Sendable {
@@ -846,8 +841,8 @@ class LibraryObject: NSManagedObject {
     /// The entity this class is mapped to; the model names each entity after its class.
     class var entityName: String { String(describing: self) }
 
-    /// A new object of this class, not yet in any context. `context.insert(_:)` adds it,
-    /// exactly as SwiftData's model inits worked. Every model init starts here.
+    /// A new object of this class, not yet in any context. `context.insert(_:)` adds it.
+    /// Every model init starts here.
     ///
     /// Labeled, never a bare `init()`: Swift resolves `Film()` to the zero-argument init with
     /// the fewest defaulted parameters, so a bare one here would win over a model's
@@ -882,7 +877,7 @@ protocol LibraryEntity: LibraryObject {}
 extension LibraryObject: LibraryEntity {}
 
 extension LibraryEntity {
-    /// `NSFetchRequest` for this class: SwiftData's `FetchDescriptor`.
+    /// `NSFetchRequest` for this class.
     static func request(_ predicate: NSPredicate? = nil, sortedBy sort: [NSSortDescriptor] = [],
                         limit: Int = 0) -> NSFetchRequest<Self> {
         let request = NSFetchRequest<Self>(entityName: entityName)
@@ -967,13 +962,12 @@ final class LibraryModel: @unchecked Sendable {
         let membership = entity("ListMembership", Self.listMembershipAttributes, unique: "id")
         let release = entity("Release", Self.releaseAttributes, unique: "id")
         let session = entity("ImportSession", Self.importSessionAttributes, unique: "id")
-        // The SwiftData model's @Attribute(.unique): one settings row. Contexts that may
-        // insert a second (the restore's) resolve it with mergeByPropertyObjectTrump.
+        // One settings row, enforced by the uniqueness constraint. Contexts that may insert a second
+        // (the restore's) resolve it with mergeByPropertyObjectTrump.
         let settings = entity("SettingsObject", Self.settingsObjectAttributes, unique: "snapshotID")
         let search = entity("SavedSearchObject", Self.savedSearchObjectAttributes, unique: "searchID")
 
-        // Relationships, with SwiftData's delete rules. Every to-many side is optional, as
-        // Core Data expects (and as its batch delete requires).
+        // Relationships. Every to-many side is optional, as Core Data expects and batch delete requires.
         Self.relate(film, "memberships", toMany: true, .cascadeDeleteRule,
                     membership, "film", toMany: false, .nullifyDeleteRule)
         Self.relate(film, "releases", toMany: true, .cascadeDeleteRule,
@@ -1034,7 +1028,7 @@ final class LibraryModel: @unchecked Sendable {
     }
 
     // MARK: Attribute Tables
-    // One row per stored property of each model class (61–67), in declaration order.
+    // One row per stored property of each model class (files 61.00–67.00), in declaration order.
 
     static let filmAttributes: [Attribute] = [
         ("id", .uuid), ("posterUID", .string), ("name", .string),

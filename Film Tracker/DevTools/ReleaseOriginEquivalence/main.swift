@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //
 // Proves ReleaseOrigin — the single country-of-origin table — reproduces, exactly, the
-// four independent copies it replaced, plus the "is import?" clause that was written
-// out by hand at five sites. Each "old" value below is the literal as it stood in the
-// file it came from before the unification (2026-09-13), with the user's shortened
+// four independent copies it replaced, plus the shared "is import?" clause. Each "old"
+// value below is the literal from the file it was copied from, with the shortened
 // sidebar forms ("AU", "NZ") applied.
 
 import Foundation
@@ -21,7 +20,7 @@ let oldPickerOrder = [
     "France", "New Zealand", "Italy", "Finland", "Sweden", "Spain"
 ]
 
-// ── Old copy 2: RSBHelpers.originDemonym (sidebar), after the user's AU/NZ edit ───
+// ── Old copy 2: RSBHelpers.originDemonym (sidebar), with the AU/NZ short forms ───
 func oldSidebarDemonym(_ o: String) -> String {
     switch o {
     case "United States": return "U.S."

@@ -93,17 +93,15 @@ final class MetaImporter: Loggable {
         // can take a noticeable time.
         // While it runs, nothing marks the import as started yet (didStartImporting needs
         // the file count), so ImportProgress.beginImport reads isScanningSelection to refuse
-        // a second import — the window the scan used to close by blocking the main thread.
+        // a second import while the scan runs.
         let scanSubfolders = Preferences.importScanSubfolders
         isScanningSelection = true
         let videoFiles = await Task.detached(priority: .userInitiated) {
             Self.collectVideoFiles(in: urls, scanSubfolders: scanSubfolders)
         }.value
         isScanningSelection = false
-        // The session is created only now, once the selection is known to contain at
-        // least one importable file. Creating it earlier (before this scan) left a
-        // permanently unfinished, all-zero session card behind whenever the user
-        // picked a folder with no MP4/M4V files in it.
+        // The session is created only once the selection holds at least one importable file, so an
+        // empty pick leaves no unfinished session card behind.
         guard !videoFiles.isEmpty else {
             progressDelegate?.importAbandonedBeforeStart()
             return }
@@ -209,11 +207,30 @@ final class MetaImporter: Loggable {
                 }
             }
 
+            // A second file of a film already queued earlier in THIS import (an .mp4 and an
+            // .m4v of the same title, say). `existingLibraryFilms` predates the import, so
+            // without this both copies were committed as separate films. The earlier file
+            // wins; this one is skipped as a duplicate, exactly like a library match with
+            // updates disabled.
+            var matchedPendingFilm = false
+            if matchedFilmID == nil, pendingFilms.count > 1,
+               FilmComparison.existingFilm(matchingTitle: newFilm.name, year: newFilm.releaseYear,
+                                           in: Array(pendingFilms.dropLast())) != nil {
+                matchedPendingFilm = true
+                duplicateCount += 1
+                parserRef?.removeLastPendingFilm()
+                if !newFilm.posterUID.isEmpty, let folderURL = Preferences.posterImagesFolderURL {
+                    let posterURL = folderURL.appendingPathComponent("\(newFilm.posterUID).jpg")
+                    try? FileManager.default.removeItem(at: posterURL)
+                }
+            }
+            let wasDuplicate = matchedFilmID != nil || matchedPendingFilm
+
             progressDelegate?.didUpdateProgress(
                 currentFile: index + 1,
-                success: matchedFilmID == nil,
+                success: !wasDuplicate,
                 failedFileName: nil,
-                wasDuplicate: matchedFilmID != nil,
+                wasDuplicate: wasDuplicate,
                 wasUpdated: itemWasUpdated,
                 title: newFilm.name)
         }
@@ -231,10 +248,8 @@ final class MetaImporter: Loggable {
 
         // Local helper capturing `existing`/`fieldsUpdated` by reference (both are
         // local to this call, so the non-escaping capture is safe under Swift 6
-        // strict concurrency). Each field is written through exactly once, which
-        // removes the copy/paste risk of the field list previously being spelled
-        // out as 23 nearly identical if-blocks (e.g. a stray field name typo
-        // silently comparing/writing the wrong property).
+        // strict concurrency). Each field is written through exactly once, so a field cannot be
+        // compared under one name and written under another.
         // `showValue: false` reproduces the original behavior for list-valued
         // fields, which logged only "UPDATE: <field>" without dumping full
         // array contents (cast/director lists can be long); scalar fields keep
@@ -253,10 +268,7 @@ final class MetaImporter: Loggable {
             fieldsUpdated += 1
         }
 
-        // Field list is identical to the original hand-written comparisons —
-        // same 22 fields, same order, same "only these fields count toward an
-        // update" semantics (posterUID is intentionally handled separately by
-        // the caller, exactly as before).
+        // The 22 fields below count toward an update. posterUID is handled by the caller, not here.
         update(\.aspectRatio, "aspectRatio")
         update(\.digitalSource, "digitalSource")
         update(\.digitalVersion, "digitalVersion")
@@ -318,6 +330,10 @@ final class MetaImporter: Loggable {
         // failure there rolls the films back out and raises the persistence alert.
         coordinator.importFilms(pendingFilms)
         Self.log("Committed \(pendingFilms.count) new imports")
+        // Cleared now, before anything below awaits: the Cancel button stays live until
+        // didCompleteImporting, and a cancel's rollback deletes every pending poster file —
+        // which, once committed, belong to films already in the library.
+        parser.clearPendingFilms()
 
         // Add posters to cache
         let posterUIDs = pendingFilms.compactMap { film -> String? in
@@ -333,8 +349,6 @@ final class MetaImporter: Loggable {
 
         if updatedCount > 0 { Self.log("Updated \(updatedCount) existing film(s)") }
         if duplicateCount > 0 { Self.log("Skipped \(duplicateCount) duplicate(s)") }
-
-        parser.clearPendingFilms()
         
         try? await Task.sleep(for: .milliseconds(100))
 

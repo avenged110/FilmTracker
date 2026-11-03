@@ -26,8 +26,8 @@ public struct ParsedObject: @unchecked Sendable {
 }
 
 /// Container for a parsed backup file.
-/// @unchecked Sendable: inherits the same [String: Any] constraint from ParsedObject.
-public struct ParsedBackup: @unchecked Sendable {
+/// Compiler-checked Sendable: its only non-trivial member is `[ParsedObject]`.
+public struct ParsedBackup: Sendable {
     public let format: String
     public let version: Int
     public let createdISO8601: String

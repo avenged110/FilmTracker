@@ -1797,7 +1797,9 @@ final class DigitField: NSTextField, Loggable {
         guard let ed = currentEditor() as? NSTextView else { return s + " | no editor" }
         let ef = ed.convert(ed.bounds, to: self)
         let cf = unsafe ed.superview.map { $0.convert($0.bounds, to: self) } ?? .zero
-        let used = unsafe ed.layoutManager.map { unsafe $0.usedRect(for: ed.textContainer!) } ?? .zero
+        let used = unsafe ed.layoutManager.flatMap { layout in
+            unsafe ed.textContainer.map { layout.usedRect(for: $0) }
+        } ?? .zero
         let container = unsafe ed.textContainer
         s += " | editor x=\(Fmt.fixed(ef.minX, 1)) w=\(Fmt.fixed(ef.width, 1))"
         s += " clip x=\(Fmt.fixed(cf.minX, 1)) w=\(Fmt.fixed(cf.width, 1))"

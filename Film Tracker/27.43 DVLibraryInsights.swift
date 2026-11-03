@@ -602,7 +602,9 @@ struct LibraryInsights {
         let currentYear = calendar.component(.year, from: today)
         let todayStart = calendar.startOfDay(for: today)
         let viewings = viewings ?? films.map { DVFilmViewings($0, calendar: calendar) }
-        let viewingsByID = Dictionary(uniqueKeysWithValues: viewings.map { ($0.filmID, $0) })
+        // Tolerant of a caller-supplied list that is out of step with `films`: a repeated ID keeps
+        // its first entry instead of trapping, and a missing one is parsed on demand below.
+        let viewingsByID = Dictionary(viewings.map { ($0.filmID, $0) }, uniquingKeysWith: { first, _ in first })
 
         // MARK: Overview
         var runtimeTotal = 0, unwatchedRuntime = 0, unwatched = 0, watched = 0
@@ -621,7 +623,7 @@ struct LibraryInsights {
             let minutes = DurationHelpers.storedMinutes(film.duration) ?? 0
             runtimeTotal += minutes
             if film.watched { watched += 1 } else { unwatched += 1; unwatchedRuntime += minutes }
-            let v = viewingsByID[film.id]!
+            let v = viewingsByID[film.id] ?? DVFilmViewings(film, calendar: calendar)
             viewingCount += v.dates.count
             if let first = v.first {
                 let y = calendar.component(.year, from: first)
@@ -732,7 +734,7 @@ struct LibraryInsights {
             } else {
                 onSchedule += 1
             }
-            let v = viewingsByID[film.id]!
+            let v = viewingsByID[film.id] ?? DVFilmViewings(film, calendar: calendar)
             if due >= nextMonthStart, due < nextMonthEnd {
                 upcoming.append(DVUpcomingRotation(filmID: film.id, name: film.name, sortName: film.sortName,
                                                    year: Int(film.releaseYear), rating: film.userRating,
@@ -845,7 +847,7 @@ struct LibraryInsights {
         let todayMonthDay = (todayParts.month ?? 1, todayParts.day ?? 1)
 
         for film in films {
-            let v = viewingsByID[film.id]!
+            let v = viewingsByID[film.id] ?? DVFilmViewings(film, calendar: calendar)
             let purchasedReleases = film.releases.filter { $0.purchased }
             let hasPurchased = !purchasedReleases.isEmpty
             let has4K = film.releases.contains { $0.format == ReleaseFormat.uhd4K.rawValue }

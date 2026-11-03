@@ -2603,10 +2603,15 @@ class GlyphSymbolView: NSView {
                                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
               let cg = unsafe image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        guard let data = unsafe context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        // Read the coverage back as bounds-checked Data rather than through the context's raw
+        // pointer, and step rows by the bitmap's actual bytesPerRow (Core Graphics may pad it).
+        guard let raster = context.makeImage(), let cfData = raster.dataProvider?.data else { return nil }
+        let data = cfData as Data
+        let stride = raster.bytesPerRow
+        guard stride >= w, data.count >= stride * (h - 1) + w else { return nil }
         var minX = w, minY = h, maxX = -1, maxY = -1
         for y in 0..<h {
-            for x in 0..<w where unsafe data[y * w + x] > 64 {
+            for x in 0..<w where data[y * stride + x] > 64 {
                 minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
             }
         }

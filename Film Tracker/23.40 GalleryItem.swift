@@ -1,13 +1,13 @@
 // MARK: - GalleryItem.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// NSCollectionViewItem hosting a reused, pure-AppKit tile (GalleryTileContentView) for smooth scrolling. It
-// also draws its own selection ring and drop shadow.
+// NSCollectionViewItem hosting a reused, pure-AppKit tile (GalleryTileContentView)
+// for smooth scrolling. It also draws its own selection ring and drop shadow.
 
 import Cocoa
-// Imported only for RoundedRectangle and Path, which give the system's continuous ("squircle") corner
-// outline. SwiftUI is used purely as a geometry calculator, and no view, hosting view, or layout pass is
-// involved.
+// Imported only for RoundedRectangle and Path, which give the system's continuous
+// ("squircle") corner outline. SwiftUI is used purely as a geometry calculator, and
+// no view, hosting view, or layout pass is involved.
 import SwiftUI
 
 final class GalleryItem: NSCollectionViewItem, Loggable {

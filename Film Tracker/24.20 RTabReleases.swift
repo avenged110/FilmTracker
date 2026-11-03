@@ -13,6 +13,7 @@
 
 import SwiftUI
 import AppKit
+import Synchronization
 
 // MARK: - Releases Tab
 
@@ -1177,9 +1178,15 @@ struct SwiftUIVerticalMetrics {
 
     static let zero = SwiftUIVerticalMetrics(height: 0, baseline: 0)
 
-    /// Written by the probe's layout pass inside `measure` and read right after it, on the
-    /// main actor both times; Layout's Sendable requirement cannot see that.
-    private final class Sink: @unchecked Sendable { var metrics = SwiftUIVerticalMetrics.zero }
+    /// Written by the probe's layout pass inside `measure` and read right after it. Held in a
+    /// Mutex so the compiler can verify its Sendable conformance instead of trusting it.
+    private final class Sink: Sendable {
+        private let storage = Mutex(SwiftUIVerticalMetrics.zero)
+        var metrics: SwiftUIVerticalMetrics {
+            get { storage.withLock { $0 } }
+            set { storage.withLock { $0 = newValue } }
+        }
+    }
 
     private struct Probe: Layout {
         let sink: Sink

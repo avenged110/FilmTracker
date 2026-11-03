@@ -2141,7 +2141,7 @@ private struct PosterThumbnailView: View {
                 .scaledToFill()
                 .frame(width: thumbnailWidth, height: thumbnailHeight)
                 .clipped()
-                // Soft inner-shadow band along the edges -- see 23.55 PosterEdgeSheen.swift.
+                // Soft inner-shadow band along the edges -- see PosterEdgeSheen in 23.50 GalleryItemView.swift.
                 .overlay { PosterEdgeSheen.overlay() }
                 // `.continuous` matches every other poster site and the sheen's own corner profile; at a 2pt
                 // radius it is indistinguishable from circular, so this is purely for consistency.

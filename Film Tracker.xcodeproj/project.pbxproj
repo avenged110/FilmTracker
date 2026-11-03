@@ -100,7 +100,6 @@
 		CE4E6B172F493B8D00D71DE7 /* 60.00 Snapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */; };
 		CE4E9AC92FDA0B7A000805F7 /* 98.20 UtilityKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4E9AC82FDA0B7A000805F7 /* 98.20 UtilityKit.swift */; };
 		CE4EE4622EA0EE8000732997 /* 20.10 SelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4EE4612EA0EE8000732997 /* 20.10 SelectionState.swift */; };
-		CE55EE0000000000000055AA /* 23.55 PosterEdgeSheen.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE0000000000000055AB /* 23.55 PosterEdgeSheen.swift */; };
 		CE55EE0000000000000055AC /* 99.61 DHResizeSweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */; };
 		CE55EE00000000000000A7B1 /* 99.14 DHLibraryOrders.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE00000000000000A7B2 /* 99.14 DHLibraryOrders.swift */; };
 		CE6054DC2F6A95B9009382C0 /* 33.20 ReleaseCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6054DB2F6A95B9009382C0 /* 33.20 ReleaseCard.swift */; };
@@ -267,7 +266,6 @@
 		CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "60.00 Snapshots.swift"; sourceTree = "<group>"; };
 		CE4E9AC82FDA0B7A000805F7 /* 98.20 UtilityKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "98.20 UtilityKit.swift"; sourceTree = "<group>"; };
 		CE4EE4612EA0EE8000732997 /* 20.10 SelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "20.10 SelectionState.swift"; sourceTree = "<group>"; };
-		CE55EE0000000000000055AB /* 23.55 PosterEdgeSheen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.55 PosterEdgeSheen.swift"; sourceTree = "<group>"; };
 		CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.61 DHResizeSweep.swift"; sourceTree = "<group>"; };
 		CE55EE00000000000000A7B2 /* 99.14 DHLibraryOrders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.14 DHLibraryOrders.swift"; sourceTree = "<group>"; };
 		CE6054DB2F6A95B9009382C0 /* 33.20 ReleaseCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "33.20 ReleaseCard.swift"; sourceTree = "<group>"; };
@@ -387,7 +385,6 @@
 				CE79C2F12FCF5A2100162C62 /* 23.30 GalleryListView.swift */,
 				CE2A1F6F2E98485300EB1C02 /* 23.40 GalleryItem.swift */,
 				CEF877C72ECC3F99002D7E45 /* 23.50 GalleryItemView.swift */,
-				CE55EE0000000000000055AB /* 23.55 PosterEdgeSheen.swift */,
 				CE0EAE962ED5103C005C6F4D /* 23.60 ViewState.swift */,
 				CECF3DDA2EB5408C00D7897A /* 23.70 GalleryTitleBar.swift */,
 				CE0EAE942ED44979005C6F4D /* 23.71 SortFilterMenu.swift */,
@@ -690,7 +687,6 @@
 				C0DA7A000000000000000002 /* 11.05 LibraryStore.swift in Sources */,
 				CE40BACF2EC804D6009A4ECA /* 28.00 ImportsView.swift in Sources */,
 				CE79C2F22FCF5A2100162C62 /* 23.30 GalleryListView.swift in Sources */,
-				CE55EE0000000000000055AA /* 23.55 PosterEdgeSheen.swift in Sources */,
 				CE0EAE972ED5103C005C6F4D /* 23.60 ViewState.swift in Sources */,
 				CEF877CA2ECC6EA2002D7E45 /* 11.30 PosterCache.swift in Sources */,
 				CE2A1F8E2E98D0C900EB1C02 /* 83.00 DBExporter.swift in Sources */,
@@ -897,7 +893,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 74;
+				CURRENT_PROJECT_VERSION = 75;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -948,7 +944,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 74;
+				CURRENT_PROJECT_VERSION = 75;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;

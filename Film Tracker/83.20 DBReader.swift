@@ -116,9 +116,11 @@ public struct AnyCodable: Codable {
     }
 }
 
+// AnyCodable holds `Any`, so its conformance is asserted: it only ever wraps the immutable
+// scalars it encodes (Bool, Int, Double, String, Date). The containers are compiler-checked.
 extension AnyCodable: @unchecked Sendable {}
-extension ExportedObject: @unchecked Sendable {}
-extension ExportPackage: @unchecked Sendable {}
+extension ExportedObject: Sendable {}
+extension ExportPackage: Sendable {}
 
 // MARK: - ExportableModel protocol
 /// Types must provide a fetch method and property extraction.

@@ -859,7 +859,10 @@ class LibraryObject: NSManagedObject {
     final func requiredUUID(_ key: String) -> UUID {
         if let id = value(forKey: key) as? UUID { return id }
         let digest = Insecure.MD5.hash(data: Data((objectID.uriRepresentation().absoluteString + key).utf8))
-        let id = unsafe digest.withUnsafeBytes { unsafe UUID(uuid: $0.loadUnaligned(as: uuid_t.self)) }
+        // MD5 is exactly 16 bytes, one UUID; built from indexed bytes rather than a raw load.
+        let b = Array(digest)
+        let id = UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+                             b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
         LibraryStore.log("WARNING: \(entity.name ?? "?").\(key) is empty — reading it as \(id)", level: .warning)
         return id
     }

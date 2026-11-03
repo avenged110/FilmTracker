@@ -335,7 +335,7 @@ struct Header: View {
                     .scaledToFill()
                     // Pins the layout size to the poster box so the sheen overlay (and the
                     // clip) trace the visible rect rather than the fill-scaled image's
-                    // overflowing bounds. Soft edge band: see 23.55 PosterEdgeSheen.swift.
+                    // overflowing bounds. Soft edge band: see PosterEdgeSheen in 23.50 GalleryItemView.swift.
                     .frame(width: posterWidth, height: posterHeight)
                     .overlay { PosterEdgeSheen.overlay(profile: .header) }
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))

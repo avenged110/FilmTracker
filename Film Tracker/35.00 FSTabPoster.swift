@@ -383,7 +383,7 @@ struct FSTabPosterView: View {
                     Image(nsImage: image)
                         .resizable()
                         .scaledToFit()
-                        // Soft edge band (23.55 PosterEdgeSheen.swift) applied to the
+                        // Soft edge band (PosterEdgeSheen in 23.50 GalleryItemView.swift) applied to the
                         // fitted image itself, so on a non-2:3 poster it hugs the picture
                         // rather than the letterboxed 200x300 frame; the matching clip is
                         // applied here too so the band's rounded corners and the visible

@@ -230,39 +230,13 @@ struct DuplicateSheet: View {
             
             // Arrow buttons overlaid on top.
             HStack {
-                Button(action: { viewModel.previousCard() }) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 32, height: 32)
-                        
-                        Image(systemName: "arrow.left")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(viewModel.currentIndex <= 0)
-                .opacity(viewModel.currentIndex <= 0 ? 0.3 : 1.0)
-                .focusable(false)
+                CarouselArrowButton(systemImage: "arrow.left",
+                                    isDisabled: viewModel.currentIndex <= 0) { viewModel.previousCard() }
                 
                 Spacer()
                 
-                Button(action: { viewModel.nextCard() }) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 32, height: 32)
-                        
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(viewModel.currentIndex >= viewModel.duplicates.count - 1)
-                .opacity(viewModel.currentIndex >= viewModel.duplicates.count - 1 ? 0.3 : 1.0)
-                .focusable(false)
+                CarouselArrowButton(systemImage: "arrow.right",
+                                    isDisabled: viewModel.currentIndex >= viewModel.duplicates.count - 1) { viewModel.nextCard() }
             }
             .padding(.horizontal, 20)
         }

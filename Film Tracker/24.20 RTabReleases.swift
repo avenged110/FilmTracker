@@ -604,7 +604,7 @@ enum RSBCardChrome {
     /// A format string this build does not recognize: the sidebar's neutral badge gray.
     static let tintUnknown = Preferences.darkGray
 
-    /// Purchase-glyph color for "purchased", matching the table's checkmark badge (see `symbolBadge` in ReleasesTable.swift).
+    /// Purchase-glyph color for "purchased", matching the table's checkmark badge (`GlyphBadge` in ReleasesTable.swift).
     /// The "not purchased" dashed-circle glyph stays white.
     static let checkmarkGreen = Preferences.green
 
@@ -623,7 +623,7 @@ enum RSBCardChrome {
     /// The value is opaque, so the connector stroke and the year fill meet without a darker rim.
     static let badgeFill = Preferences.darkGray
 
-    /// Diameter of the region lock's disc, matching the table's `IndicatorBadge`. It also sets the badge row's height.
+    /// Diameter of the region lock's disc, matching the table's `GlyphBadge`. It also sets the badge row's height.
     static let regionBadgeDiameter: CGFloat = 14
 
     /// Uniform height for the badge row, so the year badge and the region pill share a baseline. Derived from the disc size.
@@ -654,20 +654,8 @@ enum RSBCardChrome {
     static let trailingGlyphHeight: CGFloat = 20
 
     // MARK: Card Edge Treatment
-    // The FilmSheet reorderable lists' edge: an outline that wraps the top and fades toward the bottom, with the
-    // lower edge carried by a shadow. This is restated at slightly stronger settings. The stop structure and fade start
-    // come from `FieldEdgeTreatment`. Only the strengths differ, and they are local so the shared type's controls are unchanged.
-
-    static let borderWidth: CGFloat = FieldEdgeTreatment.borderWidth
-    static let borderOpacity: Double = 0.32
-    static let borderFadeStart: Double = FieldEdgeTreatment.borderFadeStart
-
-    /// Card corner radius (continuous).
-    static let cardCornerRadius: CGFloat = 8
-
-    static let shadowOpacity: Double = 0.26
-    static let shadowRadius: CGFloat = FieldEdgeTreatment.shadowRadius
-    static let shadowOffsetY: CGFloat = FieldEdgeTreatment.shadowOffsetY
+    /// The shared field edge, rounder and at slightly stronger outline and shadow strengths.
+    static let edge = FieldEdgeStyle(cornerRadius: 8, borderOpacity: 0.32, shadowOpacity: 0.26)
 }
 
 // MARK: - Card Body
@@ -1251,8 +1239,9 @@ struct SwiftUIVerticalMetrics {
 // Matching SwiftUI takes a few rules, kept for later changes. Label frames are the text width + 4 at x − 2,
 // left-aligned and placed by hand, since a self-centering NSTextField starts the line between pixels. Text and
 // symbol heights come from SwiftUIVerticalMetrics at the display's scale. Child frames round to the window's
-// pixels (PixelSnap). A view's own shadow goes through NSView.shadow (RSBViewShadow), and a sublayer's takes
-// SwiftUI's radius.
+// pixels (PixelSnap). A view's own shadow goes through NSView.shadow (`GlyphBadgeShadow.nsShadow()`), and a
+// sublayer's takes SwiftUI's radius. The purchase and region badges are UtilityKit's `GlyphBadgeView`, which keeps
+// the same rules.
 fileprivate struct RSBCardStack: NSViewRepresentable {
     let groups: [RSBReleaseCardGroup]
     /// Passed so a day change updates the cards ("Releases on" becomes "Released on"). The stack also keys its no-change check on it.
@@ -1488,10 +1477,8 @@ final class RSBCardStackView: NSView {
 /// One acquisition's plate: the release bodies stacked inside the clipped, outlined,
 /// shadowed rounded rectangle.
 fileprivate final class RSBCardGroupView: NSView {
-    private let shadowLayer = CAShapeLayer()
+    private let edge = FieldEdgeLayers(style: RSBCardChrome.edge)
     private let content = RSBFlippedView()
-    private let borderLayer = CAGradientLayer()
-    private let borderMask = CAShapeLayer()
     private var bodies: [RSBCardBodyView] = []
     private var count = 0
 
@@ -1508,26 +1495,15 @@ fileprivate final class RSBCardGroupView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = false
-        shadowLayer.shadowOpacity = Float(RSBCardChrome.shadowOpacity)
-        shadowLayer.shadowRadius = RSBCardChrome.shadowRadius
-        shadowLayer.shadowOffset = CGSize(width: 0, height: RSBCardChrome.shadowOffsetY)
-        shadowLayer.shadowColor = NSColor.black.cgColor
-        layer?.addSublayer(shadowLayer)
+        // The outline sits above the clipped content, so the bodies never paint over it.
+        edge.borderLayer.zPosition = 10
+        if let layer { edge.install(in: layer) }
         content.wantsLayer = true
         content.layer?.masksToBounds = true
-        content.layer?.cornerRadius = RSBCardChrome.cardCornerRadius
+        content.layer?.cornerRadius = RSBCardChrome.edge.cornerRadius
         content.layer?.cornerCurve = .continuous
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
-        borderLayer.startPoint = CGPoint(x: 0.5, y: 0)
-        borderLayer.endPoint = CGPoint(x: 0.5, y: 1)
-        borderLayer.locations = [0, NSNumber(value: RSBCardChrome.borderFadeStart), 1]
-        borderMask.fillColor = nil
-        borderMask.strokeColor = NSColor.black.cgColor
-        borderMask.lineWidth = RSBCardChrome.borderWidth
-        borderLayer.mask = borderMask
-        borderLayer.zPosition = 10
-        layer?.addSublayer(borderLayer)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
@@ -1558,16 +1534,8 @@ fileprivate final class RSBCardGroupView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
-        let path = RoundedRectangle(cornerRadius: RSBCardChrome.cardCornerRadius, style: .continuous).path(in: b).cgPath
-        shadowLayer.frame = b
-        shadowLayer.path = path
-        shadowLayer.shadowPath = path
+        edge.layout(in: b)
         content.frame = b
-        borderLayer.frame = b
-        borderMask.frame = b
-        let inset = RSBCardChrome.borderWidth / 2
-        borderMask.path = RoundedRectangle(cornerRadius: RSBCardChrome.cardCornerRadius - inset, style: .continuous)
-            .path(in: b.insetBy(dx: inset, dy: inset)).cgPath
         let snap = PixelSnap(content)
         var y: CGFloat = 0
         for body in bodies.prefix(count) {
@@ -1581,16 +1549,11 @@ fileprivate final class RSBCardGroupView: NSView {
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyColors() }
 
     private func applyColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            shadowLayer.fillColor = NSColor.controlBackgroundColor.cgColor
-            let edge = NSColor.separatorColor
-            let c = edge.withAlphaComponent(edge.alphaComponent * RSBCardChrome.borderOpacity).cgColor
-            borderLayer.colors = [c, c, edge.withAlphaComponent(0).cgColor]
-        }
+        edge.applyColors(appearance: effectiveAppearance)
     }
 }
 
-/// A layer-drawn capsule or circle with the card's badge shadow, optionally dashed.
+/// A layer-drawn capsule or rounded rectangle with the card's badge shadow, optionally dashed.
 final class RSBShapeView: NSView {
     enum Style { case fill(NSColor), stroke(NSColor, dashed: Bool) }
     private let shape = CAShapeLayer()
@@ -1660,11 +1623,12 @@ final class RSBShapeView: NSView {
     }
 }
 
-/// A card symbol: FramesGlyphView's placement, with an optional shadow under the glyph, as `.shadow` puts under an Image.
-final class RSBSymbolView: FramesGlyphView {
+/// A bare card symbol (not a badge): GlyphSymbolView's placement, with an optional shadow under the glyph, as
+/// `.shadow` puts under an Image.
+final class RSBSymbolView: GlyphSymbolView {
     func setShadow(opacity: Double, radius: CGFloat, offsetY: CGFloat) {
         wantsLayer = true
-        shadow = RSBViewShadow.make(opacity: opacity, radius: radius, offsetY: offsetY)
+        shadow = GlyphBadgeShadow(opacity: opacity, radius: radius, offsetY: offsetY).nsShadow()
     }
 
     func set(_ name: String, size: CGFloat, weight: NSFont.Weight) {
@@ -1684,7 +1648,8 @@ fileprivate final class RSBCardBodyView: NSView {
     private let formatPlate = RSBShapeView()
     private let formatLabel = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
-    private let purchaseCircle = RSBShapeView()
+    /// Purchased: the checkmark badge. Not purchased: `purchaseGlyph`, the bare dashed circle.
+    private let purchaseBadge = GlyphBadgeView()
     private let purchaseGlyph = RSBSymbolView()
     private let purchaseHelp = NSView()
 
@@ -1694,10 +1659,10 @@ fileprivate final class RSBCardBodyView: NSView {
     private let baseYearLabel = NSTextField(labelWithString: "")
     private let yearHelp = NSView()
     private let regionPill = RSBShapeView()
-    private let regionCircle = RSBShapeView()
+    /// A region letter or digit on its disc.
+    private let regionBadge = GlyphBadgeView()
+    /// A region value with no mark, as stored.
     private let regionChar = NSTextField(labelWithString: "")
-    /// Carries the letter's ink shadow (see RSBViewShadow).
-    private let regionCharShadow = RSBFlippedView()
     private let regionGlyph = RSBSymbolView()
     private let regionHelp = NSView()
     private let originLabel = NSTextField(labelWithString: "")
@@ -1719,9 +1684,9 @@ fileprivate final class RSBCardBodyView: NSView {
 
     init() {
         super.init(frame: .zero)
-        let all: [NSView] = [wash, band, topDivider, formatPlate, formatLabel, titleLabel, purchaseCircle, purchaseGlyph,
+        let all: [NSView] = [wash, band, topDivider, formatPlate, formatLabel, titleLabel, purchaseBadge, purchaseGlyph,
                              purchaseHelp, yearConnector, yearFill, yearLabel, baseYearLabel, yearHelp, regionPill,
-                             regionCircle, regionCharShadow, regionGlyph, regionHelp, originLabel, detailsDivider,
+                             regionBadge, regionChar, regionGlyph, regionHelp, originLabel, detailsDivider,
                              acquisitionDivider, mainRows, lowerRows]
         for v in all {
             v.translatesAutoresizingMaskIntoConstraints = false
@@ -1734,15 +1699,25 @@ fileprivate final class RSBCardBodyView: NSView {
         formatLabel.textColor = RSBCardMetrics.color(RSBCardChrome.badgeInk)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.cell?.truncatesLastVisibleLine = true
-        purchaseCircle.style = .fill(RSBCardMetrics.color(RSBCardChrome.checkmarkGreen))
+        let badgeShadow = GlyphBadgeShadow(opacity: RSBCardChrome.glyphShadowOpacity,
+                                           radius: RSBCardChrome.glyphShadowRadius,
+                                           offsetY: RSBCardChrome.glyphShadowOffsetY)
+        purchaseBadge.diameter = 18
+        purchaseBadge.fillColor = RSBCardMetrics.color(RSBCardChrome.checkmarkGreen)
+        purchaseBadge.circleShadow = badgeShadow
+        purchaseBadge.content = .symbol("checkmark", weight: .bold)
         purchaseGlyph.tint = .white
+        purchaseGlyph.set("circle.dashed", size: 16, weight: .semibold)
+        purchaseGlyph.setShadow(opacity: RSBCardChrome.glyphShadowOpacity, radius: RSBCardChrome.glyphShadowRadius,
+                                offsetY: RSBCardChrome.glyphShadowOffsetY)
         yearFill.style = .fill(RSBCardMetrics.color(RSBCardChrome.badgeFill))
         for l in [yearLabel, baseYearLabel] { l.font = .systemFont(ofSize: 11, weight: .heavy) }
         regionPill.style = .fill(RSBCardMetrics.color(RSBCardChrome.badgeFill))
         regionChar.font = .systemFont(ofSize: 10, weight: .semibold)
-        regionChar.translatesAutoresizingMaskIntoConstraints = false
-        regionCharShadow.addSubview(regionChar)
-        regionCharShadow.wantsLayer = true
+        regionChar.textColor = .white
+        regionBadge.diameter = RSBCardChrome.regionBadgeDiameter
+        regionBadge.circleShadow = badgeShadow
+        regionBadge.characterLineHeight = RSBCardMetrics.bannerText.height
         originLabel.font = .systemFont(ofSize: 11, weight: .semibold)
         originLabel.textColor = .white
         originLabel.lineBreakMode = .byTruncatingTail
@@ -1770,20 +1745,9 @@ fileprivate final class RSBCardBodyView: NSView {
             titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
             titleLabel.textColor = NSColor(body.titleColor)
         }
-        purchaseCircle.isHidden = child || !model.purchased
-        purchaseGlyph.isHidden = child
+        purchaseBadge.isHidden = child || !model.purchased
+        purchaseGlyph.isHidden = child || model.purchased
         purchaseHelp.isHidden = child
-        if model.purchased {
-            purchaseGlyph.set("checkmark", size: 18 * 8 / 14, weight: .bold)
-            purchaseGlyph.centersVectorBoundsHorizontally = true
-            purchaseGlyph.setShadow(opacity: 0.5, radius: 0.5, offsetY: 0.5)
-        } else {
-            purchaseGlyph.set("circle.dashed", size: 16, weight: .semibold)
-            purchaseGlyph.centersVectorBoundsHorizontally = false
-            purchaseGlyph.setShadow(opacity: RSBCardChrome.glyphShadowOpacity, radius: RSBCardChrome.glyphShadowRadius,
-                                    offsetY: RSBCardChrome.glyphShadowOffsetY)
-        }
-        purchaseCircle.shadowed = true
         purchaseHelp.toolTip = model.purchased ? "Purchased" : "Not purchased"
         purchaseHelp.describeForAccessibility(child ? nil : purchaseHelp.toolTip)
 
@@ -1810,27 +1774,23 @@ fileprivate final class RSBCardBodyView: NSView {
 
         let hasRegion = showsBadges && (model.regionIndicator != nil || !model.nationalOrigin.isEmpty)
         for v in [regionPill, originLabel, regionHelp] as [NSView] { v.isHidden = !hasRegion }
-        regionCircle.isHidden = true
+        regionBadge.isHidden = true
         regionChar.isHidden = true
         regionGlyph.isHidden = !hasRegion
         switch model.regionIndicator {
         case let .character(label, playable)?:
-            regionCircle.isHidden = !hasRegion
-            regionChar.isHidden = !hasRegion
+            regionBadge.isHidden = !hasRegion
             regionGlyph.isHidden = true
-            regionCircle.style = .fill(NSColor(RSBRegionBadge.fill(playable: playable)))
-            regionChar.stringValue = label
-            regionChar.textColor = NSColor(RSBRegionBadge.ink(playable: playable))
-            regionCharShadow.shadow = RSBRegionBadge.inkNeedsShadow(playable: playable)
-                ? RSBViewShadow.make(opacity: 0.5, radius: 0.5, offsetY: 0.5) : nil
+            regionBadge.fillColor = NSColor(RSBRegionBadge.fill(playable: playable))
+            regionBadge.ink = NSColor(RSBRegionBadge.ink(playable: playable))
+            regionBadge.inkShadow = RSBRegionBadge.inkNeedsShadow(playable: playable) ? .ink : nil
+            regionBadge.content = .character(label)
         case .globe?:
             regionGlyph.set("globe", size: RSBCardChrome.regionBadgeDiameter, weight: .regular)
         case let .raw(value)?:
             regionGlyph.isHidden = true
             regionChar.isHidden = !hasRegion
             regionChar.stringValue = value
-            regionChar.textColor = .white
-            regionCharShadow.shadow = nil
         case nil:
             regionGlyph.set("circle.dashed", size: 14, weight: .regular)
         }
@@ -1923,10 +1883,10 @@ fileprivate final class RSBCardBodyView: NSView {
             let glyphFrame = snap.rect(x: glyphX, y: mid - RSBCardChrome.trailingGlyphHeight / 2,
                                        width: RSBCardChrome.trailingGlyphWidth, height: RSBCardChrome.trailingGlyphHeight)
             purchaseHelp.frame = glyphFrame
-            purchaseCircle.frame = snap.rect(x: glyphX + (RSBCardChrome.trailingGlyphWidth - 18) / 2, y: mid - 9, width: 18, height: 18)
-            // The checkmark centers on its circle, as the summary table's symbolBadge does. The dashed circle sits on
+            // The checkmark centers on its circle, as the summary table's GlyphBadge does. The dashed circle sits on
             // the slot. Both share a center but round from different origins.
-            purchaseGlyph.frame = body.model.purchased ? purchaseCircle.frame : glyphFrame
+            purchaseBadge.frame = snap.rect(x: glyphX + (RSBCardChrome.trailingGlyphWidth - 18) / 2, y: mid - 9, width: 18, height: 18)
+            purchaseGlyph.frame = glyphFrame
         }
         y += headerH
         // Details.
@@ -1962,12 +1922,10 @@ fileprivate final class RSBCardBodyView: NSView {
                 let pillX = pad + yearColumn + 10
                 regionPill.frame = snap.rect(x: pillX, y: y, width: pillColumn, height: h)
                 let slot = snap.rect(x: pillX + 8, y: rowMid - 7, width: 14, height: 14)
-                regionCircle.frame = slot
+                regionBadge.frame = slot
                 regionGlyph.frame = slot
                 regionHelp.frame = snap.rect(x: pillX + 8, y: y, width: 14, height: h)
-                regionCharShadow.frame = snap.rect(x: pillX + 8, y: y, width: 14, height: h)
                 label(regionChar, x: pillX + 8, width: 14, centerY: rowMid, height: RSBCardMetrics.bannerText.height, align: 0.5)
-                regionChar.frame = regionChar.frame.offsetBy(dx: -regionCharShadow.frame.minX, dy: -regionCharShadow.frame.minY)
                 let originX = pillX + 8 + 14 + 6
                 label(originLabel, x: originX, width: pillX + pillColumn - 8 - originX, centerY: rowMid,
                       height: RSBCardMetrics.badgeText.height, align: 0.5)
@@ -2006,23 +1964,4 @@ extension NSView {
 
 private extension RSBShapeView.Style {
     var isDashed: Bool { if case .stroke(_, true) = self { return true } else { return false } }
-}
-
-/// A SwiftUI `.shadow(color: .black.opacity(o), radius: r, y: dy)` for a whole view. AppKit keeps a layer-backed view's
-/// layer in step with the view's `shadow`, so a shadow set on that layer directly is overwritten. This goes through the view's
-/// property. A shadow on a sublayer the view adds, as RSBShapeView does, is unaffected.
-enum RSBViewShadow {
-    /// NSShadow's blur radius for a SwiftUI shadow radius. Fitted against SwiftUI's rendering: 2 was closest across 0.5–4
-    /// for the checkmark, the dashed circle, and the region letter.
-    static let blurScale: CGFloat = 2
-
-    static func make(opacity: Double, radius: CGFloat, offsetY: CGFloat) -> NSShadow {
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(opacity)
-        shadow.shadowBlurRadius = radius * blurScale
-        // AppKit copies this offset straight onto the view's layer, and a flipped view's layer is
-        // geometry-flipped, so positive is down there. Every caller's view is flipped.
-        shadow.shadowOffset = NSSize(width: 0, height: offsetY)
-        return shadow
-    }
 }

@@ -26,8 +26,8 @@
 //
 // Everything the three genuinely share is already factored out and used unchanged
 // here: `ListCircleButton`/`ListCircleButtonStyle`, `ListImportPopover`,
-// `ListRowMetrics`, `ScrollActivityObserver`, and `FieldEdgeTreatment`
-// (30.10 FSTextHelpers.swift). Nothing about the chrome is restated, so these
+// `ListRowMetrics`, `ScrollActivityObserver`, and the shared
+// field edge (`listContainerChrome`). Nothing about the chrome is restated, so these
 // tables stay visually indistinguishable from the other two on the same sheet.
 
 import SwiftUI

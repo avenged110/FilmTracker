@@ -277,11 +277,6 @@ struct ReleaseCardView: View {
         }
     }
 
-    // MARK: - Shared static resources
-    private static let controlBackground = Color(NSColor.controlBackgroundColor)
-    private static let shadowColor       = Color.black.opacity(0.5)
-    private static let cardShadowColor   = Color.black.opacity(0.2)
-
     // MARK: - Card chrome
     // The header sits on a full-bleed band tinted by the card's format, in the manner of the
     // right sidebar's purchase-tinted release cards (RSBCardChrome in 24.20). The color
@@ -326,20 +321,15 @@ struct ReleaseCardView: View {
     private static let badgePlate = Color(nsColor: ReleaseFormatPalette.lightInk)
     private static let badgeInk   = Color(nsColor: ReleaseFormatPalette.darkInk)
 
-    /// Outline shared with the sidebar cards: the reorderable lists' edge treatment with
-    /// the strengths RSBCardChrome states.
-    private static let borderWidth: CGFloat = RSBCardChrome.borderWidth
-    private static let borderOpacity: Double = RSBCardChrome.borderOpacity
-    private static let borderGradient = LinearGradient(
-        stops: [
-            .init(color: Color(NSColor.separatorColor).opacity(borderOpacity), location: 0.0),
-            .init(color: Color(NSColor.separatorColor).opacity(borderOpacity),
-                  location: FieldEdgeTreatment.borderFadeStart),
-            .init(color: Color(NSColor.separatorColor).opacity(0), location: 1.0)
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
+    /// Edge shared with the sidebar cards (`RSBCardChrome.edge`), with the card's own larger,
+    /// softer drop shadow.
+    private static let edge: FieldEdgeStyle = {
+        var style = RSBCardChrome.edge
+        style.shadowOpacity = 0.2
+        style.shadowRadius = 10
+        style.shadowOffsetY = 4
+        return style
+    }()
 
     private var bandTint: Color {
         switch ReleaseFormat(rawValue: badgeFormat) {
@@ -417,14 +407,12 @@ struct ReleaseCardView: View {
                      + ReleaseCardMetrics.rowSpacing - Self.bandGrowth - Self.purchasedRowTrim)
         }
         .frame(maxWidth: .infinity)
-        .background(Self.controlBackground)
+        // The card's own fill, inside the clip rather than as the edge's plate behind it: the
+        // rows' translucent bands composite over it exactly as they always have.
+        .background(Color(NSColor.controlBackgroundColor))
         // Clipped before the outline is stroked so the band's fill and the outline meet
         // cleanly at the top corners, as on the sidebar cards.
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Self.borderGradient, lineWidth: Self.borderWidth))
-        .shadow(color: Self.cardShadowColor, radius: 10, x: 0, y: 4)
+        .fieldEdgeChrome(Self.edge, fill: nil, clipsContent: true, shadow: .content)
     }
 
     // MARK: - Row sub-views
@@ -489,15 +477,7 @@ struct ReleaseCardView: View {
                 // orphaned child is promoted to a top-level card by buildCarouselEntries, where a delete lock would
                 // be wrong, so the button is always live.
                 Button(role: .destructive, action: onDelete) {
-                    Circle()
-                        .fill(Preferences.red)
-                        .frame(width: 18, height: 18)
-                        .overlay(
-                            Image(systemName: "minus")
-                                .foregroundStyle(.white)
-                                .font(.system(size: 12, weight: .bold))
-                                .shadow(color: Self.shadowColor, radius: 0.5, x: 0, y: 0.5)
-                        )
+                    GlyphBadge(systemName: "minus", color: Preferences.red, diameter: 18, glyphSize: 12)
                 }
                 .buttonStyle(.plain)
                 .focusable(false)

@@ -915,60 +915,6 @@ private struct ScrollingTextViewRepresentable: NSViewRepresentable {
     }
 }
 
-// MARK: - Field Edge Treatment
-
-/// The outline and drop shadow shared by every boxed field on the FilmSheet:
-/// `ReorderableStringList`, `ReorderableFramesList`, and
-/// `FixedHeightScrollingTextView`.
-///
-/// One definition, so a field meant to look like its neighbors cannot drift from them. The
-/// reorderable lists' treatment is the reference, lifted out here.
-///
-/// Declared in this low-level primitives file, not beside the lists, because the text
-/// view lives here too and reaching up into a domain-level file for its own chrome
-/// would invert the intended layering.
-///
-/// Shape is deliberately NOT here: the lists round with `.continuous`, while
-/// `FixedHeightScrollingTextView` uses the default circular style because its corner
-/// must match the AppKit `drawFocusRingMask` the focus ring strokes against — different
-/// requirements that happen to share a radius, so each call site states its own style
-/// and reads only the radius from here.
-enum FieldEdgeTreatment {
-
-    static let cornerRadius: CGFloat = 6
-    static let borderWidth: CGFloat = 1
-
-    /// Strength of the outline.
-    ///
-    /// The border reads stronger than a nominal `separatorColor` would suggest,
-    /// because it sits on the window background rather than over a fill that
-    /// would dilute it. This scales the system color back down; lower is
-    /// fainter, 1 is the system color at full strength.
-    static let borderOpacity: Double = 0.2
-
-    /// Fraction of the drop at which the outline begins fading out. Above this
-    /// it is at `borderOpacity`; at the bottom edge it is gone.
-    static let borderFadeStart: Double = 0.1
-
-    /// Border color, fading to nothing over the last stretch of the drop.
-    /// Vertical rather than uniform so the lower edge is carried by the shadow.
-    static let borderGradient = LinearGradient(
-        stops: [
-            .init(color: Color(NSColor.separatorColor).opacity(borderOpacity), location: 0.0),
-            .init(color: Color(NSColor.separatorColor).opacity(borderOpacity), location: borderFadeStart),
-            .init(color: Color(NSColor.separatorColor).opacity(0), location: 1.0)
-        ],
-        startPoint: .top,
-        endPoint: .bottom
-    )
-
-    // Deliberately understated — enough to seat the field on the sheet without
-    // reading as a raised control.
-    static let shadowOpacity: Double = 0.16
-    static let shadowRadius: CGFloat = 1.5
-    static let shadowOffsetY: CGFloat = 1
-}
-
 // MARK: - FixedHeightScrollingTextView
 
 /// Fixed-height multiline text field with native AppKit styling and the system focus
@@ -1045,43 +991,21 @@ struct FixedHeightScrollingTextView: View {
         // .overlay — NOT a .clipShape: a clip would mask away the exterior focus ring
         // (drawn ~3px beyond the field edge), whereas a background/overlay only draws
         // behind/over the field without masking it. The corner radius and shape match
-        // the AppKit drawFocusRingMask (circular, radius 6) so the ring hugs the border.
+        // the AppKit drawFocusRingMask (radius 6) so the ring hugs the border.
         //
-        // The outline and shadow are `FieldEdgeTreatment`'s, shared with the two reorderable lists,
-        // so a text field and a list sitting in the same column read as the same kind of object.
-        //
-        // Note the shape style: the lists round with `.continuous`, this rounds
-        // circular. That is not an oversight — see the note on
-        // `FieldEdgeTreatment`. Only the radius is shared.
+        // The edge is the shared `.standard` field edge, so a text field and a list sitting in
+        // the same column read as the same kind of object. Its continuous corners match the
+        // focus ring mask (`drawFocusRingMask`, a continuous rounded rect of the same radius).
         ScrollingTextViewRepresentable(
             text: $text,
             placeholder: placeholder,
             submitAction: submitAction
         )
-        .background(
-            // The shadow is cast by the fill shape alone, not by the finished control. A `.shadow`
-            // on the outer view would ask SwiftUI to derive a silhouette from content that includes a
-            // hosted `NSView`, and `.compositingGroup()` would have to flatten that same view's layer
-            // tree. The fill shape is a plain opaque rounded rect of the field's exact bounds, so its
-            // silhouette is exact. The only visible shadow is outside the field, and nothing here
-            // masks the exterior focus ring.
-            //
-            // The fill is inset by the border width so it stops where the border begins. `separatorColor`
-            // is translucent, so a fill running under the border would tint the outline from below.
-            // `strokeBorder` draws inward, so a 1 pt border occupies the outer 1 pt ring, and a fill inset
-            // by that same 1 pt abuts it exactly.
-            RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius)
-                .inset(by: FieldEdgeTreatment.borderWidth)
-                .fill(Color(NSColor.textBackgroundColor))
-                .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
-                        radius: FieldEdgeTreatment.shadowRadius,
-                        x: 0,
-                        y: FieldEdgeTreatment.shadowOffsetY)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius)
-                .strokeBorder(FieldEdgeTreatment.borderGradient,
-                              lineWidth: FieldEdgeTreatment.borderWidth)
-        )
+        // The shadow is cast by the fill shape alone, not by the finished control: a shadow on
+        // the outer view would derive a silhouette from content that includes a hosted `NSView`.
+        // The fill is inset by the border width so it stops where the border begins;
+        // `separatorColor` is translucent, so a fill running under the border would tint the
+        // outline from below. No clip, which would mask away the exterior focus ring.
+        .fieldEdgeChrome(fill: Color(NSColor.textBackgroundColor), insetsInterior: true)
     }
 }

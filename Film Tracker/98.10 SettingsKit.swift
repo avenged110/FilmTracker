@@ -1,13 +1,14 @@
 // MARK: - SettingsKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Drop-in settings window kit: builds a tabbed NSWindow from a configuration value and includes reusable settings controls.
+// Drop-in settings window kit: builds a tabbed NSWindow from a configuration value and
+// includes reusable settings controls.
 //
 // STANDARDIZED SETTINGS WINDOW UTILITY — drop in, describe the window, done.
 //
 // A hand-built NSWindow hosting an NSTabViewController with `tabStyle = .toolbar`, a
 // locked content size, a title set once, and teardown on close — described by a
-// `SettingsWindowConfiguration` rather than rebuilt per project.
+// `SettingsWindowConfiguration` rather than rebuilt per app.
 //
 // It also carries the reusable pieces of settings CONTENT: the focus sink, the temporary
 // main menu, the main-window lifetime rule, the log-file monitor, the launch-at-login
@@ -27,7 +28,7 @@
 // WIRING IT UP
 // ────────────
 //   private let settings = SettingsWindowController(
-//       .init(title: "Toggler Settings",
+//       .init(title: "MyApp Settings",
 //             contentSize: NSSize(width: 500, height: 398),
 //             tabs: [
 //                 .swiftUI(id: "general",  title: "General",  symbol: "gearshape") {
@@ -51,7 +52,7 @@
 // `contentSize:` states the content area outright. The alternative is to fix only the
 // width and let the height come from the tabs themselves:
 //
-//   .init(title: "nvNotes Settings",
+//   .init(title: "MyApp Settings",
 //         sizing: .fitToContent(width: 500),
 //         tabs: [...])
 //
@@ -60,7 +61,7 @@
 // leaving a hand-tuned constant one line short, and the tabs still share one size (the
 // window never resizes between them). It asks that a tab's content be top-aligned and
 // free to grow: `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)`
-// with its own `edgePadding`, which is how every tab in these projects is already built.
+// with its own `edgePadding`, which is how every tab is built.
 // A tab that pins its own height (`.frame(height:)`) simply measures as that height.
 
 import AppKit
@@ -898,7 +899,7 @@ public final class CleanEditMenu: NSMenu, NSMenuDelegate {
 ///
 /// Repeat calls for the same window are ignored, so it is safe from an `onChange` that
 /// fires more than once. Not for apps that keep running without a window (menu-bar
-/// applets, LANStream) or that manage several document windows.
+/// applets) or that manage several document windows.
 @MainActor
 public enum MainWindowLifetime: Loggable {
     public nonisolated static let logTag = "[MainWindowLifetime]"
@@ -1244,7 +1245,7 @@ public struct LaunchAtLoginToggle: View, Loggable {
 // outer stack that holds the rows. The genuine outliers stay hand-built — reach for
 // `.settingsCheckboxTitleAligned()` on those so they still line up.
 
-/// Shared layout values for a Settings tab, so every project's rows agree on one grid.
+/// Shared layout values for a Settings tab, so every app's rows agree on one grid.
 public enum SettingsMetrics {
 
     /// The leading inset that lines a control-less row's title up with the titles of rows
@@ -1301,7 +1302,7 @@ public extension View {
 /// title line, and an optional accessory strip (usually buttons) beneath.
 ///
 ///     // A plain row — inset so its title aligns with the checkbox rows below.
-///     SettingsRow("nvNotes reads and writes .txt files directly in this folder.")
+///     SettingsRow("Notes are read and written as .txt files directly in this folder.")
 ///
 ///     // A checkbox row — no inset; the checkbox fills the alignment column.
 ///     SettingsRow("Always use a light background for notes",
@@ -1309,7 +1310,7 @@ public extension View {
 ///
 ///     // A plain row with a trailing picker and a caption.
 ///     SettingsRow("Frequency axis scale:",
-///                 description: "Force a consistent scale, or let Spectrum decide.") {
+///                 description: "Force a consistent scale, or let the app decide.") {
 ///         Picker("", selection: $clamp) { /* … */ }.labelsHidden().frame(width: 120)
 ///     }
 ///

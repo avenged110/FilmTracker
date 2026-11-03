@@ -529,7 +529,7 @@ struct UpNextSlotSheet: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .sheetBoxChrome(fill: Color(nsColor: NSColor.alternatingContentBackgroundColors[0]))
+        .fieldEdgeChrome(fill: Color(nsColor: NSColor.alternatingContentBackgroundColors[0]), clipsContent: true, insetsInterior: true)
         // The search field's inset, so the box lines up with it.
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

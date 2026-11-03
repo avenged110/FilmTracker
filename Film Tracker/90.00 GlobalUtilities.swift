@@ -1273,42 +1273,6 @@ struct HelpButtonRepresentable: NSViewRepresentable {
     }
 }
 
-// MARK: - PathBarView
-// Reusable path bar component for displaying file/folder paths in SettingsSheet.swift
-// with middle-truncation for long paths.
-// Example usage:
-// PathBarView(
-//     pathComponents: ["Users", "john", "Documents", "file.txt"],
-//     icon: Image(systemName: "doc.fill"))
-struct PathBarView: View {
-    let pathComponents: [String]
-    let icon: Image
-    
-    // Joins path components with the separator character
-    private var joinedPath: String { pathComponents.joined(separator: " › ") }
-    
-    var body: some View {
-        HStack(spacing: 6) {
-            icon
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
-                .foregroundStyle(Color.accentColor)
-            Text(joinedPath)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            Spacer() }
-        .padding(6)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(NSColor.controlBackgroundColor)))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)) }
-}
-
 // MARK: - Export Staging
 
 /// Where every export is built before it is handed to the user.

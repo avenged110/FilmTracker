@@ -165,7 +165,7 @@ final class GalleryTileContentView: NSView {
         clippedContainer.layer?.cornerRadius = Self.cornerRadius
         // Uses the continuous ("squircle") corner curve, not CALayer's .circular default, so the straight
         // edge blends into the arc. It is the style every poster site uses (list thumbnail, sidebar header,
-        // and FilmSheet poster, which pass style: .continuous to SwiftUI, whose default is .circular). The
+        // and FilmSheet poster, which round with SwiftUI's default, .continuous). The
         // sheen and the selection ring are built for this same curve.
         clippedContainer.layer?.cornerCurve = .continuous
         clippedContainer.layer?.backgroundColor = Self.placeholderBackgroundColor.cgColor

@@ -1340,32 +1340,28 @@ private struct ReleaseJumpMenu: NSViewRepresentable {
 }
 
 // MARK: - CarouselArrowButton
-private struct CarouselArrowButton: View {
+/// The carousel's previous/next arrow, a `GlyphBadge`: the master design for every card
+/// carousel, used here and by the DuplicateSheet.
+struct CarouselArrowButton: View {
     let systemImage: String
     let isDisabled: Bool
     let action: () -> Void
 
-    // Applied to the Circle alone, not the ZStack, so it traces the disc's edge and not the
-    // glyph's. Scaled back rather than dropped when disabled: a full-strength shadow would
-    // fight the recessive tertiaryLabelColor fill and re-assert the "raised and clickable"
-    // reading that fill exists to remove.
-    private var shadowColor: Color {
-        Color.black.opacity(isDisabled ? 0.10 : 0.30)
+    // A circle shadow, so it traces the disc's edge and not the glyph's. Scaled back rather
+    // than dropped when disabled: a full-strength shadow would fight the recessive
+    // tertiaryLabelColor fill and re-assert the "raised and clickable" reading that fill
+    // exists to remove.
+    private var circleShadow: GlyphBadgeShadow {
+        isDisabled ? GlyphBadgeShadow(opacity: 0.10, radius: 1.5, offsetY: 0.5)
+                   : GlyphBadgeShadow(opacity: 0.30, radius: 3, offsetY: 1.5)
     }
-    private var shadowRadius: CGFloat { isDisabled ? 1.5 : 3 }
-    private var shadowOffsetY: CGFloat { isDisabled ? 0.5 : 1.5 }
 
     var body: some View {
         Button(action: action) {
-            ZStack {
-                Circle()
-                    .fill(isDisabled ? Color(NSColor.tertiaryLabelColor) : Color.accentColor)
-                    .frame(width: 32, height: 32)
-                    .shadow(color: shadowColor, radius: shadowRadius, x: 0, y: shadowOffsetY)
-                Image(systemName: systemImage)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
+            GlyphBadge(systemName: systemImage,
+                       color: isDisabled ? Color(NSColor.tertiaryLabelColor) : Color.accentColor,
+                       weight: .semibold, diameter: 32, glyphSize: 14,
+                       circleShadow: circleShadow, inkShadow: nil)
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)

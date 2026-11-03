@@ -157,8 +157,9 @@ struct MultiSelectPicker<Option: Identifiable & Hashable>: View {
 
 /// A titled, boxed group of export controls.
 ///
-/// Fill and outline are the path bar's, so the tab's three surfaces read as one family; the
-/// "Backup Information from Selected File" box in the Restore tab carries the same chrome.
+/// The edge is the shared field edge (UtilityKit's `.fieldEdgeChrome()`), the path bar's, so the
+/// tab's three surfaces read as one family; the "Backup Information from Selected File" box in
+/// the Restore tab carries the same chrome.
 ///
 /// The height is a constant rather than content-derived. A content-sized block holding a greedy child would take a
 /// share of the tab's slack and resize whenever the progress row below it changed size. Pinning the height keeps
@@ -188,12 +189,7 @@ private struct ExportBlock<Content: View>: View {
         .padding(8)
         .frame(height: Self.height, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(NSColor.controlBackgroundColor)))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(NSColor.separatorColor), lineWidth: 0.5))
+        .fieldEdgeChrome()
     }
 }
 

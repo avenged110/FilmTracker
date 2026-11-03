@@ -327,8 +327,8 @@ struct DiscReleasesTable: View {
             CustomTableCell(row.audio, minWidth: ColW.audio, maxWidth: ColW.audio)
 
             // Subtitles (col 10)
-            symbolBadge(row.hasSubtitles == "Yes" ? "checkmark" : "xmark",
-                        row.hasSubtitles == "Yes" ? Preferences.green : Preferences.red)
+            GlyphBadge(systemName: row.hasSubtitles == "Yes" ? "checkmark" : "xmark",
+                       color: row.hasSubtitles == "Yes" ? Preferences.green : Preferences.red)
             .frame(minWidth: ColW.subtitles, maxWidth: ColW.subtitles, alignment: .center)
             .padding(.horizontal, 2)
             .padding(.vertical, 2)
@@ -351,8 +351,8 @@ struct DiscReleasesTable: View {
             // Remastered (col 15). 4K rows show nothing until one 4K release is remastered. Then all 4K rows show their own status. Blu-ray and DVD always show.
             Group {
                 if row.showRemasteredIndicator {
-                    symbolBadge(row.isRemastered == "Yes" ? "checkmark" : "xmark",
-                                row.isRemastered == "Yes" ? Preferences.green : Preferences.red)
+                    GlyphBadge(systemName: row.isRemastered == "Yes" ? "checkmark" : "xmark",
+                               color: row.isRemastered == "Yes" ? Preferences.green : Preferences.red)
                 } else {
                     Color.clear
                         .frame(width: 16, height: 16)
@@ -695,57 +695,10 @@ private struct StackedBadgeOutline: Shape {
     }
 }
 
-// MARK: - Circular Indicator Badge
-// Each colored circle indicator here (purchased, subtitles, remastered, artwork, and region badges) is a 14 pt filled circle
-// with a white, drop-shadowed glyph or character. The 16 pt Color.clear placeholders elsewhere hold a cell's footprint open.
-// This one definition sets the circle diameter, shadow, and label color.
-/// Not `private`: RTabReleases (24.20) reuses it, scaled up, for the card purchase glyph (see `symbolBadge`).
-struct IndicatorBadge<Label: View>: View {
-    let color: Color
-    /// Lettering color. Defaults to white, which is what every saturated fill needs; the
-    /// white-filled region badges pass black.
-    let ink: Color
-    /// Whether the lettering carries a drop shadow. White-on-saturated needs one to hold
-    /// its edges; black-on-white does not, and a shadow there only muddies the glyph.
-    let inkNeedsShadow: Bool
-    /// Circle diameter. Defaults to this table's 14pt; RTabReleases passes a larger value
-    /// to match its card chrome while drawing the identical badge.
-    let diameter: CGFloat
-    /// Drop shadow for the circle alone. Nil (the default) draws none. It goes on the `Circle`, not the whole ZStack, so the label's
-    /// shadow is not doubled. RTabReleases uses it for the card's checkmark fill without changing the label shadow.
-    let circleShadow: (opacity: Double, radius: CGFloat, offsetY: CGFloat)?
-    let label: () -> Label
-
-    init(color: Color,
-         ink: Color = .white,
-         inkNeedsShadow: Bool = true,
-         diameter: CGFloat = 14,
-         circleShadow: (opacity: Double, radius: CGFloat, offsetY: CGFloat)? = nil,
-         @ViewBuilder label: @escaping () -> Label) {
-        self.color = color
-        self.ink = ink
-        self.inkNeedsShadow = inkNeedsShadow
-        self.diameter = diameter
-        self.circleShadow = circleShadow
-        self.label = label
-    }
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(color)
-                .frame(width: diameter, height: diameter)
-                .shadow(color: circleShadow.map { .black.opacity($0.opacity) } ?? .clear,
-                        radius: circleShadow?.radius ?? 0,
-                        x: 0,
-                        y: circleShadow?.offsetY ?? 0)
-            label()
-                .foregroundStyle(ink)
-                .shadow(color: inkNeedsShadow ? Color.black.opacity(0.5) : .clear,
-                        radius: 0.5, x: 0, y: 0.5)
-        }
-    }
-}
+// MARK: - Circular Indicator Badges
+// Each colored circle indicator here (purchased, subtitles, remastered, artwork, and region badges) is UtilityKit's
+// `GlyphBadge` at its defaults: a 14 pt filled circle with a white, drop-shadowed glyph or character. The 16 pt
+// Color.clear placeholders elsewhere hold a cell's footprint open.
 
 /// The Purchased column's indicator. Purchased draws the usual filled-circle checkmark
 /// badge; unpurchased draws the bare "circle.dashed" glyph in `.primary`, sized to the
@@ -758,47 +711,12 @@ struct IndicatorBadge<Label: View>: View {
 private func purchasedIndicator(_ purchased: Bool) -> some View {
     Group {
         if purchased {
-            symbolBadge("checkmark", Preferences.green)
+            GlyphBadge(systemName: "checkmark", color: Preferences.green)
         } else {
             Image(systemName: "circle.dashed")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.primary)
         }
-    }
-}
-
-/// SF Symbol variant of `IndicatorBadge`. `weight` is `.bold` for the check/cross
-/// indicators and `.regular` for the Steelbook book glyph, matching the prior
-/// per-site font declarations exactly.
-///
-/// `@MainActor` because `IndicatorBadge` is a main-actor `View`, and its initializer inherits that isolation. Every caller is main-actor isolated too.
-/// Not `private`: RTabReleases (24.20) calls this for its card purchase glyph, so the badge is the same view at a larger `diameter`.
-/// The glyph size scales with `diameter` at this table's ratio (8 pt glyph in a 14 pt circle).
-@MainActor
-func symbolBadge(_ systemName: String,
-                 _ color: Color,
-                 weight: Font.Weight = .bold,
-                 diameter: CGFloat = 14,
-                 circleShadow: (opacity: Double, radius: CGFloat, offsetY: CGFloat)? = nil) -> some View {
-    IndicatorBadge(color: color, diameter: diameter, circleShadow: circleShadow) {
-        Image(systemName: systemName)
-            .font(.system(size: diameter * 8 / 14, weight: weight))
-    }
-}
-
-/// Single-character variant of `IndicatorBadge`, used for the region letters/digits.
-/// `@MainActor` for the same reason as `symbolBadge` above.
-///
-/// The character's font comes from `RSBRegionBadge.characterFont`, shared with `RSBIndicatorView` on the release cards. Both draw into a
-/// 14 pt circle, so one shared constant keeps them the same size. A literal copy would need manual upkeep.
-@MainActor
-private func characterBadge(_ label: String,
-                            _ color: Color,
-                            ink: Color = .white,
-                            inkNeedsShadow: Bool = true) -> some View {
-    IndicatorBadge(color: color, ink: ink, inkNeedsShadow: inkNeedsShadow) {
-        Text(label)
-            .font(RSBRegionBadge.characterFont)
     }
 }
 
@@ -816,12 +734,13 @@ private struct RegionCell: View {
     var body: some View {
         switch RSBRegionIndicator.resolve(value, format: format) {
         case let .character(label, playable):
-            // The circle comes from the shared `IndicatorBadge`, so the region disc matches
-            // every other colored indicator in this table in size and shadow.
-            characterBadge(label,
-                           RSBRegionBadge.fill(playable: playable),
-                           ink: RSBRegionBadge.ink(playable: playable),
-                           inkNeedsShadow: RSBRegionBadge.inkNeedsShadow(playable: playable))
+            // The shared `GlyphBadge`, so the region disc matches every other colored
+            // indicator in this table in size and shadow.
+            GlyphBadge(character: label,
+                       color: RSBRegionBadge.fill(playable: playable),
+                       ink: RSBRegionBadge.ink(playable: playable),
+                       font: RSBRegionBadge.characterFont,
+                       inkShadow: RSBRegionBadge.inkNeedsShadow(playable: playable) ? .ink : nil)
                 .frame(maxWidth: .infinity, alignment: .center)
         case .globe:
             Image(systemName: "globe")
@@ -851,18 +770,18 @@ private struct ArtworkCell: View {
         switch value {
         case ReleaseArtwork.steelbook:
             // The book glyph is the one badge drawn at regular weight.
-            symbolBadge("book.fill", .blue, weight: .regular)
+            GlyphBadge(systemName: "book.fill", color: .blue, weight: .regular)
                 .frame(maxWidth: .infinity, alignment: .center)
         case _ where ReleaseArtwork.affirmativeTags.contains(value):
-            symbolBadge("checkmark", Preferences.green)
+            GlyphBadge(systemName: "checkmark", color: Preferences.green)
                 .frame(maxWidth: .infinity, alignment: .center)
         case _ where ReleaseArtwork.negativeTags.contains(value):
-            symbolBadge("xmark", Preferences.red)
+            GlyphBadge(systemName: "xmark", color: Preferences.red)
                 .frame(maxWidth: .infinity, alignment: .center)
         case "Yes*":
             // Set by buildTableData for any other "Yes…" variant: affirmative, but
             // qualified, so it takes the amber treatment rather than green.
-            symbolBadge("checkmark", Preferences.orange)
+            GlyphBadge(systemName: "checkmark", color: Preferences.orange)
                 .frame(maxWidth: .infinity, alignment: .center)
         default:
             Text(value == "Not Applicable" ? "N/A" : value)

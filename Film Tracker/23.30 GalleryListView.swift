@@ -2324,26 +2324,3 @@ private final class UpNextResultRowView: NSTableRowView {
         set { }
     }
 }
-
-// MARK: - Sheet Box Chrome
-
-extension View {
-    /// The outline (`listContainerChrome`) around the tables in FilmSheet and the right sidebar, for any
-    /// content in a sheet. It fills the box, clips the content one border width inside the outline, so
-    /// scrolled rows never paint into the stroke, and then strokes the outline.
-    ///
-    /// The shadow comes from the fill shape alone, behind the content. The shape never changes, so a
-    /// scrolling table does not re-render the shadow on every frame. The box is opaque, so the shadow is
-    /// the same.
-    func sheetBoxChrome(fill: Color) -> some View {
-        let shape = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
-        return self
-            .clipShape(shape.inset(by: FieldEdgeTreatment.borderWidth))
-            .background(shape.inset(by: FieldEdgeTreatment.borderWidth).fill(fill)
-                .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
-                        radius: FieldEdgeTreatment.shadowRadius, x: 0, y: FieldEdgeTreatment.shadowOffsetY))
-            .overlay(shape.strokeBorder(FieldEdgeTreatment.borderGradient,
-                                        lineWidth: FieldEdgeTreatment.borderWidth)
-                .allowsHitTesting(false))
-    }
-}

@@ -14,7 +14,7 @@
 // `ListCircleButtonStyle` (the circular control family), `ListImportPopover`
 // (the bulk-entry sheet and its parsing rule), and `ListRowMetrics` (shared row
 // and control geometry) — so both tables' chrome is tuned in one place. Container
-// chrome comes from `FieldEdgeTreatment` in 30.10 FSTextHelpers.swift likewise.
+// chrome comes from the shared field edge (`listContainerChrome`) likewise.
 //
 // MARK: Why this is one table and not two
 //

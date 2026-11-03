@@ -21,7 +21,7 @@ import AppKit
 //
 // Row geometry lives on `ListRowMetrics` (30.20 FSControlHelpers.swift), which both list
 // components use, so the two tables agree by construction. This is the arrangement
-// `FieldEdgeTreatment` establishes for the container chrome: values that must agree across both
+// the shared `FieldEdgeStyle` establishes for the container chrome: values that must agree across both
 // tables are defined once, in a file both depend on, rather than restated in two places.
 
 // MARK: - Row Control Region Tracking
@@ -496,7 +496,7 @@ struct ReorderableStringList: View {
 
     // MARK: Container Chrome
     //
-    // The outline and shadow come from `FieldEdgeTreatment` (30.10 FSTextHelpers.swift), shared with
+    // The outline and shadow are the shared `FieldEdgeStyle.standard` (UtilityKit), shared with
     // `ReorderableFramesList` and `FixedHeightScrollingTextView`.
     //
     // The corner radius and border width must agree: the clip below is inset by exactly the width

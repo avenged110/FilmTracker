@@ -577,22 +577,32 @@ final class DVCanvasPageView: NSView {
     /// The tip a `.hover` region shows (a year bar's year and count): a small label above
     /// the hovered mark, which gets a faint highlight. Both are their own layers over the
     /// strips, so moving across a chart redraws nothing.
-    private lazy var hoverTip: NSTextField = {
+    ///
+    /// The plate and its text are separate views: a text field draws its line from the top of
+    /// its frame, so a field sized as the plate put all the padding below the text.
+    private lazy var hoverTip: NSView = {
+        let v = NSView()
+        v.wantsLayer = true
+        v.layer?.cornerRadius = 4
+        v.layer?.cornerCurve = .continuous
+        v.layer?.borderWidth = 0.5
+        v.isHidden = true
+        v.addSubview(hoverTipLabel)
+        addSubview(v)
+        return v
+    }()
+    private lazy var hoverTipLabel: NSTextField = {
         let f = NSTextField(labelWithString: "")
         f.font = .monospacedDigitSystemFont(ofSize: 10, weight: .medium)
         f.textColor = .labelColor
         f.alignment = .center
-        f.wantsLayer = true
-        f.layer?.cornerRadius = 4
-        f.layer?.borderWidth = 0.5
-        f.isHidden = true
-        addSubview(f)
         return f
     }()
     private lazy var hoverMark: CALayer = {
         let l = CALayer()
         l.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull(), "backgroundColor": NSNull()]
         l.cornerRadius = 2
+        l.cornerCurve = .continuous
         l.isHidden = true
         l.zPosition = 1
         layer?.addSublayer(l)
@@ -628,12 +638,17 @@ final class DVCanvasPageView: NSView {
             hoverTip.layer?.borderColor = NSColor.separatorColor.cgColor
             hoverMark.backgroundColor = NSColor.labelColor.withAlphaComponent(0.18).cgColor
         }
-        hoverTip.stringValue = text
-        let size = hoverTip.intrinsicContentSize
-        let w = ceil(size.width) + 12, h = ceil(size.height) + 4
+        hoverTipLabel.stringValue = text
+        let size = hoverTipLabel.intrinsicContentSize
+        let textHeight = ceil(size.height)
+        let w = ceil(size.width) + 12, h = textHeight + 4
         // Above the mark, kept inside the region horizontally.
         let x = min(max(spot.rect.minX, anchor.midX - w / 2), spot.rect.maxX - w)
         hoverTip.frame = CGRect(x: x, y: anchor.minY - h - 4, width: w, height: h)
+        // The line centered in the plate, on the pixel grid.
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        hoverTipLabel.frame = CGRect(x: 0, y: ((h - textHeight) / 2 * scale).rounded() / scale,
+                                     width: w, height: textHeight)
         hoverTip.isHidden = false
         hoverMark.frame = anchor
         hoverMark.isHidden = false

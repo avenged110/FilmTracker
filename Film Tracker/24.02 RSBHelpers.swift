@@ -57,7 +57,7 @@ extension View {
             .padding(.vertical, RSBHelpers.rowFontBackgroundVerticalPadding)
             .padding(.leading, RSBHelpers.rowHorizontalPadding)
             .padding(.trailing, trailingInset)
-            .sidebarFieldEdgeChrome()
+            .fieldEdgeChrome()
             .overlay(alignment: .topLeading) {
                 if let glyph {
                     RSBHelpers.glyphImage(glyph)
@@ -72,29 +72,6 @@ extension View {
                         .padding(.leading, RSBHelpers.glyphLeadingPadding)
                 }
             }
-    }
-
-    /// The plate fill, outline, and drop shadow of the sheet's reorderable tables (`listContainerChrome`),
-    /// from the same `FieldEdgeTreatment` constants.
-    ///
-    /// The shadow is cast by the background shape alone, not the whole view. A `.shadow` on the whole view
-    /// makes SwiftUI render the text into an offscreen layer and blur it on every draw. A shadow on a solid
-    /// rounded rect is a single-shape blur that Core Animation handles cheaply, and the text is untouched.
-    /// The fill is opaque, so the look is identical.
-    nonisolated func sidebarFieldEdgeChrome(fill: Color = Color(NSColor.controlBackgroundColor)) -> some View {
-        let shape = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
-        return self
-            .background(
-                shape
-                    .fill(fill)
-                    .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
-                            radius: FieldEdgeTreatment.shadowRadius,
-                            x: 0,
-                            y: FieldEdgeTreatment.shadowOffsetY))
-            .overlay(
-                shape.strokeBorder(FieldEdgeTreatment.borderGradient,
-                                   lineWidth: FieldEdgeTreatment.borderWidth)
-                    .allowsHitTesting(false))
     }
 }
 
@@ -1765,7 +1742,7 @@ final class CrewRowListView: NSView {
 }
 
 /// One crew row. Every measure is SearchableItemRow's, through `sidebarRowContainer` and
-/// `sidebarFieldEdgeChrome`; the constants come from RSBHelpers and FieldEdgeTreatment.
+/// `fieldEdgeChrome()`; the constants come from RSBHelpers, the edge from `FieldEdgeLayers`.
 final class CrewRowView: NSView {
     /// The taller of the label's line and the button, plus the plate's vertical padding —
     /// SearchableItemRow's HStack. The button counts at its alignment rectangle, as SwiftUI
@@ -1823,9 +1800,7 @@ final class CrewRowView: NSView {
         return button
     }
 
-    private let fillLayer = CAShapeLayer()
-    private let borderLayer = CAGradientLayer()
-    private let borderMask = CAShapeLayer()
+    private let edge = FieldEdgeLayers()
     private let glyphView = CrewGlyphView()
     private let label = NSTextField(labelWithString: "")
     private let button = CrewRowView.makeButton()
@@ -1841,19 +1816,7 @@ final class CrewRowView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = false
-        fillLayer.shadowOpacity = Float(FieldEdgeTreatment.shadowOpacity)
-        fillLayer.shadowRadius = FieldEdgeTreatment.shadowRadius
-        fillLayer.shadowOffset = CGSize(width: 0, height: FieldEdgeTreatment.shadowOffsetY)
-        fillLayer.shadowColor = NSColor.black.cgColor
-        layer?.addSublayer(fillLayer)
-        borderLayer.startPoint = CGPoint(x: 0.5, y: 0)
-        borderLayer.endPoint = CGPoint(x: 0.5, y: 1)
-        borderLayer.locations = [0, NSNumber(value: FieldEdgeTreatment.borderFadeStart), 1]
-        borderMask.fillColor = nil
-        borderMask.strokeColor = NSColor.black.cgColor
-        borderMask.lineWidth = FieldEdgeTreatment.borderWidth
-        borderLayer.mask = borderMask
-        layer?.addSublayer(borderLayer)
+        if let layer { edge.install(in: layer) }
 
         addSubview(glyphView)
 
@@ -1905,16 +1868,7 @@ final class CrewRowView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
-        let path = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius, style: .continuous)
-            .path(in: b).cgPath
-        fillLayer.frame = b
-        fillLayer.path = path
-        fillLayer.shadowPath = path
-        borderLayer.frame = b
-        borderMask.frame = b
-        let inset = FieldEdgeTreatment.borderWidth / 2
-        borderMask.path = RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius - inset, style: .continuous)
-            .path(in: b.insetBy(dx: inset, dy: inset)).cgPath
+        edge.layout(in: b)
 
         let pad = RSBHelpers.rowHorizontalPadding
         if let glyph {
@@ -1954,13 +1908,7 @@ final class CrewRowView: NSView {
     }
 
     private func applyColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            fillLayer.fillColor = NSColor.controlBackgroundColor.cgColor
-            let edge = NSColor.separatorColor
-            borderLayer.colors = [edge.withAlphaComponent(edge.alphaComponent * FieldEdgeTreatment.borderOpacity).cgColor,
-                                  edge.withAlphaComponent(edge.alphaComponent * FieldEdgeTreatment.borderOpacity).cgColor,
-                                  edge.withAlphaComponent(0).cgColor]
-        }
+        edge.applyColors(appearance: effectiveAppearance)
     }
 }
 

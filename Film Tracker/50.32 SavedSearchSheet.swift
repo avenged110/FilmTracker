@@ -230,7 +230,7 @@ struct SavedSearchSheet: View, Loggable {
             }
         }
         .frame(height: 172)
-        .sheetBoxChrome(fill: Color(nsColor: .controlBackgroundColor))
+        .fieldEdgeChrome(clipsContent: true, insetsInterior: true)
     }
 
     // MARK: Results
@@ -264,7 +264,7 @@ struct SavedSearchSheet: View, Loggable {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .sheetBoxChrome(fill: Color(nsColor: NSColor.alternatingContentBackgroundColors[0]))
+            .fieldEdgeChrome(fill: Color(nsColor: NSColor.alternatingContentBackgroundColors[0]), clipsContent: true, insetsInterior: true)
             // The rules table's inset, so the two boxes line up.
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

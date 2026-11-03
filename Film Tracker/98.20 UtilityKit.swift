@@ -1,28 +1,34 @@
 // MARK: - UtilityKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Drop-in SwiftUI/AppKit utilities: an NSScrollView-backed scroll view and an async NSOpenPanel presenter.
+// Drop-in SwiftUI/AppKit utilities: an NSScrollView-backed scroll view, an async NSOpenPanel
+// presenter, the field-edge chrome for boxed surfaces, a path bar, and glyph badges.
 //
 // STANDARDIZED SWIFTUI/APPKIT UTILITIES — one file, drop into any project.
 //
-// Two independent pieces, both taken from Film Tracker and kept behaviorally identical to
-// it, with every project-specific constant turned into a defaulted parameter:
+// Five pieces, with every per-app constant a defaulted parameter:
 //
 //   1. AppKitScrollView — an NSScrollView-backed replacement for SwiftUI's ScrollView.
 //   2. SharedOpenPanel  — `OpenPanelPresenter`, an async NSOpenPanel-as-a-sheet helper.
+//   3. FieldEdge        — `FieldEdgeStyle`, `.fieldEdgeChrome(...)` and `FieldEdgeLayers`: the
+//                         rounded plate, fading outline and soft shadow of a boxed surface.
+//   4. PathBar          — `PathBarView`, `PathBarChrome` and the `.toolTip(_:)` modifier it uses.
+//   5. GlyphBadge       — `GlyphBadge`, `SymbolBadge` (animated) and `GlyphBadgeView` (AppKit):
+//                         a filled, shadowed circle with a shadowed glyph centered on it.
 //
-// Neither depends on the other, and nothing here depends on the other shared files.
+// Only the path bar depends on another piece (the field edge), and nothing here depends on
+// the other shared files.
 //
 // WIRING IT UP
 // ────────────
 // Scroll view — a thin facade per context that re-injects what the hosted tree needs
 // (an NSHostingView does not inherit the enclosing SwiftUI environment):
 //
-//   struct SidebarScrollView<Content: View>: View {
-//       @Environment(DataCoordinator.self) private var coordinator
+//   struct PaneScrollView<Content: View>: View {
+//       @Environment(AppModel.self) private var model
 //       @ViewBuilder let content: Content
 //       var body: some View {
-//           AppKitScrollView(modifier: SidebarEnvironment(coordinator: coordinator)) { content }
+//           AppKitScrollView(modifier: PaneEnvironment(model: model)) { content }
 //       }
 //   }
 //
@@ -31,7 +37,7 @@
 // Optional, all off by default: `scrollProxy:` (scroll-to-anchor, viewport tracking,
 // animated-shrink hold), `isActive:` / `activation:` (hit-test gating for tab planes),
 // `onScrollWillStart:`, `contentResetKey:`, `alwaysOverflows:`, and `style:` (the
-// NSScrollView chrome; `.standard` is what Film Tracker uses).
+// NSScrollView chrome; `.standard` by default).
 //
 // Open panel:
 //
@@ -41,10 +47,31 @@
 //   guard case .urls(let urls) = selection else { return }
 //
 // Project-wide panel defaults (initial folder, size, resizability, movability) live on
-// `OpenPanelPresenter.defaults`; set them once at launch if they differ from Film
-// Tracker's (Desktop, 600 × 400, fixed, immovable):
+// `OpenPanelPresenter.defaults`; set them once at launch if they differ from the
+// defaults (Desktop, 600 × 400, fixed, immovable):
 //
-//   OpenPanelPresenter.defaults.directory = .applications  // Process Elimination
+//   OpenPanelPresenter.defaults.directory = .applications  // to browse for app bundles
+//
+// Field edge:
+//
+//   content.fieldEdgeChrome()                                   // plate, outline, shadow
+//   list.fieldEdgeChrome(fill: nil, clipsContent: true,         // a list painting its own rows
+//                        insetsInterior: true, shadow: .content)
+//   card.fieldEdgeChrome(FieldEdgeStyle(cornerRadius: 12))      // a variant of the measures
+//   let edge = FieldEdgeLayers()                                // an AppKit view's layers
+//
+// Path bar:
+//
+//   PathBarView(url: folder, isUnavailable: !exists)            // a location
+//   PathBarView(pathComponents: parts, icon: Image(systemName: "doc.fill"))   // plain components
+//   PathBarChrome { customContent }                             // the shell only
+//
+// Glyph badge:
+//
+//   GlyphBadge(systemName: "checkmark", color: .green)          // 14pt, no circle shadow
+//   GlyphBadge(character: "B", color: .white, ink: .black, inkShadow: nil)
+//   SymbolBadge(systemName: glyph, color: color, diameter: 22)  // animated, 16pt default
+//   badge.content = .symbol("checkmark"); badge.fillColor = .systemGreen   // GlyphBadgeView
 //
 // ─────────────────────────────────────────────────────────────────────────────────────
 // 1. APPKITSCROLLVIEW
@@ -53,9 +80,7 @@
 // Each consumer wraps this view with a thin facade that captures its required
 // environment values and constructs the matching ViewModifier — leaving call sites
 // completely unchanged and keeping context-specific concerns (event-bus
-// broadcasting, environment re-injection) out of the utility layer. The notes below
-// that name Film Tracker's views (RightSidebar, FilmSheet, Imports, Data
-// Visualizations) describe where each behavior was found necessary and measured.
+// broadcasting, environment re-injection) out of the utility layer.
 //
 // Architecture
 // ────────────
@@ -82,8 +107,7 @@
 // Programmatic scrolling
 // ──────────────────────
 // AppKitScrollProxy is a plain (deliberately non-@Observable) reference-type
-// bridge. Consumers that need scroll-to-anchor (in Film Tracker, the FilmSheet
-// Details tab alone) create one proxy per scroll view, passed to both the scroll view
+// bridge. Consumers that need scroll-to-anchor create one proxy per scroll view, passed to both the scroll view
 // (which wires the implementation) and the content view (which calls scroll(to:)).
 // Anchor y-offsets are reported upward via ScrollAnchorPreferenceKey, stored in
 // the coordinator, and used by scrollToAnchor(_:) to drive the NSScrollView's
@@ -97,9 +121,8 @@
 //
 // A proxy made with `tracksViewport` also hears the visible rectangle, on every
 // scroll and resize, and when live scrolls begin and end, through the
-// `viewportHandler` and `liveScrollHandler` its consumer sets — Film Tracker's Imports
-// session list mounts only the cards near it, and changes which only when nothing
-// scrolls. Only such a proxy makes the scroll view observe its clip view.
+// `viewportHandler` and `liveScrollHandler` its consumer sets — so a long list can mount
+// only the items near the viewport, and change which only when nothing scrolls. Only such a proxy makes the scroll view observe its clip view.
 //
 // Content width
 // ─────────────
@@ -118,8 +141,7 @@
 // When isActive == false, the underlying NSScrollView (a HitTestGatedScrollView;
 // see below) has its hitTest(_:) short-circuited to return nil, removing it and
 // its AppKit subviews from AppKit's hit-test chain without ever setting isHidden
-// — defense in depth alongside any event-shield overlay the consumer adds (Film
-// Tracker's FilmSheet uses a TabEventShield).
+// — defense in depth alongside any event-shield overlay the consumer adds.
 //
 // isHidden is deliberately avoided, even though it also excludes hit testing. Toggling isHidden from true back to
 // false — which happens on every tab activation, not just once — makes AppKit
@@ -138,23 +160,22 @@
 // every tab activation. An environment value avoids the revision but is no cheaper: SwiftUI
 // bridges the enclosing environment into a hosted NSHostingView, so a per-tab flag there
 // dirties every environment-reading node of the hosted tree and re-measures it (profiled at
-// about half of a Film Tracker RightSidebar tab switch). The activation is a reference that
+// about half the cost of a tab switch). The activation is a reference that
 // stays the same object for the scroll view's life, so flipping it changes no SwiftUI value
 // at all: it gates hit-testing directly and flushes anything buffered while inactive.
 //
 // onScrollWillStart callback
 // ──────────────────────────
 // An optional callback fired synchronously at the start of every live-scroll
-// phase. Film Tracker's SidebarScrollView uses this to broadcast an event-bus
-// notification, letting sidebar-local subscribers (e.g. a popover) dismiss themselves
-// before content re-lays out. Kept as a callback, not hard-coded, so the utility
+// phase — to broadcast a notification, say, letting subscribers (e.g. a popover)
+// dismiss themselves before content re-lays out. Kept as a callback, not hard-coded, so the utility
 // stays context-free.
 //
 // Scroll view chrome
 // ──────────────────
 // `AppKitScrollStyle` carries the NSScrollView settings applied once, at creation:
 // vertical scroller only, autohiding, no border, no background, vertical elasticity,
-// and no automatic content insets. `.standard` is exactly what Film Tracker configured.
+// and no automatic content insets. `.standard` is that set.
 //
 // Horizontal swipe recognition (deliberately not in this utility)
 // ───────────────────────────────────────────────────────────────
@@ -165,7 +186,7 @@
 // declaration would not take effect.
 //
 // A consumer that needs swipe recognition installs a standalone NSEvent local monitor
-// instead (Film Tracker's RightSidebar does). A local monitor intercepts events before
+// instead. A local monitor intercepts events before
 // AppKit's normal dispatch and can consume (return nil) or pass them through (return the
 // event) unchanged; when passed through, AppKit dispatches to the NSScrollView exactly as
 // with no monitor installed. Every consumer of this utility receives a plain NSScrollView
@@ -186,8 +207,7 @@ import UniformTypeIdentifiers
 /// Deliberately NOT `@Observable`. Its single property is pure plumbing — written
 /// once by `AppKitScrollNSView` and read only from event callbacks, never from a
 /// `View.body`. `@Observable` would buy nothing while costing something real:
-/// consumer views hold a proxy as a stored property of a SwiftUI `View` struct
-/// (Film Tracker's `FSTabDetailsView.scrollProxy`), and `@Observable`'s fine-grained tracking
+/// consumer views hold a proxy as a stored property of a SwiftUI `View` struct, and `@Observable`'s fine-grained tracking
 /// opens a subscription for any observable object reachable that way. A plain
 /// `final class` is stored and passed by reference identically, works the same
 /// inside `@State`, and keeps those subtrees out of the observation graph entirely.
@@ -379,12 +399,12 @@ extension View {
 
 // MARK: - AppKitScrollView
 
-/// SwiftUI entry point for the unified AppKit-backed scroll view.
+/// SwiftUI entry point for the AppKit-backed scroll view.
 ///
 /// - Parameters:
 ///   - modifier: A `ViewModifier` applied inside the hosted wrapper. Use this to
 ///     re-inject environment values that NSHostingView does not inherit from the
-///     enclosing SwiftUI environment (e.g. `DataCoordinator`, `sidebarFilm`). Each
+///     enclosing SwiftUI environment (e.g. an `@Observable` model object). Each
 ///     consumer context provides its own concrete modifier type, preserving SwiftUI's
 ///     structural diffing on the hosted content tree.
 ///   - scrollProxy: Optional programmatic-scroll bridge. Pass `nil` for consumers
@@ -406,7 +426,7 @@ extension View {
 ///     Defaults to `.standard`. See `AppKitScrollStyle`.
 ///   - content: The SwiftUI content to host inside the scroll view.
 ///
-/// Concrete consumer facades (`SidebarScrollView`, `FilmSheetScrollView`, etc.) wrap
+/// Concrete consumer facades (one per hosting context) wrap
 /// this view, capturing their required environment values and building the appropriate
 /// modifier. Direct consumers may also use `AppKitScrollView` with `EmptyModifier` when
 /// no environment re-injection is needed.
@@ -478,8 +498,7 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
 /// view is made; changing it on a live view has no effect, as with any creation-time
 /// AppKit configuration.
 ///
-/// `.standard` is exactly what Film Tracker configured for every consumer, and is the
-/// default. The rest is fixed, because the utility depends on it: there is never a
+/// `.standard` is the default. The rest is fixed, because the utility depends on it: there is never a
 /// horizontal scroller or horizontal elasticity (the document is pinned to the clip view's
 /// width), and the scroll view and hosting view are always layer-backed with
 /// `.onSetNeedsDisplay`.
@@ -515,7 +534,7 @@ struct AppKitScrollStyle: Equatable {
         self.automaticallyAdjustsContentInsets = automaticallyAdjustsContentInsets
     }
 
-    /// Film Tracker's configuration. Computed, not stored: `NSColor` is not `Sendable`.
+    /// The default configuration. Computed, not stored: `NSColor` is not `Sendable`.
     static var standard: AppKitScrollStyle { AppKitScrollStyle() }
 }
 
@@ -531,8 +550,7 @@ struct AppKitScrollStyle: Equatable {
 /// `Modifier`, itself part of the value), so nothing the hosted tree reads has moved. The
 /// hand-off is not free — it invalidates the hosting view's intrinsic size, and the next
 /// constraint pass re-measures the entire hosted tree. When a page is leaving, such an update to
-/// the outgoing page would run a full re-measure (about 100 ms, per the `dataviz-measure` harness
-/// scenario) in the constraint phase, before the layout phase that removes it.
+/// the outgoing page would run a full re-measure (about 100 ms, as measured) in the constraint phase, before the layout phase that removes it.
 @MainActor
 enum AppKitScrollRevision {
     private static var counter = 0
@@ -623,7 +641,11 @@ enum AppKitScrollInitialInset {
 /// struct, as required by View) can refer to it without extending its lifetime.
 /// Swift does not permit `weak var` as a stored property of a struct — `weak`
 /// requires a class-type storage location.
-private final class WeakCoordinatorBox<T: AnyObject>: @unchecked Sendable {
+///
+/// Main-actor isolated, which makes it Sendable without an unchecked promise: it is made by
+/// the main-actor Coordinator and read only from the main-actor task the anchor reporter starts.
+@MainActor
+private final class WeakCoordinatorBox<T: AnyObject> {
     weak var value: T?
     init(_ value: T?) { self.value = value }
 }
@@ -691,9 +713,7 @@ private struct AppKitScrollContentWrapper<Content: View, Modifier: ViewModifier>
 ///
 /// `onPreferenceChange` is not free: it makes SwiftUI collect and propagate that
 /// key through every node of the hosted tree on each layout pass, whether or not
-/// anything in the tree writes it. In Film Tracker exactly one consumer publishes
-/// anchors (the FilmSheet Details tab, for `.openViewingDatesAddPopover`); the other
-/// consumers publish none and install no reader either.
+/// anything in the tree writes it. Consumers that publish no anchors install no reader.
 ///
 /// `isEnabled` is derived from the proxy's `tracksAnchors` on the representable, so
 /// it is fixed for the lifetime of any given call site. The `if` therefore never
@@ -813,8 +833,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         /// live scroll: assigning `NSHostingView.rootView` makes Auto Layout re-measure
         /// the entire hosted tree, and doing that for a scroll view the person cannot
         /// see is pure cost. It matters most for the tabbed consumers that actually pass
-        /// this flag — FilmSheet's three scrollable tabs and RightSidebar's tab plane —
-        /// where leaving a tab would otherwise re-measure the whole subtree being hidden,
+        /// this flag, where leaving a tab would otherwise re-measure the whole subtree being hidden,
         /// on the very frame it stopped being visible.
         ///
         /// Nothing is lost by deferring: the buffered tree is applied in updateNSView
@@ -970,12 +989,11 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         }
 
         /// Scrolls the NSScrollView so the named anchor is vertically centered in
-        /// the visible area, without animation. Matches the disablesAnimations
-        /// transaction semantics used in the former ScrollViewReader calls.
+        /// the visible area, without animation. Matches a ScrollViewReader scroll under a
+        /// disablesAnimations transaction.
         ///
         /// Centering is unconditional: a scroll-to-anchor is a deliberate navigation
-        /// (in Film Tracker, the `.openViewingDatesAddPopover` command, which then opens
-        /// a popover on the row the anchor names), so it must land on a predictable
+        /// (often followed by a popover on the row the anchor names), so it must land on a predictable
         /// position rather than leaving the row wherever it already happened to sit.
         func scrollToAnchor(_ anchorID: String) {
             guard let sv = scrollView,
@@ -1000,9 +1018,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // reach the current scroll offset (the person is scrolled to, or near, the
         // bottom), NSClipView clamps the offset in that same pass: every row jumps
         // down by the shortfall in a single frame, and a removed row at the bottom is
-        // pushed out of the viewport before its fade is ever seen. (Measured with Film
-        // Tracker's `imports-removal` harness scenario: the jump lands on the first frame
-        // after the removal.)
+        // pushed out of the viewport before its fade is ever seen. (Measured: the jump lands on the first frame after the removal.)
         //
         // The hold answers it with a single clock — SwiftUI's:
         //
@@ -1291,7 +1307,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // changes. Each call that reaches hostingView.rootView = ... forces Auto
         // Layout to re-measure all hosted SwiftUI content from scratch, outside
         // SwiftUI's animation transaction. For content that contains in-flight
-        // SwiftUI animations (e.g. a card collapsing in ImportsView), this causes
+        // SwiftUI animations (e.g. a card collapsing), this causes
         // sibling views to be re-laid out at each frame — producing visible size
         // fluctuations (e.g. bottom-padding shrink/expand) on cards that are not
         // themselves animating.
@@ -1387,9 +1403,9 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         // does in the display cycle's LAYOUT phase — after the CONSTRAINT phase. In between,
         // the constraint pass still reaches the hosting view, whose graph has been reset by
         // this teardown, and asks it for its intrinsic size: a full rebuild and measurement of
-        // the entire hosted tree for a view about to be discarded, about 110–125 ms per exit from
-        // the Data Visualizations tab in the `dataviz-measure` harness scenario. Removing an already-removed view is a no-op, so SwiftUI's own
-        // removal of the host afterward is unaffected.
+        // the entire hosted tree for a view about to be discarded, about 110–125 ms per exit
+        // from a heavy tab, as measured. Removing an already-removed view is a no-op, so
+        // SwiftUI's own removal of the host afterward is unaffected.
         scrollView.removeFromSuperview()
     }
 
@@ -1494,19 +1510,19 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 // and returns the person's choice through `async`, so a call site is one `await` instead
 // of a completion handler and a hand-configured panel.
 //
-// This is Film Tracker's version, with `treatsFilePackagesAsDirectories` and
-// `OpenPanelPresenter.defaults` plus per-call overrides for the initial folder, the size,
-// resizability and movability. Every default is Film Tracker's.
+// App-wide defaults live on `OpenPanelPresenter.defaults`, with per-call overrides for the
+// initial folder, the size, resizability and movability. `canCreateDirectories` and
+// `delegate` are left out of the panel unless given.
 
-/// Project-wide defaults for every panel `OpenPanelPresenter` shows. Set once, at launch,
-/// through `OpenPanelPresenter.defaults`, only where they differ from Film Tracker's.
+/// App-wide defaults for every panel `OpenPanelPresenter` shows. Set once, at launch,
+/// through `OpenPanelPresenter.defaults`, only where they differ from these.
 @MainActor
 struct OpenPanelDefaults {
     /// Where a panel opens when its configuration names no `directoryURL`.
     enum Directory {
-        /// `~/Desktop`. Film Tracker, PhotoGallery, Spectrum, Monolingual, Compare Folders.
+        /// `~/Desktop`. The default.
         case desktop
-        /// `/Applications`. Process Elimination, which browses for app bundles.
+        /// `/Applications`, for browsing app bundles.
         case applications
         /// The home folder.
         case home
@@ -1561,8 +1577,12 @@ struct OpenPanelConfiguration {
     var isResizable: Bool?
     var isMovable: Bool?
 
-    // Parameters are in the order the presenter's earlier copies used, with the additions
-    // placed where those copies put them or at the end, so existing call sites compile unchanged.
+    /// Whether the panel offers New Folder. `nil` keeps AppKit's default.
+    var canCreateDirectories: Bool?
+    /// Filters and validates what can be chosen, e.g. to allow only one kind of package. The
+    /// panel holds its delegate weakly; the presenter keeps this one alive until it closes.
+    var delegate: (any NSOpenSavePanelDelegate)?
+
     init(
         canChooseFiles: Bool = true,
         canChooseDirectories: Bool = false,
@@ -1575,7 +1595,9 @@ struct OpenPanelConfiguration {
         directoryURL: URL? = nil,
         contentSize: NSSize? = nil,
         isResizable: Bool? = nil,
-        isMovable: Bool? = nil) {
+        isMovable: Bool? = nil,
+        canCreateDirectories: Bool? = nil,
+        delegate: (any NSOpenSavePanelDelegate)? = nil) {
         self.canChooseFiles = canChooseFiles
         self.canChooseDirectories = canChooseDirectories
         self.allowsMultipleSelection = allowsMultipleSelection
@@ -1587,7 +1609,9 @@ struct OpenPanelConfiguration {
         self.directoryURL = directoryURL
         self.contentSize = contentSize
         self.isResizable = isResizable
-        self.isMovable = isMovable }
+        self.isMovable = isMovable
+        self.canCreateDirectories = canCreateDirectories
+        self.delegate = delegate }
 }
 
 @MainActor
@@ -1626,6 +1650,8 @@ enum OpenPanelPresenter {
         if let title = configuration.title { panel.title = title }
         if let message = configuration.message { panel.message = message }
         if let prompt = configuration.prompt { panel.prompt = prompt }
+        if let canCreate = configuration.canCreateDirectories { panel.canCreateDirectories = canCreate }
+        panel.delegate = configuration.delegate
 
         // Fixed size and non-resizable, immovable behavior unless the project or this
         // panel says otherwise.
@@ -1635,6 +1661,10 @@ enum OpenPanelPresenter {
         panel.isMovable = configuration.isMovable ?? defaults.isMovable
 
         let targetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow
+
+        // `panel.delegate` is weak; this reference holds the delegate until the panel closes.
+        let delegate = configuration.delegate
+        defer { withExtendedLifetime(delegate) {} }
 
         return await withCheckedContinuation { continuation in
             if let targetWindow {
@@ -1652,4 +1682,975 @@ enum OpenPanelPresenter {
             }
         }
     }
+}
+
+// MARK: - ━━━━━━━━━━ 3. FieldEdge ━━━━━━━━━━
+//
+// The edge every boxed surface wears — a field, a list, a card, a bar: a rounded plate, an
+// outline that holds its strength across the top and fades out toward the bottom, and an
+// understated drop shadow that carries the lower edge in its place.
+//
+//   • `FieldEdgeStyle` — the measures. `.standard` is the reference; a rounder or stronger
+//     variant is a copy with only the differing fields changed.
+//   • `.fieldEdgeChrome(_:fill:clipsContent:insetsInterior:shadow:)` — draws it in SwiftUI.
+//   • `FieldEdgeLayers` — draws it with Core Animation layers, for AppKit views laid out
+//     by hand.
+//
+// One definition, so surfaces meant to look alike cannot drift apart.
+
+/// The measures of a field edge.
+nonisolated struct FieldEdgeStyle: Equatable, Sendable {
+    var cornerRadius: CGFloat = 6
+    var borderWidth: CGFloat = 1
+
+    /// Strength of the outline, as a fraction of `separatorColor`'s own alpha; 1 is the
+    /// system color at full strength. Low by default because the outline sits on the window
+    /// background, not over a fill that would dilute it.
+    var borderOpacity: Double = 0.2
+
+    /// Fraction of the height at which the outline begins fading out. Above it the outline
+    /// is at `borderOpacity`; at the bottom edge it is gone, so the shadow carries that edge.
+    var borderFadeStart: Double = 0.1
+
+    // Deliberately understated by default — enough to seat the surface without reading as
+    // a raised control.
+    var shadowOpacity: Double = 0.16
+    var shadowRadius: CGFloat = 1.5
+    var shadowOffsetY: CGFloat = 1
+
+    static let standard = FieldEdgeStyle()
+
+    /// The outline's shape, continuously rounded.
+    var shape: RoundedRectangle { RoundedRectangle(cornerRadius: cornerRadius, style: .continuous) }
+
+    var shadowColor: Color { .black.opacity(shadowOpacity) }
+
+    /// The outline's color, top to bottom.
+    var borderGradient: LinearGradient {
+        let edge = Color(NSColor.separatorColor)
+        return LinearGradient(
+            stops: [
+                .init(color: edge.opacity(borderOpacity), location: 0.0),
+                .init(color: edge.opacity(borderOpacity), location: borderFadeStart),
+                .init(color: edge.opacity(0), location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+/// What casts a field edge's shadow.
+nonisolated enum FieldEdgeShadow: Sendable {
+    /// The fill shape alone, behind the content. A solid rounded rect is a single-shape blur
+    /// that Core Animation handles cheaply, and the content is never rendered offscreen to
+    /// derive a silhouette — the cheaper choice whenever the fill is opaque, which makes the
+    /// two look the same. With no fill, nothing is cast.
+    case fill
+    /// The finished view: clipped content, fill and outline together. For surfaces with no
+    /// fill of their own, or whose content must contribute to the silhouette.
+    case content
+}
+
+extension View {
+    /// Draws a field edge around the view.
+    ///
+    /// - Parameters:
+    ///   - style: The measures. `.standard` unless the surface is deliberately different.
+    ///   - fill: The plate behind the content, or nil for none (the content paints its own).
+    ///   - clipsContent: Clips the content to the shape, so rows scrolled or laid out past
+    ///     the corners never paint outside it. Off for content that draws outside its bounds
+    ///     on purpose, such as an exterior focus ring.
+    ///   - insetsInterior: Stops the fill and the clip one border width inside the outline.
+    ///     `strokeBorder` draws inward, so the outline then occupies a ring nothing else
+    ///     paints under. `separatorColor` is translucent, so a fill or row background running
+    ///     under it would tint the outline from below.
+    ///   - shadow: What casts the shadow; see `FieldEdgeShadow`.
+    ///
+    /// The order is load-bearing and fixed here: clip, then fill, then outline, then (for
+    /// `.content`) the shadow, so the shadow is cast by the finished shape. Apply any sizing
+    /// before this modifier, so the shape resolves against the final bounds. The outline
+    /// never takes a click from the content under it.
+    nonisolated func fieldEdgeChrome(_ style: FieldEdgeStyle = .standard,
+                                     fill: Color? = Color(NSColor.controlBackgroundColor),
+                                     clipsContent: Bool = false,
+                                     insetsInterior: Bool = false,
+                                     shadow: FieldEdgeShadow = .fill) -> some View {
+        modifier(FieldEdgeChrome(style: style, fill: fill, clipsContent: clipsContent,
+                                 insetsInterior: insetsInterior, shadow: shadow))
+    }
+}
+
+/// The modifier behind `.fieldEdgeChrome(...)`.
+private struct FieldEdgeChrome: ViewModifier {
+    let style: FieldEdgeStyle
+    let fill: Color?
+    let clipsContent: Bool
+    let insetsInterior: Bool
+    let shadow: FieldEdgeShadow
+
+    private var interior: some InsettableShape {
+        style.shape.inset(by: insetsInterior ? style.borderWidth : 0)
+    }
+
+    func body(content: Content) -> some View {
+        let edged = clipped(content)
+            .background { plate }
+            .overlay {
+                style.shape
+                    .strokeBorder(style.borderGradient, lineWidth: style.borderWidth)
+                    .allowsHitTesting(false)
+            }
+        return Group {
+            if shadow == .content {
+                edged.shadow(color: style.shadowColor, radius: style.shadowRadius,
+                             x: 0, y: style.shadowOffsetY)
+            } else {
+                edged
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func clipped(_ content: Content) -> some View {
+        if clipsContent {
+            content.clipShape(interior)
+        } else {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var plate: some View {
+        if let fill {
+            if shadow == .fill {
+                interior.fill(fill)
+                    .shadow(color: style.shadowColor, radius: style.shadowRadius,
+                            x: 0, y: style.shadowOffsetY)
+            } else {
+                interior.fill(fill)
+            }
+        }
+    }
+}
+
+/// A field edge drawn with Core Animation layers, for an AppKit view that lays itself out:
+/// a shape layer for the fill (which also casts the shadow, along an explicit path) and a
+/// gradient layer masked to a stroked outline.
+///
+/// Usage, from a layer-backed view:
+///
+///     private let edge = FieldEdgeLayers()
+///     init() { …; wantsLayer = true; layer?.masksToBounds = false; edge.install(in: layer!) }
+///     override func layout() { super.layout(); edge.layout(in: bounds) }
+///     override func updateLayer() { super.updateLayer(); edge.applyColors(appearance: effectiveAppearance) }
+///     override func viewDidChangeEffectiveAppearance() { …; edge.applyColors(appearance: effectiveAppearance) }
+///
+/// Subviews added after `install(in:)` draw above both layers. To keep the outline above
+/// them, raise `borderLayer.zPosition`.
+@MainActor
+final class FieldEdgeLayers {
+    let style: FieldEdgeStyle
+    /// The plate. Its fill is set by `applyColors`; it casts the shadow.
+    let fillLayer = CAShapeLayer()
+    /// The outline: the border colors, masked to the stroked shape.
+    let borderLayer = CAGradientLayer()
+    private let borderMask = CAShapeLayer()
+
+    init(style: FieldEdgeStyle = .standard) {
+        self.style = style
+        fillLayer.shadowOpacity = Float(style.shadowOpacity)
+        fillLayer.shadowRadius = style.shadowRadius
+        fillLayer.shadowOffset = CGSize(width: 0, height: style.shadowOffsetY)
+        fillLayer.shadowColor = NSColor.black.cgColor
+        borderLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        borderLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        borderLayer.locations = [0, NSNumber(value: style.borderFadeStart), 1]
+        borderMask.fillColor = nil
+        borderMask.strokeColor = NSColor.black.cgColor
+        borderMask.lineWidth = style.borderWidth
+        borderLayer.mask = borderMask
+    }
+
+    /// Adds the fill, then the outline, as sublayers of `layer`. The host's layer must not
+    /// mask to bounds, or the shadow is cut off.
+    func install(in layer: CALayer) {
+        layer.addSublayer(fillLayer)
+        layer.addSublayer(borderLayer)
+    }
+
+    /// Fits both layers to `bounds`, in the host's coordinates. Call from `layout()`.
+    func layout(in bounds: CGRect) {
+        let path = style.shape.path(in: bounds).cgPath
+        fillLayer.frame = bounds
+        fillLayer.path = path
+        fillLayer.shadowPath = path
+        borderLayer.frame = bounds
+        borderMask.frame = bounds
+        // The mask strokes centered on its path, so the path runs half a border width in,
+        // and the outline lands inside the bounds as `strokeBorder` draws it.
+        let inset = style.borderWidth / 2
+        borderMask.path = RoundedRectangle(cornerRadius: style.cornerRadius - inset, style: .continuous)
+            .path(in: bounds.insetBy(dx: inset, dy: inset)).cgPath
+    }
+
+    /// Resolves the fill and outline colors for `appearance`. Layer colors are fixed
+    /// `CGColor`s, so call this again whenever the appearance changes.
+    func applyColors(fill: NSColor = .controlBackgroundColor, appearance: NSAppearance) {
+        appearance.performAsCurrentDrawingAppearance {
+            fillLayer.fillColor = fill.cgColor
+            let edge = NSColor.separatorColor
+            let strong = edge.withAlphaComponent(edge.alphaComponent * style.borderOpacity).cgColor
+            borderLayer.colors = [strong, strong, edge.withAlphaComponent(0).cgColor]
+        }
+    }
+}
+
+// MARK: - ━━━━━━━━━━ 4. PathBar ━━━━━━━━━━
+//
+// A folder or file path drawn as a breadcrumb in a bar with the `.standard` field edge, in
+// three forms:
+//
+//   • `PathBarView(url:isUnavailable:placeholder:icon:fill:)` — a location. The
+//     last component (the item itself) is drawn primary and survives truncation; the
+//     ancestors are secondary and squeezed first. A nil URL draws a dimmed empty state rather
+//     than nothing, so the layout does not change the first time a path is set. The full path
+//     shows on hover, and double-clicking the name reveals it in the Finder.
+//   • `PathBarView(pathComponents:icon:fill:)` — plain components. The components exactly as given
+//     (they may be a message such as "No file selected."), joined and drawn secondary, with
+//     no hover text or double-click.
+//   • `PathBarChrome { … }` — the shell only. Just the edge, at a fixed height, so a caller can
+//     animate its own content without the outline taking part.
+//
+// `.toolTip(_:)` is public because the bar needs it and so may its callers; see `ToolTipView`.
+
+/// The visual shell of a path bar — the `.standard` field edge — at a fixed height,
+/// accepting arbitrary content via a `@ViewBuilder` slot.
+///
+/// Separating chrome from content lets a caller keep the shell permanently visible while
+/// animating only the content layer, so the bar outline never flickers during a crossfade.
+struct PathBarChrome<Content: View>: View {
+    private let height: CGFloat
+    private let content: Content
+
+    init(height: CGFloat = 24, @ViewBuilder content: () -> Content) {
+        self.height = height
+        self.content = content()
+    }
+
+    var body: some View {
+        // Content slot — caller controls opacity/animation; the shell around it is always
+        // rendered at full opacity.
+        ZStack(alignment: .leading) {
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: height)
+        .fieldEdgeChrome()
+    }
+}
+
+/// Displays a path as a breadcrumb, middle-truncated when it does not fit.
+struct PathBarView: View {
+
+    private enum Form {
+        /// A real location: emphasized last component, hover text, double-click to reveal.
+        case location(URL?, isUnavailable: Bool, placeholder: String)
+        /// Components as given, drawn plain.
+        case components([String])
+    }
+
+    private let form: Form
+    private let icon: Image?
+    private let fill: Color
+
+    /// A location. A nil `url` draws the empty state with `placeholder`. `isUnavailable` (the
+    /// item can't currently be reached) draws its name in red. `icon` defaults to a folder.
+    /// `fill` is the bar's plate; set it to tell the bar apart from a surface of the same color.
+    init(url: URL?, isUnavailable: Bool = false, placeholder: String = "No folder selected",
+         icon: Image? = nil, fill: Color = Color(NSColor.controlBackgroundColor)) {
+        form = .location(url, isUnavailable: isUnavailable, placeholder: placeholder)
+        self.icon = icon
+        self.fill = fill
+    }
+
+    /// Path components as given, joined with " › ".
+    init(pathComponents: [String], icon: Image, fill: Color = Color(NSColor.controlBackgroundColor)) {
+        form = .components(pathComponents)
+        self.icon = icon
+        self.fill = fill
+    }
+
+    var body: some View {
+        switch form {
+        case .components(let parts):
+            HStack(spacing: 6) {
+                iconView(dimmed: false)
+                Text(parts.joined(separator: " › "))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(6)
+            .fieldEdgeChrome(fill: fill)
+        case .location(let url, let isUnavailable, let placeholder):
+            location(url, isUnavailable: isUnavailable, placeholder: placeholder)
+        }
+    }
+
+    private func iconView(dimmed: Bool) -> some View {
+        (icon ?? Image(systemName: "folder.fill"))
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 14, height: 14)
+            // Dimmed when empty, so the bar does not draw the eye to a value it lacks.
+            .foregroundStyle(dimmed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
+    }
+
+    private func location(_ url: URL?, isUnavailable: Bool, placeholder: String) -> some View {
+        // Leading "/" dropped. Empty when there is no URL, which draws the empty state.
+        let parts = url?.pathComponents.filter { $0 != "/" } ?? []
+        // Everything above the item, carrying its own trailing separator so the two `Text`s
+        // butt together.
+        let ancestors = parts.count > 1 ? parts.dropLast().joined(separator: " › ") + " › " : nil
+        return HStack(spacing: 6) {
+            iconView(dimmed: parts.isEmpty)
+
+            if parts.isEmpty {
+                Text(placeholder)
+                    .lineLimit(1)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+            } else {
+                // spacing 0: `ancestors` supplies its own trailing separator.
+                HStack(spacing: 0) {
+                    if let ancestors {
+                        Text(ancestors)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            // Lower priority than the name, so the ancestors are squeezed first.
+                            .layoutPriority(0)
+                    }
+                    Text(parts.last ?? "")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(isUnavailable ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                        .layoutPriority(1)
+                        // Double-click, not single: a one-click target would put a
+                        // Finder-opening hotspot under a pointer just passing over it.
+                        .onTapGesture(count: 2) {
+                            // A deleted or unmounted item simply opens no window, which is
+                            // the Finder's own behavior.
+                            if let url { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                        }
+                }
+            }
+
+            Spacer()
+        }
+        .padding(6)
+        .fieldEdgeChrome(fill: fill)
+        // The full path and the double-click hint on hover, since the breadcrumb is
+        // truncated. `.toolTip` rather than `.help` — see `ToolTipView`.
+        .toolTip(parts.isEmpty ? nil : parts.joined(separator: "/")
+                 + "\nDouble-click the name to reveal it in the Finder.")
+    }
+}
+
+// MARK: Tool Tips
+
+/// A tooltip that actually appears.
+///
+/// SwiftUI's `.help(_:)` registers a tooltip RECT against the geometry the view had when
+/// it was installed, and never re-registers it. Inside a scroll view, the content is
+/// re-laid out often enough that the rect and the thing it describes part company, and the
+/// tooltip stops appearing on hover.
+///
+/// This sets a real AppKit tooltip on an `NSView` through its `toolTip` property, which AppKit
+/// keeps fitted to the view's bounds through every geometry and window change itself.
+/// Attached as a BACKGROUND with `hitTest` returning nil, so it never takes a click from the
+/// content it sits behind.
+private struct ToolTipView: NSViewRepresentable {
+    let text: String?
+
+    func makeNSView(context: Context) -> TipView { TipView() }
+
+    func updateNSView(_ view: TipView, context: Context) {
+        let tip = text?.isEmpty == false ? text : nil
+        if view.toolTip != tip { view.toolTip = tip }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: TipView,
+                      context: Context) -> CGSize? {
+        // Takes whatever the thing it is describing takes; it proposes nothing of its own.
+        nil
+    }
+
+    final class TipView: NSView {
+        /// Transparent to the mouse: the content this sits behind owns every click.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+extension View {
+    /// Attaches an AppKit tooltip. A nil or empty string attaches none.
+    ///
+    /// Use in place of `.help(_:)` wherever the view can be re-laid out after it appears —
+    /// see `ToolTipView` for why that distinction matters.
+    func toolTip(_ text: String?) -> some View {
+        // `.help` is kept alongside it to carry the string into the accessibility tree,
+        // which a bare tooltip rect does not. Two registrations cannot produce two
+        // tooltips — AppKit asks only the innermost rect under the pointer.
+        background(ToolTipView(text: text).accessibilityHidden(true))
+            .help(text ?? "")
+    }
+}
+
+// MARK: - ━━━━━━━━━━ 5. GlyphBadge ━━━━━━━━━━
+//
+// A filled circle with a glyph (an SF Symbol or a character) centered on it, a drop shadow
+// under the circle and another under the glyph. Unifies Film Tracker's `IndicatorBadge` /
+// `symbolBadge` / `characterBadge` (ReleasesTable) and its AppKit card composition
+// (`RSBShapeView` + `RSBSymbolView` + `RSBViewShadow`, RTabReleases), and CalShare's
+// animated `StatusBadge` (SharedViews).
+//
+//   GlyphBadge(color: .green) { Image(systemName: "checkmark").font(…) }   // any label
+//   GlyphBadge(systemName: "checkmark", color: .green)                     // Film Tracker's table
+//   GlyphBadge(character: "A", color: .orange, font: .system(size: 10, weight: .semibold))
+//   SymbolBadge(systemName: state.glyph, color: state.color)               // CalShare's, animated
+//   let badge = GlyphBadgeView(); badge.content = .symbol("checkmark")     // AppKit
+//
+// Defaults are each original's: `GlyphBadge` and `GlyphBadgeView` draw Film Tracker's 14pt
+// circle with no circle shadow and no sheen; `SymbolBadge` draws CalShare's 16pt circle
+// with its soft circle shadow and top sheen. Every one of those is a parameter.
+
+// MARK: - GlyphBadgeShadow
+
+/// A black drop shadow, in SwiftUI's terms: `.shadow(color: .black.opacity(opacity),
+/// radius: radius, y: offsetY)`.
+struct GlyphBadgeShadow: Hashable, Sendable {
+    var opacity: Double
+    var radius: CGFloat
+    var offsetY: CGFloat
+    /// Whether `radius` and `offsetY` are fractions of the badge's diameter rather than points.
+    var scalesWithDiameter: Bool
+
+    init(opacity: Double, radius: CGFloat, offsetY: CGFloat, scalesWithDiameter: Bool = false) {
+        self.opacity = opacity
+        self.radius = radius
+        self.offsetY = offsetY
+        self.scalesWithDiameter = scalesWithDiameter
+    }
+
+    /// This shadow in points, for a badge of this diameter.
+    func resolved(diameter: CGFloat) -> GlyphBadgeShadow {
+        guard scalesWithDiameter else { return self }
+        return GlyphBadgeShadow(opacity: opacity, radius: radius * diameter, offsetY: offsetY * diameter)
+    }
+
+    /// The glyph's half-point shadow, which holds a white glyph's edges on any saturated fill.
+    static let ink = GlyphBadgeShadow(opacity: 0.5, radius: 0.5, offsetY: 0.5)
+
+    /// CalShare's circle shadow: radius and drop a thirty-second of the diameter.
+    static let soft = GlyphBadgeShadow(opacity: 0.2, radius: 1 / 32, offsetY: 1 / 32, scalesWithDiameter: true)
+
+    /// NSShadow's blur radius for a SwiftUI shadow radius. Fitted against SwiftUI's
+    /// rendering (Film Tracker): 2 was closest across 0.5–4.
+    static let nsBlurScale: CGFloat = 2
+
+    /// This shadow as a view's `NSShadow`. AppKit copies the offset onto the view's layer,
+    /// which is geometry-flipped in a flipped view, so positive is down there; every
+    /// caller's view should be flipped.
+    func nsShadow() -> NSShadow {
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(opacity)
+        shadow.shadowBlurRadius = radius * Self.nsBlurScale
+        shadow.shadowOffset = NSSize(width: 0, height: offsetY)
+        return shadow
+    }
+}
+
+// MARK: - GlyphBadge
+
+/// A filled circle with any label centered on it. The circle's shadow goes on the circle
+/// alone, so the label's is not doubled.
+struct GlyphBadge<Label: View>: View {
+    let color: Color
+    /// The label's color. White suits every saturated fill; a white fill wants black.
+    let ink: Color
+    let diameter: CGFloat
+    /// The circle's shadow; nil draws none.
+    let circleShadow: GlyphBadgeShadow?
+    /// The label's shadow; nil draws none (black on white needs none: it only muddies).
+    let inkShadow: GlyphBadgeShadow?
+    /// A light-to-dark sheen over the fill, as `Color.gradient` draws.
+    let sheen: Bool
+    let label: () -> Label
+
+    init(color: Color,
+         ink: Color = .white,
+         diameter: CGFloat = 14,
+         circleShadow: GlyphBadgeShadow? = nil,
+         inkShadow: GlyphBadgeShadow? = .ink,
+         sheen: Bool = false,
+         @ViewBuilder label: @escaping () -> Label) {
+        self.color = color
+        self.ink = ink
+        self.diameter = diameter
+        self.circleShadow = circleShadow?.resolved(diameter: diameter)
+        self.inkShadow = inkShadow
+        self.sheen = sheen
+        self.label = label
+    }
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color)
+                .frame(width: diameter, height: diameter)
+                .shadow(color: circleShadow.map { .black.opacity($0.opacity) } ?? .clear,
+                        radius: circleShadow?.radius ?? 0, x: 0, y: circleShadow?.offsetY ?? 0)
+                .overlay {
+                    if sheen { Circle().fill(GlyphBadgeSheen.gradient) }
+                }
+            label()
+                .foregroundStyle(ink)
+                .shadow(color: inkShadow.map { .black.opacity($0.opacity) } ?? .clear,
+                        radius: inkShadow?.radius ?? 0, x: 0, y: inkShadow?.offsetY ?? 0)
+        }
+    }
+}
+
+extension GlyphBadge where Label == GlyphBadgeSymbol {
+    /// An SF Symbol badge. The glyph's point size defaults to Film Tracker's ratio, an 8pt
+    /// glyph in a 14pt circle.
+    init(systemName: String,
+         color: Color,
+         ink: Color = .white,
+         weight: Font.Weight = .bold,
+         diameter: CGFloat = 14,
+         glyphSize: CGFloat? = nil,
+         circleShadow: GlyphBadgeShadow? = nil,
+         inkShadow: GlyphBadgeShadow? = .ink,
+         sheen: Bool = false) {
+        let size = glyphSize ?? GlyphBadgeSymbol.glyphSize(forDiameter: diameter)
+        self.init(color: color, ink: ink, diameter: diameter, circleShadow: circleShadow,
+                  inkShadow: inkShadow, sheen: sheen) {
+            GlyphBadgeSymbol(systemName: systemName, size: size, weight: weight)
+        }
+    }
+}
+
+extension GlyphBadge where Label == Text {
+    /// A single-character badge (a region letter, a count).
+    init(character: String,
+         color: Color,
+         ink: Color = .white,
+         font: Font = .system(size: 10, weight: .semibold),
+         diameter: CGFloat = 14,
+         circleShadow: GlyphBadgeShadow? = nil,
+         inkShadow: GlyphBadgeShadow? = .ink,
+         sheen: Bool = false) {
+        self.init(color: color, ink: ink, diameter: diameter, circleShadow: circleShadow,
+                  inkShadow: inkShadow, sheen: sheen) {
+            Text(character).font(font)
+        }
+    }
+}
+
+/// The symbol label of `GlyphBadge(systemName:…)`, a named type so the initializer can
+/// name its `Label`.
+struct GlyphBadgeSymbol: View {
+    let systemName: String
+    let size: CGFloat
+    let weight: Font.Weight
+
+    /// An 8pt glyph in a 14pt circle.
+    static func glyphSize(forDiameter diameter: CGFloat) -> CGFloat { diameter * 8 / 14 }
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: size, weight: weight))
+    }
+}
+
+/// The sheen both renderers lay over the fill.
+enum GlyphBadgeSheen {
+    static let topOpacity: Double = 0.15
+    static var gradient: LinearGradient {
+        LinearGradient(colors: [.white.opacity(topOpacity), .clear], startPoint: .top, endPoint: .bottom)
+    }
+}
+
+// MARK: - SymbolBadge
+
+/// A symbol badge that animates a change of glyph or color: the new glyph comes in with
+/// SwiftUI's SF Symbols replace transition, over the circle's crossfade to the new color.
+///
+/// It sets its own animations, whatever its surroundings turn off, so it behaves
+/// identically wherever it sits; and it takes a new look in an update of its own, so a
+/// layout change that comes with it does not slide the badge along too.
+struct SymbolBadge: View {
+    let glyph: String
+    let color: Color
+    let ink: Color
+    let weight: Font.Weight
+    let diameter: CGFloat
+    /// The glyph's point size, when not the usual share of the diameter.
+    let glyphSize: CGFloat?
+    /// The circle's shadow; nil draws none.
+    let circleShadow: GlyphBadgeShadow?
+    /// The glyph's shadow; nil draws none. Its radius is a blur radius here.
+    let inkShadow: GlyphBadgeShadow?
+    let sheen: Bool
+    /// The duration of the change animation.
+    let animationDuration: Double
+    /// Whether the badge sits on a text baseline the way an SF Symbol would, centered on
+    /// the capitals.
+    let alignsToTextBaseline: Bool
+
+    init(systemName: String,
+         color: Color,
+         ink: Color = .white,
+         weight: Font.Weight = .bold,
+         diameter: CGFloat = 16,
+         glyphSize: CGFloat? = nil,
+         circleShadow: GlyphBadgeShadow? = .soft,
+         inkShadow: GlyphBadgeShadow? = .ink,
+         sheen: Bool = true,
+         animationDuration: Double = 0.2,
+         alignsToTextBaseline: Bool = true) {
+        self.glyph = systemName
+        self.color = color
+        self.ink = ink
+        self.weight = weight
+        self.diameter = diameter
+        self.glyphSize = glyphSize
+        self.circleShadow = circleShadow?.resolved(diameter: diameter)
+        self.inkShadow = inkShadow
+        self.sheen = sheen
+        self.animationDuration = animationDuration
+        self.alignsToTextBaseline = alignsToTextBaseline
+        _shown = State(initialValue: Look(glyph: systemName, color: color))
+    }
+
+    private struct Look: Equatable {
+        var glyph: String
+        var color: Color
+    }
+
+    /// What is on screen. A new look is taken in by `onChange`, in an update of its own.
+    @State private var shown: Look
+
+    var body: some View {
+        ZStack {
+            // A flat fill (which can blend from one color to the next) under the sheen
+            // (which can't, so it stays put). The shadow is cast by the fill alone: on the
+            // fill and sheen together, each gets one, drawn offscreen on every frame of a scroll.
+            Circle()
+                .fill(shown.color)
+                .shadow(color: circleShadow.map { .black.opacity($0.opacity) } ?? .clear,
+                        radius: circleShadow?.radius ?? 0, y: circleShadow?.offsetY ?? 0)
+                .overlay {
+                    if sheen { Circle().fill(GlyphBadgeSheen.gradient) }
+                }
+            // The glyph's shadow is a second copy of the glyph, darkened, blurred and
+            // dropped, playing the same effects at the same moments: a shadow modifier on
+            // the glyph is drawn outside its symbol effects and doesn't turn.
+            ZStack {
+                if let inkShadow {
+                    glyphImage
+                        .foregroundStyle(.black.opacity(inkShadow.opacity))
+                        .blur(radius: inkShadow.radius)
+                        .offset(y: inkShadow.offsetY)
+                }
+                glyphImage
+                    .foregroundStyle(ink)
+            }
+            // Flattened into one layer, with room for the blur: left live, the blur is a
+            // filter the compositor redraws on every frame of a scroll. The circle stays
+            // outside, since flattening it clips its shadow and shifts its color.
+            .padding(2)
+            .drawingGroup()
+            .padding(-2)
+        }
+        .frame(width: diameter, height: diameter)
+        // The outer modifier applies first, so the new look's animation is set after the reset.
+        .transaction(value: shown) { transaction in
+            transaction.animation = .easeInOut(duration: animationDuration)
+        }
+        .transaction { transaction in
+            transaction.disablesAnimations = false
+            transaction.animation = nil
+        }
+        .onChange(of: Look(glyph: glyph, color: color)) { _, new in shown = new }
+        .alignmentGuide(.firstTextBaseline) { dimensions in
+            alignsToTextBaseline
+                ? dimensions[VerticalAlignment.center] + diameter * 0.3
+                : dimensions[.firstTextBaseline]
+        }
+    }
+
+    private var glyphImage: some View {
+        Image(systemName: shown.glyph)
+            .font(.system(size: glyphSize ?? GlyphBadgeSymbol.glyphSize(forDiameter: diameter), weight: weight))
+            .contentTransition(.symbolEffect(.replace))
+    }
+}
+
+// MARK: - GlyphBadgeView
+
+/// The AppKit `GlyphBadge`: a layer-drawn circle with its own shadow, and a symbol or
+/// character over it with a view shadow. Flipped; sized by `diameter` through its
+/// intrinsic content size, and centers the circle in whatever frame it is given.
+///
+/// Placement follows SwiftUI's, to the device pixel, so an AppKit badge matches a SwiftUI one
+/// beside it: the symbol is drawn by `GlyphSymbolView`, and the character's text field is the
+/// text's width plus 4 at x − 2 (a field that centers its own text starts the line between
+/// pixels), both rounded where the window's pixels are. Give the view a frame on whole
+/// pixels, as SwiftUI would.
+final class GlyphBadgeView: NSView {
+    enum Content: Equatable {
+        /// An SF Symbol. A nil point size takes the usual share of the diameter.
+        case symbol(String, weight: NSFont.Weight = .bold, pointSize: CGFloat? = nil)
+        /// A character (a region letter, a count).
+        case character(String, font: NSFont = .systemFont(ofSize: 10, weight: .semibold))
+        case none
+    }
+
+    var content: Content = .none { didSet { if content != oldValue { applyContent() } } }
+    /// The fill; nil draws no circle (a bare glyph).
+    var fillColor: NSColor? = .systemGreen { didSet { applyColors() } }
+    var ink: NSColor = .white { didSet { applyColors() } }
+    var diameter: CGFloat = 14 {
+        didSet { invalidateIntrinsicContentSize(); applyContent(); applyCircleShadow() }
+    }
+    var circleShadow: GlyphBadgeShadow? { didSet { applyCircleShadow() } }
+    var inkShadow: GlyphBadgeShadow? = .ink { didSet { glyphHost.shadow = inkShadow?.nsShadow() } }
+    var sheen = false { didSet { sheenLayer.isHidden = !sheen } }
+    /// Whether the symbol centers by its drawn (vector) bounds horizontally, as SwiftUI centers
+    /// an Image in a ZStack, rather than by its alignment rectangle. See `GlyphSymbolView`.
+    var centersSymbolVectorBounds = true {
+        didSet { symbolView.centersVectorBoundsHorizontally = centersSymbolVectorBounds }
+    }
+    /// The height of the character's line, centered on the circle. Nil takes the text field's
+    /// own; pass SwiftUI's measure of the same text to sit where a SwiftUI `Text` would.
+    var characterLineHeight: CGFloat? { didSet { needsLayout = true } }
+
+    private let circle = CAShapeLayer()
+    private let sheenLayer = CAGradientLayer()
+    private let sheenMask = CAShapeLayer()
+    /// Carries the glyph's view shadow, so the circle's layer shadow is not doubled.
+    private let glyphHost = GlyphBadgeFlippedView()
+    private let symbolView = GlyphSymbolView()
+    private let characterField = NSTextField(labelWithString: "")
+
+    override var isFlipped: Bool { true }
+    override var intrinsicContentSize: NSSize { NSSize(width: diameter, height: diameter) }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = false
+        circle.shadowColor = NSColor.black.cgColor
+        layer?.addSublayer(circle)
+        sheenLayer.colors = [NSColor.white.withAlphaComponent(GlyphBadgeSheen.topOpacity).cgColor,
+                             NSColor.white.withAlphaComponent(0).cgColor]
+        // The layer is geometry-flipped with the view, so y = 0 is the top.
+        sheenLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        sheenLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        sheenLayer.mask = sheenMask
+        sheenLayer.isHidden = true
+        layer?.addSublayer(sheenLayer)
+        glyphHost.wantsLayer = true
+        glyphHost.shadow = inkShadow?.nsShadow()
+        addSubview(glyphHost)
+        symbolView.centersVectorBoundsHorizontally = centersSymbolVectorBounds
+        characterField.isBezeled = false
+        characterField.drawsBackground = false
+        glyphHost.addSubview(symbolView)
+        glyphHost.addSubview(characterField)
+        applyContent()
+        applyCircleShadow()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
+
+    override func layout() {
+        super.layout()
+        let disc = CGRect(x: (bounds.width - diameter) / 2, y: (bounds.height - diameter) / 2,
+                          width: diameter, height: diameter)
+        // A continuous capsule rather than an ellipse: on a square it is a hair squarer than
+        // a true circle, and it is the disc the AppKit cards drew before this view replaced them.
+        let path = Capsule(style: .continuous).path(in: disc).cgPath
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        circle.frame = bounds
+        circle.path = path
+        circle.shadowPath = path
+        sheenLayer.frame = bounds
+        sheenMask.frame = bounds
+        sheenMask.path = path
+        CATransaction.commit()
+        glyphHost.frame = bounds
+        symbolView.frame = glyphHost.bounds
+        // The label rule (see the type's notes), rounded in window pixels as SwiftUI rounds.
+        let size = characterField.intrinsicContentSize
+        let textWidth = min(size.width, bounds.width)
+        let height = characterLineHeight ?? size.height
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        let origin = convert(NSPoint.zero, to: nil)
+        let windowHeight = unsafe window?.contentView?.bounds.height ?? 0
+        let top = windowHeight - origin.y
+        func x(_ v: CGFloat) -> CGFloat { ((origin.x + v) * scale + 0.5).rounded(.down) / scale - origin.x }
+        func y(_ v: CGFloat) -> CGFloat { ((top + v) * scale + 0.5).rounded(.down) / scale - top }
+        let left = x((bounds.width - textWidth) / 2 - 2), upper = y((bounds.height - height) / 2)
+        characterField.frame = CGRect(x: left, y: upper,
+                                      width: x((bounds.width - textWidth) / 2 + textWidth + 2) - left,
+                                      height: y((bounds.height + height) / 2) - upper)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyContent() {
+        switch content {
+        case let .symbol(name, weight, pointSize):
+            symbolView.pointSize = pointSize ?? GlyphBadgeSymbol.glyphSize(forDiameter: diameter)
+            symbolView.weight = weight
+            symbolView.symbolName = name
+            symbolView.isHidden = false
+            characterField.isHidden = true
+        case let .character(text, font):
+            characterField.stringValue = text
+            characterField.font = font
+            characterField.isHidden = false
+            symbolView.isHidden = true
+        case .none:
+            symbolView.isHidden = true
+            characterField.isHidden = true
+        }
+        needsLayout = true
+        applyColors()
+    }
+
+    private func applyCircleShadow() {
+        let circleShadow = circleShadow?.resolved(diameter: diameter)
+        circle.shadowOpacity = Float(circleShadow?.opacity ?? 0)
+        circle.shadowRadius = circleShadow?.radius ?? 0
+        circle.shadowOffset = CGSize(width: 0, height: circleShadow?.offsetY ?? 0)
+    }
+
+    private func applyColors() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            circle.fillColor = fillColor?.cgColor
+            circle.isHidden = fillColor == nil
+        }
+        sheenLayer.isHidden = !sheen || fillColor == nil
+        symbolView.tint = ink
+        characterField.textColor = ink
+    }
+}
+
+// MARK: - GlyphSymbolView
+
+/// An SF Symbol drawn where SwiftUI would draw `Image(systemName:)` at the same font, to the
+/// device pixel. AppKit's own placement (an NSImageView's, or the image's size) lands up to
+/// half a point off, which shows beside SwiftUI.
+///
+/// Vertically it centers the symbol's vector bounds, rounded to the device pixel. Horizontally
+/// it centers the alignment rectangle's width, as SwiftUI does for an Image in a frame, or,
+/// with `centersVectorBoundsHorizontally`, the vector bounds, as it does in a ZStack.
+/// The vector bounds come from an 8× raster of the symbol, rounded out to the half point, and
+/// are cached per symbol, size and weight.
+class GlyphSymbolView: NSView {
+    var symbolName: String? { didSet { if symbolName != oldValue { needsDisplay = true } } }
+    /// The font the symbol is drawn at, as `.font(.system(size:weight:))` sets it on an Image.
+    var pointSize: CGFloat = 11 { didSet { if pointSize != oldValue { needsDisplay = true } } }
+    var weight: NSFont.Weight = .regular { didSet { if weight != oldValue { needsDisplay = true } } }
+    var tint: NSColor = .secondaryLabelColor { didSet { needsDisplay = true } }
+    /// Centers the symbol's vector bounds horizontally too, as SwiftUI does for an Image
+    /// centered in a ZStack (a badge), rather than its alignment rectangle, as it does in a frame.
+    var centersVectorBoundsHorizontally = false { didSet { needsDisplay = true } }
+
+    override var isFlipped: Bool { true }
+
+    private struct Symbol {
+        let image: NSImage
+        /// The symbol's vector bounds within `image`, top-left origin, in points.
+        let bounds: CGRect
+    }
+    private struct Key: Hashable { let name: String; let pointSize: CGFloat; let weight: CGFloat }
+    @MainActor private static var cache: [Key: Symbol] = [:]
+
+    @MainActor private static func symbol(_ name: String, pointSize: CGFloat, weight: NSFont.Weight) -> Symbol? {
+        let key = Key(name: name, pointSize: pointSize, weight: weight.rawValue)
+        if let cached = cache[key] { return cached }
+        let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(config) else { return nil }
+        // The vector bounds, from an 8x raster's coverage, rounded out to the half point.
+        let scale: CGFloat = 8
+        let w = Int(image.size.width * scale), h = Int(image.size.height * scale)
+        guard let context = unsafe CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
+              let cg = unsafe image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let data = unsafe context.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for y in 0..<h {
+            for x in 0..<w where unsafe data[y * w + x] > 64 {
+                minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return nil }
+        // Rows are top-down in the context's memory.
+        func down(_ v: Int) -> CGFloat { (CGFloat(v) / scale * 2).rounded(.down) / 2 }
+        func up(_ v: Int) -> CGFloat { (CGFloat(v) / scale * 2).rounded(.up) / 2 }
+        let bounds = CGRect(x: down(minX), y: down(minY), width: up(maxX + 1) - down(minX), height: up(maxY + 1) - down(minY))
+        let symbol = Symbol(image: image, bounds: bounds)
+        cache[key] = symbol
+        return symbol
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let symbolName, let symbol = Self.symbol(symbolName, pointSize: pointSize, weight: weight) else { return }
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        func pixel(_ v: CGFloat) -> CGFloat { (v * scale + 0.5).rounded(.down) / scale }
+        let b = symbol.bounds
+        let align = symbol.image.alignmentRect
+        let x = centersVectorBoundsHorizontally
+            ? pixel((bounds.width - b.width) / 2) - b.minX
+            : pixel((bounds.width - align.width) / 2) - align.minX
+        let origin = CGPoint(x: x, y: pixel((bounds.height - b.height) / 2) - b.minY)
+        let rect = NSRect(origin: origin, size: symbol.image.size)
+        // Replace the black with the tint, keeping its coverage, in an image of its own: a .sourceIn fill
+        // on the view's backing, at a rect off the pixel grid, could leave a dark seam in the glyph.
+        let image = symbol.image, tint = tint
+        let tinted = NSImage(size: image.size, flipped: false) { r in
+            image.draw(in: r)
+            tint.set()
+            r.fill(using: .sourceIn)
+            return true
+        }
+        tinted.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+}
+
+/// A flipped, otherwise plain view: `GlyphBadgeView`'s glyph host, so its NSShadow's
+/// offset points down.
+final class GlyphBadgeFlippedView: NSView {
+    override var isFlipped: Bool { true }
 }

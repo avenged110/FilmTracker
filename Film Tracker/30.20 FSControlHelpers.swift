@@ -512,28 +512,20 @@ extension View {
     /// The list style, outline, clip, and shadow of the sheet's three reorderable tables,
     /// applied to the `List` itself.
     ///
-    /// The values come from `FieldEdgeTreatment`, so the tables cannot disagree about a radius
-    /// or shadow opacity. What they could disagree about is the *order* modifiers are applied
-    /// in, which is load-bearing:
+    /// The edge is the shared `.standard` field edge, so the tables cannot disagree about a
+    /// radius or shadow opacity. What remains load-bearing here is the order:
     ///
-    ///   - Sizing before the clip, so the rounded rect and stroke resolve against the
+    ///   - Sizing before the chrome, so the rounded rect and stroke resolve against the
     ///     container's final bounds. Clipping first resolves the shape against the
     ///     `List`'s own laid-out bounds, leaving the last alternating background
     ///     band's overhang outside the clip as a sliver of fill below the border.
-    ///   - The content clip is inset by exactly the border width, with the border
-    ///     stroked into the ring that inset leaves free. Without the inset, the
+    ///   - The content clip is inset by exactly the border width (`insetsInterior`), with
+    ///     the border stroked into the ring that inset leaves free. Without the inset, the
     ///     alternating fill paints to the bounds and composites with the translucent
     ///     separator color, darkening the bottom edge into an apparent extra band.
-    ///   - The shadow is applied last, after both clip and border, so it's cast by
-    ///     the finished shape. Shadows don't participate in layout, so the table's
-    ///     bounds are unchanged.
-    ///
-    /// A shared declaration keeps the three tables from drifting apart in that order.
-    ///
-    /// `.continuous` is stated here because all three consumers are tables.
-    /// `FixedHeightScrollingTextView` rounds with the default circular style instead —
-    /// its corner must match the AppKit `drawFocusRingMask` its focus ring strokes
-    /// against — so it draws its own chrome from the same constants rather than this.
+    ///   - The list paints its own rows, so there is no fill, and the shadow is cast by
+    ///     the finished shape (`.content`). Shadows don't participate in layout, so the
+    ///     table's bounds are unchanged.
     func listContainerChrome(height: CGFloat) -> some View {
         self
             // The list style the three tables share: inset, alternating row bands, and
@@ -543,19 +535,7 @@ extension View {
             .scrollDisabled(true)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: height)
-            .clipShape(RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius,
-                                        style: .continuous)
-                .inset(by: FieldEdgeTreatment.borderWidth))
-            .overlay(
-                RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius,
-                                 style: .continuous)
-                    .strokeBorder(FieldEdgeTreatment.borderGradient,
-                                  lineWidth: FieldEdgeTreatment.borderWidth)
-            )
-            .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
-                    radius: FieldEdgeTreatment.shadowRadius,
-                    x: 0,
-                    y: FieldEdgeTreatment.shadowOffsetY)
+            .fieldEdgeChrome(fill: nil, clipsContent: true, insetsInterior: true, shadow: .content)
     }
 }
 
@@ -1154,25 +1134,16 @@ struct ListCircleButtonStyle: ButtonStyle {
         // it keeps the fill and the glyph reading the same amount.
         let darkening = isDisabled ? Self.disabledDarkening : Self.pressedDarkening
 
-        return Circle()
-            // Darkens rather than swapping to a separate pressed color, so any
-            // fill passed in gets a consistent press response without needing a
-            // paired constant declared alongside it. The conversion only runs
-            // while the control is actually held.
-            .fill(isDimmed ? fill.darkened(by: darkening) : fill)
-            // Opaque backing beneath the fill.
-            //
-            // Not every fill in this family is opaque — the import and edit
-            // controls are gray at 50% — and a shadow cast by a translucent
-            // shape is visible *through* it, which stacked the shadow on top of
-            // the fill and made those buttons read as markedly darker than the
-            // solid green "+" beside them. Compositing the fill over an opaque
-            // circle first leaves the drawn color unchanged (the sheet behind is
-            // this same background) while giving the shadow something it cannot
-            // show through, so every control in the family now casts the same
-            // shadow.
-            .background(Circle().fill(listButtonBackingFill))
-            .overlay {
+        // UtilityKit's GlyphBadge draws the circle and centers the glyph on it. Its own
+        // shadows are off: the family's shadow is cast once, below, by the finished control,
+        // and the glyph's comes with the label `ListCircleButton` supplies.
+        //
+        // The fill darkens rather than swapping to a separate pressed color, so any
+        // fill passed in gets a consistent press response without needing a paired
+        // constant declared alongside it. The conversion only runs while the control
+        // is actually held.
+        return GlyphBadge(color: isDimmed ? fill.darkened(by: darkening) : fill,
+                          diameter: diameter, inkShadow: nil) {
                 configuration.label
                     .offset(x: glyphOffset.width, y: glyphOffset.height)
                     // Darkened in step with the fill.
@@ -1194,6 +1165,18 @@ struct ListCircleButtonStyle: ButtonStyle {
                             : .white
                     )
             }
+            // Opaque backing beneath the fill.
+            //
+            // Not every fill in this family is opaque — the import and edit
+            // controls are gray at 50% — and a shadow cast by a translucent
+            // shape is visible *through* it, which stacked the shadow on top of
+            // the fill and made those buttons read as markedly darker than the
+            // solid green "+" beside them. Compositing the fill over an opaque
+            // circle first leaves the drawn color unchanged (the sheet behind is
+            // this same background) while giving the shadow something it cannot
+            // show through, so every control in the family now casts the same
+            // shadow.
+            .background(Circle().fill(listButtonBackingFill))
             // Flattened so the shadow is cast once by the finished control
             // rather than separately by each layer of it.
             .compositingGroup()
@@ -2465,30 +2448,10 @@ private struct ViewingDatesTableContent: View {
                 }
         }
         // The outer chrome of the reorderable lists (see `listContainerChrome`): content clipped
-        // inside the border's 1pt ring, the fading outline stroked into that ring, and the
-        // shadow cast by the finished shape. The shadow rides on an opaque backing plate
-        // rather than the table itself, so the collapsed table's "Show All" button and
-        // fade don't cast shadows of their own.
-        .clipShape(RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius,
-                                    style: .continuous)
-            .inset(by: FieldEdgeTreatment.borderWidth))
-        .background(
-            RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius,
-                             style: .continuous)
-                .inset(by: FieldEdgeTreatment.borderWidth)
-                .fill(Color(nsColor: .controlBackgroundColor))
-                .shadow(color: .black.opacity(FieldEdgeTreatment.shadowOpacity),
-                        radius: FieldEdgeTreatment.shadowRadius,
-                        x: 0,
-                        y: FieldEdgeTreatment.shadowOffsetY)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: FieldEdgeTreatment.cornerRadius,
-                             style: .continuous)
-                .strokeBorder(FieldEdgeTreatment.borderGradient,
-                              lineWidth: FieldEdgeTreatment.borderWidth)
-                .allowsHitTesting(false)
-        )
+        // inside the border's 1pt ring and the fading outline stroked into that ring. The
+        // shadow rides on an opaque backing plate rather than the table itself, so the
+        // collapsed table's "Show All" button and fade don't cast shadows of their own.
+        .fieldEdgeChrome(clipsContent: true, insetsInterior: true)
         // Refresh cached rows only when the underlying dates array changes.
         .onChange(of: dates) { _, newDates in
             cachedRows = ViewingDatesTableContent.buildRows(from: newDates)

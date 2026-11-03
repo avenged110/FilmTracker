@@ -1,7 +1,8 @@
 // MARK: - DebugLogKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Drop-in logging kit: call sites hand messages to an ordered pipe, and an actor buffers them and writes them to a log file.
+// Drop-in logging kit: call sites hand messages to an ordered pipe, and an actor buffers
+// them and writes them to a log file.
 //
 // STANDARDIZED LOGGING UTILITY — one file, drop into any project.
 //
@@ -15,7 +16,7 @@
 // One call, as early as possible in launch (before the first log line):
 //
 //   Logger.bootstrap(
-//       .init(fileName: "Toggler.log",
+//       .init(fileName: "MyApp.log",
 //             destination: .containerLibraryLogs,
 //             isEnabled: { Preferences.loggingEnabled }))
 //   Logger.prepareLogDirectory()   // after preference defaults are registered
@@ -124,7 +125,7 @@ public struct LogObserver: Sendable {
 
 /// Everything a project can vary, in one value. Installed by `Logger.bootstrap`.
 public struct LoggerConfiguration: Sendable {
-    /// Log file name, e.g. `"Toggler.log"`.
+    /// Log file name, e.g. `"MyApp.log"`.
     public var fileName: String
 
     /// Where the file lives.

@@ -87,15 +87,8 @@ private struct BackupInfoBox: View {
         .padding(8)
         .frame(height: Self.height, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        // Same fill and outline as the path bar above and as the Export tab's two blocks.
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(NSColor.controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(Color(NSColor.separatorColor), lineWidth: 0.5)
-        )
+        // The shared field edge, as on the path bar above and the Export tab's two blocks.
+        .fieldEdgeChrome()
     }
 }
 

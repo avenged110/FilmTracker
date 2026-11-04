@@ -1,8 +1,8 @@
 // MARK: - ListTable.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The List Membership table in RightSidebar's Details tab (module 04). It combines regular,
-// Film Queue, and smart list memberships into one sorted list.
+/// The List Membership table in RightSidebar's Details tab (module 04). It combines regular,
+/// Film Queue, and smart list memberships into one sorted list.
 
 import SwiftUI
 
@@ -36,9 +36,9 @@ struct ListTable: View {
                                     isSmartList: false, isQueueList: true) }
     }
 
-    // Smart list memberships are read in body, so SwiftUI's @Observable tracking on SmartLists
-    // re-renders this view whenever SmartLists recalculates. A cached @State copy would not update.
-    // The other two sets need event invalidation, because MemoryStore is not observable.
+    /// Smart list memberships are read in body, so SwiftUI's @Observable tracking on SmartLists
+    /// re-renders this view whenever SmartLists recalculates. A cached @State copy would not update.
+    /// The other two sets need event invalidation, because MemoryStore is not observable.
     private var smartListMemberships: [CombinedListInfo] {
         guard Preferences.smartLists, let filmID = film?.id else { return [] }
         return SmartListType.allCases
@@ -52,8 +52,8 @@ struct ListTable: View {
             }
     }
 
-    // Queue memberships first, then regular lists, then smart lists. Each group uses a total
-    // order, so the result does not depend on how the non-stable sort orders equal elements.
+    /// Queue memberships first, then regular lists, then smart lists. Each group uses a total
+    /// order, so the result does not depend on how the non-stable sort orders equal elements.
     private var combinedLists: [CombinedListInfo] {
         (queueMemberships + regularListMemberships + smartListMemberships).sorted { lhs, rhs in
             if lhs.isQueueList != rhs.isQueueList { return lhs.isQueueList }
@@ -61,45 +61,45 @@ struct ListTable: View {
             if lhs.isSmartList {
                 return lhs.listName.englishCaseInsensitiveCompare(rhs.listName) == .orderedAscending
             }
-            // Queue entries and regular lists both reach here. Two queue entries occur only after
-            // a corrupted restore that put a film in two sections. Ordering by queueOrder matches
-            // the Film Queue's Up Next, Soon, Later order, and the distinct orders never reach the tiebreak.
-            //
-            // The name tiebreak makes the regular-list order total, since Swift's sort is not
-            // stable and two lists with equal displayOrder could swap between renders. The app
-            // uniquifies list names case-insensitively on create and rename, so only a restored
-            // backup with duplicate names can still tie.
+            /// Queue entries and regular lists both reach here. Two queue entries occur only after
+            /// a corrupted restore that put a film in two sections. Ordering by queueOrder matches
+            /// the Film Queue's Up Next, Soon, Later order, and the distinct orders never reach the tiebreak.
+            ///
+            /// The name tiebreak makes the regular-list order total, since Swift's sort is not
+            /// stable and two lists with equal displayOrder could swap between renders. The app
+            /// uniquifies list names case-insensitively on create and rename, so only a restored
+            /// backup with duplicate names can still tie.
             if lhs.displayOrder != rhs.displayOrder { return lhs.displayOrder < rhs.displayOrder }
             return lhs.listName.englishCaseInsensitiveCompare(rhs.listName) == .orderedAscending
         }
     }
 
     var body: some View {
-        // Reads the token so the dependency described on it is established.
+        /// Reads the token so the dependency described on it is established.
         let _ = externalRefreshToken
 
         VStack(spacing: 6) {
-            // Title.
+            /// Title.
             RSBHelpers.moduleHeader("List Membership")
-            // Evaluating combinedLists here in body registers observation on dataCoordinator.smartLists.
+            /// Evaluating combinedLists here in body registers observation on dataCoordinator.smartLists.
             ListMembershipTable(
                 isTableExpanded: $isTableExpanded,
                 listTable: combinedLists
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // No onChange(of: film) handler. A film change re-renders and recomputes the memberships,
-        // so the table never shows an empty first frame.
+        /// No onChange(of: film) handler. A film change re-renders and recomputes the memberships,
+        /// so the table never shows an empty first frame.
         .onReceive(AppEventBus.shared.filmEvents) { event in
             if case .updated(let updatedFilmID) = event,
                updatedFilmID == film?.id {
                 externalRefreshToken &+= 1
             }
         }
-        // Smart list membership also changes without any film or list event: the midnight
-        // recalculation (date-based lists such as Up for Rotation and Upcoming Releases),
-        // turning smart lists on, and Queue-exclusion changes all announce themselves only
-        // through smartListsRecalculated.
+        /// Smart list membership also changes without any film or list event: the midnight
+        /// recalculation (date-based lists such as Up for Rotation and Upcoming Releases),
+        /// turning smart lists on, and Queue-exclusion changes all announce themselves only
+        /// through smartListsRecalculated.
         .onReceive(AppEventBus.shared.viewEvents) { event in
             guard case .smartListsRecalculated = event, film?.id != nil else { return }
             externalRefreshToken &+= 1
@@ -108,11 +108,11 @@ struct ListTable: View {
             guard film?.id != nil else { return }
             switch event {
             case .membershipChanged:
-                // Refresh on every membership change. A membership check would fail for removals,
-                // because MemoryStore is updated before the event fires. Refreshing is cheap.
+                /// Refresh on every membership change. A membership check would fail for removals,
+                /// because MemoryStore is updated before the event fires. Refreshing is cheap.
                 externalRefreshToken &+= 1
             case .updated, .deleted:
-                // Refresh to catch name/order changes or deletions.
+                /// Refresh to catch name/order changes or deletions.
                 externalRefreshToken &+= 1
             default:
                 break
@@ -123,8 +123,8 @@ struct ListTable: View {
 }
 
 // MARK: - Combined List Info
-// Represents list information that can be either a regular list, a smart list, or an
-// internal Film Queue section membership.
+/// Represents list information that can be either a regular list, a smart list, or an
+/// internal Film Queue section membership.
 struct CombinedListInfo: Identifiable {
     /// Stable, content-derived identity. `ListTable.body` rebuilds these on every pass, so a
     /// fresh `UUID` each time would make `CustomTable` recreate the rows instead of updating them.
@@ -145,7 +145,7 @@ struct CombinedListInfo: Identifiable {
 }
 
 // MARK: - List Membership Table
-// CombinedListInfo is the row model directly, with no per-render mapping step.
+/// CombinedListInfo is the row model directly, with no per-render mapping step.
 struct ListMembershipTable: View {
     @Binding var isTableExpanded: Bool
     let listTable: [CombinedListInfo]
@@ -158,7 +158,7 @@ struct ListMembershipTable: View {
             ],
             isExpanded: $isTableExpanded
         ) { row in
-            // Smart lists are italic, Film Queue rows get a glyph, and regular lists are plain.
+            /// Smart lists are italic, Film Queue rows get a glyph, and regular lists are plain.
             if row.isSmartList {
                 CustomTableCell(
                     Text(row.listName)
@@ -168,9 +168,9 @@ struct ListMembershipTable: View {
                     maxWidth: 234
                 )
             } else if row.isQueueList {
-                // The glyph is an inline Text attachment (see RSBHelpers.glyphPrefixedText). It is
-                // sized to match the same symbol in the Watch Details row. An inline attachment
-                // otherwise takes this table's larger text size. glyphPointSize(for:) keeps the two matched.
+                /// The glyph is an inline Text attachment (see RSBHelpers.glyphPrefixedText). It is
+                /// sized to match the same symbol in the Watch Details row. An inline attachment
+                /// otherwise takes this table's larger text size. glyphPointSize(for:) keeps the two matched.
                 CustomTableCell(
                     RSBHelpers.glyphPrefixedText(
                         RSBHelpers.queueMembershipGlyph, row.listName,

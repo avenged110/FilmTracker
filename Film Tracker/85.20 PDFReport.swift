@@ -1,17 +1,17 @@
 // MARK: - PDFReport.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Builds the complete-library table — one row per film — as a PDFTableSection.
-//
-// Layer three of the PDF stack described at the top of PDFCore.swift (85.00). This file
-// owns the table's MEANING: which columns exist, what each cell says about a film, and
-// which fill each state earns. It draws nothing itself; `LibraryPDFExporter` (43.10) hands
-// the section it produces to `PDFTableRenderer` (85.10).
-//
-// Every measurement the table depends on lives in `LibraryTableLayout` below, in one block,
-// so the layout can be retuned without reading the derivation rules — and every color comes
-// from `PDFPalette`, so a shade named once is the same shade in every column that asks for
-// it.
+/// Builds the complete-library table — one row per film — as a PDFTableSection.
+///
+/// Layer three of the PDF stack described at the top of PDFCore.swift (85.00). This file
+/// owns the table's MEANING: which columns exist, what each cell says about a film, and
+/// which fill each state earns. It draws nothing itself; `LibraryPDFExporter` (43.10) hands
+/// the section it produces to `PDFTableRenderer` (85.10).
+///
+/// Every measurement the table depends on lives in `LibraryTableLayout` below, in one block,
+/// so the layout can be retuned without reading the derivation rules — and every color comes
+/// from `PDFPalette`, so a shade named once is the same shade in every column that asks for
+/// it.
 
 import AppKit
 import Foundation
@@ -136,7 +136,7 @@ struct LibraryTableLayout {
 @MainActor
 enum LibraryPDFReport {
     // MARK: Column indices
-    // Named so the header groups below cannot drift out of step with the column array.
+    /// Named so the header groups below cannot drift out of step with the column array.
 
     private enum Column {
         static let index = 0
@@ -173,8 +173,8 @@ enum LibraryPDFReport {
             let right = rhs.sortName.isEmpty ? rhs.name : rhs.sortName
             let comparison = left.englishCaseInsensitiveCompare(right)
             if comparison != .orderedSame { return comparison == .orderedAscending }
-            // Total order: two films sharing a sort name would otherwise be free to swap
-            // between exports, which makes two PDFs of an unchanged library differ.
+            /// Total order: two films sharing a sort name would otherwise be free to swap
+            /// between exports, which makes two PDFs of an unchanged library differ.
             return lhs.id.uuidString < rhs.id.uuidString
         }
     }
@@ -188,8 +188,8 @@ enum LibraryPDFReport {
         let ordered = Self.ordered(films)
 
         let columns: [PDFTableColumn] = [
-            // Values right-aligned so the digits line up; the label centered, because a
-            // lone "#" pinned to the right edge reads as though it belongs to the title.
+            /// Values right-aligned so the digits line up; the label centered, because a
+            /// lone "#" pinned to the right edge reads as though it belongs to the title.
             PDFTableColumn("#",     width: layout.index,       alignment: .right,
                            headerAlignment: .center),
             PDFTableColumn("Title", width: layout.title,       alignment: .left),
@@ -202,10 +202,10 @@ enum LibraryPDFReport {
             PDFTableColumn("Subs.", width: layout.subs,        alignment: .center),
             PDFTableColumn("Notes", width: layout.notes,       alignment: .left),
             PDFTableColumn("Discs", width: layout.discs,       alignment: .center),
-            // Wraps to "HB" over "rf" in the column's own merged header cell, the way
-            // "Aspect Ratio" and "Cust. Edit" wrap in theirs. "rf" alone does not say
-            // whose — the value is a HandBrake constant-quality figure, and the tool's
-            // name is what makes the number interpretable.
+            /// Wraps to "HB" over "rf" in the column's own merged header cell, the way
+            /// "Aspect Ratio" and "Cust. Edit" wrap in theirs. "rf" alone does not say
+            /// whose — the value is a HandBrake constant-quality figure, and the tool's
+            /// name is what makes the number interpretable.
             PDFTableColumn("HB rf", width: layout.rf,          alignment: .center),
             PDFTableColumn("Aspect Ratio", width: layout.aspect, alignment: .center),
             PDFTableColumn("Color", width: layout.chroma,      alignment: .center),
@@ -214,12 +214,12 @@ enum LibraryPDFReport {
                            headerAlignment: .center),
         ]
 
-        // The left group covers DVDs too, but Blu-ray is what the column is FOR — a DVD is
-        // the fallback state it reports, not the thing it is named after.
-        // `headerWeights` lets the Disc/Audio labels split the span differently from the
-        // data below them: "Audio" (19.0pt) is wider than the "5.1" it names, and "Disc"
-        // (15.8pt) has width to spare, so the header row borrows across the divider rather
-        // than the table paying for it on every row.
+        /// The left group covers DVDs too, but Blu-ray is what the column is FOR — a DVD is
+        /// the fallback state it reports, not the thing it is named after.
+        /// `headerWeights` lets the Disc/Audio labels split the span differently from the
+        /// data below them: "Audio" (19.0pt) is wider than the "5.1" it names, and "Disc"
+        /// (15.8pt) has width to spare, so the header row borrows across the divider rather
+        /// than the table paying for it on every row.
         let groups = [
             PDFHeaderGroup("Purchased Blu-ray",
                            columns: Column.disc2K..<(Column.audio2K + 1),
@@ -253,9 +253,9 @@ enum LibraryPDFReport {
         let best4K = preferredFourK(film)
         let ownership = purchaseTint(film, best2K: best2K, best4K: best4K)
 
-        // Whether the film has ANY release in each column's format — which is what
-        // separates "you have not bought this" (red) from "there is nothing here to buy"
-        // (no fill), across BOTH sub-columns of each purchased-disc group.
+        /// Whether the film has ANY release in each column's format — which is what
+        /// separates "you have not bought this" (red) from "there is nothing here to buy"
+        /// (no fill), across BOTH sub-columns of each purchased-disc group.
         let hasNonFourK = film.releases.contains {
             $0.format == ReleaseFormat.bluRay.rawValue || $0.format == ReleaseFormat.dvd.rawValue
         }
@@ -323,17 +323,17 @@ enum LibraryPDFReport {
 
         switch source {
         case FilmDigitalSource.blurayDisc:
-            // A remastered Blu-ray reads "remaster", not "rem. BD": the pale green already
-            // says Blu-ray, so repeating the format costs width and tells the reader
-            // nothing the fill has not.
+            /// A remastered Blu-ray reads "remaster", not "rem. BD": the pale green already
+            /// says Blu-ray, so repeating the format costs width and tells the reader
+            /// nothing the fill has not.
             return remastered
                 ? PDFCell(remasterLabel, fill: PDFPalette.paleGreen)
                 : PDFCell("BD", fill: PDFPalette.green)
         case FilmDigitalSource.dvd:
             return PDFCell(prefix + "DVD", fill: PDFPalette.red)
         default:
-            // "<resolution> download" → "<resolution>". An unrecognized value passes
-            // through verbatim rather than being reduced to something it may not mean.
+            /// "<resolution> download" → "<resolution>". An unrecognized value passes
+            /// through verbatim rather than being reduced to something it may not mean.
             let resolution = source.hasSuffix(downloadSuffix)
                 ? String(source.dropLast(downloadSuffix.count))
                 : source
@@ -398,15 +398,15 @@ enum LibraryPDFReport {
                                          purchased release: ReleaseSnapshot?,
                                          formatExists: Bool) -> PDFCell {
         guard let release else {
-            // No disc on record at all is a non-event, not a gap: red there would flag a
-            // purchase the user could not have made. Same rule as the 4K column's.
+            /// No disc on record at all is a non-event, not a gap: red there would flag a
+            /// purchase the user could not have made. Same rule as the 4K column's.
             guard formatExists else { return PDFCell("") }
             return PDFCell(unpurchasedBluRayNote(film), fill: PDFPalette.red)
         }
 
-        // "remaster" in either format. The FILL is what names the format — pale green for
-        // Blu-ray, light gray for DVD — so spelling it out again in the text would cost
-        // width to repeat something already on the page.
+        /// "remaster" in either format. The FILL is what names the format — pale green for
+        /// Blu-ray, light gray for DVD — so spelling it out again in the text would cost
+        /// width to repeat something already on the page.
         if release.format == ReleaseFormat.bluRay.rawValue {
             return release.remastered
                 ? PDFCell(remasterLabel, fill: PDFPalette.paleGreen)
@@ -487,9 +487,9 @@ enum LibraryPDFReport {
         case ReleaseMasterType.upscaled:
             return PDFCell("upscaled", fill: PDFPalette.purple)
         default:
-            // Purchased, but the master type is unset or from a build this one does not
-            // know. The purchase is the fact worth printing; the master type is not
-            // something this cell can vouch for, so it says neither "native" nor "upscaled".
+            /// Purchased, but the master type is unset or from a build this one does not
+            /// know. The purchase is the fact worth printing; the master type is not
+            /// something this cell can vouch for, so it says neither "native" nor "upscaled".
             return PDFCell("4K", fill: PDFPalette.lightBlue)
         }
     }
@@ -510,9 +510,9 @@ enum LibraryPDFReport {
     /// empty cell would read exactly like a good discrete track, which is the one reading
     /// the data does not support.
     private static func audioCell(_ release: ReleaseSnapshot?, formatExists: Bool) -> PDFCell {
-        // The fourth state, shared with the Disc cell beside it: a film with no release in
-        // this column's format has no audio to report and nothing to buy, so it takes no
-        // fill. Red here would say "unbought" about a disc that does not exist.
+        /// The fourth state, shared with the Disc cell beside it: a film with no release in
+        /// this column's format has no audio to report and nothing to buy, so it takes no
+        /// fill. Red here would say "unbought" about a disc that does not exist.
         guard let release else {
             return formatExists ? PDFCell("", fill: PDFPalette.red) : PDFCell("")
         }
@@ -576,29 +576,29 @@ enum LibraryPDFReport {
                                   best4K: ReleaseSnapshot?,
                                   fill: NSColor?,
                                   layout: LibraryTableLayout) -> PDFCell {
-        // Built at full length first, then rebuilt with the studio names shortened only if
-        // the full form would not fit. Abbreviating unconditionally would cost every reader
-        // the studio's real name to save a cell that had room for it; abbreviating never
-        // would let one long note truncate away the derived facts behind it.
-        //
-        // This REDUCES truncation rather than guaranteeing against it: an authored note has
-        // no upper bound and no abbreviation can save a cell from one. What it does buy is
-        // that the table's own derived items — which appear nowhere else in the document —
-        // survive a note that would otherwise have pushed them off the end.
+        /// Built at full length first, then rebuilt with the studio names shortened only if
+        /// the full form would not fit. Abbreviating unconditionally would cost every reader
+        /// the studio's real name to save a cell that had room for it; abbreviating never
+        /// would let one long note truncate away the derived facts behind it.
+        ///
+        /// This REDUCES truncation rather than guaranteeing against it: an authored note has
+        /// no upper bound and no abbreviation can save a cell from one. What it does buy is
+        /// that the table's own derived items — which appear nowhere else in the document —
+        /// survive a note that would otherwise have pushed them off the end.
         let full = notesContent(film, best2K: best2K, best4K: best4K, abbreviated: false)
         let font = PDFFonts.font(size: layout.geometry.fontSize, weight: .semibold)
         let available = layout.notesWidth - (layout.geometry.cellPaddingX * 2)
 
-        // Measured in the upright face. The italic runs are the same family at the same
-        // size and differ by a fraction of a point across a studio name, which is within
-        // the slack this decision already carries.
+        /// Measured in the upright face. The italic runs are the same family at the same
+        /// size and differ by a fraction of a point across a studio name, which is within
+        /// the slack this decision already carries.
         let content = PDFDrawing.singleLineWidth(full.text, font: font) <= available
             ? full
             : notesContent(film, best2K: best2K, best4K: best4K, abbreviated: true)
 
-        // Truncated, not wrapped: this column is the table's catch-all and a single long
-        // authored note would otherwise grow its whole row to three or four lines, taking
-        // the fifteen columns beside it along with it.
+        /// Truncated, not wrapped: this column is the table's catch-all and a single long
+        /// authored note would otherwise grow its whole row to three or four lines, taking
+        /// the fifteen columns beside it along with it.
         return PDFCell(content.text, fill: fill, alignment: .left, truncates: true,
                        highlights: regionLockHighlight(for: content.regionLock)
                            + content.studios.map { PDFTextHighlight($0, italic: true) })
@@ -623,56 +623,56 @@ enum LibraryPDFReport {
         var items: [PDFNoteList.Item] = []
         var studios: [String] = []
 
-        // Leads the cell: a disc that will not play on the user's hardware is the one fact
-        // here that changes what they can do with the shelf copy. The column truncates
-        // rather than wrapping, so leading position is also what guarantees it survives.
+        /// Leads the cell: a disc that will not play on the user's hardware is the one fact
+        /// here that changes what they can do with the shelf copy. The column truncates
+        /// rather than wrapping, so leading position is also what guarantees it survives.
         let lock = regionLockNote(film)
         if let lock { items.append(PDFNoteList.Item(lock, preservesCase: true)) }
 
-        // A steelbook is a property of the case, not of the disc, so it has no technical
-        // column to live in — but it is the first thing the user wants to know about a
-        // shelf copy. Reported once however many purchased releases carry the tag.
+        /// A steelbook is a property of the case, not of the disc, so it has no technical
+        /// column to live in — but it is the first thing the user wants to know about a
+        /// shelf copy. Reported once however many purchased releases carry the tag.
         if film.releases.contains(where: { $0.purchased && $0.hasArtwork == ReleaseArtwork.steelbook }) {
-            // A brand name, so it is capitalized wherever it lands in the list.
+            /// A brand name, so it is capitalized wherever it lands in the list.
             items.append(PDFNoteList.Item("Steelbook", preservesCase: true))
         }
 
-        // The open-matte qualifier, displaced from the aspect column so that column can be
-        // sized to a bare ratio. See `aspectRatioCell`.
+        /// The open-matte qualifier, displaced from the aspect column so that column can be
+        /// sized to a bare ratio. See `aspectRatioCell`.
         if isOpenMatte(film.aspectRatio) { items.append(PDFNoteList.Item("open matte")) }
 
-        // Which cut the user's own copy is, and which OTHER cuts the discs on the shelf
-        // would give them. Nothing else in the table reports either.
+        /// Which cut the user's own copy is, and which OTHER cuts the discs on the shelf
+        /// would give them. Nothing else in the table reports either.
         items.append(contentsOf: versionNotes(film))
 
-        // Two or more purchased discs of the SAME format — a double dip. Neither disc
-        // column can report it: each shows the one release it settled on, so a second copy
-        // of that format is invisible outside this note.
+        /// Two or more purchased discs of the SAME format — a double dip. Neither disc
+        /// column can report it: each shows the one release it settled on, so a second copy
+        /// of that format is invisible outside this note.
         for note in duplicateFormatNotes(film, abbreviated: abbreviated) {
             items.append(PDFNoteList.Item(note.text, preservesCase: true))
             studios.append(contentsOf: note.studios)
         }
 
-        // Where a purchased disc was pressed, when that is anywhere but the United States.
+        /// Where a purchased disc was pressed, when that is anywhere but the United States.
         for note in importNotes(film) { items.append(PDFNoteList.Item(note, preservesCase: true)) }
 
-        // Artwork is a property of the package, so like the steelbook tag it has no
-        // technical column of its own.
+        /// Artwork is a property of the package, so like the steelbook tag it has no
+        /// technical column of its own.
         if film.releases.contains(where: {
             $0.purchased && ReleaseArtwork.negativeTags.contains($0.hasArtwork)
         }) {
             items.append(PDFNoteList.Item("missing artwork"))
         }
 
-        // Which object-based format a pale-green Audio cell is reporting. The fill says
-        // "object-based"; only this says which one, and the Audio column has no room for it.
+        /// Which object-based format a pale-green Audio cell is reporting. The fill says
+        /// "object-based"; only this says which one, and the Audio column has no room for it.
         for format in objectBasedFormats(best2K: best2K, best4K: best4K) {
             items.append(PDFNoteList.Item(format, preservesCase: true))
         }
 
-        // The film's own note goes LAST, after every derived item. Those items are facts
-        // this table alone reports; the authored note is also on the film's own card, so
-        // it is the part a truncated cell can afford to lose.
+        /// The film's own note goes LAST, after every derived item. Those items are facts
+        /// this table alone reports; the authored note is also on the film's own card, so
+        /// it is the part a truncated cell can afford to lose.
         let authored = film.notes.trimmingCharacters(in: .whitespacesAndNewlines)
         if !authored.isEmpty { items.append(PDFNoteList.Item(authored, preservesCase: true)) }
 
@@ -766,16 +766,16 @@ enum LibraryPDFReport {
         let version = ViewingVersion.reportableName(forStoredCode: film.digitalVersion)
         guard !version.isEmpty else { return [] }
 
-        // Quoted and named as a version, so the item reads as a claim about the cut rather
-        // than as a loose adjective sitting in a list of unrelated facts — "Extended" beside
-        // "Steelbook" and "open matte" does not obviously describe the same kind of thing.
-        // `preservesCase` because the quote, not a letter, now leads the item: the list
-        // convention would lowercase whatever came first, and there is nothing to lowercase.
+        /// Quoted and named as a version, so the item reads as a claim about the cut rather
+        /// than as a loose adjective sitting in a list of unrelated facts — "Extended" beside
+        /// "Steelbook" and "open matte" does not obviously describe the same kind of thing.
+        /// `preservesCase` because the quote, not a letter, now leads the item: the list
+        /// convention would lowercase whatever came first, and there is nothing to lowercase.
         var items = [PDFNoteList.Item("\(quoted(version)) version", preservesCase: true)]
 
-        // Formats carrying each version the digital copy is NOT. Combo-pack children
-        // included, as everywhere else in this column: a bundled Blu-ray is a real disc,
-        // and what is on it is really on the shelf.
+        /// Formats carrying each version the digital copy is NOT. Combo-pack children
+        /// included, as everywhere else in this column: a bundled Blu-ray is a real disc,
+        /// and what is on it is really on the shelf.
         var formatsByVersion: [String: Set<ReleaseFormat>] = [:]
         for release in film.releases where release.purchased {
             guard let format = ReleaseFormat(rawValue: release.format) else { continue }
@@ -785,10 +785,10 @@ enum LibraryPDFReport {
         }
         guard !formatsByVersion.isEmpty else { return items }
 
-        // Grouped the other way round — versions per format set — so two cuts that live on
-        // the same discs share one clause. Both the version list and the format list are
-        // ordered from a fixed vocabulary rather than from a Set's iteration, or two exports
-        // of an unchanged library would phrase the same fact differently.
+        /// Grouped the other way round — versions per format set — so two cuts that live on
+        /// the same discs share one clause. Both the version list and the format list are
+        /// ordered from a fixed vocabulary rather than from a Set's iteration, or two exports
+        /// of an unchanged library would phrase the same fact differently.
         var versionsByFormats: [Set<ReleaseFormat>: [String]] = [:]
         for (included, formats) in formatsByVersion {
             versionsByFormats[formats, default: []].append(included)
@@ -804,11 +804,11 @@ enum LibraryPDFReport {
             let noun = named.count == 1 ? "version" : "versions"
             clauses.append((order, "also includes \(quotedNames) \(noun) in \(list(labels))"))
         }
-        // Ordered by the first format named, so 2K clauses precede 4K ones.
+        /// Ordered by the first format named, so 2K clauses precede 4K ones.
         clauses.sort { $0.order == $1.order ? $0.text < $1.text : $0.order < $1.order }
 
-        // The clause names proper version titles and format labels, both of which keep
-        // their casing wherever the joined list places them.
+        /// The clause names proper version titles and format labels, both of which keep
+        /// their casing wherever the joined list places them.
         items.append(contentsOf: clauses.map { PDFNoteList.Item($0.text, preservesCase: true) })
         return items
     }
@@ -820,9 +820,9 @@ enum LibraryPDFReport {
     /// straight pair is a typewriter artifact that reads as code beside the em dashes and
     /// en dashes the rest of the column uses.
     private static func quoted(_ name: String) -> String {
-        // One version already arrives quoted — `ViewingVersion.finalCut` is stored as
-        // "\"The Final Cut\"" — so its straight pair is stripped rather than nested inside
-        // a second one.
+        /// One version already arrives quoted — `ViewingVersion.finalCut` is stored as
+        /// "\"The Final Cut\"" — so its straight pair is stripped rather than nested inside
+        /// a second one.
         let bare = name.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
         return "\u{201C}\(bare)\u{201D}"
     }
@@ -867,35 +867,35 @@ enum LibraryPDFReport {
                                              abbreviated: Bool) -> [DuplicateFormatNote] {
         let purchased = film.releases.filter(\.purchased)
 
-        // Format order fixed rather than dictionary order, so two exports of an unchanged
-        // library cannot list the same notes in a different sequence.
+        /// Format order fixed rather than dictionary order, so two exports of an unchanged
+        /// library cannot list the same notes in a different sequence.
         return [ReleaseFormat.uhd4K, ReleaseFormat.bluRay, ReleaseFormat.dvd]
             .compactMap { format -> DuplicateFormatNote? in
                 let copies = purchased.filter { $0.format == format.rawValue }
                 guard copies.count > 1 else { return nil }
 
                 let studios = copies.map(\.studio)
-                // The studio names, unless they would all read the same — in which case
-                // the year is the only label that actually distinguishes the copies. An
-                // unknown studio anywhere falls back to years for the same reason.
+                /// The studio names, unless they would all read the same — in which case
+                /// the year is the only label that actually distinguishes the copies. An
+                /// unknown studio anywhere falls back to years for the same reason.
                 let useStudios = !studios.contains(where: \.isEmpty) && Set(studios).count > 1
-                // Shortened only when the cell is over budget — see `notesCell`. The abbreviated
-                // forms come from the same table the RightSidebar's "Source for Viewing"
-                // field abbreviates with, so a studio reads the same in both places.
+                /// Shortened only when the cell is over budget — see `notesCell`. The abbreviated
+                /// forms come from the same table the RightSidebar's "Source for Viewing"
+                /// field abbreviates with, so a studio reads the same in both places.
                 let displayed = useStudios
                     ? studios.map { abbreviated ? ReleaseStudio.abbreviated($0) : $0 }
                     : []
                 let labels = (useStudios ? displayed : copies.map { ReleaseDateValue.yearText(of: $0.releaseDate, format: $0.format) })
                     .map { $0.isEmpty ? placeholderDash : $0 }
 
-                // Nothing distinguishes the copies — same studio, same year, or no year at
-                // all on any of them. The note would only repeat one label twice.
+                /// Nothing distinguishes the copies — same studio, same year, or no year at
+                /// all on any of them. The note would only repeat one label twice.
                 guard Set(labels).count > 1 else { return nil }
 
                 return DuplicateFormatNote(
                     text: labels.joined(separator: "/") + " " + noteFormatName(format) + " releases",
-                    // Only the studio labels are names; a year is not italicized. Duplicates
-                    // are dropped because the highlight colors every occurrence anyway.
+                    /// Only the studio labels are names; a year is not italicized. Duplicates
+                    /// are dropped because the highlight colors every occurrence anyway.
                     studios: useStudios ? Array(Set(displayed)).sorted() : [])
             }
     }
@@ -979,9 +979,9 @@ enum LibraryPDFReport {
                                ownership: NSColor?,
                                hasPurchase: Bool) -> PDFCell {
         guard film.libraryHBRFValue > 0 else {
-            // Owned but unencoded is a loose end (red). Unowned and unencoded is a
-            // non-event — but an empty cell reads as an oversight, so it gets the dash
-            // that says "asked and answered: nothing here".
+            /// Owned but unencoded is a loose end (red). Unowned and unencoded is a
+            /// non-event — but an empty cell reads as an oversight, so it gets the dash
+            /// that says "asked and answered: nothing here".
             return hasPurchase
                 ? PDFCell("", fill: PDFPalette.red)
                 : PDFCell(placeholderDash)
@@ -1009,9 +1009,9 @@ enum LibraryPDFReport {
             return PDFCell(stored, fill: PDFPalette.veryDarkPurple)
         }
 
-        // The bare ratio. The open-matte qualifier moves to Notes (see `notesCell`), which
-        // is what allows this column to be sized to six characters instead of nineteen —
-        // and stops one film in twenty from wrapping its whole row to three lines.
+        /// The bare ratio. The open-matte qualifier moves to Notes (see `notesCell`), which
+        /// is what allows this column to be sized to six characters instead of nineteen —
+        /// and stops one film in twenty from wrapping its whole row to three lines.
         let display = strippingOpenMatte(stored)
         guard let ratio = leadingRatio(display) else { return PDFCell(display) }
 

@@ -1,9 +1,9 @@
 // MARK: - DVLibraryInsights.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The figures the Data Visualizations tab adds on top of LibraryStatistics. LibraryInsights gives all-time figures across every date series
-// (viewings, purchases, lowest-price dates, and date added). ViewingPeriodStatistics gives one calendar year of viewing, optionally to date,
-// beside the same span of the prior year. Both are plain value types built in one pass over FilmSnapshots. DVDataset bundles one recalculation so the tab can run it off the main actor.
+/// The figures the Data Visualizations tab adds on top of LibraryStatistics. LibraryInsights gives all-time figures across every date series
+/// (viewings, purchases, lowest-price dates, and date added). ViewingPeriodStatistics gives one calendar year of viewing, optionally to date,
+/// beside the same span of the prior year. Both are plain value types built in one pass over FilmSnapshots. DVDataset bundles one recalculation so the tab can run it off the main actor.
 
 import Foundation
 
@@ -67,7 +67,7 @@ struct DVUpcomingRotation: Identifiable, Equatable {
         if a.rating != b.rating { return a.rating > b.rating }
         if a.viewings != b.viewings { return a.viewings > b.viewings }
         if a.purchasedReleases != b.purchasedReleases { return a.purchasedReleases > b.purchasedReleases }
-        // Then the gallery's Title order, which ends on the film id, so two films with one name cannot swap between recalculations.
+        /// Then the gallery's Title order, which ends on the film id, so two films with one name cannot swap between recalculations.
         return a.titleSort < b.titleSort
     }
 }
@@ -319,7 +319,7 @@ struct DVFilmViewings: Sendable {
         if entry.utf8.count == 10, let day = canonicalStoredDay(entry[...], separator: ".") {
             return (day, .none)
         }
-        // A version code is exactly two ASCII letters or digits after the dot. Anything else there goes to the general parser.
+        /// A version code is exactly two ASCII letters or digits after the dot. Anything else there goes to the general parser.
         let bytes = Array(entry.utf8)
         if bytes.count == 13, bytes[10] == UInt8(ascii: "."), bytes[11].isASCIIAlphanumeric, bytes[12].isASCIIAlphanumeric,
            let day = canonicalStoredDay(entry.prefix(10), separator: ".") {
@@ -602,8 +602,8 @@ struct LibraryInsights {
         let currentYear = calendar.component(.year, from: today)
         let todayStart = calendar.startOfDay(for: today)
         let viewings = viewings ?? films.map { DVFilmViewings($0, calendar: calendar) }
-        // Tolerant of a caller-supplied list that is out of step with `films`: a repeated ID keeps
-        // its first entry instead of trapping, and a missing one is parsed on demand below.
+        /// Tolerant of a caller-supplied list that is out of step with `films`: a repeated ID keeps
+        /// its first entry instead of trapping, and a missing one is parsed on demand below.
         let viewingsByID = Dictionary(viewings.map { ($0.filmID, $0) }, uniquingKeysWith: { first, _ in first })
 
         // MARK: Overview
@@ -679,7 +679,7 @@ struct LibraryInsights {
         emptiestField = blanks.max { a, b in a.value != b.value ? a.value < b.value : a.key > b.key }
             .map { (name: $0.key, blank: $0.value) }
 
-        // First-time watches in the trailing 12 months → pace → backlog projection.
+        /// First-time watches in the trailing 12 months → pace → backlog projection.
         var firstTimeTrailing = 0
         for v in viewings {
             if let first = v.first, first > oneYearAgo, first <= todayStart { firstTimeTrailing += 1 }
@@ -806,13 +806,13 @@ struct LibraryInsights {
         var topLevelCountAll = 0
         var bdFree = 0, bdA = 0, bdB = 0, bdBLoose = 0, bdUnknown = 0
         var bdFreeAll = 0, bdAAll = 0, bdBAll = 0, bdBLooseAll = 0, bdUnknownAll = 0
-        // The Blu-ray region-lock bucket, shared by the "All" and "Purchased Only" tallies so they classify tags the same way.
+        /// The Blu-ray region-lock bucket, shared by the "All" and "Purchased Only" tallies so they classify tags the same way.
         func bdRegionBucket(_ tag: String) -> Int {
             if tag == ReleaseRegionRules.regionFree { return 0 }
             if tag == ReleaseRegionRules.regionA { return 1 }
             if tag == ReleaseRegionRules.looselyLockedTag { return 2 }
             if ReleaseRegionRules.regionBTags.contains(tag) { return 3 }
-            return 4 // Unknown: blank or unmapped.
+            return 4 /// Unknown: blank or unmapped.
         }
         var wishItems = 0, wishCost = 0.0, wish4K = 0, wishBD = 0, wishDVD = 0
         var wishOOP = 0, wishTemp = 0, wishRecent = 0
@@ -881,7 +881,7 @@ struct LibraryInsights {
                     }
                 }
             }
-            // The same three-way film bucketing as LibraryStatistics.formatBreakdown, so the medians and averages use the same samples.
+            /// The same three-way film bucketing as LibraryStatistics.formatBreakdown, so the medians and averages use the same samples.
             let bucketFormat: ReleaseFormat? = purchased4KHere ? .uhd4K : (purchasedBDHere ? .bluRay : (purchasedDVDHere ? .dvd : nil))
             if let bucketFormat {
                 for r in purchasedReleases where r.isTopLevel && r.format == bucketFormat.rawValue && r.cost > 0 {
@@ -907,11 +907,11 @@ struct LibraryInsights {
                 recordableItems.append(DVNamedFilm(film, purchased: recordableHere.contains { $0.purchased }))
             }
 
-            // Ownership in more than one format, and the money on the extra copies.
+            /// Ownership in more than one format, and the money on the extra copies.
             let purchasedFormats = Set(purchasedReleases.filter(\.isTopLevel).map(\.format))
             if purchasedFormats.count > 1 {
                 multiFormat += 1
-                // Cheapest-format copies count as "second": everything except the best format.
+                /// Cheapest-format copies count as "second": everything except the best format.
                 let best = purchasedReleases.filter(\.isTopLevel)
                     .min { ReleaseFormat.displayRank(for: $0.format) < ReleaseFormat.displayRank(for: $1.format) }
                 for r in purchasedReleases where r.isTopLevel && r.id != best?.id { secondCopySpend += r.amountSpent > 0 ? r.amountSpent : r.cost }
@@ -919,7 +919,7 @@ struct LibraryInsights {
 
             var filmNeverWatchedSince = false
             for r in film.releases {
-                // Top-level only, as the Release Wishlist report lists them. A combo child mirrors its parent's wishlist position and cost, so counting it would show the pack twice.
+                /// Top-level only, as the Release Wishlist report lists them. A combo child mirrors its parent's wishlist position and cost, so counting it would show the pack twice.
                 if r.wishlist > 0, r.isTopLevel {
                     wishItems += 1
                     wishCost += r.cost
@@ -957,7 +957,7 @@ struct LibraryInsights {
                     if !r.nationalOrigin.isEmpty { originCountsAll[r.nationalOrigin, default: 0] += 1 }
                 }
                 guard r.purchased else { continue }
-                // Disc-level tallies count every purchased disc, combo children included.
+                /// Disc-level tallies count every purchased disc, combo children included.
                 if r.format == ReleaseFormat.uhd4K.rawValue {
                     purchased4K += 1
                     hdr[r.hasHDR.isEmpty ? ReleaseHDR.noneTag : r.hasHDR, default: 0] += 1
@@ -975,7 +975,7 @@ struct LibraryInsights {
                     }
                 }
                 guard r.isTopLevel else { continue }
-                // Package-level tallies, one per acquisition.
+                /// Package-level tallies, one per acquisition.
                 purchasedCount += 1
                 discs += max(r.numberOfDiscs, 1) * max(r.numberOfCopies, 1)
                 if ReleaseIndependence.isComboPack(r.independence) { combos += 1 }
@@ -1015,7 +1015,7 @@ struct LibraryInsights {
                     if d >= yearStart { spentYear += paid }
                     if d >= priorYearStart, d <= priorYearCutoff { spentPriorSpan += paid }
 
-                    // Purchase to first viewing, on or after the purchase.
+                    /// Purchase to first viewing, on or after the purchase.
                     let viewsSince = v.dates.filter { $0 >= d }
                     if let firstSince = viewsSince.first {
                         let days = calendar.dateComponents([.day], from: d, to: firstSince).day ?? 0
@@ -1054,7 +1054,7 @@ struct LibraryInsights {
                 neverWatchedSinceItems.append(DVNamedFilm(film))
             }
 
-            // Library metadata.
+            /// Library metadata.
             if hasPurchased { purchasedFilmCount += 1 }
             if FilmSubtitles.matches(film.subtitles, FilmSubtitles.yes) {
                 subsYesAll += 1
@@ -1092,7 +1092,7 @@ struct LibraryInsights {
                 }
             }
             if film.frameRate > 0 {
-                // Always three decimal places, even for whole rates ("24.000"), for one consistent column.
+                /// Always three decimal places, even for whole rates ("24.000"), for one consistent column.
                 let label = Fmt.fixed(film.frameRate, 3)
                 frameRates[label, default: 0] += 1
             }
@@ -1191,7 +1191,7 @@ struct LibraryInsights {
         wishlistOutOfPrintOrImport = wishOOP
         wishlistTemporarilyUnavailable = wishTemp
         wishlistAddedLast90Days = wishRecent
-        // Future years (a mistyped date) are left out: the card compares years up to this one.
+        /// Future years (a mistyped date) are left out: the card compares years up to this one.
         if let firstYear = spendingByYear.keys.min(), firstYear <= currentYear {
             spendingYears = (firstYear...currentYear).map { spendingByYear[$0] ?? DVSpendingYear(year: $0) }
         } else {
@@ -1272,9 +1272,9 @@ struct LibraryInsights {
             .prefix(7)
             .map { entry -> DVRank in
                 let avg = entry.value.rated > 0 ? Fmt.fixed(Double(entry.value.ratingSum) / Double(entry.value.rated), 1) : ""
-                // Display-only shorthand: the stored genre string ("Action and Adventure")
-                // is unchanged everywhere else in the app, but it is the longest of the
-                // seven fixed genres and truncates first in this card's narrow name column.
+                /// Display-only shorthand: the stored genre string ("Action and Adventure")
+                /// is unchanged everywhere else in the app, but it is the longest of the
+                /// seven fixed genres and truncates first in this card's narrow name column.
                 let name = entry.key == "Action and Adventure" ? "Action and Adv." : entry.key
                 return DVRank(name: name, value: String(entry.value.n), extras: [avg, String(DVFormat.percent(entry.value.n, of: genreTotal))])
             }
@@ -1285,7 +1285,7 @@ struct LibraryInsights {
         genres = genreRows
         let ratingTotal = contentRatings.values.reduce(0, +)
         self.contentRatings = Self.orderedContentRatings(contentRatings).map { DVTally($0.0, $0.1, of: ratingTotal) }
-        // The MPAA Ratings and Tags card shows nine.
+        /// The MPAA Ratings and Tags card shows nine.
         tags = tagCounts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
             .prefix(9).map { DVTally($0.key, $0.value) }
 
@@ -1469,8 +1469,8 @@ struct ViewingPeriodStatistics {
             let start = calendar.date(from: DateComponents(year: y, month: 1, day: 1))!
             var end: Date
             if ytd {
-                // The same month and day in year `y`, clamped to that month's length. `date(from:)` rolls an out-of-range day over,
-                // so without the clamp, Feb 29 would run into Mar 1 of a common year.
+                /// The same month and day in year `y`, clamped to that month's length. `date(from:)` rolls an out-of-range day over,
+                /// so without the clamp, Feb 29 would run into Mar 1 of a common year.
                 let m = calendar.component(.month, from: todayStart), d = calendar.component(.day, from: todayStart)
                 let first = calendar.date(from: DateComponents(year: y, month: m, day: 1))!
                 let length = calendar.range(of: .day, in: .month, for: first)?.count ?? d
@@ -1503,7 +1503,7 @@ struct ViewingPeriodStatistics {
                 for (i, d) in v.dates.enumerated() where d >= range.start && d <= range.end {
                     n += 1
                     if i == 0 { a.firstTime += 1 }
-                    // Runs once per viewing date in the period, on every stepper click.
+                    /// Runs once per viewing date in the period, on every stepper click.
                     let month = calendar.component(.month, from: d) - 1
                     a.byMonth[month] += 1
                     if v.isColor { a.byMonthColor[month] += 1 }
@@ -1551,12 +1551,12 @@ struct ViewingPeriodStatistics {
         priorByMonthGenre = p.byMonthGenre
         currentMonthIndex = ytd ? calendar.component(.month, from: todayStart) - 1 : nil
 
-        // Ties by name, then by film id, so two films of one name keep one order.
+        /// Ties by name, then by film id, so two films of one name keep one order.
         mostRewatched = a.perFilm.filter { $0.count >= 2 }
             .sorted { ($1.count, $0.name, $0.id.uuidString) < ($0.count, $1.name, $1.id.uuidString) }
             .prefix(10)
             .map { DVRank(name: $0.name, value: "×\($0.count)", year: $0.year) }
-        // Untagged entries read as Theatrical, the default the picker stores as an empty code.
+        /// Untagged entries read as Theatrical, the default the picker stores as an empty code.
         var versionCounts = a.versions
         versionCounts[.theatrical, default: 0] += versionCounts.removeValue(forKey: .none) ?? 0
         let versionRows = versionCounts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key.rawValue < $1.key.rawValue }
@@ -1631,7 +1631,7 @@ enum DVSpendingTrends {
     static func projectedYearEnd(_ current: DVSpendingYear, _ earlier: [DVSpendingYear], yearElapsed: Double) -> Double? {
         let spent = current.spentByThisDate
         guard spent > 0 else { return nil }
-        // A gap year is not a habit: only years something was bought in.
+        /// A gap year is not a habit: only years something was bought in.
         let recent = Array(earlier.filter { $0.purchases > 0 }.suffix(3).reversed())
         guard !recent.isEmpty else { return yearElapsed >= 0.1 ? spent / yearElapsed : nil }
         let weights = [3.0, 2.0, 1.0].prefix(recent.count)
@@ -1858,7 +1858,7 @@ struct DVHabits {
                 }
             }
             let purchased = film.releases.filter(\.purchased)
-            // Top-level releases only: one per acquisition. A combo child repeats its parent's date and price.
+            /// Top-level releases only: one per acquisition. A combo child repeats its parent's date and price.
             for r in purchased where r.isTopLevel {
                 let paid = r.amountSpent > 0 ? r.amountSpent : r.cost
                 if let d = LibraryStatistics.purchaseDay(r.purchaseDate, calendar: calendar) {
@@ -1894,8 +1894,8 @@ struct DVHabits {
         let tracked = years.first { 4 * ((first[$0] ?? 0) + (again[$0] ?? 0)) >= busiest }
         trackedFrom = tracked
         hasSparseEarlierYears = years.first.map { $0 < (tracked ?? $0) } ?? false
-        // Every year from the first tracked to the latest, a year without viewings included,
-        // at most the latest `maxViewingYears` of them.
+        /// Every year from the first tracked to the latest, a year without viewings included,
+        /// at most the latest `maxViewingYears` of them.
         viewingYears = (tracked.flatMap { t in years.last.map { Array(t...$0).suffix(Self.maxViewingYears) } } ?? [])
             .map { ViewingYear(year: $0, firstTime: first[$0] ?? 0, rewatches: again[$0] ?? 0) }
 

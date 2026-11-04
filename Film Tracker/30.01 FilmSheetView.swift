@@ -1,19 +1,19 @@
 // MARK: - FilmSheetView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// SwiftUI view layer for the FilmSheet — top-level view, button bar,
-// tab content switcher, and the FilmTab enum that drives them. Also contains
-// FilmSheetScrollView and the FilmSheetScrollProxy typealias, the
-// AppKitScrollView facade used by the sheet's three scrollable tabs.
+/// SwiftUI view layer for the FilmSheet — top-level view, button bar,
+/// tab content switcher, and the FilmTab enum that drives them. Also contains
+/// FilmSheetScrollView and the FilmSheetScrollProxy typealias, the
+/// AppKitScrollView facade used by the sheet's three scrollable tabs.
 
 import AppKit
 import SwiftUI
 
 // MARK: - Film Tabs Enum
-// Declaration order is the tab strip's left-to-right order: the tab bar is built from
-// `allCases`, and the Option-number shortcuts in FilmSheetTabContent's changeFilmSheetTab
-// handler are numbered to match. Metadata precedes Releases so the sheet's ordering lines
-// up with the right sidebar's, where Metadata is a Details module and Releases follows it.
+/// Declaration order is the tab strip's left-to-right order: the tab bar is built from
+/// `allCases`, and the Option-number shortcuts in FilmSheetTabContent's changeFilmSheetTab
+/// handler are numbered to match. Metadata precedes Releases so the sheet's ordering lines
+/// up with the right sidebar's, where Metadata is a Details module and Releases follows it.
 enum FilmTab: String, CaseIterable, Identifiable, CustomTab {
     case details = "Details"
     case metadata = "Metadata"
@@ -122,9 +122,9 @@ struct FilmSheetView: View {
     var body: some View {
         let _ = FilmSheetBodyProbe.hit("sheet")
         VStack(spacing: 0) {
-            // Custom titlebar — windowTitle is resolved once in FilmSheet.init (from
-            // isEditMode and, in edit mode, the film's name at open time), so it never
-            // changes after init. The Text node is stable.
+            /// Custom titlebar — windowTitle is resolved once in FilmSheet.init (from
+            /// isEditMode and, in edit mode, the film's name at open time), so it never
+            /// changes after init. The Text node is stable.
             ZStack {
                 Text(owner.windowTitle)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -134,7 +134,7 @@ struct FilmSheetView: View {
             .background(Color(NSColor.controlBackgroundColor))
             .overlay(Divider(), alignment: .bottom)
 
-            // Custom tab header — depends only on selectedTab.
+            /// Custom tab header — depends only on selectedTab.
             CustomTabHeader(
                 selectedTab: owner.selectedTab,
                 enabled: true,
@@ -149,21 +149,21 @@ struct FilmSheetView: View {
             .overlay(Divider(), alignment: .bottom)
             .zIndex(1)
 
-            // Scrollable tab content.
-            // Isolated in a child view that holds no reference to `owner` — only the
-            // five stable tab view-model references and the current tab selection are
-            // passed in. This means `owner`'s observation invalidations for hasChanges,
-            // canConfirm, showingSaveError, etc. never reach the tab content area and
-            // cannot cause it to be rebuilt. Only an actual selectedTab change causes
-            // the content area to re-evaluate.
-            //
-            // The changeFilmSheetTab command listener lives inside FilmSheetTabContent
-            // (via its onTabChange callback + internal FilmSheetTabSwitcher) rather than
-            // here. Placing it here on a view that holds @Bindable owner would cause
-            // SwiftUI to re-subscribe to the Combine publisher on every owner observation
-            // hit — i.e., on every keystroke, every canConfirm toggle, etc.
-            // FilmSheetTabContent holds no owner reference, so its onReceive subscription
-            // remains stable across the lifetime of the sheet.
+            /// Scrollable tab content.
+            /// Isolated in a child view that holds no reference to `owner` — only the
+            /// five stable tab view-model references and the current tab selection are
+            /// passed in. This means `owner`'s observation invalidations for hasChanges,
+            /// canConfirm, showingSaveError, etc. never reach the tab content area and
+            /// cannot cause it to be rebuilt. Only an actual selectedTab change causes
+            /// the content area to re-evaluate.
+            ///
+            /// The changeFilmSheetTab command listener lives inside FilmSheetTabContent
+            /// (via its onTabChange callback + internal FilmSheetTabSwitcher) rather than
+            /// here. Placing it here on a view that holds @Bindable owner would cause
+            /// SwiftUI to re-subscribe to the Combine publisher on every owner observation
+            /// hit — i.e., on every keystroke, every canConfirm toggle, etc.
+            /// FilmSheetTabContent holds no owner reference, so its onReceive subscription
+            /// remains stable across the lifetime of the sheet.
             FilmSheetTabContent(
                 selectedTab: owner.selectedTab,
                 appearedTabs: owner.appearedTabs,
@@ -178,11 +178,11 @@ struct FilmSheetView: View {
 
             Divider()
 
-            // Bottom buttons — isolated in its own struct so canConfirm / isConfirming
-            // toggles only re-evaluate this subtree, not the titlebar or tab header.
-            // The save-error alert is also hosted here: it needs $owner.showingSaveError
-            // and only fires during a save operation, so binding it to the button bar
-            // keeps it out of FilmSheetView's observation footprint entirely.
+            /// Bottom buttons — isolated in its own struct so canConfirm / isConfirming
+            /// toggles only re-evaluate this subtree, not the titlebar or tab header.
+            /// The save-error alert is also hosted here: it needs $owner.showingSaveError
+            /// and only fires during a save operation, so binding it to the button bar
+            /// keeps it out of FilmSheetView's observation footprint entirely.
             FilmSheetButtonBar(owner: owner)
         }
         .onAppear { installTabMonitor() }
@@ -223,13 +223,13 @@ private struct FilmSheetButtonBar: View {
             }
             .keyboardShortcut(.cancelAction)
             .disabled(owner.isConfirming)
-            // Exclude from the Tab-key focus ring — activated via Escape
-            // (keyboardShortcut .cancelAction), not Tab navigation.
+            /// Exclude from the Tab-key focus ring — activated via Escape
+            /// (keyboardShortcut .cancelAction), not Tab navigation.
             .focusable(false)
 
             Spacer()
 
-            // Validation message - shows in both add and edit modes when fields are missing
+            /// Validation message - shows in both add and edit modes when fields are missing
             if !owner.canConfirm && !owner.detailsTab.isValid {
                 Text("The \"Name\" and \"Release Date\" fields are required.")
                     .font(.system(size: 11))
@@ -247,22 +247,22 @@ private struct FilmSheetButtonBar: View {
             }
             .keyboardShortcut(.defaultAction)
             .disabled(!owner.canConfirm || owner.isConfirming)
-            // Exclude from the Tab-key focus ring — activated via Return
-            // (keyboardShortcut .defaultAction), not Tab navigation.
+            /// Exclude from the Tab-key focus ring — activated via Return
+            /// (keyboardShortcut .defaultAction), not Tab navigation.
             .focusable(false)
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 20)
         .animation(.easeInOut(duration: 0.2), value: owner.canConfirm)
         .animation(.easeInOut(duration: 0.2), value: owner.isConfirming)
-        // With debug logging ON, "check the log" is sound advice and the user — who turned
-        // it on deliberately — knows where to look, so the message stays as it was. With
-        // logging OFF, no log exists to consult, so the fault text travels in the alert.
+        /// With debug logging ON, "check the log" is sound advice and the user — who turned
+        /// it on deliberately — knows where to look, so the message stays as it was. With
+        /// logging OFF, no log exists to consult, so the fault text travels in the alert.
         .alert("Save Error", isPresented: $owner.showingSaveError) {
-            // Button order is deliberate and counterintuitive: the alert panel lays
-            // buttons out RIGHT to LEFT in declaration order, so OK is declared first
-            // to sit rightmost as the highlighted default, leaving Copy Error to its
-            // left. Reversing these two swaps their positions on screen.
+            /// Button order is deliberate and counterintuitive: the alert panel lays
+            /// buttons out RIGHT to LEFT in declaration order, so OK is declared first
+            /// to sit rightmost as the highlighted default, leaving Copy Error to its
+            /// left. Reversing these two swaps their positions on screen.
             Button("OK") { }
                 .keyboardShortcut(.defaultAction)
             if let detail = owner.saveErrorDetail, !loggingEnabled {
@@ -282,44 +282,44 @@ private struct FilmSheetButtonBar: View {
 
 extension FilmSheetView {
     // MARK: Key monitor
-    //
-    // RETURN. The sheet's Return rule: an active text field takes Return first, and only
-    // a Return with no field active (and changes to save) saves the sheet — the latter is
-    // KeyboardManager's intercept. Three kinds of field, one rule:
-    //   • a table row's editor commits its row itself (it opts out below, via
-    //     FilmSheetReturnHandlingField), and the row editor closes;
-    //   • a multi-line FixedHeightScrollingTextView finishes editing itself (its
-    //     doCommandBy, 30.10);
-    //   • every other single-line field — Name, Sort Name, Release, a card's Notes and
-    //     currency fields — has Return taken here and editing ended.
-    // Without that last arm, Return in a single-line field would do nothing: the field keeps
-    // focus, KeyboardManager passes Return through while text is being edited, and no number
-    // of presses could reach Update. Ending editing also commits a digit field's own
-    // end-of-edit work (cents padding, time-code completion).
-    //
-    // TAB.
-    // One monitor for the whole sheet. On every tab it takes Tab and Shift-Tab away from
-    // AppKit's key view loop and hands them to FilmSheetKeyLoop, which walks the active
-    // tab's controls — or, on the Releases tab, the current card's — by what is actually
-    // on screen. Only the bare key and Shift-Tab: Ctrl-Tab and the like keep whatever
-    // meaning the responder chain gives them. Falls through, leaving the event to AppKit,
-    // whenever the loop has nothing to walk — never swallowed silently.
-    //
-    // Scoped to this sheet's own window: the loop is asked whether the key window holds a
-    // region it registered, so a Tab in the main window, in another sheet, or in an alert
-    // over this one is left alone. And not while a menu is tracking — a pop-up's menu
-    // takes Tab for its own type-select.
+    ///
+    /// RETURN. The sheet's Return rule: an active text field takes Return first, and only
+    /// a Return with no field active (and changes to save) saves the sheet — the latter is
+    /// KeyboardManager's intercept. Three kinds of field, one rule:
+    ///   • a table row's editor commits its row itself (it opts out below, via
+    ///     FilmSheetReturnHandlingField), and the row editor closes;
+    ///   • a multi-line FixedHeightScrollingTextView finishes editing itself (its
+    ///     doCommandBy, 30.10);
+    ///   • every other single-line field — Name, Sort Name, Release, a card's Notes and
+    ///     currency fields — has Return taken here and editing ended.
+    /// Without that last arm, Return in a single-line field would do nothing: the field keeps
+    /// focus, KeyboardManager passes Return through while text is being edited, and no number
+    /// of presses could reach Update. Ending editing also commits a digit field's own
+    /// end-of-edit work (cents padding, time-code completion).
+    ///
+    /// TAB.
+    /// One monitor for the whole sheet. On every tab it takes Tab and Shift-Tab away from
+    /// AppKit's key view loop and hands them to FilmSheetKeyLoop, which walks the active
+    /// tab's controls — or, on the Releases tab, the current card's — by what is actually
+    /// on screen. Only the bare key and Shift-Tab: Ctrl-Tab and the like keep whatever
+    /// meaning the responder chain gives them. Falls through, leaving the event to AppKit,
+    /// whenever the loop has nothing to walk — never swallowed silently.
+    ///
+    /// Scoped to this sheet's own window: the loop is asked whether the key window holds a
+    /// region it registered, so a Tab in the main window, in another sheet, or in an alert
+    /// over this one is left alone. And not while a menu is tracking — a pop-up's menu
+    /// takes Tab for its own type-select.
     private func installTabMonitor() {
         let sheet = owner
         let tracking = FilmSheetKeyLoop.MenuTrackingState.shared
         tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 36, event.normalizedModifiers.isEmpty {
                 if Self.endsFieldEditOnReturn(event, sheet: sheet) { return nil }
-                // A popover over the sheet owns Return while it is up. Its window is a child
-                // of the sheet's and may not be key (after its field gave up focus the sheet
-                // is still the key window), so a bare Return would otherwise reach the
-                // sheet's default button and save the whole sheet. Make the popover key and
-                // let its own default button take the key; consume it either way.
+                /// A popover over the sheet owns Return while it is up. Its window is a child
+                /// of the sheet's and may not be key (after its field gave up focus the sheet
+                /// is still the key window), so a bare Return would otherwise reach the
+                /// sheet's default button and save the whole sheet. Make the popover key and
+                /// let its own default button take the key; consume it either way.
                 if let window = NSApp.keyWindow, event.window === window,
                    !tracking.isActive, !Self.isPopoverWindow(window),
                    let popover = window.childWindows?.first(where: { $0.isVisible && Self.isPopoverWindow($0) }) {
@@ -333,12 +333,12 @@ extension FilmSheetView {
             guard !tracking.isActive else { return event }
             guard let window = NSApp.keyWindow, event.window === window else { return event }
             let forward = !event.normalizedModifiers.contains(.shift)
-            // A popover over the sheet owns Tab while it is up: its controls are what the
-            // user is looking at, and they are not in any registered region. Its window is
-            // a child of the sheet's and may or may not be key yet (a freshly opened one is
-            // not — the sheet's window still gets the key events). Either way the walk is
-            // the same one the tabs get, over the popover's content, because SwiftUI does
-            // not assemble a usable key-view chain there any more than it does here.
+            /// A popover over the sheet owns Tab while it is up: its controls are what the
+            /// user is looking at, and they are not in any registered region. Its window is
+            /// a child of the sheet's and may or may not be key yet (a freshly opened one is
+            /// not — the sheet's window still gets the key events). Either way the walk is
+            /// the same one the tabs get, over the popover's content, because SwiftUI does
+            /// not assemble a usable key-view chain there any more than it does here.
             let popover = Self.isPopoverWindow(window)
                 ? window
                 : window.childWindows?.first { $0.isVisible && Self.isPopoverWindow($0) }
@@ -403,84 +403,84 @@ extension FilmSheetView {
 protocol FilmSheetReturnHandlingField: NSTextField {}
 
 // MARK: - FilmSheetKeyLoop
-//
-// Keyboard focus traversal for the sheet: Tab and Shift-Tab walk the ACTIVE TAB's controls
-// — on the Releases tab, the CURRENT CARD's — in reading order, wrapping at either end, and
-// never leave it.
-//
-// WHY NOT APPKIT'S OWN KEY VIEW LOOP
-//
-// AppKit's Tab walks the window's `nextValidKeyView` chain, which SwiftUI assembles over
-// every NSView it hosts. In this sheet that chain is wrong for the user in four separate
-// ways, each of which shows up as "Tab does nothing" or "focus vanished":
-//
-//   1. THE OTHER TABS ARE IN IT. The sheet keeps every visited tab ALIVE behind the active
-//      one, hidden with `.opacity(0)` rather than `isHidden` (FilmSheetTabContent). Neither
-//      opacity nor SwiftUI's `.allowsHitTesting(false)` takes a control out of the key view
-//      loop, so Tab walks through a hidden Details field, or fifty hidden card controls,
-//      between two visible stops. That is the "dead space" between a tab's controls.
-//   2. THE CAROUSEL'S NEIGHBORS ARE IN IT. The Releases tab keeps the cards on either side
-//      of the current one mounted so a step can animate, dimmed and hit-disabled rather
-//      than `.disabled` (see the carousel body for why) — the same failure within one tab.
-//   3. THE CHAIN GOES STALE. The carousel mounts and unmounts cards without rebuilding the
-//      view tree around them, and SwiftUI does not always recompute the chain when it does.
-//      A control that exists, draws and clicks can then be absent from the chain entirely,
-//      and Tab cannot reach what is not in it — the sporadically unreachable date Stepper.
-//   4. THE ORDER IS THE TREE'S, NOT THE EYE'S. The chain follows SwiftUI's view tree, which
-//      mostly reads correctly — but a control hosted through a container that SwiftUI
-//      orders differently lands out of sequence, and the user cannot predict where the
-//      next press goes.
-//
-// So Tab is taken off AppKit's hands. The sheet's key monitor (FilmSheetView) consumes it
-// and hands it here, which computes the loop from what is actually on screen and moves
-// first responder itself. None of the four failures can occur: a hidden tab's controls are
-// recognizably hidden, an off-screen card is not inside the current card's frame, a
-// control's presence in the loop is decided by its geometry rather than by a chain that may
-// not have been rebuilt, and the order is the visual one by construction.
-//
-// TWO KINDS OF DOMAIN
-//
-// A CARD domain (Releases) is a frame: the controls whose centers lie inside the current
-// card's region, which `ReleaseCardFocusRegion` registers from a view sized to the card.
-// The card step is wider than a card, so a neighbor's controls never satisfy that test. A
-// card is never scrolled, so a control clipped away is one the user cannot see, and a hit
-// test at the control's center — could the user click it? — is what keeps a covered
-// control out.
-//
-// A TAB domain (Details, Metadata, Notes) is a frame too — `FilmSheetTabFocusRegion`,
-// registered from a view sized to the tab's area — but its content SCROLLS, so a control
-// scrolled out of view must still be a stop, and Tab must scroll it in. A control inside a
-// scroll view is therefore located by its outermost enclosing scroll view rather than by
-// its own frame, and no clipping or hit test is applied to it: what keeps the other tabs'
-// controls out is the visibility test below.
-//
-// WHAT COUNTS AS A CONTROL
-//
-// `canBecomeKeyView` is AppKit's own answer — it folds together `acceptsFirstResponder`,
-// hidden-ness and, for an NSControl, `isEnabled` — and it is what honors the user's Full
-// Keyboard Access setting: with "keyboard navigation" off, buttons, pop-ups and steppers
-// refuse first responder and only the text fields remain, exactly as they would under
-// AppKit's loop. A disabled control drops out the same way. Then:
-//
-//   • VISIBLE: no ancestor with `alphaValue` 0. SwiftUI realizes `.opacity(0)` on hosted
-//     views as a zero-alpha container view (`_NSInheritedView`), so this is exactly the
-//     hidden-tab test, and unlike a hit test it also holds for a control scrolled out of
-//     view.
-//   • A STOP, NOT A CONTAINER: scroll views, clip views, scrollers and hosting views are
-//     never stops, whatever `canBecomeKeyView` says of them (a text view's scroll view
-//     forwards its first-responder acceptance; a hosting view accepts it on behalf of
-//     SwiftUI's own focus engine). The window's shared field editor — an NSTextView
-//     installed INSIDE the field being edited — is the field's editing surface, not a
-//     second stop. And SwiftUI's `KeyViewProxy` stand-ins, through which AppKit's loop
-//     would hand focus to a SwiftUI-native control, are skipped: focus given to one is
-//     immediately taken over by the hosting view, after which nothing in AppKit says which
-//     control has it. SwiftUI-native controls the user should reach by Tab are therefore
-//     built as AppKit ones (SheetCheckbox, ReleasePopUpButton, ClearableStepperView).
-//   • ONE STOP PER CONTROL: a candidate nested inside another candidate is that control's
-//     own machinery and is dropped in favor of its ancestor.
-//
-// The current control is the window's first responder, or the control whose field editor
-// it is — during text entry the responder is the shared NSTextView, not the field.
+///
+/// Keyboard focus traversal for the sheet: Tab and Shift-Tab walk the ACTIVE TAB's controls
+/// — on the Releases tab, the CURRENT CARD's — in reading order, wrapping at either end, and
+/// never leave it.
+///
+/// WHY NOT APPKIT'S OWN KEY VIEW LOOP
+///
+/// AppKit's Tab walks the window's `nextValidKeyView` chain, which SwiftUI assembles over
+/// every NSView it hosts. In this sheet that chain is wrong for the user in four separate
+/// ways, each of which shows up as "Tab does nothing" or "focus vanished":
+///
+///   1. THE OTHER TABS ARE IN IT. The sheet keeps every visited tab ALIVE behind the active
+///      one, hidden with `.opacity(0)` rather than `isHidden` (FilmSheetTabContent). Neither
+///      opacity nor SwiftUI's `.allowsHitTesting(false)` takes a control out of the key view
+///      loop, so Tab walks through a hidden Details field, or fifty hidden card controls,
+///      between two visible stops. That is the "dead space" between a tab's controls.
+///   2. THE CAROUSEL'S NEIGHBORS ARE IN IT. The Releases tab keeps the cards on either side
+///      of the current one mounted so a step can animate, dimmed and hit-disabled rather
+///      than `.disabled` (see the carousel body for why) — the same failure within one tab.
+///   3. THE CHAIN GOES STALE. The carousel mounts and unmounts cards without rebuilding the
+///      view tree around them, and SwiftUI does not always recompute the chain when it does.
+///      A control that exists, draws and clicks can then be absent from the chain entirely,
+///      and Tab cannot reach what is not in it — the sporadically unreachable date Stepper.
+///   4. THE ORDER IS THE TREE'S, NOT THE EYE'S. The chain follows SwiftUI's view tree, which
+///      mostly reads correctly — but a control hosted through a container that SwiftUI
+///      orders differently lands out of sequence, and the user cannot predict where the
+///      next press goes.
+///
+/// So Tab is taken off AppKit's hands. The sheet's key monitor (FilmSheetView) consumes it
+/// and hands it here, which computes the loop from what is actually on screen and moves
+/// first responder itself. None of the four failures can occur: a hidden tab's controls are
+/// recognizably hidden, an off-screen card is not inside the current card's frame, a
+/// control's presence in the loop is decided by its geometry rather than by a chain that may
+/// not have been rebuilt, and the order is the visual one by construction.
+///
+/// TWO KINDS OF DOMAIN
+///
+/// A CARD domain (Releases) is a frame: the controls whose centers lie inside the current
+/// card's region, which `ReleaseCardFocusRegion` registers from a view sized to the card.
+/// The card step is wider than a card, so a neighbor's controls never satisfy that test. A
+/// card is never scrolled, so a control clipped away is one the user cannot see, and a hit
+/// test at the control's center — could the user click it? — is what keeps a covered
+/// control out.
+///
+/// A TAB domain (Details, Metadata, Notes) is a frame too — `FilmSheetTabFocusRegion`,
+/// registered from a view sized to the tab's area — but its content SCROLLS, so a control
+/// scrolled out of view must still be a stop, and Tab must scroll it in. A control inside a
+/// scroll view is therefore located by its outermost enclosing scroll view rather than by
+/// its own frame, and no clipping or hit test is applied to it: what keeps the other tabs'
+/// controls out is the visibility test below.
+///
+/// WHAT COUNTS AS A CONTROL
+///
+/// `canBecomeKeyView` is AppKit's own answer — it folds together `acceptsFirstResponder`,
+/// hidden-ness and, for an NSControl, `isEnabled` — and it is what honors the user's Full
+/// Keyboard Access setting: with "keyboard navigation" off, buttons, pop-ups and steppers
+/// refuse first responder and only the text fields remain, exactly as they would under
+/// AppKit's loop. A disabled control drops out the same way. Then:
+///
+///   • VISIBLE: no ancestor with `alphaValue` 0. SwiftUI realizes `.opacity(0)` on hosted
+///     views as a zero-alpha container view (`_NSInheritedView`), so this is exactly the
+///     hidden-tab test, and unlike a hit test it also holds for a control scrolled out of
+///     view.
+///   • A STOP, NOT A CONTAINER: scroll views, clip views, scrollers and hosting views are
+///     never stops, whatever `canBecomeKeyView` says of them (a text view's scroll view
+///     forwards its first-responder acceptance; a hosting view accepts it on behalf of
+///     SwiftUI's own focus engine). The window's shared field editor — an NSTextView
+///     installed INSIDE the field being edited — is the field's editing surface, not a
+///     second stop. And SwiftUI's `KeyViewProxy` stand-ins, through which AppKit's loop
+///     would hand focus to a SwiftUI-native control, are skipped: focus given to one is
+///     immediately taken over by the hosting view, after which nothing in AppKit says which
+///     control has it. SwiftUI-native controls the user should reach by Tab are therefore
+///     built as AppKit ones (SheetCheckbox, ReleasePopUpButton, ClearableStepperView).
+///   • ONE STOP PER CONTROL: a candidate nested inside another candidate is that control's
+///     own machinery and is dropped in favor of its ancestor.
+///
+/// The current control is the window's first responder, or the control whose field editor
+/// it is — during text entry the responder is the shared NSTextView, not the field.
 @MainActor
 final class FilmSheetKeyLoop {
     static let shared = FilmSheetKeyLoop()
@@ -612,24 +612,24 @@ final class FilmSheetKeyLoop {
         while let v = stack.popLast() {
             stack.append(contentsOf: v.subviews)
             guard v !== region, v.canBecomeKeyView, !Self.isContainer(v) else { continue }
-            // The region's own ancestors are containers the tab sits in, not controls on it.
+            /// The region's own ancestors are containers the tab sits in, not controls on it.
             if region.isDescendant(of: v) { continue }
             if let text = v as? NSTextView, text.isFieldEditor { continue }
             if Self.isDrawnInvisible(v) { continue }
 
             let frame = v.convert(v.bounds, to: nil)
             guard !frame.isEmpty else { continue }
-            // Where the control counts as being: itself, or — in a tab domain — the scroll
-            // view it lives in, so that a control scrolled out of the tab's area still
-            // belongs to the tab.
+            /// Where the control counts as being: itself, or — in a tab domain — the scroll
+            /// view it lives in, so that a control scrolled out of the tab's area still
+            /// belongs to the tab.
             let anchor = (scrolls ? Self.outermostScrollView(of: v) : nil)
                 .map { $0.convert($0.bounds, to: nil) } ?? frame
             guard domain.contains(NSPoint(x: anchor.midX, y: anchor.midY)) else { continue }
 
             if !scrolls {
-                // A card is never scrolled: a control clipped away, or covered by something
-                // else at its own center, is one the user cannot see focus land on. hitTest
-                // takes the point in the receiver's SUPERVIEW's coordinates.
+                /// A card is never scrolled: a control clipped away, or covered by something
+                /// else at its own center, is one the user cannot see focus land on. hitTest
+                /// takes the point in the receiver's SUPERVIEW's coordinates.
                 guard !v.visibleRect.isEmpty else { continue }
                 let center = NSPoint(x: frame.midX, y: frame.midY)
                 let hitPoint = unsafe root.superview?.convert(center, from: nil) ?? center
@@ -637,7 +637,7 @@ final class FilmSheetKeyLoop {
             }
             found.append((v, frame))
         }
-        // One stop per control — see WHAT COUNTS AS A CONTROL.
+        /// One stop per control — see WHAT COUNTS AS A CONTROL.
         let candidates = found.map(\.view)
         found.removeAll { entry in
             var ancestor = unsafe entry.view.superview
@@ -648,10 +648,10 @@ final class FilmSheetKeyLoop {
             return false
         }
 
-        // Rows first: sort by descending center y, then walk once assigning a row index
-        // that advances whenever the center drops by more than the tolerance from the
-        // row's anchor. Then order within rows by x. Both sorts are stable, so two controls
-        // that tie exactly keep tree order.
+        /// Rows first: sort by descending center y, then walk once assigning a row index
+        /// that advances whenever the center drops by more than the tolerance from the
+        /// row's anchor. Then order within rows by x. Both sorts are stable, so two controls
+        /// that tie exactly keep tree order.
         found.sort { $0.frame.midY > $1.frame.midY }
         var rows: [Int] = []
         var rowAnchorY: CGFloat = .infinity
@@ -751,9 +751,9 @@ final class FilmSheetKeyLoop {
     /// first, and a text field also gets its contents selected, which is what AppKit's own
     /// traversal does and what lets the user type over a value they tabbed onto.
     private func focus(_ control: NSView, in window: NSWindow) {
-        // `scrollToVisible` reaches only the NEAREST clip view, and a text view or a list
-        // is itself inside one — so scroll every enclosing scroll view, innermost first,
-        // each asked from its own document view so its own clip is the one that answers.
+        /// `scrollToVisible` reaches only the NEAREST clip view, and a text view or a list
+        /// is itself inside one — so scroll every enclosing scroll view, innermost first,
+        /// each asked from its own document view so its own clip is the one that answers.
         var ancestor = unsafe control.superview
         while let a = ancestor {
             if let scroll = a as? NSScrollView, let document = scroll.documentView {
@@ -761,11 +761,11 @@ final class FilmSheetKeyLoop {
             }
             ancestor = unsafe a.superview
         }
-        // A text field gets its contents selected, through makeFirstResponder + the field
-        // editor — the path AppKit's own Tab takes. Moving first responder makes the outgoing
-        // field editor run its pending text checking synchronously, which needs AppKit's
-        // data-detector scanner. TextCheckingPrewarm (91.00) loads that at launch, so this never
-        // waits on AppKit's default-QoS loader thread, which would be a priority inversion.
+        /// A text field gets its contents selected, through makeFirstResponder + the field
+        /// editor — the path AppKit's own Tab takes. Moving first responder makes the outgoing
+        /// field editor run its pending text checking synchronously, which needs AppKit's
+        /// data-detector scanner. TextCheckingPrewarm (91.00) loads that at launch, so this never
+        /// waits on AppKit's default-QoS loader thread, which would be a priority inversion.
         window.makeFirstResponder(control)
         if control is NSTextField, let editor = window.fieldEditor(false, for: control) as? NSTextView,
            window.firstResponder === editor {
@@ -775,9 +775,9 @@ final class FilmSheetKeyLoop {
 }
 
 // MARK: - FilmSheetTabFocusRegion
-// An invisible AppKit view sized to a tab's content area, registered with FilmSheetKeyLoop
-// so Tab traversal on that tab can be scoped to it. The card-level counterpart is
-// ReleaseCardFocusRegion (33.10).
+/// An invisible AppKit view sized to a tab's content area, registered with FilmSheetKeyLoop
+/// so Tab traversal on that tab can be scoped to it. The card-level counterpart is
+/// ReleaseCardFocusRegion (33.10).
 private struct FilmSheetTabFocusRegion: NSViewRepresentable {
     let tab: FilmTab
 
@@ -845,18 +845,18 @@ private struct FilmSheetTabContent: View {
 
     var body: some View {
         let _ = FilmSheetBodyProbe.hit("tab-content")
-        // Compute the effective "appeared" set once. FilmSheet seeds the set with the
-        // initial tab and inserts each subsequent selection from selectedTab's didSet,
-        // so the fast path (identity return, zero allocation) is taken on every render.
-        // The union branch is a safety net: if selectedTab is ever a value not yet
-        // recorded, it is included in the set used for this frame so the active tab
-        // always renders.
+        /// Compute the effective "appeared" set once. FilmSheet seeds the set with the
+        /// initial tab and inserts each subsequent selection from selectedTab's didSet,
+        /// so the fast path (identity return, zero allocation) is taken on every render.
+        /// The union branch is a safety net: if selectedTab is ever a value not yet
+        /// recorded, it is included in the set used for this frame so the active tab
+        /// always renders.
         let appeared = appearedTabs.contains(selectedTab)
             ? appearedTabs
             : appearedTabs.union([selectedTab])
 
-        // Hoist per-tab state into five Bool pairs so each Set.contains runs exactly
-        // once per tab per body evaluation, instead of being repeated inside tabView.
+        /// Hoist per-tab state into five Bool pairs so each Set.contains runs exactly
+        /// once per tab per body evaluation, instead of being repeated inside tabView.
         let sel = selectedTab
         let dLoaded = appeared.contains(.details),  dActive = sel == .details
         let mLoaded = appeared.contains(.metadata), mActive = sel == .metadata
@@ -872,9 +872,9 @@ private struct FilmSheetTabContent: View {
             tabLayer(.poster, loaded: pLoaded, active: pActive) { content(for: .poster) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Tab-switching keyboard command. Hosted here rather than in FilmSheetView so
-        // the Combine subscription is stable — this struct's body only re-evaluates on
-        // selectedTab changes, not on every owner observation hit.
+        /// Tab-switching keyboard command. Hosted here rather than in FilmSheetView so
+        /// the Combine subscription is stable — this struct's body only re-evaluates on
+        /// selectedTab changes, not on every owner observation hit.
         .onReceive(AppEventBus.shared.uiCommands) { command in
             if case .cycleFilmSheetTab(let forward) = command {
                 let tabs = FilmTab.allCases
@@ -919,21 +919,21 @@ private struct FilmSheetTabContent: View {
         if loaded {
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // Sized to the tab's area, for FilmSheetKeyLoop's Tab traversal. Inside
-                // the opacity, so it is hidden with the tab (the loop only ever asks for
-                // the active tab's region anyway).
+                /// Sized to the tab's area, for FilmSheetKeyLoop's Tab traversal. Inside
+                /// the opacity, so it is hidden with the tab (the loop only ever asks for
+                /// the active tab's region anyway).
                 .background(FilmSheetTabFocusRegion(tab: tab))
-                // A permanent container for the tab's NSViews, so hiding and showing it
-                // only changes that container's alpha. Without one, SwiftUI hosts a
-                // transparent subtree's platform views in a zero-alpha container and a
-                // visible one's directly in the hosting view, so every switch RE-PARENTED
-                // every NSView of both tabs involved, and each re-insert rebuilt the key view loop
-                // and laid out that view's hosted tree again. (Sampling put about 90% of a switch in
-                // -[NSView addSubview:].) The `filmsheet-perf` harness measured a return to a built tab
-                // at 10–25 ms, against 35–70 ms before this.
-                // `compositingGroup` does not rasterize, so at opacity 1 the tab draws as
-                // before; hidden, it is still a zero-alpha ancestor, which is what
-                // FilmSheetKeyLoop's hidden-tab test looks for.
+                /// A permanent container for the tab's NSViews, so hiding and showing it
+                /// only changes that container's alpha. Without one, SwiftUI hosts a
+                /// transparent subtree's platform views in a zero-alpha container and a
+                /// visible one's directly in the hosting view, so every switch RE-PARENTED
+                /// every NSView of both tabs involved, and each re-insert rebuilt the key view loop
+                /// and laid out that view's hosted tree again. (Sampling put about 90% of a switch in
+                /// -[NSView addSubview:].) The `filmsheet-perf` harness measured a return to a built tab
+                /// at 10–25 ms, against 35–70 ms before this.
+                /// `compositingGroup` does not rasterize, so at opacity 1 the tab draws as
+                /// before; hidden, it is still a zero-alpha ancestor, which is what
+                /// FilmSheetKeyLoop's hidden-tab test looks for.
                 .compositingGroup()
                 .opacity(active ? 1 : 0)
                 .allowsHitTesting(active)
@@ -950,12 +950,12 @@ private struct FilmSheetTabContent: View {
     private func content(for tab: FilmTab) -> some View {
         switch tab {
         case .details:
-            // FilmSheetFocusSink must be the first NSView child of this branch so
-            // AppKit's automatic first-responder assignment lands on the sink rather
-            // than on the "Name" TextField when the Details tab is first built.
-            // See MARK: - FilmSheetFocusSink below for the full rationale.
-            // swallowReturn: false — on Details, Return is forwarded so AppKit's
-            // responder chain can dispatch it to the window's default-action button.
+            /// FilmSheetFocusSink must be the first NSView child of this branch so
+            /// AppKit's automatic first-responder assignment lands on the sink rather
+            /// than on the "Name" TextField when the Details tab is first built.
+            /// See MARK: - FilmSheetFocusSink below for the full rationale.
+            /// swallowReturn: false — on Details, Return is forwarded so AppKit's
+            /// responder chain can dispatch it to the window's default-action button.
             VStack(spacing: 0) {
                 FilmSheetFocusSink(swallowReturn: false, reclaimWhenActive: selectedTab == .details)
                     .frame(height: 0)
@@ -968,12 +968,12 @@ private struct FilmSheetTabContent: View {
             }
             .appKitScrollActivation(detailsActivation, isActive: selectedTab == .details)
         case .metadata:
-            // No scroll proxy and no named coordinate space: this tab publishes no
-            // anchor and targets none. Its lists pull a newly committed row back into
-            // view through ListAddRowRevealer, which finds its own enclosing scroll
-            // view and needs no cooperation from this call site. See the Notes case.
-            // swallowReturn: true — an inert Return is consumed; Return saves exactly when
-            // Update is enabled, on every tab. See MARK: - FilmSheetFocusSink below.
+            /// No scroll proxy and no named coordinate space: this tab publishes no
+            /// anchor and targets none. Its lists pull a newly committed row back into
+            /// view through ListAddRowRevealer, which finds its own enclosing scroll
+            /// view and needs no cooperation from this call site. See the Notes case.
+            /// swallowReturn: true — an inert Return is consumed; Return saves exactly when
+            /// Update is enabled, on every tab. See MARK: - FilmSheetFocusSink below.
             VStack(spacing: 0) {
                 FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .metadata)
                     .frame(height: 0)
@@ -986,38 +986,38 @@ private struct FilmSheetTabContent: View {
             }
             .appKitScrollActivation(metadataActivation, isActive: selectedTab == .metadata)
         case .releases:
-            // FilmSheetFocusSink mirrors the Details usage. The Releases tab
-            // is only built the first time the user activates it, but at that moment
-            // AppKit auto-assigns focus to the first focusable NSView it finds in
-            // the fresh hierarchy — the "Studio" TextField in ReleaseFormView.
-            // The sink intercepts that assignment exactly once per session.
-            // swallowReturn: true — as on Metadata. See MARK: - FilmSheetFocusSink below.
+            /// FilmSheetFocusSink mirrors the Details usage. The Releases tab
+            /// is only built the first time the user activates it, but at that moment
+            /// AppKit auto-assigns focus to the first focusable NSView it finds in
+            /// the fresh hierarchy — the "Studio" TextField in ReleaseFormView.
+            /// The sink intercepts that assignment exactly once per session.
+            /// swallowReturn: true — as on Metadata. See MARK: - FilmSheetFocusSink below.
             VStack(spacing: 0) {
-                // Re-claims on EVERY activation of this tab, not only its first build — as
-                // every tab's sink does; see RE-CLAIM ON ACTIVATION on FilmSheetFocusSink.
+                /// Re-claims on EVERY activation of this tab, not only its first build — as
+                /// every tab's sink does; see RE-CLAIM ON ACTIVATION on FilmSheetFocusSink.
                 FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .releases)
                     .frame(height: 0)
                     .clipped()
-                // Equatable on the view model's identity, so a tab switch (which re-runs this body)
-                // does not re-run the Releases tab's body while it is hidden. Unlike the scroll tabs,
-                // this one is not behind a hosting view's hand-off gate. Its own state and observed
-                // reads still update it.
+                /// Equatable on the view model's identity, so a tab switch (which re-runs this body)
+                /// does not re-run the Releases tab's body while it is hidden. Unlike the scroll tabs,
+                /// this one is not behind a hosting view's hand-off gate. Its own state and observed
+                /// reads still update it.
                 FSTabReleasesView(viewModel: releasesTab)
                     .equatable()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .notes:
-            // No scroll proxy and no named coordinate space, for the same reason as
-            // Metadata. Its one programmatic scroll, revealing a freshly added list row, is
-            // handled by ListAddRowRevealer, which measures against whatever scroll view it sits inside.
-            //
-            // Details is the sole tab that still needs either: it publishes the
-            // viewingDatesSection anchor and targets it from the
-            // .openViewingDatesAddPopover command, so the space is established there,
-            // outside FSTabDetailsView, where the measured origin includes the
-            // surrounding padding and aligns with the y values
-            // NSScrollView.contentView.scroll(to:) expects.
-            // swallowReturn: true — as on Metadata/Releases above.
+            /// No scroll proxy and no named coordinate space, for the same reason as
+            /// Metadata. Its one programmatic scroll, revealing a freshly added list row, is
+            /// handled by ListAddRowRevealer, which measures against whatever scroll view it sits inside.
+            ///
+            /// Details is the sole tab that still needs either: it publishes the
+            /// viewingDatesSection anchor and targets it from the
+            /// .openViewingDatesAddPopover command, so the space is established there,
+            /// outside FSTabDetailsView, where the measured origin includes the
+            /// surrounding padding and aligns with the y values
+            /// NSScrollView.contentView.scroll(to:) expects.
+            /// swallowReturn: true — as on Metadata/Releases above.
             VStack(spacing: 0) {
                 FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .notes)
                     .frame(height: 0)
@@ -1030,7 +1030,7 @@ private struct FilmSheetTabContent: View {
             }
             .appKitScrollActivation(notesActivation, isActive: selectedTab == .notes)
         case .poster:
-            // swallowReturn: true — same reasoning as Metadata/Releases/Notes above.
+            /// swallowReturn: true — same reasoning as Metadata/Releases/Notes above.
             VStack(spacing: 0) {
                 FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .poster)
                     .frame(height: 0)
@@ -1058,7 +1058,7 @@ private struct DetailsScrollTab: View, Equatable {
     let scrollProxy: FilmSheetScrollProxy
     let activation: AppKitScrollActivation
 
-    // SwiftUI performs view comparisons on the main actor; see ReleaseCardView's conformance.
+    /// SwiftUI performs view comparisons on the main actor; see ReleaseCardView's conformance.
     nonisolated static func == (lhs: DetailsScrollTab, rhs: DetailsScrollTab) -> Bool {
         MainActor.assumeIsolated {
             lhs.viewModel === rhs.viewModel
@@ -1109,16 +1109,16 @@ struct TabEventShield: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: _ShieldView, context: Context) {
-        // Apply the shielded state immediately. No animation deferral is needed:
-        // the shield must be in the correct state before any mouse event can arrive,
-        // and SwiftUI delivers updateNSView synchronously during the layout pass that
-        // also applies the `.opacity` change to the tab's content.
+        /// Apply the shielded state immediately. No animation deferral is needed:
+        /// the shield must be in the correct state before any mouse event can arrive,
+        /// and SwiftUI delivers updateNSView synchronously during the layout pass that
+        /// also applies the `.opacity` change to the tab's content.
         nsView.isShielded = isShielded
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: _ShieldView,
                       context: Context) -> CGSize? {
-        // Inherit the proposed size so the overlay fills the full tab frame.
+        /// Inherit the proposed size so the overlay fills the full tab frame.
         return CGSize(
             width:  proposal.width  ?? 0,
             height: proposal.height ?? 0
@@ -1132,75 +1132,75 @@ struct TabEventShield: NSViewRepresentable {
         var isShielded: Bool = false
 
         override func draw(_ dirtyRect: NSRect) {
-            // Intentionally empty — the shield is always visually transparent.
+            /// Intentionally empty — the shield is always visually transparent.
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
-            // When shielded: return self to consume the hit event, preventing AppKit
-            // from routing it to any control in the same NSHostingView subtree that
-            // falls at this coordinate. Returning self (rather than nil) is required;
-            // returning nil means "not me — keep looking," which is the pass-through
-            // behavior. Returning self means "I own this point," and since _ShieldView
-            // has no action targets or recognizers, the event is silently discarded.
-            //
-            // When not shielded: return nil so AppKit continues its normal hitTest
-            // traversal to the controls on the active tab below this overlay.
+            /// When shielded: return self to consume the hit event, preventing AppKit
+            /// from routing it to any control in the same NSHostingView subtree that
+            /// falls at this coordinate. Returning self (rather than nil) is required;
+            /// returning nil means "not me — keep looking," which is the pass-through
+            /// behavior. Returning self means "I own this point," and since _ShieldView
+            /// has no action targets or recognizers, the event is silently discarded.
+            ///
+            /// When not shielded: return nil so AppKit continues its normal hitTest
+            /// traversal to the controls on the active tab below this overlay.
             guard isShielded else { return nil }
-            // Only claim the hit if the point is within our bounds, matching the
-            // standard NSView hitTest contract.
+            /// Only claim the hit if the point is within our bounds, matching the
+            /// standard NSView hitTest contract.
             return unsafe bounds.contains(convert(point, from: superview)) ? self : nil
         }
 
-        // Refuse first-responder status so the shield never acquires keyboard focus.
+        /// Refuse first-responder status so the shield never acquires keyboard focus.
         override var acceptsFirstResponder: Bool { false }
     }
 }
 
 // MARK: - FilmSheetFocusSink
-// An invisible, zero-height focus trap placed as the first child of a tab's VStack in
-// FilmSheetTabContent.content(for:). One parameterized type backs all five tabs' sinks,
-// differing only in whether Return is forwarded to AppKit. The MultiFilmSheet's two tabs
-// use it the same way (MultiFilmTabContent, 52.10), as they do TabEventShield.
-//
-// PURPOSE: When a tab is first built, AppKit assigns first-responder status to the
-// first focusable NSView it finds — normally the tab's first TextField — showing a
-// focus ring before the user has pressed Tab. This sink sits first so AppKit's
-// assignment lands on it instead.
-//
-// RETURN-KEY HANDLING:
-//   THE POLICY is one rule on every tab: an active text field takes Return first (see
-//   the key monitor's RETURN note in FilmSheetView), and with no field active Return
-//   saves exactly when the Update/Add button is enabled. KeyboardManager's Return
-//   intercept enforces the second half — it runs as a local event monitor, ahead of this
-//   sink, and confirms whenever `canConfirm` is true (the same stored value the button's
-//   `.disabled` reads). So a Return that reaches this sink at all is one the button would
-//   have refused, and `swallowReturn` only decides what an inert Return does:
-//   • Details (swallowReturn = false): forwarded to super, reaching the window's
-//     default-action button — disabled in this state, so nothing happens.
-//   • Metadata, Releases, Notes, Poster (swallowReturn = true): consumed outright.
-//   Neither can save a sheet the button would not.
-//
-// SCOPE: every tab carries one, so every tab starts its keyboard traversal from the same
-// "nothing focused" state.
-//
-// SINGLE-FIRE, THEN RE-CLAIMED ON ACTIVATION: makeNSView runs exactly once per FilmSheet
-// session per tab (the keep-alive architecture never destroys these views); its Task hop
-// fires after AppKit's automatic assignment and claims focus for the sink. Every tab passes
-// `reclaimWhenActive: selectedTab == <itself>`,
-// and the sink claims focus again on each false→true transition — i.e. every time the
-// user switches to the tab. The sheet's keyboard traversal begins from "nothing on this
-// tab is focused" (a single Tab press lands on the first control; see FilmSheetKeyLoop),
-// and that premise has to hold on every visit, not only the first: a control that held
-// focus when the user left would otherwise come back with its ring, and a text field
-// that held it on another tab would go on taking keystrokes from behind this one. Only
-// the transition re-claims, so an update pass with the tab already active — every
-// keystroke causes several — never steals focus from the control the user is on.
-//
-// LAYOUT / KEY-VIEW ORDER: Collapsed to zero height via .frame(height:0).clipped(),
-// with zero-size Auto Layout constraints on the NSButton as a belt-and-suspenders
-// guarantee it contributes no intrinsic size. Being first in the VStack places it
-// first in AppKit's key-view loop, so Tab from the sink advances to the first real
-// control in natural top-to-bottom order.
+/// An invisible, zero-height focus trap placed as the first child of a tab's VStack in
+/// FilmSheetTabContent.content(for:). One parameterized type backs all five tabs' sinks,
+/// differing only in whether Return is forwarded to AppKit. The MultiFilmSheet's two tabs
+/// use it the same way (MultiFilmTabContent, 52.10), as they do TabEventShield.
+///
+/// PURPOSE: When a tab is first built, AppKit assigns first-responder status to the
+/// first focusable NSView it finds — normally the tab's first TextField — showing a
+/// focus ring before the user has pressed Tab. This sink sits first so AppKit's
+/// assignment lands on it instead.
+///
+/// RETURN-KEY HANDLING:
+///   THE POLICY is one rule on every tab: an active text field takes Return first (see
+///   the key monitor's RETURN note in FilmSheetView), and with no field active Return
+///   saves exactly when the Update/Add button is enabled. KeyboardManager's Return
+///   intercept enforces the second half — it runs as a local event monitor, ahead of this
+///   sink, and confirms whenever `canConfirm` is true (the same stored value the button's
+///   `.disabled` reads). So a Return that reaches this sink at all is one the button would
+///   have refused, and `swallowReturn` only decides what an inert Return does:
+///   • Details (swallowReturn = false): forwarded to super, reaching the window's
+///     default-action button — disabled in this state, so nothing happens.
+///   • Metadata, Releases, Notes, Poster (swallowReturn = true): consumed outright.
+///   Neither can save a sheet the button would not.
+///
+/// SCOPE: every tab carries one, so every tab starts its keyboard traversal from the same
+/// "nothing focused" state.
+///
+/// SINGLE-FIRE, THEN RE-CLAIMED ON ACTIVATION: makeNSView runs exactly once per FilmSheet
+/// session per tab (the keep-alive architecture never destroys these views); its Task hop
+/// fires after AppKit's automatic assignment and claims focus for the sink. Every tab passes
+/// `reclaimWhenActive: selectedTab == <itself>`,
+/// and the sink claims focus again on each false→true transition — i.e. every time the
+/// user switches to the tab. The sheet's keyboard traversal begins from "nothing on this
+/// tab is focused" (a single Tab press lands on the first control; see FilmSheetKeyLoop),
+/// and that premise has to hold on every visit, not only the first: a control that held
+/// focus when the user left would otherwise come back with its ring, and a text field
+/// that held it on another tab would go on taking keystrokes from behind this one. Only
+/// the transition re-claims, so an update pass with the tab already active — every
+/// keystroke causes several — never steals focus from the control the user is on.
+///
+/// LAYOUT / KEY-VIEW ORDER: Collapsed to zero height via .frame(height:0).clipped(),
+/// with zero-size Auto Layout constraints on the NSButton as a belt-and-suspenders
+/// guarantee it contributes no intrinsic size. Being first in the VStack places it
+/// first in AppKit's key-view loop, so Tab from the sink advances to the first real
+/// control in natural top-to-bottom order.
 @MainActor
 struct FilmSheetFocusSink: NSViewRepresentable {
     let swallowReturn: Bool
@@ -1223,7 +1223,7 @@ struct FilmSheetFocusSink: NSViewRepresentable {
         zeroWidth.priority  = .required
         zeroHeight.priority = .required
         NSLayoutConstraint.activate([zeroWidth, zeroHeight])
-        // Claim focus on the next run-loop pass, after the view is in the hierarchy.
+        /// Claim focus on the next run-loop pass, after the view is in the hierarchy.
         Task { @MainActor in
             unsafe button.window?.makeFirstResponder(button)
         }
@@ -1234,7 +1234,7 @@ struct FilmSheetFocusSink: NSViewRepresentable {
         let wasActive = context.coordinator.wasActive
         context.coordinator.wasActive = reclaimWhenActive
         guard reclaimWhenActive, wasActive == false else { return }
-        // Same hop as makeNSView: after the pass that made the tab visible has finished.
+        /// Same hop as makeNSView: after the pass that made the tab visible has finished.
         Task { @MainActor in
             unsafe nsView.window?.makeFirstResponder(nsView)
         }
@@ -1252,12 +1252,12 @@ struct FilmSheetFocusSink: NSViewRepresentable {
     }
 }
 
-// Custom NSButton used by FilmSheetFocusSink. Always absorbs Space (keyCode 49)
-// to prevent a spurious click on the sink itself; optionally absorbs Return
-// (keyCode 36) depending on `swallowReturn`. When `swallowReturn` is false,
-// Return is forwarded to super so AppKit's responder chain can dispatch it to
-// the window's default-action button; when true, Return is silently consumed.
-// Tab navigation (keyCode 48) is always handled by super.
+/// Custom NSButton used by FilmSheetFocusSink. Always absorbs Space (keyCode 49)
+/// to prevent a spurious click on the sink itself; optionally absorbs Return
+/// (keyCode 36) depending on `swallowReturn`. When `swallowReturn` is false,
+/// Return is forwarded to super so AppKit's responder chain can dispatch it to
+/// the window's default-action button; when true, Return is silently consumed.
+/// Tab navigation (keyCode 48) is always handled by super.
 final class FilmSheetSinkButton: NSButton {
     private let swallowReturn: Bool
 
@@ -1271,7 +1271,7 @@ final class FilmSheetSinkButton: NSButton {
     override var acceptsFirstResponder: Bool { true }
 
     override func keyDown(with event: NSEvent) {
-        // keyCode 49 = Space. keyCode 36 = Return.
+        /// keyCode 49 = Space. keyCode 36 = Return.
         if event.keyCode == 49 { return }
         if swallowReturn, event.keyCode == 36 { return }
         super.keyDown(with: event)

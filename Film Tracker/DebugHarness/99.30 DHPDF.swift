@@ -1,24 +1,24 @@
 // MARK: - DHPDF.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Harness scenario for the complete-library PDF: `-FTDebugHarness library-pdf`.
-//
-// WHAT THIS PROVES
-//
-// The library table's cells are derived from a film by a dozen small rules, each with its
-// own vocabulary, tier ordering, and fill. Reading them is not the same as knowing they
-// fire — a mis-ordered tier or a fill attached to the wrong branch produces a document that
-// still renders perfectly and is simply wrong about the library.
-//
-// So the scenario drives the REAL `LibraryPDFReport.section(films:)` over a corpus built to
-// land on every branch of every rule, and asserts the exact text and the exact fill of the
-// cells it produces. It then renders the section through the REAL `PDFTableRenderer` and
-// reopens the result with PDFKit, which is what catches the things a cell assertion cannot:
-// a document that paginates to zero pages, and a page that came out in the wrong
-// orientation.
-//
-// The rendered document is left in the sandbox as `harness-scratch-library-pdf.pdf` so it
-// can be opened and looked at.
+/// Harness scenario for the complete-library PDF: `-FTDebugHarness library-pdf`.
+///
+/// WHAT THIS PROVES
+///
+/// The library table's cells are derived from a film by a dozen small rules, each with its
+/// own vocabulary, tier ordering, and fill. Reading them is not the same as knowing they
+/// fire — a mis-ordered tier or a fill attached to the wrong branch produces a document that
+/// still renders perfectly and is simply wrong about the library.
+///
+/// So the scenario drives the REAL `LibraryPDFReport.section(films:)` over a corpus built to
+/// land on every branch of every rule, and asserts the exact text and the exact fill of the
+/// cells it produces. It then renders the section through the REAL `PDFTableRenderer` and
+/// reopens the result with PDFKit, which is what catches the things a cell assertion cannot:
+/// a document that paginates to zero pages, and a page that came out in the wrong
+/// orientation.
+///
+/// The rendered document is left in the sandbox as `harness-scratch-library-pdf.pdf` so it
+/// can be opened and looked at.
 
 #if DEBUG
 
@@ -57,20 +57,20 @@ extension DebugHarness {
         r.check("header-groups", section.headerGroups.count == 2,
                 "the two purchased-disc columns each need a group banner over their "
                     + "value and audio sub-column; got \(section.headerGroups.count)")
-        // "rf" alone does not say whose. The tool's name rides in the same header cell and
-        // WRAPS onto a second line, the way "Aspect Ratio" and "Cust. Edit" do — not as a
-        // group banner, which would rule a divider between the two words.
+        /// "rf" alone does not say whose. The tool's name rides in the same header cell and
+        /// WRAPS onto a second line, the way "Aspect Ratio" and "Cust. Edit" do — not as a
+        /// group banner, which would rule a divider between the two words.
         r.check("hb-rf-header",
                 section.columns[11].title == "HB rf"
                     && !section.headerGroups.contains { $0.columns.contains(11) },
                 "the rf column's header is '\(section.columns[11].title)'")
-        // Spelled out rather than abbreviated to "Chr.", which cost the reader a decoding
-        // step to save one point.
+        /// Spelled out rather than abbreviated to "Chr.", which cost the reader a decoding
+        /// step to save one point.
         r.check("color-header", section.columns[13].title == "Color",
                 "the chroma column's header is '\(section.columns[13].title)'")
 
-        // The section is sorted by name, so find each expectation's row by its title
-        // rather than assuming the corpus order survived.
+        /// The section is sorted by name, so find each expectation's row by its title
+        /// rather than assuming the corpus order survived.
         let titleColumn = 1
         for expectation in corpus {
             guard let row = section.rows.first(where: { $0[titleColumn].text == expectation.film.name })
@@ -89,9 +89,9 @@ extension DebugHarness {
         }
 
         // MARK: Studio names
-        // A studio is a proper noun inside a sentence, not part of the sentence, so it is
-        // italicized in place. Italics rather than a color, because color in this document
-        // already means something else.
+        /// A studio is a proper noun inside a sentence, not part of the sentence, so it is
+        /// italicized in place. Italics rather than a color, because color in this document
+        /// already means something else.
         func notesCell(_ title: String) -> PDFCell? {
             section.rows.first { $0[PDFColumn.title.rawValue].text == title }?
                 .map { $0 }[PDFColumn.notes.rawValue]
@@ -102,8 +102,8 @@ extension DebugHarness {
             r.check("studio-names-italic",
                     italics == ["Lionsgate Films", "Shout Factory"],
                     "italic runs are \(italics)")
-            // Every italic run must actually be IN the text, or the highlight colors
-            // nothing and the check above is asserting a dead value.
+            /// Every italic run must actually be IN the text, or the highlight colors
+            /// nothing and the check above is asserting a dead value.
             r.check("studio-italics-present",
                     italics.allSatisfy { studios.text.contains($0) },
                     "an italic run names a studio that is not in '\(studios.text)'")
@@ -111,24 +111,24 @@ extension DebugHarness {
             r.check("studio-row-present", false, "no row for the double-dip film")
         }
 
-        // A year is not a name and is not italicized — the double-dip note falls back to
-        // years when the studios do not tell the copies apart.
+        /// A year is not a name and is not italicized — the double-dip note falls back to
+        /// years when the studios do not tell the copies apart.
         if let years = notesCell("PDF Notes Double Dip Years") {
             r.check("years-not-italic", years.highlights.filter(\.italic).isEmpty,
                     "a year label was italicized as though it were a studio")
         }
 
         // MARK: Studio abbreviation under truncation
-        // The short form is used only when the full one would not fit, so an ordinary cell
-        // still prints the studio's real name.
+        /// The short form is used only when the full one would not fit, so an ordinary cell
+        /// still prints the studio's real name.
         if let studios = notesCell("PDF Notes Double Dip Studios") {
             r.check("studios-unabbreviated-when-they-fit",
                     studios.text.contains("Lionsgate Films"),
                     "a cell with room to spare abbreviated anyway: '\(studios.text)'")
         }
         if let crowded = notesCell("PDF Notes Crowded Studios") {
-            // LGF and SF, from the table the RightSidebar's "Source for Viewing" field
-            // abbreviates with — one table, so a studio reads the same in both places.
+            /// LGF and SF, from the table the RightSidebar's "Source for Viewing" field
+            /// abbreviates with — one table, so a studio reads the same in both places.
             r.check("studios-abbreviated-when-crowded",
                     crowded.text.contains("\(ReleaseStudio.abbreviated("Lionsgate Films"))/"
                                           + ReleaseStudio.abbreviated("Shout Factory")),
@@ -143,14 +143,14 @@ extension DebugHarness {
         }
 
         // MARK: Region-lock emphasis
-        // The Notes column is a comma-joined list of a dozen unrelated facts, and one of
-        // them says a disc on the shelf will not play. It is colored so it can be found at
-        // this type size without a column of its own — and the LOOSE form is deliberately
-        // not, because a bypass exists and that disc does play. Coloring the reassuring
-        // case in the same red as the blocking one would train the reader to ignore both.
-        //
-        // A substring match cannot tell the two apart ("Loosely Region B locked" contains
-        // "Region B locked"), which is exactly why this is asserted rather than assumed.
+        /// The Notes column is a comma-joined list of a dozen unrelated facts, and one of
+        /// them says a disc on the shelf will not play. It is colored so it can be found at
+        /// this type size without a column of its own — and the LOOSE form is deliberately
+        /// not, because a bypass exists and that disc does play. Coloring the reassuring
+        /// case in the same red as the blocking one would train the reader to ignore both.
+        ///
+        /// A substring match cannot tell the two apart ("Loosely Region B locked" contains
+        /// "Region B locked"), which is exactly why this is asserted rather than assumed.
         func notesHighlights(_ title: String) -> [PDFTextHighlight]? {
             section.rows.first { $0[PDFColumn.title.rawValue].text == title }?
                 .map { $0 }[PDFColumn.notes.rawValue].highlights
@@ -171,12 +171,12 @@ extension DebugHarness {
             r.check("loose-region-lock-row-present", false, "no row for the loosely-locked film")
         }
 
-        // Index column numbers the sorted order, 1-based and gapless.
+        /// Index column numbers the sorted order, 1-based and gapless.
         let indices = section.rows.map { $0[0].text }
         r.check("index-sequence", indices == (1...section.rows.count).map(String.init),
                 "index column is \(indices.prefix(5))…")
 
-        // Render for real, then read the document back.
+        /// Render for real, then read the document back.
         let url = scratchURL("library-pdf.pdf")
         try? FileManager.default.removeItem(at: url)
 
@@ -188,9 +188,9 @@ extension DebugHarness {
         }
 
         try? await PDFTableRenderer.render(section, into: context, geometry: LibraryTableLayout.standard.geometry)
-        // A second section at the PORTRAIT geometry. The assembled export keeps one
-        // orientation, but the renderer's per-page media box must still handle a mix, so it
-        // is exercised here rather than assumed.
+        /// A second section at the PORTRAIT geometry. The assembled export keeps one
+        /// orientation, but the renderer's per-page media box must still handle a mix, so it
+        /// is exercised here rather than assumed.
         try? await PDFTableRenderer.render(
             PDFTableSection(title: "Portrait Probe",
                             columns: [PDFTableColumn("A", width: 1), PDFTableColumn("B", width: 1)],
@@ -217,31 +217,31 @@ extension DebugHarness {
                     "last page is \(Int(bounds.width))x\(Int(bounds.height))")
         }
 
-        // Every film's title must survive into the drawn text — the cheapest end-to-end
-        // check that rows are not being clipped away by a layout mistake.
+        /// Every film's title must survive into the drawn text — the cheapest end-to-end
+        /// check that rows are not being clipped away by a layout mistake.
         let drawn = (0..<document.pageCount).compactMap { document.page(at: $0)?.string }.joined()
-        // The truncation case is excluded by construction: it is the one title that must
-        // NOT survive into the drawn text intact.
+        /// The truncation case is excluded by construction: it is the one title that must
+        /// NOT survive into the drawn text intact.
         let missing = corpus.map(\.film.name)
             .filter { $0 != longTitle && !drawn.contains($0) }
         r.check("titles-drawn", missing.isEmpty,
                 missing.isEmpty ? "all \(corpus.count - 1) untruncated titles present"
                                 : "missing from the rendered text: \(missing)")
 
-        // Truncation must actually happen, and must be the ELLIPSIS kind rather than a
-        // silent clip — and the full title must not appear, which is what would happen if
-        // the cell quietly wrapped instead.
+        /// Truncation must actually happen, and must be the ELLIPSIS kind rather than a
+        /// silent clip — and the full title must not appear, which is what would happen if
+        /// the cell quietly wrapped instead.
         r.check("title-truncated", !drawn.contains(longTitle),
                 "the over-long title was drawn in full — the cell wrapped instead of truncating")
-        // Truncated, not dropped: the leading words must still be on the page. (The
-        // ellipsis GLYPH is drawn — confirmed visually — but does not survive PDF text
-        // extraction, so it is deliberately not what this asserts.)
+        /// Truncated, not dropped: the leading words must still be on the page. (The
+        /// ellipsis GLYPH is drawn — confirmed visually — but does not survive PDF text
+        /// extraction, so it is deliberately not what this asserts.)
         r.check("title-truncation-keeps-prefix", drawn.contains(String(longTitle.prefix(24))),
                 "the truncated title's opening words are not on the page")
 
-        // A truncating cell occupies one line however long its text is. Measured on a
-        // section of many such rows, so wrapping would visibly cost pages — comparing a
-        // single row proves nothing, since one extra line rarely crosses a page boundary.
+        /// A truncating cell occupies one line however long its text is. Measured on a
+        /// section of many such rows, so wrapping would visibly cost pages — comparing a
+        /// single row proves nothing, since one extra line rarely crosses a page boundary.
         let geometry = LibraryTableLayout.standard.geometry
         if let longRow = section.rows.first(where: { $0[1].text == longTitle }) {
             var truncating = section
@@ -264,22 +264,22 @@ extension DebugHarness {
         checkHallOfFameSection(&r)
 
         // MARK: Column fit
-        // Guards the widths in LibraryTableLayout, which are sized to their widest literal
-        // and are therefore only correct until someone edits one. A column that comes up
-        // half a point short does not truncate or error — it silently wraps ("Hybri/d"),
-        // which also grows the height of every row it lands on.
+        /// Guards the widths in LibraryTableLayout, which are sized to their widest literal
+        /// and are therefore only correct until someone edits one. A column that comes up
+        /// half a point short does not truncate or error — it silently wraps ("Hybri/d"),
+        /// which also grows the height of every row it lands on.
         checkColumnFit(&r, section: section)
 
         // MARK: End-to-end
-        // Everything above proves the library SECTION. This drives the real exporter,
-        // which is the only thing that exercises the report sheets appended after it —
-        // and the only thing that proves the assembled document actually reaches disk.
+        /// Everything above proves the library SECTION. This drives the real exporter,
+        /// which is the only thing that exercises the report sheets appended after it —
+        /// and the only thing that proves the assembled document actually reaches disk.
         let corpusFilms = corpus.map(\.film)
         coordinator.importFilms(corpusFilms)
 
-        // Rank a handful so the assembled document actually contains a Hall of Fame sheet.
-        // The ranking lives in MemoryStore's own ordering, not in the snapshot's
-        // hofPosition, so it has to be established through the coordinator.
+        /// Rank a handful so the assembled document actually contains a Hall of Fame sheet.
+        /// The ranking lives in MemoryStore's own ordering, not in the snapshot's
+        /// hofPosition, so it has to be established through the coordinator.
         let ranked = corpusFilms.prefix(6).map(\.id)
         for id in ranked { _ = coordinator.memoryStoreForTesting.addToHallOfFame(id) }
         coordinator.refreshFilms()
@@ -294,7 +294,7 @@ extension DebugHarness {
             r.check("export-file-written",
                     FileManager.default.fileExists(atPath: exported.path),
                     "wrote \(exported.lastPathComponent)")
-            // Rendered inside the container and moved out whole — nothing left staged.
+            /// Rendered inside the container and moved out whole — nothing left staged.
             let stagingLeft = ExportStaging.rootURL.flatMap {
                 try? FileManager.default.contentsOfDirectory(atPath: $0.path(percentEncoded: false)) } ?? []
             r.check("export-staging-cleared", stagingLeft.isEmpty,
@@ -307,9 +307,9 @@ extension DebugHarness {
 
                 let text = (0..<assembled.pageCount)
                     .compactMap { assembled.page(at: $0)?.string }.joined()
-                // Two report sheets follow the library table, and both must be present: Data
-                // Visualizations always has something to say about a non-empty library, and the
-                // corpus is ranked above so the Hall of Fame does too.
+                /// Two report sheets follow the library table, and both must be present: Data
+                /// Visualizations always has something to say about a non-empty library, and the
+                /// corpus is ranked above so the Hall of Fame does too.
                 r.check("export-includes-hall-of-fame",
                         text.contains(ReportsCategory.hallOfFame.displayName),
                         "the Hall of Fame sheet is missing from the assembled document")
@@ -320,12 +320,12 @@ extension DebugHarness {
                         text.contains(LibraryTableLayout.standard.sectionTitle),
                         "the library table's own title is missing")
 
-                // The cost-tracker, price-tracker and wishlist sheets must be absent, not merely
-                // skipped for want of data: the corpus above has priced purchases, so a tracker
-                // sheet would print if one were in the section list. Asserted by their headings,
-                // because that is what a reader would see — each page's first line, not its whole
-                // text, since the rendered Data Visualizations page names the Release Wishlist
-                // report in a card's caption.
+                /// The cost-tracker, price-tracker and wishlist sheets must be absent, not merely
+                /// skipped for want of data: the corpus above has priced purchases, so a tracker
+                /// sheet would print if one were in the section list. Asserted by their headings,
+                /// because that is what a reader would see — each page's first line, not its whole
+                /// text, since the rendered Data Visualizations page names the Release Wishlist
+                /// report in a card's caption.
                 let headings = (0..<assembled.pageCount).compactMap {
                     assembled.page(at: $0)?.string?.split(separator: "\n").first.map(String.init)
                 }
@@ -342,9 +342,9 @@ extension DebugHarness {
                         "the document's section list is "
                             + "\(LibraryPDFSection.allCases.map(\.rawValue))")
 
-                // Every page of an assembled document carries BOTH counts, and the
-                // document count must run to the real page total — the reason the builder
-                // measures every section before drawing any of them.
+                /// Every page of an assembled document carries BOTH counts, and the
+                /// document count must run to the real page total — the reason the builder
+                /// measures every section before drawing any of them.
                 let footersComplete = (0..<assembled.pageCount).allSatisfy { index in
                     guard let page = assembled.page(at: index)?.string else { return false }
                     return page.contains("Section page") && page.contains("Document page")
@@ -352,9 +352,9 @@ extension DebugHarness {
                 r.check("export-footers-labeled", footersComplete,
                         "a page is missing one of the two labeled page counts")
 
-                // The production stamp is on every page, and is the SAME stamp on each — a
-                // render slow enough to cross a minute boundary must not date two pages
-                // differently.
+                /// The production stamp is on every page, and is the SAME stamp on each — a
+                /// render slow enough to cross a minute boundary must not date two pages
+                /// differently.
                 let stampsPresent = (0..<assembled.pageCount).allSatisfy {
                     assembled.page(at: $0)?.string?.contains("Report produced on") ?? false
                 }
@@ -366,7 +366,7 @@ extension DebugHarness {
                         last.contains("Document page \(assembled.pageCount) of \(assembled.pageCount)"),
                         "the final page does not close the document count")
 
-                // Every page is the library table's page, in both size and orientation.
+                /// Every page is the library table's page, in both size and orientation.
                 let uniform = (0..<assembled.pageCount).allSatisfy { index in
                     guard let bounds = assembled.page(at: index)?.bounds(for: .mediaBox)
                     else { return false }
@@ -381,8 +381,8 @@ extension DebugHarness {
             r.check("export-succeeded", false, "\(error)")
         }
 
-        // Leave the sandbox library as it was found. Deleting the films drops their
-        // ranking with them.
+        /// Leave the sandbox library as it was found. Deleting the films drops their
+        /// ranking with them.
         _ = coordinator.memoryStoreForTesting.deleteFilms(ids: Set(corpusFilms.map(\.id)))
         coordinator.refreshFilms()
 
@@ -413,11 +413,11 @@ extension DebugHarness {
             entry(5,  .available(.bluRay), upgrade: .bluRay),
             entry(6,  .available(.dvd), upgrade: .dvd),
             entry(7,  .unavailable),
-            // Band boundaries: 25 closes the first block, 26 opens the second, 51 the third.
+            /// Band boundaries: 25 closes the first block, 26 opens the second, 51 the third.
             entry(25, .unavailable),
             entry(26, .unavailable),
             entry(51, .unavailable),
-            // Notes composition and the three called-out ratings.
+            /// Notes composition and the three called-out ratings.
             entry(60, .purchased(.uhd4K), version: "Director\u{2019}s Cut", rating: 10),
             entry(61, .purchased(.bluRay), upgrade: .uhd4K, version: "Extended", rating: 9),
             entry(62, .purchased(.uhd4K), rating: 8),
@@ -437,12 +437,12 @@ extension DebugHarness {
                 titles == ["Position", "Title", "Year", "Rating", "Purchased", "Notes"],
                 "columns are \(titles)")
 
-        // Purchase standing: text and the complete-library shade it borrows.
+        /// Purchase standing: text and the complete-library shade it borrows.
         let expected: [(Int, String, NSColor)] = [
             (0, "4K", PDFPalette.paleGreen),
             (1, "BD", PDFPalette.green),
             (2, "DVD", PDFPalette.lightGray),
-            // Unowned reduces to two marks; the Notes column names what is available.
+            /// Unowned reduces to two marks; the Notes column names what is available.
             (3, "—", PDFPalette.red),
             (4, "—", PDFPalette.red),
             (5, "—", PDFPalette.red),
@@ -456,22 +456,22 @@ extension DebugHarness {
                     "expected \(fillName(fill)), got \(fillName(cell.fill))")
         }
 
-        // Notes: upgrade reporting, version reporting, and the shared list casing.
+        /// Notes: upgrade reporting, version reporting, and the shared list casing.
         let notes: [(Int, String)] = [
-            (0, ""),                                    // owned at the top of the ladder
-            (1, "4K UHD available"),                    // Blu-ray owned, 4K exists
-            (2, "Blu-ray available"),                   // DVD owned, ladder picks Blu-ray
-            (5, "DVD available"),                       // nothing owned, only a DVD exists
-            (6, ""),                                    // nothing exists at all
-            (10, "Director\u{2019}s Cut"),               // version alone
-            (11, "Extended, 4K UHD available"),         // both, trailing item lowercased
+            (0, ""),                                    /// owned at the top of the ladder
+            (1, "4K UHD available"),                    /// Blu-ray owned, 4K exists
+            (2, "Blu-ray available"),                   /// DVD owned, ladder picks Blu-ray
+            (5, "DVD available"),                       /// nothing owned, only a DVD exists
+            (6, ""),                                    /// nothing exists at all
+            (10, "Director\u{2019}s Cut"),               /// version alone
+            (11, "Extended, 4K UHD available"),         /// both, trailing item lowercased
         ]
         for (row, text) in notes {
             r.check("hof-notes-\(row)", section.rows[row][5].text == text,
                     "expected '\(text)', got '\(section.rows[row][5].text)'")
         }
 
-        // Ratings: only the top three scores are tinted.
+        /// Ratings: only the top three scores are tinted.
         let ratings: [(Int, String, NSColor?)] = [
             (10, "10", PDFPalette.darkGreen),
             (11, "9", PDFPalette.darkGold),
@@ -487,7 +487,7 @@ extension DebugHarness {
                     "expected \(fillName(fill)), got \(fillName(cell.fill))")
         }
 
-        // Banding: one color per block of 25, and the boundary lands between 25 and 26.
+        /// Banding: one color per block of 25, and the boundary lands between 25 and 26.
         func band(_ row: Int) -> NSColor? { section.rows[row][0].fill }
         r.check("hof-band-same-block", sameFill(band(0), band(7)),
                 "positions 1 and 25 must share a band color")
@@ -495,8 +495,8 @@ extension DebugHarness {
                 "positions 25 and 26 must fall in different bands")
         r.check("hof-band-next-boundary", !sameFill(band(8), band(9)),
                 "positions 26 and 51 must fall in different bands")
-        // The cycle must not walk the spectrum: adjacent blocks land on hues far enough
-        // apart to tell apart at a glance.
+        /// The cycle must not walk the spectrum: adjacent blocks land on hues far enough
+        /// apart to tell apart at a glance.
         let firstTwo = [PDFPalette.bandHue(0), PDFPalette.bandHue(1)].compactMap {
             $0.usingColorSpace(.deviceRGB)?.hueComponent
         }
@@ -531,8 +531,8 @@ extension DebugHarness {
         let header = PDFFonts.font(size: geometry.headerFontSize, weight: .bold)
         let padding = geometry.cellPaddingX * 2
 
-        // The renderer normalizes the column set to the content width before drawing, so
-        // the same scale is applied here rather than trusting the raw values to be points.
+        /// The renderer normalizes the column set to the content width before drawing, so
+        /// the same scale is applied here rather than trusting the raw values to be points.
         let declared = section.columns.reduce(0) { $0 + $1.width }
         let scale = declared > 0 ? geometry.contentWidth / declared : 1
         func width(_ index: Int) -> CGFloat { section.columns[index].width * scale }
@@ -543,7 +543,7 @@ extension DebugHarness {
             return measured <= available - padding
         }
 
-        // Single-line value columns. Title (1), Notes (9) and Aspect (12) are excluded.
+        /// Single-line value columns. Title (1), Notes (9) and Aspect (12) are excluded.
         let singleLine = [0, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15]
         for column in singleLine {
             let available = width(column)
@@ -558,11 +558,11 @@ extension DebugHarness {
                         : "wraps at \(Fmt.fixed(available, 1))pt: \(Set(offenders))")
         }
 
-        // The widest index this library could reach, rather than the widest it holds today.
+        /// The widest index this library could reach, rather than the widest it holds today.
         r.check("fit-index-four-digits", fits("8888", mono, width(0)),
                 "the index column must hold four fixed-width digits without wrapping")
 
-        // The aspect column's three competitors for its width.
+        /// The aspect column's three competitors for its width.
         for value in ["Hybrid", "2.39:1"] {
             r.check("fit-aspect-\(value)", fits(value, body, width(12)),
                     "'\(value)' does not fit the aspect column")
@@ -570,16 +570,16 @@ extension DebugHarness {
         r.check("fit-aspect-header", fits("Aspect", header, width(12)),
                 "the 'Aspect' header line does not fit its column")
 
-        // The chroma column is sized to the wider of the only two strings it can hold.
+        /// The chroma column is sized to the wider of the only two strings it can hold.
         r.check("fit-chroma-header", fits("Chr.", header, width(13)),
                 "the 'Chr.' header does not fit its column")
         r.check("fit-chroma-value", fits("B&W", body, width(13)),
                 "'B&W' does not fit the chroma column")
 
-        // Sub-column headers sit on their own single row and must fit outright — against
-        // the group's OWN header split, which is deliberately not the body columns' widths
-        // (see PDFHeaderGroup.headerWeights). Measuring them against the body widths would
-        // report a failure the rendered page does not have.
+        /// Sub-column headers sit on their own single row and must fit outright — against
+        /// the group's OWN header split, which is deliberately not the body columns' widths
+        /// (see PDFHeaderGroup.headerWeights). Measuring them against the body widths would
+        /// report a failure the rendered page does not have.
         for group in section.headerGroups {
             let members = Array(group.columns)
             let span = members.reduce(CGFloat(0)) { $0 + width($1) }
@@ -592,8 +592,8 @@ extension DebugHarness {
                         "the '\(section.columns[column].title)' sub-header does not fit "
                             + "\(Fmt.fixed(available, 1))pt")
             }
-            // The split must still tile the span exactly, or the header row and the data
-            // below it stop lining up.
+            /// The split must still tile the span exactly, or the header row and the data
+            /// below it stop lining up.
             let laidOut = weightTotal > 0
                 ? weights.map { $0 / weightTotal * span }.reduce(0, +)
                 : span
@@ -602,7 +602,7 @@ extension DebugHarness {
                         + "\(Fmt.fixed(span, 2))pt span")
         }
 
-        // A group banner spans its members and must clear their combined width.
+        /// A group banner spans its members and must clear their combined width.
         for group in section.headerGroups {
             let span = group.columns.reduce(CGFloat(0)) { $0 + width($1) }
             r.check("fit-banner-\(group.title)", fits(group.title, header, span),
@@ -686,9 +686,9 @@ extension DebugHarness {
     ) -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "reports-statistics")
 
-        // A 4K combo pack: one purchase, two discs, each with its own audio mix. The child
-        // carries the lossy track, so it is the child alone that puts this film in the
-        // lossy tally — the case a release-counting denominator could not contain.
+        /// A 4K combo pack: one purchase, two discs, each with its own audio mix. The child
+        /// carries the lossy track, so it is the child alone that puts this film in the
+        /// lossy tally — the case a release-counting denominator could not contain.
         let comboParentID = UUID()
         let comboFilm = makeSnapshot(name: "Stats Combo", releases: [
             ReleaseSnapshot(id: comboParentID, purchased: true,
@@ -706,26 +706,26 @@ extension DebugHarness {
                             parentReleaseID: comboParentID),
         ])
 
-        // Two separate purchases of one film — this is what makes the film count and the
-        // release count diverge.
+        /// Two separate purchases of one film — this is what makes the film count and the
+        /// release count diverge.
         let twoDiscFilm = makeSnapshot(name: "Stats Two Discs", releases: [
             ReleaseSnapshot(purchased: true, format: ReleaseFormat.bluRay.rawValue,
                             audioFormat: ReleaseAudioFormat.dtsHDMA,
                             audioChannels: ReleaseAudioChannels.surround51,
                             hasArtwork: "Yes", cost: 20, purchaseDate: "2024-03-02"),
-            // Carries a channel tag of its own, which is what makes the audio-tagged
-            // population (4) differ from the purchased top-level population (3). Without
-            // that divergence the two denominators coincide and the check below would pass
-            // against a wrong one.
+            /// Carries a channel tag of its own, which is what makes the audio-tagged
+            /// population (4) differ from the purchased top-level population (3). Without
+            /// that divergence the two denominators coincide and the check below would pass
+            /// against a wrong one.
             ReleaseSnapshot(purchased: true, format: ReleaseFormat.dvd.rawValue,
                             audioFormat: ReleaseAudioFormat.dolbyDigital,
                             audioChannels: ReleaseAudioChannels.stereo20,
                             hasArtwork: "Yes", cost: 10, purchaseDate: "2024-07-09"),
         ])
 
-        // A purchase with no cost recorded. It counts as a purchase everywhere, but must be
-        // excluded from the cost average — which is the difference between averaging over
-        // `cost > 0` and averaging over every purchased release.
+        /// A purchase with no cost recorded. It counts as a purchase everywhere, but must be
+        /// excluded from the cost average — which is the difference between averaging over
+        /// `cost > 0` and averaging over every purchased release.
         let freeFilm = makeSnapshot(name: "Stats No Cost", releases: [
             ReleaseSnapshot(purchased: true, format: ReleaseFormat.bluRay.rawValue,
                             audioFormat: ReleaseAudioFormat.dtsHDMA,
@@ -733,8 +733,8 @@ extension DebugHarness {
                             hasArtwork: "Yes", cost: 0, purchaseDate: "2024-07-09"),
         ])
 
-        // No releases at all: present in `totalFilms`, absent from every purchase-side
-        // population, which is what the film-level denominators must exclude.
+        /// No releases at all: present in `totalFilms`, absent from every purchase-side
+        /// population, which is what the film-level denominators must exclude.
         let digitalOnlyFilm = makeSnapshot(name: "Stats Digital Only")
 
         let films = [comboFilm, twoDiscFilm, freeFilm, digitalOnlyFilm]
@@ -756,10 +756,10 @@ extension DebugHarness {
                 + "child carries a mix of its own. Dividing by totalPurchasedReleases here "
                 + "asks five discs to be shares of four.")
 
-        // The tallied rows must fit inside the population they are drawn from. This is the
-        // statement the bug violated, and it subsumes a per-row "no share above 100%"
-        // check: if the rows sum to no more than the denominator, no single row can exceed
-        // it either.
+        /// The tallied rows must fit inside the population they are drawn from. This is the
+        /// statement the bug violated, and it subsumes a per-row "no share above 100%"
+        /// check: if the rows sum to no more than the denominator, no single row can exceed
+        /// it either.
         let channelRows = stats.audioChannelDistribution
             .filter { $0.0 != "---" && $0.0 != "Object-based mixes" }
         let channelTotal = channelRows.reduce(0) { $0 + $1.1 }
@@ -770,13 +770,13 @@ extension DebugHarness {
 
         // MARK: Film-count numerators over film-count denominators
 
-        // One film (the combo) has a purchased release with artwork missing.
+        /// One film (the combo) has a purchased release with artwork missing.
         r.check("missing-artwork-films", stats.missingReleaseArtwork == 1,
                 "\(stats.missingReleaseArtwork) film(s), expected 1")
 
-        // The combo's CHILD Blu-ray is the lossy one, so the film counts. Two films have a
-        // 4K or Blu-ray release. A release-counting denominator would count the top-level
-        // 4K/BD releases, 3 here, and would report 33%.
+        /// The combo's CHILD Blu-ray is the lossy one, so the film counts. Two films have a
+        /// 4K or Blu-ray release. A release-counting denominator would count the top-level
+        /// 4K/BD releases, 3 here, and would report 33%.
         r.check("lossy-audio-over-films-with-hd-discs",
                 stats.lossyBDAudio == 1 && stats.lossyBDAudioPercent == 33,
                 "\(stats.lossyBDAudio) film(s), \(stats.lossyBDAudioPercent)% "
@@ -790,11 +790,11 @@ extension DebugHarness {
 
         // MARK: One average cost
 
-        // $30, $20 and $10 are the three COSTED purchases. The fourth purchase has no cost
-        // recorded and must not drag the average down to $15, which is what averaging over
-        // every purchased release rather than over `cost > 0` would produce. So the average
-        // is $20, and the $20 and $10 discs are the two at or below it. This is the single
-        // number the display string and the at-or-below column both come from.
+        /// $30, $20 and $10 are the three COSTED purchases. The fourth purchase has no cost
+        /// recorded and must not drag the average down to $15, which is what averaging over
+        /// every purchased release rather than over `cost > 0` would produce. So the average
+        /// is $20, and the $20 and $10 discs are the two at or below it. This is the single
+        /// number the display string and the at-or-below column both come from.
         r.check("average-cost-single-definition", stats.averageCost == "$20.00",
                 "averageCost = \(stats.averageCost), expected $20.00")
         r.check("at-or-below-average-uses-that-average",
@@ -805,12 +805,12 @@ extension DebugHarness {
 
         // MARK: Format breakdown
 
-        // Bucketed per FILM, not per release, and in the format ladder's order: a film with
-        // a purchased 4K lands in the 4K row whatever else it owns; "Blu-ray only" is a
-        // film with a purchased Blu-ray and no purchased 4K; "DVD only" has neither. So
-        // the combo film is the 4K row, the two-disc film and the free film are the Blu-ray
-        // row (the two-disc film's DVD is overlap, not a DVD-only film), and the DVD row is
-        // empty. Row labels are the display strings the on-screen table and PDF print.
+        /// Bucketed per FILM, not per release, and in the format ladder's order: a film with
+        /// a purchased 4K lands in the 4K row whatever else it owns; "Blu-ray only" is a
+        /// film with a purchased Blu-ray and no purchased 4K; "DVD only" has neither. So
+        /// the combo film is the 4K row, the two-disc film and the free film are the Blu-ray
+        /// row (the two-disc film's DVD is overlap, not a DVD-only film), and the DVD row is
+        /// empty. Row labels are the display strings the on-screen table and PDF print.
         r.check("format-breakdown-order",
                 stats.formatBreakdown.map(\.format) == ["Purchased \(ReleaseFormat.uhd4K.rawValue)",
                                                         "Purchased \(ReleaseFormat.bluRay.rawValue) only",
@@ -820,22 +820,22 @@ extension DebugHarness {
                 stats.formatBreakdown.map(\.count) == [1, 2, 0],
                 "counts: \(stats.formatBreakdown.map(\.count)) — one 4K film, two Blu-ray-only "
                 + "films, no DVD-only film; the combo child is not a purchase of its own")
-        // Average cost samples each bucket's own purchased top-level releases of that
-        // format: $30 for the 4K; $20 for the Blu-ray row (the costless disc contributes no
-        // sample); nothing for the empty DVD row.
+        /// Average cost samples each bucket's own purchased top-level releases of that
+        /// format: $30 for the 4K; $20 for the Blu-ray row (the costless disc contributes no
+        /// sample); nothing for the empty DVD row.
         r.check("format-breakdown-average-costs",
                 stats.formatBreakdown.map(\.avgCost) == ["$30.00", "$20.00", "—"],
                 "average costs: \(stats.formatBreakdown.map(\.avgCost))")
 
         // MARK: Tracker ordering is total, and so reproducible
 
-        // `costTrackerRows` derives its rows from `getAllFilms()`, which is
-        // `Array(films.values)` over a Dictionary and therefore hands them over in no
-        // particular order. Two of the three purchases here share a purchase date, so only
-        // the title tiebreak can make the resulting order the same twice.
-        //
-        // The check drives the pair `ReportTrackers` calls to fill the on-screen tab, which is
-        // where this rule ships. The PDF export does not print a cost sheet.
+        /// `costTrackerRows` derives its rows from `getAllFilms()`, which is
+        /// `Array(films.values)` over a Dictionary and therefore hands them over in no
+        /// particular order. Two of the three purchases here share a purchase date, so only
+        /// the title tiebreak can make the resulting order the same twice.
+        ///
+        /// The check drives the pair `ReportTrackers` calls to fill the on-screen tab, which is
+        /// where this rule ships. The PDF export does not print a cost sheet.
         func sortedCostRows(_ films: [FilmSnapshot]) -> [ReleaseData] {
             ReleaseData.sorted(ReleaseData.costTrackerRows(films: films),
                                using: ReleaseData.costTrackerDefaultSort)
@@ -847,20 +847,20 @@ extension DebugHarness {
                 !forward.isEmpty && forward.map(\.releaseID) == reversed.map(\.releaseID),
                 "forward \(forward.map(\.filmTitle)) vs reversed \(reversed.map(\.filmTitle))")
 
-        // Three rows, not four: the costless purchase has neither a cost nor an amount
-        // spent, and the tracker's whole subject is money, so it is correctly absent.
+        /// Three rows, not four: the costless purchase has neither a cost nor an amount
+        /// spent, and the tracker's whole subject is money, so it is correctly absent.
         r.check("cost-tracker-orders-newest-purchase-first",
                 forward.map(\.purchaseDate) == ["2024-07-09", "2024-03-02", "2024-03-02"],
                 "dates: \(forward.map(\.purchaseDate))")
 
-        // The tie is broken by gallery-style title order, not by arrival order.
+        /// The tie is broken by gallery-style title order, not by arrival order.
         r.check("cost-tracker-breaks-ties-by-title",
                 forward.map(\.filmTitle)
                     == ["Stats Two Discs", "Stats Combo", "Stats Two Discs"],
                 "rows: \(forward.map(\.filmTitle))")
 
-        // The tracker date columns read the spelling the Releases tab actually writes
-        // (`yyyy.MM.dd`), not only the legacy dash form.
+        /// The tracker date columns read the spelling the Releases tab actually writes
+        /// (`yyyy.MM.dd`), not only the legacy dash form.
         let trackerRow = { (purchase: String, lowest: String) in
             ReleaseData(releaseID: UUID(), filmID: UUID(), filmTitle: "Row", filmSortName: "",
                         cost: 1, amountSpent: 1, lowestPrice: 1, purchaseDate: purchase,
@@ -876,8 +876,8 @@ extension DebugHarness {
                 otherRow.purchaseDateFormatted == "May 1, 2024" && otherRow.lowestPriceDateFormatted == "—",
                 "\(otherRow.purchaseDateFormatted) / \(otherRow.lowestPriceDateFormatted)")
 
-        // The Title header sorts as the gallery's Title sort does: sort name over name,
-        // articles stripped, numbers last, then year, both directions exact reverses.
+        /// The Title header sorts as the gallery's Title sort does: sort name over name,
+        /// articles stripped, numbers last, then year, both directions exact reverses.
         let titleRow = { (title: String, sortName: String, year: String) in
             ReleaseData(releaseID: UUID(), filmID: UUID(), filmTitle: title, filmSortName: sortName,
                         filmYear: year, cost: 1, amountSpent: 1, lowestPrice: 0, purchaseDate: "",
@@ -950,8 +950,8 @@ extension DebugHarness {
                     (.audio2K, PDFCell("5.1", fill: PDFPalette.green))]))
         out.append(PDFExpectation(
             film: film("PDF Disc RemBD Over BD") {
-                // The plain Blu-ray is listed first and is the newer pressing, so only the
-                // tier ranking can put the remastered one in the cell.
+                /// The plain Blu-ray is listed first and is the newer pressing, so only the
+                /// tier ranking can put the remastered one in the cell.
                 $0.releases = [
                     ReleaseSnapshot(releaseDate: "2020", purchased: true,
                                     format: ReleaseFormat.bluRay.rawValue,
@@ -965,7 +965,7 @@ extension DebugHarness {
                 ]
             },
             cells: [(.disc2K, PDFCell("remaster", fill: PDFPalette.paleGreen)),
-                    // Atmos is object-based, so the audio cell qualifies rather than affirms.
+                    /// Atmos is object-based, so the audio cell qualifies rather than affirms.
                     (.audio2K, PDFCell("7.1", fill: PDFPalette.paleGreen))]))
         out.append(PDFExpectation(
             film: film("PDF Disc BD Over DVD") {
@@ -987,43 +987,43 @@ extension DebugHarness {
             },
             cells: [(.disc2K, PDFCell("DVD", fill: PDFPalette.lightGray))]))
         out.append(PDFExpectation(
-            // A remastered DVD reads "remaster" too — the light gray is what says DVD.
+            /// A remastered DVD reads "remaster" too — the light gray is what says DVD.
             film: film("PDF Disc RemDVD") {
                 $0.releases = [ReleaseSnapshot(purchased: true,
                                                format: ReleaseFormat.dvd.rawValue,
                                                remastered: true)]
             },
             cells: [(.disc2K, PDFCell("remaster", fill: PDFPalette.lightGray))]))
-        // No non-4K release on record at all: nothing to buy, so NEITHER sub-column of the
-        // Blu-ray group takes the red that means "available and unbought".
+        /// No non-4K release on record at all: nothing to buy, so NEITHER sub-column of the
+        /// Blu-ray group takes the red that means "available and unbought".
         out.append(PDFExpectation(
             film: film("PDF Disc None") { _ in },
             cells: [(.disc2K, PDFCell("")),
                     (.audio2K, PDFCell(""))]))
-        // An unpurchased DVD is something to buy: the group goes back to red, even though
-        // the Disc cell's own text reports only Blu-rays.
+        /// An unpurchased DVD is something to buy: the group goes back to red, even though
+        /// the Disc cell's own text reports only Blu-rays.
         out.append(PDFExpectation(
             film: film("PDF Disc DVD Unpurchased") {
                 $0.releases = [ReleaseSnapshot(format: ReleaseFormat.dvd.rawValue)]
             },
             cells: [(.disc2K, PDFCell("", fill: PDFPalette.red)),
                     (.audio2K, PDFCell("", fill: PDFPalette.red))]))
-        // An unpurchased Blu-ray must NOT fill the purchased column as though it were
-        // owned — it reports the standing option instead, exactly as the 4K column does.
+        /// An unpurchased Blu-ray must NOT fill the purchased column as though it were
+        /// owned — it reports the standing option instead, exactly as the 4K column does.
         out.append(PDFExpectation(
             film: film("PDF Disc Unpurchased") {
                 $0.releases = [ReleaseSnapshot(format: ReleaseFormat.bluRay.rawValue,
                                                audioChannels: ReleaseAudioChannels.surround51)]
             },
             cells: [(.disc2K, PDFCell("available", fill: PDFPalette.red))]))
-        // A single foreign unpurchased Blu-ray names itself an import.
+        /// A single foreign unpurchased Blu-ray names itself an import.
         out.append(PDFExpectation(
             film: film("PDF Disc Unpurchased Import") {
                 $0.releases = [ReleaseSnapshot(format: ReleaseFormat.bluRay.rawValue,
                                                nationalOrigin: "Germany")]
             },
             cells: [(.disc2K, PDFCell("import", fill: PDFPalette.red))]))
-        // Out of print outranks the import qualifier: the disc cannot simply be bought.
+        /// Out of print outranks the import qualifier: the disc cannot simply be bought.
         out.append(PDFExpectation(
             film: film("PDF Disc Unpurchased OOP") {
                 $0.releases = [ReleaseSnapshot(
@@ -1075,8 +1075,8 @@ extension DebugHarness {
             },
             cells: [(.disc4K, PDFCell("available", fill: PDFPalette.red)),
                     (.audio4K, PDFCell("", fill: PDFPalette.red))]))
-        // Nothing to buy is not a gap: no 4K release at all takes NO fill, where a 4K
-        // release nobody bought takes red.
+        /// Nothing to buy is not a gap: no 4K release at all takes NO fill, where a 4K
+        /// release nobody bought takes red.
         out.append(PDFExpectation(
             film: film("PDF 4K None") { _ in },
             cells: [(.disc4K, PDFCell("")), (.audio4K, PDFCell(""))]))
@@ -1111,8 +1111,8 @@ extension DebugHarness {
                 ]
             },
             cells: [(.discs, PDFCell("4", fill: PDFPalette.green)),
-                    // Owned but never encoded — the rf column turns red even though the
-                    // rest of the row is tinted green.
+                    /// Owned but never encoded — the rf column turns red even though the
+                    /// rest of the row is tinted green.
                     (.rf, PDFCell("", fill: PDFPalette.red))]))
 
         // MARK: RF, aspect ratio, chroma, last watched
@@ -1131,7 +1131,7 @@ extension DebugHarness {
         out.append(PDFExpectation(
             film: film("PDF Aspect Open Matte") { $0.aspectRatio = "1.85:1 (Open matte)" },
             cells: [(.aspect, PDFCell("1.85:1", fill: PDFPalette.veryDarkGreen)),
-                    // The qualifier moves out of the column and into Notes.
+                    /// The qualifier moves out of the column and into Notes.
                     (.notes, PDFCell("Open matte"))]))
         out.append(PDFExpectation(
             film: film("PDF Aspect Boundary High") { $0.aspectRatio = "2.00:1" },
@@ -1156,7 +1156,7 @@ extension DebugHarness {
             film: film("PDF Watched Dated") { $0.lastWatched = "2025.07.21" },
             cells: [(.lastWatched, PDFCell("Jul 21, 2025"))]))
         out.append(PDFExpectation(
-            // A stored viewing-version code must not defeat the parse.
+            /// A stored viewing-version code must not defeat the parse.
             film: film("PDF Watched Versioned") { $0.lastWatched = "2026.01.24.TH" },
             cells: [(.lastWatched, PDFCell("Jan 24, 2026"))]))
         out.append(PDFExpectation(
@@ -1164,7 +1164,7 @@ extension DebugHarness {
             cells: [(.lastWatched, PDFCell("\u{2013}"))]))
 
         out.append(PDFExpectation(
-            // Open matte on a NARROW ratio still bands by the stripped value.
+            /// Open matte on a NARROW ratio still bands by the stripped value.
             film: film("PDF Aspect Open Matte Narrow") { $0.aspectRatio = "1.33:1 (Open matte)" },
             cells: [(.aspect, PDFCell("1.33:1", fill: PDFPalette.veryDarkGold)),
                     (.notes, PDFCell("Open matte"))]))
@@ -1196,7 +1196,7 @@ extension DebugHarness {
                     (.discs, PDFCell("1", fill: PDFPalette.green)),
                     (.rf, PDFCell("20", fill: PDFPalette.green))]))
         out.append(PDFExpectation(
-            // 4K wins the tint even when the only other disc is a DVD.
+            /// 4K wins the tint even when the only other disc is a DVD.
             film: film("PDF Tint FourK") {
                 $0.releases = [
                     ReleaseSnapshot(purchased: true, format: ReleaseFormat.dvd.rawValue),
@@ -1215,14 +1215,14 @@ extension DebugHarness {
                     (.year, PDFCell("2000", fill: PDFPalette.lightGray)),
                     (.rf, PDFCell("22", fill: PDFPalette.lightGray))]))
         out.append(PDFExpectation(
-            // Nothing bought — the film-level columns stay neutral rather than turning red.
+            /// Nothing bought — the film-level columns stay neutral rather than turning red.
             film: film("PDF Tint Unowned") { $0.libraryHBRFValue = 21 },
             cells: [(.title, PDFCell("PDF Tint Unowned")),
                     (.year, PDFCell("2000")),
                     (.discs, PDFCell("")),
                     (.rf, PDFCell("21"))]))
         out.append(PDFExpectation(
-            // Unowned AND unencoded is a non-event, not a gap: no red.
+            /// Unowned AND unencoded is a non-event, not a gap: no red.
             film: film("PDF Tint Unowned No RF") { _ in },
             cells: [(.rf, PDFCell("\u{2013}"))]))
 
@@ -1241,10 +1241,10 @@ extension DebugHarness {
                                                format: ReleaseFormat.bluRay.rawValue,
                                                hasArtwork: ReleaseArtwork.steelbook)]
             },
-            // The authored note now TRAILS every derived item, verbatim.
+            /// The authored note now TRAILS every derived item, verbatim.
             cells: [(.notes, PDFCell("Steelbook, Import from Germany", fill: PDFPalette.green))]))
         out.append(PDFExpectation(
-            // An UNPURCHASED steelbook is not on the shelf and must not be reported.
+            /// An UNPURCHASED steelbook is not on the shelf and must not be reported.
             film: film("PDF Notes Steelbook Unpurchased") {
                 $0.releases = [ReleaseSnapshot(format: ReleaseFormat.bluRay.rawValue,
                                                hasArtwork: ReleaseArtwork.steelbook)]
@@ -1253,7 +1253,7 @@ extension DebugHarness {
 
         // MARK: Notes — derived items
 
-        // Two purchased Blu-rays from different studios: named by studio.
+        /// Two purchased Blu-rays from different studios: named by studio.
         out.append(PDFExpectation(
             film: film("PDF Notes Double Dip Studios") {
                 $0.releases = [
@@ -1265,7 +1265,7 @@ extension DebugHarness {
             },
             cells: [(.notes, PDFCell("Lionsgate Films/Shout Factory 2K releases",
                                      fill: PDFPalette.green))]))
-        // Same studio twice: the YEAR is the only thing that tells the copies apart.
+        /// Same studio twice: the YEAR is the only thing that tells the copies apart.
         out.append(PDFExpectation(
             film: film("PDF Notes Double Dip Years") {
                 $0.releases = [
@@ -1276,8 +1276,8 @@ extension DebugHarness {
                 ]
             },
             cells: [(.notes, PDFCell("2011/2018 2K releases", fill: PDFPalette.green))]))
-        // Same studio AND same year: two copies of one release, which the note would only
-        // describe as "2017/2017". Suppressed entirely.
+        /// Same studio AND same year: two copies of one release, which the note would only
+        /// describe as "2017/2017". Suppressed entirely.
         out.append(PDFExpectation(
             film: film("PDF Notes Double Dip Same Year") {
                 $0.releases = [
@@ -1289,7 +1289,7 @@ extension DebugHarness {
             },
             cells: [(.notes, PDFCell("", fill: PDFPalette.green))]))
 
-        // Every purchased disc Region B locked — the note LEADS the cell.
+        /// Every purchased disc Region B locked — the note LEADS the cell.
         out.append(PDFExpectation(
             film: film("PDF Notes Region B") {
                 $0.notes = "Fine transfer"
@@ -1297,7 +1297,7 @@ extension DebugHarness {
                                                format: ReleaseFormat.bluRay.rawValue,
                                                regionLock: ReleaseRegionRules.regionB)]
             },
-            // The authored note keeps its own case wherever it lands.
+            /// The authored note keeps its own case wherever it lands.
             cells: [(.notes, PDFCell("Region B locked, Fine transfer", fill: PDFPalette.green))]))
         out.append(PDFExpectation(
             film: film("PDF Notes Region B Loose") {
@@ -1306,8 +1306,8 @@ extension DebugHarness {
                     regionLock: ReleaseRegionRules.looselyLockedTag)]
             },
             cells: [(.notes, PDFCell("Loosely Region B locked", fill: PDFPalette.green))]))
-        // A second, Region A copy does NOT excuse the locked one: one unplayable disc on
-        // the shelf is still worth reporting.
+        /// A second, Region A copy does NOT excuse the locked one: one unplayable disc on
+        /// the shelf is still worth reporting.
         out.append(PDFExpectation(
             film: film("PDF Notes Region B Mixed") {
                 $0.releases = [
@@ -1322,11 +1322,11 @@ extension DebugHarness {
             cells: [(.notes, PDFCell("Region B locked", fill: PDFPalette.green))]))
 
         // MARK: Digital version
-        // Which cut the user's copy is, and which OTHER cuts their discs would give them.
-        // Nothing else in the table reports either.
+        /// Which cut the user's copy is, and which OTHER cuts their discs would give them.
+        /// Nothing else in the table reports either.
 
-        // A theatrical copy prints NOTHING — it is the default every film is assumed to be
-        // — and that suppresses the disc clause with it, however many cuts the disc holds.
+        /// A theatrical copy prints NOTHING — it is the default every film is assumed to be
+        /// — and that suppresses the disc clause with it, however many cuts the disc holds.
         out.append(PDFExpectation(
             film: film("PDF Version Theatrical") {
                 $0.digitalVersion = ViewingVersion.theatrical.rawValue
@@ -1337,14 +1337,14 @@ extension DebugHarness {
             },
             cells: [(.notes, PDFCell("", fill: PDFPalette.green))]))
 
-        // A non-theatrical copy names itself, lowercased by the list convention.
+        /// A non-theatrical copy names itself, lowercased by the list convention.
         out.append(PDFExpectation(
             film: film("PDF Version Extended Alone") {
                 $0.digitalVersion = ViewingVersion.extended.rawValue
             },
             cells: [(.notes, PDFCell("\u{201C}Extended\u{201D} version"))]))
 
-        // …and names what the disc adds, and on which format.
+        /// …and names what the disc adds, and on which format.
         out.append(PDFExpectation(
             film: film("PDF Version Extended Plus 2K") {
                 $0.digitalVersion = ViewingVersion.extended.rawValue
@@ -1353,12 +1353,12 @@ extension DebugHarness {
                     includedVersions: [ViewingVersion.theatrical.displayName,
                                        ViewingVersion.extended.displayName])]
             },
-            // The cut already named is not repeated.
+            /// The cut already named is not repeated.
             cells: [(.notes, PDFCell(
                 "\u{201C}Extended\u{201D} version, also includes \u{201C}Theatrical\u{201D} version in 2K",
                 fill: PDFPalette.green))]))
 
-        // One cut on BOTH formats is one clause, not two.
+        /// One cut on BOTH formats is one clause, not two.
         out.append(PDFExpectation(
             film: film("PDF Version Extended Plus Both") {
                 $0.digitalVersion = ViewingVersion.extended.rawValue
@@ -1373,7 +1373,7 @@ extension DebugHarness {
                 "\u{201C}Extended\u{201D} version, also includes \u{201C}Theatrical\u{201D} version in 2K and 4K",
                 fill: PDFPalette.green))]))
 
-        // Two cuts on the same disc share a clause and read in the app's own menu order.
+        /// Two cuts on the same disc share a clause and read in the app's own menu order.
         out.append(PDFExpectation(
             film: film("PDF Version Two Extras") {
                 $0.digitalVersion = ViewingVersion.extended.rawValue
@@ -1382,13 +1382,13 @@ extension DebugHarness {
                     includedVersions: [ViewingVersion.directorsCut.displayName,
                                        ViewingVersion.theatrical.displayName])]
             },
-            // Plural, because the clause names two cuts.
+            /// Plural, because the clause names two cuts.
             cells: [(.notes, PDFCell(
                 "\u{201C}Extended\u{201D} version, also includes \u{201C}Theatrical\u{201D} and "
                     + "\u{201C}\(ViewingVersion.directorsCut.displayName)\u{201D} versions in 4K",
                 fill: PDFPalette.green))]))
 
-        // An UNPURCHASED disc's contents are not on the shelf and are not reported.
+        /// An UNPURCHASED disc's contents are not on the shelf and are not reported.
         out.append(PDFExpectation(
             film: film("PDF Version Unpurchased Disc") {
                 $0.digitalVersion = ViewingVersion.extended.rawValue
@@ -1398,16 +1398,16 @@ extension DebugHarness {
             },
             cells: [(.notes, PDFCell("\u{201C}Extended\u{201D} version"))]))
 
-        // The one version whose stored name ARRIVES quoted — "\"The Final Cut\"" — must
-        // not end up nested inside a second pair.
+        /// The one version whose stored name ARRIVES quoted — "\"The Final Cut\"" — must
+        /// not end up nested inside a second pair.
         out.append(PDFExpectation(
             film: film("PDF Version Final Cut") {
                 $0.digitalVersion = ViewingVersion.finalCut.rawValue
             },
             cells: [(.notes, PDFCell("\u{201C}The Final Cut\u{201D} version"))]))
 
-        // A double dip whose cell ALSO carries a long authored note, so the full studio
-        // names push it past the column and the short forms are used instead.
+        /// A double dip whose cell ALSO carries a long authored note, so the full studio
+        /// names push it past the column and the short forms are used instead.
         out.append(PDFExpectation(
             film: film("PDF Notes Crowded Studios") {
                 $0.notes = "A deliberately long authored note whose only job is to push "
@@ -1422,7 +1422,7 @@ extension DebugHarness {
             },
             cells: []))
 
-        // Origin, as the demonym the RightSidebar prints.
+        /// Origin, as the demonym the RightSidebar prints.
         out.append(PDFExpectation(
             film: film("PDF Notes Import") {
                 $0.releases = [ReleaseSnapshot(purchased: true,
@@ -1430,7 +1430,7 @@ extension DebugHarness {
                                                nationalOrigin: "Germany")]
             },
             cells: [(.notes, PDFCell("German import", fill: PDFPalette.green))]))
-        // A domestic release is not an import and says nothing.
+        /// A domestic release is not an import and says nothing.
         out.append(PDFExpectation(
             film: film("PDF Notes Domestic") {
                 $0.releases = [ReleaseSnapshot(purchased: true,
@@ -1455,7 +1455,7 @@ extension DebugHarness {
                                                audioFormat: ReleaseAudioFormat.dolbyAtmos,
                                                audioChannels: ReleaseAudioChannels.surround71)]
             },
-            // Case PRESERVED even in trailing position — "atmos" is not what it is called.
+            /// Case PRESERVED even in trailing position — "atmos" is not what it is called.
             cells: [(.notes, PDFCell("Atmos", fill: PDFPalette.green)),
                     (.audio2K, PDFCell("7.1", fill: PDFPalette.paleGreen))]))
         out.append(PDFExpectation(
@@ -1469,7 +1469,7 @@ extension DebugHarness {
             },
             cells: [(.notes, PDFCell("DTS:X, Region B", fill: PDFPalette.green))]))
         out.append(PDFExpectation(
-            // The same format on both discs is reported once, not twice.
+            /// The same format on both discs is reported once, not twice.
             film: film("PDF Notes Atmos Both Discs") {
                 $0.releases = [
                     ReleaseSnapshot(purchased: true, format: ReleaseFormat.bluRay.rawValue,
@@ -1483,7 +1483,7 @@ extension DebugHarness {
             },
             cells: [(.notes, PDFCell("Atmos", fill: PDFPalette.green))]))
         out.append(PDFExpectation(
-            // Every derived class at once, in column order after the authored note.
+            /// Every derived class at once, in column order after the authored note.
             film: film("PDF Notes Everything") {
                 $0.notes = "Import"
                 $0.aspectRatio = "1.78:1 (Open matte)"
@@ -1498,9 +1498,9 @@ extension DebugHarness {
                     (.aspect, PDFCell("1.78:1", fill: PDFPalette.veryDarkGreen))]))
 
         // MARK: Purchase history
-        // Dated, priced, condition-tagged purchases across three years, so the per-year
-        // purchase aggregation (`purchaseYearTable`, which the Purchases by Year chart draws)
-        // has something to aggregate; the checks below read its rows directly.
+        /// Dated, priced, condition-tagged purchases across three years, so the per-year
+        /// purchase aggregation (`purchaseYearTable`, which the Purchases by Year chart draws)
+        /// has something to aggregate; the checks below read its rows directly.
         for (index, year) in ["2023", "2024", "2025"].enumerated() {
             for copy in 0..<3 {
                 out.append(PDFExpectation(
@@ -1522,13 +1522,13 @@ extension DebugHarness {
                                                format: ReleaseFormat.bluRay.rawValue,
                                                audioChannels: ReleaseAudioChannels.mono20)]
             },
-            // Mono prints as a bare "2.0" like any other stereo-count track; the DARK
-            // green is the only thing that reports the mix.
+            /// Mono prints as a bare "2.0" like any other stereo-count track; the DARK
+            /// green is the only thing that reports the mix.
             cells: [(.audio2K, PDFCell("2.0", fill: PDFPalette.darkGreen))]))
 
-        // A purchased disc whose channel field was never filled in. The cell must not
-        // borrow the affirmative green a real discrete track earns — blank-over-green is
-        // indistinguishable from a good track that simply printed nothing.
+        /// A purchased disc whose channel field was never filled in. The cell must not
+        /// borrow the affirmative green a real discrete track earns — blank-over-green is
+        /// indistinguishable from a good track that simply printed nothing.
         out.append(PDFExpectation(
             film: film("PDF Audio Unrecorded") {
                 $0.releases = [ReleaseSnapshot(purchased: true,

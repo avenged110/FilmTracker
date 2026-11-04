@@ -1,46 +1,46 @@
 // MARK: - FSControlHelpers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Domain-level SwiftUI control widgets used by FilmSheet tabs.
-//
-// Contains stateful UI components tied to FilmSheet data model concepts
-// (dates, steppers, lists). Changes to tab functionality or data schema are
-// localized here, independently of the low-level text/input primitives in
-// FSTextHelpers.swift (30.10).
-//
-// It also hosts the chrome shared across the sheet's list components: the
-// `ListCircleButton` family, the `ListImportPopover` bulk-entry sheet, the
-// `ListBulkImportButton` that presents it, `PopoverDeleteButton`, the
-// `listContainerChrome(height:)` modifier every table's container is drawn
-// with, the `ListRowMetrics` geometry they are laid out on, and
-// `ListImportCommit`, the cap-and-replace rule they all apply. The three
-// reorderable lists themselves live in 30.30 FSStringList.swift,
-// 30.40 FSFramesList.swift, and 30.50 FSTextList.swift; none imports another,
-// and all three draw their controls from here. `ScrollActivityObserver`, the
-// AppKit-level scroll signal they use to dismiss their open popovers, is here
-// for the same reason.
-//
-// The rule for what belongs here: anything the three tables must agree on, so
-// that agreement is a property of the code rather than something a reader is
-// asked to maintain by eye. Anything genuinely specific to one table — the
-// frames list's index column and metadata block, the string list's in-place
-// editing field — stays with that table.
+/// Domain-level SwiftUI control widgets used by FilmSheet tabs.
+///
+/// Contains stateful UI components tied to FilmSheet data model concepts
+/// (dates, steppers, lists). Changes to tab functionality or data schema are
+/// localized here, independently of the low-level text/input primitives in
+/// FSTextHelpers.swift (30.10).
+///
+/// It also hosts the chrome shared across the sheet's list components: the
+/// `ListCircleButton` family, the `ListImportPopover` bulk-entry sheet, the
+/// `ListBulkImportButton` that presents it, `PopoverDeleteButton`, the
+/// `listContainerChrome(height:)` modifier every table's container is drawn
+/// with, the `ListRowMetrics` geometry they are laid out on, and
+/// `ListImportCommit`, the cap-and-replace rule they all apply. The three
+/// reorderable lists themselves live in 30.30 FSStringList.swift,
+/// 30.40 FSFramesList.swift, and 30.50 FSTextList.swift; none imports another,
+/// and all three draw their controls from here. `ScrollActivityObserver`, the
+/// AppKit-level scroll signal they use to dismiss their open popovers, is here
+/// for the same reason.
+///
+/// The rule for what belongs here: anything the three tables must agree on, so
+/// that agreement is a property of the code rather than something a reader is
+/// asked to maintain by eye. Anything genuinely specific to one table — the
+/// frames list's index column and metadata block, the string list's in-place
+/// editing field — stays with that table.
 
 import SwiftUI
 import AppKit
 
 // MARK: - Shared Color Constants
-// Constructed once, on first use, rather than on every render of StandardStepper and
-// RatingStepper, which would repeat the NSColor→Color bridging each time.
+/// Constructed once, on first use, rather than on every render of StandardStepper and
+/// RatingStepper, which would repeat the NSColor→Color bridging each time.
 private let disabledControlTextColor  = Color(NSColor.disabledControlTextColor)
-// The placeholder shade shared by every un-activated stepper in the app — the same
-// color CustomDateStepper's year and full-date placeholders use.
+/// The placeholder shade shared by every un-activated stepper in the app — the same
+/// color CustomDateStepper's year and full-date placeholders use.
 private let tertiaryLabelColor        = Color(NSColor.tertiaryLabelColor)
-// The Steppers' fill and border are `stepperChrome(filled:)` (90.00 GlobalUtilities.swift),
-// shared with InputUtilities.swift's so the two files' Steppers cannot drift.
-// Backing fill for the circular control family. Bridged once here rather than inside
-// ListCircleButtonStyle.makeBody, which runs for every circular control a populated
-// Metadata tab carries.
+/// The Steppers' fill and border are `stepperChrome(filled:)` (90.00 GlobalUtilities.swift),
+/// shared with InputUtilities.swift's so the two files' Steppers cannot drift.
+/// Backing fill for the circular control family. Bridged once here rather than inside
+/// ListCircleButtonStyle.makeBody, which runs for every circular control a populated
+/// Metadata tab carries.
 private let listButtonBackingFill     = Color(nsColor: .windowBackgroundColor)
 
 // MARK: - Observation Boundary
@@ -139,34 +139,34 @@ struct DeferredFieldContent<Content: View>: View {
         if wave <= 0 || isReady {
             content()
         } else {
-            // Greedy in width and fixed in height, which is the shape both
-            // consumers resolve to — a `List` under `listContainerChrome(height:)`
-            // and a text view under an explicit `.frame(height:)`. `Color` is
-            // greedy the same way, so the enclosing HStack measures identically
-            // before and after the swap.
+            /// Greedy in width and fixed in height, which is the shape both
+            /// consumers resolve to — a `List` under `listContainerChrome(height:)`
+            /// and a text view under an explicit `.frame(height:)`. `Color` is
+            /// greedy the same way, so the enclosing HStack measures identically
+            /// before and after the swap.
             Color.clear
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: placeholderHeight)
                 .task {
-                    // Cancellation is the normal exit when the sheet is dismissed
-                    // or the tab torn down inside the wait: the placeholder is
-                    // going away, so there is nothing to swap in. Returning
-                    // without writing `isReady` also keeps the write off a view
-                    // that is no longer in the hierarchy.
+                    /// Cancellation is the normal exit when the sheet is dismissed
+                    /// or the tab torn down inside the wait: the placeholder is
+                    /// going away, so there is nothing to swap in. Returning
+                    /// without writing `isReady` also keeps the write off a view
+                    /// that is no longer in the hierarchy.
                     do {
                         try await Task.sleep(for: deferredFieldFrameInterval * wave)
                     } catch {
                         return
                     }
 
-                    // The swap is a structural change, and a structural change
-                    // inside an ambient animation is interpolated. Nothing on this
-                    // tab installs one today, but the sheet's own presentation
-                    // transaction can still be in flight when a tab is activated
-                    // early, and an interpolated swap would read as the field
-                    // fading in. Disabling animations for this one write scopes
-                    // the suppression to the swap itself, leaving the row
-                    // insertion and reorder animations inside `content` untouched.
+                    /// The swap is a structural change, and a structural change
+                    /// inside an ambient animation is interpolated. Nothing on this
+                    /// tab installs one today, but the sheet's own presentation
+                    /// transaction can still be in flight when a tab is activated
+                    /// early, and an interpolated swap would read as the field
+                    /// fading in. Disabling animations for this one write scopes
+                    /// the suppression to the swap itself, leaving the row
+                    /// insertion and reorder animations inside `content` untouched.
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
                     withTransaction(transaction) { isReady = true }
@@ -176,11 +176,11 @@ struct DeferredFieldContent<Content: View>: View {
 }
 
 // MARK: - Shared List Control Family
-//
-// The circular button family and the bulk-entry popover, used by the three reorderable list
-// components (30.30 FSStringList.swift, 30.40 FSFramesList.swift, 30.50 FSTextList.swift) and by
-// SavedSearchSheet (50.32) and MultiFilmSheetView (52.10). They live here because they are shared:
-// sheet-wide chrome belongs with the sheet's other domain-level controls, not inside one consumer.
+///
+/// The circular button family and the bulk-entry popover, used by the three reorderable list
+/// components (30.30 FSStringList.swift, 30.40 FSFramesList.swift, 30.50 FSTextList.swift) and by
+/// SavedSearchSheet (50.32) and MultiFilmSheetView (52.10). They live here because they are shared:
+/// sheet-wide chrome belongs with the sheet's other domain-level controls, not inside one consumer.
 
 // MARK: - Shared Field Label
 
@@ -386,9 +386,9 @@ struct ListAddRowRevealer: NSViewRepresentable {
     /// move the viewport.
     let token: Int
 
-    // No `bottomPadding` parameter. Every table uses the default, which is
-    // `ListRowMetrics.addRowRevealPadding`, derived from the shared geometry so that all
-    // tables agree. A per-instance override would break that agreement.
+    /// No `bottomPadding` parameter. Every table uses the default, which is
+    /// `ListRowMetrics.addRowRevealPadding`, derived from the shared geometry so that all
+    /// tables agree. A per-instance override would break that agreement.
 
     @MainActor
     final class Coordinator {
@@ -410,15 +410,15 @@ struct ListAddRowRevealer: NSViewRepresentable {
         guard context.coordinator.lastToken != token else { return }
         context.coordinator.lastToken = token
 
-        // Deferred by one main-queue turn. This update runs while SwiftUI is
-        // still applying the change that grew the table by a row, so the add
-        // row's frame has not yet moved; measuring now would reveal the position
-        // it is leaving rather than the one it is arriving at.
-        //
-        // `DispatchQueue.main.async` rather than `Task { @MainActor }`, per the
-        // rule the rest of this file follows: the hop has to order against
-        // AppKit's own layout work, and the main queue does, whereas a Task is
-        // scheduled against the actor's queue with no such guarantee.
+        /// Deferred by one main-queue turn. This update runs while SwiftUI is
+        /// still applying the change that grew the table by a row, so the add
+        /// row's frame has not yet moved; measuring now would reveal the position
+        /// it is leaving rather than the one it is arriving at.
+        ///
+        /// `DispatchQueue.main.async` rather than `Task { @MainActor }`, per the
+        /// rule the rest of this file follows: the hop has to order against
+        /// AppKit's own layout work, and the main queue does, whereas a Task is
+        /// scheduled against the actor's queue with no such guarantee.
         DispatchQueue.main.async { [weak nsView] in
             MainActor.assumeIsolated {
                 guard let nsView else { return }
@@ -451,33 +451,33 @@ struct ListAddRowRevealer: NSViewRepresentable {
 
     @MainActor
     private static func reveal(_ view: NSView, remainingPasses: Int, lastGeometry: CGRect? = nil) {
-        // A view that has left the window — the sheet was dismissed inside the
-        // deferral, or the tab was torn down — has nothing to scroll.
+        /// A view that has left the window — the sheet was dismissed inside the
+        /// deferral, or the tab was torn down — has nothing to scroll.
         guard unsafe view.window != nil,
               let scrollView = view.outermostEnclosingScrollView,
               let document = scrollView.documentView else { return }
 
-        // Forces any layout still pending from the update that scheduled this,
-        // so the rectangle measured below is the row's final position rather
-        // than an intermediate one.
+        /// Forces any layout still pending from the update that scheduled this,
+        /// so the rectangle measured below is the row's final position rather
+        /// than an intermediate one.
         scrollView.layoutSubtreeIfNeeded()
 
         var rect = view.convert(view.bounds, to: document)
         guard rect.width > 0, rect.height > 0 else { return }
 
-        // The two quantities a clamped `scrollToVisible` depends on: where the
-        // row sits in the document, and how tall the document has grown. Packed
-        // into one rect so the pass-to-pass comparison below is a single
-        // equality — the origin carries the row's position, the size carries the
-        // document's. A pass that finds both unchanged has nothing further to
-        // wait for.
+        /// The two quantities a clamped `scrollToVisible` depends on: where the
+        /// row sits in the document, and how tall the document has grown. Packed
+        /// into one rect so the pass-to-pass comparison below is a single
+        /// equality — the origin carries the row's position, the size carries the
+        /// document's. A pass that finds both unchanged has nothing further to
+        /// wait for.
         let geometry = CGRect(origin: rect.origin, size: document.bounds.size)
 
-        // Extend the rectangle by the clearance, on whichever side is "below" in
-        // the document's own coordinate space. The clearance is the tables'
-        // shared constant, read here rather than passed in. SwiftUI's hosting views are
-        // flipped and AppKit's are not, and this sits inside both depending on
-        // the host, so the orientation is asked rather than assumed.
+        /// Extend the rectangle by the clearance, on whichever side is "below" in
+        /// the document's own coordinate space. The clearance is the tables'
+        /// shared constant, read here rather than passed in. SwiftUI's hosting views are
+        /// flipped and AppKit's are not, and this sits inside both depending on
+        /// the host, so the orientation is asked rather than assumed.
         let bottomPadding = ListRowMetrics.addRowRevealPadding
         if document.isFlipped {
             rect.size.height += bottomPadding
@@ -488,13 +488,13 @@ struct ListAddRowRevealer: NSViewRepresentable {
 
         document.scrollToVisible(rect)
 
-        // Settled: the row and the document both measured the same as on the
-        // previous pass, so a further pass would scroll to the same place.
+        /// Settled: the row and the document both measured the same as on the
+        /// previous pass, so a further pass would scroll to the same place.
         guard geometry != lastGeometry, remainingPasses > 0 else { return }
 
-        // Same one-turn main-queue hop as the initial deferral, and for the same
-        // reason — the growth this is chasing arrives with SwiftUI's next render
-        // pass, which is ordered against the main queue.
+        /// Same one-turn main-queue hop as the initial deferral, and for the same
+        /// reason — the growth this is chasing arrives with SwiftUI's next render
+        /// pass, which is ordered against the main queue.
         DispatchQueue.main.async { [weak view] in
             MainActor.assumeIsolated {
                 guard let view else { return }
@@ -528,9 +528,9 @@ extension View {
     ///     table's bounds are unchanged.
     func listContainerChrome(height: CGFloat) -> some View {
         self
-            // The list style the three tables share: inset, alternating row bands, and
-            // no scrolling of their own (each is sized to its full content by `height`).
-            // Applied first, before the frame and clip.
+            /// The list style the three tables share: inset, alternating row bands, and
+            /// no scrolling of their own (each is sized to its full content by `height`).
+            /// Applied first, before the frame and clip.
             .listStyle(.inset(alternatesRowBackgrounds: true))
             .scrollDisabled(true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -656,9 +656,9 @@ struct PopoverDeleteButton: View {
                 .foregroundStyle(Color.red)
                 .blendMode(.normal)
         }
-        // Applied unconditionally with a `nil` equivalent when not opted in,
-        // rather than behind an `if`, so the button keeps one view identity in
-        // both cases.
+        /// Applied unconditionally with a `nil` equivalent when not opted in,
+        /// rather than behind an `if`, so the button keeps one view identity in
+        /// both cases.
         .keyboardShortcut(bindsOptionDelete ? KeyboardShortcut(.delete, modifiers: .option) : nil)
     }
 }
@@ -705,13 +705,13 @@ enum ListImportCommit {
                          cap: Int) -> [String]? {
         guard !incoming.isEmpty else { return nil }
         if replacing {
-            // The whole array is being written, so the batch is measured against the cap itself.
+            /// The whole array is being written, so the batch is measured against the cap itself.
             guard incoming.count <= cap else { return nil }
             return incoming
         }
-        // Appending, so the batch is measured against what is left — the same
-        // quantity `ListImportPopover` gates its Import button on, so an enabled
-        // button can never land here and be refused.
+        /// Appending, so the batch is measured against what is left — the same
+        /// quantity `ListImportPopover` gates its Import button on, so an enabled
+        /// button can never land here and be refused.
         guard current.count + incoming.count <= cap else { return nil }
         return current + incoming
     }
@@ -804,7 +804,7 @@ extension View {
     /// entry — because nothing has been written at the point the alert appears.
     func listDuplicateAlert(_ prompt: Binding<ListDuplicatePrompt?>) -> some View {
         alert(
-            "Add Duplicate",
+            "Add Duplicate?",
             isPresented: Binding(
                 get: { prompt.wrappedValue != nil },
                 set: { presented in if !presented { prompt.wrappedValue = nil } }
@@ -813,15 +813,15 @@ extension View {
         ) { pending in
             Button("Cancel", role: .cancel) { prompt.wrappedValue = nil }
             Button("Add Anyway") {
-                // Cleared first, so the write cannot re-enter a still-presented
-                // alert by any route, and so a confirm that throws the table
-                // back into a state the user then repeats starts from a clean
-                // prompt.
+                /// Cleared first, so the write cannot re-enter a still-presented
+                /// alert by any route, and so a confirm that throws the table
+                /// back into a state the user then repeats starts from a clean
+                /// prompt.
                 prompt.wrappedValue = nil
                 pending.confirm()
             }
         } message: { _ in
-            Text("This exact item already exists in the table. Are you sure you want to add it again?")
+            Text("This exact item already exists in the table and will be added again.")
         }
     }
 }
@@ -864,8 +864,8 @@ struct ScrollActivityObserver: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: ObservingView, context: Context) {
-        // Refreshed on every update: the closure captures the consumer's current
-        // state, so a stale one would post into a previous generation of it.
+        /// Refreshed on every update: the closure captures the consumer's current
+        /// state, so a stale one would post into a previous generation of it.
         nsView.onScroll = onScroll
     }
 
@@ -903,8 +903,8 @@ struct ScrollActivityObserver: NSViewRepresentable {
             guard clipView !== observedClipView else { return }
             stopObserving()
             guard let clipView else { return }
-            // Default for NSClipView, set explicitly so the observation does not
-            // depend on a default staying what it is.
+            /// Default for NSClipView, set explicitly so the observation does not
+            /// depend on a default staying what it is.
             clipView.postsBoundsChangedNotifications = true
             NotificationCenter.default.addObserver(
                 self,
@@ -1006,8 +1006,8 @@ struct ListCircleButtonStyle: ButtonStyle {
     var isDisabled: Bool = false
 
     // MARK: Uniform Style Constants
-    // Deliberately not parameters — these define the family and should move
-    // together for every control that adopts it.
+    /// Deliberately not parameters — these define the family and should move
+    /// together for every control that adopts it.
 
     /// Space reserved on each side for the drop shadow to render into.
     private static let shadowMargin: CGFloat = 2
@@ -1037,38 +1037,38 @@ struct ListCircleButtonStyle: ButtonStyle {
     private static let disabledOpacity: CGFloat = 0.6
 
     // MARK: Glyph Optical Centering
-    //
-    // SF Symbols are laid out on a typographic box, not a tight bounding box: the
-    // drawn strokes of `plus` and `minus` sit slightly right of and below the
-    // center of the box the symbol reports. `.overlay` centers the reported box,
-    // so the strokes land off-center. The discrepancy is a property of the box, so
-    // scaling the glyph scales the error with it.
-    //
-    // The remedy is a translation, not a size change: shift the glyph back by the
-    // amount the box is biased. Half a point is one physical pixel on a Retina
-    // display — the observed error — landing the strokes on the pixel grid rather
-    // than straddling it.
-    //
-    // Sign convention: negative moves LEFT and UP.
-    //
-    // This is the FAMILY default, correct for `pencil` and the larger diameters
-    // the family draws at. A symbol whose strokes aren't centered in its own box
-    // — or whose bias only shows at the small in-row diameter — needs a different
-    // correction via `ListCircleButton.glyphOffset`. These overrides are
-    // per-symbol corrections, not style choices, collected immediately below
-    // rather than written as literals at the call sites.
+    ///
+    /// SF Symbols are laid out on a typographic box, not a tight bounding box: the
+    /// drawn strokes of `plus` and `minus` sit slightly right of and below the
+    /// center of the box the symbol reports. `.overlay` centers the reported box,
+    /// so the strokes land off-center. The discrepancy is a property of the box, so
+    /// scaling the glyph scales the error with it.
+    ///
+    /// The remedy is a translation, not a size change: shift the glyph back by the
+    /// amount the box is biased. Half a point is one physical pixel on a Retina
+    /// display — the observed error — landing the strokes on the pixel grid rather
+    /// than straddling it.
+    ///
+    /// Sign convention: negative moves LEFT and UP.
+    ///
+    /// This is the FAMILY default, correct for `pencil` and the larger diameters
+    /// the family draws at. A symbol whose strokes aren't centered in its own box
+    /// — or whose bias only shows at the small in-row diameter — needs a different
+    /// correction via `ListCircleButton.glyphOffset`. These overrides are
+    /// per-symbol corrections, not style choices, collected immediately below
+    /// rather than written as literals at the call sites.
     static let defaultGlyphOffset = CGSize(width: 0, height: -0.5)
 
     // MARK: Per-Symbol Corrections
-    //
-    // Held here beside the family default rather than as literals at each call
-    // site. They are properties of the symbols' artwork, not of the controls
-    // that happen to draw them, so two buttons drawing the same glyph must not
-    // be able to disagree about where it sits.
-    //
-    // Same sign convention as above: negative moves LEFT and UP. A quarter point
-    // is half a physical pixel on a Retina display, which is the granularity
-    // needed to split a one-pixel imbalance.
+    ///
+    /// Held here beside the family default rather than as literals at each call
+    /// site. They are properties of the symbols' artwork, not of the controls
+    /// that happen to draw them, so two buttons drawing the same glyph must not
+    /// be able to disagree about where it sits.
+    ///
+    /// Same sign convention as above: negative moves LEFT and UP. A quarter point
+    /// is half a physical pixel on a Retina display, which is the granularity
+    /// needed to split a one-pixel imbalance.
 
     /// `plus`, as drawn at the small in-row diameter.
     ///
@@ -1124,77 +1124,77 @@ struct ListCircleButtonStyle: ButtonStyle {
     var glyphOffset: CGSize = ListCircleButtonStyle.defaultGlyphOffset
 
     func makeBody(configuration: Configuration) -> some View {
-        // One term for both states, so the fill and the glyph can never darken
-        // on different conditions. A disabled control is dimmed permanently; a
-        // pressed one only while it is held. A control cannot be both, since a
-        // disabled button never reports a press.
+        /// One term for both states, so the fill and the glyph can never darken
+        /// on different conditions. A disabled control is dimmed permanently; a
+        /// pressed one only while it is held. A control cannot be both, since a
+        /// disabled button never reports a press.
         let isDimmed = configuration.isPressed || isDisabled
-        // Disabled wins where both could apply — a disabled button never reports
-        // a press, so this only ever resolves one way in practice, but stating
-        // it keeps the fill and the glyph reading the same amount.
+        /// Disabled wins where both could apply — a disabled button never reports
+        /// a press, so this only ever resolves one way in practice, but stating
+        /// it keeps the fill and the glyph reading the same amount.
         let darkening = isDisabled ? Self.disabledDarkening : Self.pressedDarkening
 
-        // UtilityKit's GlyphBadge draws the circle and centers the glyph on it. Its own
-        // shadows are off: the family's shadow is cast once, below, by the finished control,
-        // and the glyph's comes with the label `ListCircleButton` supplies.
-        //
-        // The fill darkens rather than swapping to a separate pressed color, so any
-        // fill passed in gets a consistent press response without needing a paired
-        // constant declared alongside it. The conversion only runs while the control
-        // is actually held.
+        /// UtilityKit's GlyphBadge draws the circle and centers the glyph on it. Its own
+        /// shadows are off: the family's shadow is cast once, below, by the finished control,
+        /// and the glyph's comes with the label `ListCircleButton` supplies.
+        ///
+        /// The fill darkens rather than swapping to a separate pressed color, so any
+        /// fill passed in gets a consistent press response without needing a paired
+        /// constant declared alongside it. The conversion only runs while the control
+        /// is actually held.
         return GlyphBadge(color: isDimmed ? fill.darkened(by: darkening) : fill,
                           diameter: diameter, inkShadow: nil) {
                 configuration.label
                     .offset(x: glyphOffset.width, y: glyphOffset.height)
-                    // Darkened in step with the fill.
-                    //
-                    // The glyph darkens with the fill. If only the fill darkened, the white
-                    // glyph would hold full brightness over a dimmer fill, so the contrast
-                    // would rise while the control is held, which reads as the glyph lighting
-                    // rather than the button dimming.
-                    //
-                    // `colorMultiply` rather than a second darkened color: the
-                    // label is supplied by the caller and is not necessarily a
-                    // single flat color, and multiplying scales whatever it
-                    // contains by the same factor the fill is darkened by. At
-                    // rest the multiplier is white, which is the identity, so
-                    // the modifier is inert until the button is actually down.
+                    /// Darkened in step with the fill.
+                    ///
+                    /// The glyph darkens with the fill. If only the fill darkened, the white
+                    /// glyph would hold full brightness over a dimmer fill, so the contrast
+                    /// would rise while the control is held, which reads as the glyph lighting
+                    /// rather than the button dimming.
+                    ///
+                    /// `colorMultiply` rather than a second darkened color: the
+                    /// label is supplied by the caller and is not necessarily a
+                    /// single flat color, and multiplying scales whatever it
+                    /// contains by the same factor the fill is darkened by. At
+                    /// rest the multiplier is white, which is the identity, so
+                    /// the modifier is inert until the button is actually down.
                     .colorMultiply(
                         isDimmed
                             ? Color(white: 1 - darkening)
                             : .white
                     )
             }
-            // Opaque backing beneath the fill.
-            //
-            // Not every fill in this family is opaque — the import and edit
-            // controls are gray at 50% — and a shadow cast by a translucent
-            // shape is visible *through* it, which stacked the shadow on top of
-            // the fill and made those buttons read as markedly darker than the
-            // solid green "+" beside them. Compositing the fill over an opaque
-            // circle first leaves the drawn color unchanged (the sheet behind is
-            // this same background) while giving the shadow something it cannot
-            // show through, so every control in the family now casts the same
-            // shadow.
+            /// Opaque backing beneath the fill.
+            ///
+            /// Not every fill in this family is opaque — the import and edit
+            /// controls are gray at 50% — and a shadow cast by a translucent
+            /// shape is visible *through* it, which stacked the shadow on top of
+            /// the fill and made those buttons read as markedly darker than the
+            /// solid green "+" beside them. Compositing the fill over an opaque
+            /// circle first leaves the drawn color unchanged (the sheet behind is
+            /// this same background) while giving the shadow something it cannot
+            /// show through, so every control in the family now casts the same
+            /// shadow.
             .background(Circle().fill(listButtonBackingFill))
-            // Flattened so the shadow is cast once by the finished control
-            // rather than separately by each layer of it.
+            /// Flattened so the shadow is cast once by the finished control
+            /// rather than separately by each layer of it.
             .compositingGroup()
-            // Constant across press states: the shadow separates the button
-            // from the background and should not flicker when clicked.
+            /// Constant across press states: the shadow separates the button
+            /// from the background and should not flicker when clicked.
             .shadow(color: .black.opacity(Self.dropShadowOpacity),
                     radius: Self.dropShadowRadius,
                     x: 0,
                     y: Self.dropShadowY)
-            // Applied to the finished, flattened control so the shadow fades
-            // with it. A disabled button that still cast a full-strength shadow
-            // would keep the raised, clickable silhouette the fade is trying to
-            // take away.
+            /// Applied to the finished, flattened control so the shadow fades
+            /// with it. A disabled button that still cast a full-strength shadow
+            /// would keep the raised, clickable silhouette the fade is trying to
+            /// take away.
             .opacity(isDisabled ? Self.disabledOpacity : 1)
             .frame(width: diameter, height: diameter)
-            // Reserved margin so the shadow has somewhere to render rather
-            // than being clipped by an ancestor, which inside a List row it
-            // otherwise would be.
+            /// Reserved margin so the shadow has somewhere to render rather
+            /// than being clipped by an ancestor, which inside a List row it
+            /// otherwise would be.
             .padding(Self.shadowMargin)
             .contentShape(Circle())
     }
@@ -1235,15 +1235,15 @@ struct ListCircleButton: View {
     var role: ButtonRole? = nil
 
     // MARK: Family Fills
-    //
-    // `activeFill` and `disabledFill` were parameters with defaults and no
-    // overriders: every one of the family's call sites across the three tables
-    // and `ViewingDatesTable` took the default. That is the same arrangement
-    // `ListAddRowRevealer`'s `bottomPadding` was retired for, and the argument
-    // is the same — these two describe states the family as a whole is supposed
-    // to signal identically, so a per-instance override was never something a
-    // caller should reach for. Reading one declaration is what keeps every
-    // control's "this one is active" and "this one is inert" reading alike.
+    ///
+    /// `activeFill` and `disabledFill` were parameters with defaults and no
+    /// overriders: every one of the family's call sites across the three tables
+    /// and `ViewingDatesTable` took the default. That is the same arrangement
+    /// `ListAddRowRevealer`'s `bottomPadding` was retired for, and the argument
+    /// is the same — these two describe states the family as a whole is supposed
+    /// to signal identically, so a per-instance override was never something a
+    /// caller should reach for. Reading one declaration is what keeps every
+    /// control's "this one is active" and "this one is inert" reading alike.
 
     /// Fill held while `isActive`.
     private static let activeFill: Color = .accentColor
@@ -1303,10 +1303,10 @@ struct ListCircleButton: View {
         }
         .buttonStyle(ListCircleButtonStyle(fill: resolvedFill,
                                            diameter: diameter,
-                                           // Darkens the disabled state on top
-                                           // of the gray fill; see the flag's
-                                           // declaration for why gray alone was
-                                           // not a sufficient signal.
+                                           /// Darkens the disabled state on top
+                                           /// of the gray fill; see the flag's
+                                           /// declaration for why gray alone was
+                                           /// not a sufficient signal.
                                            isDisabled: !isEnabled,
                                            glyphOffset: glyphOffset))
         .disabled(!isEnabled)
@@ -1417,7 +1417,7 @@ enum ListPopoverDismissal {
     @discardableResult
     static func settlePending() -> Bool {
         promptRaised = false
-        // Drained in a loop: a commit may itself schedule another.
+        /// Drained in a loop: a commit may itself schedule another.
         while !pending.isEmpty {
             pending.removeFirst().commit()
         }
@@ -1630,12 +1630,12 @@ struct ListImportPopover: View {
     // MARK: Body
 
     var body: some View {
-        // Parsed once per body evaluation from `draft`, and reused by the
-        // readout, the enablement rule, and the commit — so the popover never
-        // parses the same text twice, and all three necessarily agree. Nothing
-        // here is cached, and `draft` is local state, so a keystroke recomputes
-        // the count, its color, and the Import button's enabled state in the
-        // same pass.
+        /// Parsed once per body evaluation from `draft`, and reused by the
+        /// readout, the enablement rule, and the commit — so the popover never
+        /// parses the same text twice, and all three necessarily agree. Nothing
+        /// here is cached, and `draft` is local state, so a keystroke recomputes
+        /// the count, its color, and the Import button's enabled state in the
+        /// same pass.
         let parsed = Self.parseItems(from: draft)
         let limit = effectiveLimit
         let isOverflowing = overflows(parsed)
@@ -1645,57 +1645,57 @@ struct ListImportPopover: View {
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            // States the limit that actually applies, which changes with the
-            // mode: the full cap while replacing, the remaining room while
-            // appending. Stating `maxItems` unconditionally was accurate only
-            // for an empty table, and for every other one it invited a paste
-            // that could not fit — which the commit then silently truncated.
-            //
-            // Recomputed from `mode`, so toggling the checkbox updates the
-            // sentence, the readout's color, and the Import button together.
+            /// States the limit that actually applies, which changes with the
+            /// mode: the full cap while replacing, the remaining room while
+            /// appending. Stating `maxItems` unconditionally was accurate only
+            /// for an empty table, and for every other one it invited a paste
+            /// that could not fit — which the commit then silently truncated.
+            ///
+            /// Recomputed from `mode`, so toggling the checkbox updates the
+            /// sentence, the readout's color, and the Import button together.
             Text(Self.limitDescription(limit))
                 .font(.system(size: Self.footnoteSize))
                 .foregroundStyle(.secondary)
 
-            // A scrolling text view rather than a text field: pasted lists are
-            // routinely long, and four visible lines with scrolling beyond that
-            // lets the whole entry be reviewed before importing. The binding is
-            // updated on every keystroke, into this view's own state, so the
-            // readout and the Import button stay live.
-            //
-            // Return runs Import and Option-Return enters a line break, via the
-            // `FieldSubmitAction` installed below. Line breaks remain one of the
-            // two supported entry separators — they just take Option-Return here,
-            // as they do in every other instance of this control.
+            /// A scrolling text view rather than a text field: pasted lists are
+            /// routinely long, and four visible lines with scrolling beyond that
+            /// lets the whole entry be reviewed before importing. The binding is
+            /// updated on every keystroke, into this view's own state, so the
+            /// readout and the Import button stay live.
+            ///
+            /// Return runs Import and Option-Return enters a line break, via the
+            /// `FieldSubmitAction` installed below. Line breaks remain one of the
+            /// two supported entry separators — they just take Option-Return here,
+            /// as they do in every other instance of this control.
             FixedHeightScrollingTextView(text: $draft,
                                          placeholder: placeholder)
                 .frame(height: FixedHeightScrollingTextView.fixedHeight(lineCount: Self.visibleLines))
 
-            // Label supplied as a view rather than as a string, so the red at
-            // the cap applies to the text and not to the checkbox glyph beside
-            // it — the constraint is being explained, not flagged as an error in
-            // the control itself.
-            // An AppKit checkbox beside its label rather than a Toggle wrapping it, so
-            // the box is a stop in the popover's Tab walk (SheetCheckbox, above). The
-            // label still toggles it on click, as a Toggle's label would.
+            /// Label supplied as a view rather than as a string, so the red at
+            /// the cap applies to the text and not to the checkbox glyph beside
+            /// it — the constraint is being explained, not flagged as an error in
+            /// the control itself.
+            /// An AppKit checkbox beside its label rather than a Toggle wrapping it, so
+            /// the box is a stop in the popover's Tab walk (SheetCheckbox, above). The
+            /// label still toggles it on click, as a Toggle's label would.
             HStack(spacing: Preferences.spacingAfterCheckbox) {
                 SheetCheckbox(isOn: modeBinding)
                 Text("Replace existing entries")
-                    // Three states, in priority order.
-                    //
-                    // Red at the cap, where the lock is a constraint being
-                    // explained and the color is the explanation. An empty table
-                    // locks the same control for the opposite and entirely
-                    // unremarkable reason — there is nothing to replace — so it
-                    // takes the system's disabled text color instead, which is
-                    // exactly the treatment the frames popover's own toggled-off
-                    // labels wear. Coloring that case red would read as an error
-                    // the user had made.
-                    //
-                    // The color is stated rather than left to `.disabled`'s own
-                    // dimming: that dims the checkbox and the label together as
-                    // one control, which is not the same as the label reading as
-                    // inactive text beside a locked box.
+                    /// Three states, in priority order.
+                    ///
+                    /// Red at the cap, where the lock is a constraint being
+                    /// explained and the color is the explanation. An empty table
+                    /// locks the same control for the opposite and entirely
+                    /// unremarkable reason — there is nothing to replace — so it
+                    /// takes the system's disabled text color instead, which is
+                    /// exactly the treatment the frames popover's own toggled-off
+                    /// labels wear. Coloring that case red would read as an error
+                    /// the user had made.
+                    ///
+                    /// The color is stated rather than left to `.disabled`'s own
+                    /// dimming: that dims the checkbox and the label together as
+                    /// one control, which is not the same as the label reading as
+                    /// inactive text beside a locked box.
                     .foregroundStyle(isAtCapacity
                                      ? Color(nsColor: .systemRed)
                                      : (hasEntries
@@ -1708,25 +1708,25 @@ struct ListImportPopover: View {
 
             Divider()
 
-            // Cancel leads, per the platform convention for a dismissive action;
-            // the readout sits directly to the left of Import, which is what it
-            // describes.
+            /// Cancel leads, per the platform convention for a dismissive action;
+            /// the readout sits directly to the left of Import, which is what it
+            /// describes.
             HStack(alignment: .center, spacing: 8) {
                 Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
 
                 Spacer(minLength: 8)
 
-                // Shown only once something has been entered. An empty field has nothing to report.
+                /// Shown only once something has been entered. An empty field has nothing to report.
                 if !parsed.isEmpty {
-                    // Colored off `isOverflowing` — the exact term the Import
-                    // button is disabled on — rather than off a separately
-                    // written comparison. One rule, so the red and the disabled
-                    // button can only ever appear and clear together.
-                    //
-                    // The readout counts entries *typed*, which keeps it in step with its own
-                    // color. The mode's headroom is expressed in the limit it is compared against,
-                    // not by adding the table's existing entries into the number shown.
+                    /// Colored off `isOverflowing` — the exact term the Import
+                    /// button is disabled on — rather than off a separately
+                    /// written comparison. One rule, so the red and the disabled
+                    /// button can only ever appear and clear together.
+                    ///
+                    /// The readout counts entries *typed*, which keeps it in step with its own
+                    /// color. The mode's headroom is expressed in the limit it is compared against,
+                    /// not by adding the table's existing entries into the number shown.
                     Text(parsed.count == 1
                          ? "1 entry detected"
                          : "\(parsed.count) entries detected")
@@ -1745,52 +1745,52 @@ struct ListImportPopover: View {
         }
         .frame(width: Self.width)
         .padding(Self.padding)
-        // Return runs Import; Option-Return enters a line break.
-        //
-        // Stated here rather than inherited. This popover is presented from inside the
-        // FilmSheet, and SwiftUI popovers inherit the presenting view's environment — so
-        // without its own value, Return would run the *sheet's* action and save and
-        // dismiss the whole sheet behind a paste the user had not imported yet.
-        //
-        // Line breaks remain a supported entry separator here, which is the reason this
-        // field is a text view rather than a text field. They are entered with
-        // Option-Return, exactly as they are in every other instance of this control.
+        /// Return runs Import; Option-Return enters a line break.
+        ///
+        /// Stated here rather than inherited. This popover is presented from inside the
+        /// FilmSheet, and SwiftUI popovers inherit the presenting view's environment — so
+        /// without its own value, Return would run the *sheet's* action and save and
+        /// dismiss the whole sheet behind a paste the user had not imported yet.
+        ///
+        /// Line breaks remain a supported entry separator here, which is the reason this
+        /// field is a text view rather than a text field. They are entered with
+        /// Option-Return, exactly as they are in every other instance of this control.
         .fieldSubmitAction(submitAction)
         .onAppear {
-            // Every presentation opens empty — reset here rather than relied upon
-            // from the property initializer, since SwiftUI may reuse this node for a
-            // later presentation.
+            /// Every presentation opens empty — reset here rather than relied upon
+            /// from the property initializer, since SwiftUI may reuse this node for a
+            /// later presentation.
             if !draft.isEmpty { draft = "" }
-            // The mode this presentation opens in, resolved once and then
-            // written to both copies, so the local mirror and the caller's
-            // storage can never begin a session disagreeing.
-            //
-            // The presenting table also sets `replaces` before presenting. Resolving it here as
-            // well makes the two locked rules properties of the control itself, rather than of
-            // each call site. At the cap, replacing is the only mode that can do
-            // any work, so it is forced ON; with nothing to replace, the two
-            // modes are identical, so it is locked OFF. The two conditions are
-            // mutually exclusive given a positive cap, so their order is
-            // immaterial. Every write is guarded, so a popover that already
-            // agrees writes nothing.
+            /// The mode this presentation opens in, resolved once and then
+            /// written to both copies, so the local mirror and the caller's
+            /// storage can never begin a session disagreeing.
+            ///
+            /// The presenting table also sets `replaces` before presenting. Resolving it here as
+            /// well makes the two locked rules properties of the control itself, rather than of
+            /// each call site. At the cap, replacing is the only mode that can do
+            /// any work, so it is forced ON; with nothing to replace, the two
+            /// modes are identical, so it is locked OFF. The two conditions are
+            /// mutually exclusive given a positive cap, so their order is
+            /// immaterial. Every write is guarded, so a popover that already
+            /// agrees writes nothing.
             var resolved = replaces
             if isAtCapacity { resolved = true }
             if !hasEntries { resolved = false }
             if replaces != resolved { replaces = resolved }
             if replaceLocal != resolved { replaceLocal = resolved }
-            // Installed in `onAppear`, not in `body` — assigning the handler is a
-            // mutation of a shared object and must not happen during view
-            // evaluation. The closure captures this view value, and `@State`
-            // reads route through SwiftUI's storage rather than a captured copy,
-            // so `draft` is the text current at the moment Return is pressed.
-            //
-            // The entries are re-parsed here rather than read from the body's
-            // `parsed` local, which is a per-evaluation value this closure has no
-            // access to. Same function, same input, so the two necessarily agree —
-            // and the two conditions below are precisely the Import button's own
-            // `.disabled(parsed.isEmpty || isOverflowing)`. Returning false when
-            // either holds is what makes Return inert exactly when the button is,
-            // rather than importing something the button would have refused.
+            /// Installed in `onAppear`, not in `body` — assigning the handler is a
+            /// mutation of a shared object and must not happen during view
+            /// evaluation. The closure captures this view value, and `@State`
+            /// reads route through SwiftUI's storage rather than a captured copy,
+            /// so `draft` is the text current at the moment Return is pressed.
+            ///
+            /// The entries are re-parsed here rather than read from the body's
+            /// `parsed` local, which is a per-evaluation value this closure has no
+            /// access to. Same function, same input, so the two necessarily agree —
+            /// and the two conditions below are precisely the Import button's own
+            /// `.disabled(parsed.isEmpty || isOverflowing)`. Returning false when
+            /// either holds is what makes Return inert exactly when the button is,
+            /// rather than importing something the button would have refused.
             submitAction.setHandler {
                 let items = Self.parseItems(from: draft)
                 guard !items.isEmpty, !overflows(items) else { return false }
@@ -1798,14 +1798,14 @@ struct ListImportPopover: View {
                 return true
             }
         }
-        // Cleared on dismissal so a handler capturing a finished presentation cannot
-        // survive into the next one if SwiftUI reuses this node.
+        /// Cleared on dismissal so a handler capturing a finished presentation cannot
+        /// survive into the next one if SwiftUI reuses this node.
         .onDisappear {
             submitAction.setHandler(nil)
         }
-        // Mirrored back on every change, so the caller's storage stays the one value the commit
-        // reads. The mirror-back runs in the same update as the toggle's write, and Import is
-        // necessarily a later interaction, so the commit never reads a stale mode.
+        /// Mirrored back on every change, so the caller's storage stays the one value the commit
+        /// reads. The mirror-back runs in the same update as the toggle's write, and Import is
+        /// necessarily a later interaction, so the commit never reads a stale mode.
         .onChange(of: replaceLocal) { _, newValue in
             guard let newValue else { return }
             if replaces != newValue { replaces = newValue }
@@ -1814,8 +1814,8 @@ struct ListImportPopover: View {
 }
 
 // MARK: - Standard Stepper Component
-// The plain clamped Stepper, for callers with no Delete (ReleaseCard's discs count and
-// DHCardProfile's preview). RatingStepper below is the ClearableStepperView counterpart.
+/// The plain clamped Stepper, for callers with no Delete (ReleaseCard's discs count and
+/// DHCardProfile's preview). RatingStepper below is the ClearableStepperView counterpart.
 struct StandardStepper: View {
     @Binding var value: Int
     let range: ClosedRange<Int>
@@ -1830,17 +1830,17 @@ struct StandardStepper: View {
             Text("\(value)")
                 .frame(width: 41, alignment: .trailing)
                 .foregroundStyle(.primary)
-                // Prevent the ambient spring transaction from the release card carousel
-                // from animating the label text's position during card navigation.
-                // SwiftUI can interpolate a Text view's geometry when an ambient
-                // transaction is in flight — .contentTransition(.identity) opts this
-                // text out of content-driven animation, keeping it visually static.
+                /// Prevent the ambient spring transaction from the release card carousel
+                /// from animating the label text's position during card navigation.
+                /// SwiftUI can interpolate a Text view's geometry when an ambient
+                /// transaction is in flight — .contentTransition(.identity) opts this
+                /// text out of content-driven animation, keeping it visually static.
                 .contentTransition(.identity)
         }
-        // 1 pt tighter than padding(4), as every Stepper widget in the family is.
+        /// 1 pt tighter than padding(4), as every Stepper widget in the family is.
         .padding(3)
-        // A windowBackgroundColor fill (slightly darker than the controlBackgroundColor of
-        // the surrounding ReleaseCard) so the Stepper reads as an interactive control.
+        /// A windowBackgroundColor fill (slightly darker than the controlBackgroundColor of
+        /// the surrounding ReleaseCard) so the Stepper reads as an interactive control.
         .stepperChrome(filled: true)
     }
 }
@@ -1886,10 +1886,10 @@ struct HBRFValueStepper: View {
         HStack(spacing: 8) {
             Text(isActivated ? "\(value)" : Self.placeholder)
                 .frame(width: 41, alignment: .trailing)
-                // Tertiary for the placeholder, the shade CustomDateStepper's un-activated fields use.
+                /// Tertiary for the placeholder, the shade CustomDateStepper's un-activated fields use.
                 .foregroundStyle(isActivated ? Color.primary : tertiaryLabelColor)
-                // Same rationale as StandardStepper above — prevent an ambient spring
-                // transaction from animating this label's geometry.
+                /// Same rationale as StandardStepper above — prevent an ambient spring
+                /// transaction from animating this label's geometry.
                 .contentTransition(.identity)
             ClearableStepperView(
                 value: $value,
@@ -1899,7 +1899,7 @@ struct HBRFValueStepper: View {
                 onDelete: { value = 0 }
             )
         }
-        // 1 pt tighter than padding(4), matching StandardStepper.
+        /// 1 pt tighter than padding(4), matching StandardStepper.
         .padding(3)
         .stepperChrome(filled: true)
     }
@@ -1925,10 +1925,10 @@ struct HBRFValueStepper: View {
 }
 
 // MARK: - Rating Stepper Component
-// Maps a value of zero to "None", and Delete (while the stepper holds the AppKit focus
-// ring, intercepted via ClearableStepperView) clears it back to zero — the same
-// value-as-sentinel arrangement HBRFValueStepper uses. The sole caller is DetailsView's
-// User Rating row. StandardStepper above is the counterpart for callers with no Delete.
+/// Maps a value of zero to "None", and Delete (while the stepper holds the AppKit focus
+/// ring, intercepted via ClearableStepperView) clears it back to zero — the same
+/// value-as-sentinel arrangement HBRFValueStepper uses. The sole caller is DetailsView's
+/// User Rating row. StandardStepper above is the counterpart for callers with no Delete.
 struct RatingStepper: View {
     @Binding var value: Int
     let range: ClosedRange<Int>
@@ -1939,8 +1939,8 @@ struct RatingStepper: View {
     }
 
     var body: some View {
-        // spacing: 8 matches SwiftUI's default HStack spacing — the same
-        // gap Stepper { label } places between its label and NSStepper buttons.
+        /// spacing: 8 matches SwiftUI's default HStack spacing — the same
+        /// gap Stepper { label } places between its label and NSStepper buttons.
         HStack(spacing: 8) {
             Text(value == 0 ? "None" : "\(value)")
                 .frame(width: 41, alignment: .trailing)
@@ -1953,7 +1953,7 @@ struct RatingStepper: View {
                 onDelete: { value = 0 }
             )
         }
-        // 1 pt tighter than padding(4), matching StandardStepper.
+        /// 1 pt tighter than padding(4), matching StandardStepper.
         .padding(3)
         .stepperChrome(filled: true)
     }
@@ -1966,14 +1966,14 @@ struct RatingStepper: View {
 struct ViewingDatesTable: View, Loggable {
     nonisolated static let logTag = "[ViewingDatesTable]"
 
-    // Shared formatters, reused across calls rather than rebuilt each time.
-    //
-    // displayFormatter is local: "MMMM d, yyyy" is this table's own presentation and
-    // is written nowhere. databaseFormatter is the one that matters — it writes the
-    // persisted "yyyy.MM.dd" values in calendarTable, which WatchDetails and
-    // CalendarPopover read back and compare as plain strings — so it is the shared
-    // StorageDateFormatters.dot rather than a fourth copy of that configuration kept in
-    // step with the other three by hand.
+    /// Shared formatters, reused across calls rather than rebuilt each time.
+    ///
+    /// displayFormatter is local: "MMMM d, yyyy" is this table's own presentation and
+    /// is written nowhere. databaseFormatter is the one that matters — it writes the
+    /// persisted "yyyy.MM.dd" values in calendarTable, which WatchDetails and
+    /// CalendarPopover read back and compare as plain strings — so it is the shared
+    /// StorageDateFormatters.dot rather than a fourth copy of that configuration kept in
+    /// step with the other three by hand.
     nonisolated static let displayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -1985,7 +1985,7 @@ struct ViewingDatesTable: View, Loggable {
 
     @Binding var isTableExpanded: Bool
     
-    // Binding to the FilmSheet view model's calendarTable array
+    /// Binding to the FilmSheet view model's calendarTable array
     var calendarTableBinding: Binding<[String]>
 
     /// The film's release date, passed through from FSTabDetails (which already holds it
@@ -2014,13 +2014,13 @@ struct ViewingDatesTable: View, Loggable {
     /// all call sites that do not pass this parameter retain existing behavior.
     var disableAutoExpand: Bool = false
     
-    // Preference to control automatic table expansion
+    /// Preference to control automatic table expansion
     @AppStorage(preference: Preferences.autoExpandRightSidebarTablesKey)
     private var autoExpandRightSidebarTables: Bool
     
-    // Computed binding that respects the preference unless disableAutoExpand overrides it.
-    // When disableAutoExpand is true, the preference is bypassed and the live binding is
-    // always returned, keeping the table collapsed on load regardless of the preference.
+    /// Computed binding that respects the preference unless disableAutoExpand overrides it.
+    /// When disableAutoExpand is true, the preference is bypassed and the live binding is
+    /// always returned, keeping the table collapsed on load regardless of the preference.
     private var effectiveIsTableExpanded: Binding<Bool> {
         (!disableAutoExpand && autoExpandRightSidebarTables) ? .constant(true) : $isTableExpanded
     }
@@ -2042,9 +2042,9 @@ struct ViewingDatesTable: View, Loggable {
     @State private var editPopoverVersion: ViewingVersion = .none
     @State private var hasChanges = false
 
-    // Local alert shown when the user attempts to commit a date that collides with an
-    // existing entry's calendar day. Scoped to this table's own popovers rather than
-    // routed through AlertHostView — see AlertCommand.duplicateViewingDate's doc comment.
+    /// Local alert shown when the user attempts to commit a date that collides with an
+    /// existing entry's calendar day. Scoped to this table's own popovers rather than
+    /// routed through AlertHostView — see AlertCommand.duplicateViewingDate's doc comment.
     @State private var showingDuplicateDateAlert = false
 
     /// Which popover to reopen once showingDuplicateDateAlert is dismissed. macOS
@@ -2058,7 +2058,7 @@ struct ViewingDatesTable: View, Loggable {
     private enum PendingPopoverReopen: Equatable { case add, edit }
     @State private var pendingPopoverReopen: PendingPopoverReopen?
 
-    // Read calendar table from the binding
+    /// Read calendar table from the binding
     private var calendarTable: [String] {
         calendarTableBinding.wrappedValue
     }
@@ -2075,7 +2075,7 @@ struct ViewingDatesTable: View, Loggable {
     
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            // Table with edit popover attached to individual rows
+            /// Table with edit popover attached to individual rows
             ViewingDatesTableContent(
                 isTableExpanded: effectiveIsTableExpanded,
                 selectedDateID: $selectedDateID,
@@ -2088,28 +2088,28 @@ struct ViewingDatesTable: View, Loggable {
             )
             .frame(width: 268)
 
-            // Add New Date green "+" button, from the shared factory above so
-            // its press response, shadow, and optical glyph centering match
-            // every other circular control on the sheet.
-            //
-            // Drawn at 22/12 — the factory's own defaults, and the same diameter
-            // the reorderable lists' trailing control uses, so every control
-            // sitting beside a table on this sheet is one size.
-            //
-            // The concern with enlarging it was alignment, not size: this
-            // control sits beside a `CustomTable`, and it is centered on that
-            // table's 24pt header band rather than on a list row. The offset is
-            // what states that, and it has to move with the diameter.
-            //
-            // The offset is 0. Centering the padded control in the 24pt header band gives
-            // (24 - 22) / 2 - 2 = -1, but the band begins 1pt lower than that arithmetic
-            // assumes, so the rendered result is correct at 0.
-            //
-            // Nothing downstream absorbs the extra size. The padded control is
-            // 26pt tall against a table at least 167pt tall (24pt header plus
-            // 6.5 rows of 22pt), and this `HStack` is top-aligned, so the row's
-            // height is still the table's. Horizontally the control is the
-            // trailing element with free space beyond it.
+            /// Add New Date green "+" button, from the shared factory above so
+            /// its press response, shadow, and optical glyph centering match
+            /// every other circular control on the sheet.
+            ///
+            /// Drawn at 22/12 — the factory's own defaults, and the same diameter
+            /// the reorderable lists' trailing control uses, so every control
+            /// sitting beside a table on this sheet is one size.
+            ///
+            /// The concern with enlarging it was alignment, not size: this
+            /// control sits beside a `CustomTable`, and it is centered on that
+            /// table's 24pt header band rather than on a list row. The offset is
+            /// what states that, and it has to move with the diameter.
+            ///
+            /// The offset is 0. Centering the padded control in the 24pt header band gives
+            /// (24 - 22) / 2 - 2 = -1, but the band begins 1pt lower than that arithmetic
+            /// assumes, so the rendered result is correct at 0.
+            ///
+            /// Nothing downstream absorbs the extra size. The padded control is
+            /// 26pt tall against a table at least 167pt tall (24pt header plus
+            /// 6.5 rows of 22pt), and this `HStack` is top-aligned, so the row's
+            /// height is still the table's. Horizontally the control is the
+            /// trailing element with free space beyond it.
             ListCircleButton(
                 systemImage: "plus",
                 fill: Preferences.green,
@@ -2130,13 +2130,13 @@ struct ViewingDatesTable: View, Loggable {
                     .padding(EntryPopoverMetrics.padding)
             }
         }
-        // Scroll-position monitor, done in AppKit rather than in SwiftUI. A `GeometryReader`
-        // reading `frame(in: .global)` would force an extra layout pass. `ScrollActivityObserver`
-        // watches the enclosing clip view's `boundsDidChangeNotification`, which AppKit posts
-        // anyway, so it adds no layout on any pass.
-        //
-        // The guards matter as much as the observer: a clip view's bounds also change on resize,
-        // and with no popover open both branches only read a `Bool`. No state is written.
+        /// Scroll-position monitor, done in AppKit rather than in SwiftUI. A `GeometryReader`
+        /// reading `frame(in: .global)` would force an extra layout pass. `ScrollActivityObserver`
+        /// watches the enclosing clip view's `boundsDidChangeNotification`, which AppKit posts
+        /// anyway, so it adds no layout on any pass.
+        ///
+        /// The guards matter as much as the observer: a clip view's bounds also change on resize,
+        /// and with no popover open both branches only read a `Bool`. No state is written.
         .background(
             ScrollActivityObserver {
                 if showAddPopover { showAddPopover = false }
@@ -2148,26 +2148,26 @@ struct ViewingDatesTable: View, Loggable {
         )
         .onChange(of: showEditPopover) { _, newValue in
             if !newValue {
-                // Skip the clear if this closure was caused by the system force-closing
-                // the popover to present the duplicate-date alert — selectedDateID must
-                // survive so the correct row's popover reopens once the alert clears.
+                /// Skip the clear if this closure was caused by the system force-closing
+                /// the popover to present the duplicate-date alert — selectedDateID must
+                /// survive so the correct row's popover reopens once the alert clears.
                 guard pendingPopoverReopen != .edit else { return }
-                // Clear selection when edit popover closes
+                /// Clear selection when edit popover closes
                 selectedDateID = nil
             }
         }
         .onChange(of: selectedDateID) { _, newValue in
-            // Open edit popover when a date is selected
+            /// Open edit popover when a date is selected
             if newValue != nil {
-                hasChanges = false  // Reset changes flag for new edit session
+                hasChanges = false  /// Reset changes flag for new edit session
                 showEditPopover = true
             }
         }
         .onChange(of: externalAddTrigger?.wrappedValue ?? 0) { _, token in
-            // Zero is the resting value and also what the expression collapses to if the
-            // binding itself goes away, so it is never a request. Every other change is one:
-            // the token only ever advances, and nothing here writes it back. See
-            // `externalAddTrigger` for why this is a token rather than a flag.
+            /// Zero is the resting value and also what the expression collapses to if the
+            /// binding itself goes away, so it is never a request. Every other change is one:
+            /// the token only ever advances, and nothing here writes it back. See
+            /// `externalAddTrigger` for why this is a token rather than a flag.
             guard token != 0 else { return }
             addPopoverDate = Date()
             addPopoverHasValue = true
@@ -2176,11 +2176,11 @@ struct ViewingDatesTable: View, Loggable {
         }
         .alert("Event Already Exists", isPresented: $showingDuplicateDateAlert) {
             Button("OK") {
-                // The system already force-closed the relevant popover the instant
-                // this alert appeared; every entry field (addPopoverDate/Version or
-                // editPopoverDate/Version + selectedDateID) already lives on this
-                // table rather than on the popover's own content, so simply flipping
-                // the presentation flag back on restores exactly what was entered.
+                /// The system already force-closed the relevant popover the instant
+                /// this alert appeared; every entry field (addPopoverDate/Version or
+                /// editPopoverDate/Version + selectedDateID) already lives on this
+                /// table rather than on the popover's own content, so simply flipping
+                /// the presentation flag back on restores exactly what was entered.
                 switch pendingPopoverReopen {
                 case .add: showAddPopover = true
                 case .edit: showEditPopover = true
@@ -2203,12 +2203,12 @@ struct ViewingDatesTable: View, Loggable {
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            // Date picker
+            /// Date picker
             ViewingFormRow("Select date:") {
                 CustomDateStepper(date: $addPopoverDate, hasValue: $addPopoverHasValue, minDate: releaseDateMin, maxDate: Date())
             }
             
-            // Version picker
+            /// Version picker
             ViewingFormRow("Version:") {
                 SheetMenuPicker(selection: $addPopoverVersion,
                                 items: Self.versionItems, width: 183)
@@ -2226,8 +2226,8 @@ struct ViewingDatesTable: View, Loggable {
                 
                 Button("Add") {
                     guard !isDuplicateBaseDate(addPopoverDate) else {
-                        // The system is about to force-close this popover the instant
-                        // the alert appears; record which one to bring back.
+                        /// The system is about to force-close this popover the instant
+                        /// the alert appears; record which one to bring back.
                         pendingPopoverReopen = .add
                         showingDuplicateDateAlert = true
                         return
@@ -2249,7 +2249,7 @@ struct ViewingDatesTable: View, Loggable {
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .center)
             
-            // Date picker
+            /// Date picker
             ViewingFormRow("Select date:") {
                 CustomDateStepper(date: $editPopoverDate, hasValue: $editPopoverHasValue, minDate: releaseDateMin, maxDate: Date())
                     .onChange(of: editPopoverDate) { _, _ in
@@ -2257,7 +2257,7 @@ struct ViewingDatesTable: View, Loggable {
                     }
             }
             
-            // Version picker
+            /// Version picker
             ViewingFormRow("Version:") {
                 SheetMenuPicker(selection: $editPopoverVersion,
                                 items: Self.versionItems, width: 183)
@@ -2274,15 +2274,15 @@ struct ViewingDatesTable: View, Loggable {
                 }
                 .keyboardShortcut(.cancelAction)
                 
-                // Shared with the frames and text lists' editing popovers, so
-                // the three cannot disagree about the treatment a red label
-                // needs over a vibrant material. The full account of why the
-                // destructive role is dropped and a blend mode stated is on
-                // `PopoverDeleteButton`.
-                //
-                // Deletion runs before the dismissal here, unlike the two
-                // lists': this table's popover is anchored to a control that
-                // survives the delete, so there is no teardown to order around.
+                /// Shared with the frames and text lists' editing popovers, so
+                /// the three cannot disagree about the treatment a red label
+                /// needs over a vibrant material. The full account of why the
+                /// destructive role is dropped and a blend mode stated is on
+                /// `PopoverDeleteButton`.
+                ///
+                /// Deletion runs before the dismissal here, unlike the two
+                /// lists': this table's popover is anchored to a control that
+                /// survives the delete, so there is no teardown to order around.
                 PopoverDeleteButton {
                     deleteSelectedDate()
                     showEditPopover = false
@@ -2292,8 +2292,8 @@ struct ViewingDatesTable: View, Loggable {
                 
                 Button("Update") {
                     guard !isDuplicateBaseDate(editPopoverDate, excludingEntry: selectedDateID) else {
-                        // The system is about to force-close this popover the instant
-                        // the alert appears; record which one to bring back.
+                        /// The system is about to force-close this popover the instant
+                        /// the alert appears; record which one to bring back.
                         pendingPopoverReopen = .edit
                         showingDuplicateDateAlert = true
                         return
@@ -2310,16 +2310,16 @@ struct ViewingDatesTable: View, Loggable {
     // MARK: - Actions
     
     private func handleRowTap(dateID: String) {
-        // dateID is now the full dateString including version code (stable ID)
-        // Extract just the date portion for the date picker
+        /// dateID is now the full dateString including version code (stable ID)
+        /// Extract just the date portion for the date picker
         guard let date = parseDate(from: dateID) else { return }
         
         selectedDateID = dateID
         editPopoverDate = date
         editPopoverHasValue = true
-        // Extract the version code from the existing entry
+        /// Extract the version code from the existing entry
         editPopoverVersion = extractVersionCode(from: dateID)
-        // hasChanges reset and showEditPopover are handled by onChange(of: selectedDateID)
+        /// hasChanges reset and showEditPopover are handled by onChange(of: selectedDateID)
     }
     
     private func addNewDate() {
@@ -2360,7 +2360,7 @@ struct ViewingDatesTable: View, Loggable {
     // MARK: - Helper Functions
     private func formatDateForDatabase(_ date: Date, version: ViewingVersion) -> String {
         let dateString = ViewingDatesTable.databaseFormatter.string(from: date)
-        // Only append version code if it's not empty (i.e., not .none)
+        /// Only append version code if it's not empty (i.e., not .none)
         if version.rawValue.isEmpty {
             return dateString
         } else {
@@ -2371,10 +2371,10 @@ struct ViewingDatesTable: View, Loggable {
 
 // MARK: - Supporting Types
 private struct ViewingDateRow: Identifiable {
-    var id: String { dateString }  // Use dateString as stable ID (includes version code)
-    let dateString: String  // Original format including version code
-    let formattedDate: String  // Display format "Month Day, Year"
-    let version: String  // Display version (empty string for .none)
+    var id: String { dateString }  /// Use dateString as stable ID (includes version code)
+    let dateString: String  /// Original format including version code
+    let formattedDate: String  /// Display format "Month Day, Year"
+    let version: String  /// Display version (empty string for .none)
 }
 
 private struct ViewingDatesTableContent: View {
@@ -2385,9 +2385,9 @@ private struct ViewingDatesTableContent: View {
     let editPopoverContent: AnyView
     let onRowTap: (String) -> Void
 
-    // Cached table rows — rebuilt only when `dates` changes, not on every render.
-    // parseDate + DateFormatter.string() + extractVersionCode per entry are non-trivial;
-    // caching prevents them from firing on every SwiftUI layout pass.
+    /// Cached table rows — rebuilt only when `dates` changes, not on every render.
+    /// parseDate + DateFormatter.string() + extractVersionCode per entry are non-trivial;
+    /// caching prevents them from firing on every SwiftUI layout pass.
     @State private var cachedRows: [ViewingDateRow] = []
     
     init(isTableExpanded: Binding<Bool>,
@@ -2402,7 +2402,7 @@ private struct ViewingDatesTableContent: View {
         self._showEditPopover = showEditPopover
         self.editPopoverContent = AnyView(editPopoverContent)
         self.onRowTap = onRowTap
-        // Seed the cache on first creation so the table is populated immediately.
+        /// Seed the cache on first creation so the table is populated immediately.
         self._cachedRows = State(initialValue: ViewingDatesTableContent.buildRows(from: dates))
     }
     
@@ -2447,12 +2447,12 @@ private struct ViewingDatesTableContent: View {
                         .padding(EntryPopoverMetrics.padding)
                 }
         }
-        // The outer chrome of the reorderable lists (see `listContainerChrome`): content clipped
-        // inside the border's 1pt ring and the fading outline stroked into that ring. The
-        // shadow rides on an opaque backing plate rather than the table itself, so the
-        // collapsed table's "Show All" button and fade don't cast shadows of their own.
+        /// The outer chrome of the reorderable lists (see `listContainerChrome`): content clipped
+        /// inside the border's 1pt ring and the fading outline stroked into that ring. The
+        /// shadow rides on an opaque backing plate rather than the table itself, so the
+        /// collapsed table's "Show All" button and fade don't cast shadows of their own.
         .fieldEdgeChrome(clipsContent: true, insetsInterior: true)
-        // Refresh cached rows only when the underlying dates array changes.
+        /// Refresh cached rows only when the underlying dates array changes.
         .onChange(of: dates) { _, newDates in
             cachedRows = ViewingDatesTableContent.buildRows(from: newDates)
         }
@@ -2469,8 +2469,8 @@ struct DurationHelpers {
     /// read the field their own way, together, because the bands must match the sort; see
     /// MetadataCache's `.duration` case.)
     nonisolated static func storedMinutes(_ milliseconds: String?) -> Int? {
-        // `isFinite` and the upper bound keep a corrupt stored value ("inf", "1e300") from
-        // trapping in the Int conversion below.
+        /// `isFinite` and the upper bound keep a corrupt stored value ("inf", "1e300") from
+        /// trapping in the Int conversion below.
         guard let milliseconds, let value = Double(milliseconds), value > 0, value.isFinite,
               value < 1e15 else { return nil }
         return Int(value / 1000 / 60)
@@ -2516,29 +2516,29 @@ extension NSControl.ControlSize {
 }
 
 // MARK: - Checkbox
-//
-// The sheet's checkbox: an `NSButton` checkbox driven directly, in place of SwiftUI's
-// `Toggle`. Used by the ReleaseCard's Purchased control (33.20) and by the checkboxes on the
-// Details, Metadata, and frames-list controls.
-//
+///
+/// The sheet's checkbox: an `NSButton` checkbox driven directly, in place of SwiftUI's
+/// `Toggle`. Used by the ReleaseCard's Purchased control (33.20) and by the checkboxes on the
+/// Details, Metadata, and frames-list controls.
+///
 // MARK: Why not the SwiftUI Toggle
-//
-// Keyboard focus, not cost. SwiftUI's checkbox is an NSButton too (a private subclass), but
-// one that REFUSES first responder. SwiftUI keeps the checkbox out of AppKit's responder chain
-// and moves keyboard focus to it through its own focus engine, with the hosting view standing in
-// as the first responder. The sheet's Tab traversal bypasses that engine: FilmSheetKeyLoop
-// (30.01 FilmSheetView.swift) walks AppKit first responders by geometry. A SwiftUI Toggle could
-// therefore never be a stop in it. An NSButton of our own accepts first responder like every
-// other control, draws AppKit's focus ring when it has it, and toggles on Space.
-//
+///
+/// Keyboard focus, not cost. SwiftUI's checkbox is an NSButton too (a private subclass), but
+/// one that REFUSES first responder. SwiftUI keeps the checkbox out of AppKit's responder chain
+/// and moves keyboard focus to it through its own focus engine, with the hosting view standing in
+/// as the first responder. The sheet's Tab traversal bypasses that engine: FilmSheetKeyLoop
+/// (30.01 FilmSheetView.swift) walks AppKit first responders by geometry. A SwiftUI Toggle could
+/// therefore never be a stop in it. An NSButton of our own accepts first responder like every
+/// other control, draws AppKit's focus ring when it has it, and toggles on Space.
+///
 // MARK: What is kept identical
-//
-// The same control SwiftUI builds — `NSButton(checkboxWithTitle:)`, i.e. a `.switch`-type
-// button with an empty title, regular control size — so the glyph, the check animation and
-// accessibility are AppKit's either way. The enabled state is mirrored from the SwiftUI
-// environment exactly as `ReleasePopUpButton` and `ClearableStepperView` do it, including
-// `refusesFirstResponder`, so a disabled checkbox (a combo-pack child's) drops out of the Tab
-// loop rather than sitting in it as a dead stop.
+///
+/// The same control SwiftUI builds — `NSButton(checkboxWithTitle:)`, i.e. a `.switch`-type
+/// button with an empty title, regular control size — so the glyph, the check animation and
+/// accessibility are AppKit's either way. The enabled state is mirrored from the SwiftUI
+/// environment exactly as `ReleasePopUpButton` and `ClearableStepperView` do it, including
+/// `refusesFirstResponder`, so a disabled checkbox (a combo-pack child's) drops out of the Tab
+/// loop rather than sitting in it as a dead stop.
 struct SheetCheckbox: NSViewRepresentable {
     @Binding var isOn: Bool
     /// A title drawn beside the box, as `Toggle(isOn:) { Text(title) }` would; empty for a
@@ -2556,17 +2556,17 @@ struct SheetCheckbox: NSViewRepresentable {
     }
 
     func updateNSView(_ button: NSButton, context: Context) {
-        // Re-pointed on every update, as ReleasePopUpButton's coordinator is: a merged combo
-        // pack re-points the card at another release without rebuilding it.
+        /// Re-pointed on every update, as ReleasePopUpButton's coordinator is: a merged combo
+        /// pack re-points the card at another release without rebuilding it.
         context.coordinator.isOn = $isOn
         if button.title != title { button.title = title }
-        // The environment's control size, as SheetPopUpButton mirrors it. Every sheet call
-        // site is regular, the button's own default, so nothing changes there. A small
-        // size is followed as well, and the title's font follows the size, as AppKit's own
-        // small checkbox's does.
-        // Keyed off the font, not the control size, for the reason SheetPopUpButton gives:
-        // a zero-frame button already reports `.small`, so a size guard alone would never
-        // install the small font.
+        /// The environment's control size, as SheetPopUpButton mirrors it. Every sheet call
+        /// site is regular, the button's own default, so nothing changes there. A small
+        /// size is followed as well, and the title's font follows the size, as AppKit's own
+        /// small checkbox's does.
+        /// Keyed off the font, not the control size, for the reason SheetPopUpButton gives:
+        /// a zero-frame button already reports `.small`, so a size guard alone would never
+        /// install the small font.
         let nsSize = NSControl.ControlSize(context.environment.controlSize)
         if button.controlSize != nsSize { button.controlSize = nsSize }
         let fontSize = NSFont.systemFontSize(for: nsSize)
@@ -2591,42 +2591,42 @@ struct SheetCheckbox: NSViewRepresentable {
 
 
 // MARK: - Pop-up Button
-//
-// The sheet's single-select control: an `NSPopUpButton` driven directly, in place of SwiftUI's
-// `Picker(.menu)`. Every menu-style picker in the FilmSheet is one of these — the release
-// card's (through `TaggedPicker` / `ReleasePopUpButton`, 33.20), the Details and Metadata
-// tabs' (through `SheetMenuPicker` below), the frames-list fade rows' and the viewing-date
-// popovers'.
-//
+///
+/// The sheet's single-select control: an `NSPopUpButton` driven directly, in place of SwiftUI's
+/// `Picker(.menu)`. Every menu-style picker in the FilmSheet is one of these — the release
+/// card's (through `TaggedPicker` / `ReleasePopUpButton`, 33.20), the Details and Metadata
+/// tabs' (through `SheetMenuPicker` below), the frames-list fade rows' and the viewing-date
+/// popovers'.
+///
 // MARK: Why not the SwiftUI Picker
-//
-// The `card-perf` harness scenario (99.50) shows that a SwiftUI menu Picker's cost to mount
-// and to re-evaluate grows with its item count. A release card carries eight or nine pickers
-// with about 70 items between them, which is a large share of the time it takes to mount a
-// card, and therefore of the turn between an arrow press and the first frame of the navigation
-// spring. Other tabs carry fewer pickers, but the per-item cost is the same wherever a picker
-// sits. What SwiftUI builds is an ordinary `NSPopUpButton` (a private subclass) holding plain
-// `NSMenuItem`s with plain titles; the cost is its per-item view adaptor, not AppKit. Building
-// the same menu directly in AppKit costs about the same regardless of item count.
-//
+///
+/// The `card-perf` harness scenario (99.50) shows that a SwiftUI menu Picker's cost to mount
+/// and to re-evaluate grows with its item count. A release card carries eight or nine pickers
+/// with about 70 items between them, which is a large share of the time it takes to mount a
+/// card, and therefore of the turn between an arrow press and the first frame of the navigation
+/// spring. Other tabs carry fewer pickers, but the per-item cost is the same wherever a picker
+/// sits. What SwiftUI builds is an ordinary `NSPopUpButton` (a private subclass) holding plain
+/// `NSMenuItem`s with plain titles; the cost is its per-item view adaptor, not AppKit. Building
+/// the same menu directly in AppKit costs about the same regardless of item count.
+///
 // MARK: What is kept identical
-//
-// The control is the same AppKit class SwiftUI uses, configured the way SwiftUI configures it
-// (rounded bezel, bordered, regular control size, 13 pt system font, `pullsDown: false`,
-// `autoenablesItems` off), so the bezel, the pop-up-over-the-selected-item behavior, keyboard
-// type-select, and accessibility are AppKit's own either way. SwiftUI lays a representable out
-// through the button's alignment rect exactly as it does its own Picker, so with the call
-// site's frame at `layoutHeight` the 25 pt bezel overhangs the row exactly as before —
-// verified against the pre-change control frames by the same harness scenario.
-//
+///
+/// The control is the same AppKit class SwiftUI uses, configured the way SwiftUI configures it
+/// (rounded bezel, bordered, regular control size, 13 pt system font, `pullsDown: false`,
+/// `autoenablesItems` off), so the bezel, the pop-up-over-the-selected-item behavior, keyboard
+/// type-select, and accessibility are AppKit's own either way. SwiftUI lays a representable out
+/// through the button's alignment rect exactly as it does its own Picker, so with the call
+/// site's frame at `layoutHeight` the 25 pt bezel overhangs the row exactly as before —
+/// verified against the pre-change control frames by the same harness scenario.
+///
 // MARK: Selection is re-asserted after every write
-//
-// The coordinator writes the chosen tag through the binding and then selects whatever the
-// binding REPORTS afterward. For an ordinary field those agree. For the release card's Type
-// picker they may not: its binding declines a write that needs confirming (see
-// `_TypeVersionsRow`, 33.20), and the menu would otherwise go on marking the abandoned choice
-// as selected until something else pushed a value down. Re-selecting from the binding on the
-// same turn means the menu never needs a view rebuild to show the binding's value.
+///
+/// The coordinator writes the chosen tag through the binding and then selects whatever the
+/// binding REPORTS afterward. For an ordinary field those agree. For the release card's Type
+/// picker they may not: its binding declines a write that needs confirming (see
+/// `_TypeVersionsRow`, 33.20), and the menu would otherwise go on marking the abandoned choice
+/// as selected until something else pushed a value down. Re-selecting from the binding on the
+/// same turn means the menu never needs a view rebuild to show the binding's value.
 struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
     /// One menu row. A separator carries no tag and can never be selected; a disabled option
     /// keeps its row (and stays selected if it is the stored value) but cannot be chosen.
@@ -2682,8 +2682,8 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
         button.alignment = .natural
         button.target = context.coordinator
         button.action = #selector(Coordinator.selectionChanged(_:))
-        // Hugs its content like SwiftUI's own popup, so the `.frame` at the call site is the
-        // whole of the sizing and the button never stretches a row.
+        /// Hugs its content like SwiftUI's own popup, so the `.frame` at the call site is the
+        /// whole of the sizing and the button never stretches a row.
         button.setContentHuggingPriority(.defaultHigh, for: .vertical)
         button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let menu = NSMenu()
@@ -2694,26 +2694,26 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
 
     func updateNSView(_ button: NSPopUpButton, context: Context) {
         let coordinator = context.coordinator
-        // Re-pointed on every update for the same reason ClearableStepperView does it: the
-        // binding captured at makeCoordinator time addresses whatever model the view showed
-        // then, and a merged combo pack re-points the release card without rebuilding it.
+        /// Re-pointed on every update for the same reason ClearableStepperView does it: the
+        /// binding captured at makeCoordinator time addresses whatever model the view showed
+        /// then, and a merged combo pack re-points the release card without rebuilding it.
         coordinator.selection = $selection
         coordinator.reassertsSelectionAfterWrite = reassertsSelectionAfterWrite
 
         let size = context.environment.controlSize
         let nsSize = NSControl.ControlSize(size)
         if button.controlSize != nsSize { button.controlSize = nsSize }
-        // Keyed off the font, not the control size: a zero-frame NSPopUpButton already
-        // reports `.small` on macOS 15, so a size-change guard alone never installs the
-        // 11 pt font for a `.controlSize(.small)` site and the button (and its menu, which
-        // draws in the cell's font) stays at 13 pt — and misaligned with the collapsed title.
+        /// Keyed off the font, not the control size: a zero-frame NSPopUpButton already
+        /// reports `.small` on macOS 15, so a size-change guard alone never installs the
+        /// 11 pt font for a `.controlSize(.small)` site and the button (and its menu, which
+        /// draws in the cell's font) stays at 13 pt — and misaligned with the collapsed title.
         let fontSize = NSFont.systemFontSize(for: nsSize)
         if button.font?.pointSize != fontSize { button.font = NSFont.systemFont(ofSize: fontSize) }
         button.isEnabled = context.environment.isEnabled
 
-        // Rebuilt only when a row's CONTENT changed; a selection change alone moves a check
-        // mark. Rebuilding on every update would discard and re-create every NSMenuItem for
-        // a value that already has one.
+        /// Rebuilt only when a row's CONTENT changed; a selection change alone moves a check
+        /// mark. Rebuilding on every update would discard and re-create every NSMenuItem for
+        /// a value that already has one.
         let items = effectiveItems
         coordinator.rebuildMenu(on: button, items: items)
         coordinator.select(tag: selection, on: button)
@@ -2747,9 +2747,9 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
                     menu.addItem(.separator())
                     tags.append(nil)
                 case .header(let title):
-                    // Disabled so it cannot be chosen; the attributed title keeps the
-                    // secondary color rather than the disabled gray, as SortFilterMenu's
-                    // SwiftUI headers do.
+                    /// Disabled so it cannot be chosen; the attributed title keeps the
+                    /// secondary color rather than the disabled gray, as SortFilterMenu's
+                    /// SwiftUI headers do.
                     let menuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
                     menuItem.attributedTitle = NSAttributedString(string: title, attributes: [
                         .foregroundColor: NSColor.secondaryLabelColor,
@@ -2778,8 +2778,8 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
             if tag != selection.wrappedValue {
                 selection.wrappedValue = tag
             }
-            // Whatever the binding says now is what the button shows — the written value
-            // for an ordinary field, the old one for a write that was declined.
+            /// Whatever the binding says now is what the button shows — the written value
+            /// for an ordinary field, the old one for a write that was declined.
             if reassertsSelectionAfterWrite {
                 select(tag: selection.wrappedValue, on: sender)
             }
@@ -2810,41 +2810,41 @@ struct SheetMenuPicker<Value: Hashable>: View {
 }
 
 // MARK: - Segmented Control
-//
-// The sheet's segmented picker: an `NSSegmentedControl` driven directly, in place of SwiftUI's
-// `Picker(.segmented)`. Used by the release card's variant switcher and Condition row (33.20),
-// the Details tab's Queue Membership row (31.10), the frames popover's "Mark with" row
-// (30.40), and the import Details popover's category header (28.00), which disables the
-// segments with nothing to show through `Segment.isEnabled`.
-//
+///
+/// The sheet's segmented picker: an `NSSegmentedControl` driven directly, in place of SwiftUI's
+/// `Picker(.segmented)`. Used by the release card's variant switcher and Condition row (33.20),
+/// the Details tab's Queue Membership row (31.10), the frames popover's "Mark with" row
+/// (30.40), and the import Details popover's category header (28.00), which disables the
+/// segments with nothing to show through `Segment.isEnabled`.
+///
 // MARK: Why not the SwiftUI Picker
-//
-// The same reason as `SheetPopUpButton`, at a smaller scale. The `card-perf` probe table puts
-// a two-segment SwiftUI segmented Picker at ~6 ms to mount and eight NSViews, against ~1 ms
-// and one view for the `NSSegmentedControl` it wraps: SwiftUI's adaptor hosts a private
-// `SwiftUISegmentedControl` inside a `PlatformViewHost` and builds a view per segment label
-// on the way. The sheet carries at most four, so this is a few milliseconds per card mount —
-// taken because it is free, and because it finishes the pattern: every stop in the sheet's
-// Tab loop is now a control the sheet builds itself.
-//
+///
+/// The same reason as `SheetPopUpButton`, at a smaller scale. The `card-perf` probe table puts
+/// a two-segment SwiftUI segmented Picker at ~6 ms to mount and eight NSViews, against ~1 ms
+/// and one view for the `NSSegmentedControl` it wraps: SwiftUI's adaptor hosts a private
+/// `SwiftUISegmentedControl` inside a `PlatformViewHost` and builds a view per segment label
+/// on the way. The sheet carries at most four, so this is a few milliseconds per card mount —
+/// taken because it is free, and because it finishes the pattern: every stop in the sheet's
+/// Tab loop is now a control the sheet builds itself.
+///
 // MARK: What is kept identical
-//
-// Configured exactly as SwiftUI's adaptor configures its control, read off that control by
-// the `segmented-equivalence` harness scenario (99.50): `.automatic` style, `.selectOne`
-// tracking, `.fillEqually` distribution, regular control size, 13 pt system font, centered
-// labels, no per-segment width, vertical hugging at `.defaultHigh`.
-//
-// Sizing is where the adaptor is not just "the intrinsic size", and where SwiftUI's default
-// representable sizing would differ. Measured: the layout height is always the control's
-// 22 pt (a 40 pt proposal still yields 22, with the 24 pt bezel overhanging by one point top
-// and bottom); the width is the PROPOSED width clamped to a minimum — 88 / 174 / 201 pt for
-// the two-, three- and four-segment controls the sheet has — and the ideal (under
-// `.fixedSize()`) is AppKit's `.fillEqually` intrinsic width (89 / 185 / 251). The minimum is
-// the `.fit` distribution's intrinsic width plus the control's horizontal alignment-rect
-// insets (84 + 4, and so on); the control is switched to `.fit` for one measurement whenever
-// its segments change, and back. `sizeThatFits` reproduces the rule,
-// and the harness asserts the two controls' alignment rects agree for every proposal shape
-// the sheet uses.
+///
+/// Configured exactly as SwiftUI's adaptor configures its control, read off that control by
+/// the `segmented-equivalence` harness scenario (99.50): `.automatic` style, `.selectOne`
+/// tracking, `.fillEqually` distribution, regular control size, 13 pt system font, centered
+/// labels, no per-segment width, vertical hugging at `.defaultHigh`.
+///
+/// Sizing is where the adaptor is not just "the intrinsic size", and where SwiftUI's default
+/// representable sizing would differ. Measured: the layout height is always the control's
+/// 22 pt (a 40 pt proposal still yields 22, with the 24 pt bezel overhanging by one point top
+/// and bottom); the width is the PROPOSED width clamped to a minimum — 88 / 174 / 201 pt for
+/// the two-, three- and four-segment controls the sheet has — and the ideal (under
+/// `.fixedSize()`) is AppKit's `.fillEqually` intrinsic width (89 / 185 / 251). The minimum is
+/// the `.fit` distribution's intrinsic width plus the control's horizontal alignment-rect
+/// insets (84 + 4, and so on); the control is switched to `.fit` for one measurement whenever
+/// its segments change, and back. `sizeThatFits` reproduces the rule,
+/// and the harness asserts the two controls' alignment rects agree for every proposal shape
+/// the sheet uses.
 /// What a segmented control's measured size depends on — its labels, size and font, and the
 /// appearance it resolves CoreUI metrics in — so equal keys measure equally.
 private struct SegmentedMetricsKey: Hashable {
@@ -2904,8 +2904,8 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
 
     func updateNSView(_ control: NSSegmentedControl, context: Context) {
         let coordinator = context.coordinator
-        // Re-pointed on every update, as SheetPopUpButton's coordinator is: a merged combo
-        // pack re-points the card at another release without rebuilding it.
+        /// Re-pointed on every update, as SheetPopUpButton's coordinator is: a merged combo
+        /// pack re-points the card at another release without rebuilding it.
         coordinator.selection = $selection
 
         let size = context.environment.controlSize
@@ -2914,9 +2914,9 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
             control.controlSize = nsSize
             coordinator.invalidateWidths()
         }
-        // Keyed off the font, not the control size, for the reason SheetPopUpButton gives: a
-        // zero-frame control already reports `.small` on macOS 15, so the size guard above
-        // alone never installed the 11 pt font for a `.controlSize(.small)` site.
+        /// Keyed off the font, not the control size, for the reason SheetPopUpButton gives: a
+        /// zero-frame control already reports `.small` on macOS 15, so the size guard above
+        /// alone never installed the 11 pt font for a `.controlSize(.small)` site.
         let fontSize = NSFont.systemFontSize(for: nsSize)
         if control.font?.pointSize != fontSize {
             control.font = NSFont.systemFont(ofSize: fontSize)
@@ -2930,8 +2930,8 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView control: NSSegmentedControl,
                       context: Context) -> CGSize? {
-        // The height is cached with the widths. `intrinsicContentSize` is a CoreUI metrics query
-        // per segment, and SwiftUI asks several times per layout pass.
+        /// The height is cached with the widths. `intrinsicContentSize` is a CoreUI metrics query
+        /// per segment, and SwiftUI asks several times per layout pass.
         let (minWidth, idealWidth, height) = context.coordinator.metrics(of: control)
         if let width = proposal.width, width.isFinite {
             return CGSize(width: max(width, minWidth), height: height)
@@ -3015,13 +3015,13 @@ struct SheetSegmentedControl<Value: Hashable>: NSViewRepresentable {
             if tag != selection.wrappedValue {
                 selection.wrappedValue = tag
             }
-            // Unlike SheetPopUpButton, the binding is NOT re-read here. The release card's
-            // variant switcher writes through a binding whose getter answers from the card's
-            // own state, which the swap updates a turn later. Re-selecting from it on the click
-            // would put the old segment back for that turn, so the clicked segment would flash
-            // unselected before the swap lands. AppKit has already moved the selection, and the
-            // next updateNSView reconciles it with the binding, which is where a declined write
-            // is put back.
+            /// Unlike SheetPopUpButton, the binding is NOT re-read here. The release card's
+            /// variant switcher writes through a binding whose getter answers from the card's
+            /// own state, which the swap updates a turn later. Re-selecting from it on the click
+            /// would put the old segment back for that turn, so the clicked segment would flash
+            /// unselected before the swap lands. AppKit has already moved the selection, and the
+            /// next updateNSView reconciles it with the binding, which is where a declined write
+            /// is put back.
         }
     }
 }

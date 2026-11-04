@@ -1,22 +1,22 @@
 // MARK: - SortFilterMenu.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Sort and filter menus that use ViewStateManager as the single source of truth.
-//
-// This file defines what the Sort and Filter menus contain, and what they need to know about the view on
-// screen. Two hosts present each menu: GalleryTitleBar's GallerySortMenu and GalleryFilterMenu, and MenuBar's
-// SortByMenu and FilterItemsMenu. Three things live here, so neither pair can diverge:
-//
-//   • The menu contents, meaning the toggles, their labels, and which blocks disable together. These are in
-//     SortMenuContent and FilterMenuContent. Each host supplies only its current value and a persist closure.
-//   • What the menus need to know about the active view, in SortMenuInputs and FilterMenuInputs. They derive it once from
-//     (activeView, activeState, coordinator).
-//   • The mutually exclusive group rules, in FilterToggleLogic.
-//
-// Each host only chooses how it obtains and refreshes those inputs. SortByMenu mirrors them into @State and
-// resyncs them, because NSMenu-backed Commands items do not take part in SwiftUI observation.
-// GalleryFilterMenu reads them live. GallerySortMenu also mirrors them, because its inputs include a scan of
-// the film set, and Menu evaluates its content eagerly.
+/// Sort and filter menus that use ViewStateManager as the single source of truth.
+///
+/// This file defines what the Sort and Filter menus contain, and what they need to know about the view on
+/// screen. Two hosts present each menu: GalleryTitleBar's GallerySortMenu and GalleryFilterMenu, and MenuBar's
+/// SortByMenu and FilterItemsMenu. Three things live here, so neither pair can diverge:
+///
+///   • The menu contents, meaning the toggles, their labels, and which blocks disable together. These are in
+///     SortMenuContent and FilterMenuContent. Each host supplies only its current value and a persist closure.
+///   • What the menus need to know about the active view, in SortMenuInputs and FilterMenuInputs. They derive it once from
+///     (activeView, activeState, coordinator).
+///   • The mutually exclusive group rules, in FilterToggleLogic.
+///
+/// Each host only chooses how it obtains and refreshes those inputs. SortByMenu mirrors them into @State and
+/// resyncs them, because NSMenu-backed Commands items do not take part in SwiftUI observation.
+/// GalleryFilterMenu reads them live. GallerySortMenu also mirrors them, because its inputs include a scan of
+/// the film set, and Menu evaluates its content eagerly.
 
 import SwiftUI
 import AppKit
@@ -185,17 +185,17 @@ struct FilterMenuInputs: Hashable, Sendable {
                                unwatchedCategory: UnwatchedCategory?) -> Set<FilterBlock> {
         var disabled: Set<FilterBlock> = []
 
-        // Purchased and Unpurchased are meaningless in a view already scoped to a purchased or unpurchased
-        // smart list, or in the Recently Purchased tab, where every film is purchased (or unpurchased) by
-        // definition.
+        /// Purchased and Unpurchased are meaningless in a view already scoped to a purchased or unpurchased
+        /// smart list, or in the Recently Purchased tab, where every film is purchased (or unpurchased) by
+        /// definition.
         let isViewingPurchasedSmartList = smartListType?.isPurchasedFormat == true
             || smartListType?.isUnpurchasedFormat == true
         if isViewingPurchasedSmartList || recentsCategory == .recentlyPurchased {
             disabled.insert(.purchase)
         }
 
-        // Watched and Unwatched are meaningless on the Most Recently Viewed tab, where every film is watched,
-        // and on the Unwatched tab, where every film is unwatched.
+        /// Watched and Unwatched are meaningless on the Most Recently Viewed tab, where every film is watched,
+        /// and on the Unwatched tab, where every film is unwatched.
         if recentsCategory == .recentlyViewed || unwatchedCategory == .unwatched {
             disabled.insert(.watched)
         }
@@ -287,12 +287,12 @@ struct SortMenuContent: View {
     var onJumpToSection: ((GallerySectionJumpTarget) -> Void)? = nil
 
     var body: some View {
-        // Sort options: every one, in every view. An option that means nothing here is disabled, never
-        // removed, so the menu keeps one shape and no item needs explaining.
+        /// Sort options: every one, in every view. An option that means nothing here is disabled, never
+        /// removed, so the menu keeps one shape and no item needs explaining.
         ForEach(SortOption.allCases, id: \.self) { option in
             Toggle(isOn: Binding(
                 get: {
-                    // The checkmark is reported even while disabled, so a locked selected item still shows.
+                    /// The checkmark is reported even while disabled, so a locked selected item still shows.
                     currentSortOption == option
                 },
                 set: { isOn in
@@ -307,12 +307,12 @@ struct SortMenuContent: View {
 
         Divider()
 
-        // Direction options
+        /// Direction options
         ForEach([SortDirection.ascending, SortDirection.descending], id: \.self) { direction in
             Toggle(isOn: Binding(
                 get: {
-                    // Reported even while disabled, as with the sort options. A fixed direction is still a
-                    // direction.
+                    /// Reported even while disabled, as with the sort options. A fixed direction is still a
+                    /// direction.
                     currentSortDirection == direction
                 },
                 set: { isOn in
@@ -322,26 +322,26 @@ struct SortMenuContent: View {
                 })) {
                 Text(direction.displayName)
             }
-            // Nothing disables the direction pair on its own. A fixed sort locks the whole menu through
-            // `isDisabled`. A per-direction counterpart to `disabledSortOptions` existed but was never used.
+            /// Nothing disables the direction pair on its own. A fixed sort locks the whole menu through
+            /// `isDisabled`. A per-direction counterpart to `disabledSortOptions` existed but was never used.
             .disabled(isDisabled)
         }
 
         Divider()
 
-        // A descriptive header, styled rather than disabled, as the "Sort By:" header is in each host. A
-        // disabled header would look like another unavailable row.
+        /// A descriptive header, styled rather than disabled, as the "Sort By:" header is in each host. A
+        /// disabled header would look like another unavailable row.
         Text("Section Dividers:").foregroundStyle(.secondary)
 
-        // Mutually exclusive by construction. Each Toggle is on only when the state matches it, and it acts
-        // only when switched on. Switching the on member off cannot be expressed, so no "neither" state is
-        // reachable.
-        //
-        // One view does not let the user choose: the Film Queue's unnarrowed All tab always draws its three
-        // bands, which describe its structure, not its ordering (see
-        // GallerySectioning.displayedSectionBreaks). That tab locks the pair On through
-        // `sectionDividersLocked`, and Jump to Section stays available. The three section tabs sort like any
-        // other view once narrowed, and each keeps its own ViewState, so they are independent.
+        /// Mutually exclusive by construction. Each Toggle is on only when the state matches it, and it acts
+        /// only when switched on. Switching the on member off cannot be expressed, so no "neither" state is
+        /// reachable.
+        ///
+        /// One view does not let the user choose: the Film Queue's unnarrowed All tab always draws its three
+        /// bands, which describe its structure, not its ordering (see
+        /// GallerySectioning.displayedSectionBreaks). That tab locks the pair On through
+        /// `sectionDividersLocked`, and Jump to Section stays available. The three section tabs sort like any
+        /// other view once narrowed, and each keeps its own ViewState, so they are independent.
         ForEach([true, false], id: \.self) { showDividers in
             Toggle(isOn: Binding(
                 get: { currentShowSectionDividers == showDividers },
@@ -353,8 +353,8 @@ struct SortMenuContent: View {
                 Text(showDividers ? "Show" : "Hide")
             }
             .disabled(sectionDividersLocked)
-            // Not gated on `isDisabled`, for the same reason as Jump to Section. A fixed-sort view still has
-            // sections, and hiding the control would leave the current setting with no way to change it.
+            /// Not gated on `isDisabled`, for the same reason as Jump to Section. A fixed-sort view still has
+            /// sections, and hiding the control would leave the current setting with no way to change it.
         }
 
         if !jumpTargets.isEmpty, let onJumpToSection {
@@ -389,10 +389,10 @@ struct FilterMenuContent: View {
     let onToggleFilter: (FilterOption, Bool) -> Void
 
     var body: some View {
-        // "None" option
+        /// "None" option
         Toggle(isOn: Binding(
             get: {
-                // Don't show checkmarks when menu is disabled
+                /// Don't show checkmarks when menu is disabled
                 guard !isDisabled else { return false }
                 return currentFilters.isEmpty
             },
@@ -405,26 +405,26 @@ struct FilterMenuContent: View {
         }
         Divider()
 
-        // Watched filters, mutually exclusive. Disabled as a block, not hidden, on the Most Recently Viewed
-        // tab, where every film is watched. Either choice would show all films or none, so the pair is never
-        // useful there.
+        /// Watched filters, mutually exclusive. Disabled as a block, not hidden, on the Most Recently Viewed
+        /// tab, where every film is watched. Either choice would show all films or none, so the pair is never
+        /// useful there.
         filterToggle(.watched, label: "Watched", block: .watched)
         filterToggle(.unwatched, label: "Unwatched", block: .watched)
         Divider()
 
-        // Color filters (mutually exclusive)
+        /// Color filters (mutually exclusive)
         filterToggle(.color, label: "Color", block: .color)
         filterToggle(.blackAndWhite, label: "Black and White", block: .color)
 
-        // Purchase filters, mutually exclusive. Disabled as a block, not hidden, in purchased or unpurchased
-        // smart lists and on the Recently Purchased tab, for the same reason.
+        /// Purchase filters, mutually exclusive. Disabled as a block, not hidden, in purchased or unpurchased
+        /// smart lists and on the Recently Purchased tab, for the same reason.
         Divider()
         filterToggle(.purchased, label: "Purchased", block: .purchase)
         filterToggle(.unpurchased, label: "Unpurchased", block: .purchase)
 
-        // Data completion filters, mutually exclusive. They appear only when the feature is enabled in
-        // Settings. That is a global toggle, not a per-view rule, so it is a show or hide and not a disabled
-        // block.
+        /// Data completion filters, mutually exclusive. They appear only when the feature is enabled in
+        /// Settings. That is a global toggle, not a per-view rule, so it is a show or hide and not a disabled
+        /// block.
         if Preferences.showInfoComplete {
             Divider()
             filterToggle(.completeData, label: "Complete Data", block: .dataComplete)
@@ -433,7 +433,7 @@ struct FilterMenuContent: View {
 
         Divider()
 
-        // Genre filters (multi-selection allowed), treated as a single block
+        /// Genre filters (multi-selection allowed), treated as a single block
         ForEach(FilterOption.genreOptions, id: \.self) { genreOption in
             filterToggle(genreOption, label: genreOption.displayName, block: .genre)
         }
@@ -443,7 +443,7 @@ struct FilterMenuContent: View {
     private func filterToggle(_ option: FilterOption, label: String, block: FilterBlock) -> some View {
         Toggle(isOn: Binding(
             get: {
-                // Don't show checkmarks when menu is disabled
+                /// Don't show checkmarks when menu is disabled
                 guard !isDisabled else { return false }
                 return currentFilters.contains(option)
             },
@@ -497,8 +497,8 @@ struct GallerySortMenu: View {
         .onChange(of: coordinator.films.count) { _, _ in refreshInputs() }
         .onFilmEvent { event in
             switch event {
-            // One turn later. The event is delivered synchronously, but its sender reloads the films only
-            // after posting it, so a refresh here would scan the old films.
+            /// One turn later. The event is delivered synchronously, but its sender reloads the films only
+            /// after posting it, so a refresh here would scan the old films.
             case .updated, .releaseChanged: DispatchQueue.main.async { refreshInputs() }
             case .added, .deleted: break
             }
@@ -507,8 +507,8 @@ struct GallerySortMenu: View {
 
     @ViewBuilder
     private var menuContents: some View {
-        // A descriptive header, styled rather than disabled. A bare Text in a menu is already unselectable,
-        // and .disabled would make it look like an unavailable row beside the options it labels.
+        /// A descriptive header, styled rather than disabled. A bare Text in a menu is already unselectable,
+        /// and .disabled would make it look like an unavailable row beside the options it labels.
         Text("Sort By:").foregroundStyle(.secondary)
         SortMenuContent(
             isDisabled: isDisabled,
@@ -553,8 +553,8 @@ struct GalleryFilterMenu: View {
 
     var body: some View {
         Menu {
-            // A descriptive header, styled rather than disabled, as the Sort menu header is. A disabled
-            // header would read as another unavailable row beside the filter blocks that do disable.
+            /// A descriptive header, styled rather than disabled, as the Sort menu header is. A disabled
+            /// header would read as another unavailable row beside the filter blocks that do disable.
             Text("Filter:").foregroundStyle(.secondary)
             let inputs = self.inputs
             FilterMenuContent(
@@ -569,9 +569,9 @@ struct GalleryFilterMenu: View {
                 }
             )
         } label: {
-            // The filled badge shows only when filters are active and the button is enabled. A badge on a
-            // disabled button would mislead, because the user cannot interact with it, and the saved filters
-            // are not yet actionable during initial load.
+            /// The filled badge shows only when filters are active and the button is enabled. A badge on a
+            /// disabled button would mislead, because the user cannot interact with it, and the saved filters
+            /// are not yet actionable during initial load.
             Image(systemName: !isDisabled && hasActiveFilters ?
                 "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                 .font(.system(size: 14))

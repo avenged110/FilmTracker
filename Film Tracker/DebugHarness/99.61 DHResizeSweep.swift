@@ -1,31 +1,31 @@
 // MARK: - DHResizeSweep.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only measurement scenario for the gallery grid under a synthetic window-width sweep.
-// Opt-in (`-FTDebugHarness resize-perf`); not part of `all`, because its output is a
-// measurement rather than a verdict.
-//
-// Complements DHResizeProfiler (99.60), which observes a REAL drag and answers "is the app
-// the bottleneck?". A synthetic sweep cannot answer that (see the long note at the top of
-// 99.60), but it CAN answer the narrower question this file exists for: how much
-// main-thread work does one width step cost, and how does that cost differ between the two
-// geometric regimes the grid has?
-//
-//   • RESIZE regime  -- window narrower than the grid's maximum width: every tile changes
-//     size on every step.
-//   • TRANSLATE regime -- window wider than the maximum: tiles keep their size and the whole
-//     grid re-centers, so every tile only moves.
-//
-// The real grid (GallerySubview -> NSCollectionView -> GalleryItem cells) is hosted in a
-// window whose content size is stepped 2pt at a time through each regime; per step the
-// synchronous layout wall time plus main-thread CPU over the following run-loop turns is
-// recorded, exactly as card-perf measures. Posters are synthesized into the sandbox's poster
-// folder so cells carry real image layers, not placeholders.
-//
-// In the TRANSLATE regime no per-cell layout runs: prepare() runs once per step, and
-// GalleryItem.viewDidLayout and GalleryTileContentView.layout() do not fire. The cost is the
-// collection view re-issuing attributes plus the Core Animation commit. The
-// `translate-not-heavier` check turns a regression of that property into a failure.
+/// DEBUG-only measurement scenario for the gallery grid under a synthetic window-width sweep.
+/// Opt-in (`-FTDebugHarness resize-perf`); not part of `all`, because its output is a
+/// measurement rather than a verdict.
+///
+/// Complements DHResizeProfiler (99.60), which observes a REAL drag and answers "is the app
+/// the bottleneck?". A synthetic sweep cannot answer that (see the long note at the top of
+/// 99.60), but it CAN answer the narrower question this file exists for: how much
+/// main-thread work does one width step cost, and how does that cost differ between the two
+/// geometric regimes the grid has?
+///
+///   • RESIZE regime  -- window narrower than the grid's maximum width: every tile changes
+///     size on every step.
+///   • TRANSLATE regime -- window wider than the maximum: tiles keep their size and the whole
+///     grid re-centers, so every tile only moves.
+///
+/// The real grid (GallerySubview -> NSCollectionView -> GalleryItem cells) is hosted in a
+/// window whose content size is stepped 2pt at a time through each regime; per step the
+/// synchronous layout wall time plus main-thread CPU over the following run-loop turns is
+/// recorded, exactly as card-perf measures. Posters are synthesized into the sandbox's poster
+/// folder so cells carry real image layers, not placeholders.
+///
+/// In the TRANSLATE regime no per-cell layout runs: prepare() runs once per step, and
+/// GalleryItem.viewDidLayout and GalleryTileContentView.layout() do not fire. The cost is the
+/// collection view re-issuing attributes plus the Core Animation commit. The
+/// `translate-not-heavier` check turns a regression of that property into a failure.
 
 #if DEBUG
 
@@ -132,7 +132,7 @@ extension DebugHarness {
         host.autoresizingMask = [.width, .height]
         host.frame = NSRect(x: 0, y: 0, width: 1000, height: height)
         window.contentView = host
-        // Parked below the screen at low alpha so Core Animation commits are real ones.
+        /// Parked below the screen at low alpha so Core Animation commits are real ones.
         window.setFrameOrigin(NSPoint(x: 100, y: -(height + 40)))
         window.alphaValue = 0.1
         window.orderFront(nil)
@@ -147,7 +147,7 @@ extension DebugHarness {
         @MainActor func sweep(_ label: String, from: CGFloat, to: CGFloat, step: CGFloat) async -> Stats {
             var samples: [Double] = []
             var w = from
-            // Warm the regime first so cell creation is not in the numbers.
+            /// Warm the regime first so cell creation is not in the numbers.
             window.setContentSize(NSSize(width: from, height: height))
             host.layoutSubtreeIfNeeded(); window.displayIfNeeded()
             for _ in 0..<5 { await turn() }

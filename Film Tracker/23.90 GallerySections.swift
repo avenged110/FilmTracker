@@ -1,15 +1,15 @@
 // MARK: - GallerySections.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// GallerySection, the label a gallery divider band displays, and the derivation of those
-// bands from the active sort option.
-//
-// The divider machinery (SmoothResizingGridLayout's SectionBreak and DividerRow in
-// GalleryViewUI.swift, and GalleryListView's `.divider` rows) was first built for the Film
-// Queue's three fixed sections, so it was typed on FilmQueueSection. It needs only a label and
-// an equatable identity, so it uses GallerySection. The Film Queue supplies its three
-// sections through the accessor below. This lets every gallery view show bands, gated by its
-// ViewState.showSectionDividers.
+/// GallerySection, the label a gallery divider band displays, and the derivation of those
+/// bands from the active sort option.
+///
+/// The divider machinery (SmoothResizingGridLayout's SectionBreak and DividerRow in
+/// GalleryViewUI.swift, and GalleryListView's `.divider` rows) was first built for the Film
+/// Queue's three fixed sections, so it was typed on FilmQueueSection. It needs only a label and
+/// an equatable identity, so it uses GallerySection. The Film Queue supplies its three
+/// sections through the accessor below. This lets every gallery view show bands, gated by its
+/// ViewState.showSectionDividers.
 
 import Foundation
 
@@ -282,8 +282,8 @@ enum GallerySectioning: Loggable {
         init() {
             let now = Date()
             let cal = AppCalendar.current
-            // `?? now` is unreachable on the Gregorian calendar. It only makes each boundary
-            // non-optional. Collapsing to `now` would put every dated film in a per-year band.
+            /// `?? now` is unreachable on the Gregorian calendar. It only makes each boundary
+            /// non-optional. Collapsing to `now` would put every dated film in a per-year band.
             weekAgo = cal.date(byAdding: .day, value: -7, to: now) ?? now
             monthAgo = cal.date(byAdding: .month, value: -1, to: now) ?? now
             twoMonthsAgo = cal.date(byAdding: .month, value: -2, to: now) ?? now
@@ -398,11 +398,11 @@ enum GallerySectioning: Loggable {
                 : GallerySection(id: "rating.none", displayName: "No Rating")
 
         case .datePurchased:
-            // Purchases sort in three tiers: never purchased, purchased undated, and purchased
-            // dated (see MetadataCache.comparePurchaseDates). The two undated tiers are adjacent,
-            // so they fold into one "No Purchase Date" band at the end. The dated tier uses the
-            // date the bands are cut from, within the release format scope. With no scope this
-            // matches the Recently Purchased tab's bands (see recentsSection).
+            /// Purchases sort in three tiers: never purchased, purchased undated, and purchased
+            /// dated (see MetadataCache.comparePurchaseDates). The two undated tiers are adjacent,
+            /// so they fold into one "No Purchase Date" band at the end. The dated tier uses the
+            /// date the bands are cut from, within the release format scope. With no scope this
+            /// matches the Recently Purchased tab's bands (see recentsSection).
             return dateSection(data.mostRecentPurchaseDate(in: purchaseFormat) ?? .distantPast,
                                prefix: "purchaseDate",
                                undatedLabel: "No Purchase Date", context: context)
@@ -480,8 +480,8 @@ enum GallerySectioning: Loggable {
         guard date > Date.distantPast else {
             return GallerySection(id: "\(prefix).none", displayName: undatedLabel)
         }
-        // A future date (for example, a manually entered viewing) falls in "Past Week", the band
-        // nearest now.
+        /// A future date (for example, a manually entered viewing) falls in "Past Week", the band
+        /// nearest now.
         if date >= context.weekAgo {
             return GallerySection(id: "\(prefix).week", displayName: "Past Week")
         }

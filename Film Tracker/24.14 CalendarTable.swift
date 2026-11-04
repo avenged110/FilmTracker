@@ -1,8 +1,8 @@
 // MARK: - CalendarTable.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Viewing History table in RightSidebar's Details tab (module 03), in compact and detailed
-// forms. Both forms are built from one shared resolution of the viewing entries, which the PDF export also uses.
+/// The Viewing History table in RightSidebar's Details tab (module 03), in compact and detailed
+/// forms. Both forms are built from one shared resolution of the viewing entries, which the PDF export also uses.
 
 import SwiftUI
 
@@ -13,9 +13,9 @@ struct CalendarTable: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            // Title.
+            /// Title.
             RSBHelpers.moduleHeader("Viewing History")
-            // Table.
+            /// Table.
             if additionalCalTableDetails {
                 ViewingHistoryDetailedTable(
                     isTableExpanded: $isTableExpanded,
@@ -110,8 +110,8 @@ struct ViewingHistoryEntry {
 /// calendar, `.day` component, and absolute value as the earlier per-table code. Every entry
 /// that survives the `compactMap` parsed, so the day difference is always available.
 func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry] {
-    // Sort dates from most to least recent.
-    // parseDate handles version codes by stripping them before parsing.
+    /// Sort dates from most to least recent.
+    /// parseDate handles version codes by stripping them before parsing.
     let sorted = calendarTable
         .compactMap { dateString -> (original: String, date: Date)? in
             guard let date = parseDate(from: dateString) else { return nil }
@@ -120,8 +120,8 @@ func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry
         .sorted { $0.date > $1.date }
 
     let calendar = AppCalendar.current
-    // Allocated in iteration order, so a repeated entry's occurrence suffix is assigned
-    // deterministically — `map` over `enumerated()` runs strictly in sequence.
+    /// Allocated in iteration order, so a repeated entry's occurrence suffix is assigned
+    /// deterministically — `map` over `enumerated()` runs strictly in sequence.
     var identities = RowIdentityAllocator()
 
     return sorted.enumerated().map { index, item in
@@ -137,8 +137,8 @@ func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry
             id: identities.identity(for: item.original),
             original: item.original,
             date: item.date,
-            // Formatted from the parsed Date to avoid a second parse. `formatDateString` does the
-            // same after its own parse, so the output matches.
+            /// Formatted from the parsed Date to avoid a second parse. `formatDateString` does the
+            /// same after its own parse, so the output matches.
             formattedDate: formatDate(item.date),
             daysSincePrior: daysSincePrior)
     }
@@ -197,18 +197,18 @@ struct ViewingHistoryDetailedTable: View {
                 id: entry.id,
                 date: entry.formattedDate,
                 daysSince: entry.daysSincePrior,
-                // "Time from Today" column.
+                /// "Time from Today" column.
                 timeFromToday: Self.formatTimeFromToday(
                     from: calendar.startOfDay(for: entry.date), to: referenceDay),
-                // "Version" column, matching ViewingDatesTableContent in 30.20 FSControlHelpers.swift.
+                /// "Version" column, matching ViewingDatesTableContent in 30.20 FSControlHelpers.swift.
                 version: extractVersionCode(from: entry.original).displayName)
         }
     }
 
-    // Column widths, fixed to fit the widest readouts.
-    // "Since Prior": 72 pt, 2 pt wider than the standard table's 70 pt.
-    // "Time from Today": the widest readout, "99 years, 11 months ago", is 23 characters.
-    // "Version": matches ViewingDatesTable in 30.20 FSControlHelpers.swift.
+    /// Column widths, fixed to fit the widest readouts.
+    /// "Since Prior": 72 pt, 2 pt wider than the standard table's 70 pt.
+    /// "Time from Today": the widest readout, "99 years, 11 months ago", is 23 characters.
+    /// "Version": matches ViewingDatesTable in 30.20 FSControlHelpers.swift.
     private let dateColWidth: CGFloat = 148
     private let sinceColWidth: CGFloat = 72
     private let timeFromTodayColWidth: CGFloat = 160
@@ -240,28 +240,28 @@ struct ViewingHistoryDetailedTable: View {
     static func formatTimeFromToday(from viewingDay: Date, to today: Date) -> String {
         let calendar = AppCalendar.current
 
-        // Days difference (viewing dates should always be in the past).
+        /// Days difference (viewing dates should always be in the past).
         let daysDiff = calendar.dateComponents([.day], from: viewingDay, to: today).day ?? 0
         guard daysDiff >= 0 else { return "" }
 
         if daysDiff == 0 { return "Today" }
 
-        // Less than 1 week → days.
+        /// Less than 1 week → days.
         if daysDiff < 7 {
             return "\(daysDiff) \(daysDiff == 1 ? "day" : "days") ago"
         }
 
-        // Whole calendar months, from the components below.
+        /// Whole calendar months, from the components below.
         let components = calendar.dateComponents([.year, .month, .day], from: viewingDay, to: today)
         let totalMonths = (components.year ?? 0) * 12 + (components.month ?? 0)
 
         if totalMonths < 1 {
-            // Fewer than 1 calendar month elapsed — use weeks.
+            /// Fewer than 1 calendar month elapsed — use weeks.
             let weeks = daysDiff / 7
             return "\(weeks) \(weeks == 1 ? "week" : "weeks") ago"
         }
 
-        // ≥ 1 month → decompose into years + months.
+        /// ≥ 1 month → decompose into years + months.
         let years = totalMonths / 12
         let months = totalMonths % 12
 

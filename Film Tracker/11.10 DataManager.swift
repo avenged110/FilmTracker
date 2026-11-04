@@ -1,7 +1,7 @@
 // MARK: - DataManager.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Background actor for Core Data persistence operations.
+/// Background actor for Core Data persistence operations.
 
 import Foundation
 import CoreData
@@ -11,8 +11,8 @@ actor DataManager: Loggable {
     nonisolated static let logTag = "[DataManager]"
 
     // MARK: - Context
-    // One long-lived private-queue context. The executor runs this actor's jobs on that context's
-    // queue (ContextExecutor), so every method uses `context` directly.
+    /// One long-lived private-queue context. The executor runs this actor's jobs on that context's
+    /// queue (ContextExecutor), so every method uses `context` directly.
     nonisolated let persistentContainer: NSPersistentContainer
     private nonisolated let executor: ContextExecutor
     nonisolated var unownedExecutor: UnownedSerialExecutor { unsafe executor.asUnownedSerialExecutor() }
@@ -78,42 +78,42 @@ actor DataManager: Loggable {
     func computeStoreFingerprint() -> StoreFingerprint? {
         let start = ContinuousClock.now
 
-        // Runs off the main thread.
+        /// Runs off the main thread.
         guard let filmLayer = fetchFilmLayerDigest() else { return nil }
         let fetchElapsed = ContinuousClock.now - start
 
-        // List count: no properties or relationships fetched.
+        /// List count: no properties or relationships fetched.
         guard let listCount = try? context.count(for: ListObject.request()) else { return nil }
 
-        // Membership count: no properties or relationships fetched.
-        //
-        // The predicate is not optional decoration — it is what makes this count
-        // comparable to the stored one. The stored side is built by
-        // MemoryStoreCache.buildFingerprint as the sum of `MemoryList.filmIDs.count`
-        // across every list, and `filmIDs` is a `Set<UUID>` populated by
-        // `compactMap { $0.film?.id }`. That construction silently discards two classes
-        // of row that an unfiltered `fetchCount` would happily include:
-        //
-        //   - Orphans: a ListMembership whose film or list relationship is nil
-        //     contributes no UUID to the set, but is still a row in the table.
-        //   - Duplicates: two rows for the same (film, list) pair collapse into one
-        //     element of the set, but remain two rows in the table.
-        //
-        // Either one makes the live count exceed the stored count forever, and because
-        // the fingerprint is an exact-equality check, that is a permanent cache miss —
-        // a slow launch on every start, which the log cannot tell from a real library change. Filtering here eliminates the orphan cause outright; duplicates are
-        // handled by cleanupOrphanedAndDuplicateMemberships() below, which corrects the
-        // store itself so the discrepancy costs at most one slow launch.
-        //
-        // This can only ever move the live count *toward* the stored one, never away:
-        // the filter is strictly subtractive, and every row it removes is a row the
-        // stored side had already excluded. It therefore cannot introduce a mismatch
-        // that does not exist today.
-        //
-        // The unfiltered count is retained as a fallback. If the predicate fails to
-        // translate at runtime, degrading to today's behavior — a possible mismatch,
-        // the slow path, and correct data — is the right failure mode; returning nil
-        // would convert a recoverable condition into a guaranteed cache miss.
+        /// Membership count: no properties or relationships fetched.
+        ///
+        /// The predicate is not optional decoration — it is what makes this count
+        /// comparable to the stored one. The stored side is built by
+        /// MemoryStoreCache.buildFingerprint as the sum of `MemoryList.filmIDs.count`
+        /// across every list, and `filmIDs` is a `Set<UUID>` populated by
+        /// `compactMap { $0.film?.id }`. That construction silently discards two classes
+        /// of row that an unfiltered `fetchCount` would happily include:
+        ///
+        ///   - Orphans: a ListMembership whose film or list relationship is nil
+        ///     contributes no UUID to the set, but is still a row in the table.
+        ///   - Duplicates: two rows for the same (film, list) pair collapse into one
+        ///     element of the set, but remain two rows in the table.
+        ///
+        /// Either one makes the live count exceed the stored count forever, and because
+        /// the fingerprint is an exact-equality check, that is a permanent cache miss —
+        /// a slow launch on every start, which the log cannot tell from a real library change. Filtering here eliminates the orphan cause outright; duplicates are
+        /// handled by cleanupOrphanedAndDuplicateMemberships() below, which corrects the
+        /// store itself so the discrepancy costs at most one slow launch.
+        ///
+        /// This can only ever move the live count *toward* the stored one, never away:
+        /// the filter is strictly subtractive, and every row it removes is a row the
+        /// stored side had already excluded. It therefore cannot introduce a mismatch
+        /// that does not exist today.
+        ///
+        /// The unfiltered count is retained as a fallback. If the predicate fails to
+        /// translate at runtime, degrading to today's behavior — a possible mismatch,
+        /// the slow path, and correct data — is the right failure mode; returning nil
+        /// would convert a recoverable condition into a guaranteed cache miss.
         let validMembershipDescriptor = ListMembership.request(
             NSPredicate(format: "film != nil AND list != nil"))
 
@@ -281,8 +281,8 @@ actor DataManager: Loggable {
         var orphaned: [ListMembership] = []
         var valid: [ListMembership] = []
         for membership in allMemberships {
-            // Read each relationship once, partitioning in the same pass over the fetch
-            // that the duplicate scan below consumes.
+            /// Read each relationship once, partitioning in the same pass over the fetch
+            /// that the duplicate scan below consumes.
             if membership.film == nil || membership.list == nil {
                 orphaned.append(membership)
             } else {
@@ -290,14 +290,14 @@ actor DataManager: Loggable {
             }
         }
 
-        // Duplicates are detected only among valid rows. An orphan has no resolvable
-        // (film, list) pair to key on, and every orphan is being deleted regardless —
-        // including them could only produce a nil-keyed bucket with no meaning.
-        //
-        // One pass keeps the survivor per pair: the row that orders first by
-        // (dateAdded, sortOrder, id). This picks exactly the row that sorting every valid
-        // membership and keeping the first per pair would, without sorting the whole
-        // table on every launch to find what is almost always zero duplicates.
+        /// Duplicates are detected only among valid rows. An orphan has no resolvable
+        /// (film, list) pair to key on, and every orphan is being deleted regardless —
+        /// including them could only produce a nil-keyed bucket with no meaning.
+        ///
+        /// One pass keeps the survivor per pair: the row that orders first by
+        /// (dateAdded, sortOrder, id). This picks exactly the row that sorting every valid
+        /// membership and keeping the first per pair would, without sorting the whole
+        /// table on every launch to find what is almost always zero duplicates.
         func ordersBefore(_ lhs: ListMembership, _ rhs: ListMembership) -> Bool {
             if lhs.dateAdded != rhs.dateAdded { return lhs.dateAdded < rhs.dateAdded }
             if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
@@ -307,8 +307,8 @@ actor DataManager: Loggable {
         var survivorByPair: [MembershipPair: ListMembership] = [:]
         var duplicates: [ListMembership] = []
         for membership in valid {
-            // Re-derives the IDs rather than trusting the partition above, so the loop stays
-            // correct if that partition changes.
+            /// Re-derives the IDs rather than trusting the partition above, so the loop stays
+            /// correct if that partition changes.
             guard let filmID = membership.film?.id,
                   let listID = membership.list?.listID else { continue }
 
@@ -327,25 +327,25 @@ actor DataManager: Loggable {
 
         guard !orphaned.isEmpty || !duplicates.isEmpty else { return (0, 0) }
 
-        // Last cancellation check before anything destructive is staged. AppDelegate
-        // cancels the deferred-maintenance task at shutdown specifically so that
-        // maintenance deletions do not run mid-process-exit; honoring that here means
-        // the check covers this pass too, not just the poster pruner that precedes it.
-        // Checked after the analysis and before the first delete so a cancellation can
-        // never leave the context holding staged deletions.
+        /// Last cancellation check before anything destructive is staged. AppDelegate
+        /// cancels the deferred-maintenance task at shutdown specifically so that
+        /// maintenance deletions do not run mid-process-exit; honoring that here means
+        /// the check covers this pass too, not just the poster pruner that precedes it.
+        /// Checked after the analysis and before the first delete so a cancellation can
+        /// never leave the context holding staged deletions.
         try Task.checkCancellation()
 
         var removedOrphans = 0
         var removedDuplicates = 0
 
-        // `context != nil` mirrors the guard already used at the membership-delete
-        // site in saveFilmChangeset. Nothing can invalidate these objects between the
-        // fetch above and here — this method contains no suspension point, so it runs as
-        // one atomic unit on the actor — but a restore running against its own separate
-        // context is outside that guarantee, and deleting an already-detached object is
-        // the one thing worth being defensive about. Counting actual deletions rather
-        // than candidate counts keeps the returned numbers truthful if the guard ever
-        // does skip one.
+        /// `context != nil` mirrors the guard already used at the membership-delete
+        /// site in saveFilmChangeset. Nothing can invalidate these objects between the
+        /// fetch above and here — this method contains no suspension point, so it runs as
+        /// one atomic unit on the actor — but a restore running against its own separate
+        /// context is outside that guarantee, and deleting an already-detached object is
+        /// the one thing worth being defensive about. Counting actual deletions rather
+        /// than candidate counts keeps the returned numbers truthful if the guard ever
+        /// does skip one.
         for membership in orphaned where unsafe membership.managedObjectContext != nil {
             context.delete(membership)
             removedOrphans += 1
@@ -357,18 +357,18 @@ actor DataManager: Loggable {
 
         guard removedOrphans > 0 || removedDuplicates > 0 else { return (0, 0) }
 
-        // A single save for both classes. They are two symptoms of the same structural
-        // problem and there is no state in which committing one without the other is
-        // preferable, so an all-or-nothing transaction is the correct granularity.
-        //
-        // On failure the staged deletions must be discarded rather than left pending.
-        // This NSManagedObjectContext is long-lived and shared by every subsequent DataManager
-        // operation, so uncommitted deletions would otherwise ride along on the next
-        // unrelated `save()` — and, in the case that matters, if the save failed
-        // *because of* these deletions, every later save in the session would fail too,
-        // silently breaking all persistence rather than just this maintenance pass.
-        // Rolling back is safe here: every other method on this actor saves before it
-        // suspends, so the context holds no unrelated pending changes at this point.
+        /// A single save for both classes. They are two symptoms of the same structural
+        /// problem and there is no state in which committing one without the other is
+        /// preferable, so an all-or-nothing transaction is the correct granularity.
+        ///
+        /// On failure the staged deletions must be discarded rather than left pending.
+        /// This NSManagedObjectContext is long-lived and shared by every subsequent DataManager
+        /// operation, so uncommitted deletions would otherwise ride along on the next
+        /// unrelated `save()` — and, in the case that matters, if the save failed
+        /// *because of* these deletions, every later save in the session would fail too,
+        /// silently breaking all persistence rather than just this maintenance pass.
+        /// Rolling back is safe here: every other method on this actor saves before it
+        /// suspends, so the context holds no unrelated pending changes at this point.
         try commit()
 
         return (removedOrphans, removedDuplicates)
@@ -458,7 +458,7 @@ actor DataManager: Loggable {
     /// (transformable, which a batch update can't write), or a field with no attribute of its name.
     private static func batchValues(_ fields: Set<FilmField>, _ snapshots: [FilmSnapshot]) -> [String: Any]? {
         #if DEBUG
-        // `-FTBulkEditObjectPath`: the object-graph write, for A/B runs.
+        /// `-FTBulkEditObjectPath`: the object-graph write, for A/B runs.
         if ProcessInfo.processInfo.arguments.contains("-FTBulkEditObjectPath") { return nil }
         #endif
         guard let first = snapshots.first else { return nil }
@@ -518,8 +518,8 @@ actor DataManager: Loggable {
         let descriptor = Film.request(.in("id", ids))
         let films = try context.fetch(descriptor)
 
-        // Build a UUID → Film lookup. uniquingKeysWith guards against the (impossible
-        // under the unique-id constraint, but defensively handled) case of duplicate keys.
+        /// Build a UUID → Film lookup. uniquingKeysWith guards against the (impossible
+        /// under the unique-id constraint, but defensively handled) case of duplicate keys.
         let filmByID = Dictionary(films.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         var appliedCount = 0
@@ -532,7 +532,7 @@ actor DataManager: Loggable {
             appliedCount += 1
         }
 
-        // Nothing matched — no changes to commit.
+        /// Nothing matched — no changes to commit.
         guard appliedCount > 0 else { return }
 
         try commit() }
@@ -545,11 +545,11 @@ actor DataManager: Loggable {
 
         guard !ids.isEmpty else { return }
 
-        // The delete rules remove each film's memberships (Film.memberships cascades); the
-        // membership-cascade harness scenario verifies this. Each film is refreshed first:
-        // this context is long-lived, and a memberships relationship it loaded earlier would
-        // not include a row another context saved since, which the cascade would then miss. Nothing is pending here
-        // (every method saves before it suspends), so the refresh discards nothing.
+        /// The delete rules remove each film's memberships (Film.memberships cascades); the
+        /// membership-cascade harness scenario verifies this. Each film is refreshed first:
+        /// this context is long-lived, and a memberships relationship it loaded earlier would
+        /// not include a row another context saved since, which the cascade would then miss. Nothing is pending here
+        /// (every method saves before it suspends), so the refresh discards nothing.
         let descriptor = Film.request(.in("id", ids))
         let films = try context.fetch(descriptor)
 
@@ -592,8 +592,8 @@ actor DataManager: Loggable {
         let films = try context.fetch(descriptor)
         guard !films.isEmpty else { return }
 
-        // Nothing destructive is staged before this check, so a cancellation can never
-        // leave the context holding a half-applied reset.
+        /// Nothing destructive is staged before this check, so a cancellation can never
+        /// leave the context holding a half-applied reset.
         try Task.checkCancellation()
 
         for film in films { reset(film) }
@@ -627,22 +627,22 @@ actor DataManager: Loggable {
 
         let filmID = changeset.filmID
 
-        // Step 1: Fetch or create the Film in this context.
-        // For new films, DataCoordinator.saveFilmChangeset adds the film to MemoryStore
-        // (optimistic update) and then dispatches this changeset via trackOperation.
-        // The new film is inserted into the store here, in this background context, never viewContext.
-        //
-        // For existing films the fetch will always find the record (it was created in a
-        // prior session). The else-if branch below handles the hypothetical case where an
-        // in-flight new-film operation is received before a previous session's records are
-        // fully flushed, which in practice should not occur.
+        /// Step 1: Fetch or create the Film in this context.
+        /// For new films, DataCoordinator.saveFilmChangeset adds the film to MemoryStore
+        /// (optimistic update) and then dispatches this changeset via trackOperation.
+        /// The new film is inserted into the store here, in this background context, never viewContext.
+        ///
+        /// For existing films the fetch will always find the record (it was created in a
+        /// prior session). The else-if branch below handles the hypothetical case where an
+        /// in-flight new-film operation is received before a previous session's records are
+        /// fully flushed, which in practice should not occur.
         let film: Film
         let descriptor = Film.request(.equals("id", filmID))
         if let existingFilm = try context.fetch(descriptor).first {
             film = existingFilm
         } else if changeset.isNewFilm {
-            // New film: insert directly into this background context.
-            // This is the primary (not fallback) path for new film persistence.
+            /// New film: insert directly into this background context.
+            /// This is the primary (not fallback) path for new film persistence.
             film = Film()
             film.id = filmID
             context.insert(film)
@@ -650,18 +650,18 @@ actor DataManager: Loggable {
             throw PersistenceError.filmNotFound(filmID)
         }
 
-        // Step 2: Apply scalar Film properties from snapshot — every field for a new film,
-        // otherwise only the fields the FilmSheet's three-way merge changed, so a field
-        // the save did not touch keeps whatever an earlier operation committed. The derived
-        // values (lastWatched, viewCount, lastModified, numberOfDiscs) are ordinary fields
-        // here: written by the whole-snapshot apply, and by the delta when it lists them.
+        /// Step 2: Apply scalar Film properties from snapshot — every field for a new film,
+        /// otherwise only the fields the FilmSheet's three-way merge changed, so a field
+        /// the save did not touch keeps whatever an earlier operation committed. The derived
+        /// values (lastWatched, viewCount, lastModified, numberOfDiscs) are ordinary fields
+        /// here: written by the whole-snapshot apply, and by the delta when it lists them.
         if let fields = changeset.changedFields, !changeset.isNewFilm {
             for field in fields { field.apply(changeset.filmSnapshot, to: film) }
         } else {
             changeset.filmSnapshot.apply(to: film)
         }
 
-        // Step 3: Delete removed releases.
+        /// Step 3: Delete removed releases.
         if !changeset.releasesToDelete.isEmpty {
             let existingReleases = film.releases
             for releaseID in changeset.releasesToDelete {
@@ -671,43 +671,43 @@ actor DataManager: Loggable {
             }
         }
 
-        // Step 4: Update existing releases.
+        /// Step 4: Update existing releases.
         for snapshot in changeset.releasesToUpdate {
             if let release = film.releases.first(where: { $0.id == snapshot.id }) {
                 snapshot.apply(to: release)
             }
         }
 
-        // Step 5: Create new releases.
+        /// Step 5: Create new releases.
         for snapshot in changeset.releasesToCreate {
             let release = snapshot.toRelease(film: film)
             context.insert(release)
         }
 
-        // Step 6: Link release parent-child hierarchy.
-        //
-        // ReleaseSnapshot.apply(to:) and toRelease(film:) intentionally do not touch
-        // parentRelease / childReleases because those are object-graph
-        // relationships that require live Release references, not scalar values.
-        // All new and updated snapshots that carry a parentReleaseID must have their
-        // relationship established here, after every Release object
-        // for this film is guaranteed to exist in the context.
-        //
-        // The approach:
-        //   1. Build a UUID → Release lookup over the film's current releases.
-        //   2. For each created or updated snapshot that has a parentReleaseID, resolve
-        //      the parent Release and set childRelease.parentRelease = parentRelease.
-        //      Core Data's inverse maintenance populates parentRelease.childReleases.
-        //   3. For each snapshot whose parentReleaseID is nil (i.e., newly promoted to
-        //      top-level because the user changed independence away from Combo-pack and
-        //      already removed the link in-session), clear the relationship so
-        //      the DB stays in sync with the in-memory model.
-        //
-        // The one-level-depth constraint (no grandchildren) is already enforced at the
-        // UI layer in FSTabReleases; this step trusts the snapshots it receives.
+        /// Step 6: Link release parent-child hierarchy.
+        ///
+        /// ReleaseSnapshot.apply(to:) and toRelease(film:) intentionally do not touch
+        /// parentRelease / childReleases because those are object-graph
+        /// relationships that require live Release references, not scalar values.
+        /// All new and updated snapshots that carry a parentReleaseID must have their
+        /// relationship established here, after every Release object
+        /// for this film is guaranteed to exist in the context.
+        ///
+        /// The approach:
+        ///   1. Build a UUID → Release lookup over the film's current releases.
+        ///   2. For each created or updated snapshot that has a parentReleaseID, resolve
+        ///      the parent Release and set childRelease.parentRelease = parentRelease.
+        ///      Core Data's inverse maintenance populates parentRelease.childReleases.
+        ///   3. For each snapshot whose parentReleaseID is nil (i.e., newly promoted to
+        ///      top-level because the user changed independence away from Combo-pack and
+        ///      already removed the link in-session), clear the relationship so
+        ///      the DB stays in sync with the in-memory model.
+        ///
+        /// The one-level-depth constraint (no grandchildren) is already enforced at the
+        /// UI layer in FSTabReleases; this step trusts the snapshots it receives.
         let hierarchySnapshots = changeset.releasesToCreate + changeset.releasesToUpdate
         if !hierarchySnapshots.isEmpty {
-            // Build the lookup map once — O(n) over film.releases which is tiny in practice.
+            /// Build the lookup map once — O(n) over film.releases which is tiny in practice.
             var releaseByID = [UUID: Release](minimumCapacity: film.releases.count)
             for release in film.releases { releaseByID[release.id] = release }
 
@@ -715,27 +715,27 @@ actor DataManager: Loggable {
                 guard let childRelease = releaseByID[snapshot.id] else { continue }
 
                 if let parentID = snapshot.parentReleaseID {
-                    // Link to parent (no-op if the relationship is already correct, e.g. on a
-                    // subsequent save without hierarchy changes — Core Data does not dirty-track
-                    // a relationship assignment that doesn't change the value).
+                    /// Link to parent (no-op if the relationship is already correct, e.g. on a
+                    /// subsequent save without hierarchy changes — Core Data does not dirty-track
+                    /// a relationship assignment that doesn't change the value).
                     if let parentRelease = releaseByID[parentID] {
-                        // Core Data adds the child to `parentRelease.childReleases`, the
-                        // inverse the FilmSheet's combo-pack logic reads (see
-                        // FSTabReleases.comboChildren).
+                        /// Core Data adds the child to `parentRelease.childReleases`, the
+                        /// inverse the FilmSheet's combo-pack logic reads (see
+                        /// FSTabReleases.comboChildren).
                         childRelease.parentRelease = parentRelease
                     } else {
-                        // Parent UUID not found in this film's releases — log and skip.
-                        // This would indicate a data integrity problem upstream; restoring as
-                        // top-level is the safe fallback (no data is lost, just the link).
+                        /// Parent UUID not found in this film's releases — log and skip.
+                        /// This would indicate a data integrity problem upstream; restoring as
+                        /// top-level is the safe fallback (no data is lost, just the link).
                         Self.log("WARNING: parentReleaseID \(parentID) not found for release \(snapshot.id) — persisting as top-level")
                         childRelease.parentRelease = nil
                     }
                 } else {
-                    // No parent — ensure any stale parentRelease link is cleared.
-                    // This handles the case where a user reverted a Combo-pack parent
-                    // and the child was removed in-session, but the existing DB record
-                    // still carries the old parentRelease pointer from a previous save.
-                    // Core Data removes it from the former parent's childReleases as well.
+                    /// No parent — ensure any stale parentRelease link is cleared.
+                    /// This handles the case where a user reverted a Combo-pack parent
+                    /// and the child was removed in-session, but the existing DB record
+                    /// still carries the old parentRelease pointer from a previous save.
+                    /// Core Data removes it from the former parent's childReleases as well.
                     if childRelease.parentRelease != nil {
                         childRelease.parentRelease = nil
                     }
@@ -743,11 +743,11 @@ actor DataManager: Loggable {
             }
         }
 
-        // Step 7: Remove list memberships.
+        /// Step 7: Remove list memberships.
         if !changeset.listsToRemove.isEmpty {
             let allMemberships = Array(film.memberships)
             for membership in allMemberships {
-                // Guard against accessing deleted/detached objects
+                /// Guard against accessing deleted/detached objects
                 guard unsafe membership.managedObjectContext != nil,
                       let listID = membership.list?.listID else { continue }
                 if changeset.listsToRemove.contains(listID) {
@@ -756,18 +756,18 @@ actor DataManager: Loggable {
             }
         }
 
-        // Step 8: Add list memberships.
+        /// Step 8: Add list memberships.
         if !changeset.listsToAdd.isEmpty {
             let listsToAdd = changeset.listsToAdd
             let listDescriptor = ListObject.request(.in("listID", listsToAdd))
             let lists = try context.fetch(listDescriptor)
             let currentDate = Date()
-            // The lists the film already belongs to, extended as rows are inserted below, so
-            // two ListObject records sharing a listID (a corrupted or partial restore) can
-            // never yield a second row for the same (film, list) pair.
+            /// The lists the film already belongs to, extended as rows are inserted below, so
+            /// two ListObject records sharing a listID (a corrupted or partial restore) can
+            /// never yield a second row for the same (film, list) pair.
             var memberListIDs = Set(film.memberships.compactMap { $0.list?.listID })
             for list in lists {
-                // Skip lists the film is already a member of, to prevent duplicates.
+                /// Skip lists the film is already a member of, to prevent duplicates.
                 guard memberListIDs.insert(list.listID).inserted else { continue }
 
                 let maxSortOrder = list.memberships.map { $0.sortOrder }.max() ?? -1
@@ -778,7 +778,7 @@ actor DataManager: Loggable {
             }
         }
 
-        // Step 9: Single atomic save.
+        /// Step 9: Single atomic save.
         try commit()
     }
 
@@ -803,7 +803,7 @@ actor DataManager: Loggable {
 
         guard !units.isEmpty else { return }
 
-        // Group release snapshots by film so each Film is fetched and processed once.
+        /// Group release snapshots by film so each Film is fetched and processed once.
         var snapshotsByFilm: [UUID: [ReleaseSnapshot]] = [:]
         for unit in units {
             snapshotsByFilm[unit.filmID, default: []].append(unit.snapshot)
@@ -821,7 +821,7 @@ actor DataManager: Loggable {
                 continue
             }
 
-            // O(1) release lookup for this film.
+            /// O(1) release lookup for this film.
             var releaseByID = [UUID: Release](minimumCapacity: film.releases.count)
             for release in film.releases { releaseByID[release.id] = release }
 
@@ -836,8 +836,8 @@ actor DataManager: Loggable {
                 appliedCount += 1
             }
 
-            // Recalculate numberOfDiscs only when a release on this film actually changed,
-            // mirroring the per-film recompute the singular update path performed.
+            /// Recalculate numberOfDiscs only when a release on this film actually changed,
+            /// mirroring the per-film recompute the singular update path performed.
             if filmTouched {
                 let totalDiscs = film.releases.filter { $0.purchased }.reduce(0) { $0 + $1.numberOfDiscs }
                 film.numberOfDiscs = "\(totalDiscs)"
@@ -870,25 +870,25 @@ actor DataManager: Loggable {
 
         guard !lists.isEmpty else { return }
 
-        // uniquingKeysWith rather than uniqueKeysWithValues: the latter traps on a duplicate
-        // key, so two ListObject records sharing a listID — which a corrupted or partially
-        // completed restore can leave behind — would crash the app here instead of degrading.
-        // Keeping the first occurrence matches the defensive pattern already used by
-        // updateFilms and updateReleases. The type is spelled out because the Value here is
-        // itself a labeled tuple, which the uniquingKeysWith overload cannot always infer.
+        /// uniquingKeysWith rather than uniqueKeysWithValues: the latter traps on a duplicate
+        /// key, so two ListObject records sharing a listID — which a corrupted or partially
+        /// completed restore can leave behind — would crash the app here instead of degrading.
+        /// Keeping the first occurrence matches the defensive pattern already used by
+        /// updateFilms and updateReleases. The type is spelled out because the Value here is
+        /// itself a labeled tuple, which the uniquingKeysWith overload cannot always infer.
         let listDict: [UUID: (object: ListObject, maxSort: Int)] = Dictionary(
             lists.map { ($0.listID, (object: $0, maxSort: $0.memberships.map {
                 $0.sortOrder }.max() ?? -1)) },
             uniquingKeysWith: { first, _ in first })
 
-        // Fetch films fresh from database to verify they exist.
-        // This is critical because the filmIDs passed in might reference films that
-        // have been deleted between when this operation was scheduled and when it
-        // actually runs. We must verify existence before creating relationships.
+        /// Fetch films fresh from database to verify they exist.
+        /// This is critical because the filmIDs passed in might reference films that
+        /// have been deleted between when this operation was scheduled and when it
+        /// actually runs. We must verify existence before creating relationships.
         let filmDescriptor = Film.request(.in("id", filmIDs))
         let films = try context.fetch(filmDescriptor)
         
-        // Log if any films were not found (indicates they were deleted)
+        /// Log if any films were not found (indicates they were deleted)
         if films.count != filmIDs.count {
             let foundIDs = Set(films.map { $0.id })
             let missingIDs = filmIDs.subtracting(foundIDs)
@@ -902,20 +902,20 @@ actor DataManager: Loggable {
         var currentMaxSorts = listDict.mapValues { $0.maxSort }
         var operationCount = 0
 
-        // Existing memberships come from the ListObjects already fetched above, not from a
-        // full-table ListMembership.request(). `ListObject.memberships` is the
-        // declared inverse of `ListMembership.list`, so a list's membership array IS exactly
-        // the set of rows a whole-table scan would have kept for that listID — and the array
-        // is already faulted in, because `listDict` computes each list's `maxSort` from it
-        // one statement earlier. The old scan therefore read every membership row in the
-        // library (all lists, not just the targeted ones) to derive a subset already in hand.
-        //
-        // Iterating `lists` rather than `listDict.values` is deliberate: `listDict` collapses
-        // duplicate ListObject records sharing one listID down to the first occurrence, and
-        // the memberships hanging off the discarded twin must still count as "already exists"
-        // here or this method would insert a redundant row for that (film, list) pair. The
-        // whole-table scan unioned them via its listID key; unioning across `lists` preserves
-        // that exactly.
+        /// Existing memberships come from the ListObjects already fetched above, not from a
+        /// full-table ListMembership.request(). `ListObject.memberships` is the
+        /// declared inverse of `ListMembership.list`, so a list's membership array IS exactly
+        /// the set of rows a whole-table scan would have kept for that listID — and the array
+        /// is already faulted in, because `listDict` computes each list's `maxSort` from it
+        /// one statement earlier. The old scan therefore read every membership row in the
+        /// library (all lists, not just the targeted ones) to derive a subset already in hand.
+        ///
+        /// Iterating `lists` rather than `listDict.values` is deliberate: `listDict` collapses
+        /// duplicate ListObject records sharing one listID down to the first occurrence, and
+        /// the memberships hanging off the discarded twin must still count as "already exists"
+        /// here or this method would insert a redundant row for that (film, list) pair. The
+        /// whole-table scan unioned them via its listID key; unioning across `lists` preserves
+        /// that exactly.
         var existingMembershipsByList: [UUID: Set<UUID>] = [:]
         for list in lists {
             for membership in list.memberships {
@@ -930,11 +930,11 @@ actor DataManager: Loggable {
             let existingFilmIDs = existingMembershipsByList[listID] ?? []
 
             for film in films {
-                // Skip if membership already exists
+                /// Skip if membership already exists
                 if existingFilmIDs.contains(film.id) { continue }
                 
-                // Additional safety: Double-check film is still valid before creating membership.
-                // This guards against the film being deleted during this batch operation.
+                /// Additional safety: Double-check film is still valid before creating membership.
+                /// This guards against the film being deleted during this batch operation.
                 guard unsafe film.managedObjectContext != nil else {
                     log("SAFETY: Film \(film.id) no longer has valid context, skipping")
                     continue
@@ -966,13 +966,13 @@ actor DataManager: Loggable {
 
         var operationCount = 0
 
-        // Targeted rather than a full-table ListMembership.request() scan: fetch
-        // only the named lists, then walk their `memberships` inverse arrays. The rows this
-        // reaches are exactly the rows the old whole-library scan kept — its filter required
-        // `membership.list?.listID` to be in `listIDs`, which is the same predicate as "hangs
-        // off one of these ListObjects", and a row with a nil `list` appeared in neither.
-        // Snapshotted into `toDelete` before any delete so the relationship arrays are never
-        // mutated mid-iteration.
+        /// Targeted rather than a full-table ListMembership.request() scan: fetch
+        /// only the named lists, then walk their `memberships` inverse arrays. The rows this
+        /// reaches are exactly the rows the old whole-library scan kept — its filter required
+        /// `membership.list?.listID` to be in `listIDs`, which is the same predicate as "hangs
+        /// off one of these ListObjects", and a row with a nil `list` appeared in neither.
+        /// Snapshotted into `toDelete` before any delete so the relationship arrays are never
+        /// mutated mid-iteration.
         let listDescriptor = ListObject.request(.in("listID", listIDs))
         let lists = try context.fetch(listDescriptor)
 
@@ -1027,7 +1027,7 @@ actor DataManager: Loggable {
 
         guard !filmIDs.isEmpty else { return }
 
-        // Resolve the target and every source list in one fetch.
+        /// Resolve the target and every source list in one fetch.
         let involvedListIDs = removalListIDs.union([targetListID])
         let listDescriptor = ListObject.request(.in("listID", involvedListIDs))
         let lists = try context.fetch(listDescriptor)
@@ -1037,8 +1037,8 @@ actor DataManager: Loggable {
             return
         }
 
-        // Same existence validation batchAddFilmsToLists performs: a film deleted between
-        // this operation being scheduled and running must not gain a membership row.
+        /// Same existence validation batchAddFilmsToLists performs: a film deleted between
+        /// this operation being scheduled and running must not gain a membership row.
         let filmDescriptor = Film.request(.in("id", filmIDs))
         let films = try context.fetch(filmDescriptor)
         if films.count != filmIDs.count {
@@ -1050,8 +1050,8 @@ actor DataManager: Loggable {
             return
         }
 
-        // --- Stage the removals. Reaches the same rows batchRemoveFilmsFromLists would:
-        //     those hanging off one of the source ListObjects whose film is also named.
+        /// --- Stage the removals. Reaches the same rows batchRemoveFilmsFromLists would:
+        ///     those hanging off one of the source ListObjects whose film is also named.
         var removed = 0
         if !removalFilmIDs.isEmpty, !removalListIDs.isEmpty {
             var toDelete: [ListMembership] = []
@@ -1068,17 +1068,17 @@ actor DataManager: Loggable {
             }
         }
 
-        // --- Stage the insertions. The target's memberships are unaffected by the deletions
-        //     above: `removalListIDs` is built by subtracting the target from the three
-        //     internal sections, so the source lists are disjoint from it by construction.
-        //
-        //     Read across EVERY fetched ListObject carrying the target's listID, not just
-        //     the one `first(where:)` returned. A corrupted or partially completed restore
-        //     can leave two ListObject rows sharing a listID, and a membership hanging off
-        //     the twin this method did not pick still means the film is a member — missing
-        //     it would insert a redundant second row for that (film, list) pair. This
-        //     matches what batchAddFilmsToLists does for the same reason; the sortOrder
-        //     high-water mark is taken across both for the same reason again.
+        /// --- Stage the insertions. The target's memberships are unaffected by the deletions
+        ///     above: `removalListIDs` is built by subtracting the target from the three
+        ///     internal sections, so the source lists are disjoint from it by construction.
+        ///
+        ///     Read across EVERY fetched ListObject carrying the target's listID, not just
+        ///     the one `first(where:)` returned. A corrupted or partially completed restore
+        ///     can leave two ListObject rows sharing a listID, and a membership hanging off
+        ///     the twin this method did not pick still means the film is a member — missing
+        ///     it would insert a redundant second row for that (film, list) pair. This
+        ///     matches what batchAddFilmsToLists does for the same reason; the sortOrder
+        ///     high-water mark is taken across both for the same reason again.
         var existingFilmIDs = Set<UUID>()
         var maxSort = -1
         for list in lists where list.listID == targetListID {
@@ -1104,7 +1104,7 @@ actor DataManager: Loggable {
 
         guard removed > 0 || inserted > 0 else { return }
 
-        // The single commit both halves have been staged for.
+        /// The single commit both halves have been staged for.
         try commit()
         log("Moved film(s) between lists in one transaction: \(removed) membership(s) removed, \(inserted) inserted")
     }
@@ -1145,9 +1145,9 @@ actor DataManager: Loggable {
         let descriptor = ListObject.request(.in("listID", updateIDs))
         let lists = try context.fetch(descriptor)
 
-        // Last value wins for a repeated listID, matching the order in which
-        // DataCoordinator applied the same updates to MemoryStore. uniqueKeysWithValues
-        // would trap on the repeat instead.
+        /// Last value wins for a repeated listID, matching the order in which
+        /// DataCoordinator applied the same updates to MemoryStore. uniqueKeysWithValues
+        /// would trap on the repeat instead.
         let orderByID = Dictionary(updates.map { ($0.listID, $0.displayOrder) },
                                    uniquingKeysWith: { _, last in last })
         for list in lists {
@@ -1188,11 +1188,11 @@ actor DataManager: Loggable {
 
         guard let list = try context.fetch(descriptor).first else {
             throw PersistenceError.listNotFound(listID) }
-        // Refreshed so its memberships are read from the store, not from a relationship this
-        // long-lived context loaded earlier (see deleteFilms).
+        /// Refreshed so its memberships are read from the store, not from a relationship this
+        /// long-lived context loaded earlier (see deleteFilms).
         context.refresh(list, mergeChanges: false)
 
-        // ListObject.memberships cascades, so its memberships go with it.
+        /// ListObject.memberships cascades, so its memberships go with it.
         context.delete(list)
         try commit() }
 
@@ -1279,7 +1279,7 @@ final class DataManagerThreadProbe: Sendable {
 #endif
 
 // MARK: - Saved Search Operations
-// An extension in this file, so it can call the actor's private commit().
+/// An extension in this file, so it can call the actor's private commit().
 
 extension DataManager {
     /// Every saved search, for SavedSearchStore.attach at startup, and the ones that need
@@ -1356,8 +1356,8 @@ extension DataManager {
             context.insert(settings)
         }
         snapshot.apply(to: settings)
-        // After apply: a snapshot built with another snapshotID (a restored backup's) must
-        // still land on the singleton, or the next fetch would orphan it.
+        /// After apply: a snapshot built with another snapshotID (a restored backup's) must
+        /// still land on the singleton, or the next fetch would orphan it.
         settings.snapshotID = SettingsObject.singletonID
         try commit()
     }

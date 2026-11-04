@@ -1,36 +1,36 @@
 // MARK: - DebugHarness.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only, command-line-driven scenario runner. Builds synthetic corpora, drives the
-// real production code paths against them, checks invariants, and emits a machine-readable
-// report before terminating the process.
-//
-// Runs only inside a debug sandbox container (see DebugSandbox) — `isRequested` is gated on
-// `DebugSandbox.harnessName`, which is itself gated on `DebugSandbox.isActive`. There is no
-// argument combination that runs a scenario against the user's real library.
-//
-// WHY A SEPARATE MetadataCache INSTANCE
-//
-// The sort scenarios construct an isolated `MetadataCache` via `init(isolatedForTesting:)`
-// rather than loading their corpus into `MetadataCache.shared`. The sandbox would make the
-// latter harmless to the user, but it would still be wrong in kind: it mutates global state
-// the rest of the running app is reading, so a scenario's result could depend on what the
-// app happened to be doing, and two scenarios in one run could contaminate each other. The
-// isolated instance makes each scenario a pure function of its own corpus. It exercises the
-// identical code — `rebuild(from:)` and `sort(_:by:direction:)` are the same methods the
-// gallery calls — with none of the shared-state coupling.
-//
-// WHAT THE INVARIANT CHECKS ARE ACTUALLY TESTING
-//
-// The strongest check here is permutation-invariance: sorting the same corpus from several
-// different starting orders must produce byte-identical output. That is not a restatement of
-// "sorting works". `Array.sorted(by:)` requires its predicate to be a strict weak ordering;
-// given a predicate that is not one, the standard library's contract is violated and the
-// result is unspecified — in practice, an order that depends on the input permutation, and
-// in the worst case a trap. Every comparator in MetadataCache reaches a title tiebreak, so
-// on a corpus with unique titles the ordering is total and permutation-invariance is exactly
-// the right expectation. A comparator with an inconsistent tier rule, a missing tiebreak, or
-// an asymmetric comparison fails this check even when spot-checking the output looks fine.
+/// DEBUG-only, command-line-driven scenario runner. Builds synthetic corpora, drives the
+/// real production code paths against them, checks invariants, and emits a machine-readable
+/// report before terminating the process.
+///
+/// Runs only inside a debug sandbox container (see DebugSandbox) — `isRequested` is gated on
+/// `DebugSandbox.harnessName`, which is itself gated on `DebugSandbox.isActive`. There is no
+/// argument combination that runs a scenario against the user's real library.
+///
+/// WHY A SEPARATE MetadataCache INSTANCE
+///
+/// The sort scenarios construct an isolated `MetadataCache` via `init(isolatedForTesting:)`
+/// rather than loading their corpus into `MetadataCache.shared`. The sandbox would make the
+/// latter harmless to the user, but it would still be wrong in kind: it mutates global state
+/// the rest of the running app is reading, so a scenario's result could depend on what the
+/// app happened to be doing, and two scenarios in one run could contaminate each other. The
+/// isolated instance makes each scenario a pure function of its own corpus. It exercises the
+/// identical code — `rebuild(from:)` and `sort(_:by:direction:)` are the same methods the
+/// gallery calls — with none of the shared-state coupling.
+///
+/// WHAT THE INVARIANT CHECKS ARE ACTUALLY TESTING
+///
+/// The strongest check here is permutation-invariance: sorting the same corpus from several
+/// different starting orders must produce byte-identical output. That is not a restatement of
+/// "sorting works". `Array.sorted(by:)` requires its predicate to be a strict weak ordering;
+/// given a predicate that is not one, the standard library's contract is violated and the
+/// result is unspecified — in practice, an order that depends on the input permutation, and
+/// in the worst case a trap. Every comparator in MetadataCache reaches a title tiebreak, so
+/// on a corpus with unique titles the ordering is total and permutation-invariance is exactly
+/// the right expectation. A comparator with an inconsistent tier rule, a missing tiebreak, or
+/// an asymmetric comparison fails this check even when spot-checking the output looks fine.
 
 #if DEBUG
 
@@ -175,9 +175,9 @@ enum DebugHarness: Loggable {
                                  persistentContainerFailed: persistentContainerFailed,
                                  libraryStateUnreliable: libraryStateUnreliable))
 
-        // A failed precondition invalidates everything downstream — the store may be an
-        // empty in-memory fallback, in which case any measurement taken against it is
-        // meaningless. Report and stop rather than emit numbers that look real.
+        /// A failed precondition invalidates everything downstream — the store may be an
+        /// empty in-memory fallback, in which case any measurement taken against it is
+        /// meaningless. Report and stop rather than emit numbers that look real.
         if report.scenarios[0].passed {
             for scenario in scenarios(for: suite) {
                 log("→ scenario: \(scenario)")
@@ -194,15 +194,15 @@ enum DebugHarness: Loggable {
 
         emit(report)
 
-        // Flush the application log before terminating.
-        //
-        // The logger buffers in memory and writes only every ten seconds, at 16 KB, or on
-        // an explicit shutdown. A harness run finishes in a couple of seconds and then
-        // calls exit(), so without this the entire log of the run — every startup and
-        // MetadataCache diagnostic that would explain a failure — is discarded with the
-        // process. This is the same call the app's own graceful shutdown makes: it drains
-        // the ordered hand-off pipe, then writes the remaining buffer inline, so the data
-        // is on disk before exit() runs.
+        /// Flush the application log before terminating.
+        ///
+        /// The logger buffers in memory and writes only every ten seconds, at 16 KB, or on
+        /// an explicit shutdown. A harness run finishes in a couple of seconds and then
+        /// calls exit(), so without this the entire log of the run — every startup and
+        /// MetadataCache diagnostic that would explain a failure — is discarded with the
+        /// process. This is the same call the app's own graceful shutdown makes: it drains
+        /// the ordered hand-off pipe, then writes the remaining buffer inline, so the data
+        /// is on disk before exit() runs.
         await Logger.shutdownLoggingAwaiting()
 
         exit(report.passed ? 0 : 1)
@@ -215,11 +215,11 @@ enum DebugHarness: Loggable {
 
     private static func scenarios(for suite: String) -> [String] {
         switch suite {
-        // Every scenario in `pipelineScenarios` from `restore-endtoend` onward, and every
-        // scenario in `backupScenarios`, replaces the store's contents. They therefore run
-        // after everything that needs the seeded library, and `backupScenarios` runs after
-        // `pipelineScenarios` because it does not use the coordinator's container at all
-        // (see DHBackup.swift).
+        /// Every scenario in `pipelineScenarios` from `restore-endtoend` onward, and every
+        /// scenario in `backupScenarios`, replaces the store's contents. They therefore run
+        /// after everything that needs the seeded library, and `backupScenarios` runs after
+        /// `pipelineScenarios` because it does not use the coordinator's container at all
+        /// (see DHBackup.swift).
         case "all":
             let parts: [[String]] = [coreScenarios, libraryOrderScenarios, viewStateScenarios, cardScenarios, storeScenarios, pdfScenarios, dataVizScenarios, pipelineScenarios, backupScenarios]
             return parts.flatMap { $0 }
@@ -234,18 +234,18 @@ enum DebugHarness: Loggable {
         case "backup":      return backupScenarios
         case "pdf":         return pdfScenarios
         case "dataviz":     return dataVizScenarios + dataVizPerfScenarios
-        // Not in `all`: real-main-window regressions for gallery navigation, scroll memory and
-        // the Film Queue (about five minutes). Run after a change to the gallery, the Queue or
-        // view switching. Each seeds the state it asserts about, so they run in any order.
+        /// Not in `all`: real-main-window regressions for gallery navigation, scroll memory and
+        /// the Film Queue (about five minutes). Run after a change to the gallery, the Queue or
+        /// view switching. Each seeds the state it asserts about, so they run in any order.
         case "ui":          return ["first-selection", "gallery-integrity", "coast-stop", "sidebar-tab-switch",
                                     "gallery-edit-refresh", "gallery-reload-economy",
                                     "queue-mixed-style", "upnext-slots", "scroll-memory"]
-        // Not in `all`: they drive the real main window, and `imports-removal` films it for
-        // a few minutes.
+        /// Not in `all`: they drive the real main window, and `imports-removal` films it for
+        /// a few minutes.
         case "imports":     return ["imports-window", "imports-removal"]
-        // A single scenario name, or several separated by commas, run in the order given —
-        // the way to reproduce an order-dependent interaction without running everything
-        // (e.g. "store-coordinator,pdf-timing").
+        /// A single scenario name, or several separated by commas, run in the order given —
+        /// the way to reproduce an order-dependent interaction without running everything
+        /// (e.g. "store-coordinator,pdf-timing").
         default:            return suite.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
         }
     }
@@ -346,7 +346,7 @@ enum DebugHarness: Loggable {
         case "ratings-parse":     result = await ratingsParseScenario()
         case "hero-seed":         result = await heroSeedScenario(coordinator: coordinator)
         case "atvq-relay":
-            // Not in any suite: it reaches out to the ATVQ Deployer relay on the network.
+            /// Not in any suite: it reaches out to the ATVQ Deployer relay on the network.
             result = HarnessScenarioResult(scenario: scenario)
             for probe in await ATVQClient.harnessRelayProbe() {
                 result.check(probe.variant, probe.ok, probe.trace)
@@ -402,7 +402,7 @@ enum DebugHarness: Loggable {
         }
         r.check("sandbox-root-resolved", true, root.path(percentEncoded: false))
 
-        // Every folder accessor in Preferences must land inside the container.
+        /// Every folder accessor in Preferences must land inside the container.
         let folders: [(String, URL?)] = [
             ("dataFolderURL", Preferences.dataFolderURL),
             ("backupFolderURL", Preferences.backupFolderURL),
@@ -417,8 +417,8 @@ enum DebugHarness: Loggable {
                     url.path(percentEncoded: false))
         }
 
-        // The store and the restore's files beside it (LibraryStore.storeURL is resolved on
-        // its own, not from Preferences' folders), and the derived-cache files the app writes.
+        /// The store and the restore's files beside it (LibraryStore.storeURL is resolved on
+        /// its own, not from Preferences' folders), and the derived-cache files the app writes.
         for (name, url) in [
             ("store", LibraryStore.storeURL),
             ("restore-staged-store", PendingRestore.stagedStoreURL),
@@ -430,17 +430,17 @@ enum DebugHarness: Loggable {
             r.check("contained:\(name)", DebugSandbox.contains(url), url.path(percentEncoded: false))
         }
 
-        // Preferences must be reading and writing a private suite, not the user's.
+        /// Preferences must be reading and writing a private suite, not the user's.
         r.check("userdefaults-suite-active", Preferences.isUsingSandboxDefaults,
                 DebugSandbox.userDefaultsSuiteName ?? "<none>")
-        // …and so must every @AppStorage, which reads `.standard` unless it names
-        // `Preferences.store`.
+        /// …and so must every @AppStorage, which reads `.standard` unless it names
+        /// `Preferences.store`.
         r.checks.append(contentsOf: appStorageStoreChecks().map(classify))
         r.checks.append(contentsOf: registeredFallbackChecks().map(classify))
 
-        // Negative control: the containment predicate must reject a path outside the
-        // container. Without this, a `contains` that returned true unconditionally would
-        // make every check above pass vacuously.
+        /// Negative control: the containment predicate must reject a path outside the
+        /// container. Without this, a `contains` that returned true unconditionally would
+        /// make every check above pass vacuously.
         if let production = DebugSandbox.productionApplicationSupportURL {
             r.check("containment-rejects-production",
                     !DebugSandbox.contains(production.appendingPathComponent(LibraryStore.storeFileName)),
@@ -448,8 +448,8 @@ enum DebugHarness: Loggable {
             r.check("containment-rejects-parent",
                     !DebugSandbox.contains(root.deletingLastPathComponent()),
                     "container parent correctly reported as outside the container")
-            // Sibling-prefix control: `<root>-x` shares a string prefix with `<root>` but is
-            // a different directory. A prefix-based implementation would wrongly accept it.
+            /// Sibling-prefix control: `<root>-x` shares a string prefix with `<root>` but is
+            /// a different directory. A prefix-based implementation would wrongly accept it.
             let sibling = root.deletingLastPathComponent()
                 .appendingPathComponent((DebugSandbox.name ?? "x") + "-sibling", isDirectory: true)
             r.check("containment-rejects-sibling-prefix", !DebugSandbox.contains(sibling),
@@ -483,7 +483,7 @@ enum DebugHarness: Loggable {
         let original = suite.object(forKey: key)
         defer { suite.set(original, forKey: key) }
 
-        // The opposite of what a `.standard`-backed declaration would return.
+        /// The opposite of what a `.standard`-backed declaration would return.
         let standardValue = UserDefaults.standard.object(forKey: key) as? Bool ?? registered
         suite.set(!standardValue, forKey: key)
         let readWithValue = storage.wrappedValue
@@ -491,9 +491,9 @@ enum DebugHarness: Loggable {
         suite.removeObject(forKey: key)
         let readWithoutValue = storage.wrappedValue
 
-        // The second check is only meaningful once the first has shown the view reads the
-        // suite: when the user's real value happens to equal the registered default, a
-        // `.standard` read would match it by coincidence.
+        /// The second check is only meaningful once the first has shown the view reads the
+        /// suite: when the user's real value happens to equal the registered default, a
+        /// `.standard` read would match it by coincidence.
         let readsSuite = readWithValue == !standardValue
         return [
             HarnessCheck(name: "appstorage/reads-sandbox-suite", passed: readsSuite,
@@ -571,7 +571,7 @@ enum DebugHarness: Loggable {
                                  detail: "could not resolve production Application Support")]
         }
 
-        // The Core Data store, the marker a leaked restore would leave, and the two caches.
+        /// The Core Data store, the marker a leaked restore would leave, and the two caches.
         let tracked = [LibraryStore.storeFileName, "FilmTracker.pending-restore",
                        "metadata-cache.bin", "memorystore-cache.bin"]
         var current: [String: String] = [:]
@@ -602,8 +602,8 @@ enum DebugHarness: Loggable {
         for filename in tracked where baseline[filename] != current[filename] {
             differences.append("\(filename): \(baseline[filename] ?? "?") → \(current[filename] ?? "?")")
         }
-        // Re-write the baseline so a legitimate change (the user used their own app between
-        // runs) is reported exactly once instead of failing every subsequent run forever.
+        /// Re-write the baseline so a legitimate change (the user used their own app between
+        /// runs) is reported exactly once instead of failing every subsequent run forever.
         if !differences.isEmpty, let data = try? JSONEncoder().encode(current) {
             try? data.write(to: baselineURL, options: .atomic)
         }
@@ -627,7 +627,7 @@ enum DebugHarness: Loggable {
     private static func argumentParsingScenario() -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "argument-parsing")
 
-        // Names that must be refused outright.
+        /// Names that must be refused outright.
         let rejected: [(String, String)] = [
             ("", "empty"),
             ("..", "parent directory"),
@@ -647,18 +647,18 @@ enum DebugHarness: Loggable {
                     "input \(String(reflecting: input)) → \(output.map { String(reflecting: $0) } ?? "nil")")
         }
 
-        // Names that must be accepted, and must survive as a single path component.
+        /// Names that must be accepted, and must survive as a single path component.
         let accepted: [(String, String)] = [
             ("harness01", "harness01"),
             ("sort-perf_2", "sort-perf_2"),
-            ("a/b", "ab"),                       // separator stripped, not escaped
-            ("run 1", "run1"),                   // space stripped
-            ("évidence", "vidence"),             // accented characters dropped, ASCII kept
-            ("x..y", "x..y"),                    // interior dots are harmless
-            // "$HOME" is not a rejection case. Nothing here ever reaches a shell — the
-            // value arrives already-expanded in ProcessInfo.arguments — so the sanitizer's
-            // job is to reduce it to a safe single component, not to refuse it. "HOME" is
-            // that component, and it can no more escape the container than "harness01".
+            ("a/b", "ab"),                       /// separator stripped, not escaped
+            ("run 1", "run1"),                   /// space stripped
+            ("évidence", "vidence"),             /// accented characters dropped, ASCII kept
+            ("x..y", "x..y"),                    /// interior dots are harmless
+            /// "$HOME" is not a rejection case. Nothing here ever reaches a shell — the
+            /// value arrives already-expanded in ProcessInfo.arguments — so the sanitizer's
+            /// job is to reduce it to a safe single component, not to refuse it. "HOME" is
+            /// that component, and it can no more escape the container than "harness01".
             ("$HOME", "HOME"),
         ]
         for (input, expected) in accepted {
@@ -672,12 +672,12 @@ enum DebugHarness: Loggable {
             }
         }
 
-        // Length cap: a name longer than NAME_MAX would make every path join fail.
+        /// Length cap: a name longer than NAME_MAX would make every path join fail.
         let long = DebugSandbox.sanitizedNameForTesting(String(repeating: "a", count: 10_000))
         r.check("length-capped", (long?.count ?? 0) <= 200, "\(long?.count ?? 0) characters")
 
-        // The live container name must itself be a single visible component — the check
-        // above tests the function, this tests the value actually in use.
+        /// The live container name must itself be a single visible component — the check
+        /// above tests the function, this tests the value actually in use.
         if let name = DebugSandbox.name {
             r.check("live-name-is-single-component",
                     !name.contains("/") && !name.hasPrefix("."), name)
@@ -711,8 +711,8 @@ enum DebugHarness: Loggable {
             r.check("fixture-written", false, error.localizedDescription); return r }
         defer { try? FileManager.default.removeItem(at: url) }
 
-        // Shared with the ticker through a MainActor-isolated reference rather than
-        // captured locals, which a sendable closure may not see mutated after capture.
+        /// Shared with the ticker through a MainActor-isolated reference rather than
+        /// captured locals, which a sendable closure may not see mutated after capture.
         @MainActor final class TickerState {
             var ticks = 0
             var maxGap: Double = 0
@@ -767,7 +767,7 @@ enum DebugHarness: Loggable {
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
 
-        // Round-trip at the current version.
+        /// Round-trip at the current version.
         do {
             let file = FilmMetadataCacheFile(
                 schemaVersion: FilmMetadataCacheFile.currentSchemaVersion, entries: entries)
@@ -783,9 +783,9 @@ enum DebugHarness: Loggable {
             r.check("viewcount-survives-roundtrip", false, "\(error)")
         }
 
-        // The version guard. A file labeled v1 must be refused even though its payload
-        // decodes cleanly — the whole point of the bump is that a v1 file's entries were
-        // written by a build with no viewCount and cannot be trusted.
+        /// The version guard. A file labeled v1 must be refused even though its payload
+        /// decodes cleanly — the whole point of the bump is that a v1 file's entries were
+        /// written by a build with no viewCount and cannot be trusted.
         do {
             let stale = FilmMetadataCacheFile(schemaVersion: 1, entries: entries)
             let data = try encoder.encode(stale)
@@ -805,14 +805,14 @@ enum DebugHarness: Loggable {
             r.check("strip-articles:\(input)", got == expected, "got \"\(got)\", expected \"\(expected)\"")
         }
 
-        // A floor, not a pin: every bump would otherwise fail this until the test was edited,
-        // and `stale-version-detectable` already proves the guard. What matters here is that
-        // the version never falls back below the per-format fields tested next.
+        /// A floor, not a pin: every bump would otherwise fail this until the test was edited,
+        /// and `stale-version-detectable` already proves the guard. What matters here is that
+        /// the version never falls back below the per-format fields tested next.
         r.check("schema-version-at-least-6", FilmMetadataCacheFile.currentSchemaVersion >= 6,
                 "current = \(FilmMetadataCacheFile.currentSchemaVersion)")
 
-        // Version 6's per-format purchase fields: a version-5 entry lacks both keys, so it
-        // fails to decode and the file is rebuilt — the same mechanism as viewCount below.
+        /// Version 6's per-format purchase fields: a version-5 entry lacks both keys, so it
+        /// fails to decode and the file is rebuilt — the same mechanism as viewCount below.
         do {
             let entry = FilmMetadata(from: makeSnapshot(name: "Pre-format", releases: [
                 ReleaseSnapshot(purchased: true, format: ReleaseFormat.uhd4K.rawValue,
@@ -831,18 +831,18 @@ enum DebugHarness: Loggable {
             r.check("v5-entry-fails-to-decode", false, "\(error)")
         }
 
-        // The actual migration the user will hit on their next launch. Their existing
-        // metadata-cache.bin holds entries written before `viewCount` existed. Simulated
-        // here by encoding a current entry, deleting the viewCount key from the resulting
-        // plist, and re-decoding — which is precisely the shape of the file on disk.
-        //
-        // Worth pinning explicitly because the two safety mechanisms are NOT equivalent
-        // and only one of them actually fires: the decode fails on the missing key before
-        // the schemaVersion guard is ever reached. The version bump is still correct to
-        // have made — it is what would catch a change that alters a field's MEANING rather
-        // than its presence — but the claim "the version guard is what protects this
-        // particular migration" would be false, and a harness that only tested the guard
-        // would have let that misunderstanding stand.
+        /// The actual migration the user will hit on their next launch. Their existing
+        /// metadata-cache.bin holds entries written before `viewCount` existed. Simulated
+        /// here by encoding a current entry, deleting the viewCount key from the resulting
+        /// plist, and re-decoding — which is precisely the shape of the file on disk.
+        ///
+        /// Worth pinning explicitly because the two safety mechanisms are NOT equivalent
+        /// and only one of them actually fires: the decode fails on the missing key before
+        /// the schemaVersion guard is ever reached. The version bump is still correct to
+        /// have made — it is what would catch a change that alters a field's MEANING rather
+        /// than its presence — but the claim "the version guard is what protects this
+        /// particular migration" would be false, and a harness that only tested the guard
+        /// would have let that misunderstanding stand.
         do {
             let entry = FilmMetadata(from: makeSnapshot(name: "Legacy",
                                                         calendarTable: viewingDates(count: 3)))
@@ -868,10 +868,10 @@ enum DebugHarness: Loggable {
             r.check("legacy-entry-fails-to-decode", false, "\(error)")
         }
 
-        // The sort key must equal what the sidebar's "Recorded View Count" field shows,
-        // which reads calendarTable.count — not the separately stored Film.viewCount field.
-        // Constructed here with the two deliberately disagreeing, so the assertion pins
-        // which of the two sources the sort uses.
+        /// The sort key must equal what the sidebar's "Recorded View Count" field shows,
+        /// which reads calendarTable.count — not the separately stored Film.viewCount field.
+        /// Constructed here with the two deliberately disagreeing, so the assertion pins
+        /// which of the two sources the sort uses.
         let divergent = makeSnapshot(name: "Divergent",
                                      calendarTable: viewingDates(count: 4),
                                      storedViewCount: 99)
@@ -921,19 +921,19 @@ enum DebugHarness: Loggable {
                             reference.count == ids.count && Set(reference) == Set(ids),
                             "\(reference.count) out of \(ids.count) in, \(Set(reference).count) unique")
 
-                    // The strict-weak-ordering / totality check described in the file header.
+                    /// The strict-weak-ordering / totality check described in the file header.
                     let invariant = outputs.allSatisfy { $0 == reference }
                     r.check("permutation-invariant:\(label)", invariant,
                             invariant ? "identical output from 4 input orders"
                                       : "output depends on input order — the comparator does not define a total order over this corpus")
 
-                    // Sorting an already-sorted array must be a no-op.
+                    /// Sorting an already-sorted array must be a no-op.
                     let resorted = cache.sort(reference, by: option, direction: direction)
                     r.check("idempotent:\(label)", resorted == reference, "")
                 }
             }
 
-            // Key-specific monotonicity, checked directly against the metadata the sort read.
+            /// Key-specific monotonicity, checked directly against the metadata the sort read.
             r.checks.append(contentsOf: monotonicityChecks(cache: cache, ids: ids, corpus: corpusName).map(classify))
         }
 
@@ -953,8 +953,8 @@ enum DebugHarness: Loggable {
                 .map(extract)
         }
 
-        // viewCount and rating are plain integer keys with no sentinel, so ascending must
-        // be non-decreasing and descending non-increasing, exactly.
+        /// viewCount and rating are plain integer keys with no sentinel, so ascending must
+        /// be non-decreasing and descending non-increasing, exactly.
         for (option, extract) in [(SortOption.viewCount, { (m: FilmMetadata) in m.viewCount }),
                                   (SortOption.rating,    { (m: FilmMetadata) in m.rating })] {
             let ascending = values(option, .ascending, extract)
@@ -969,11 +969,11 @@ enum DebugHarness: Loggable {
                 detail: "range \(descending.first ?? -1)…\(descending.last ?? -1)"))
         }
 
-        // Absent dates sort as the earliest possible value and therefore MOVE with the
-        // direction: never-watched films lead in ascending (least- to most-recently
-        // watched) and trail in descending. Asserted as a contiguous block at the correct
-        // end rather than as "not at the wrong end", so a rule that scattered them would
-        // fail too.
+        /// Absent dates sort as the earliest possible value and therefore MOVE with the
+        /// direction: never-watched films lead in ascending (least- to most-recently
+        /// watched) and trail in descending. Asserted as a contiguous block at the correct
+        /// end rather than as "not at the wrong end", so a rule that scattered them would
+        /// fail too.
         let dateKeys: [(SortOption, (FilmMetadata) -> Date)] = [
             (.dateAdded, { $0.dateAddedParsed }),
             (.lastViewed, { $0.lastWatchedParsed }),
@@ -985,8 +985,8 @@ enum DebugHarness: Loggable {
                     .compactMap { cache.metadata[$0] }.map(extract)
                 let absent = dates.enumerated().filter { $0.element == Date.distantPast }.map(\.offset)
                 let expectedPositions = direction == .ascending
-                    ? Array(0..<absent.count)                                  // leading block
-                    : Array((dates.count - absent.count)..<dates.count)        // trailing block
+                    ? Array(0..<absent.count)                                  /// leading block
+                    : Array((dates.count - absent.count)..<dates.count)        /// trailing block
                 checks.append(HarnessCheck(
                     name: "undated-placement:\(corpus)/\(option.rawValue)/\(direction.rawValue)",
                     passed: absent == expectedPositions,
@@ -997,11 +997,11 @@ enum DebugHarness: Loggable {
             }
         }
 
-        // Purchase tiers (0 never purchased → 1 purchased, date unknown → 2 dated) run
-        // ascending in ascending order and reverse completely in descending, exactly as an
-        // absent date does. Tiers are read from MetadataCache.purchaseTier rather than
-        // recomputed here, so this cannot agree with a broken implementation by restating
-        // its rule.
+        /// Purchase tiers (0 never purchased → 1 purchased, date unknown → 2 dated) run
+        /// ascending in ascending order and reverse completely in descending, exactly as an
+        /// absent date does. Tiers are read from MetadataCache.purchaseTier rather than
+        /// recomputed here, so this cannot agree with a broken implementation by restating
+        /// its rule.
         for direction in SortDirection.allCases {
             let tiers = cache.sort(ids, by: .datePurchased, direction: direction)
                 .compactMap { cache.metadata[$0] }
@@ -1027,8 +1027,8 @@ enum DebugHarness: Loggable {
     private static func viewCountScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "sort-viewcount")
 
-        // Menu placement, since the option must appear directly under "Last Viewed" in
-        // both menu hosts and both render from allCases in declaration order.
+        /// Menu placement, since the option must appear directly under "Last Viewed" in
+        /// both menu hosts and both render from allCases in declaration order.
         let all = SortOption.allCases
         if let viewIndex = all.firstIndex(of: .viewCount),
            let lastViewedIndex = all.firstIndex(of: .lastViewed) {
@@ -1052,8 +1052,8 @@ enum DebugHarness: Loggable {
                 "view counts vary freely among unrated films")
         r.check("enabled-in-normal-views", !disabled().contains(.viewCount), "")
 
-        // Named films with hand-chosen counts, so the expected order is written out
-        // explicitly rather than derived from the same logic under test.
+        /// Named films with hand-chosen counts, so the expected order is written out
+        /// explicitly rather than derived from the same logic under test.
         let specimens: [(String, Int)] = [
             ("Zulu", 0), ("Alpha", 0), ("Mono", 1), ("Beta", 1),
             ("Trio", 3), ("Century", 100),
@@ -1069,7 +1069,7 @@ enum DebugHarness: Loggable {
         let ascending = cache.sort(snapshots.map(\.id), by: .viewCount, direction: .ascending)
         let ascendingNames = ascending.compactMap { id in snapshots.first { $0.id == id }?.name }
 
-        // Zero-view films first, tie-broken by title; then one-view, likewise; then 3, 100.
+        /// Zero-view films first, tie-broken by title; then one-view, likewise; then 3, 100.
         let expected = ["Alpha", "Zulu", "Beta", "Mono", "Trio", "Century"]
         r.check("ascending-order", ascendingNames == expected,
                 "got \(ascendingNames), expected \(expected)")
@@ -1084,11 +1084,11 @@ enum DebugHarness: Loggable {
         r.check("descending-is-full-reversal", descendingNames == expected.reversed(),
                 "got \(descendingNames) — direction inverts the title tiebreak too, matching Rating")
 
-        // Rating is the option this one was modeled on; their tie-handling must agree, or
-        // the two behave differently for no reason a user could predict.
-        // Deliberately WITHOUT a sortIndex suffix: the point of this comparison is that
-        // two films sharing a key fall back to their titles, so the titles must be the
-        // bare names the expectation below is written in terms of.
+        /// Rating is the option this one was modeled on; their tie-handling must agree, or
+        /// the two behave differently for no reason a user could predict.
+        /// Deliberately WITHOUT a sortIndex suffix: the point of this comparison is that
+        /// two films sharing a key fall back to their titles, so the titles must be the
+        /// bare names the expectation below is written in terms of.
         let ratingSpecimens = specimens.map { specimen in
             makeSnapshot(name: specimen.0, rating: specimen.1 == 100 ? 5 : min(specimen.1, 5),
                          calendarTable: [])
@@ -1103,8 +1103,8 @@ enum DebugHarness: Loggable {
                 Array(ratingOrder.prefix(2)) == ["Alpha", "Zulu"],
                 "equal-key films fall back to title in both options: \(Array(ratingOrder.prefix(2)))")
 
-        // Large counts must not overflow or otherwise misbehave — calendarTable is
-        // unbounded and a heavily rewatched film is entirely plausible.
+        /// Large counts must not overflow or otherwise misbehave — calendarTable is
+        /// unbounded and a heavily rewatched film is entirely plausible.
         let heavy = [0, 1, 2, 1000, 5000].enumerated().map { index, count in
             makeSnapshot(name: "Heavy \(Fmt.padded(index, 4))",
                          calendarTable: viewingDates(count: count))
@@ -1133,11 +1133,11 @@ enum DebugHarness: Loggable {
     private static func dateSemanticsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "date-semantics")
 
-        // --- parseDate fast path ≡ the formatter chain ------------------------------
-        // Every day of every year 1888…2100 in both stored shapes, plus every invalid
-        // day (0 and 29–31 where the month is shorter, months 0 and 13), against the
-        // formatter chain the fast path sits in front of. The reference is
-        // `parseDateWithFormatters`, not `parseDate`, which would compare it to itself.
+        /// --- parseDate fast path ≡ the formatter chain ------------------------------
+        /// Every day of every year 1888…2100 in both stored shapes, plus every invalid
+        /// day (0 and 29–31 where the month is shorter, months 0 and 13), against the
+        /// formatter chain the fast path sits in front of. The reference is
+        /// `parseDateWithFormatters`, not `parseDate`, which would compare it to itself.
         var agreements = 0, disagreements: [String] = []
         for year in 1888...2100 {
             for month in 0...13 {
@@ -1155,8 +1155,8 @@ enum DebugHarness: Loggable {
         r.check("parseDate-fast-path-every-day", disagreements.isEmpty,
                 "\(agreements) agreements; first disagreements: \(disagreements)")
 
-        // Strings the fast path must decline to the formatters (which may still accept
-        // them, e.g. a one-digit month) or answer identically.
+        /// Strings the fast path must decline to the formatters (which may still accept
+        /// them, e.g. a one-digit month) or answer identically.
         let spellings = ["2024.1.5", "2024.01.5", "2024.1.05", "24.01.05", "0999.01.01", "1000.01.01", "2024.01.10.TH", "2024.01.10.",
                          "2024.01.10..", "2024-01-10.", "2024.01.10.É", "2024.01.10..A", "２024.01.10", "2024.01.1０", " 2024.01.10",
                          "2024.01.10 ", "2024/01/10", "01/10/2024", "1/10/2024", "2026-01-24T10:30:00Z", "2026-01-24T10:30:00.000Z",
@@ -1171,13 +1171,13 @@ enum DebugHarness: Loggable {
         }
         r.check("parseDate-fast-path-odd-spellings", spellingDisagreements.isEmpty, "\(spellingDisagreements)")
 
-        // Zones whose DST transitions fall at or near midnight (so a stored day's first
-        // moment is not 00:00), and zones with unusual offsets. The formatter and the
-        // calendar are both pinned to the same zone here, as they are in production.
+        /// Zones whose DST transitions fall at or near midnight (so a stored day's first
+        /// moment is not 00:00), and zones with unusual offsets. The formatter and the
+        /// calendar are both pinned to the same zone here, as they are in production.
         var zoneDisagreements: [String] = []
-        // Santiago, Havana, Amman and their kin start DST at midnight (no 00:00 that day);
-        // the Azores end it at midnight, giving two 00:00s, and the formatters take the later; Apia skipped 2011-12-30
-        // entirely; Lord Howe shifts by half an hour; Kiritimati sits at +14.
+        /// Santiago, Havana, Amman and their kin start DST at midnight (no 00:00 that day);
+        /// the Azores end it at midnight, giving two 00:00s, and the formatters take the later; Apia skipped 2011-12-30
+        /// entirely; Lord Howe shifts by half an hour; Kiritimati sits at +14.
         var zoneAgreements = 0
         for identifier in ["America/Santiago", "America/Sao_Paulo", "America/Havana", "America/Asuncion", "Asia/Tehran", "Africa/Cairo",
                            "Asia/Beirut", "Asia/Amman", "Asia/Damascus", "Atlantic/Azores", "America/Godthab", "Pacific/Auckland",
@@ -1204,7 +1204,7 @@ enum DebugHarness: Loggable {
             }
         }
         r.check("parseDate-fast-path-dst-zones", zoneDisagreements.isEmpty, "\(zoneAgreements) agreements; \(zoneDisagreements)")
-        // The three midnight quirks, pinned individually so a regression names itself.
+        /// The three midnight quirks, pinned individually so a regression names itself.
         func zoned(_ identifier: String, _ text: String) -> (formatter: Date?, fast: Date?) {
             let zone = TimeZone(identifier: identifier)!
             let formatter = DateFormatter()
@@ -1217,8 +1217,8 @@ enum DebugHarness: Loggable {
         r.check("parseDate-fast-path-repeated-midnight-is-later", twice.formatter != nil && twice.formatter == twice.fast, "\(twice)")
         r.check("parseDate-fast-path-skipped-day-is-nil", skipped.formatter == nil && skipped.fast == nil, "\(skipped)")
 
-        // The pinned calendar is Gregorian in the formatters' zone, whatever the system
-        // calendar: a Buddhist `Calendar` would read 2024 as an era year (1481 CE).
+        /// The pinned calendar is Gregorian in the formatters' zone, whatever the system
+        /// calendar: a Buddhist `Calendar` would read 2024 as an era year (1481 CE).
         var buddhist = Calendar(identifier: .buddhist)
         buddhist.timeZone = StorageDateFormatters.dot.timeZone
         let viaBuddhist = buddhist.date(from: DateComponents(year: 2024, month: 1, day: 1))
@@ -1229,7 +1229,7 @@ enum DebugHarness: Loggable {
                     && viaBuddhist != parseDate(from: "2024.01.01"),
                 "calendar \(StorageDateFormatters.calendar.identifier), buddhist would give \(String(describing: viaBuddhist))")
 
-        // What the fast path buys, per call.
+        /// What the fast path buys, per call.
         do {
             let samples = (0..<2000).map { "\(Fmt.padded(1950 + $0 % 76, 4)).\(Fmt.padded(1 + $0 % 12, 2)).\(Fmt.padded(1 + $0 % 28, 2))" }
             func micros(_ body: () -> Void) -> Double {
@@ -1244,10 +1244,10 @@ enum DebugHarness: Loggable {
             r.metric("parseDate-fast-path-per-call", (fast * 100).rounded() / 100, "µs")
         }
 
-        // --- canonicalStoredTimestamp ≡ the formatter chain ------------------------
-        // The `dateAdded` / `lastModified` shape, "2026-01-24T10:30:00.000Z". The formatter
-        // that reads it is fifth in `parseDateWithFormatters`, so that chain is the
-        // reference, compared by exact Date equality (bit for bit).
+        /// --- canonicalStoredTimestamp ≡ the formatter chain ------------------------
+        /// The `dateAdded` / `lastModified` shape, "2026-01-24T10:30:00.000Z". The formatter
+        /// that reads it is fifth in `parseDateWithFormatters`, so that chain is the
+        /// reference, compared by exact Date equality (bit for bit).
         var stampAgreements = 0, stampFast = 0, stampDisagreements: [String] = []
         func compareStamp(_ text: String) {
             let expected = parseDateWithFormatters(datePortion: text, dateString: text)
@@ -1260,8 +1260,8 @@ enum DebugHarness: Loggable {
         func stamp(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int, _ s: Int, _ ms: Int) -> String {
             "\(Fmt.padded(y, 4))-\(Fmt.padded(mo, 2))-\(Fmt.padded(d, 2))T\(Fmt.padded(h, 2)):\(Fmt.padded(mi, 2)):\(Fmt.padded(s, 2)).\(Fmt.padded(ms, 3))Z"
         }
-        // First and last day of every month 1900…2100 (leap days included), at the
-        // edges of the day and in the middle.
+        /// First and last day of every month 1900…2100 (leap days included), at the
+        /// edges of the day and in the middle.
         for year in 1900...2100 {
             for month in 1...12 {
                 for day in [1, gregorianDaysInMonth(month, year: year)] {
@@ -1271,13 +1271,13 @@ enum DebugHarness: Loggable {
                 }
             }
         }
-        // Every millisecond ending, before and after the epoch and today, where the
-        // division by 1,000 is most likely to round differently.
+        /// Every millisecond ending, before and after the epoch and today, where the
+        /// division by 1,000 is most likely to round differently.
         for (y, mo, d, h, mi, s) in [(1969, 12, 31, 23, 59, 59), (1970, 1, 1, 0, 0, 0), (1901, 3, 7, 4, 5, 6), (2026, 10, 27, 12, 34, 56), (2099, 12, 31, 23, 59, 59)] {
             for ms in 0...999 { compareStamp(stamp(y, mo, d, h, mi, s, ms)) }
         }
-        // 20,000 instants spread over 1900…2100, spelled by the writer itself
-        // (StorageDateFormatters.timestamp). Seeded, so a failure repeats.
+        /// 20,000 instants spread over 1900…2100, spelled by the writer itself
+        /// (StorageDateFormatters.timestamp). Seeded, so a failure repeats.
         var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
         func nextRandom() -> UInt64 {
             seed &+= 0x9E37_79B9_7F4A_7C15
@@ -1288,15 +1288,15 @@ enum DebugHarness: Loggable {
         }
         var roundTripFailures: [String] = [], writerTruncations = 0
         for _ in 0..<20_000 {
-            let span = 4_102_444_800_000 + 2_208_988_800_000   // 1900-01-01 … 2100-01-01, in ms
+            let span = 4_102_444_800_000 + 2_208_988_800_000   /// 1900-01-01 … 2100-01-01, in ms
             let ms = Int64(nextRandom() % UInt64(span)) - 2_208_988_800_000
             let instant = Date(timeIntervalSince1970: Double(ms) / 1_000)
             let text = instant.formatted(StorageDateFormatters.timestamp)
             compareStamp(text)
-            // And the value read back is the instant written, to within the millisecond
-            // the writer truncates away. Not exact text equality: the nearest Double to
-            // ".678" can lie just below it, and the writer truncates that to ".677" — as
-            // it did against the formatters (≈16% of instants), so the fast path is not the cause.
+            /// And the value read back is the instant written, to within the millisecond
+            /// the writer truncates away. Not exact text equality: the nearest Double to
+            /// ".678" can lie just below it, and the writer truncates that to ".677" — as
+            /// it did against the formatters (≈16% of instants), so the fast path is not the cause.
             if let back = canonicalStoredTimestamp(text[...]) {
                 let gap = instant.timeIntervalSince1970 - back.timeIntervalSince1970
                 if back.formatted(StorageDateFormatters.timestamp) != text { writerTruncations += 1 }
@@ -1312,8 +1312,8 @@ enum DebugHarness: Loggable {
         r.check("parseDate-timestamp-round-trip", roundTripFailures.isEmpty,
                 "\(roundTripFailures); \(writerTruncations) of 20,000 re-spell 1 ms earlier (the writer's truncation)")
 
-        // Near misses: each must be declined by the fast path (so the formatters decide
-        // it exactly as before) or, where accepted, answered identically.
+        /// Near misses: each must be declined by the fast path (so the formatters decide
+        /// it exactly as before) or, where accepted, answered identically.
         let stampSpellings = ["2026-01-24T10:30:00.00Z", "2026-01-24T10:30:00.0000Z", "2026-01-24T10:30:00Z",
                               "2026-01-24T24:00:00.000Z", "2026-01-24T23:60:00.000Z", "2016-12-31T23:59:60.000Z",
                               "2026-02-29T10:30:00.000Z", "2024-02-29T10:30:00.000Z", "2026-02-30T10:30:00.000Z",
@@ -1336,8 +1336,8 @@ enum DebugHarness: Loggable {
                     && acceptedSpellings == ["2024-02-29T10:30:00.000Z"],
                 "disagreements \(stampSpellingDisagreements); accepted by the fast path \(acceptedSpellings)")
 
-        // Every date string the sandbox library actually stores in the two timestamp
-        // fields, through both paths.
+        /// Every date string the sandbox library actually stores in the two timestamp
+        /// fields, through both paths.
         var libraryStrings = 0, libraryFast = 0, libraryDisagreements: [String] = []
         for film in coordinator.memoryStoreForTesting.getAllFilms() {
             for text in [film.dateAdded, film.lastModified] where !text.isEmpty {
@@ -1354,7 +1354,7 @@ enum DebugHarness: Loggable {
                 "\(libraryStrings) stored strings, \(libraryFast) via the timestamp fast path; disagreements \(libraryDisagreements)")
         r.metric("library-timestamp-strings", Double(libraryFast), "strings")
 
-        // What the timestamp fast path buys, per call.
+        /// What the timestamp fast path buys, per call.
         do {
             let samples = (0..<2000).map { stamp(1990 + $0 % 37, 1 + $0 % 12, 1 + $0 % 28, $0 % 24, $0 % 60, ($0 * 7) % 60, ($0 * 37) % 1000) }
             func micros(_ body: () -> Void) -> Double {
@@ -1369,9 +1369,9 @@ enum DebugHarness: Loggable {
             r.metric("parseDate-timestamp-fast-path-per-call", (fast * 100).rounded() / 100, "µs")
         }
 
-        // --- Last Viewed -----------------------------------------------------------
-        // "Never watched" is the earliest possible value, so it leads a least-recently-
-        // watched-first sort and trails a most-recently-watched-first sort.
+        /// --- Last Viewed -----------------------------------------------------------
+        /// "Never watched" is the earliest possible value, so it leads a least-recently-
+        /// watched-first sort and trails a most-recently-watched-first sort.
         let watchSpecimens: [(String, String)] = [
             ("Anonymous Never", ""), ("Zeta Never", ""),
             ("Old 2015", "2015.03.01"), ("Middle 2020", "2020.07.19"), ("Fresh 2025", "2025.12.30"),
@@ -1407,9 +1407,9 @@ enum DebugHarness: Loggable {
                 "most-recently-watched first puts the never-watched at the end")
         r.check("most-recent-leads-descending", watchDescending.first == "Fresh 2025", "")
 
-        // --- Date Added / Date Modified --------------------------------------------
-        // Same rule, same function; asserted separately because each reads a different
-        // field off the metadata record and a wiring mistake would not show up above.
+        /// --- Date Added / Date Modified --------------------------------------------
+        /// Same rule, same function; asserted separately because each reads a different
+        /// field off the metadata record and a wiring mistake would not show up above.
         for (option, label) in [(SortOption.dateAdded, "dateAdded"),
                                 (SortOption.dateModified, "dateModified")] {
             let films = [
@@ -1431,13 +1431,13 @@ enum DebugHarness: Loggable {
                     "got \(descending)")
         }
 
-        // --- Date Last Purchased ---------------------------------------------------------
-        // The same principle extended to the two kinds of absence a purchase record has:
-        // never purchased is earlier than purchased-on-an-unknown-date, which is earlier
-        // than any dated purchase.
+        /// --- Date Last Purchased ---------------------------------------------------------
+        /// The same principle extended to the two kinds of absence a purchase record has:
+        /// never purchased is earlier than purchased-on-an-unknown-date, which is earlier
+        /// than any dated purchase.
         let purchaseFilms = [
-            // Names avoid a leading "A ", "An ", or "The ": stripArticles removes those
-            // before comparing, so such a title does not sort where it appears to.
+            /// Names avoid a leading "A ", "An ", or "The ": stripArticles removes those
+            /// before comparing, so such a title does not sort where it appears to.
             makeSnapshot(name: "Ea Unpurchased"),
             makeSnapshot(name: "Eb NoDate", releases: [ReleaseSnapshot(purchased: true, purchaseDate: "")]),
             makeSnapshot(name: "Ec Malformed", releases: [ReleaseSnapshot(purchased: true, purchaseDate: "not a date")]),
@@ -1457,10 +1457,10 @@ enum DebugHarness: Loggable {
                 names(purchaseCache, purchaseFilms, .datePurchased, .descending) == expectedPurchase.reversed(),
                 "newest purchase leads, never-purchased trails")
 
-        // The malformed purchase date must land in the unknown-date tier, not be adopted
-        // as a year-1 date. Checked on the metadata record directly as well as through the
-        // sort, because the same wrong value also feeds purchaseDateFormatted, which the
-        // sidebar displays.
+        /// The malformed purchase date must land in the unknown-date tier, not be adopted
+        /// as a year-1 date. Checked on the metadata record directly as well as through the
+        /// sort, because the same wrong value also feeds purchaseDateFormatted, which the
+        /// sidebar displays.
         let malformed = FilmMetadata(from: purchaseFilms[2])
         r.check("malformed-purchase-date-not-adopted", malformed.mostRecentPurchaseDate == nil,
                 "mostRecentPurchaseDate = \(String(describing: malformed.mostRecentPurchaseDate))")
@@ -1469,16 +1469,16 @@ enum DebugHarness: Loggable {
         r.check("malformed-purchase-has-no-display-date", malformed.purchaseDateFormatted == nil,
                 "purchaseDateFormatted = \(String(describing: malformed.purchaseDateFormatted))")
 
-        // A film whose only dated purchase is malformed must not outrank a real one.
+        /// A film whose only dated purchase is malformed must not outrank a real one.
         r.check("malformed-does-not-outrank-real-purchase",
                 (purchaseAscending.firstIndex(of: "Ec Malformed") ?? 99)
                     < (purchaseAscending.firstIndex(of: "Ed Bought 2019") ?? -1),
                 "unknown-date purchases precede dated ones, they do not lead the whole list")
 
-        // Section dividers for the purchase sort: both undated tiers share one leading
-        // "No Purchase Date" band (they are adjacent in the sort, so it stays contiguous),
-        // then the shared date bands. Run through sectionBreaks itself, so the contiguity
-        // guard would empty the result if the bands and the sort ever disagreed.
+        /// Section dividers for the purchase sort: both undated tiers share one leading
+        /// "No Purchase Date" band (they are adjacent in the sort, so it stays contiguous),
+        /// then the shared date bands. Run through sectionBreaks itself, so the contiguity
+        /// guard would empty the result if the bands and the sort ever disagreed.
         func bands(_ direction: SortDirection, _ key: GallerySectionKey) -> [String] {
             let ids = purchaseCache.sort(purchaseFilms.map(\.id), by: .datePurchased, direction: direction)
             let ordered = ids.compactMap { id in purchaseFilms.first { $0.id == id } }
@@ -1519,7 +1519,7 @@ enum DebugHarness: Loggable {
         let uhd = ReleaseFormat.uhd4K.rawValue, bd = ReleaseFormat.bluRay.rawValue,
             dvd = ReleaseFormat.dvd.rawValue
 
-        // --- Wiring: which views carry a format scope ---------------------------------------
+        /// --- Wiring: which views carry a format scope ---------------------------------------
         r.check("scope:purchased4K", ViewIdentifier.smartList(.purchased4K).purchaseFormatScope == .uhd4K, "")
         r.check("scope:purchasedBluray", ViewIdentifier.smartList(.purchasedBluray).purchaseFormatScope == .bluRay, "")
         r.check("scope:purchasedDVD", ViewIdentifier.smartList(.purchasedDVD).purchaseFormatScope == .dvd, "")
@@ -1528,7 +1528,7 @@ enum DebugHarness: Loggable {
         r.check("scope:none-elsewhere", unscoped.allSatisfy { $0.purchaseFormatScope == nil },
                 "\(unscoped.filter { $0.purchaseFormatScope != nil })")
 
-        // --- Specimens ----------------------------------------------------------------------
+        /// --- Specimens ----------------------------------------------------------------------
         let comboParent = UUID(), comboChild = UUID()
         let combo = makeSnapshot(name: "Combo Dip", releases: [
             ReleaseSnapshot(purchased: true, format: bd, purchaseDate: "2026.02.04"),
@@ -1541,8 +1541,8 @@ enum DebugHarness: Loggable {
             ReleaseSnapshot(purchased: true, format: uhd, purchaseDate: "2025.06.01")])
         let old4K = makeSnapshot(name: "Old 4K", releases: [
             ReleaseSnapshot(purchased: true, format: uhd, purchaseDate: "2018.03.03")])
-        // Undated in 4K, but dated (and recent) in Blu-ray: the 4K list must put it in the
-        // purchased-undated tier, not order it by the Blu-ray date.
+        /// Undated in 4K, but dated (and recent) in Blu-ray: the 4K list must put it in the
+        /// purchased-undated tier, not order it by the Blu-ray date.
         let undated4K = makeSnapshot(name: "Undated 4K", releases: [
             ReleaseSnapshot(purchased: true, format: uhd, purchaseDate: ""),
             ReleaseSnapshot(purchased: true, format: bd, purchaseDate: "2026.01.01")])
@@ -1559,7 +1559,7 @@ enum DebugHarness: Loggable {
             Set(films.filter { SmartLists.membership(of: $0, today: today).contains(type) }.map(\.id))
         }
 
-        // Per-format metadata, read straight off the record.
+        /// Per-format metadata, read straight off the record.
         let comboData = FilmMetadata(from: combo)
         r.check("metadata:combo-4K-date",
                 comboData.mostRecentPurchaseDate(in: .uhd4K) == parseDate(from: "2020.01.29"),
@@ -1572,8 +1572,8 @@ enum DebugHarness: Loggable {
         r.check("metadata:no-4K-purchase-tier",
                 MetadataCache.purchaseTier(FilmMetadata(from: bdOnly), in: .uhd4K) == 0, "")
 
-        // --- The real MemoryStore path --------------------------------------------------------
-        // getFilms is what a smart list load calls; it derives the format from the view ID.
+        /// --- The real MemoryStore path --------------------------------------------------------
+        /// getFilms is what a smart list load calls; it derives the format from the view ID.
         let cleanup = registerSortMetadata(films)
         defer { cleanup() }
         let store = MemoryStore.isolatedForTesting(films: films, lists: [])
@@ -1596,9 +1596,9 @@ enum DebugHarness: Loggable {
             r.check("order:\(type.rawValue)/descending", desc == order.reversed(), "got \(desc)")
         }
 
-        // --- Bands ----------------------------------------------------------------------------
-        // Cut through sectionBreaks itself, so the contiguity guard would empty the result if
-        // the bands and the sort disagreed about which format's date applies.
+        /// --- Bands ----------------------------------------------------------------------------
+        /// Cut through sectionBreaks itself, so the contiguity guard would empty the result if
+        /// the bands and the sort disagreed about which format's date applies.
         func band(of film: FilmSnapshot, in type: SmartListType, _ direction: SortDirection,
                   format: ReleaseFormat?) -> String? {
             let set = members(type)
@@ -1623,9 +1623,9 @@ enum DebugHarness: Loggable {
                     "band \(undatedBand ?? "none")")
         }
 
-        // --- Sort menu: every option listed, inapplicable ones disabled ---------------------
-        // Date Last Purchased is disabled exactly where every film is unpurchased: the Unpurchased
-        // family, and any view filtered to "Unpurchased". Enabled everywhere else.
+        /// --- Sort menu: every option listed, inapplicable ones disabled ---------------------
+        /// Date Last Purchased is disabled exactly where every film is unpurchased: the Unpurchased
+        /// family, and any view filtered to "Unpurchased". Enabled everywhere else.
         func disabled(_ smartList: SmartListType?, _ unwatched: UnwatchedCategory? = nil,
                       filters: Set<FilterOption> = []) -> Set<SortOption> {
             SortMenuInputs.disabledSortOptions(smartListType: smartList, unwatchedCategory: unwatched,
@@ -1649,7 +1649,7 @@ enum DebugHarness: Loggable {
         r.check("menu:date-purchased-enabled-under-other-filters",
                 !disabled(nil, filters: [.purchased, .watched, .color]).contains(.datePurchased), "")
 
-        // The effective sort: a disabled choice falls back to Title, any other passes through.
+        /// The effective sort: a disabled choice falls back to Title, any other passes through.
         var chosen = ViewState()
         chosen.sortOption = .datePurchased
         r.check("effective:enabled-choice-kept", chosen.effectiveSortOption(in: .allFilms) == .datePurchased, "")
@@ -1672,11 +1672,11 @@ enum DebugHarness: Loggable {
                 SortMenuInputs.displayedSortOption(.year, recentsCategory: nil) == .year
                     && SortMenuInputs.displayedSortOption(.lastViewed, recentsCategory: .recentlyViewed) == .lastViewed, "")
 
-        // --- Live coordinator: the user's path through the real view switch ------------------
-        // Adds the specimens to the sandbox library, lets the real smart-list calculation
-        // place them, opens "Purchased 4K" and picks Date Last Purchased exactly as the Sort menu
-        // does, then reads the gallery's own film array and bands. Every specimen is deleted
-        // and the prior view restored before returning.
+        /// --- Live coordinator: the user's path through the real view switch ------------------
+        /// Adds the specimens to the sandbox library, lets the real smart-list calculation
+        /// place them, opens "Purchased 4K" and picks Date Last Purchased exactly as the Sort menu
+        /// does, then reads the gallery's own film array and bands. Every specimen is deleted
+        /// and the prior view restored before returning.
         let live = coordinator.memoryStoreForTesting
         let manager = ViewStateManager.shared
         let priorView = manager.activeView
@@ -1719,8 +1719,8 @@ enum DebugHarness: Loggable {
         r.check("live:menu-disables-date-purchased-on-unpurchased",
                 unpurchasedInputs.disabledSortOptions.contains(.datePurchased), "")
 
-        // All Films: enabled, sorts across every format with never-purchased films first,
-        // and disabled the moment the view is filtered to "Unpurchased".
+        /// All Films: enabled, sorts across every format with never-purchased films first,
+        /// and disabled the moment the view is filtered to "Unpurchased".
         manager.switchToViewSync(.allFilms)
         let allSort = manager.activeState.sortOption
         let allDirection = manager.activeState.sortDirection
@@ -1732,9 +1732,9 @@ enum DebugHarness: Loggable {
         manager.updateSortDirection(.ascending)
         let allOrder = coordinator.films.filter { liveIDs.contains($0.id) }.map(\.name)
         r.check("live:all-films-order", allOrder == ["Wish Only"] + expected[3].1, "got \(allOrder)")
-        // The fallback-with-memory sequence: Date Last Purchased chosen, "Unpurchased" applied →
-        // the view orders by, and the menu checks, Title while Date Last Purchased is disabled;
-        // the choice itself stays stored (and persisted). Lifting the filter restores it.
+        /// The fallback-with-memory sequence: Date Last Purchased chosen, "Unpurchased" applied →
+        /// the view orders by, and the menu checks, Title while Date Last Purchased is disabled;
+        /// the choice itself stays stored (and persisted). Lifting the filter restores it.
         manager.updateFilterOptions([.unpurchased])
         var menu = SortMenuInputs.current(coordinator: coordinator)
         r.check("live:unpurchased-filter-disables-date-purchased",
@@ -1745,7 +1745,7 @@ enum DebugHarness: Loggable {
                 "loaded \(String(describing: coordinator.loadedSortOption))")
         r.check("live:filtered-remembers-choice", manager.activeState.sortOption == .datePurchased,
                 "stored \(manager.activeState.sortOption)")
-        try? await Task.sleep(for: .milliseconds(600))   // ViewStateManager's save debounce
+        try? await Task.sleep(for: .milliseconds(600))   /// ViewStateManager's save debounce
         let persisted = ViewIdentifier.allFilms.persistenceKey.flatMap { Preferences.viewSortStates[$0]?.first }
         r.check("live:filtered-memory-persisted", persisted == SortOption.datePurchased.rawValue,
                 "stored on disk as \(persisted ?? "nothing")")
@@ -1759,7 +1759,7 @@ enum DebugHarness: Loggable {
                     && coordinator.films.filter { liveIDs.contains($0.id) }.map(\.name) == allOrder,
                 "loaded \(String(describing: coordinator.loadedSortOption))")
 
-        // A new choice made while filtered replaces the memory.
+        /// A new choice made while filtered replaces the memory.
         manager.updateFilterOptions([.unpurchased])
         manager.updateSortOption(.year)
         manager.updateFilterOptions([])
@@ -1770,7 +1770,7 @@ enum DebugHarness: Loggable {
         manager.updateSortOption(allSort)
         manager.updateSortDirection(allDirection)
 
-        // Restore.
+        /// Restore.
         manager.switchToViewSync(.smartList(.purchased4K))
         manager.updateSortOption(priorSort)
         manager.updateSortDirection(priorDirection)
@@ -1804,8 +1804,8 @@ enum DebugHarness: Loggable {
             let ids = snapshots.map(\.id)
 
             for option in [SortOption.title, .viewCount, .rating, .lastViewed, .datePurchased] {
-                // Three passes, best-of: the first pass pays for cold dictionary access and
-                // would otherwise be reported as the cost of the comparator.
+                /// Three passes, best-of: the first pass pays for cold dictionary access and
+                /// would otherwise be reported as the cost of the comparator.
                 var best = Double.greatestFiniteMagnitude
                 for _ in 0..<3 {
                     let start = ContinuousClock.now
@@ -1881,9 +1881,9 @@ enum DebugHarness: Loggable {
             tools: [], editedHBRFValue: 0, editDate: "", warning: [],
             descriptionNotes: "", notesOnAudioTiming: [], specialAudioNotes: [],
             notesArray: [], handbrakeFrames: [], correspondingTimecodes: [],
-            // Must not be omitted: FilmSnapshot's init defaults `releases` to [], so
-            // dropping this silently makes every purchase-tier assertion in this file
-            // run against a corpus where no film was ever purchased — passing vacuously.
+            /// Must not be omitted: FilmSnapshot's init defaults `releases` to [], so
+            /// dropping this silently makes every purchase-tier assertion in this file
+            /// run against a corpus where no film was ever purchased — passing vacuously.
             releases: releases)
     }
 
@@ -2001,9 +2001,9 @@ enum DebugHarness: Loggable {
                             options: .atomic)
         }
 
-        // Per-failure lines first: the exit code says whether to look, these say where.
-        // Regressions and known issues are labeled differently and printed in that order,
-        // so a real failure is never buried in a wall of expected ones.
+        /// Per-failure lines first: the exit code says whether to look, these say where.
+        /// Regressions and known issues are labeled differently and printed in that order,
+        /// so a real failure is never buried in a wall of expected ones.
         for scenario in report.scenarios {
             for check in scenario.checks where check.isRegression {
                 printToStandardError("[DebugHarness] FAIL \(scenario.scenario)/\(check.name): \(check.detail)\n")
@@ -2023,8 +2023,8 @@ enum DebugHarness: Loggable {
         print("===HARNESS-REPORT-BEGIN===")
         print(json)
         print("===HARNESS-REPORT-END===")
-        // Stated as separate counts rather than one ratio: a single "N/N passed" figure would
-        // be misleading while documented defects are failing underneath it.
+        /// Stated as separate counts rather than one ratio: a single "N/N passed" figure would
+        /// be misleading while documented defects are failing underneath it.
         let cleanPasses = report.totalChecks - report.totalFailures - report.totalKnownIssues - report.totalSkips
         print("[DebugHarness] \(cleanPasses) passed, \(report.totalFailures) failed, "
             + "\(report.totalKnownIssues) known pre-existing issues, \(report.totalSkips) skipped — across \(report.scenarios.count) scenarios "
@@ -2034,8 +2034,8 @@ enum DebugHarness: Loggable {
     }
 }
 
-// The LaunchTimeline type lives in 10.00 FilmTrackerApp.swift, compiled in every
-// configuration so Release launches can be measured the same way.
+/// The LaunchTimeline type lives in 10.00 FilmTrackerApp.swift, compiled in every
+/// configuration so Release launches can be measured the same way.
 
 extension DebugHarness {
     /// `launch-timeline` (opt-in, a measurement): waits for the first gallery frame, then
@@ -2141,7 +2141,7 @@ extension DebugHarness {
         let bottom = NSColor(hue: (hue + 0.12).truncatingRemainder(dividingBy: 1),
                              saturation: 0.8, brightness: 0.18, alpha: 1)
         NSGradient(starting: bottom, ending: top)?.draw(in: NSRect(origin: .zero, size: size), angle: 90)
-        // A large soft disc gives each poster a focal shape.
+        /// A large soft disc gives each poster a focal shape.
         NSColor(hue: (hue + 0.5).truncatingRemainder(dividingBy: 1),
                 saturation: 0.35, brightness: 0.95, alpha: 0.35).setFill()
         NSBezierPath(ovalIn: NSRect(x: 90 + hue * 120, y: 330, width: 360, height: 360)).fill()

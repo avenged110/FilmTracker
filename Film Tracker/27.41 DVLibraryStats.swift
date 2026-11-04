@@ -1,8 +1,8 @@
 // MARK: - DVLibraryStats.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The whole-library statistics model behind the Data Visualizations report and the PDF's sheet: FormatBreakdownData,
-// FourKStatistics, PurchaseYearRow, and LibraryStatistics. The year-scoped and derived figures live in 27.43 DVLibraryInsights.swift.
+/// The whole-library statistics model behind the Data Visualizations report and the PDF's sheet: FormatBreakdownData,
+/// FourKStatistics, PurchaseYearRow, and LibraryStatistics. The year-scoped and derived figures live in 27.43 DVLibraryInsights.swift.
 
 import Foundation
 
@@ -62,7 +62,7 @@ struct LibraryStatistics {
     /// Films not marked info complete, for the Needs Attention popover.
     let infoCompleteItems: [DVNamedFilm]
     
-    // Purchase statistics
+    /// Purchase statistics
     let hasPurchaseData: Bool
     let totalPurchasedReleases: Int
     let newReleases: Int
@@ -78,28 +78,28 @@ struct LibraryStatistics {
     /// Films behind `lossyBDAudio`, for the Needs Attention popover.
     let lossyBDAudioItems: [DVNamedFilm]
     
-    // Format breakdown
+    /// Format breakdown
     let formatBreakdown: [FormatBreakdownData]
     /// The same per-format tally as `formatBreakdown`, over `unpurchasedOnDisc`'s films (a Release entered, none purchased).
     /// The priority rule where it is built keeps its three rows exclusive and summing to `unpurchasedOnDisc`.
     let unpurchasedFormatBreakdown: [FormatBreakdownData]
 
-    // 4K statistics
+    /// 4K statistics
     let fourKStats: FourKStatistics
     
     /// The per-year purchase figures, one row per year with counts and percentages, newest year first. The Purchases by Year chart
     /// reads it, on the tab and in the PDF.
     let purchaseYearTable: [PurchaseYearRow]
     
-    // Films by decade
+    /// Films by decade
     let filmsByDecade: [(decade: String, count: Int)]
     /// Films per release year, from the oldest to the newest, with 0 for empty years.
     let filmsByYear: [(year: Int, count: Int)]
     
-    // Aspect ratio distribution
+    /// Aspect ratio distribution
     let aspectRatioDistribution: [(ratio: String, count: Int, percent: Double)]
     
-    // Audio and source distribution
+    /// Audio and source distribution
     let audioChannelDistribution: [(String, Int)]
 
     /// The population that `audioChannelDistribution` breaks down: purchased releases with an audio-channel tag.
@@ -119,7 +119,7 @@ struct LibraryStatistics {
     /// since only then does "not entered" mean "not available".
     let notAvailableOnBluRay: Int?
     
-    // Ratings statistics
+    /// Ratings statistics
     let notYetRatedFilms: Int
     let notYetRatedPercent: Int
     /// Films behind `notYetRatedFilms`, for the Needs Attention card's popover.
@@ -171,7 +171,7 @@ struct LibraryStatistics {
         /// which counts releases.
         var filmsWithPurchasedReleasesCount = 0
 
-        // 4K statistics — accumulated in the main loop to avoid extra array passes.
+        /// 4K statistics — accumulated in the main loop to avoid extra array passes.
         var fourKFilmCount = 0
         var nativeFourKFilmCount = 0
         var upscaledFourKFilmCount = 0
@@ -181,26 +181,26 @@ struct LibraryStatistics {
         
         var notAvailableOnBluRayCount = 0
         
-        // Process each film
+        /// Process each film
         for film in films {
-            // Films on disc: a film with at least one PURCHASED release, not just any entered release. Wishlist and pre-order entries are not owned,
-            // and the format rows below are purchase-gated too. A film with several purchased releases still counts once.
+            /// Films on disc: a film with at least one PURCHASED release, not just any entered release. Wishlist and pre-order entries are not owned,
+            /// and the format rows below are purchase-gated too. A film with several purchased releases still counts once.
             if film.releases.contains(where: { $0.purchased }) {
                 onDiscCount += 1
             } else if !film.releases.isEmpty {
-                // Has a Release entered, none purchased. This is the population for "Unpurchased Films Available on Disc". It is exclusive
-                // of the branch above, since a film with a purchased release goes there.
+                /// Has a Release entered, none purchased. This is the population for "Unpurchased Films Available on Disc". It is exclusive
+                /// of the branch above, since a film with a purchased release goes there.
                 unpurchasedOnDiscCount += 1
             }
             
-            // Missing poster artwork
+            /// Missing poster artwork
             if film.posterUID.isEmpty {
                 missingArtworkCount += 1
                 missingArtworkItems.append(DVNamedFilm(film))
             }
 
-            // Missing release artwork - check if any purchased release has missing artwork
-            // Artwork belongs to the whole release container, since a 4K parent and its bundled Blu-ray ship together. So only top-level releases count.
+            /// Missing release artwork - check if any purchased release has missing artwork
+            /// Artwork belongs to the whole release container, since a 4K parent and its bundled Blu-ray ship together. So only top-level releases count.
             let hasMissingReleaseArtwork = film.releases.contains { release in
                 release.isTopLevel && release.purchased && release.hasArtwork.lowercased().contains("no")
             }
@@ -209,7 +209,7 @@ struct LibraryStatistics {
                 missingReleaseArtworkItems.append(DVNamedFilm(film))
             }
 
-            // Lossy BD Audio - check if any release is 4K UHD or Blu-ray with lossy audio
+            /// Lossy BD Audio - check if any release is 4K UHD or Blu-ray with lossy audio
             let hasLossyBDAudio = film.releases.contains { release in
                 (release.format == ReleaseFormat.uhd4K.rawValue || release.format == ReleaseFormat.bluRay.rawValue) &&
                 ReleaseAudioFormat.isLossyOnHDDisc(release.audioFormat)
@@ -219,24 +219,24 @@ struct LibraryStatistics {
                 lossyBDAudioItems.append(DVNamedFilm(film))
             }
             
-            // Color films
+            /// Color films
             if film.color {
                 colorCount += 1
             }
             
-            // Edited films
+            /// Edited films
             if film.edited {
                 editedCount += 1
             }
             
-            // Info complete
+            /// Info complete
             if film.infoComplete {
                 completeCount += 1
             } else {
                 incompleteItems.append(DVNamedFilm(film))
             }
             
-            // Decade distribution
+            /// Decade distribution
             if !film.releaseYear.isEmpty,
                let year = Int(film.releaseYear),
                year >= 1900 {
@@ -246,10 +246,10 @@ struct LibraryStatistics {
                 yearCounts[year, default: 0] += 1
             }
             
-            // Aspect ratio distribution
+            /// Aspect ratio distribution
             if !film.aspectRatio.isEmpty {
-                // An open-matte tag ("1.78:1 (Open matte)") has the same numeric ratio as its bare form, so the qualifier is stripped before
-                // parsing. Otherwise `extractRatio` would fail and every open-matte film would fall into "Other".
+                /// An open-matte tag ("1.78:1 (Open matte)") has the same numeric ratio as its bare form, so the qualifier is stripped before
+                /// parsing. Otherwise `extractRatio` would fail and every open-matte film would fall into "Other".
                 let ratio = film.aspectRatio
                     .replacingOccurrences(of: AspectRatioVocabulary.openMatteQualifier, with: "")
                     .trimmingCharacters(in: .whitespaces)
@@ -270,7 +270,7 @@ struct LibraryStatistics {
                 ratioCounts[category, default: 0] += 1
             }
             
-            // Collect audio channels and codecs. The "All" tallies cover every release. The purchased-only tallies below feed the "Purchased Only" tab.
+            /// Collect audio channels and codecs. The "All" tallies cover every release. The purchased-only tallies below feed the "Purchased Only" tab.
             for release in film.releases {
                 if !release.audioChannels.isEmpty {
                     audioCountsAll[release.audioChannels, default: 0] += 1
@@ -289,13 +289,13 @@ struct LibraryStatistics {
                 }
             }
             
-            // Source distribution
+            /// Source distribution
             if !film.digitalSource.isEmpty {
                 sourceCounts[film.digitalSource, default: 0] += 1
             }
             
-            // Collect purchased top-level releases for the purchased-release total, average cost, and new/used tallies. A combo child mirrors its
-            // parent's purchase, cost, and condition, so counting it would double those figures.
+            /// Collect purchased top-level releases for the purchased-release total, average cost, and new/used tallies. A combo child mirrors its
+            /// parent's purchase, cost, and condition, so counting it would double those figures.
             let purchasedCountBefore = purchasedReleases.count
             for release in film.releases where release.purchased && release.isTopLevel {
                 purchasedReleases.append(release)
@@ -304,7 +304,7 @@ struct LibraryStatistics {
                 filmsWithPurchasedReleasesCount += 1
             }
             
-            // Not available on Blu-ray - films without any Blu-ray or 4K UHD release
+            /// Not available on Blu-ray - films without any Blu-ray or 4K UHD release
             let hasBluRayOrFourK = film.releases.contains { release in
                 release.format == ReleaseFormat.bluRay.rawValue || release.format == ReleaseFormat.uhd4K.rawValue
             }
@@ -312,7 +312,7 @@ struct LibraryStatistics {
                 notAvailableOnBluRayCount += 1
             }
             
-            // 4K and BD statistics, accumulated here to avoid extra passes after the loop.
+            /// 4K and BD statistics, accumulated here to avoid extra passes after the loop.
             var filmHasFourK = false
             var filmHasNativeFourK = false
             var filmHasUpscaledFourK = false
@@ -339,14 +339,14 @@ struct LibraryStatistics {
             if filmHasPurchasedUpscaledFourK { purchasedUpscaledFourKFilmCount += 1 }
         }
         
-        // Calculate derived statistics
+        /// Calculate derived statistics
         self.filmsOnDisc = onDiscCount
         self.filmsOnDiscPercent = totalFilms > 0 ? Int((Double(onDiscCount) / Double(totalFilms) * 100).rounded()) : 0
 
         self.unpurchasedOnDisc = unpurchasedOnDiscCount
 
-        // "Digital Only" is every film with no Release object at all. Subtracting both on-disc counts keeps an unpurchased film with a Release
-        // record out of the digital-only figure.
+        /// "Digital Only" is every film with no Release object at all. Subtracting both on-disc counts keeps an unpurchased film with a Release
+        /// record out of the digital-only figure.
         let digitalOnlyCount = totalFilms - onDiscCount - unpurchasedOnDiscCount
         self.digitalOnlyFilms = digitalOnlyCount
 
@@ -364,7 +364,7 @@ struct LibraryStatistics {
         self.infoCompletePercent = totalFilms > 0 ? Int((Double(completeCount) / Double(totalFilms) * 100).rounded()) : 0
         self.infoCompleteItems = incompleteItems
         
-        // Films by decade
+        /// Films by decade
         self.filmsByDecade = decadeCounts.sorted { $0.key < $1.key }.map { (decade: $0.key, count: $0.value) }
         if let first = yearCounts.keys.min(), let last = yearCounts.keys.max() {
             self.filmsByYear = (first...last).map { (year: $0, count: yearCounts[$0] ?? 0) }
@@ -372,13 +372,13 @@ struct LibraryStatistics {
             self.filmsByYear = []
         }
         
-        // Aspect ratio distribution
+        /// Aspect ratio distribution
         let totalWithRatio = ratioCounts.values.reduce(0, +)
-        // Ties are broken on the class name, not left to `ratioCounts`'s own iteration order.
-        // Swift seeds Dictionary hashing per process, so without this tiebreak, classes with equal
-        // counts would sort differently on each launch. The PDF's Aspect Ratios tile and the on-screen
-        // chart would then reorder between exports of an unchanged library. Every other order in this
-        // export has an explicit total order for the same reason.
+        /// Ties are broken on the class name, not left to `ratioCounts`'s own iteration order.
+        /// Swift seeds Dictionary hashing per process, so without this tiebreak, classes with equal
+        /// counts would sort differently on each launch. The PDF's Aspect Ratios tile and the on-screen
+        /// chart would then reorder between exports of an unchanged library. Every other order in this
+        /// export has an explicit total order for the same reason.
         self.aspectRatioDistribution = ratioCounts
             .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
             .map {
@@ -386,21 +386,21 @@ struct LibraryStatistics {
             return (ratio: $0.key, count: $0.value, percent: percent)
         }
         
-        // Audio channel distribution with custom ordering - always show all options.
-        // Matches `audioChannelDistributionAll`'s row set exactly (differing only in
-        // counts): object-based mixes are a format flag, not a channel count, and are
-        // already broken out in `audioCodecs`, so they do not belong in this bar.
+        /// Audio channel distribution with custom ordering - always show all options.
+        /// Matches `audioChannelDistributionAll`'s row set exactly (differing only in
+        /// counts): object-based mixes are a format flag, not a channel count, and are
+        /// already broken out in `audioCodecs`, so they do not belong in this bar.
         var orderedAudioChannels: [(String, Int)] = []
 
-        // Add combined channels in order - always show all, even with 0 count
-        // The row LABELS are display copy, but the subscripts are STORED values — they key
-        // into counts tallied from release.audioChannels — so they come from the
-        // vocabulary rather than being respelled here.
+        /// Add combined channels in order - always show all, even with 0 count
+        /// The row LABELS are display copy, but the subscripts are STORED values — they key
+        /// into counts tallied from release.audioChannels — so they come from the
+        /// vocabulary rather than being respelled here.
         func channelCount(_ tags: String...) -> Int {
             tags.reduce(0) { $0 + (audioCounts[$1] ?? 0) }
         }
-        orderedAudioChannels.append(("7.1 / 6.1",
-            channelCount(ReleaseAudioChannels.surround71, ReleaseAudioChannels.surround61)))
+        orderedAudioChannels.append(("7.1 / 6.1 / 6.0",
+            channelCount(ReleaseAudioChannels.surround71, ReleaseAudioChannels.surround61, ReleaseAudioChannels.surround60)))
         orderedAudioChannels.append(("5.1 / 5.0 / 4.0",
             channelCount(ReleaseAudioChannels.surround51, ReleaseAudioChannels.surround50,
                          ReleaseAudioChannels.surround40)))
@@ -411,12 +411,12 @@ struct LibraryStatistics {
         
         self.audioChannelDistribution = orderedAudioChannels
 
-        // The same four rows over every release, for the Audio card's "All" scope.
+        /// The same four rows over every release, for the Audio card's "All" scope.
         func channelCountAll(_ tags: String...) -> Int {
             tags.reduce(0) { $0 + (audioCountsAll[$1] ?? 0) }
         }
         self.audioChannelDistributionAll = [
-            ("7.1 / 6.1", channelCountAll(ReleaseAudioChannels.surround71, ReleaseAudioChannels.surround61)),
+            ("7.1 / 6.1 / 6.0", channelCountAll(ReleaseAudioChannels.surround71, ReleaseAudioChannels.surround61, ReleaseAudioChannels.surround60)),
             ("5.1 / 5.0 / 4.0", channelCountAll(ReleaseAudioChannels.surround51, ReleaseAudioChannels.surround50,
                                                 ReleaseAudioChannels.surround40)),
             ("3.0 / 2.0", channelCountAll(ReleaseAudioChannels.surround30, ReleaseAudioChannels.stereo20)),
@@ -427,14 +427,14 @@ struct LibraryStatistics {
         self.audioCodecs = ReleaseAudioFormat.hdOptions.map { DVTally($0, codecCounts[$0] ?? 0, of: codecCounts.values.reduce(0, +)) }
         self.audioCodecsAll = ReleaseAudioFormat.hdOptions.map { DVTally($0, codecCountsAll[$0] ?? 0, of: codecCountsAll.values.reduce(0, +)) }
 
-        // Source distribution, ordered by quality, descending. These are stored values used as dictionary keys, so the remastered
-        // forms are composed through FilmDigitalSource to match the FilmSheet byte for byte. The picker's list ascends.
+        /// Source distribution, ordered by quality, descending. These are stored values used as dictionary keys, so the remastered
+        /// forms are composed through FilmDigitalSource to match the FilmSheet byte for byte. The picker's list ascends.
         let remasteredDVD = FilmDigitalSource.compose(source: FilmDigitalSource.dvd,
                                                       remastered: true)
         let sourceOrder = [
             FilmDigitalSource.compose(source: FilmDigitalSource.blurayDisc, remastered: true),
             FilmDigitalSource.blurayDisc,
-            remasteredDVD, // Only shown if it has items
+            remasteredDVD, /// Only shown if it has items
             FilmDigitalSource.dvd,
             FilmDigitalSource.download4K,
             FilmDigitalSource.download1080p,
@@ -446,10 +446,10 @@ struct LibraryStatistics {
 
         var orderedSources: [(String, Int)] = []
 
-        // Add sources in order
+        /// Add sources in order
         for source in sourceOrder {
             if source == remasteredDVD {
-                // Only add Remastered DVD if it has items
+                /// Only add Remastered DVD if it has items
                 if let count = sourceCounts[source], count > 0 {
                     orderedSources.append((source, count))
                 }
@@ -458,13 +458,13 @@ struct LibraryStatistics {
                 orderedSources.append((source, count))
             }
             
-            // Add divider after DVD
+            /// Add divider after DVD
             if source == FilmDigitalSource.dvd {
                 orderedSources.append(("---", 0))
             }
         }
 
-        // Any other value goes after the ladder. The field is an open vocabulary, and a film left out here would count as having no source.
+        /// Any other value goes after the ladder. The field is an open vocabulary, and a film left out here would count as having no source.
         let listed = Set(sourceOrder)
         orderedSources += sourceCounts
             .filter { !listed.contains($0.key) }
@@ -475,7 +475,7 @@ struct LibraryStatistics {
         
         self.notAvailableOnBluRay = showInfoComplete && infoCompletePercent > 99 ? notAvailableOnBluRayCount : nil
 
-        // Purchase statistics
+        /// Purchase statistics
         self.hasPurchaseData = !purchasedReleases.isEmpty
         self.totalPurchasedReleases = purchasedReleases.count
         
@@ -489,7 +489,7 @@ struct LibraryStatistics {
         self.usedReleasesPercent = totalPurchasedReleases > 0 ?
             Int((Double(usedCount) / Double(totalPurchasedReleases) * 100).rounded()) : 0
         
-        // Average cost, in display and numeric form. The per-year "at or below average" column uses the numeric form.
+        /// Average cost, in display and numeric form. The per-year "at or below average" column uses the numeric form.
         let costValues = purchasedReleases.compactMap { $0.cost > 0 ? $0.cost : nil }
         let numericAvgCost = costValues.isEmpty
             ? 0
@@ -499,25 +499,25 @@ struct LibraryStatistics {
         self.missingReleaseArtwork = missingReleaseArtworkCount
         self.missingReleaseArtworkItems = missingReleaseArtworkItems
 
-        // Lossy BD audio counts films. A film counts once if any 4K or Blu-ray release has a lossy track.
-        // The denominator is the films with a 4K or Blu-ray release, which is the complement of
-        // `notAvailableOnBluRayCount`. Counting releases here could push the share above 100%.
+        /// Lossy BD audio counts films. A film counts once if any 4K or Blu-ray release has a lossy track.
+        /// The denominator is the films with a 4K or Blu-ray release, which is the complement of
+        /// `notAvailableOnBluRayCount`. Counting releases here could push the share above 100%.
         let filmsWithBluRayOrFourK = totalFilms - notAvailableOnBluRayCount
         self.lossyBDAudio = lossyBDAudioCount
         self.lossyBDAudioItems = lossyBDAudioItems
         self.lossyBDAudioPercent = filmsWithBluRayOrFourK > 0 ?
             Int((Double(lossyBDAudioCount) / Double(filmsWithBluRayOrFourK) * 100).rounded()) : 0
 
-        // The population the audio-channel breakdown is a share of. See
-        // `audioTaggedReleaseCount`.
+        /// The population the audio-channel breakdown is a share of. See
+        /// `audioTaggedReleaseCount`.
         self.audioChannelDenominator = audioTaggedReleaseCount
         
-        // Format breakdown: one pass over films, bucketed so the three rows are exclusive and sum to `onDiscCount`. Counting releases would
-        // double-count films with several purchased discs, and would count a combo pack's Blu-ray child again.
-        //
-        // The rows are asymmetric by design. "4K" counts every film with a purchased 4K release, even one that also has a Blu-ray or DVD, since
-        // a combo pack's Blu-ray is expected overlap. "Blu-ray only" skips films with a purchased 4K, but ignores DVD. "DVD only" requires no purchased
-        // 4K and no purchased Blu-ray. Each film lands in exactly one bucket.
+        /// Format breakdown: one pass over films, bucketed so the three rows are exclusive and sum to `onDiscCount`. Counting releases would
+        /// double-count films with several purchased discs, and would count a combo pack's Blu-ray child again.
+        ///
+        /// The rows are asymmetric by design. "4K" counts every film with a purchased 4K release, even one that also has a Blu-ray or DVD, since
+        /// a combo pack's Blu-ray is expected overlap. "Blu-ray only" skips films with a purchased 4K, but ignores DVD. "DVD only" requires no purchased
+        /// 4K and no purchased Blu-ray. Each film lands in exactly one bucket.
         var fourKTally    = (count: 0, costTotal: 0.0, costCount: 0)
         var bluRayTally   = (count: 0, costTotal: 0.0, costCount: 0)
         var dvdTally      = (count: 0, costTotal: 0.0, costCount: 0)
@@ -569,7 +569,7 @@ struct LibraryStatistics {
                     : "—")
         }
 
-        // Order follows `ReleaseFormat.displayRank` (4K, Blu-ray, DVD), the app's one format ladder.
+        /// Order follows `ReleaseFormat.displayRank` (4K, Blu-ray, DVD), the app's one format ladder.
         self.formatBreakdown = [
             breakdownRow(.uhd4K, label: "Purchased \(ReleaseFormat.uhd4K.rawValue)", total: onDiscCount, fourKTally),
             breakdownRow(.bluRay, label: "Purchased \(ReleaseFormat.bluRay.rawValue) only", total: onDiscCount, bluRayTally),
@@ -577,10 +577,10 @@ struct LibraryStatistics {
         ]
 
         // MARK: Unpurchased format breakdown
-        //
-        // The same exclusive bucketing as the purchased breakdown, over films with a Release entered and none purchased. Every release here is
-        // unpurchased, so "has a 4K release" stands in for "has a purchased 4K release". No cost is averaged, since an unpurchased release's cost
-        // is a wishlist figure, not a price paid. `avgCost` therefore always reads "—".
+        ///
+        /// The same exclusive bucketing as the purchased breakdown, over films with a Release entered and none purchased. Every release here is
+        /// unpurchased, so "has a 4K release" stands in for "has a purchased 4K release". No cost is averaged, since an unpurchased release's cost
+        /// is a wishlist figure, not a price paid. `avgCost` therefore always reads "—".
         var unpurchasedFourKTally  = (count: 0, costTotal: 0.0, costCount: 0)
         var unpurchasedBluRayTally = (count: 0, costTotal: 0.0, costCount: 0)
         var unpurchasedDVDTally   = (count: 0, costTotal: 0.0, costCount: 0)
@@ -611,7 +611,7 @@ struct LibraryStatistics {
                         total: unpurchasedOnDiscCount, unpurchasedDVDTally),
         ]
 
-        // 4K statistics. The counts are accumulated in the main loop above.
+        /// 4K statistics. The counts are accumulated in the main loop above.
         let fourKPurchaseRate = fourKFilmCount > 0 ?
             Int((Double(purchasedFourKFilmCount) / Double(fourKFilmCount) * 100).rounded()) : 0
         
@@ -626,7 +626,7 @@ struct LibraryStatistics {
             fourKPurchaseRate: fourKPurchaseRate
         )
         
-        // Purchases by year, in one pass over the purchase dates.
+        /// Purchases by year, in one pass over the purchase dates.
         var yearDetailedData: [String: (newCount: Int, usedCount: Int, belowAvgCount: Int, totalCount: Int)] = [:]
 
         let calendar = AppCalendar.current
@@ -637,14 +637,14 @@ struct LibraryStatistics {
 
                 var yearData = yearDetailedData[yearStr] ?? (newCount: 0, usedCount: 0, belowAvgCount: 0, totalCount: 0)
 
-                // Count by condition
+                /// Count by condition
                 if release.condition.lowercased() == "new" {
                     yearData.newCount += 1
                 } else if release.condition.lowercased() == "used" {
                     yearData.usedCount += 1
                 }
 
-                // Count if at or below the average cost, computed once above and shared with `averageCost`.
+                /// Count if at or below the average cost, computed once above and shared with `averageCost`.
                 if release.cost > 0 && release.cost <= numericAvgCost {
                     yearData.belowAvgCount += 1
                 }
@@ -670,7 +670,7 @@ struct LibraryStatistics {
                 atOrBelowAveragePercentOfYear: shareOfYear(entry.value.belowAvgCount))
         }
         
-        // Ratings statistics
+        /// Ratings statistics
         var ratingCounts: [Int: Int] = [:]
         var totalRatingsSum = 0
         var filmsWithRatings = 0
@@ -687,13 +687,13 @@ struct LibraryStatistics {
             }
         }
         
-        // Films not yet rated
+        /// Films not yet rated
         let notRatedCount = totalFilms - filmsWithRatings
         self.notYetRatedFilms = notRatedCount
         self.notYetRatedFilmsItems = notYetRatedItems
         self.notYetRatedPercent = totalFilms > 0 ? Int((Double(notRatedCount) / Double(totalFilms) * 100).rounded()) : 0
         
-        // Average rating
+        /// Average rating
         if filmsWithRatings > 0 {
             let average = Double(totalRatingsSum) / Double(filmsWithRatings)
             self.averageRating = Fmt.fixed(average, 2)
@@ -701,7 +701,7 @@ struct LibraryStatistics {
             self.averageRating = "—"
         }
         
-        // Ratings breakdown (ratings 1-10 with counts and percentages)
+        /// Ratings breakdown (ratings 1-10 with counts and percentages)
         var breakdown: [(rating: Int, count: Int, percent: Double)] = []
         for rating in 1...10 {
             let count = ratingCounts[rating] ?? 0

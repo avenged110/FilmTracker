@@ -1,8 +1,8 @@
 // MARK: - CustomTable.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// A custom table that mimics the macOS-standard table appearance, but
-// provides more flexibility for content presentation.
+/// A custom table that mimics the macOS-standard table appearance, but
+/// provides more flexibility for content presentation.
 
 import SwiftUI
 
@@ -54,15 +54,15 @@ struct CustomTable<Data: RandomAccessCollection,
         get { selectedIDBinding?.wrappedValue }
         nonmutating set { selectedIDBinding?.wrappedValue = newValue } }
     @State private var fadeOut = false
-    // Ambient registrar (non-nil only inside RightSidebar) that excludes this
-    // table's on-screen area from the sidebar's tab-swipe hit testing while its
-    // horizontal scroll is actually active, driven by `.onHover` below. Always
-    // nil, and therefore a no-op, everywhere else CustomTable is used.
+    /// Ambient registrar (non-nil only inside RightSidebar) that excludes this
+    /// table's on-screen area from the sidebar's tab-swipe hit testing while its
+    /// horizontal scroll is actually active, driven by `.onHover` below. Always
+    /// nil, and therefore a no-op, everywhere else CustomTable is used.
     @Environment(\.horizontalScrollZoneRegistrar) private var horizontalScrollZoneRegistrar
     @Environment(\.customTableAnimatesExpansion) private var animatesExpansion
-    // Stable identity for this table instance's zone registration; a plain
-    // per-instance constant is sufficient since CustomTable never needs more than
-    // one zone of its own.
+    /// Stable identity for this table instance's zone registration; a plain
+    /// per-instance constant is sufficient since CustomTable never needs more than
+    /// one zone of its own.
     @State private var horizontalScrollZoneID = UUID()
     /// Drives the animated clipping region for the data rows. Separated from
     /// `tableHeight` so the outer frame (which NSHostingView reports to Auto
@@ -108,52 +108,52 @@ struct CustomTable<Data: RandomAccessCollection,
 
     private let collapsedRowCount = 6
     private let rowHeight: CGFloat = 22
-    // Header + divider height (if enabled).
+    /// Header + divider height (if enabled).
     private let baseHeaderHeight: CGFloat = 24
 
-    // Alternating row color (matches macOS-standard table style).
+    /// Alternating row color (matches macOS-standard table style).
     private var alternatingRowColor: Color {
         Color(nsColor: NSColor.unemphasizedSelectedContentBackgroundColor).opacity(0.3) }
 
-    // Selection highlight color (system accent color).
+    /// Selection highlight color (system accent color).
     private var selectionColor: Color {
         Color(nsColor: NSColor.selectedContentBackgroundColor) }
 
     private var shouldShowExpandButton: Bool { data.count > collapsedRowCount }
 
-    // Adjust effective header height based on showHeader flag.
+    /// Adjust effective header height based on showHeader flag.
     private var headerHeight: CGFloat { showHeader ? baseHeaderHeight : 0 }
 
-    // Calculate the actual table height based on content and expansion state.
+    /// Calculate the actual table height based on content and expansion state.
     private var tableHeight: CGFloat {
         if shouldShowExpandButton {
-            // Table overflows (more than 6 rows).
+            /// Table overflows (more than 6 rows).
             if isExpanded {
-                // When expanded, show all rows (minimum 6.5 rows) + 12 for bottom padding.
+                /// When expanded, show all rows (minimum 6.5 rows) + 12 for bottom padding.
                 return headerHeight + max(CGFloat(data.count), 6.5) * rowHeight + 12
             } else {
-                // When collapsed, show 6.5 rows.
+                /// When collapsed, show 6.5 rows.
                 return headerHeight + (6.5 * rowHeight)
             }
         } else {
-            // Table doesn't overflow (6 or fewer rows) - always show 6.5 rows.
+            /// Table doesn't overflow (6 or fewer rows) - always show 6.5 rows.
             return headerHeight + (6.5 * rowHeight) } }
 
-    // Determine whether or not horizontal scrolling should be active.
+    /// Determine whether or not horizontal scrolling should be active.
     private var enableHorizontalScroll: Bool {
         guard allowHorizontalScroll else { return false }
         return data.count <= collapsedRowCount || isExpanded }
 
-    // When the table is not wrapped in a horizontal ScrollView, macOS shifts
-    // content 1 pt to the left compared to the ScrollView-wrapped layout.
-    // This offset compensates for that platform-level discrepancy.
+    /// When the table is not wrapped in a horizontal ScrollView, macOS shifts
+    /// content 1 pt to the left compared to the ScrollView-wrapped layout.
+    /// This offset compensates for that platform-level discrepancy.
     private var scrollCompensation: CGFloat { allowHorizontalScroll ? 0 : 2 }
 
-    // The scroll-disabled ScrollView used for collapsed overflowing tables introduces
-    // a leading offset relative to the active-scroll path. This compensation applies
-    // exclusively to that state and must be added to all content leading padding
-    // in that path to realign rows with the expanded (active-scroll) layout.
-    // Tied to contentPadding so customized call sites remain aligned automatically.
+    /// The scroll-disabled ScrollView used for collapsed overflowing tables introduces
+    /// a leading offset relative to the active-scroll path. This compensation applies
+    /// exclusively to that state and must be added to all content leading padding
+    /// in that path to realign rows with the expanded (active-scroll) layout.
+    /// Tied to contentPadding so customized call sites remain aligned automatically.
     private var collapsedScrollOffset: CGFloat { (allowHorizontalScroll && !enableHorizontalScroll) ? contentPadding : 0 }
 
     var body: some View {
@@ -161,14 +161,14 @@ struct CustomTable<Data: RandomAccessCollection,
             contentContainer
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                // Applied to the clipped content rather than the outer frame: the visible
-                // plate runs past `tableHeight` (collapsed, 7 rows sit in a 6.5-row frame),
-                // so chrome sized to the frame had its bottom edge covered by the overflow.
+                /// Applied to the clipped content rather than the outer frame: the visible
+                /// plate runs past `tableHeight` (collapsed, 7 rows sit in a 6.5-row frame),
+                /// so chrome sized to the frame had its bottom edge covered by the overflow.
                 .fieldEdgeChrome()
-            // Gradient overlay and "Show All" button.
+            /// Gradient overlay and "Show All" button.
             if shouldShowExpandButton && !isExpanded {
                 ZStack(alignment: .bottom) {
-                    // Shadow gradient covers bottom half of visible row area.
+                    /// Shadow gradient covers bottom half of visible row area.
                     LinearGradient(
                         gradient: Gradient(colors: [
                             Color(nsColor: .controlBackgroundColor).opacity(0.00),
@@ -187,31 +187,31 @@ struct CustomTable<Data: RandomAccessCollection,
 
                     Spacer()
 
-                    // Standard macOS button with rounded corners.
+                    /// Standard macOS button with rounded corners.
                     Button(action: {
-                        // 1. Fade both elements.
+                        /// 1. Fade both elements.
                         withAnimation(.easeInOut(duration: 0.12)) { fadeOut = true }
-                        // 2. Expand table after fade completes.
-                        // Task { @MainActor in } is the Swift-concurrency-correct
-                        // replacement for DispatchQueue.main.asyncAfter. It enters
-                        // MainActor isolation without a GCD hop, satisfying Xcode 16
-                        // strict concurrency checking while preserving the identical
-                        // 0.1-second delay needed for the fade animation to settle
-                        // before the frame jump occurs.
+                        /// 2. Expand table after fade completes.
+                        /// Task { @MainActor in } is the Swift-concurrency-correct
+                        /// replacement for DispatchQueue.main.asyncAfter. It enters
+                        /// MainActor isolation without a GCD hop, satisfying Xcode 16
+                        /// strict concurrency checking while preserving the identical
+                        /// 0.1-second delay needed for the fade animation to settle
+                        /// before the frame jump occurs.
                         Task { @MainActor in
                             try? await Task.sleep(for: .seconds(0.1))
-                            // Flip isExpanded WITHOUT animation so the outer
-                            // .frame(height: tableHeight) jumps to its final value
-                            // instantly. NSHostingView reports the full expanded
-                            // height to Auto Layout in one pass, and the parent
-                            // container allocates space immediately — no frame-by-frame
-                            // interpolation that NSScrollView could misinterpret.
-                            // The rows become visible in the same frame (clipHeight
-                            // is never set, so no animated reveal gap is produced).
-                            //
-                            // Unless an ancestor has opted in to animating it (see
-                            // `customTableAnimatesExpansion`): then the flip is plain, and
-                            // that ancestor's `.animation(_:value:)` supplies the animation.
+                            /// Flip isExpanded WITHOUT animation so the outer
+                            /// .frame(height: tableHeight) jumps to its final value
+                            /// instantly. NSHostingView reports the full expanded
+                            /// height to Auto Layout in one pass, and the parent
+                            /// container allocates space immediately — no frame-by-frame
+                            /// interpolation that NSScrollView could misinterpret.
+                            /// The rows become visible in the same frame (clipHeight
+                            /// is never set, so no animated reveal gap is produced).
+                            ///
+                            /// Unless an ancestor has opted in to animating it (see
+                            /// `customTableAnimatesExpansion`): then the flip is plain, and
+                            /// that ancestor's `.animation(_:value:)` supplies the animation.
                             if animatesExpansion {
                                 isExpanded = true
                             } else {
@@ -229,7 +229,7 @@ struct CustomTable<Data: RandomAccessCollection,
                     .opacity(fadeOut ? 0 : 1)
                     .animation(.easeInOut(duration: 0.1), value: fadeOut) } } }
         .frame(height: tableHeight, alignment: .top)
-        // Reset fade and clip state when the table collapses again.
+        /// Reset fade and clip state when the table collapses again.
         .onChange(of: isExpanded) { _, newValue in
             if newValue == false {
                 fadeOut = false
@@ -237,19 +237,19 @@ struct CustomTable<Data: RandomAccessCollection,
             } } }
 
     // MARK: - Content Container
-    // A single unified layout for all modes. The inner content (header + divider +
-    // rows) is built once via tableContent and then optionally wrapped in a ScrollView.
+    /// A single unified layout for all modes. The inner content (header + divider +
+    /// rows) is built once via tableContent and then optionally wrapped in a ScrollView.
     @ViewBuilder
     private var contentContainer: some View {
         if enableHorizontalScroll {
-            // Expanded: full horizontal scrolling active. While the cursor is over
-            // this ScrollView, register it as a swipe-exclusion zone (see
-            // HorizontalScrollZoneRegistrar) so RightSidebar's tab-swipe monitor
-            // lets horizontal-dominant gestures here reach this ScrollView instead
-            // of switching tabs. onDisappear guards against this table being
-            // removed (collapse, film change) while still marked hovered; a tab
-            // switch usually leaves it mounted, so RightSidebar clears the
-            // registrar itself on every switch.
+            /// Expanded: full horizontal scrolling active. While the cursor is over
+            /// this ScrollView, register it as a swipe-exclusion zone (see
+            /// HorizontalScrollZoneRegistrar) so RightSidebar's tab-swipe monitor
+            /// lets horizontal-dominant gestures here reach this ScrollView instead
+            /// of switching tabs. onDisappear guards against this table being
+            /// removed (collapse, film change) while still marked hovered; a tab
+            /// switch usually leaves it mounted, so RightSidebar clears the
+            /// registrar itself on every switch.
             ScrollView(.horizontal, showsIndicators: true) { tableContent }
                 .frame(maxWidth: .infinity)
                 .onHover { hovering in
@@ -259,20 +259,20 @@ struct CustomTable<Data: RandomAccessCollection,
                     horizontalScrollZoneRegistrar?.setActive(horizontalScrollZoneID, active: false)
                 }
         } else if allowHorizontalScroll {
-            // Collapsed: wide content must stay clipped within table bounds.
-            // A scroll-disabled ScrollView constrains children to its viewport.
+            /// Collapsed: wide content must stay clipped within table bounds.
+            /// A scroll-disabled ScrollView constrains children to its viewport.
             ScrollView(.horizontal, showsIndicators: false) { tableContent }
                 .scrollDisabled(true)
                 .frame(maxWidth: .infinity)
         } else {
-            // No horizontal scrolling — identical inner structure, no wrapper.
+            /// No horizontal scrolling — identical inner structure, no wrapper.
             tableContent
                 .frame(maxWidth: .infinity) } }
 
     // MARK: - Table Content
-    // The single source of truth for the table's inner view hierarchy.
-    // Every code path (scroll-enabled, scroll-disabled, and no-scroll) uses
-    // this exact same structure so the content's coordinate space is consistent.
+    /// The single source of truth for the table's inner view hierarchy.
+    /// Every code path (scroll-enabled, scroll-disabled, and no-scroll) uses
+    /// this exact same structure so the content's coordinate space is consistent.
     private var tableContent: some View {
         VStack(spacing: 0) {
             if showHeader {
@@ -308,9 +308,9 @@ struct CustomTable<Data: RandomAccessCollection,
         .background(Color(nsColor: .controlBackgroundColor)) }
 
     // MARK: - Data Rows
-    // While collapsed, the clip shows 6.5 rows, so only the first 7 can be on screen.
-    // Building the rest is costly (a long viewing history can run to hundreds of rows).
-    // Expanding swaps in the whole collection; the prefix keeps its rows' identities, so they carry over.
+    /// While collapsed, the clip shows 6.5 rows, so only the first 7 can be on screen.
+    /// Building the rest is costly (a long viewing history can run to hundreds of rows).
+    /// Expanding swaps in the whole collection; the prefix keeps its rows' identities, so they carry over.
     private var renderedRows: Data.SubSequence {
         shouldShowExpandButton && !isExpanded
             ? data.prefix(collapsedRowCount + 1)
@@ -327,26 +327,26 @@ struct CustomTable<Data: RandomAccessCollection,
                         .background(rowBackground(for: index)) }
             } else {
                 ForEach(Array(renderedRows.enumerated()), id: \.element.id) { index, item in
-                    // Use Color.clear as the layout base — identical to filler rows — so the
-                    // row's frame is always determined purely by .frame(maxWidth: .infinity)
-                    // rather than by the HStack's natural content width. Content is rendered
-                    // via .overlay so it doesn't participate in frame measurement.
+                    /// Use Color.clear as the layout base — identical to filler rows — so the
+                    /// row's frame is always determined purely by .frame(maxWidth: .infinity)
+                    /// rather than by the HStack's natural content width. Content is rendered
+                    /// via .overlay so it doesn't participate in frame measurement.
                     Group {
                         if allowSelection {
-                            // contentShape + onTapGesture install a row-wide gesture
-                            // recognizer. That recognizer claims the row's hit-testing
-                            // region for itself, which silently swallows the hover
-                            // events that nested cells rely on for their .help()
-                            // tooltips (e.g. Notes / Versions Included in ReleasesTable).
-                            // Selection-driven tables need the gesture, so it's only
-                            // attached here — non-selecting tables skip it entirely,
-                            // leaving hover free to reach inner tooltip overlays.
+                            /// contentShape + onTapGesture install a row-wide gesture
+                            /// recognizer. That recognizer claims the row's hit-testing
+                            /// region for itself, which silently swallows the hover
+                            /// events that nested cells rely on for their .help()
+                            /// tooltips (e.g. Notes / Versions Included in ReleasesTable).
+                            /// Selection-driven tables need the gesture, so it's only
+                            /// attached here — non-selecting tables skip it entirely,
+                            /// leaving hover free to reach inner tooltip overlays.
                             rowBase(index: index, item: item)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    // Allow selection when expanded or when expansion isn't needed.
+                                    /// Allow selection when expanded or when expansion isn't needed.
                                     if isExpanded || !shouldShowExpandButton {
-                                        // Toggle selection: deselect if already selected, select otherwise.
+                                        /// Toggle selection: deselect if already selected, select otherwise.
                                         if selectedID == item.id {
                                             selectedID = nil
                                         } else {
@@ -364,7 +364,7 @@ struct CustomTable<Data: RandomAccessCollection,
                             .frame(height: rowHeight)
                             .background(rowBackground(for: index)) } }
 
-                // Add 12pt padding only when expanded and table has >6 rows.
+                /// Add 12pt padding only when expanded and table has >6 rows.
                 if shouldShowExpandButton && isExpanded {
                     Spacer(minLength: 12) } } }
         .frame(
@@ -376,13 +376,13 @@ struct CustomTable<Data: RandomAccessCollection,
         .allowsHitTesting(true) }
 
     // MARK: - Row Base
-    // Shared visual structure for a single data row: a Color.clear layout base
-    // (so the row's width always tracks .frame(maxWidth: .infinity) rather than
-    // the HStack's natural content width) with the row's actual content rendered
-    // via .overlay so it doesn't participate in frame measurement. Deliberately
-    // carries no gesture or contentShape of its own — that is layered on by the
-    // caller only when allowSelection is true, keeping non-selecting tables free
-    // of any row-wide hit-testing claim that would block nested tooltip hover.
+    /// Shared visual structure for a single data row: a Color.clear layout base
+    /// (so the row's width always tracks .frame(maxWidth: .infinity) rather than
+    /// the HStack's natural content width) with the row's actual content rendered
+    /// via .overlay so it doesn't participate in frame measurement. Deliberately
+    /// carries no gesture or contentShape of its own — that is layered on by the
+    /// caller only when allowSelection is true, keeping non-selecting tables free
+    /// of any row-wide hit-testing claim that would block nested tooltip hover.
     @ViewBuilder
     private func rowBase(index: Int, item: Data.Element) -> some View {
         Color.clear
@@ -407,7 +407,7 @@ struct CustomTable<Data: RandomAccessCollection,
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 2) }
-        // Always apply extra horizontal padding to match content positioning in all scenarios.
+        /// Always apply extra horizontal padding to match content positioning in all scenarios.
         .padding(.leading, contentPadding + scrollCompensation + collapsedScrollOffset)
         .padding(.trailing, contentPadding)
         .frame(maxWidth: .infinity)
@@ -418,13 +418,13 @@ struct CustomTable<Data: RandomAccessCollection,
     @ViewBuilder
     private func rowBackground(for index: Int, itemID: Data.Element.ID? = nil) -> some View {
         ZStack {
-            // Alternating row color.
+            /// Alternating row color.
             if index % 2 != 0 {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(alternatingRowColor)
                     .padding(.horizontal, 10) }
 
-            // Selection highlight (only when selection is enabled and row is selected).
+            /// Selection highlight (only when selection is enabled and row is selected).
             if allowSelection, let itemID = itemID, itemID == selectedIDValue {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(selectionColor)
@@ -433,15 +433,15 @@ struct CustomTable<Data: RandomAccessCollection,
 
 // MARK: - Column and Cell Definitions
 struct CustomTableColumn: Identifiable {
-    // Stable identity derived from column definition so ForEach doesn't treat
-    // columns as new on every render when the column list is rebuilt in body.
+    /// Stable identity derived from column definition so ForEach doesn't treat
+    /// columns as new on every render when the column list is rebuilt in body.
     let id: String
     let title: String
-    let systemImage: String?   // Optional SF Symbol name for the header
+    let systemImage: String?   /// Optional SF Symbol name for the header
     let minWidth: CGFloat?
     let maxWidth: CGFloat?
     let alignment: Alignment
-    let cellPadding: CGFloat   // Horizontal padding applied to both header and data cells
+    let cellPadding: CGFloat   /// Horizontal padding applied to both header and data cells
 
     init(_ title: String, systemImage: String? = nil, minWidth: CGFloat? = nil,
         maxWidth: CGFloat? = nil, alignment: Alignment = .leading, cellPadding: CGFloat = 8) {
@@ -451,25 +451,25 @@ struct CustomTableColumn: Identifiable {
         self.maxWidth = maxWidth
         self.alignment = alignment
         self.cellPadding = cellPadding
-        // Stable ID: combines all defining properties so two logically identical
-        // columns always produce the same ID, preventing unnecessary ForEach diffs.
+        /// Stable ID: combines all defining properties so two logically identical
+        /// columns always produce the same ID, preventing unnecessary ForEach diffs.
         self.id = "\(title)|\(systemImage ?? "")|\(minWidth ?? 0)|\(maxWidth ?? 0)|\(cellPadding)|\(alignment)"
     }
 }
 
 // MARK: - CustomTableCell
-// Generic over its content type to avoid AnyView type erasure, preserving
-// SwiftUI's structural identity for efficient diffing and eliminating the
-// per-cell heap allocation that AnyView would otherwise require.
-//
-// Both initializers resolve Content == Text, which covers all current call sites:
-// plain strings (wrapped automatically) and styled Text values (italic, secondary
-// color, etc. — Text modifiers always return Text, not an opaque view type).
-//
-// `tooltip`: when non-empty, a native macOS hover tooltip is shown via .help().
-// Pass the full untruncated string at call sites where the fixed cell width may
-// clip content. An empty string (the default) suppresses the tooltip entirely,
-// so all existing call sites remain unaffected without any modification.
+/// Generic over its content type to avoid AnyView type erasure, preserving
+/// SwiftUI's structural identity for efficient diffing and eliminating the
+/// per-cell heap allocation that AnyView would otherwise require.
+///
+/// Both initializers resolve Content == Text, which covers all current call sites:
+/// plain strings (wrapped automatically) and styled Text values (italic, secondary
+/// color, etc. — Text modifiers always return Text, not an opaque view type).
+///
+/// `tooltip`: when non-empty, a native macOS hover tooltip is shown via .help().
+/// Pass the full untruncated string at call sites where the fixed cell width may
+/// clip content. An empty string (the default) suppresses the tooltip entirely,
+/// so all existing call sites remain unaffected without any modification.
 struct CustomTableCell: View {
     let content: Text
     let minWidth: CGFloat?
@@ -478,7 +478,7 @@ struct CustomTableCell: View {
     let cellPadding: CGFloat
     let tooltip: String
 
-    // String convenience initializer — wraps the string in a plain Text.
+    /// String convenience initializer — wraps the string in a plain Text.
     init(_ text: String, minWidth: CGFloat? = nil, maxWidth: CGFloat? = nil,
         alignment: Alignment = .leading, cellPadding: CGFloat = 8, tooltip: String = "") {
         self.content = Text(text)
@@ -488,9 +488,9 @@ struct CustomTableCell: View {
         self.cellPadding = cellPadding
         self.tooltip = tooltip }
 
-    // Text initializer — accepts pre-styled Text values (italic, foregroundStyle, etc.).
-    // Text modifiers such as .italic(), .bold(), and .foregroundStyle(_:) all return
-    // Text, so this init covers any chain of Text-only modifiers without type erasure.
+    /// Text initializer — accepts pre-styled Text values (italic, foregroundStyle, etc.).
+    /// Text modifiers such as .italic(), .bold(), and .foregroundStyle(_:) all return
+    /// Text, so this init covers any chain of Text-only modifiers without type erasure.
     init(_ text: Text, minWidth: CGFloat? = nil, maxWidth: CGFloat? = nil,
         alignment: Alignment = .leading, cellPadding: CGFloat = 8, tooltip: String = "") {
         self.content = text
@@ -501,11 +501,11 @@ struct CustomTableCell: View {
         self.tooltip = tooltip }
 
     var body: some View {
-        // The Text itself remains non-interactive (.allowsHitTesting(false)) so it
-        // does not consume row tap gestures. When a tooltip is requested, a
-        // Color.clear overlay — which does receive hover events — carries .help()
-        // on top of the text. Without this layer the tooltip modifier is unreachable
-        // because the disabled hit-testing on Text prevents hover delivery entirely.
+        /// The Text itself remains non-interactive (.allowsHitTesting(false)) so it
+        /// does not consume row tap gestures. When a tooltip is requested, a
+        /// Color.clear overlay — which does receive hover events — carries .help()
+        /// on top of the text. Without this layer the tooltip modifier is unreachable
+        /// because the disabled hit-testing on Text prevents hover delivery entirely.
         let textView = content
             .allowsHitTesting(false)
             .font(.system(size: 12))

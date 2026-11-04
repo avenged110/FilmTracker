@@ -1,17 +1,17 @@
 // MARK: - PDFTableRenderer.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The shared paginated-table renderer every PDF report in the app is drawn with.
-//
-// Layer two of the PDF stack described at the top of PDFCore.swift (85.00). This file owns
-// table LAYOUT — column geometry, the one- or two-row header band, row measurement, page
-// breaks, per-page titles and footers — and nothing about what any particular table means.
-//
-// Everything renders through `PDFTableRenderer.render`: the report sheets built in
-// ReportExporter.swift (27.50), which mostly pass plain string rows, and the
-// complete-library table built in PDFReport.swift (85.20), which passes styled
-// cells and a grouped header. Those are the only two axes the callers differ on, and both
-// are expressed as data on `PDFTableSection` rather than as a second renderer.
+/// The shared paginated-table renderer every PDF report in the app is drawn with.
+///
+/// Layer two of the PDF stack described at the top of PDFCore.swift (85.00). This file owns
+/// table LAYOUT — column geometry, the one- or two-row header band, row measurement, page
+/// breaks, per-page titles and footers — and nothing about what any particular table means.
+///
+/// Everything renders through `PDFTableRenderer.render`: the report sheets built in
+/// ReportExporter.swift (27.50), which mostly pass plain string rows, and the
+/// complete-library table built in PDFReport.swift (85.20), which passes styled
+/// cells and a grouped header. Those are the only two axes the callers differ on, and both
+/// are expressed as data on `PDFTableSection` rather than as a second renderer.
 
 import AppKit
 import Foundation
@@ -446,35 +446,35 @@ enum PDFTableRenderer {
         let fonts = BodyFonts(geometry: geometry)
         let headerFont = PDFFonts.font(size: geometry.headerFontSize, weight: .bold)
 
-        // Every row's real height and where it lands. Page breaks are decided against these,
-        // which is also what makes the "Page N of M" footer correct on page one — a flat
-        // estimate under-counts any table with wrapping cells (a long Notes field is the
-        // usual culprit) and mislabels every footer in the document.
-        //
-        // Measuring is the expensive half of rendering — one `boundingRect` per cell — so
-        // a caller that has already measured this section hands the result back rather
-        // than paying for it twice. `PDFDocumentBuilder` does exactly that: it must count
-        // every section's pages before drawing any of them, and that count IS this
-        // measurement.
+        /// Every row's real height and where it lands. Page breaks are decided against these,
+        /// which is also what makes the "Page N of M" footer correct on page one — a flat
+        /// estimate under-counts any table with wrapping cells (a long Notes field is the
+        /// usual culprit) and mislabels every footer in the document.
+        ///
+        /// Measuring is the expensive half of rendering — one `boundingRect` per cell — so
+        /// a caller that has already measured this section hands the result back rather
+        /// than paying for it twice. `PDFDocumentBuilder` does exactly that: it must count
+        /// every section's pages before drawing any of them, and that count IS this
+        /// measurement.
         let measured = metrics ?? self.metrics(of: section, geometry: geometry)
         let rowHeights = measured.rowHeights
         let placements = measured.placements
         let totalPages = measured.pageCount
 
-        // Which column of which row is drawn by an EARLIER row's spanning cell, and at what
-        // height that spanning cell is drawn. Derived from the same row heights the flow
-        // was simulated against, so a span's rect always closes exactly on the bottom edge
-        // of the last row it covers.
+        /// Which column of which row is drawn by an EARLIER row's spanning cell, and at what
+        /// height that spanning cell is drawn. Derived from the same row heights the flow
+        /// was simulated against, so a span's rect always closes exactly on the bottom edge
+        /// of the last row it covers.
         let spans = spanLayout(section, rowHeights: rowHeights,
                                columns: panes[0].columns)
 
-        // AppKit's text drawing path reads NSGraphicsContext.current, and beginPDFPage
-        // installs a fresh graphics state — so this is re-pointed at the context after
-        // every page break as well as here.
-        //
-        // The previous current context is restored on the way out: this is process-wide
-        // state, and leaving it aimed at a PDF context that `closePDF()` has finished with
-        // would hand the next unrelated AppKit draw a dead destination.
+        /// AppKit's text drawing path reads NSGraphicsContext.current, and beginPDFPage
+        /// installs a fresh graphics state — so this is re-pointed at the context after
+        /// every page break as well as here.
+        ///
+        /// The previous current context is restored on the way out: this is process-wide
+        /// state, and leaving it aimed at a PDF context that `closePDF()` has finished with
+        /// would hand the next unrelated AppKit draw a dead destination.
         let priorContext = NSGraphicsContext.current
         defer { NSGraphicsContext.current = priorContext }
         let nsContext = NSGraphicsContext(cgContext: context, flipped: false)
@@ -490,10 +490,10 @@ enum PDFTableRenderer {
         }
 
         var currentPage = 0
-        // The panes whose header band has already been drawn ON THIS PAGE. A band is drawn
-        // lazily, immediately before the first row that lands in its pane, so a section
-        // that runs out halfway through a page does not leave an empty table header beside
-        // its last rows.
+        /// The panes whose header band has already been drawn ON THIS PAGE. A band is drawn
+        /// lazily, immediately before the first row that lands in its pane, so a section
+        /// that runs out halfway through a page does not leave an empty table header beside
+        /// its last rows.
         var bandedPanes = Set<Int>()
 
         for (index, placement) in placements.enumerated() {
@@ -591,7 +591,7 @@ enum PDFTableRenderer {
                     width: columns[column..<lastColumn].reduce(0) { $0 + $1.width },
                     height: rowHeights[index..<lastRow].reduce(0, +))
 
-                // Every cell in the merged rectangle except the one that owns it.
+                /// Every cell in the merged rectangle except the one that owns it.
                 for coveredRow in index..<lastRow {
                     for coveredColumn in column..<lastColumn
                     where !(coveredRow == index && coveredColumn == column) {
@@ -640,7 +640,7 @@ enum PDFTableRenderer {
         let hard = atomicBlocks(section)
         guard !section.keepTogether.isEmpty else { return hard }
 
-        // Keyed by first row, so a block boundary can be tested against it in one lookup.
+        /// Keyed by first row, so a block boundary can be tested against it in one lookup.
         var groups: [Int: Range<Int>] = [:]
         for range in section.keepTogether where !range.isEmpty
         && range.upperBound <= rowHeights.count {
@@ -725,9 +725,9 @@ enum PDFTableRenderer {
     /// one `boundingRect` per cell across every film in the library.
     static func metrics(of section: PDFTableSection,
                         geometry: PDFPageGeometry) -> PDFSectionMetrics {
-        // Measured against a PANE's columns, not the page's — a two-up section's cells wrap
-        // inside a half-width table, and measuring them at full width would report row
-        // heights smaller than what the section actually draws.
+        /// Measured against a PANE's columns, not the page's — a two-up section's cells wrap
+        /// inside a half-width table, and measuring them at full width would report row
+        /// heights smaller than what the section actually draws.
         let columns = paneLayout(section, geometry: geometry)[0].columns
         let fonts = BodyFonts(geometry: geometry)
         let heights = section.rows.map {
@@ -846,8 +846,8 @@ enum PDFTableRenderer {
         let grouped = !section.headerGroups.isEmpty
         let bandHeight = grouped ? rowHeight * 2 : rowHeight
 
-        // Which columns belong to a group, so the rest can be drawn as one merged cell
-        // spanning both header rows rather than leaving a blank banner above them.
+        /// Which columns belong to a group, so the rest can be drawn as one merged cell
+        /// spanning both header rows rather than leaving a blank banner above them.
         var groupedColumns = Set<Int>()
         for group in section.headerGroups {
             for index in group.columns { groupedColumns.insert(index) }
@@ -868,7 +868,7 @@ enum PDFTableRenderer {
 
         guard grouped else { return }
 
-        // Upper row: one banner per group.
+        /// Upper row: one banner per group.
         for group in section.headerGroups {
             guard let first = group.columns.first,
                   first < columns.count,
@@ -883,9 +883,9 @@ enum PDFTableRenderer {
                            context: context, geometry: geometry)
         }
 
-        // Lower row: each grouped column's own header, laid out on the group's OWN header
-        // weights when it supplies them — see PDFHeaderGroup.headerWeights. The cells still
-        // tile the group's exact span, so the banner above and the data below stay aligned.
+        /// Lower row: each grouped column's own header, laid out on the group's OWN header
+        /// weights when it supplies them — see PDFHeaderGroup.headerWeights. The cells still
+        /// tile the group's exact span, so the banner above and the data below stay aligned.
         for group in section.headerGroups {
             guard let first = group.columns.first, first < columns.count else { continue }
             let members = Array(group.columns.filter { $0 < columns.count })
@@ -955,14 +955,14 @@ enum PDFTableRenderer {
         var textRect = rect.insetBy(dx: geometry.cellPaddingX, dy: geometry.cellPaddingY)
         let textHeight = PDFDrawing.textHeight(text, width: textRect.width, font: font,
                                                lineSpacing: geometry.lineSpacing)
-        // Text draws from the top of its rect downward, and y grows upward, so shifting the
-        // rect DOWN by half the slack centers the block within the cell.
+        /// Text draws from the top of its rect downward, and y grows upward, so shifting the
+        /// rect DOWN by half the slack centers the block within the cell.
         let slack = max(0, textRect.height - textHeight)
         textRect.origin.y -= slack / 2
 
-        // A paired header sits on the same axis as the paired values below it, which is the
-        // whole point of pairing them: the separator forms one vertical rule from the
-        // header down through every row of the column.
+        /// A paired header sits on the same axis as the paired values below it, which is the
+        /// whole point of pairing them: the separator forms one vertical rule from the
+        /// header down through every row of the column.
         if let paired {
             PDFDrawing.drawPaired(paired, in: textRect, font: font, color: PDFPalette.text,
                                   lineSpacing: geometry.lineSpacing, context: context)
@@ -999,9 +999,9 @@ enum PDFTableRenderer {
         xPositions: [CGFloat],
         yPosition: CGFloat,
         height: CGFloat,
-        // Defaulted empty for the tile-stack renderer below, whose tiles are plain tables
-        // with no merged cells — not because a merge there would be wrong, but because
-        // nothing builds one.
+        /// Defaulted empty for the tile-stack renderer below, whose tiles are plain tables
+        /// with no merged cells — not because a merge there would be wrong, but because
+        /// nothing builds one.
         spanSizes: [Int: CGSize] = [:],
         covered: Set<Int> = [],
         fonts: BodyFonts,
@@ -1009,12 +1009,12 @@ enum PDFTableRenderer {
         geometry: PDFPageGeometry
     ) {
         for (index, column) in columns.enumerated() {
-            // A column covered by a merge that began above draws NOTHING — not the fill,
-            // not the rules, not an empty cell. The spanning cell already owns this space.
+            /// A column covered by a merge that began above draws NOTHING — not the fill,
+            /// not the rules, not an empty cell. The spanning cell already owns this space.
             guard !covered.contains(index) else { continue }
 
-            // A spanning cell covers the rows and columns it names; everything else is its
-            // own row's height at its own column's width.
+            /// A spanning cell covers the rows and columns it names; everything else is its
+            /// own row's height at its own column's width.
             let size = spanSizes[index] ?? CGSize(width: column.width, height: height)
             let rect = CGRect(x: xPositions[index],
                               y: geometry.pageSize.height - yPosition - size.height,
@@ -1037,17 +1037,17 @@ enum PDFTableRenderer {
                 textRect.size.width = max(0, textRect.width - cell.indent)
             }
 
-            // A cell merged DOWNWARD centers vertically in the space it owns; an ordinary
-            // one keeps the top alignment every table in the app has always had. Centering
-            // is the only reading of a cell that deliberately covers several rows — pinned
-            // to the top it would look like it belonged to the first of them. A cell merged
-            // only sideways has gained no vertical room and is left alone.
+            /// A cell merged DOWNWARD centers vertically in the space it owns; an ordinary
+            /// one keeps the top alignment every table in the app has always had. Centering
+            /// is the only reading of a cell that deliberately covers several rows — pinned
+            /// to the top it would look like it belonged to the first of them. A cell merged
+            /// only sideways has gained no vertical room and is left alone.
             if let merged = spanSizes[index], merged.height > height + 0.001 {
                 let textHeight = PDFDrawing.textHeight(cell.text, width: textRect.width,
                                                        font: fonts.face(for: cell),
                                                        lineSpacing: geometry.lineSpacing)
-                // Text draws downward from the top of its rect and y grows upward, so
-                // lowering the rect by half the slack centers the block.
+                /// Text draws downward from the top of its rect and y grows upward, so
+                /// lowering the rect by half the slack centers the block.
                 textRect.origin.y -= max(0, textRect.height - textHeight) / 2
             }
 
@@ -1076,9 +1076,9 @@ enum PDFTableRenderer {
         var height = geometry.minRowHeight
         for index in columns.indices where index < row.count {
             let cell = row[index]
-            // A cell that spans columns wraps inside the WHOLE span. Measuring it against
-            // its first column alone would report several lines for text that in fact
-            // fits on one, and grow the row to hold them.
+            /// A cell that spans columns wraps inside the WHOLE span. Measuring it against
+            /// its first column alone would report several lines for text that in fact
+            /// fits on one, and grow the row to hold them.
             let span = min(index + max(1, cell.columnSpan), columns.count)
             let available = columns[index..<span].reduce(CGFloat(0)) { $0 + $1.width }
                 - (geometry.cellPaddingX * 2)
@@ -1090,9 +1090,9 @@ enum PDFTableRenderer {
                                         width: available,
                                         font: fonts.face(for: cell),
                                         lineSpacing: geometry.lineSpacing)
-            // A merged cell is drawn across `rowSpan` rows, so it only has to claim its
-            // share of the height from each of them. Charging the whole of it to the first
-            // row would make that row tall enough to hold the text twice over.
+            /// A merged cell is drawn across `rowSpan` rows, so it only has to claim its
+            /// share of the height from each of them. Charging the whole of it to the first
+            /// row would make that row tall enough to hold the text twice over.
             height = max(height,
                          needed / CGFloat(max(1, cell.rowSpan)) + (geometry.cellPaddingY * 2))
         }
@@ -1124,9 +1124,9 @@ enum PDFTableRenderer {
         let rect = CGRect(
             x: geometry.margin,
             y: geometry.pageSize.height - geometry.margin - geometry.titleHeight + 10,
-            // Stops short of the "Film Tracker" wordmark + its padding + the brand mark's
-            // square, so a long section title clips before the wordmark rather than running
-            // underneath it.
+            /// Stops short of the "Film Tracker" wordmark + its padding + the brand mark's
+            /// square, so a long section title clips before the wordmark rather than running
+            /// underneath it.
             width: geometry.contentWidth - PDFBrandMark.reservedWidth(in: geometry) - 6,
             height: geometry.titleHeight
         )
@@ -1164,7 +1164,7 @@ enum PDFTableRenderer {
                  alignedTo: .center, baseline: baseline, context: context, geometry: geometry)
 
         case let .sectioned(sectionPage, sectionTotal, documentPage, documentTotal, producedOn):
-            // Labeled, because two bare numbers at opposite corners would be a puzzle.
+            /// Labeled, because two bare numbers at opposite corners would be a puzzle.
             draw(footerText: "Section page \(sectionPage) of \(sectionTotal)", font: font,
                  alignedTo: .left, baseline: baseline, context: context, geometry: geometry)
             draw(footerText: producedOn, font: font,
@@ -1277,10 +1277,10 @@ final class PDFDocumentBuilder {
     /// caller's cleanup deletes the file either way.
     @discardableResult
     func finish(progress: ((Double) -> Void)? = nil) async throws -> Int {
-        // Laid out once, up front: the document total appears in the footer of the FIRST
-        // page, so it has to be known before anything is drawn. The layout is CARRIED into
-        // the draw rather than thrown away — measuring is the expensive part of rendering,
-        // and re-deriving it would lay every sheet in the document out twice.
+        /// Laid out once, up front: the document total appears in the footer of the FIRST
+        /// page, so it has to be known before anything is drawn. The layout is CARRIED into
+        /// the draw rather than thrown away — measuring is the expensive part of rendering,
+        /// and re-deriving it would lay every sheet in the document out twice.
         var layouts: [PDFSheet.Layout] = []
         layouts.reserveCapacity(pending.count)
         for (index, entry) in pending.enumerated() {
@@ -1364,7 +1364,7 @@ enum PDFSheet {
                                               metrics: layout?.sectionMetrics, footer: footer,
                                               afterPage: afterPage)
         case let .stack(stack):
-            // A stack is a page or two; it is drawn in one go and reported as such.
+            /// A stack is a page or two; it is drawn in one go and reported as such.
             PDFTableRenderer.render(stack, into: context, geometry: geometry,
                                     pageCount: layout?.pageCount, footer: footer)
             let pages = layout?.pageCount ?? PDFTableRenderer.pageCount(of: stack, geometry: geometry)
@@ -1431,9 +1431,9 @@ extension PDFTableRenderer {
         pageCount: Int? = nil,
         footer: (_ sectionPage: Int, _ sectionTotal: Int) -> PDFFooter
     ) {
-        // Measuring, when it is needed, is the SAME layout routine run with drawing off —
-        // not a separate estimator, which would be a second implementation of the layout
-        // free to disagree with it.
+        /// Measuring, when it is needed, is the SAME layout routine run with drawing off —
+        /// not a separate estimator, which would be a second implementation of the layout
+        /// free to disagree with it.
         let total = pageCount ?? layOut(stack, into: nil, geometry: geometry, draw: false,
                                         totalPages: 1, footer: footer)
         layOut(stack, into: context, geometry: geometry, draw: true, totalPages: total,
@@ -1463,14 +1463,14 @@ extension PDFTableRenderer {
         let contentTop = geometry.margin + geometry.titleHeight
         let contentBottom = geometry.pageSize.height - geometry.margin - geometry.footerReserve
 
-        // A drawing pass needs the AppKit text context pointed at the CGContext, and
-        // re-pointed after every beginPDFPage. A measuring pass touches neither — which is
-        // also why the restore below is conditional: a measuring pass must not clobber a
-        // current context it never set.
+        /// A drawing pass needs the AppKit text context pointed at the CGContext, and
+        /// re-pointed after every beginPDFPage. A measuring pass touches neither — which is
+        /// also why the restore below is conditional: a measuring pass must not clobber a
+        /// current context it never set.
         let nsContext = (draw && context != nil)
             ? NSGraphicsContext(cgContext: context!, flipped: false) : nil
-        // Process-wide state. Restored on the way out so the next unrelated AppKit draw is
-        // not left aimed at a PDF context this document has already finished with.
+        /// Process-wide state. Restored on the way out so the next unrelated AppKit draw is
+        /// not left aimed at a PDF context this document has already finished with.
         let priorContext = NSGraphicsContext.current
         defer { if nsContext != nil { NSGraphicsContext.current = priorContext } }
 
@@ -1493,9 +1493,9 @@ extension PDFTableRenderer {
         var y = contentTop
 
         // MARK: The drawn blocks, one under another
-        //
-        // Placed now and drawn when their page is finished, so the backdrop — which spans
-        // every block on the page — goes down before any of them.
+        ///
+        /// Placed now and drawn when their page is finished, so the backdrop — which spans
+        /// every block on the page — goes down before any of them.
         let inset: CGFloat = stack.blockBackdrop == nil ? 0 : 8
         let blockWidth = geometry.contentWidth - inset * 2
         var placed: [(block: PDFDrawnBlock, rect: CGRect, scale: CGFloat)] = []
@@ -1529,7 +1529,7 @@ extension PDFTableRenderer {
             if block.size.height * scale > blockRoom { scale = blockRoom / block.size.height }
             let size = CGSize(width: block.size.width * scale, height: block.size.height * scale)
 
-            // The first block on a page sits `inset` inside the top of the backdrop panel.
+            /// The first block on a page sits `inset` inside the top of the backdrop panel.
             let top = placed.isEmpty ? y + inset : y
             if top + size.height + inset > contentBottom, !(placed.isEmpty && y == contentTop) {
                 drawPlacedBlocks()
@@ -1537,7 +1537,7 @@ extension PDFTableRenderer {
                 startPage(); y = contentTop
             }
             let blockTop = placed.isEmpty ? y + inset : y
-            // Centered: only a block scaled down to fit a page is narrower than the column.
+            /// Centered: only a block scaled down to fit a page is narrower than the column.
             let x = geometry.margin + inset + (blockWidth - size.width) / 2
             placed.append((block, CGRect(x: x, y: blockTop, width: size.width, height: size.height), scale))
             y = blockTop + size.height + stack.gutter

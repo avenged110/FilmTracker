@@ -1,10 +1,10 @@
 // MARK: - LeftSidebar.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Navigation sidebar showing Library sections and user-created Lists.
-//
-// The sidebar lists the library's smart lists, Film Queue, Reports, Imports, and user lists.
-// Its selection drives the gallery, and it also accepts drops onto lists and the Queue.
+/// Navigation sidebar showing Library sections and user-created Lists.
+///
+/// The sidebar lists the library's smart lists, Film Queue, Reports, Imports, and user lists.
+/// Its selection drives the gallery, and it also accepts drops onto lists and the Queue.
 
 import SwiftUI
 import AppKit
@@ -18,10 +18,10 @@ struct LeftSidebar: View, Loggable {
 
     @State private var importsGlyphState: ImportsGlyphState = .normal
     
-    // Local selection state - isolates the List binding from AppState
+    /// Local selection state - isolates the List binding from AppState
     @State private var localSelection: SidebarItem = .libraryItem(.allFilms)
     
-    // Monitor Preferences.smartLists for real-time updates
+    /// Monitor Preferences.smartLists for real-time updates
     @AppStorage(preference: Preferences.smartListsKey) private var smartListsEnabled: Bool
 
     var body: some View {
@@ -39,20 +39,20 @@ struct LeftSidebar: View, Loggable {
                 onMove: moveItems
             )
 
-            // Shown once there is something in it.
+            /// Shown once there is something in it.
             if !SavedSearchStore.shared.searches.isEmpty {
                 SavedSearchesSection()
             }
         }
         .listStyle(.sidebar)
         .frame(minWidth: 180)
-        // Animates list insertions, deletions, renames, and reorders. Keyed on what the rows
-        // show, not on cachedLists, which also carries film counts that no row displays.
+        /// Animates list insertions, deletions, renames, and reorders. Keyed on what the rows
+        /// show, not on cachedLists, which also carries film counts that no row displays.
         .animation(.default, value: dataCoordinator.cachedLists.map(ListRowKey.init))
-        // Keyed on what the rows show, as ListRowKey is.
+        /// Keyed on what the rows show, as ListRowKey is.
         .animation(.default, value: SavedSearchStore.shared.searches.map(SavedSearchRowKey.init))
-        // Both selection syncs live in their own modifier. Applied here, every click would
-        // re-evaluate this body and every ListRow. See SidebarSelectionSync.
+        /// Both selection syncs live in their own modifier. Applied here, every click would
+        /// re-evaluate this body and every ListRow. See SidebarSelectionSync.
         .modifier(SidebarSelectionSync(
             localSelection: $localSelection,
             onUserSelection: { oldValue, newValue in
@@ -65,7 +65,7 @@ struct LeftSidebar: View, Loggable {
                 handleSelectionChange(newValue: newValue)
             }))
         .onChange(of: smartListsEnabled) { _, isEnabled in
-            // If smart lists are disabled and we're viewing one, switch to All Films
+            /// If smart lists are disabled and we're viewing one, switch to All Films
             if !isEnabled, case .smartList = appState.selectedSidebarItem {
                 appState.navigate(to: .libraryItem(.allFilms))
             }
@@ -73,8 +73,8 @@ struct LeftSidebar: View, Loggable {
         .onAppear {
             ListRowActivityStore.shared.attach(appState)
         }
-        // No initialization task is needed. cachedLists is filled synchronously in
-        // finalizeInitialization(), so the rows appear in the same frame as the grid.
+        /// No initialization task is needed. cachedLists is filled synchronously in
+        /// finalizeInitialization(), so the rows appear in the same frame as the grid.
         .setupEvents(appState: appState,
             importsGlyphState: $importsGlyphState)
     }
@@ -113,7 +113,7 @@ struct LeftSidebar: View, Loggable {
     private func handleSelectionChange(newValue: SidebarItem) {
         switch newValue {
         case .libraryItem(.imports):
-            // Clear the imports glyph state when navigating to Imports.
+            /// Clear the imports glyph state when navigating to Imports.
             if importsGlyphState.isFinished {
                 importsGlyphState = .normal
             }
@@ -130,8 +130,8 @@ struct LeftSidebar: View, Loggable {
     private func performListAction(_ action: ListRowAction, _ listID: UUID) {
         switch action {
         case .edit:
-            // Request the list manager sheet for editing via UICommand;
-            // SheetHostView handles the actual presentation.
+            /// Request the list manager sheet for editing via UICommand;
+            /// SheetHostView handles the actual presentation.
             Self.log("Requesting list edit sheet for list: \(listID)")
             AppEventBus.shared.send(.ui(.editList(listID)))
         case .duplicate:
@@ -153,7 +153,7 @@ struct LeftSidebar: View, Loggable {
     }
 
     private func handleClearListContents(_ listID: UUID) {
-        // Gated by the "list contents" class of the list-edit confirmation preference.
+        /// Gated by the "list contents" class of the list-edit confirmation preference.
         if !Preferences.shouldConfirmListContents {
             Task {
                 _ = ListManager.clearListContents(listID, coordinator: dataCoordinator)
@@ -166,12 +166,12 @@ struct LeftSidebar: View, Loggable {
     }
     
     private func handleDeleteListContents(_ listID: UUID) {
-        // Film IDs are fetched synchronously, since getFilmIDsForListDeletion reads MemoryStore
-        // directly.
+        /// Film IDs are fetched synchronously, since getFilmIDsForListDeletion reads MemoryStore
+        /// directly.
         let filmIDs = ListManager.getFilmIDsForListDeletion(listID, coordinator: dataCoordinator)
 
         guard !filmIDs.isEmpty else {
-            // The list became empty since the menu gesture, for example after a prior deletion.
+            /// The list became empty since the menu gesture, for example after a prior deletion.
             Self.log("handleDeleteListContents: list \(listID) has no films — operation skipped")
             return
         }
@@ -188,7 +188,7 @@ struct LeftSidebar: View, Loggable {
     }
     
     private func handleDeleteList(_ listID: UUID) {
-        // Gated by the "list structure" class of the list-edit confirmation preference.
+        /// Gated by the "list structure" class of the list-edit confirmation preference.
         if !Preferences.shouldConfirmListStructure {
             Task {
                 _ = ListManager.deleteList(listID, coordinator: dataCoordinator)
@@ -201,8 +201,8 @@ struct LeftSidebar: View, Loggable {
     }
 
     private func moveItems(from source: IndexSet, to destination: Int) {
-        // batchUpdateListOrders applies an optimistic update and calls syncListsCache(), so the
-        // sidebar updates immediately through @Observable.
+        /// batchUpdateListOrders applies an optimistic update and calls syncListsCache(), so the
+        /// sidebar updates immediately through @Observable.
         Task {
             ListManager.reorderLists(from: source, to: destination,
                 coordinator: dataCoordinator)
@@ -211,8 +211,8 @@ struct LeftSidebar: View, Loggable {
 }
 
 // MARK: - Sidebar Selection Sync
-// Keeps the List's local selection and AppState in step, in both directions. A modifier of
-// its own so that the selection it reads invalidates only this, not LeftSidebar's body.
+/// Keeps the List's local selection and AppState in step, in both directions. A modifier of
+/// its own so that the selection it reads invalidates only this, not LeftSidebar's body.
 private struct SidebarSelectionSync: ViewModifier {
     @Environment(AppState.self) private var appState
     @Binding var localSelection: SidebarItem
@@ -221,20 +221,20 @@ private struct SidebarSelectionSync: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            // Sync AppState -> LocalSelection (programmatic changes flow DOWN)
+            /// Sync AppState -> LocalSelection (programmatic changes flow DOWN)
             .onChange(of: displayedSelection) { _, newValue in
                 if localSelection != newValue {
                     localSelection = newValue
                 }
             }
-            // Sync LocalSelection -> AppState (user clicks flow UP)
+            /// Sync LocalSelection -> AppState (user clicks flow UP)
             .onChange(of: localSelection) { oldValue, newValue in
                 if displayedSelection != newValue {
                     onUserSelection(oldValue, newValue)
                 }
             }
             .onAppear {
-                // Initialize local selection to match app state
+                /// Initialize local selection to match app state
                 localSelection = displayedSelection
             }
     }
@@ -251,8 +251,8 @@ private struct SidebarSelectionSync: ViewModifier {
 }
 
 // MARK: - List Row Animation Key
-// What a sidebar list row displays, and so what its insertion, removal, rename, or
-// reorder animates on. See LeftSidebar's .animation.
+/// What a sidebar list row displays, and so what its insertion, removal, rename, or
+/// reorder animates on. See LeftSidebar's .animation.
 private struct ListRowKey: Equatable {
     let listID: UUID
     let listName: String
@@ -280,9 +280,9 @@ private enum ImportsGlyphState {
 }
 
 // MARK: - List Row Action
-// The set of contextual-menu actions a list row can raise. Collapsing these into one
-// enum keeps ListsSection and ListRow to a single `onAction` closure each, instead of
-// five parallel closures declared and forwarded at every level.
+/// The set of contextual-menu actions a list row can raise. Collapsing these into one
+/// enum keeps ListsSection and ListRow to a single `onAction` closure each, instead of
+/// five parallel closures declared and forwarded at every level.
 private enum ListRowAction {
     case edit
     case duplicate
@@ -292,11 +292,11 @@ private enum ListRowAction {
 }
 
 // MARK: - Momentary Glyph Helper
-// Shows a transient confirmation glyph for a fixed interval, then hides it. The "Queue" row and
-// every ListRow use it. A second completion restarts the full interval, and the stored handle
-// lets onDisappear cancel a pending hide.
+/// Shows a transient confirmation glyph for a fixed interval, then hides it. The "Queue" row and
+/// every ListRow use it. A second completion restarts the full interval, and the stored handle
+/// lets onDisappear cancel a pending hide.
 private enum MomentaryGlyph {
-    // Immutable and Sendable, so it needs no actor isolation of its own.
+    /// Immutable and Sendable, so it needs no actor isolation of its own.
     static let duration: Duration = .seconds(2)
 
     @MainActor
@@ -312,9 +312,9 @@ private enum MomentaryGlyph {
 }
 
 // MARK: - List Row Drop Highlight
-// Installs the AppKit drop and hover proxy for a sidebar row and paints the native-style drop
-// highlight. The "Queue" row and every ListRow use this pair. The proxy keeps the same
-// conditional shape whatever `isEnabled` is, so ListRow (always `true`) never reinstalls it.
+/// Installs the AppKit drop and hover proxy for a sidebar row and paints the native-style drop
+/// highlight. The "Queue" row and every ListRow use this pair. The proxy keeps the same
+/// conditional shape whatever `isEnabled` is, so ListRow (always `true`) never reinstalls it.
 private struct ListRowDropHighlight: ViewModifier {
     let listID: UUID
     let listName: String
@@ -356,8 +356,8 @@ private struct LibrarySection: View {
     var importProgress = ImportProgress.shared
     let importsGlyphState: ImportsGlyphState
 
-    // The Imports row's icon: its own glyph normally, a checkmark once an import
-    // finishes cleanly, a warning triangle once one finishes with failures.
+    /// The Imports row's icon: its own glyph normally, a checkmark once an import
+    /// finishes cleanly, a warning triangle once one finishes with failures.
     private var importsGlyph: String {
         switch importsGlyphState {
         case .completed:           return ViewGlyphs.importsCompletion.outline
@@ -369,26 +369,26 @@ private struct LibrarySection: View {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(AppState.self) private var appState
 
-    // Mirrors the two Preferences keys governing the "Film Queue" sidebar row's
-    // drop-target behavior. @AppStorage keeps these reactive to changes made in
-    // Settings while this view is on screen.
+    /// Mirrors the two Preferences keys governing the "Film Queue" sidebar row's
+    /// drop-target behavior. @AppStorage keeps these reactive to changes made in
+    /// Settings while this view is on screen.
     @AppStorage(preference: Preferences.queueIsDropTargetKey)
         private var queueIsDropTarget: Bool
     @AppStorage(preference: Preferences.queueSectionOnDropKey)
         private var queueSectionOnDropRaw: Int
 
-    // Drag and hover state for the "Film Queue" row, as in ListRow. isHovered is not displayed
-    // here but ListRowDropTarget requires it.
+    /// Drag and hover state for the "Film Queue" row, as in ListRow. isHovered is not displayed
+    /// here but ListRowDropTarget requires it.
     @State private var isQueueDropTargeted = false
     @State private var isQueueHovered = false
 
-    // Momentary completion glyph, as in ListRow. Driven by .queueAdditionCompleted, which fires
-    // only when a film is added to an internal Film Queue list, never on removals.
+    /// Momentary completion glyph, as in ListRow. Driven by .queueAdditionCompleted, which fires
+    /// only when a film is added to an internal Film Queue list, never on removals.
     @State private var showQueueCompletionGlyph = false
     @State private var queueCompletionTask: Task<Void, Never>?
 
-    // Resolves the currently-selected Film Queue section from the raw preference
-    // value, falling back to "Up Next" for any unrecognized/corrupt stored value.
+    /// Resolves the currently-selected Film Queue section from the raw preference
+    /// value, falling back to "Up Next" for any unrecognized/corrupt stored value.
     private var queueDropSection: Preferences.QueueDropSection {
         Preferences.QueueDropSection(rawValue: queueSectionOnDropRaw) ?? .upNext
     }
@@ -430,9 +430,9 @@ private struct LibrarySection: View {
                     .contentTransition(.symbolEffect(.replace))
             }
                 .tag(SidebarItem.libraryItem(.filmQueue))
-                // The shared row modifier targets the Film Queue section chosen in
-                // Preferences.queueSectionOnDrop. With queueIsDropTarget off, isEnabled is false
-                // and no proxy or highlight is installed.
+                /// The shared row modifier targets the Film Queue section chosen in
+                /// Preferences.queueSectionOnDrop. With queueIsDropTarget off, isEnabled is false
+                /// and no proxy or highlight is installed.
                 .modifier(ListRowDropHighlight(
                     listID: queueDropSection.filmQueueSection.listID,
                     listName: queueDropSection.filmQueueSection.displayName,
@@ -444,9 +444,9 @@ private struct LibrarySection: View {
                 .onReceive(AppEventBus.shared.listEvents) { event in
                     guard case .queueAdditionCompleted = event else { return }
 
-                    // Only show the completion glyph when the user is NOT currently
-                    // viewing the Film Queue — if they are, the change is self-evident.
-                    // Mirrors ListRowActivityStore's identical guard.
+                    /// Only show the completion glyph when the user is NOT currently
+                    /// viewing the Film Queue — if they are, the change is self-evident.
+                    /// Mirrors ListRowActivityStore's identical guard.
                     guard appState.selectedSidebarItem != .libraryItem(.filmQueue) else { return }
 
                     MomentaryGlyph.show($showQueueCompletionGlyph, task: $queueCompletionTask)
@@ -459,21 +459,21 @@ private struct LibrarySection: View {
 }
 
 // MARK: - Smart Lists Section Component
-// Each family is a native disclosure row: the parent's row selects the parent list, its
-// triangle reveals the family's variants as indented child rows (familyVariants, the same
-// list the title-bar picker offers). Which families are expanded is remembered across
-// launches (Preferences.expandedSmartListFamilies).
+/// Each family is a native disclosure row: the parent's row selects the parent list, its
+/// triangle reveals the family's variants as indented child rows (familyVariants, the same
+/// list the title-bar picker offers). Which families are expanded is remembered across
+/// launches (Preferences.expandedSmartListFamilies).
 private struct SmartListsSection: View {
-    // SmartListType.sidebarCases is the static source of truth. This view takes no
-    // DataCoordinator, so no unneeded @Observable subscription runs on each body evaluation.
+    /// SmartListType.sidebarCases is the static source of truth. This view takes no
+    /// DataCoordinator, so no unneeded @Observable subscription runs on each body evaluation.
 
     @State private var expanded: Set<SmartListType> = Preferences.expandedSmartListFamilies
 
     var body: some View {
         Section("Smart Lists") {
             ForEach(SmartListType.sidebarCases) { parent in
-                // A family with no variants (Upcoming Releases) is a plain row: a disclosure
-                // triangle over nothing would offer an expansion that reveals nothing.
+                /// A family with no variants (Upcoming Releases) is a plain row: a disclosure
+                /// triangle over nothing would offer an expansion that reveals nothing.
                 if parent.familyVariants.count > 1 {
                     DisclosureGroup(isExpanded: isExpanded(parent)) {
                         ForEach(parent.familyVariants.dropFirst()) { variant in
@@ -540,11 +540,11 @@ private struct ListRow: View {
     /// This row's spinner and completion glyph, driven by ListRowActivityStore's shared subscription.
     private var activity: ListRowActivity { ListRowActivityStore.shared.activity(for: listInfo.listID) }
 
-    // Hover / ellipsis button state
+    /// Hover / ellipsis button state
     @State private var isHovered = false
     @State private var isEllipsisPressed = false
 
-    // Drag-and-drop state
+    /// Drag-and-drop state
     @State private var isDropTargeted = false
 
     /// The trailing accessory slot shows one item at a time:
@@ -561,15 +561,15 @@ private struct ListRow: View {
                 .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
                 .transition(.opacity)
         } else if isHovered {
-            // Chromeless ellipsis button, shown only while hovering this row.
-            //
-            // The glyph is a plain Image — so it inherits the List row's automatic
-            // selection/focus emphasis coloring like the row's text. An invisible,
-            // identically-sized Menu sits on top to catch the click and present the
-            // contextual menu.
+            /// Chromeless ellipsis button, shown only while hovering this row.
+            ///
+            /// The glyph is a plain Image — so it inherits the List row's automatic
+            /// selection/focus emphasis coloring like the row's text. An invisible,
+            /// identically-sized Menu sits on top to catch the click and present the
+            /// contextual menu.
             Image(systemName: "ellipsis.circle")
                 .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
-                // Dims the glyph on mouse-down and restores it on release.
+                /// Dims the glyph on mouse-down and restores it on release.
                 .opacity(isEllipsisPressed ? 0.4 : 1.0)
                 .animation(.easeOut(duration: 0.08), value: isEllipsisPressed)
                 .overlay {
@@ -584,8 +584,8 @@ private struct ListRow: View {
                     .focusable(false)
                     .focusEffectDisabled()
                 }
-                // Simultaneous gesture drives opacity feedback only; does not consume the
-                // tap, so the Menu overlay still receives the click.
+                /// Simultaneous gesture drives opacity feedback only; does not consume the
+                /// tap, so the Menu overlay still receives the click.
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { _ in isEllipsisPressed = true }
@@ -605,14 +605,14 @@ private struct ListRow: View {
 
     var body: some View {
         Label {
-            // The title is JUST the text, laid out as though no accessory existed; the
-            // accessory is layered over it and reserved for by a constant trailing inset.
-            //
-            // The accessory is an overlay, not an HStack sibling. A view entering or leaving a
-            // stack shifts the stack's baseline, so the icon jiggled on every hover. An overlay
-            // is outside the layout, so it cannot move the icon. The trailing inset that makes
-            // room for it applies only while it shows. It changes only the title's width, so the
-            // icon stays put. The change is unanimated on purpose.
+            /// The title is JUST the text, laid out as though no accessory existed; the
+            /// accessory is layered over it and reserved for by a constant trailing inset.
+            ///
+            /// The accessory is an overlay, not an HStack sibling. A view entering or leaving a
+            /// stack shifts the stack's baseline, so the icon jiggled on every hover. An overlay
+            /// is outside the layout, so it cannot move the icon. The trailing inset that makes
+            /// room for it applies only while it shows. It changes only the title's width, so the
+            /// icon stays put. The change is unanimated on purpose.
             Text(listInfo.listName)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -625,18 +625,18 @@ private struct ListRow: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .tag(SidebarItem.list(listInfo.listID))
-        // Secondary-click anywhere on the row opens the same menu as the ellipsis button.
+        /// Secondary-click anywhere on the row opens the same menu as the ellipsis button.
         .contextMenu {
             contextMenuItems()
         }
-        // Clears press state when the cursor leaves the row, so the glyph does not stay dim.
+        /// Clears press state when the cursor leaves the row, so the glyph does not stay dim.
         .onChange(of: isHovered) { _, hovering in
             if !hovering, isEllipsisPressed { isEllipsisPressed = false }
         }
-        // ListRowDropTarget is a zero-size anchor. It installs a RowDragProxyView on the
-        // NSTableRowView, covering the full row. That proxy supplies hover state and drag
-        // callbacks, since .onHover covers only the inset content. User lists are always
-        // drop targets, so isEnabled is true.
+        /// ListRowDropTarget is a zero-size anchor. It installs a RowDragProxyView on the
+        /// NSTableRowView, covering the full row. That proxy supplies hover state and drag
+        /// callbacks, since .onHover covers only the inset content. User lists are always
+        /// drop targets, so isEnabled is true.
         .modifier(ListRowDropHighlight(
             listID: listInfo.listID,
             listName: listInfo.listName,
@@ -648,7 +648,7 @@ private struct ListRow: View {
     }
 
     // MARK: - Context Menu Items
-    // Shared by the secondary-click .contextMenu and the ellipsis Menu, so both stay identical.
+    /// Shared by the secondary-click .contextMenu and the ellipsis Menu, so both stay identical.
     @ViewBuilder
     private func contextMenuItems() -> some View {
         Button("Clear List Contents") {
@@ -689,10 +689,10 @@ private struct SavedSearchRowKey: Equatable {
 }
 
 // MARK: - Saved Searches Section Component
-// One row per saved search, in the order the user dragged them into. A row opens the
-// search's own gallery view (ViewIdentifier.savedSearch); its menu edits it, opens it in
-// the search field, duplicates or removes it. Not a drop target: films cannot be added to
-// a query.
+/// One row per saved search, in the order the user dragged them into. A row opens the
+/// search's own gallery view (ViewIdentifier.savedSearch); its menu edits it, opens it in
+/// the search field, duplicates or removes it. Not a drop target: films cannot be added to
+/// a query.
 private struct SavedSearchesSection: View {
     private var store: SavedSearchStore { .shared }
 
@@ -712,7 +712,7 @@ private struct SavedSearchRow: View {
 
     @Environment(DataCoordinator.self) private var dataCoordinator
 
-    // Hover / ellipsis button state, as ListRow's.
+    /// Hover / ellipsis button state, as ListRow's.
     @State private var isHovered = false
     @State private var isEllipsisPressed = false
     /// Required by the row proxy's interface; a saved search row never becomes a drop target.
@@ -721,8 +721,8 @@ private struct SavedSearchRow: View {
     private static let accessorySlotWidth: CGFloat = 18
 
     var body: some View {
-        // Laid out as ListRow is — the ellipsis an overlay on the title, reserved for by a
-        // trailing inset only while it shows — for the same reason: the icon must not move.
+        /// Laid out as ListRow is — the ellipsis an overlay on the title, reserved for by a
+        /// trailing inset only while it shows — for the same reason: the icon must not move.
         Label {
             Text(search.name)
                 .lineLimit(1)
@@ -739,7 +739,7 @@ private struct SavedSearchRow: View {
         .onChange(of: isHovered) { _, hovering in
             if !hovering, isEllipsisPressed { isEllipsisPressed = false }
         }
-        // The list rows' full-row hover tracking (see ListRow), with drops turned off.
+        /// The list rows' full-row hover tracking (see ListRow), with drops turned off.
         .overlay(
             ListRowDropTarget(listID: search.id, listName: search.name, dataCoordinator: dataCoordinator,
                               isDropTargeted: $isDropTargeted, isHovered: $isHovered, acceptsDrops: false)
@@ -771,7 +771,7 @@ private struct SavedSearchRow: View {
         }
     }
 
-    // Shared by the context menu and the ellipsis, as ListRow's are.
+    /// Shared by the context menu and the ellipsis, as ListRow's are.
     @ViewBuilder
     private func menuItems() -> some View {
         Button("Edit Saved Search…") { SavedSearchActions.edit(search.id) }
@@ -783,9 +783,9 @@ private struct SavedSearchRow: View {
 }
 
 // MARK: - List Row Activity
-// A list row's transient feedback: the spinner shown once an operation on it has run for a
-// moment, and the momentary completion glyph. One per list, kept by ListRowActivityStore,
-// so a row reads (and is invalidated by) only its own.
+/// A list row's transient feedback: the spinner shown once an operation on it has run for a
+/// moment, and the momentary completion glyph. One per list, kept by ListRowActivityStore,
+/// so a row reads (and is invalidated by) only its own.
 @MainActor
 @Observable
 private final class ListRowActivity {
@@ -820,7 +820,7 @@ private final class ListRowActivity {
         }
 
         guard showGlyph else { return }
-        // Same discipline as MomentaryGlyph: a second completion restarts the interval.
+        /// Same discipline as MomentaryGlyph: a second completion restarts the interval.
         completionTask?.cancel()
         showCompletionGlyph = true
         completionTask = Task { [weak self] in
@@ -836,8 +836,8 @@ private final class ListRowActivity {
     }
 }
 
-// Routes listEvents to the one row each event names. Activity outlives a row's cell, so a
-// scrolled or rebuilt row keeps its spinner until its list is deleted.
+/// Routes listEvents to the one row each event names. Activity outlives a row's cell, so a
+/// scrolled or rebuilt row keeps its spinner until its list is deleted.
 @MainActor
 private final class ListRowActivityStore {
     static let shared = ListRowActivityStore()
@@ -847,7 +847,7 @@ private final class ListRowActivityStore {
     private var cancellable: AnyCancellable?
 
     private init() {
-        // AppEventBus is @MainActor, so this sink runs synchronously on the main actor.
+        /// AppEventBus is @MainActor, so this sink runs synchronously on the main actor.
         cancellable = AppEventBus.shared.listEvents.sink { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) }
         }
@@ -870,8 +870,8 @@ private final class ListRowActivityStore {
         case .operationStarted(let listID):
             activity(for: listID).operationStarted()
         case .operationCompleted(let listID):
-            // Only show the completion glyph when the user is NOT currently viewing this
-            // list — if they are, the change is self-evident.
+            /// Only show the completion glyph when the user is NOT currently viewing this
+            /// list — if they are, the change is self-evident.
             let isViewing = appState?.selectedSidebarItem == .list(listID)
             activity(for: listID).operationCompleted(showGlyph: !isViewing)
         case .deleted(let listID):
@@ -883,9 +883,9 @@ private final class ListRowActivityStore {
 }
 
 // MARK: - AppKit Drop Target
-// An NSViewRepresentable used as a lifecycle anchor in the SwiftUI cell. On attachment it
-// installs a RowDragProxyView on NSTableRowView, which owns the full row highlight. SwiftUI
-// content is inset from that view, so the proxy must attach there to cover the whole row.
+/// An NSViewRepresentable used as a lifecycle anchor in the SwiftUI cell. On attachment it
+/// installs a RowDragProxyView on NSTableRowView, which owns the full row highlight. SwiftUI
+/// content is inset from that view, so the proxy must attach there to cover the whole row.
 private struct ListRowDropTarget: NSViewRepresentable, Loggable {
     nonisolated static let logTag = "[LeftSidebar]"
 
@@ -901,7 +901,7 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
 
     func makeNSView(context: Context) -> DropTargetAnchorView {
         let view = DropTargetAnchorView()
-        // Seed initial values; updateNSView also runs immediately after makeNSView.
+        /// Seed initial values; updateNSView also runs immediately after makeNSView.
         view.acceptsDrops = acceptsDrops
         view.listID = listID
         view.listName = listName
@@ -916,27 +916,27 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
     }
     
     func updateNSView(_ nsView: DropTargetAnchorView, context: Context) {
-        // Always keep the anchor's cached values current. The anchor copies them
-        // to the proxy in viewDidMoveToWindow; updates after that go direct to proxy.
+        /// Always keep the anchor's cached values current. The anchor copies them
+        /// to the proxy in viewDidMoveToWindow; updates after that go direct to proxy.
         nsView.listID = listID
         nsView.listName = listName
         nsView.dataCoordinator = dataCoordinator
-        // Also update proxy directly for the rename / reuse case where proxy exists —
-        // but only while this anchor still owns it. A recycled row view can lend its
-        // proxy to a newly arrived anchor before this one has left; writing this row's
-        // list into it then would send drops on the other row to this list.
+        /// Also update proxy directly for the rename / reuse case where proxy exists —
+        /// but only while this anchor still owns it. A recycled row view can lend its
+        /// proxy to a newly arrived anchor before this one has left; writing this row's
+        /// list into it then would send drops on the other row to this list.
         guard let proxy = nsView.proxy, proxy.owner === nsView else { return }
         proxy.listID = listID
         proxy.listName = listName
         proxy.dataCoordinator = dataCoordinator
-        // onHoverChanged closure captures a Binding; re-seat it so identity stays
-        // consistent if SwiftUI re-evaluates the parent view with new binding storage.
+        /// onHoverChanged closure captures a Binding; re-seat it so identity stays
+        /// consistent if SwiftUI re-evaluates the parent view with new binding storage.
         proxy.onHoverChanged = nsView.onHoverChanged
     }
     
     // MARK: - Anchor View
-    // Zero-size. It manages the RowDragProxyView's lifecycle and caches the values needed to seed
-    // the proxy, because updateNSView runs before the proxy exists.
+    /// Zero-size. It manages the RowDragProxyView's lifecycle and caches the values needed to seed
+    /// the proxy, because updateNSView runs before the proxy exists.
     @MainActor
     final class DropTargetAnchorView: NSView, Loggable {
         nonisolated static let logTag = "[LeftSidebar]"
@@ -947,18 +947,18 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         weak var dataCoordinator: DataCoordinator?
         var onTargetChanged: ((Bool) -> Void)?
         var onHoverChanged: ((Bool) -> Void)?
-        // Weak reference so the proxy's own removal from NSTableRowView releases it.
+        /// Weak reference so the proxy's own removal from NSTableRowView releases it.
         weak var proxy: RowDragProxyView?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            // viewDidMoveToWindow fires once the full view hierarchy exists. viewDidMoveToSuperview is too
-            // early: the NSTableRowView ancestor is not yet reachable, so no proxy would be created.
+            /// viewDidMoveToWindow fires once the full view hierarchy exists. viewDidMoveToSuperview is too
+            /// early: the NSTableRowView ancestor is not yet reachable, so no proxy would be created.
             guard unsafe window != nil else { return }
             guard proxy == nil,
                   let rowView = findAncestor(ofType: NSTableRowView.self) else { return }
-            // NSOutlineView recycles row views as the sidebar scrolls. The proxy stays with its row view
-            // and is lent to whichever anchor arrives, rather than being rebuilt for every row.
+            /// NSOutlineView recycles row views as the sidebar scrolls. The proxy stays with its row view
+            /// and is lent to whichever anchor arrives, rather than being rebuilt for every row.
             let existing = rowView.subviews.lazy.compactMap { $0 as? RowDragProxyView }.first
             let p = existing ?? RowDragProxyView()
             if existing == nil {
@@ -971,8 +971,8 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         }
 
         override func viewWillMove(toWindow newWindow: NSWindow?) {
-            // The anchor leaves its window when its cell is recycled for another row,
-            // when the row is deleted, or when the sidebar is torn down.
+            /// The anchor leaves its window when its cell is recycled for another row,
+            /// when the row is deleted, or when the sidebar is torn down.
             if newWindow == nil { releaseProxy() }
             super.viewWillMove(toWindow: newWindow)
         }
@@ -991,8 +991,8 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         }
 
         // MARK: Proxy digest
-        // Proxies are created once per row view. The digest should show creations only as the sidebar
-        // first fills, and reuses while scrolling. One line is written per burst.
+        /// Proxies are created once per row view. The digest should show creations only as the sidebar
+        /// first fills, and reuses while scrolling. One line is written per burst.
         private static var createdTotal = 0
         private static var createdSinceDigest = 0
         private static var reusedSinceDigest = 0
@@ -1011,7 +1011,7 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             isDigestScheduled = true
             DispatchQueue.main.asyncAfter(deadline: .now() + digestDelay) {
                 isDigestScheduled = false
-                // A reuse-only burst is ordinary scrolling; only creations are worth a line.
+                /// A reuse-only burst is ordinary scrolling; only creations are worth a line.
                 if createdSinceDigest > 0 {
                     log("RowDragProxyViews: \(createdTotal) created "
                         + "(+\(createdSinceDigest) new, \(reusedSinceDigest) reused since last digest)")
@@ -1021,7 +1021,7 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             }
         }
 
-        // Walk up the superview chain looking for a specific NSView subclass.
+        /// Walk up the superview chain looking for a specific NSView subclass.
         private func findAncestor<T: NSView>(ofType type: T.Type) -> T? {
             var current: NSView? = unsafe superview
             while let view = current {
@@ -1033,9 +1033,9 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
     }
 
     // MARK: - Row Drag Proxy View
-    // Attached directly to NSTableRowView and always sized to fill it. It handles the full
-    // NSDraggingDestination protocol for this row. NSHostingView does not register for filmIDs,
-    // so the drag hit test falls through to this proxy, the only registered view in the padding.
+    /// Attached directly to NSTableRowView and always sized to fill it. It handles the full
+    /// NSDraggingDestination protocol for this row. NSHostingView does not register for filmIDs,
+    /// so the drag hit test falls through to this proxy, the only registered view in the padding.
     @MainActor
     final class RowDragProxyView: NSView, Loggable {
         nonisolated static let logTag = "[LeftSidebar]"
@@ -1046,8 +1046,8 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         var onTargetChanged: ((Bool) -> Void)?
         var onHoverChanged: ((Bool) -> Void)?
 
-        // The single tracking area covering the proxy's entire bounds. Rebuilt
-        // whenever the bounds change so it always matches the full NSTableRowView.
+        /// The single tracking area covering the proxy's entire bounds. Rebuilt
+        /// whenever the bounds change so it always matches the full NSTableRowView.
         private var hoverTrackingArea: NSTrackingArea?
 
         /// The anchor whose row this proxy currently serves; nil while the row view sits
@@ -1079,15 +1079,15 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
 
         override init(frame frameRect: NSRect) {
             super.init(frame: frameRect)
-            // No layer, no drawing — fully transparent. Exists only for drag protocol
-            // and hover tracking.
+            /// No layer, no drawing — fully transparent. Exists only for drag protocol
+            /// and hover tracking.
             registerForDraggedTypes([.filmIDs])
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
-        // Keep frame = superview.bounds through every AppKit layout cycle, then
-        // rebuild the tracking area so it stays in sync with the new bounds.
+        /// Keep frame = superview.bounds through every AppKit layout cycle, then
+        /// rebuild the tracking area so it stays in sync with the new bounds.
         override func layout() {
             super.layout()
             if let sv = unsafe superview, frame != sv.bounds {
@@ -1096,9 +1096,9 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             rebuildTrackingArea()
         }
 
-        // The tracking area is installed once. `.inVisibleRect` lets AppKit keep it matched to the
-        // visible bounds, so it is never replaced while the cursor is inside. Replacing it would drop
-        // the mouseExited for the old area and leave the row's hover state stuck.
+        /// The tracking area is installed once. `.inVisibleRect` lets AppKit keep it matched to the
+        /// visible bounds, so it is never replaced while the cursor is inside. Replacing it would drop
+        /// the mouseExited for the old area and leave the row's hover state stuck.
         private func rebuildTrackingArea() {
             guard hoverTrackingArea == nil else { return }
             let area = NSTrackingArea(
@@ -1112,21 +1112,21 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         }
 
         // MARK: Hover reconciliation
-        //
-        // Enter and exit events alone are not reliable. AppKit sends no mouseExited when a row scrolls
-        // under a still cursor, when the app deactivates, while an ellipsis menu tracks the mouse, or
-        // when the proxy is removed mid-hover. So hover belongs to one row at a time, and each of these
-        // moments re-derives it from the actual cursor position.
+        ///
+        /// Enter and exit events alone are not reliable. AppKit sends no mouseExited when a row scrolls
+        /// under a still cursor, when the app deactivates, while an ellipsis menu tracks the mouse, or
+        /// when the proxy is removed mid-hover. So hover belongs to one row at a time, and each of these
+        /// moments re-derives it from the actual cursor position.
 
         /// The one row currently reporting hover. Entering another row clears it.
         private static weak var hoveredProxy: RowDragProxyView?
         private static var observersInstalled = false
 
         // MARK: Live scroll
-        //
-        // Rows report no hover while the sidebar live-scrolls, as Finder's do. Otherwise each row that
-        // passes under a still cursor would build and tear down its ellipsis button. Hover is re-derived
-        // once the scroll ends.
+        ///
+        /// Rows report no hover while the sidebar live-scrolls, as Finder's do. Otherwise each row that
+        /// passes under a still cursor would build and tear down its ellipsis button. Hover is re-derived
+        /// once the scroll ends.
 
         /// The sidebar's scroll view. Scroll notifications from any other scroll view in
         /// the app (the gallery, the list view, sheets) are ignored.
@@ -1201,9 +1201,9 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
                 MainActor.assumeIsolated {
                     guard isSidebar(object) else { return }
                     isLiveScrolling = false
-                    // The row under the cursor now is not the one it was over when the
-                    // scroll began, so every row serving one is asked; only the one the
-                    // cursor is in reports hover.
+                    /// The row under the cursor now is not the one it was over when the
+                    /// scroll began, so every row serving one is asked; only the one the
+                    /// cursor is in reports hover.
                     for proxy in activeProxies.allObjects { proxy.reconcileHover() }
                 }
             }
@@ -1256,83 +1256,83 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         }
 
         override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-            // Decodes through the shared FilmDragDecoder, which adds the JSON-pasteboard fallback and logging.
+            /// Decodes through the shared FilmDragDecoder, which adds the JSON-pasteboard fallback and logging.
             guard let filmIDs = FilmDragDecoder.decode(from: sender),
                   !filmIDs.isEmpty else {
                 return false
             }
             guard let coordinator = dataCoordinator else { return false }
 
-            // "Up Next" holds at most eight films. A drop that would overflow is not added there. The
-            // alert offers "Soon" instead. The drop is still accepted, so the preview does not fly back.
+            /// "Up Next" holds at most eight films. A drop that would overflow is not added there. The
+            /// alert offers "Soon" instead. The drop is still accepted, so the preview does not fly back.
             if listID == FilmQueueSection.upNext.listID,
                FilmQueue.upNextOverflow(adding: filmIDs, coordinator: coordinator) > 0 {
                 log("Drop of \(filmIDs.count) film(s) on '\(listName)' would overflow it — offering 'Soon'")
-                // Only the films not already in "Up Next": the rest are where the user
-                // dropped them, and adding them to "Soon" would move them out of it.
+                /// Only the films not already in "Up Next": the rest are where the user
+                /// dropped them, and adding them to "Soon" would move them out of it.
                 AppEventBus.shared.sendAlert(.offerSoonForFullUpNextDrop(
                     filmIDs: filmIDs.subtracting(FilmQueue.upNextFilmIDs(coordinator: coordinator)),
-                    message: FilmQueue.upNextFullDropMessage(filmIDs, coordinator: coordinator)))
+                    message: FilmQueue.upNextFullDropOfferMessage(filmIDs, coordinator: coordinator)))
                 return true
             }
 
-            // Special-sorting confirmation gate, using the same rule as the Add to Queue menus and the
-            // FilmSheet picker. It applies only to the three internal Film Queue lists. If a dropped film has
-            // a specialSorting value, the add waits for AlertHostView's confirmation. Canceling drops the
-            // whole drop, and confirming adds the full set.
+            /// Special-sorting confirmation gate, using the same rule as the Add to Queue menus and the
+            /// FilmSheet picker. It applies only to the three internal Film Queue lists. If a dropped film has
+            /// a specialSorting value, the add waits for AlertHostView's confirmation. Canceling drops the
+            /// whole drop, and confirming adds the full set.
             if FilmQueue.isInternalList(listID),
                FilmQueue.addNeedsConfirmation(filmIDs, coordinator: coordinator) {
                 log("Deferring add of \(filmIDs.count) film(s) to list '\(listName)' pending special-sorting confirmation")
-                // Sent synchronously, on the same call stack as the drop. AlertHostView stashes the payload and
-                // freezes the message at drop time. It presents the alert only when the .dragSessionDidEnd notice
-                // arrives. AppKit defers that callback past its drag-completion pass, so the alert animates without
-                // contention. Presenting here would drop frames, and sending now ensures the stash exists in time.
+                /// Sent synchronously, on the same call stack as the drop. AlertHostView stashes the payload and
+                /// freezes the message at drop time. It presents the alert only when the .dragSessionDidEnd notice
+                /// arrives. AppKit defers that callback past its drag-completion pass, so the alert animates without
+                /// contention. Presenting here would drop frames, and sending now ensures the stash exists in time.
                 AppEventBus.shared.sendAlert(.confirmFilmQueueAddOnDrop(filmIDs: filmIDs, listID: listID))
                 return true
             }
 
             log("Adding \(filmIDs.count) film(s) to list '\(listName)'")
 
-            // Called synchronously, not in Task { ... }. performDragOperation runs inside the drag session's
-            // event-tracking loop, which defers main-actor continuations until the session ends. A Task would
-            // run only after AppKit's completion pass, roughly a second later. A synchronous call lets the
-            // membership change and its events post before teardown begins.
+            /// Called synchronously, not in Task { ... }. performDragOperation runs inside the drag session's
+            /// event-tracking loop, which defers main-actor continuations until the session ends. A Task would
+            /// run only after AppKit's completion pass, roughly a second later. A synchronous call lets the
+            /// membership change and its events post before teardown begins.
             FilmManager.addFilmsToList(filmIDs, listID: listID, coordinator: coordinator)
             return true
         }
 
         override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
             onTargetChanged?(false)
-            // Dismisses the drag-preview flyback window in step with the highlight clearing. AppKit defers
-            // the endedAt callback past its completion pass, which would leave a visible lag. GalleryDragEngine
-            // observes this notification and calls dismissFlybackImmediately().
+            /// Dismisses the drag-preview flyback window in step with the highlight clearing. AppKit defers
+            /// the endedAt callback past its completion pass, which would leave a visible lag. GalleryDragEngine
+            /// observes this notification and calls dismissFlybackImmediately().
             NotificationCenter.default.post(name: .dismissDragPreviewImmediately, object: nil)
         }
     }
 }
 
 // MARK: - Event Setup Extension
-// With isolated binding, no special transaction handling needed
+/// With isolated binding, no special transaction handling needed
 @MainActor
 private extension View {
     func setupEvents(appState: AppState,
         importsGlyphState: Binding<ImportsGlyphState>) -> some View {
         self
             .onReceive(AppEventBus.shared.listEvents) { event in
-                // Rows track cachedLists through syncListsCache() at each mutation, with the List's @Observable
-                // subscription and .animation driving the updates. Per-row feedback comes from ListRow. The one
-                // event needing explicit handling is deletion of the list being viewed, which moves the selection off it.
+                /// Rows track cachedLists through syncListsCache() at each mutation, with the List's @Observable
+                /// subscription and .animation driving the updates. Per-row feedback comes from ListRow. The one
+                /// event needing explicit handling is deletion of the list being viewed, which moves the selection off it.
                 if case .deleted(let deletedListID) = event,
                     case .list(let selectedListID) = appState.selectedSidebarItem,
                     selectedListID == deletedListID {
                     appState.navigate(to: .libraryItem(.allFilms))
                 }
             }
-            // ImportProgress is @Observable, so .onChange(of:) delivers its changes.
+            /// ImportProgress is @Observable, so .onChange(of:) delivers its changes.
             .onChange(of: ImportProgress.shared.isImporting) { _, isImporting in
-                // Only the rising edge matters. It clears a lingering .completed checkmark so a new import is not
-                // masked. The falling edge is ignored, because the completionStatus handler below sets .completed
-                // at the same moment and must win.
+                /// Only the rising edge matters. It clears a lingering .completed checkmark so a new import is not
+                /// masked. The falling edge is ignored, because the completionStatus handler below sets .completed
+                /// at the same moment and must win.
                 if isImporting {
                     importsGlyphState.wrappedValue = .importing
                 }
@@ -1340,17 +1340,17 @@ private extension View {
             .onChange(of: ImportProgress.shared.completionStatus) { _, status in
                 guard status == .success || status == .successWithErrors else { return }
 
-                // Sets the matching completed state. `.successWithErrors` shows the warning glyph, since some
-                // items failed. The session card holds the details.
+                /// Sets the matching completed state. `.successWithErrors` shows the warning glyph, since some
+                /// items failed. The session card holds the details.
                 importsGlyphState.wrappedValue =
                     status == .successWithErrors ? .completedWithErrors : .completed
 
-                // If already on Imports view, auto-clear after 2 seconds
+                /// If already on Imports view, auto-clear after 2 seconds
                 if case .libraryItem(.imports) = appState.selectedSidebarItem {
                     Task {
                         try? await Task.sleep(for: .seconds(2))
-                        // Re-reads wrappedValue after the delay, since a new import may have started and set .importing.
-                        // If so, do not revert to .normal.
+                        /// Re-reads wrappedValue after the delay, since a new import may have started and set .importing.
+                        /// If so, do not revert to .normal.
                         if importsGlyphState.wrappedValue.isFinished {
                             importsGlyphState.wrappedValue = .normal
                         }

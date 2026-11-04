@@ -1,8 +1,8 @@
 // MARK: - GallerySubview.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Grid-based gallery with smooth item resizing, a column limit of six or seven, and a centered maximum width
-// set by Preferences.galleryMaxGridWidth.
+/// Grid-based gallery with smooth item resizing, a column limit of six or seven, and a centered maximum width
+/// set by Preferences.galleryMaxGridWidth.
 
 import SwiftUI
 import Combine
@@ -26,9 +26,9 @@ enum GalleryRefreshProbe {
 }
 #endif
 
-// The search-exit scroll is gated only by Preferences.maintainSelectionOnSearchExit, at its one producer
-// (MainView.handleSearchContentChange). Neither gallery style adds a gate. The scroll intent (GalleryScrollIntent
-// and PendingScrollBehavior, in ViewState.swift) serves the search exit and the grid-list toggle for both styles.
+/// The search-exit scroll is gated only by Preferences.maintainSelectionOnSearchExit, at its one producer
+/// (MainView.handleSearchContentChange). Neither gallery style adds a gate. The scroll intent (GalleryScrollIntent
+/// and PendingScrollBehavior, in ViewState.swift) serves the search exit and the grid-list toggle for both styles.
 
 // MARK: - Width Observing Scroll View
 
@@ -48,18 +48,18 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
     weak var galleryCoordinator: GallerySubview.Coordinator?
 
     override func layout() {
-        // Sampling point for the live-resize profiler. It does nothing unless the app is launched with -FTDebugLiveResize.
+        /// Sampling point for the live-resize profiler. It does nothing unless the app is launched with -FTDebugLiveResize.
         #if DEBUG
         DebugLiveResizeProfiler.shared.beginPass(width: bounds.width)
         #endif
-        // Disables implicit Core Animation transitions during this layout pass, so resizing does not pulse.
+        /// Disables implicit Core Animation transitions during this layout pass, so resizing does not pulse.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         super.layout()
         CATransaction.commit()
 
-        // Applies any pending scroll correction from the layout's viewport anchoring. This runs after super.layout(),
-        // once prepare() has computed the correction.
+        /// Applies any pending scroll correction from the layout's viewport anchoring. This runs after super.layout(),
+        /// once prepare() has computed the correction.
         if let cv = documentView as? NSCollectionView,
            let layout = cv.collectionViewLayout as? SmoothResizingGridLayout,
            let correction = layout.pendingScrollCorrection {
@@ -80,8 +80,8 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
     override func viewWillDraw() {
         super.viewWillDraw()
 
-        // A film target takes precedence. An armed origin restore is stale while a film target is pending, so it is
-        // discarded when the film target resolves.
+        /// A film target takes precedence. An armed origin restore is stale while a film target is pending, so it is
+        /// discarded when the film target resolves.
         if pendingScrollFilmID != nil {
             resolvePendingFilmTarget()
         } else if pendingScrollPosition != nil {
@@ -114,7 +114,7 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
               let coordinator = galleryCoordinator else { return }
 
         guard let index = coordinator.filmIndexMap[filmID] else {
-            // The film is no longer in this view's data, so the stale target is dropped.
+            /// The film is no longer in this view's data, so the stale target is dropped.
             pendingScrollFilmID = nil
             return
         }
@@ -123,13 +123,13 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
         guard let cv = documentView as? NSCollectionView,
               let layout = cv.collectionViewLayout as? SmoothResizingGridLayout,
               layout.layoutAttributesForItem(at: indexPath) != nil else {
-            // Geometry is not ready. viewWillDraw runs again, so the target stays and is retried.
+            /// Geometry is not ready. viewWillDraw runs again, so the target stays and is retried.
             return
         }
 
         pendingScrollFilmID = nil
-        // Discards any superseded origin restore, along with the intent it came from. Otherwise the intent would be
-        // re-armed on the next update and fight this scroll.
+        /// Discards any superseded origin restore, along with the intent it came from. Otherwise the intent would be
+        /// re-armed on the next update and fight this scroll.
         pendingScrollPosition = nil
         ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
 
@@ -176,16 +176,16 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
         guard let cv = documentView as? NSCollectionView,
               let layout = cv.collectionViewLayout as? SmoothResizingGridLayout,
               layout.collectionViewContentSize.height > 0 else {
-            // Geometry not ready yet — viewWillDraw fires again on the next display
-            // pass, so the origin is retained and retried automatically (matching
-            // resolvePendingFilmTarget's guard-and-retry pattern).
+            /// Geometry not ready yet — viewWillDraw fires again on the next display
+            /// pass, so the origin is retained and retried automatically (matching
+            /// resolvePendingFilmTarget's guard-and-retry pattern).
             return
         }
 
         pendingScrollPosition = nil
-        // Retire the intent now that it has genuinely been applied against real geometry.
-        // Until this point it stays live in ViewStateManager on purpose, so a reload that
-        // lands between arming and resolution re-arms it rather than losing it.
+        /// Retire the intent now that it has genuinely been applied against real geometry.
+        /// Until this point it stays live in ViewStateManager on purpose, so a reload that
+        /// lands between arming and resolution re-arms it rather than losing it.
         ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
 
         let target = applyClampedOrigin(CGPoint(x: 0, y: coordinator.restoreY(for: position)),
@@ -213,8 +213,8 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
 /// StatusBar overlay height, for the bottom inset. It is file-scope so it is not redeclared on every update.
 private let kStatusBarHeight: CGFloat = StatusBar.height
 
-// There is no local grid-padding constant. The scroll helpers read `layout.lineSpacing` from the live layout, so
-// they cannot drift from the grid geometry.
+/// There is no local grid-padding constant. The scroll helpers read `layout.lineSpacing` from the live layout, so
+/// they cannot drift from the grid geometry.
 
 /// Reusable cell identifier for GalleryItem, created once.
 private let kGalleryItemID = NSUserInterfaceItemIdentifier("GalleryItem")
@@ -222,7 +222,7 @@ private let kGalleryItemID = NSUserInterfaceItemIdentifier("GalleryItem")
 struct GallerySubview: NSViewRepresentable, Loggable {
     nonisolated static let logTag = "[GallerySubview]"
 
-    // There is no forceReloadID. Reloads depend only on the films (see needsReload in updateNSView).
+    /// There is no forceReloadID. Reloads depend only on the films (see needsReload in updateNSView).
     /// A post-edit "keep this film in view" request from GalleryView. It is one-shot: the Coordinator acts on each
     /// request once, so GalleryView never has to clear it.
     let scrollRequest: FilmScrollRequest?
@@ -238,12 +238,12 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
-    // Observes the StatusBar preference, for bottom padding.
+    /// Observes the StatusBar preference, for bottom padding.
     @AppStorage(preference: Preferences.showStatusBarKey) private var showStatusBar: Bool
-    // Observes the large grid preference, for the column maximum: false is 7 columns, true is 6.
+    /// Observes the large grid preference, for the column maximum: false is 7 columns, true is 6.
     @AppStorage(preference: Preferences.largeGalleryGridKey) private var largeGalleryGrid: Bool
-    // maintainScrollPositionOnViewSwitch is not read here. ViewStateManager.prepareScrollHandoff checks the preference
-    // and arms nothing when it is off. Keeping a second reader here could let the two disagree.
+    /// maintainScrollPositionOnViewSwitch is not read here. ViewStateManager.prepareScrollHandoff checks the preference
+    /// and arms nothing when it is off. Keeping a second reader here could let the two disagree.
 
     func makeNSView(context: Context) -> NSScrollView {
         #if DEBUG
@@ -256,11 +256,11 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         configureCollectionView(collectionView)
 
         let layout = SmoothResizingGridLayout()
-        // edgeInset, itemSpacing, and lineSpacing are `let` on the layout, so they are not set here.
-        // Reserves space for StatusBar when it is visible.
+        /// edgeInset, itemSpacing, and lineSpacing are `let` on the layout, so they are not set here.
+        /// Reserves space for StatusBar when it is visible.
         layout.bottomInset = showStatusBar ? kStatusBarHeight : 0
         layout.hasSubtitles = subtitleProvider != nil
-        // Applies the column maximum from the preference: 7 by default, 6 for the large grid.
+        /// Applies the column maximum from the preference: 7 by default, 6 for the large grid.
         layout.maxColumns = largeGalleryGrid ? Preferences.galleryMaxColumnsLargeGrid
                                              : Preferences.galleryMaxColumns
         collectionView.collectionViewLayout = layout
@@ -268,11 +268,11 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         collectionView.register(GalleryItem.self,
             forItemWithIdentifier: kGalleryItemID)
 
-        // Registers the section-divider decoration view. AppKit creates and recycles its instances. Other gallery views
-        // publish no section breaks, so this view is never created there.
+        /// Registers the section-divider decoration view. AppKit creates and recycles its instances. Other gallery views
+        /// publish no section breaks, so this view is never created there.
         layout.register(SectionDividerDecorationView.self,
             forDecorationViewOfKind: sectionDividerDecorationKind)
-        // The "Up Next" placeholder slots exist only on the Film Queue's "All" tab (see updateSectionDividers).
+        /// The "Up Next" placeholder slots exist only on the Film Queue's "All" tab (see updateSectionDividers).
         layout.register(UpNextSlotDecorationView.self,
             forDecorationViewOfKind: upNextSlotDecorationKind)
 
@@ -287,23 +287,23 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         coordinator.showSortingSections = showSectionDividers
         coordinator.subtitleProvider = subtitleProvider
 
-        // Arms the warming scroll prefetch, unless the startup population has already finished.
+        /// Arms the warming scroll prefetch, unless the startup population has already finished.
         coordinator.installWarmingScrollPrefetch(on: scrollView)
         #if DEBUG
         coordinator.installViewportJumpTracer(on: scrollView)
         #endif
 
-        // Keeps the saved scroll origin current as the user scrolls. The teardown-time save alone is not enough.
+        /// Keeps the saved scroll origin current as the user scrolls. The teardown-time save alone is not enough.
         collectionView.onUserViewportInteraction = { [weak coordinator] in
             coordinator?.claimViewportForUser()
         }
         coordinator.installScrollOriginRecorder(on: scrollView)
 
-        // Wires up callbacks. The layout computes itself, so no width callback is needed.
+        /// Wires up callbacks. The layout computes itself, so no width callback is needed.
         collectionView.onMarqueeSelectionChanged = { [weak coordinator] in coordinator?.handleMarqueeSelection($0) }
         collectionView.onArrowNavigation = { [weak coordinator] in coordinator?.handleArrowKey($0, withShift: $1, isRepeat: $2) }
-        // Gated the same way as KeyboardManager and the Select All menu item. Without this gate, Cmd+A selected every film in
-        // Recents, Unwatched, and the Film Queue.
+        /// Gated the same way as KeyboardManager and the Select All menu item. Without this gate, Cmd+A selected every film in
+        /// Recents, Unwatched, and the Film Queue.
         collectionView.onSelectAll = { [weak coordinator] in
             guard let coordinator,
                   AppDelegate.appState?.selectedSidebarItem.capabilities.supportsMultiSelection == true
@@ -314,52 +314,52 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         collectionView.getDragFilmIDs = { [weak coordinator] in coordinator?.filmIDsForDrag(clickedAt: $0) ?? [] }
         collectionView.getFilmID = { [weak coordinator] in coordinator?.filmID(at: $0) }
         collectionView.getPosterImage = { [weak coordinator] in coordinator?.posterImage(for: $0) }
-        // Seeds the cursor at item 0 when focus arrives by Tab or programmatic transfer with no selection, so arrow keys
-        // work without a prior click.
+        /// Seeds the cursor at item 0 when focus arrives by Tab or programmatic transfer with no selection, so arrow keys
+        /// work without a prior click.
         collectionView.onKeyboardFocusWithNoSelection = { [weak coordinator] in coordinator?.seedInitialCursor() }
-        // Secondary-click contextual menu. GalleryCollectionView.menu(for:) has already confirmed a real item was clicked.
+        /// Secondary-click contextual menu. GalleryCollectionView.menu(for:) has already confirmed a real item was clicked.
         collectionView.getContextMenu = { [weak coordinator] in coordinator?.contextMenu(forItemAt: $0) }
 
         // MARK: Scroll-Position Handoff (Search Exit / Grid-List Toggle)
-        //
-        // If a scroll intent is pending and addressed to this view's activeViewID, the targeting stops a stale search view from
-        // consuming it (see GalleryScrollIntent in ViewState.swift). Then:
-        //
-        // 1. Preload the destination films and reloadData(). The first updateNSView pass sees identical films and does not
-        //    reload again, since a second reloadData() would reset the scroll to the top. MainView switches the view before the
-        //    sidebar flip, so the films are already there.
-        // 2. Hand the film ID to the scroll view. The scroll runs in WidthObservingScrollView.viewWillDraw(), after layout and
-        //    before the first frame, so the first visible frame is already on the film. There is no hiding and no interstitial frame.
+        ///
+        /// If a scroll intent is pending and addressed to this view's activeViewID, the targeting stops a stale search view from
+        /// consuming it (see GalleryScrollIntent in ViewState.swift). Then:
+        ///
+        /// 1. Preload the destination films and reloadData(). The first updateNSView pass sees identical films and does not
+        ///    reload again, since a second reloadData() would reset the scroll to the top. MainView switches the view before the
+        ///    sidebar flip, so the films are already there.
+        /// 2. Hand the film ID to the scroll view. The scroll runs in WidthObservingScrollView.viewWillDraw(), after layout and
+        ///    before the first frame, so the first visible frame is already on the film. There is no hiding and no interstitial frame.
         scrollView.galleryCoordinator = coordinator
-        // A request already pending when this gallery mounts belongs to an earlier edit, so it is seeded here and not acted on again.
+        /// A request already pending when this gallery mounts belongs to an earlier edit, so it is seeded here and not acted on again.
         coordinator.lastScrollRequest = scrollRequest
 
-        // Registers this coordinator as the "what's on top" source for the active view. The grid-list toggle reads it before
-        // switching away from the grid. It is unregistered in dismantleNSView (see registerScrollPositionProvider).
+        /// Registers this coordinator as the "what's on top" source for the active view. The grid-list toggle reads it before
+        /// switching away from the grid. It is unregistered in dismantleNSView (see registerScrollPositionProvider).
         ViewStateManager.shared.registerScrollPositionProvider(coordinator)
 
-        // Consumes a pending scroll intent addressed to this view. This is the search-exit handoff or the grid-list toggle
-        // handoff, and both share the preload sequence below. Each producer has already applied its own gating (see the note at
-        // the top of this file).
+        /// Consumes a pending scroll intent addressed to this view. This is the search-exit handoff or the grid-list toggle
+        /// handoff, and both share the preload sequence below. Each producer has already applied its own gating (see the note at
+        /// the top of this file).
         if let filmID = GalleryScrollIntent.shared.consume(ifTargeting: activeViewID) {
             coordinator.films = dataCoordinator.films
-            // This preload path bypasses updateNSView's reload branch, so it must recompute the section dividers itself. Without that,
-            // a fresh Film Queue instance would show no dividers until some later reload. The recomputation reads dataCoordinator, whose
-            // identity and filter already match the destination, because switchToViewSync ran earlier (see the dataCoordinator.films note
-            // above). Here the divider work is real, not a no-op, since the Queue's view-style toggle is enabled.
-            //
-            // currentViewID is set from activeViewID here, so it agrees with the preloaded data. prevViewID is seeded too, or it would
-            // stay nil. The next updateNSView would then see a view switch, reload again, clear the selection, and arm a restore on top
-            // of the film handoff. Both fields are seeded together, as updateNSView's own reload branch does when it advances prevViewID.
-            //
-            // The preloaded films were built with the loaded Queue filter, so that filter is seeded too. displayedScrollKey then describes
-            // them from the start, and the filter-change test reads it as unchanged.
-            //
-            // This path bypasses updateNSView's origin restore, and the film handoff outranks it. Any armed origin restore is retired here,
-            // so a later pass cannot fight this scroll.
-            //
-            // If no film handoff claims this mount, a saved origin may be armed (see armScrollOriginRestoreOnMount). It yields to any
-            // in-flight switch intent. updateNSView's reload branch performs the restore once the destination's films are in place.
+            /// This preload path bypasses updateNSView's reload branch, so it must recompute the section dividers itself. Without that,
+            /// a fresh Film Queue instance would show no dividers until some later reload. The recomputation reads dataCoordinator, whose
+            /// identity and filter already match the destination, because switchToViewSync ran earlier (see the dataCoordinator.films note
+            /// above). Here the divider work is real, not a no-op, since the Queue's view-style toggle is enabled.
+            ///
+            /// currentViewID is set from activeViewID here, so it agrees with the preloaded data. prevViewID is seeded too, or it would
+            /// stay nil. The next updateNSView would then see a view switch, reload again, clear the selection, and arm a restore on top
+            /// of the film handoff. Both fields are seeded together, as updateNSView's own reload branch does when it advances prevViewID.
+            ///
+            /// The preloaded films were built with the loaded Queue filter, so that filter is seeded too. displayedScrollKey then describes
+            /// them from the start, and the filter-change test reads it as unchanged.
+            ///
+            /// This path bypasses updateNSView's origin restore, and the film handoff outranks it. Any armed origin restore is retired here,
+            /// so a later pass cannot fight this scroll.
+            ///
+            /// If no film handoff claims this mount, a saved origin may be armed (see armScrollOriginRestoreOnMount). It yields to any
+            /// in-flight switch intent. updateNSView's reload branch performs the restore once the destination's films are in place.
             coordinator.currentViewID = activeViewID
             coordinator.prevViewID = activeViewID
             coordinator.lastFilmQueueFilter = dataCoordinator.loadedFilmQueueFilter
@@ -371,15 +371,15 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
             Self.log("Scroll handoff armed in makeNSView for film \(filmID) (view: \(activeViewID))")
         } else {
-            // No film handoff claims this mount, so a saved origin may. This covers arrivals that
-            // switchToViewSync does not see as a change (see armScrollOriginRestoreOnMount). It yields to
-            // any in-flight switch intent. updateNSView's reload branch performs the restore once the films are in place.
+            /// No film handoff claims this mount, so a saved origin may. This covers arrivals that
+            /// switchToViewSync does not see as a change (see armScrollOriginRestoreOnMount). It yields to
+            /// any in-flight switch intent. updateNSView's reload branch performs the restore once the films are in place.
             ViewStateManager.shared.armScrollOriginRestoreOnMount(
                 for: GalleryScrollKey(viewID: activeViewID,
                                       subTab: dataCoordinator.loadedFilmQueueFilter?.rawValue))
         }
 
-        // Runs outside the scroll-handoff branch, since the two intents are independent. See GalleryFocusIntent.
+        /// Runs outside the scroll-handoff branch, since the two intents are independent. See GalleryFocusIntent.
         if GalleryFocusIntent.shared.consume(ifTargeting: activeViewID) {
             scrollView.pendingKeyboardFocus = true
             Self.log("Keyboard-focus handoff armed in makeNSView (view: \(activeViewID))")
@@ -395,9 +395,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         scrollView.verticalScrollElasticity = .allowed
-        // Uses overlay scrollers, as DraggableListView does. The layout takes its width from the scroll view's bounds. Under
-        // legacy scrollers, AppKit reserves scroller space from the clip view, and the grid would be wider than the visible
-        // area. With no horizontal scroller, the trailing column would be clipped with no way to reach it.
+        /// Uses overlay scrollers, as DraggableListView does. The layout takes its width from the scroll view's bounds. Under
+        /// legacy scrollers, AppKit reserves scroller space from the clip view, and the grid would be wider than the visible
+        /// area. With no horizontal scroller, the trailing column would be clipped with no way to reach it.
         scrollView.scrollerStyle = .overlay
         scrollView.usesPredominantAxisScrolling = false
         scrollView.wantsLayer = true
@@ -423,29 +423,29 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         guard let collectionView = scrollView.documentView as? GalleryCollectionView else { return }
         let coordinator = context.coordinator
         coordinator.dataCoordinator = dataCoordinator
-        // Must come before every updateSectionDividers() call in this pass, since the bands depend on it.
+        /// Must come before every updateSectionDividers() call in this pass, since the bands depend on it.
         coordinator.showSortingSections = showSectionDividers
-        // Passes the current view identity, so the Coordinator can detect real view switches.
+        /// Passes the current view identity, so the Coordinator can detect real view switches.
         coordinator.currentViewID = activeViewID
 
-        // Calculates the StatusBar inset once.
+        /// Calculates the StatusBar inset once.
         let bottomInset: CGFloat = showStatusBar ? kStatusBarHeight : 0
         
         coordinator.isStatusBarVisible = showStatusBar
 
-        // Updates the scroller insets so the scrollbar is not hidden behind the StatusBar.
+        /// Updates the scroller insets so the scrollbar is not hidden behind the StatusBar.
         if scrollView.scrollerInsets.bottom != bottomInset {
             scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
         }
 
-        // Batches all layout changes into one invalidation, so multiple changes cause one layout pass.
+        /// Batches all layout changes into one invalidation, so multiple changes cause one layout pass.
         let previousKind = coordinator.subtitleProvider?.kind
         let hadProvider = previousKind != nil
         let hasProvider = subtitleProvider != nil
-        // Presence change: the layout needs this, to reserve a subtitle line's height.
+        /// Presence change: the layout needs this, to reserve a subtitle line's height.
         let providerChanged = hadProvider != hasProvider
-        // Kind change: the cells need this. A Recents sub-tab switch swaps one provider for another, so providerChanged is
-        // false, but each cell's text is now wrong. The kind is compared because closures have no identity.
+        /// Kind change: the cells need this. A Recents sub-tab switch swaps one provider for another, so providerChanged is
+        /// false, but each cell's text is now wrong. The kind is compared because closures have no identity.
         let subtitleKindChanged = previousKind != subtitleProvider?.kind
         coordinator.subtitleProvider = subtitleProvider
 
@@ -473,26 +473,26 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             }
         }
 
-        // First update: clears any stale selection from the previous view.
+        /// First update: clears any stale selection from the previous view.
         if !coordinator.hasCompletedFirstUpdate {
             coordinator.hasCompletedFirstUpdate = true
             Self.log("First update - clearing NSCollectionView selection")
             coordinator.withSuppressedCallbacks { collectionView.selectionIndexPaths = [] }
         }
 
-        // Stale-pass guard. SwiftUI can run this when the films change alone, with the stored activeViewID still naming the
-        // old view. That happens in two cases:
-        //
-        //  • An outgoing instance that is about to be removed. It sees the destination's films, and reloading it would only
-        //    clamp its viewport and overwrite the origin just saved.
-        //  • An instance that stays, such as a sub-tab switch. A pass with the new activeViewID follows and does the reload.
-        //
-        // Until activeViewID matches the films, nothing is owed, so the pass is skipped.
+        /// Stale-pass guard. SwiftUI can run this when the films change alone, with the stored activeViewID still naming the
+        /// old view. That happens in two cases:
+        ///
+        ///  • An outgoing instance that is about to be removed. It sees the destination's films, and reloading it would only
+        ///    clamp its viewport and overwrite the origin just saved.
+        ///  • An instance that stays, such as a sub-tab switch. A pass with the new activeViewID follows and does the reload.
+        ///
+        /// Until activeViewID matches the films, nothing is owed, so the pass is skipped.
         guard activeViewID == ViewStateManager.shared.activeView else { return }
 
-        // Style guard for a Film Queue tab switch between tabs of different styles. The outgoing gallery's pass could reload
-        // the incoming films in the outgoing style for a frame. A gallery whose style differs from the one GalleryView presents is
-        // about to be removed, so the pass is skipped. GalleryView uses the same check, so the two always agree.
+        /// Style guard for a Film Queue tab switch between tabs of different styles. The outgoing gallery's pass could reload
+        /// the incoming films in the outgoing style for a frame. A gallery whose style differs from the one GalleryView presents is
+        /// about to be removed, so the pass is skipped. GalleryView uses the same check, so the two always agree.
         if case .filmQueue = activeViewID,
            ViewStateManager.shared.displayedGalleryState(
                loadedQueueFilter: dataCoordinator.loadedFilmQueueFilter).isListView {
@@ -502,41 +502,41 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         let newFilms = dataCoordinator.films
 
         // MARK: Launch Pre-Paint Warm Registration
-        // Runs once per session, so the O(N) map is skipped on later passes. It gives PosterCache the launch view's order before
-        // the first reloadData(). That warms the leading posters synchronously and sets the order as the restore's priority, so
-        // the first cells find their images already loaded. The background restore then fills in from the top. See
-        // PosterCache.registerLaunchDisplayOrder.
+        /// Runs once per session, so the O(N) map is skipped on later passes. It gives PosterCache the launch view's order before
+        /// the first reloadData(). That warms the leading posters synchronously and sets the order as the restore's priority, so
+        /// the first cells find their images already loaded. The background restore then fills in from the top. See
+        /// PosterCache.registerLaunchDisplayOrder.
         if PosterCache.shared.needsLaunchWarm, !newFilms.isEmpty {
             PosterCache.shared.registerLaunchDisplayOrder(newFilms.map(\.posterUID))
         }
         if !newFilms.isEmpty { LaunchReveal.shared.galleryWillAppear(scrollView) }
 
-        // Exits early if both are empty.
+        /// Exits early if both are empty.
         guard !newFilms.isEmpty || !coordinator.films.isEmpty else {
             coordinator.syncSelectionToView()
             return
         }
 
-        // A reload is needed when: 1. the view identity changed; 2. the count changed; 3. the first or last film changed; or
-        // 4. an interior reorder with stable endpoints (the ambiguous case below).
+        /// A reload is needed when: 1. the view identity changed; 2. the count changed; 3. the first or last film changed; or
+        /// 4. an interior reorder with stable endpoints (the ambiguous case below).
 
-        // Identity check, independent of the film heuristics. currentViewID is already set to activeViewID, and prevViewID
-        // advances only in the reload branch. A mismatch means the view changed since the last reload, even when the count and
-        // endpoints happen to match.
+        /// Identity check, independent of the film heuristics. currentViewID is already set to activeViewID, and prevViewID
+        /// advances only in the reload branch. A mismatch means the view changed since the last reload, even when the count and
+        /// endpoints happen to match.
         let viewIdentityChanged = coordinator.isLikelyViewSwitch()
 
-        // The Film Queue's segment filter narrows the same view (currentViewID stays .filmQueue), so viewIdentityChanged misses
-        // a switch between "All" and one section. The same-view path would keep scroll position and leave the excluded sections
-        // on screen for one frame before the narrower layout commits.
-        //
-        // This compares against dataCoordinator.loadedFilmQueueFilter, the filter the films were produced with, and not the
-        // live FilmQueueFilterState.shared.selectedFilter. The live filter changes first, and a pass in that window would reload
-        // the stale union with the wrong dividers. Keying on the loaded filter fires once, on the pass that installs the new films.
-        //
-        // A nil last-seen value is not a change. A fresh mount is already covered by viewIdentityChanged, and reporting a change
-        // here would discard a scroll handoff. The value resets to nil when a non-Queue film set is shown, so returning to the Queue
-        // counts as a first observation.
-        // The key of what was on screen before this pass, captured before the filter is advanced. Only the outgoing-origin save uses it.
+        /// The Film Queue's segment filter narrows the same view (currentViewID stays .filmQueue), so viewIdentityChanged misses
+        /// a switch between "All" and one section. The same-view path would keep scroll position and leave the excluded sections
+        /// on screen for one frame before the narrower layout commits.
+        ///
+        /// This compares against dataCoordinator.loadedFilmQueueFilter, the filter the films were produced with, and not the
+        /// live FilmQueueFilterState.shared.selectedFilter. The live filter changes first, and a pass in that window would reload
+        /// the stale union with the wrong dividers. Keying on the loaded filter fires once, on the pass that installs the new films.
+        ///
+        /// A nil last-seen value is not a change. A fresh mount is already covered by viewIdentityChanged, and reporting a change
+        /// here would discard a scroll handoff. The value resets to nil when a non-Queue film set is shown, so returning to the Queue
+        /// counts as a first observation.
+        /// The key of what was on screen before this pass, captured before the filter is advanced. Only the outgoing-origin save uses it.
         let outgoingQueueFilter = coordinator.lastFilmQueueFilter
         let filmQueueFilterChanged: Bool
         if let loadedQueueFilter = dataCoordinator.loadedFilmQueueFilter {
@@ -553,27 +553,27 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                                  (coordinator.films.first?.id != newFilms.first?.id ||
                                   coordinator.films.last?.id != newFilms.last?.id)
 
-        // When the count and both endpoints match, the cheap heuristics above cannot tell
-        // whether the interior order changed — e.g. switching between two sort options that
-        // share the same first and last film (Date Added ⇄ Date Modified when the newest and
-        // oldest films coincide under both orderings). A sort change routes through
-        // loadFilms() (which reassigns dataCoordinator.films but emits no event), so without
-        // this check the reordered interior would never be
-        // drawn and the gallery would keep displaying the prior order.
-        //
-        // The O(N) ordered-ID scan is only reached in this ambiguous branch and is negligible
-        // next to the reloadData() it gates. On a genuine no-op re-render (identical order —
-        // e.g. a status-bar toggle) it returns false, preserving the existing skip-reload
-        // behavior. Identity comparison on FilmSnapshot value types only; no managed-object access.
-        //
-        // `==` first: Array equality is O(1) when the buffers are identical, which is every
-        // pass where dataCoordinator.films was not reassigned (selection, status-bar toggle,
-        // dividers setting), so the O(N) ID walk is only reached after a real reload.
-        //
-        // A film edit or a smart-list recalculation is held to the same test rather than
-        // reloading unconditionally: when the ID sequence survived, the edit changed only
-        // what the tiles show, and the in-place branch below reconfigures
-        // them without the reloadData() that rebuilt every visible tile and reset the scroll.
+        /// When the count and both endpoints match, the cheap heuristics above cannot tell
+        /// whether the interior order changed — e.g. switching between two sort options that
+        /// share the same first and last film (Date Added ⇄ Date Modified when the newest and
+        /// oldest films coincide under both orderings). A sort change routes through
+        /// loadFilms() (which reassigns dataCoordinator.films but emits no event), so without
+        /// this check the reordered interior would never be
+        /// drawn and the gallery would keep displaying the prior order.
+        ///
+        /// The O(N) ordered-ID scan is only reached in this ambiguous branch and is negligible
+        /// next to the reloadData() it gates. On a genuine no-op re-render (identical order —
+        /// e.g. a status-bar toggle) it returns false, preserving the existing skip-reload
+        /// behavior. Identity comparison on FilmSnapshot value types only; no managed-object access.
+        ///
+        /// `==` first: Array equality is O(1) when the buffers are identical, which is every
+        /// pass where dataCoordinator.films was not reassigned (selection, status-bar toggle,
+        /// dividers setting), so the O(N) ID walk is only reached after a real reload.
+        ///
+        /// A film edit or a smart-list recalculation is held to the same test rather than
+        /// reloading unconditionally: when the ID sequence survived, the edit changed only
+        /// what the tiles show, and the in-place branch below reconfigures
+        /// them without the reloadData() that rebuilt every visible tile and reset the scroll.
         let structuralChange = viewIdentityChanged || countChanged || firstOrLastChanged ||
                                filmQueueFilterChanged
         let interiorReordered =
@@ -582,8 +582,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         let needsReload = structuralChange || interiorReordered
 
-        // The request is acted on by whichever branch below runs on this pass, and only on
-        // this pass — see `scrollRequest`.
+        /// The request is acted on by whichever branch below runs on this pass, and only on
+        /// this pass — see `scrollRequest`.
         let scrollToFilmID: UUID?
         if let scrollRequest, scrollRequest != coordinator.lastScrollRequest {
             scrollToFilmID = scrollRequest.filmID
@@ -593,53 +593,53 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         coordinator.lastScrollRequest = scrollRequest
 
         if needsReload {
-            // isViewSwitch reuses the identity signal computed above, OR'd with the
-            // Film-Queue-filter signal — prevViewID has not been advanced since, so the
-            // comparison still reflects the transition. Treating a Film Queue filter change
-            // A film queue filter change counts as a view switch here, so it gets the same scroll-to-zero before reload (see
-            // filmQueueFilterChanged).
+            /// isViewSwitch reuses the identity signal computed above, OR'd with the
+            /// Film-Queue-filter signal — prevViewID has not been advanced since, so the
+            /// comparison still reflects the transition. Treating a Film Queue filter change
+            /// A film queue filter change counts as a view switch here, so it gets the same scroll-to-zero before reload (see
+            /// filmQueueFilterChanged).
             let isViewSwitch = viewIdentityChanged || filmQueueFilterChanged
 
-            // Records the outgoing view's scroll position before the scroll-to-zero and reloadData(). dismantleNSView covers only
-            // teardown. Sub-tabs and smart-list variants keep the same GalleryView identity, so the same GallerySubview is reused
-            // and only activeViewID changes. Their outgoing position would otherwise never be saved.
-            //
-            // The save is unconditional, including y == 0. Leaving an old deeper entry in place would reopen a view at the wrong depth.
-            //
-            // The save depends on viewIdentityChanged and a non-nil prevViewID. A Film Queue filter change keeps currentViewID at
-            // .filmQueue, so saving there would file one section's position under a shared key. A first pass has no previous view,
-            // so its synthetic zero must not be filed against anything.
+            /// Records the outgoing view's scroll position before the scroll-to-zero and reloadData(). dismantleNSView covers only
+            /// teardown. Sub-tabs and smart-list variants keep the same GalleryView identity, so the same GallerySubview is reused
+            /// and only activeViewID changes. Their outgoing position would otherwise never be saved.
+            ///
+            /// The save is unconditional, including y == 0. Leaving an old deeper entry in place would reopen a view at the wrong depth.
+            ///
+            /// The save depends on viewIdentityChanged and a non-nil prevViewID. A Film Queue filter change keeps currentViewID at
+            /// .filmQueue, so saving there would file one section's position under a shared key. A first pass has no previous view,
+            /// so its synthetic zero must not be filed against anything.
             if viewIdentityChanged, let outgoingViewID = coordinator.prevViewID {
                 ViewStateManager.shared.saveScrollPosition(
                     coordinator.scrollPosition(of: scrollView),
                     under: GalleryScrollKey(viewID: outgoingViewID, subTab: outgoingQueueFilter?.rawValue))
             }
 
-            // A same-view reload that empties the grid takes the gallery off screen. A placeholder replaces it, and the next film
-            // mounts a fresh gallery that restores this banked origin. Bank the current position now, while this pass knows its key.
-            // dismantleNSView cannot record y == 0, and a scroll to the top posts no live-scroll end, so the remount would restore a
-            // deeper position.
+            /// A same-view reload that empties the grid takes the gallery off screen. A placeholder replaces it, and the next film
+            /// mounts a fresh gallery that restores this banked origin. Bank the current position now, while this pass knows its key.
+            /// dismantleNSView cannot record y == 0, and a scroll to the top posts no live-scroll end, so the remount would restore a
+            /// deeper position.
             if !isViewSwitch && newFilms.isEmpty {
                 ViewStateManager.shared.saveScrollPosition(coordinator.scrollPosition(of: scrollView),
                                                            under: coordinator.displayedScrollKey)
             }
 
-            // Advances prevViewID now that the transition is consumed.
+            /// Advances prevViewID now that the transition is consumed.
             coordinator.prevViewID = coordinator.currentViewID
 
-            // For view switches, zero the scroll position before reloading to prevent flicker. For same-view reloads (e.g. film
-            // edits), capture the origin to restore after reloadData(). reloadData() resets the scroll to zero, which would otherwise
-            // move the user to the top on every save.
+            /// For view switches, zero the scroll position before reloading to prevent flicker. For same-view reloads (e.g. film
+            /// edits), capture the origin to restore after reloadData(). reloadData() resets the scroll to zero, which would otherwise
+            /// move the user to the top on every save.
             let savedScrollOrigin: CGPoint?
 
-            // The scroll intent is not consumed here. Each destination has its own stable .id, so a search exit always mounts a
-            // fresh GallerySubview, and makeNSView is the only place that consumes the intent. Consuming it here would be harmful. The
-            // search instance still re-renders during the exit, with the destination's activeViewID already set, so it would consume
-            // the intent and arm a scroll on a view about to be dismantled. The real destination would then find nothing.
+            /// The scroll intent is not consumed here. Each destination has its own stable .id, so a search exit always mounts a
+            /// fresh GallerySubview, and makeNSView is the only place that consumes the intent. Consuming it here would be harmful. The
+            /// search instance still re-renders during the exit, with the destination's activeViewID already set, so it would consume
+            /// the intent and arm a scroll on a view about to be dismantled. The real destination would then find nothing.
 
             if isViewSwitch {
-                // Discards any origin restore armed by an earlier pass that this transition supersedes. Otherwise a rapid sub-tab
-                // switch could leave B's origin armed and resolve it against C's content. The restore below re-arms it for the incoming view.
+                /// Discards any origin restore armed by an earlier pass that this transition supersedes. Otherwise a rapid sub-tab
+                /// switch could leave B's origin armed and resolve it against C's content. The restore below re-arms it for the incoming view.
                 coordinator.scrollView?.pendingScrollPosition = nil
                 appViewportMove {
                     scrollView.contentView.scroll(to: .zero)
@@ -651,8 +651,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             }
 
             coordinator.films = newFilms
-            // Recomputes the section-divider breaks from the new films and pushes them to the layout before reloadData(), so the
-            // relayout sees current breaks. Where no bands apply, this does nothing.
+            /// Recomputes the section-divider breaks from the new films and pushes them to the layout before reloadData(), so the
+            /// relayout sees current breaks. Where no bands apply, this does nothing.
             coordinator.updateSectionDividers()
             #if DEBUG
             ViewSwitchProbe.record("grid.reload \(coordinator.currentViewID) films=\(newFilms.count)")
@@ -664,22 +664,22 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             if !newFilms.isEmpty { LaunchTimeline.mark("galleryReloadReturned") }
             coordinator.dividerBandsNeedRefresh = true
 
-            // Decides how to handle scroll position after the reload, in this order:
-            //   0. A reuse-path film handoff, which is a "Show in List" redirect to a sub-variant.
-            //   1. scrollToFilmID, for an intentional post-edit reposition.
-            //   2. The saved origin, for a view-switch restore (maintainScrollPositionOnViewSwitch).
-            //   3. The same-view origin, to restore the viewport for in-place edits.
-            //
-            // The search-exit scroll is handled in makeNSView.
+            /// Decides how to handle scroll position after the reload, in this order:
+            ///   0. A reuse-path film handoff, which is a "Show in List" redirect to a sub-variant.
+            ///   1. scrollToFilmID, for an intentional post-edit reposition.
+            ///   2. The saved origin, for a view-switch restore (maintainScrollPositionOnViewSwitch).
+            ///   3. The same-view origin, to restore the viewport for in-place edits.
+            ///
+            /// The search-exit scroll is handled in makeNSView.
             if let handoffFilmID = GalleryScrollIntent.shared.consumeOnReuse(ifTargeting: coordinator.currentViewID) {
-                // Priority 0: a reuse-path film handoff. It can only be a ShowInListNavigation redirect to a sub-variant of the parent
-                // already on screen (see GalleryScrollIntent.consumableOnReuse). It outranks the origin restores, so the intent is
-                // retired and the armed origin discarded before the target is placed.
+                /// Priority 0: a reuse-path film handoff. It can only be a ShowInListNavigation redirect to a sub-variant of the parent
+                /// already on screen (see GalleryScrollIntent.consumableOnReuse). It outranks the origin restores, so the intent is
+                /// retired and the armed origin discarded before the target is placed.
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
                 coordinator.scrollView?.pendingScrollPosition = nil
                 coordinator.scrollView?.pendingScrollFilmID = handoffFilmID
-                // Forces a layout against the films just installed, so the target resolves in this pass, before the first painted frame.
-                // If layout is still not ready, the target stays armed and viewWillDraw retries.
+                /// Forces a layout against the films just installed, so the target resolves in this pass, before the first painted frame.
+                /// If layout is still not ready, the target stays armed and viewWillDraw retries.
                 collectionView.layoutSubtreeIfNeeded()
                 coordinator.scrollView?.applyPendingFilmTargetIfPossible()
                 Self.log("Scroll handoff armed on reuse path for film \(handoffFilmID) (view: \(coordinator.currentViewID))")
@@ -689,12 +689,12 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
                 Self.log("Checking scroll for film \(filmID): newIndex=\(index)")
 
-                // An explicit post-edit reposition outranks a saved-origin restore. Retires any intent for this view, so a later pass
-                // cannot undo the placement below.
+                /// An explicit post-edit reposition outranks a saved-origin restore. Retires any intent for this view, so a later pass
+                /// cannot undo the placement below.
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
 
-                // Step 1: restores the pre-reload origin, or leaves it at zero for view switches with no saved origin. This undoes the
-                // scroll-to-zero that reloadData() applies.
+                /// Step 1: restores the pre-reload origin, or leaves it at zero for view switches with no saved origin. This undoes the
+                /// scroll-to-zero that reloadData() applies.
                 if let origin = savedScrollOrigin {
                     appViewportMove {
                         scrollView.contentView.setBoundsOrigin(origin)
@@ -702,8 +702,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                     }
                 }
 
-                // Step 2: if the film is visible in the restored viewport, nothing else is needed. If it moved out of view after a
-                // sort change, it is scrolled to the top row so it stays in focus.
+                /// Step 2: if the film is visible in the restored viewport, nothing else is needed. If it moved out of view after a
+                /// sort change, it is scrolled to the top row so it stays in focus.
                 let indexPath = IndexPath(item: index, section: 0)
                 if !coordinator.isFilmVisible(at: indexPath) {
                     coordinator.scrollToTopRow(at: indexPath)
@@ -715,31 +715,31 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             } else if coordinator.scrollView?.pendingScrollFilmID == nil,
                       let restoredPosition = ViewStateManager.shared
                           .pendingScrollOriginRestore(for: coordinator.displayedScrollKey) {
-                // Priority 2: restores this view's saved scroll origin (maintainScrollPositionOnViewSwitch).
-                //
-                // This branch does not test isViewSwitch. That flag is true only on the pass that consumes the prevViewID transition. On a
-                // sub-tab switch the Coordinator is reused, and the pass that reloads with the destination's films may be a different
-                // pass. The restore would then be armed with nothing to restore against.
-                //
-                // The addressed intent avoids this. ViewStateManager arms it once at the switch, and it stays live until a gallery
-                // showing that exact view applies it. This branch therefore fires on whichever pass does the reload, and is inert on others.
-                // The preference is checked at arming time, so nothing is armed while it is off.
-                //
-                // The origin is armed on the scroll view and then applied by an explicit call below. viewWillDraw alone is not enough, since
-                // a reused gallery's scroll view is not dirtied by a sub-tab reload. viewWillDraw remains the retry for a fresh mount.
-                // Either way the origin lands before the first painted frame.
-                //
-                // The pendingScrollFilmID == nil condition lets a film handoff from makeNSView take precedence over the origin restore.
+                /// Priority 2: restores this view's saved scroll origin (maintainScrollPositionOnViewSwitch).
+                ///
+                /// This branch does not test isViewSwitch. That flag is true only on the pass that consumes the prevViewID transition. On a
+                /// sub-tab switch the Coordinator is reused, and the pass that reloads with the destination's films may be a different
+                /// pass. The restore would then be armed with nothing to restore against.
+                ///
+                /// The addressed intent avoids this. ViewStateManager arms it once at the switch, and it stays live until a gallery
+                /// showing that exact view applies it. This branch therefore fires on whichever pass does the reload, and is inert on others.
+                /// The preference is checked at arming time, so nothing is armed while it is off.
+                ///
+                /// The origin is armed on the scroll view and then applied by an explicit call below. viewWillDraw alone is not enough, since
+                /// a reused gallery's scroll view is not dirtied by a sub-tab reload. viewWillDraw remains the retry for a fresh mount.
+                /// Either way the origin lands before the first painted frame.
+                ///
+                /// The pendingScrollFilmID == nil condition lets a film handoff from makeNSView take precedence over the origin restore.
                 coordinator.scrollView?.pendingScrollPosition = restoredPosition
                 Self.log("Scroll-origin restore armed for \(coordinator.currentViewID): \(restoredPosition.origin)")
-                // Forces a layout against the films just installed, then applies the origin now. Waiting for viewWillDraw would not
-                // work on a reused gallery (see applyPendingOriginRestoreIfPossible). The first painted frame is then at the restored offset.
+                /// Forces a layout against the films just installed, then applies the origin now. Waiting for viewWillDraw would not
+                /// work on a reused gallery (see applyPendingOriginRestoreIfPossible). The first painted frame is then at the restored offset.
                 collectionView.layoutSubtreeIfNeeded()
                 coordinator.scrollView?.applyPendingOriginRestoreIfPossible()
             } else {
-                // No scroll-to-film was requested (add/delete path, or filmID not in map).
-                // Restore the pre-reload scroll origin to prevent an unintended jump to the top.
-                // On a view switch this is a no-op because savedScrollOrigin is nil.
+                /// No scroll-to-film was requested (add/delete path, or filmID not in map).
+                /// Restore the pre-reload scroll origin to prevent an unintended jump to the top.
+                /// On a view switch this is a no-op because savedScrollOrigin is nil.
                 if scrollToFilmID != nil {
                     Self.log("scrollToFilmID set but film not found in filmIndexMap - restoring scroll origin")
                 }
@@ -751,11 +751,11 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 }
             }
         } else {
-            // Same films in the same order, possibly with new content (an edited film's
-            // poster, or a Recents date). Install them and reconfigure the cells that exist:
-            // GalleryItem.configure diffs the film, poster, and subtitle, so only a tile
-            // whose display actually changed is rebuilt. Cells created later read the
-            // installed films through the data source.
+            /// Same films in the same order, possibly with new content (an edited film's
+            /// poster, or a Recents date). Install them and reconfigure the cells that exist:
+            /// GalleryItem.configure diffs the film, poster, and subtitle, so only a tile
+            /// whose display actually changed is rebuilt. Cells created later read the
+            /// installed films through the data source.
             if coordinator.films != newFilms {
                 let oldFilms = coordinator.films
                 coordinator.films = newFilms
@@ -766,9 +766,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                     item.configure(with: film, subtitleProvider: subtitleProvider)
                     touched.insert(indexPath.item)
                 }
-                // Prepared cells just outside the viewport are kept by NSCollectionView and
-                // are not re-requested when they scroll in, so any of them showing a film
-                // that changed is reconfigured too.
+                /// Prepared cells just outside the viewport are kept by NSCollectionView and
+                /// are not re-requested when they scroll in, so any of them showing a film
+                /// that changed is reconfigured too.
                 for index in newFilms.indices where !touched.contains(index) && oldFilms[index] != newFilms[index] {
                     let indexPath = IndexPath(item: index, section: 0)
                     if let item = collectionView.item(at: indexPath) as? GalleryItem {
@@ -780,11 +780,11 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 #endif
             }
 
-            // A reuse-path film handoff is claimed here too, not only by the reload branch.
-            // A Film Queue section move that leaves the film at the same index (the last Up
-            // Next film moved to the head of Soon, say) changes no film order, so no reload
-            // runs. The intent must not stay pending, or the next reload (a later tab switch)
-            // would claim it and throw away that tab's restore.
+            /// A reuse-path film handoff is claimed here too, not only by the reload branch.
+            /// A Film Queue section move that leaves the film at the same index (the last Up
+            /// Next film moved to the head of Soon, say) changes no film order, so no reload
+            /// runs. The intent must not stay pending, or the next reload (a later tab switch)
+            /// would claim it and throw away that tab's restore.
             if let handoffFilmID = GalleryScrollIntent.shared.consumeOnReuse(ifTargeting: coordinator.currentViewID) {
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
                 coordinator.scrollView?.pendingScrollPosition = nil
@@ -793,9 +793,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 Self.log("Scroll handoff applied in place for film \(handoffFilmID) (view: \(coordinator.currentViewID))")
             }
 
-            // The post-edit reposition, minus the origin restore the reload branch needs:
-            // nothing reloaded, so the viewport is still where the user left it. A film
-            // still on screen is left alone; one that is not is brought to the top row.
+            /// The post-edit reposition, minus the origin restore the reload branch needs:
+            /// nothing reloaded, so the viewport is still where the user left it. A film
+            /// still on screen is left alone; one that is not is brought to the top row.
             if let filmID = scrollToFilmID, let index = coordinator.filmIndexMap[filmID] {
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
                 let indexPath = IndexPath(item: index, section: 0)
@@ -805,26 +805,26 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 }
             }
 
-            // No reload was judged necessary by the heuristics above, but the section-divider
-            // breaks must still be reconciled against the CURRENT view, filter, and sort state
-            // on every pass — not just when a reload happens to fire. This is also the only
-            // path by which a change to this view's section-dividers setting reaches the
-            // grid: ViewStateManager.updateShowSectionDividers deliberately passes
-            // `reload: false`, because the setting changes nothing about the film set
-            // itself, so no reload will fire for it and this pass is the whole mechanism. Without
-            // this, a transient render pass with stale data (e.g. the brief window between a
-            // fresh GalleryView's first body evaluation and its onAppear-triggered view-switch
-            // Recomputes the breaks for the new view. Stale breaks would otherwise persist if a later reload did not detect the change.
-            // The call invalidates the layout only when the breaks differ. It does nothing where no bands apply.
+            /// No reload was judged necessary by the heuristics above, but the section-divider
+            /// breaks must still be reconciled against the CURRENT view, filter, and sort state
+            /// on every pass — not just when a reload happens to fire. This is also the only
+            /// path by which a change to this view's section-dividers setting reaches the
+            /// grid: ViewStateManager.updateShowSectionDividers deliberately passes
+            /// `reload: false`, because the setting changes nothing about the film set
+            /// itself, so no reload will fire for it and this pass is the whole mechanism. Without
+            /// this, a transient render pass with stale data (e.g. the brief window between a
+            /// fresh GalleryView's first body evaluation and its onAppear-triggered view-switch
+            /// Recomputes the breaks for the new view. Stale breaks would otherwise persist if a later reload did not detect the change.
+            /// The call invalidates the layout only when the breaks differ. It does nothing where no bands apply.
             coordinator.updateSectionDividers()
 
-            // The subtitle KIND changed but the film heuristics found no reason to reload. Every configured cell still shows text from
-            // the previous provider. That happens when two views share a film set the heuristics cannot tell apart, such as two Recents
-            // categories with the same films in the same order.
-            //
-            // Reconfiguring is deliberate. The films, order, scroll, and selection stay the same, and reloadData() would reset them.
-            // GalleryItem.configure compares the resolved text, so unchanged cells do no work. visibleItems() limits the cost to cells
-            // on screen. Cells scrolled in later take the current provider through the normal path.
+            /// The subtitle KIND changed but the film heuristics found no reason to reload. Every configured cell still shows text from
+            /// the previous provider. That happens when two views share a film set the heuristics cannot tell apart, such as two Recents
+            /// categories with the same films in the same order.
+            ///
+            /// Reconfiguring is deliberate. The films, order, scroll, and selection stay the same, and reloadData() would reset them.
+            /// GalleryItem.configure compares the resolved text, so unchanged cells do no work. visibleItems() limits the cost to cells
+            /// on screen. Cells scrolled in later take the current provider through the normal path.
             if subtitleKindChanged {
                 for case let item as GalleryItem in collectionView.visibleItems() {
                     guard let indexPath = collectionView.indexPath(for: item),
@@ -837,30 +837,30 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         coordinator.syncSelectionToView()
 
-        // Re-primes the look-ahead band after a data change while the startup population is still running. It is a no-op once
-        // that finishes, and it only reads state and dispatches background work.
+        /// Re-primes the look-ahead band after a data change while the startup population is still running. It is a no-op once
+        /// that finishes, and it only reads state and dispatches background work.
         coordinator.prefetchAroundVisibleRectIfPopulating()
 
-        // Final reconciliation of the divider bands' text against the layout this pass produced. It runs last, when the collection
-        // view holds the current films and breaks. See refreshVisibleSectionDividers.
+        /// Final reconciliation of the divider bands' text against the layout this pass produced. It runs last, when the collection
+        /// view holds the current films and breaks. See refreshVisibleSectionDividers.
         coordinator.refreshVisibleSectionDividers()
     }
 
     /// Explicit teardown. It cancels the Coordinator's subscriptions when the representable is removed. It also saves the scroll
     /// origin for maintainScrollPositionOnViewSwitch, because this is the last point the old scroll view is still valid.
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
-        // Backstop save, used only when neither the end of a user scroll nor updateNSView's outgoing-view save has run.
-        //
-        // The y > 0 condition is deliberate. This call site cannot verify its key. During navigation the outgoing gallery may
-        // receive one final render carrying the destination's activeViewID. That render also zeroes the scroll, so an unconditional
-        // save would overwrite the destination's real origin. A scroll back to the top is covered by the other two saves.
+        /// Backstop save, used only when neither the end of a user scroll nor updateNSView's outgoing-view save has run.
+        ///
+        /// The y > 0 condition is deliberate. This call site cannot verify its key. During navigation the outgoing gallery may
+        /// receive one final render carrying the destination's activeViewID. That render also zeroes the scroll, so an unconditional
+        /// save would overwrite the destination's real origin. A scroll back to the top is covered by the other two saves.
         let position = coordinator.scrollPosition(of: nsView)
         if position.origin.y > 0 {
             ViewStateManager.shared.saveScrollPosition(position, under: coordinator.displayedScrollKey)
             Self.log("Saved scroll origin \(position.origin) for \(coordinator.currentViewID)")
         }
-        // Clears the registry only if this coordinator is still the registered provider. The grid-list toggle can mount the
-        // opposite style first, and its registration must not be cleared.
+        /// Clears the registry only if this coordinator is still the registered provider. The grid-list toggle can mount the
+        /// opposite style first, and its registration must not be cleared.
         ViewStateManager.shared.unregisterScrollPositionProvider(coordinator)
         coordinator.cancelSubscriptions()
     }
@@ -881,29 +881,29 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// Mirror of the active view's ViewState.showSectionDividers, pushed by makeNSView and updateNSView. It gates the sort-derived
         /// bands in updateSectionDividers. The Film Queue's own bands ignore it.
         var showSortingSections: Bool = false
-        // The active subtitle provider, pushed by makeNSView and updateNSView, and passed to each cell in itemForRepresentedObjectAt.
-        // Cells are pure AppKit and have no SwiftUI environment. updateNSView also checks for nil to detect when the layout must
-        // reserve or release the subtitle row.
+        /// The active subtitle provider, pushed by makeNSView and updateNSView, and passed to each cell in itemForRepresentedObjectAt.
+        /// Cells are pure AppKit and have no SwiftUI environment. updateNSView also checks for nil to detect when the layout must
+        /// reserve or release the subtitle row.
         var subtitleProvider: GallerySubtitleProvider?
 
-        // Tracks StatusBar visibility for layout.
+        /// Tracks StatusBar visibility for layout.
         var isStatusBarVisible: Bool = false
 
-        // The current and previous view identifiers, for detecting view switches. updateNSView updates them on every pass.
-        // prevViewID is nil until the Coordinator has rendered a view. A non-optional default would compare equal on a fresh mount
-        // whose activeViewID matched it. Then the switch branch, including the origin restore, would be skipped. nil compares
-        // unequal to every case, so the first pass always counts as a transition. The nil value also means the outgoing-origin save
-        // is skipped on a first pass, so the synthetic zero is not filed under an unrelated view.
+        /// The current and previous view identifiers, for detecting view switches. updateNSView updates them on every pass.
+        /// prevViewID is nil until the Coordinator has rendered a view. A non-optional default would compare equal on a fresh mount
+        /// whose activeViewID matched it. Then the switch branch, including the origin restore, would be skipped. nil compares
+        /// unequal to every case, so the first pass always counts as a transition. The nil value also means the outgoing-origin save
+        /// is skipped on a first pass, so the synthetic zero is not filed under an unrelated view.
         var currentViewID: ViewIdentifier = .allFilms
         fileprivate var prevViewID: ViewIdentifier?
 
-        // The Film Queue segment filter (All, Up Next, Soon, Later) that the displayed films were built from. It is nil when no
-        // Queue films are shown. currentViewID never changes for a filter switch, so isLikelyViewSwitch cannot detect it. updateNSView
-        // compares this with dataCoordinator.loadedFilmQueueFilter on each pass and treats a mismatch as a view switch. See the use
-        // site for why the loaded filter is compared and not the live one.
+        /// The Film Queue segment filter (All, Up Next, Soon, Later) that the displayed films were built from. It is nil when no
+        /// Queue films are shown. currentViewID never changes for a filter switch, so isLikelyViewSwitch cannot detect it. updateNSView
+        /// compares this with dataCoordinator.loadedFilmQueueFilter on each pass and treats a mismatch as a view switch. See the use
+        /// site for why the loaded filter is compared and not the live one.
         fileprivate var lastFilmQueueFilter: FilmQueueFilter?
 
-        // The property observer rebuilds the index map. Films are FilmSnapshot value types, so no model objects are referenced.
+        /// The property observer rebuilds the index map. Films are FilmSnapshot value types, so no model objects are referenced.
         var films: [FilmSnapshot] = [] { didSet { rebuildFilmIndexMap() } }
         let selectionState: SelectionState
 
@@ -912,21 +912,21 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         fileprivate var lastScrollRequest: FilmScrollRequest?
         private var isSuppressingCallbacks = false
         private var isUpdatingSelection = false
-        // Prevents races during rapid arrow-key navigation.
+        /// Prevents races during rapid arrow-key navigation.
         private var hasScheduledSelectionReset = false
-        // Set by syncSelectionToView() when a non-empty selection is cleared because every selected film left the view, such as
-        // a film removed from the list while its FilmSheet was open. seedInitialCursor() uses it to tell that clear from a
-        // selection that never existed. Without it, the focus return after closing the FilmSheet would reseed item 0.
+        /// Set by syncSelectionToView() when a non-empty selection is cleared because every selected film left the view, such as
+        /// a film removed from the list while its FilmSheet was open. seedInitialCursor() uses it to tell that clear from a
+        /// selection that never existed. Without it, the focus return after closing the FilmSheet would reseed item 0.
         private var selectionClearedByPrune = false
         private var anchorIndexPath: IndexPath?
-        // Tracks the moving end of the selection during shift+arrow navigation. anchorIndexPath is the fixed end. Set<IndexPath>
-        // has no reliable first element, so the moving end is stored here.
+        /// Tracks the moving end of the selection during shift+arrow navigation. anchorIndexPath is the fixed end. Set<IndexPath>
+        /// has no reliable first element, so the moving end is stored here.
         private var cursorIndexPath: IndexPath?
         private var cancellables = Set<AnyCancellable>()
         /// Task handle for the observation loop that watches selectionState.selectedFilmIDs. cancelSubscriptions() cancels it.
         private var observationTask: Task<Void, Never>?
 
-        // Cached index map for fast selection lookups. It is rebuilt whenever the films change.
+        /// Cached index map for fast selection lookups. It is rebuilt whenever the films change.
         fileprivate var filmIndexMap: [UUID: Int] = [:]
 
         init(selectionState: SelectionState) {
@@ -937,18 +937,18 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         /// Cancels all Combine subscriptions and the observation task. dismantleNSView calls it.
         func cancelSubscriptions() {
-            // removeAll() cancels each subscription through AnyCancellable.deinit, so no explicit loop is needed.
+            /// removeAll() cancels each subscription through AnyCancellable.deinit, so no explicit loop is needed.
             cancellables.removeAll()
-            // Cancels the observation task for SelectionState.
+            /// Cancels the observation task for SelectionState.
             observationTask?.cancel()
             observationTask = nil
-            // Removes the warming scroll-prefetch observer if it is still installed. It normally removes itself after the first
-            // tick once the startup population finishes (see handleWarmingScrollPrefetchTick).
+            /// Removes the warming scroll-prefetch observer if it is still installed. It normally removes itself after the first
+            /// tick once the startup population finishes (see handleWarmingScrollPrefetchTick).
             removeWarmingScrollPrefetch()
             #if DEBUG
             removeViewportJumpTracer()
             #endif
-            // Remove the live-scroll origin recorder installed by makeNSView.
+            /// Remove the live-scroll origin recorder installed by makeNSView.
             removeScrollOriginRecorder()
         }
 
@@ -958,40 +958,40 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// observeSelectionState() again to re-register for the next change. The task is
         /// canceled in cancelSubscriptions() when the NSViewRepresentable is dismantled.
         private func observeSelectionState() {
-            // .userInitiated priority matches the QoS at which AppKit delivers mouse and
-            // keyboard events (user-interactive). Without an explicit priority the Task
-            // defaults to .default, which is lower than user-interactive. When
-            // super.mouseDown enters its event-tracking run loop and that loop services
-            // the continuation resume triggered by a selection change, the runtime detects
-            // that a user-interactive thread is waiting on a default-QoS Task and warns:
-            // "[Internal] Thread running at User-interactive quality-of-service class
-            // waiting on a lower QoS thread running at Default quality-of-service class."
-            // Elevating to .userInitiated eliminates the inversion. .userInitiated is the
-            // correct Swift 6–compatible spelling: Swift concurrency has no .userInteractive
-            // priority; .userInitiated maps to DISPATCH_QUEUE_PRIORITY_HIGH at the GCD layer,
-            // which is equivalent to the user-interactive tier for tasks of this kind.
+            /// .userInitiated priority matches the QoS at which AppKit delivers mouse and
+            /// keyboard events (user-interactive). Without an explicit priority the Task
+            /// defaults to .default, which is lower than user-interactive. When
+            /// super.mouseDown enters its event-tracking run loop and that loop services
+            /// the continuation resume triggered by a selection change, the runtime detects
+            /// that a user-interactive thread is waiting on a default-QoS Task and warns:
+            /// "[Internal] Thread running at User-interactive quality-of-service class
+            /// waiting on a lower QoS thread running at Default quality-of-service class."
+            /// Elevating to .userInitiated eliminates the inversion. .userInitiated is the
+            /// correct Swift 6–compatible spelling: Swift concurrency has no .userInteractive
+            /// priority; .userInitiated maps to DISPATCH_QUEUE_PRIORITY_HIGH at the GCD layer,
+            /// which is equivalent to the user-interactive tier for tasks of this kind.
             observationTask = Task(priority: .userInitiated) { @MainActor [weak self] in
                 guard let self else { return }
                 while !Task.isCancelled {
-                    // withObservationTracking registers a one-shot observation on the
-                    // properties accessed inside the apply closure. When any of those
-                    // properties change, onChange is called once, then tracking stops.
-                    // We loop to re-register after each delivery.
+                    /// withObservationTracking registers a one-shot observation on the
+                    /// properties accessed inside the apply closure. When any of those
+                    /// properties change, onChange is called once, then tracking stops.
+                    /// We loop to re-register after each delivery.
                     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                         withObservationTracking {
-                            // Access the property to register this loop iteration as an observer.
+                            /// Access the property to register this loop iteration as an observer.
                             _ = self.selectionState.selectedFilmIDs
                         } onChange: {
                             continuation.resume()
                         }
                     }
-                    // Cancellation cannot interrupt the wait above — only the next change
-                    // resumes it — so a dismantled gallery's loop wakes here once more. It
-                    // must stop without acting: its films are the outgoing view's, and a sync
-                    // would prune a selection made in the view that replaced it.
+                    /// Cancellation cannot interrupt the wait above — only the next change
+                    /// resumes it — so a dismantled gallery's loop wakes here once more. It
+                    /// must stop without acting: its films are the outgoing view's, and a sync
+                    /// would prune a selection made in the view that replaced it.
                     guard !Task.isCancelled else { break }
-                    // onChange fired — selectedFilmIDs changed. Sync the collection view
-                    // unless we are mid-update (which means this change was self-initiated).
+                    /// onChange fired — selectedFilmIDs changed. Sync the collection view
+                    /// unless we are mid-update (which means this change was self-initiated).
                     guard !self.isUpdatingSelection else { continue }
                     self.syncSelectionToView()
                 }
@@ -1000,27 +1000,27 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         // MARK: - Subscriptions
         private func setupSubscriptions() {
-            // Sync external selection changes to the collection view.
-            //
-            // SelectionState is @Observable and exposes no @Published
-            // projected-value publisher ($selectedFilmIDs). The correct replacement for
-            // imperative observation of @Observable properties outside a SwiftUI view body
-            // is withObservationTracking(_:onChange:). The pattern below schedules a
-            // recursive @MainActor task: each iteration reads the property (registering
-            // a one-shot observation), then re-schedules itself inside the onChange
-            // handler. This delivers exactly one callback per change — the same contract
-            // as the former Combine sink — and the task handle on `observationTask` lets
-            // dismantleNSView cancel it cleanly.
+            /// Sync external selection changes to the collection view.
+            ///
+            /// SelectionState is @Observable and exposes no @Published
+            /// projected-value publisher ($selectedFilmIDs). The correct replacement for
+            /// imperative observation of @Observable properties outside a SwiftUI view body
+            /// is withObservationTracking(_:onChange:). The pattern below schedules a
+            /// recursive @MainActor task: each iteration reads the property (registering
+            /// a one-shot observation), then re-schedules itself inside the onChange
+            /// handler. This delivers exactly one callback per change — the same contract
+            /// as the former Combine sink — and the task handle on `observationTask` lets
+            /// dismantleNSView cancel it cleanly.
             observeSelectionState()
 
-            // Handle select all and clear focus rings
-            // selectAllFilms must be handled here for menu bar Select All to work
-            // The onSelectAll callback only fires for Cmd+A typed directly in the collection view
-            //
-            // Switched over exhaustively, with no `default` clause: SelectionEvent has
-            // exactly these two cases, so a `default` was unreachable (and warned as
-            // such). Leaving it off is also the safer shape — a third event added later
-            // becomes a compile error here rather than a silently ignored no-op.
+            /// Handle select all and clear focus rings
+            /// selectAllFilms must be handled here for menu bar Select All to work
+            /// The onSelectAll callback only fires for Cmd+A typed directly in the collection view
+            ///
+            /// Switched over exhaustively, with no `default` clause: SelectionEvent has
+            /// exactly these two cases, so a `default` was unreachable (and warned as
+            /// such). Leaving it off is also the safer shape — a third event added later
+            /// becomes a compile error here rather than a silently ignored no-op.
             AppEventBus.shared.selectionEvents
                 .receive(on: RunLoop.main)
                 .sink { [weak self] event in
@@ -1035,8 +1035,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 }
                 .store(in: &cancellables)
 
-            // Cmd+L scrolls so the topmost selected film sits in the top visible row. With several selected, the one with the
-            // smallest indexPath is used, which is the leftmost item in the first row.
+            /// Cmd+L scrolls so the topmost selected film sits in the top visible row. With several selected, the one with the
+            /// smallest indexPath is used, which is the leftmost item in the first row.
             AppEventBus.shared.uiCommands
                 .receive(on: RunLoop.main)
                 .sink { [weak self] command in
@@ -1044,18 +1044,18 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                     guard let collectionView = self.collectionView else { return }
                     let selected = collectionView.selectionIndexPaths
                     guard let indexPath = selected.min() else { return }
-                    // Goes through the stopper, so a trackpad coast in flight ends at the jump. See CoastingScrollStopper.
+                    /// Goes through the stopper, so a trackpad coast in flight ends at the jump. See CoastingScrollStopper.
                     self.coastStopper.jump { [weak self] stoppedCoast in
                         guard let self else { return }
                         self.scrollToTopRow(at: indexPath)
-                        // The stop's didEndLiveScroll banks the pre-jump position.
+                        /// The stop's didEndLiveScroll banks the pre-jump position.
                         if stoppedCoast { self.claimViewportForUser() }
                     }
                 }
                 .store(in: &cancellables)
 
-            // No filmEvents subscription is needed. Each film change reaches this view as a change of dataCoordinator.films. updateNSView
-            // answers it with a reloadData() or an in-place reconfigure, so a separate refresh would duplicate the work.
+            /// No filmEvents subscription is needed. Each film change reaches this view as a change of dataCoordinator.films. updateNSView
+            /// answers it with a reloadData() or an in-place reconfigure, so a separate refresh would duplicate the work.
         }
 
         // MARK: - Scroll-Origin Persistence
@@ -1091,9 +1091,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         @objc private func handleLiveScrollEnded(_ notification: Notification) {
             guard let scrollView else { return }
-            // The user has taken over the viewport. Any pending restore is retired before the save, since bankScrollOrigin refuses to
-            // overwrite a key with an outstanding restore. Retiring it later would discard the position the user just reached. It is
-            // addressed, so it cannot cancel another view's intent.
+            /// The user has taken over the viewport. Any pending restore is retired before the save, since bankScrollOrigin refuses to
+            /// overwrite a key with an outstanding restore. Retiring it later would discard the position the user just reached. It is
+            /// addressed, so it cannot cancel another view's intent.
             ViewStateManager.shared.finishScrollOriginRestore(for: displayedScrollKey)
             ViewStateManager.shared.saveScrollPosition(scrollPosition(of: scrollView),
                                                        under: displayedScrollKey)
@@ -1175,11 +1175,11 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             )
         }
 
-        // Returns the poster for a film ID, for the flyback drag preview. It runs on the main thread during drag detection,
-        // so it reads only from the cache and never from disk. See PosterCache.dragPreviewImage.
-        //
-        // The lookup is O(1) through filmIndexMap. An index from that map is always in range, since the map is rebuilt whenever films
-        // changes, and the Coordinator is main-actor isolated.
+        /// Returns the poster for a film ID, for the flyback drag preview. It runs on the main thread during drag detection,
+        /// so it reads only from the cache and never from disk. See PosterCache.dragPreviewImage.
+        ///
+        /// The lookup is O(1) through filmIndexMap. An index from that map is always in range, since the map is rebuilt whenever films
+        /// changes, and the Coordinator is main-actor isolated.
         func posterImage(for filmID: UUID) -> NSImage? {
             guard let index = filmIndexMap[filmID] else { return nil }
             let film = films[index]
@@ -1187,16 +1187,16 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         }
 
         // MARK: - Warming-Scoped Scroll Prefetch
-        //
-        // Scroll prefetch runs only during the launch population window. An always-on prefetch caused a steady micro-stutter
-        // once images were in memory, but removing it made scrolling during the window worse. So the prefetch is limited to
-        // that window:
-        //
-        //  • NSCollectionView has no scroll callback, so the observer uses NSView.boundsDidChangeNotification on the scroll
-        //    view's NSClipView. GalleryCollectionView already observes that clip view, and the two coexist.
-        //  • While PosterCache.isPopulating is true, each bounds change, throttled to 180 ms, warms the band one viewport
-        //    ahead and 25% behind, in a background prefetchPosters load. A fast fling then finds its posters already loaded.
-        //  • The first tick after isPopulating goes false removes the observer, so there is no cost for the rest of the session.
+        ///
+        /// Scroll prefetch runs only during the launch population window. An always-on prefetch caused a steady micro-stutter
+        /// once images were in memory, but removing it made scrolling during the window worse. So the prefetch is limited to
+        /// that window:
+        ///
+        ///  • NSCollectionView has no scroll callback, so the observer uses NSView.boundsDidChangeNotification on the scroll
+        ///    view's NSClipView. GalleryCollectionView already observes that clip view, and the two coexist.
+        ///  • While PosterCache.isPopulating is true, each bounds change, throttled to 180 ms, warms the band one viewport
+        ///    ahead and 25% behind, in a background prefetchPosters load. A fast fling then finds its posters already loaded.
+        ///  • The first tick after isPopulating goes false removes the observer, so there is no cost for the rest of the session.
 
         /// Keys with a prefetch load in flight. This prevents duplicate background loads across ticks for the same band.
         private var inFlightPrefetchUIDs: Set<String> = []
@@ -1215,7 +1215,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             let clip = scrollView.contentView
             clip.postsBoundsChangedNotifications = true
             prefetchClipView = clip
-            // Uses selector-based observation, as GalleryCollectionView does. The notification posts synchronously on the main thread.
+            /// Uses selector-based observation, as GalleryCollectionView does. The notification posts synchronously on the main thread.
             NotificationCenter.default.addObserver(
                 self, selector: #selector(handleWarmingScrollPrefetchTick(_:)),
                 name: NSView.boundsDidChangeNotification, object: clip)
@@ -1224,10 +1224,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         #if DEBUG
         // MARK: Viewport-Jump Tracer (DEBUG only)
-        //
-        // Reports viewport moves the app did not request. Programmatic scrolls in this file go through appViewportMove, which the
-        // tracer skips, as it skips live scrolls. Any jump it still reports came from elsewhere, and its call stack names the caller.
-        // It logs a bounds change whose vertical delta exceeds three viewport heights. It is compiled out of release builds.
+        ///
+        /// Reports viewport moves the app did not request. Programmatic scrolls in this file go through appViewportMove, which the
+        /// tracer skips, as it skips live scrolls. Any jump it still reports came from elsewhere, and its call stack names the caller.
+        /// It logs a bounds change whose vertical delta exceeds three viewport heights. It is compiled out of release builds.
         private let viewportJumpTracer = ViewportJumpTracer(owner: "grid")
 
         func installViewportJumpTracer(on scrollView: NSScrollView) {
@@ -1286,7 +1286,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             let visible = scrollView.documentVisibleRect
             guard visible.height > 0 else { return }
 
-            // One viewport ahead, plus a 25% trailing margin for reversals.
+            /// One viewport ahead, plus a 25% trailing margin for reversals.
             let lookahead = visible.height
             let trailing = visible.height * 0.25
             let expanded = NSRect(
@@ -1302,8 +1302,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             uidsToLoad.reserveCapacity(attributesInRange.count)
             var seenUIDs = Set<String>()
             for attrs in attributesInRange {
-                // Excludes section-divider decoration attributes. Their IndexPaths share the item namespace.
-                // See the matching filter in GalleryCollectionView.updateLiveSelection().
+                /// Excludes section-divider decoration attributes. Their IndexPaths share the item namespace.
+                /// See the matching filter in GalleryCollectionView.updateLiveSelection().
                 guard attrs.representedElementCategory == .item,
                       let indexPath = attrs.indexPath,
                       indexPath.item >= 0, indexPath.item < films.count
@@ -1320,8 +1320,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
             inFlightPrefetchUIDs.formUnion(uidsToLoad)
 
-            // One weak self capture, with one await back onto the main actor through a dedicated method. A second captured self in a
-            // nested MainActor closure would be flagged as a race under Swift 6 strict concurrency.
+            /// One weak self capture, with one await back onto the main actor through a dedicated method. A second captured self in a
+            /// nested MainActor closure would be flagged as a race under Swift 6 strict concurrency.
             Task.detached(priority: .utility) { [weak self] in
                 await PosterCache.shared.prefetchPosters(uidsToLoad)
                 await self?.finishPrefetch(uidsToLoad)
@@ -1341,24 +1341,24 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         func filmIDsForDrag(clickedAt indexPath: IndexPath?) -> Set<UUID> {
             let clickedID = indexPath.flatMap { filmID(at: $0) }
 
-            // Read the authoritative, synchronous AppKit selection directly, rather
-            // than selectionState.selectedFilmIDs — the latter is written via a
-            // deferred DispatchQueue.main.async in SelectionState.select(_:) and can
-            // therefore still reflect the PREVIOUS selection for one run-loop turn
-            // after a click has already committed a new one (e.g. a Cmd-click toggle
-            // immediately followed by a drag). collectionView.selectionIndexPaths is
-            // the same source mouseDown itself consults when deciding whether a click
-            // landed on an already-selected item, so this keeps a single, always-
-            // current source of truth for both decisions.
+            /// Read the authoritative, synchronous AppKit selection directly, rather
+            /// than selectionState.selectedFilmIDs — the latter is written via a
+            /// deferred DispatchQueue.main.async in SelectionState.select(_:) and can
+            /// therefore still reflect the PREVIOUS selection for one run-loop turn
+            /// after a click has already committed a new one (e.g. a Cmd-click toggle
+            /// immediately followed by a drag). collectionView.selectionIndexPaths is
+            /// the same source mouseDown itself consults when deciding whether a click
+            /// landed on an already-selected item, so this keeps a single, always-
+            /// current source of truth for both decisions.
             let selection = Set((collectionView?.selectionIndexPaths ?? []).compactMap { filmID(at: $0) })
 
-            // If clicked item is in selection, drag all selected
+            /// If clicked item is in selection, drag all selected
             if let id = clickedID, selection.contains(id) {
                 Self.log("Drag: \(selection.count) selected film(s)")
                 return selection
             }
 
-            // Otherwise drag just the clicked item
+            /// Otherwise drag just the clicked item
             if let id = clickedID {
                 Self.log("Drag: single unselected film")
                 return [id]
@@ -1368,9 +1368,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         }
 
         // MARK: - Layout
-        // Grid layout is self-computing: prepare() reads current bounds and
-        // calculates all parameters in integer backing pixels. No manual
-        // recalculation needed — shouldInvalidateLayout drives it through AppKit.
+        /// Grid layout is self-computing: prepare() reads current bounds and
+        /// calculates all parameters in integer backing pixels. No manual
+        /// recalculation needed — shouldInvalidateLayout drives it through AppKit.
 
         // MARK: - Selection
         func handleMarqueeSelection(_ indexPaths: Set<IndexPath>) {
@@ -1378,10 +1378,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             isUpdatingSelection = true
             defer { isUpdatingSelection = false }
 
-            // A marquee starts a new selection, so the keyboard cursor is cleared and the next arrow press starts from the selection.
+            /// A marquee starts a new selection, so the keyboard cursor is cleared and the next arrow press starts from the selection.
             cursorIndexPath = nil
             anchorIndexPath = nil
-            // A real marquee selection overrides any stale prune flag.
+            /// A real marquee selection overrides any stale prune flag.
             selectionClearedByPrune = false
 
             let ids = Set(indexPaths.compactMap { filmID(at: $0) })
@@ -1390,12 +1390,12 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         func syncSelectionToView() {
             guard let collectionView, !isUpdatingSelection else { return }
-            // A deferred selection is about to land and will sync again; see hasPendingSelection.
+            /// A deferred selection is about to land and will sync again; see hasPendingSelection.
             guard !selectionState.hasPendingSelection else { return }
             isUpdatingSelection = true
             defer { isUpdatingSelection = false }
 
-            // Untracked, because this also runs inside updateNSView. See untrackedSelectedFilmIDs.
+            /// Untracked, because this also runs inside updateNSView. See untrackedSelectedFilmIDs.
             let selectedIDs = selectionState.untrackedSelectedFilmIDs
             guard !selectedIDs.isEmpty else {
                 collectionView.selectionIndexPaths = []
@@ -1403,19 +1403,19 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 return
             }
 
-            // Uses the cached index map, which is rebuilt when the films change, for fast lookups.
+            /// Uses the cached index map, which is rebuilt when the films change, for fast lookups.
             let validIDs = selectedIDs.filter { filmIndexMap[$0] != nil }
 
-            // Prunes invalid selections. selectImmediate is safe here, because this runs from the main-actor observation task rather
-            // than a view update. A deferred select() would land after isUpdatingSelection resets and make the loop re-run this.
+            /// Prunes invalid selections. selectImmediate is safe here, because this runs from the main-actor observation task rather
+            /// than a view update. A deferred select() would land after isUpdatingSelection resets and make the loop re-run this.
             if validIDs.count != selectedIDs.count {
                 if validIDs.isEmpty {
                     Self.log("No selected films in current view - clearing selection")
                     selectionState.selectImmediate(Set<UUID>())
                     collectionView.selectionIndexPaths = []
                     cursorIndexPath = nil
-                    // Every previously selected film left the view, such as a removal from the list being viewed. The flag stops a later
-                    // becomeFirstResponder, typically after a FilmSheet closes, from reseeding item 0 over the deliberate clear.
+                    /// Every previously selected film left the view, such as a removal from the list being viewed. The flag stops a later
+                    /// becomeFirstResponder, typically after a FilmSheet closes, from reseeding item 0 over the deliberate clear.
                     selectionClearedByPrune = true
                     return
                 }
@@ -1428,12 +1428,12 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 collectionView.selectionIndexPaths = newSelection
             }
 
-            // Re-anchors the keyboard cursor to the film's current visual position. After a reload that reorders the grid, the
-            // selection highlight moves to the new index, but cursorIndexPath and anchorIndexPath still hold the old one. Arrow keys
-            // would then navigate from the old index. Both are set to match the post-reload selection.
-            //
-            // For one selected item, cursor and anchor are its new index. For several, the minimum is the anchor and the maximum
-            // is the cursor, which keeps the direction of any earlier shift-selection.
+            /// Re-anchors the keyboard cursor to the film's current visual position. After a reload that reorders the grid, the
+            /// selection highlight moves to the new index, but cursorIndexPath and anchorIndexPath still hold the old one. Arrow keys
+            /// would then navigate from the old index. Both are set to match the post-reload selection.
+            ///
+            /// For one selected item, cursor and anchor are its new index. For several, the minimum is the anchor and the maximum
+            /// is the cursor, which keeps the direction of any earlier shift-selection.
             if newSelection.count == 1, let singlePath = newSelection.first {
                 cursorIndexPath = singlePath
                 anchorIndexPath = singlePath
@@ -1442,7 +1442,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 anchorIndexPath = sorted.first
                 cursorIndexPath = sorted.last
             }
-            // An empty selection is handled by the early exit above.
+            /// An empty selection is handled by the early exit above.
         }
 
         // MARK: - Contextual Menu
@@ -1468,7 +1468,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 collectionView.selectionIndexPaths = [indexPath]
                 anchorIndexPath = indexPath
                 cursorIndexPath = indexPath
-                // A deliberate selection overrides any stale prune flag, as in updateSelectionFromView.
+                /// A deliberate selection overrides any stale prune flag, as in updateSelectionFromView.
                 selectionClearedByPrune = false
                 isUpdatingSelection = false
                 selectionState.selectImmediate([clickedID], inputKind: .fromCurrentAppKitEvent())
@@ -1480,23 +1480,23 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         private func updateSelectionFromView() {
             guard !isSuppressingCallbacks else { return }
-            // Entry is not gated on isUpdatingSelection. This runs only for AppKit selection callbacks from direct user input. The
-            // arrow-key path holds isUpdatingSelection open to suppress its own echo. A click that lands during that hold would be
-            // dropped if gated, leaving the model out of step with the screen. An AppKit-confirmed change is the source of truth.
+            /// Entry is not gated on isUpdatingSelection. This runs only for AppKit selection callbacks from direct user input. The
+            /// arrow-key path holds isUpdatingSelection open to suppress its own echo. A click that lands during that hold would be
+            /// dropped if gated, leaving the model out of step with the screen. An AppKit-confirmed change is the source of truth.
             isUpdatingSelection = true
             defer {
                 isUpdatingSelection = false
-                // Also clears any pending reset flag, so a stale async reset from arrow-key handling cannot run after this click.
+                /// Also clears any pending reset flag, so a stale async reset from arrow-key handling cannot run after this click.
                 hasScheduledSelectionReset = false
             }
 
-            // An AppKit-confirmed selection change, from a click, Cmd/Shift-click, or marquee, overrides any stale prune flag.
+            /// An AppKit-confirmed selection change, from a click, Cmd/Shift-click, or marquee, overrides any stale prune flag.
             selectionClearedByPrune = false
 
             let ids = Set((collectionView?.selectionIndexPaths ?? []).compactMap { filmID(at: $0) })
-            // Classifies the input from NSApp.currentEvent. This runs synchronously inside the triggering event, so a mouse press is a
-            // discrete click, and RightSidebar resolves it immediately, as the arrow-key path does. Other origins, such as drags, are
-            // unspecified and keep the timing debounce. See SelectionInputKind.fromCurrentAppKitEvent.
+            /// Classifies the input from NSApp.currentEvent. This runs synchronously inside the triggering event, so a mouse press is a
+            /// discrete click, and RightSidebar resolves it immediately, as the arrow-key path does. Other origins, such as drags, are
+            /// unspecified and keep the timing debounce. See SelectionInputKind.fromCurrentAppKitEvent.
             selectionState.select(ids, inputKind: .fromCurrentAppKitEvent())
         }
 
@@ -1519,37 +1519,37 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         }
 
         // MARK: - Selection Delegate
-        //
-        // This method is the sole authority for resolving a click's selection
-        // result. GalleryCollectionView (23.10 GalleryViewUI.swift) calls it
-        // directly rather than calling super.mouseDown(with:) and letting
-        // NSCollectionView's own internal tracking loop compute the result and
-        // invoke this delegate at mouseUp. It is invoked from one of two places:
-        //   - mouseDown, synchronously, for any click that changes the selection
-        //     (a not-yet-selected item, or a Shift/Cmd-click).
-        //   - mouseUp, for a plain click on an item already part of the selection
-        //     that did NOT turn into a drag — see GalleryCollectionView's
-        //     `pendingPlainClickCollapse` and its SELECTION TIMING comment.
-        // Either way, there is no AppKit-side computation happening — this method
-        // must fully resolve the result itself. In particular, the Shift-click-
-        // with-no-anchor branch below can no longer trust "AppKit has already
-        // computed the resulting full selection" and derives its own fallback
-        // anchor instead. The Cmd-click toggle branch is unaffected: mouseDown
-        // already stages the toggle against selectionIndexPaths itself before
-        // calling here, as AppKit's internal tracking does.
+        ///
+        /// This method is the sole authority for resolving a click's selection
+        /// result. GalleryCollectionView (23.10 GalleryViewUI.swift) calls it
+        /// directly rather than calling super.mouseDown(with:) and letting
+        /// NSCollectionView's own internal tracking loop compute the result and
+        /// invoke this delegate at mouseUp. It is invoked from one of two places:
+        ///   - mouseDown, synchronously, for any click that changes the selection
+        ///     (a not-yet-selected item, or a Shift/Cmd-click).
+        ///   - mouseUp, for a plain click on an item already part of the selection
+        ///     that did NOT turn into a drag — see GalleryCollectionView's
+        ///     `pendingPlainClickCollapse` and its SELECTION TIMING comment.
+        /// Either way, there is no AppKit-side computation happening — this method
+        /// must fully resolve the result itself. In particular, the Shift-click-
+        /// with-no-anchor branch below can no longer trust "AppKit has already
+        /// computed the resulting full selection" and derives its own fallback
+        /// anchor instead. The Cmd-click toggle branch is unaffected: mouseDown
+        /// already stages the toggle against selectionIndexPaths itself before
+        /// calling here, as AppKit's internal tracking does.
         func collectionView(_ collectionView: NSCollectionView, didSelectItemsAt indexPaths: Set<IndexPath>) {
             let shiftHeld = NSEvent.modifierFlags.contains(.shift)
             let commandHeld = NSEvent.modifierFlags.contains(.command)
 
             if shiftHeld, let clicked = indexPaths.first {
-                // Extend from the tracked anchor (the fixed end of the shift-range) to
-                // the clicked item. If no anchor is tracked — e.g. right after a
-                // marquee drag, which intentionally nils anchorIndexPath, or this is
-                // the first shift-click of a session — fall back to the nearest edge
-                // of whatever is currently selected (its lowest index), so the
-                // extension still reads as "select everything between the existing
-                // selection and the clicked item" rather than silently doing nothing.
-                // If nothing is selected at all, the clicked item anchors itself.
+                /// Extend from the tracked anchor (the fixed end of the shift-range) to
+                /// the clicked item. If no anchor is tracked — e.g. right after a
+                /// marquee drag, which intentionally nils anchorIndexPath, or this is
+                /// the first shift-click of a session — fall back to the nearest edge
+                /// of whatever is currently selected (its lowest index), so the
+                /// extension still reads as "select everything between the existing
+                /// selection and the clicked item" rather than silently doing nothing.
+                /// If nothing is selected at all, the clicked item anchors itself.
                 let anchor = anchorIndexPath
                     ?? collectionView.selectionIndexPaths.min(by: { $0.item < $1.item })
                     ?? clicked
@@ -1558,12 +1558,12 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 anchorIndexPath = anchor
                 cursorIndexPath = clicked
             } else if commandHeld {
-                // Cmd-click toggle: already performed against selectionIndexPaths in
-                // mouseDown, before this method was invoked, so trust that result
-                // completely rather than forcing a single-item override, which would
-                // incorrectly collapse a legitimate multi-item selection. Re-derive
-                // anchor/cursor from the actual resulting selection (sorted, not from
-                // the unordered `indexPaths` parameter), so keyboard navigation starts from a deterministic endpoint.
+                /// Cmd-click toggle: already performed against selectionIndexPaths in
+                /// mouseDown, before this method was invoked, so trust that result
+                /// completely rather than forcing a single-item override, which would
+                /// incorrectly collapse a legitimate multi-item selection. Re-derive
+                /// anchor/cursor from the actual resulting selection (sorted, not from
+                /// the unordered `indexPaths` parameter), so keyboard navigation starts from a deterministic endpoint.
                 let full = collectionView.selectionIndexPaths
                 if full.count == 1, let only = full.first {
                     anchorIndexPath = only
@@ -1573,14 +1573,14 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                     anchorIndexPath = sorted.first
                     cursorIndexPath = sorted.last
                 } else {
-                    // Cmd-click toggled the only selected item off.
+                    /// Cmd-click toggled the only selected item off.
                     anchorIndexPath = nil
                     cursorIndexPath = nil
                 }
             } else if let first = indexPaths.first {
-                // Forces the collection view's selection to exactly this item. mouseDown resolves plain clicks itself now, so this is a
-                // defensive invariant: a plain click never leaves more than one focus ring. It does not re-invoke this delegate, since
-                // programmatic assignments do not call back. Only plain clicks reach this branch, so multi-select gestures are unaffected.
+                /// Forces the collection view's selection to exactly this item. mouseDown resolves plain clicks itself now, so this is a
+                /// defensive invariant: a plain click never leaves more than one focus ring. It does not re-invoke this delegate, since
+                /// programmatic assignments do not call back. Only plain clicks reach this branch, so multi-select gestures are unaffected.
                 collectionView.selectionIndexPaths = [first]
                 anchorIndexPath = first
                 cursorIndexPath = first
@@ -1588,9 +1588,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             updateSelectionFromView()
         }
 
-        // Kept for NSCollectionViewDelegate completeness. Ordinary clicks no longer reach it, because GalleryCollectionView.mouseDown
-        // assigns selectionIndexPaths and calls didSelectItemsAt directly, and programmatic assignments do not call this. It fires
-        // only if a future AppKit-driven action, such as deselectAll, is added.
+        /// Kept for NSCollectionViewDelegate completeness. Ordinary clicks no longer reach it, because GalleryCollectionView.mouseDown
+        /// assigns selectionIndexPaths and calls didSelectItemsAt directly, and programmatic assignments do not call this. It fires
+        /// only if a future AppKit-driven action, such as deselectAll, is added.
         func collectionView(_ collectionView: NSCollectionView, didDeselectItemsAt indexPaths: Set<IndexPath>) {
             updateSelectionFromView()
         }
@@ -1622,9 +1622,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         func updateSectionDividers() {
             guard let layout = collectionView?.collectionViewLayout as? SmoothResizingGridLayout else { return }
-            // This runs on every update pass, and computing the breaks scans every film when bands apply. It is skipped when no input
-            // has changed. films compares in O(1) when it is the same buffer. The Film Queue's "All" tab also depends on queue
-            // membership, which no FilmSnapshot field reflects, so that membership is an input too.
+            /// This runs on every update pass, and computing the breaks scans every film when bands apply. It is skipped when no input
+            /// has changed. films compares in O(1) when it is the same buffer. The Film Queue's "All" tab also depends on queue
+            /// membership, which no FilmSnapshot field reflects, so that membership is an input too.
             let inputs = SectionBreakInputs(films: films,
                                             showSortingSections: showSortingSections,
                                             queueFilter: dataCoordinator?.loadedFilmQueueFilter,
@@ -1633,10 +1633,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                                             queueMembership: dataCoordinator.flatMap(GallerySectioning.filmQueueMembership))
             if inputs == lastSectionBreakInputs { return }
             lastSectionBreakInputs = inputs
-            // All the gates live in GallerySectioning.displayedSectionBreaks, which the list style and the Sort menu also call, so
-            // every consumer gets the same answer. Its DataCoordinator inputs (loadedFilmQueueFilter and loadedSortOption) are written
-            // in the same pass as `films`, so the divider state always matches the films shown. Reading the live filter or sort instead
-            // caused the original flicker: those change as soon as a control is tapped, before the reload lands.
+            /// All the gates live in GallerySectioning.displayedSectionBreaks, which the list style and the Sort menu also call, so
+            /// every consumer gets the same answer. Its DataCoordinator inputs (loadedFilmQueueFilter and loadedSortOption) are written
+            /// in the same pass as `films`, so the divider state always matches the films shown. Reading the live filter or sort instead
+            /// caused the original flicker: those change as soon as a control is tapped, before the reload lands.
             let rawBreaks = dataCoordinator.map { dc in
                 GallerySectioning.displayedSectionBreaks(
                     films: films, coordinator: dc,
@@ -1644,7 +1644,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             } ?? []
             let breaks: [SmoothResizingGridLayout.SectionBreak] =
                 rawBreaks.map { .init(index: $0.index, section: $0.section) }
-            // Only the Queue's "All" tab also gets its empty "Up Next" slots.
+            /// Only the Queue's "All" tab also gets its empty "Up Next" slots.
             let slotRun = dataCoordinator.flatMap { dc in
                 UpNextSlots.plan(breaks: rawBreaks, filmCount: films.count, coordinator: dc)
             }.map {
@@ -1691,8 +1691,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             guard let collectionView,
                   let layout = collectionView.collectionViewLayout as? SmoothResizingGridLayout
             else { return }
-            // Nothing the sweep reconciles has moved since it last ran. Forcing a layout on such a pass, such as a selection change or
-            // a status-bar toggle, would be wasted work.
+            /// Nothing the sweep reconciles has moved since it last ran. Forcing a layout on such a pass, such as a selection change or
+            /// a status-bar toggle, would be wasted work.
             guard dividerBandsNeedRefresh else {
                 #if DEBUG
                 GalleryRefreshProbe.skippedDividerLayouts += 1
@@ -1700,9 +1700,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 return
             }
             dividerBandsNeedRefresh = false
-            // No bands to label. Without breaks there are no divider rows, and the slot run is the only other thing that places a band.
-            // That covers every view without dividers. Forcing a layout there would add a pass on every update, including the one that
-            // resizes the gallery when the right sidebar mounts. Cleared breaks need no sweep either, since their bands are removed.
+            /// No bands to label. Without breaks there are no divider rows, and the slot run is the only other thing that places a band.
+            /// That covers every view without dividers. Forcing a layout there would add a pass on every update, including the one that
+            /// resizes the gallery when the right sidebar mounts. Cleared breaks need no sweep either, since their bands are removed.
             guard !layout.sectionBreaks.isEmpty || layout.slotRun != nil else {
                 #if DEBUG
                 GalleryRefreshProbe.skippedDividerLayouts += 1
@@ -1712,9 +1712,9 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             #if DEBUG
             GalleryRefreshProbe.forcedDividerLayouts += 1
             #endif
-            // The breaks were pushed to the layout earlier, but prepare() runs lazily and builds the dividerRows that bands resolve
-            // against. Forcing the layout first makes this sweep read the new rows. It is safe here: the collection view already holds
-            // the current films, and any relayout would happen before the next frame regardless.
+            /// The breaks were pushed to the layout earlier, but prepare() runs lazily and builds the dividerRows that bands resolve
+            /// against. Forcing the layout first makes this sweep read the new rows. It is safe here: the collection view already holds
+            /// the current films, and any relayout would happen before the next frame regardless.
             collectionView.layoutSubtreeIfNeeded()
             for case let band as SectionDividerDecorationView in collectionView.subviews {
                 band.refreshFromLayout()
@@ -1729,13 +1729,13 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                                                 layout: SmoothResizingGridLayout) -> Int? {
             guard let (row, col) = layout.rowColumn(forItemIndex: currentIndex) else { return nil }
             var candidateRow = row + step
-            // Rows holding only empty "Up Next" slots are skipped, as divider bands are.
+            /// Rows holding only empty "Up Next" slots are skipped, as divider bands are.
             while layout.isSlotOnlyRow(candidateRow) { candidateRow += step }
             if let idx = layout.itemIndex(atRow: candidateRow, col: col) {
-                // The adjacent row has an item in this column, which is the usual case.
+                /// The adjacent row has an item in this column, which is the usual case.
                 return idx
             } else if layout.isDividerRow(candidateRow) {
-                // The adjacent row is a divider band, always one row deep, so a further step lands on the next content row.
+                /// The adjacent row is a divider band, always one row deep, so a further step lands on the next content row.
                 var afterDivider = candidateRow + step
                 while layout.isSlotOnlyRow(afterDivider) { afterDivider += step }
                 if let idx = layout.itemIndex(atRow: afterDivider, col: col) {
@@ -1746,10 +1746,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                     return currentIndex
                 }
             } else if let idx = layout.lastItemIndex(inRow: candidateRow) {
-                // A content row with fewer than columnsPerRow items, such as a partial row before a divider or the trailing row, lands on its last item.
+                /// A content row with fewer than columnsPerRow items, such as a partial row before a divider or the trailing row, lands on its last item.
                 return idx
             } else {
-                // No row exists there, so this is the vertical edge.
+                /// No row exists there, so this is the vertical edge.
                 return currentIndex
             }
         }
@@ -1765,14 +1765,14 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// It does nothing when films is empty, when isUpdatingSelection is already true, or when a selection has appeared since focus.
         func seedInitialCursor() {
             guard !films.isEmpty, !isUpdatingSelection, let collectionView else { return }
-            // An empty selection here is a deliberate result of the selected films leaving the view, such as a FilmSheet removing one.
-            // Returning focus honors that clear. The flag is consumed so it cannot suppress a later genuine focus event.
+            /// An empty selection here is a deliberate result of the selected films leaving the view, such as a FilmSheet removing one.
+            /// Returning focus honors that clear. The flag is consumed so it cannot suppress a later genuine focus event.
             if selectionClearedByPrune {
                 selectionClearedByPrune = false
                 return
             }
-            // The seed runs one turn after focus arrives. A selection made in that turn may not be synced to this view yet, so both
-            // the model and this view are checked before seeding over it.
+            /// The seed runs one turn after focus arrives. A selection made in that turn may not be synced to this view yet, so both
+            /// the model and this view are checked before seeding over it.
             guard selectionState.selectedFilmIDs.isEmpty, !selectionState.hasPendingSelection,
                   collectionView.selectionIndexPaths.isEmpty else { return }
             let indexPath = IndexPath(item: 0, section: 0)
@@ -1788,10 +1788,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         func handleArrowKey(_ direction: ArrowDirection, withShift: Bool, isRepeat: Bool) {
             guard let collectionView, !films.isEmpty else { return }
             isUpdatingSelection = true
-            // The entry guard does not test isUpdatingSelection. That flag is held across a run-loop turn to suppress the echo of
-            // selectImmediate() through the observation loop. Gating entry on it would swallow a second arrow press that arrives quickly.
-            // handleArrowKey runs synchronously from keyDown, so every press is honored. Setting the flag on each entry keeps the echo
-            // suppressed, and the single pending reset clears it once the burst settles.
+            /// The entry guard does not test isUpdatingSelection. That flag is held across a run-loop turn to suppress the echo of
+            /// selectImmediate() through the observation loop. Gating entry on it would swallow a second arrow press that arrives quickly.
+            /// handleArrowKey runs synchronously from keyDown, so every press is honored. Setting the flag on each entry keeps the echo
+            /// suppressed, and the single pending reset clears it once the burst settles.
 
             let layout = collectionView.collectionViewLayout as? SmoothResizingGridLayout
             let itemsPerRow = max(1, layout?.columnsPerRow ?? 1)
@@ -1813,36 +1813,36 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             case .up:
                 if let layout, layout.hasSectionDividers,
                    let idx = dividerAwareVerticalTarget(from: currentIndex, step: -1, layout: layout) {
-                    // Film Queue with dividers: navigate through the layout's row and column model, so a divider is transparent and
-                    // partial rows clamp. See dividerAwareVerticalTarget.
+                    /// Film Queue with dividers: navigate through the layout's row and column model, so a divider is transparent and
+                    /// partial rows clamp. See dividerAwareVerticalTarget.
                     targetIndex = idx
                 } else {
-                    // Uniform grid, which is every other view and the queue without dividers. The row above is always full, except the grid's
-                    // last row, so same-column arithmetic is valid here. This path is unchanged.
+                    /// Uniform grid, which is every other view and the queue without dividers. The row above is always full, except the grid's
+                    /// last row, so same-column arithmetic is valid here. This path is unchanged.
                     targetIndex = currentIndex - itemsPerRow
                     if targetIndex < 0 { targetIndex = currentIndex }
                 }
             case .down:
                 if let layout, layout.hasSectionDividers,
                    let idx = dividerAwareVerticalTarget(from: currentIndex, step: 1, layout: layout) {
-                    // Film Queue with dividers: see dividerAwareVerticalTarget.
+                    /// Film Queue with dividers: see dividerAwareVerticalTarget.
                     targetIndex = idx
                 } else {
-                    // Uniform grid. The row below can be the trailing partial row, and plain arithmetic can overshoot its end. Instead, the
-                    // move lands on the last item of that row, as standard macOS grid navigation does.
+                    /// Uniform grid. The row below can be the trailing partial row, and plain arithmetic can overshoot its end. Instead, the
+                    /// move lands on the last item of that row, as standard macOS grid navigation does.
                     let candidateIndex = currentIndex + itemsPerRow
                     if candidateIndex < totalItems {
-                        // The row below exists and has an item at this exact column — the
-                        // common case, a same-column step across a uniform stretch of rows.
+                        /// The row below exists and has an item at this exact column — the
+                        /// common case, a same-column step across a uniform stretch of rows.
                         targetIndex = candidateIndex
                     } else {
                         let nextRowStart = ((currentIndex / itemsPerRow) + 1) * itemsPerRow
                         if nextRowStart < totalItems {
-                            // The next row exists — it's the trailing partial row — but has
-                            // no item at this column. Land on its last available item.
+                            /// The next row exists — it's the trailing partial row — but has
+                            /// no item at this column. Land on its last available item.
                             targetIndex = totalItems - 1
                         } else {
-                            // No further row exists at all — genuinely at the vertical edge.
+                            /// No further row exists at all — genuinely at the vertical edge.
                             targetIndex = currentIndex
                         }
                     }
@@ -1865,8 +1865,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                     let range = min(anchor.item, targetIndex)...max(anchor.item, targetIndex)
                     let paths = Set(range.map { IndexPath(item: $0, section: 0) })
                     collectionView.selectionIndexPaths = paths
-                    // Compute IDs directly from the known range — avoids an AppKit
-                    // bridge round-trip to read selectionIndexPaths back from NSCollectionView.
+                    /// Compute IDs directly from the known range — avoids an AppKit
+                    /// bridge round-trip to read selectionIndexPaths back from NSCollectionView.
                     let ids = Set(range.compactMap { filmID(at: IndexPath(item: $0, section: 0)) })
                     selectionState.selectImmediate(ids, inputKind: isRepeat ? .keyRepeat : .discrete)
                 }
@@ -1874,21 +1874,21 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 anchorIndexPath = targetPath
                 cursorIndexPath = targetPath
                 collectionView.selectionIndexPaths = [targetPath]
-                // Single-item selection: compute the ID directly from the target path
-                // rather than reading selectionIndexPaths back from NSCollectionView.
+                /// Single-item selection: compute the ID directly from the target path
+                /// rather than reading selectionIndexPaths back from NSCollectionView.
                 if let id = filmID(at: targetPath) {
                     selectionState.selectImmediate([id], inputKind: isRepeat ? .keyRepeat : .discrete)
                 }
             }
 
-            // Reveal the scroller only when the step actually moved the viewport, as
-            // NSTableView does. Revealing it on every step made it blink on each
-            // selection change whose target was already on screen.
+            /// Reveal the scroller only when the step actually moved the viewport, as
+            /// NSTableView does. Revealing it on every step made it blink on each
+            /// selection change whose target was already on screen.
             if scrollToItemIfNeeded(at: targetPath) {
                 showScrollersInstantly()
             }
 
-            // Schedules a single reset, so rapid key presses do not queue several resets and redundant syncs.
+            /// Schedules a single reset, so rapid key presses do not queue several resets and redundant syncs.
             if !hasScheduledSelectionReset {
                 hasScheduledSelectionReset = true
                 DispatchQueue.main.async { [weak self] in
@@ -1901,12 +1901,12 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         func selectAll() {
             guard let collectionView, !films.isEmpty else { return }
 
-            // The visual selection and the model update together. Setting selectionIndexPaths first makes focus rings appear at once.
-            // The model is updated unconditionally, so it stays in sync during rapid arrow navigation. NSCollectionView does not call
-            // delegate methods for programmatic selection, so this cannot loop.
+            /// The visual selection and the model update together. Setting selectionIndexPaths first makes focus rings appear at once.
+            /// The model is updated unconditionally, so it stays in sync during rapid arrow navigation. NSCollectionView does not call
+            /// delegate methods for programmatic selection, so this cannot loop.
             guard !isUpdatingSelection else {
-                // Another selection operation is in flight. Its reset will run later, and the model would not yet reflect Select All, so this
-                // schedules its own update after that reset.
+                /// Another selection operation is in flight. Its reset will run later, and the model would not yet reflect Select All, so this
+                /// schedules its own update after that reset.
                 DispatchQueue.main.async { [weak self] in
                     self?.selectAll()
                 }
@@ -1916,7 +1916,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
             collectionView.selectionIndexPaths = Set((0..<films.count).map { IndexPath(item: $0, section: 0) })
 
-            // Uses filmIndexMap.keys, which already holds exactly the IDs in the current view. No read-back of selectionIndexPaths is needed.
+            /// Uses filmIndexMap.keys, which already holds exactly the IDs in the current view. No read-back of selectionIndexPaths is needed.
             let ids = Set(filmIndexMap.keys)
             selectionState.selectImmediate(ids)
 
@@ -1938,33 +1938,33 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             let visibleRect = scrollView.documentVisibleRect
             let itemFrame = attrs.frame
 
-            // Checks whether the item is fully visible. If not, computes the scroll target that makes it fully visible.
+            /// Checks whether the item is fully visible. If not, computes the scroll target that makes it fully visible.
             if visibleRect.contains(itemFrame) { return false }
 
-            // Calculate the target scroll position to make item fully visible
+            /// Calculate the target scroll position to make item fully visible
             var targetPoint = scrollView.documentView?.bounds.origin ?? .zero
 
-            // Padding depends on scroll direction. It uses the layout's inter-row gap, and adds the StatusBar height when the bar is visible.
+            /// Padding depends on scroll direction. It uses the layout's inter-row gap, and adds the StatusBar height when the bar is visible.
             let gridPadding = layout.lineSpacing
             let topPadding = gridPadding
             let bottomPadding = isStatusBarVisible ? gridPadding + kStatusBarHeight : gridPadding
 
             if itemFrame.minY < visibleRect.minY {
-                // Item is above visible area — scroll up
+                /// Item is above visible area — scroll up
                 targetPoint.y = max(0, itemFrame.minY - topPadding)
             } else if itemFrame.maxY > visibleRect.maxY {
-                // Item is below visible area — scroll down
+                /// Item is below visible area — scroll down
                 targetPoint.y = itemFrame.maxY + bottomPadding - visibleRect.height
             }
 
-            // Clamps to the valid scroll range.
+            /// Clamps to the valid scroll range.
             let contentHeight = layout.collectionViewContentSize.height
             let maxScrollY = max(0, contentHeight - visibleRect.height)
             targetPoint.y = max(0, min(targetPoint.y, maxScrollY))
-            // A partly hidden item can still clamp to the current origin, such as the last row.
+            /// A partly hidden item can still clamp to the current origin, such as the last row.
             guard targetPoint.y != visibleRect.minY else { return false }
 
-            // Scrolls instantly, without animation, by setting the document's visible rect directly.
+            /// Scrolls instantly, without animation, by setting the document's visible rect directly.
             appViewportMove {
                 scrollView.contentView.setBoundsOrigin(targetPoint)
                 scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -1978,7 +1978,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             guard let collectionView, let scrollView,
                   let layout = collectionView.collectionViewLayout as? SmoothResizingGridLayout,
                   let attrs = layout.layoutAttributesForItem(at: indexPath) else {
-                // If visibility cannot be determined, the item counts as not visible, so a scroll is attempted and the film is not left off screen.
+                /// If visibility cannot be determined, the item counts as not visible, so a scroll is attempted and the film is not left off screen.
                 return false
             }
             let visibleRect = scrollView.documentVisibleRect
@@ -2039,8 +2039,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 moved = scrollToTopRow(at: IndexPath(item: index, section: 0))
             }
             if moved { showScrollersInstantly() }
-            // A menu-driven jump is a choice by the user, like a scroll gesture. It moves the viewport programmatically, so no
-            // didEndLiveScroll banks the pre-jump origin. Claiming it here stops that origin from being restored later.
+            /// A menu-driven jump is a choice by the user, like a scroll gesture. It moves the viewport programmatically, so no
+            /// didEndLiveScroll banks the pre-jump origin. Claiming it here stops that origin from being restored later.
             claimViewportForUser()
         }
 
@@ -2054,7 +2054,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             var targetPoint = scrollView.documentView?.bounds.origin ?? .zero
             targetPoint.y = max(0, contentY - layout.lineSpacing)
 
-            // If the target would scroll past the end of the content, this shows as much as possible instead.
+            /// If the target would scroll past the end of the content, this shows as much as possible instead.
             let contentHeight = layout.collectionViewContentSize.height
             let visibleHeight = scrollView.documentVisibleRect.height
             if targetPoint.y + visibleHeight > contentHeight {
@@ -2063,7 +2063,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
             guard targetPoint.y != scrollView.documentVisibleRect.minY else { return false }
 
-            // Instant, non-animated scroll, matching arrow-key navigation.
+            /// Instant, non-animated scroll, matching arrow-key navigation.
             appViewportMove {
                 scrollView.contentView.setBoundsOrigin(targetPoint)
                 scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -2076,13 +2076,13 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         private func showScrollersInstantly() {
             guard let scrollView = scrollView else { return }
 
-            // Make scrollers visible instantly by setting alpha to 1.0
-            // This bypasses the fade-in animation of flashScrollers()
+            /// Make scrollers visible instantly by setting alpha to 1.0
+            /// This bypasses the fade-in animation of flashScrollers()
             if let verticalScroller = scrollView.verticalScroller {
                 verticalScroller.alphaValue = 1.0
 
-                // Trigger the normal auto-hide fade-out behavior
-                // This schedules the scroller to fade out after the standard delay
+                /// Trigger the normal auto-hide fade-out behavior
+                /// This schedules the scroller to fade out after the standard delay
                 scrollView.flashScrollers()
             }
         }
@@ -2170,7 +2170,7 @@ final class CoastingScrollStopper: NSObject, Loggable {
         _ = unsafe behavior.perform(Self.stopSelector)
 
         guard isLiveScrolling else {
-            // didEndLiveScroll arrived inside the stop, so AppKit's final write is done.
+            /// didEndLiveScroll arrived inside the stop, so AppKit's final write is done.
             log("Stopped coast; ended synchronously")
             jump(true)
             return
@@ -2210,7 +2210,7 @@ final class CoastingScrollStopper: NSObject, Loggable {
         guard let pending = pendingJump else { return }
         pendingJump = nil
         log("Stopped coast; ended asynchronously")
-        // Waits one more turn, so every other didEndLiveScroll observer, including the scroll-origin recorder, runs before the jump.
+        /// Waits one more turn, so every other didEndLiveScroll observer, including the scroll-origin recorder, runs before the jump.
         DispatchQueue.main.async { pending() }
     }
 }
@@ -2293,8 +2293,8 @@ final class ViewportJumpTracer: NSObject, Loggable {
         guard viewport > 0, abs(delta) > viewport * 3,
               Self.appMoveDepth == 0, !isLiveScrolling else { return }
         Self.jumpsFlagged += 1
-        // Checked here, not in `log()`, because the stack must be captured in this frame for `dropFirst(2)` to trim the right frames.
-        // Capturing the stack is the expensive part, so it happens only when logging is on.
+        /// Checked here, not in `log()`, because the stack must be captured in this frame for `dropFirst(2)` to trim the right frames.
+        /// Capturing the stack is the expensive part, so it happens only when logging is on.
         guard Logger.isLoggingEnabled else { return }
         let stack = Thread.callStackSymbols.dropFirst(2).prefix(28)
             .map { $0.trimmingCharacters(in: .whitespaces) }

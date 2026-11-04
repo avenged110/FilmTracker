@@ -1,18 +1,18 @@
 // MARK: - PDFExporter.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Assembles the whole-library PDF: the complete-library table, followed by one sheet per
-// ReportsView tab, in a single document.
-//
-// The document is built entirely from the shared PDF stack (PDFCore 85.00 / PDFTableRenderer
-// 85.10 / LibraryPDFReport 85.20). The report sheets are the ones `ReportsPDFExporter`
-// (27.50) builds — this file does not restate a single column of them, it just appends
-// them.
-//
-// The whole document is landscape at the library table's type size: a reader paging
-// through one report should not have to rotate it halfway. Those report sheets are written
-// against a portrait page and rendered here at a different geometry — which is exactly
-// what column widths being weights rather than points buys.
+/// Assembles the whole-library PDF: the complete-library table, followed by one sheet per
+/// ReportsView tab, in a single document.
+///
+/// The document is built entirely from the shared PDF stack (PDFCore 85.00 / PDFTableRenderer
+/// 85.10 / PDFReport 85.20). The report sheets are the ones `ReportsPDFExporter`
+/// (27.50) builds — this file does not restate a single column of them, it just appends
+/// them.
+///
+/// The whole document is landscape at the library table's type size: a reader paging
+/// through one report should not have to rotate it halfway. Those report sheets are written
+/// against a portrait page and rendered here at a different geometry — which is exactly
+/// what column widths being weights rather than points buys.
 
 import AppKit
 import Foundation
@@ -110,11 +110,11 @@ enum LibraryPDFExporter: Loggable {
 
         progress?(0.0)
 
-        // The document is drawn into a private `ExportStaging` directory inside the sandbox
-        // container and moved to `destinationFolder` only once it is complete. A cancel or a
-        // failure partway — when CoreGraphics would finalize whatever had been drawn into a
-        // plausible-looking but truncated PDF — is cleaned up entirely inside the container,
-        // and nothing in the user's folder is ever created, replaced or removed for it.
+        /// The document is drawn into a private `ExportStaging` directory inside the sandbox
+        /// container and moved to `destinationFolder` only once it is complete. A cancel or a
+        /// failure partway — when CoreGraphics would finalize whatever had been drawn into a
+        /// plausible-looking but truncated PDF — is cleaned up entirely inside the container,
+        /// and nothing in the user's folder is ever created, replaced or removed for it.
         let stagingDirectory = try ExportStaging.makeDirectory()
         defer { ExportStaging.discard(stagingDirectory) }
 
@@ -125,16 +125,16 @@ enum LibraryPDFExporter: Loggable {
             films: films, ordered: ordered, dataCoordinator: dataCoordinator,
             layout: layout, into: stagedURL, progress: progress)
 
-        // `false` here means the URL is not security-scoped, NOT that access was denied —
-        // a folder the process can already reach returns false and is perfectly writable.
-        // Balancing the stop against what start actually reported (the same shape
-        // `ExportViewModel.startExport` uses) lets a real write failure surface as itself
-        // rather than being pre-empted by a scope check that was never the problem.
+        /// `false` here means the URL is not security-scoped, NOT that access was denied —
+        /// a folder the process can already reach returns false and is perfectly writable.
+        /// Balancing the stop against what start actually reported (the same shape
+        /// `ExportViewModel.startExport` uses) lets a real write failure surface as itself
+        /// rather than being pre-empted by a scope check that was never the problem.
         let scoped = destinationFolder.startAccessingSecurityScopedResource()
         defer { if scoped { destinationFolder.stopAccessingSecurityScopedResource() } }
 
-        // Takes the first free name — never replaces a file already there. Off the main
-        // actor: to another volume this is a copy, which a slow drive would hold the UI on.
+        /// Takes the first free name — never replaces a file already there. Off the main
+        /// actor: to another volume this is a copy, which a slow drive would hold the UI on.
         let destinationURL = try await Task.detached(priority: .utility) {
             try ExportStaging.deliver(stagedURL, into: destinationFolder, as: filename)
         }.value
@@ -162,29 +162,29 @@ enum LibraryPDFExporter: Loggable {
             throw PDFExportError.pdfCreationFailed
         }
 
-        // The context's media box is only the DEFAULT — every page the renderer starts
-        // declares its own — but every page in this document is the library table's size,
-        // so the default and the per-page boxes agree.
+        /// The context's media box is only the DEFAULT — every page the renderer starts
+        /// declares its own — but every page in this document is the library table's size,
+        /// so the default and the per-page boxes agree.
         var mediaBox = CGRect(origin: .zero, size: layout.geometry.pageSize)
         guard let context = unsafe CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
             throw PDFExportError.pdfCreationFailed
         }
 
-        // Built rather than rendered directly: the footers name a DOCUMENT-wide page total,
-        // which is not knowable until every section has been measured — so the builder
-        // measures them all, then draws. It closes the context on finish().
+        /// Built rather than rendered directly: the footers name a DOCUMENT-wide page total,
+        /// which is not knowable until every section has been measured — so the builder
+        /// measures them all, then draws. It closes the context on finish().
         let builder = PDFDocumentBuilder(context: context)
 
-        // The build loop is budgeted 0…`buildShare`, and finish(), which measures and draws every collected sheet
-        // and suspends between pages, takes the rest. The split follows wall time: building the sections is a small
-        // fraction of a library-sized export, and drawing the pages is nearly all of it.
+        /// The build loop is budgeted 0…`buildShare`, and finish(), which measures and draws every collected sheet
+        /// and suspends between pages, takes the rest. The split follows wall time: building the sections is a small
+        /// fraction of a library-sized export, and drawing the pages is nearly all of it.
         var added = 0
         for (index, section) in ordered.enumerated() {
             try Task.checkCancellation()
 
-            // The three per-film sections share the library table's geometry — they are
-            // built against the same landscape page and are meant to be read as one
-            // document with it.
+            /// The three per-film sections share the library table's geometry — they are
+            /// built against the same landscape page and are meant to be read as one
+            /// document with it.
             switch section {
             case .completeLibrary:
                 builder.add(LibraryPDFReport.section(films: films, layout: layout),
@@ -199,19 +199,19 @@ enum LibraryPDFExporter: Loggable {
                             geometry: layout.geometry)
                 added += 1
             default:
-                // Every remaining case names a ReportsView tab, handled in one arm because the category is derived from
-                // the case rather than given by it.
-                //
-                // A tab with nothing to report is skipped rather than rendered as an empty table.
-                // `ReportsPDFExporter.sheet(for:)` returns nil for exactly that case.
+                /// Every remaining case names a ReportsView tab, handled in one arm because the category is derived from
+                /// the case rather than given by it.
+                ///
+                /// A tab with nothing to report is skipped rather than rendered as an empty table.
+                /// `ReportsPDFExporter.sheet(for:)` returns nil for exactly that case.
                 if let category = section.reportsCategory,
                    let sheet = ReportsPDFExporter.sheet(
                     for: exportData(for: category, dataCoordinator: dataCoordinator,
                                     films: films)) {
-                    // The library table's geometry: the report sheets match the table they follow in orientation and
-                    // type size. They are geometry-independent, since column widths are weights. The geometry comes
-                    // from the caller's `layout` rather than `.standard`, so the appended sheets always match the table
-                    // and the context's media box.
+                    /// The library table's geometry: the report sheets match the table they follow in orientation and
+                    /// type size. They are geometry-independent, since column widths are weights. The geometry comes
+                    /// from the caller's `layout` rather than `.standard`, so the appended sheets always match the table
+                    /// and the context's media box.
                     builder.add(sheet, geometry: layout.geometry)
                     added += 1
                 }
@@ -224,11 +224,11 @@ enum LibraryPDFExporter: Loggable {
         guard added > 0 else { throw PDFExportError.noDataToExport }
         try Task.checkCancellation()
 
-        // Cooperative from here on: `finish` suspends after every page and while measuring,
-        // so the run loop turns, the bar advances page by page, and a Cancel is honored
-        // mid-document — see `PDFDocumentBuilder.finish`. A cancellation propagates out of
-        // here as `CancellationError`, and the caller's staging `defer` removes the partial
-        // file.
+        /// Cooperative from here on: `finish` suspends after every page and while measuring,
+        /// so the run loop turns, the bar advances page by page, and a Cancel is honored
+        /// mid-document — see `PDFDocumentBuilder.finish`. A cancellation propagates out of
+        /// here as `CancellationError`, and the caller's staging `defer` removes the partial
+        /// file.
         let pageCount = try await builder.finish { fraction in
             progress?(Self.buildShare + (1 - Self.buildShare) * fraction)
         }
@@ -260,10 +260,10 @@ enum LibraryPDFExporter: Loggable {
         films: [FilmSnapshot]
     ) -> ReportsExportData {
         switch category {
-        // The cost, price and wishlist tabs have no section here — see the note on
-        // `LibraryPDFSection`. Listed explicitly rather than folded into a `default` so
-        // that adding a ReportsCategory still fails the build here, which is the
-        // check that kept this switch and the picker in step in the first place.
+        /// The cost, price and wishlist tabs have no section here — see the note on
+        /// `LibraryPDFSection`. Listed explicitly rather than folded into a `default` so
+        /// that adding a ReportsCategory still fails the build here, which is the
+        /// check that kept this switch and the picker in step in the first place.
         case .costTracker, .priceTracker, .releaseWishlist:
             return ReportsExportData(category: category,
                                      hallOfFameFilms: nil)
@@ -275,8 +275,8 @@ enum LibraryPDFExporter: Loggable {
                     films: dataCoordinator.getHallOfFameFilms()))
 
         case .dataVisualizations:
-            // The tab's cached pass lends its parsed viewing histories, when there is one,
-            // so only films whose history changed since are parsed again.
+            /// The tab's cached pass lends its parsed viewing histories, when there is one,
+            /// so only films whose history changed since are parsed again.
             return ReportsExportData(
                 category: category, hallOfFameFilms: nil,
                 visualizations: DVDataset(

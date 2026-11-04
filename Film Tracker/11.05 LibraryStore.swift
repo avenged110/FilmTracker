@@ -1,9 +1,9 @@
 // MARK: - LibraryStore.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Core Data stack: the library's managed object model (built in code), the persistent
-// container, the context-backed executor that the persistence actors run on, and the fetch
-// and predicate helpers the rest of the app uses.
+/// The Core Data stack: the library's managed object model (built in code), the persistent
+/// container, the context-backed executor that the persistence actors run on, and the fetch
+/// and predicate helpers the rest of the app uses.
 
 import Foundation
 import CoreData
@@ -47,8 +47,8 @@ enum LibraryStore: Loggable {
         }
         container.persistentStoreDescriptions = [description]
 
-        // A fresh container has no Application Support folder yet. Core Data would recover by
-        // creating it after a failed open; creating it first keeps that out of the log.
+        /// A fresh container has no Application Support folder yet. Core Data would recover by
+        /// creating it after a failed open; creating it first keeps that out of the log.
         if let url, !readOnly {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
@@ -60,7 +60,7 @@ enum LibraryStore: Loggable {
         container.loadPersistentStores { _, error in loadError = error }
         if let loadError { throw loadError }
 
-        // Main-queue context that merges every background save as it lands; no undo manager.
+        /// Main-queue context that merges every background save as it lands; no undo manager.
         let view = container.viewContext
         view.automaticallyMergesChangesFromParent = true
         view.mergePolicy = NSMergePolicy.mergeByPropertyObjectTrump
@@ -130,12 +130,12 @@ enum StoreDeduplicator: Loggable {
     static func prepareForMigration(_ url: URL) {
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return }
 
-        // Read-only, and not through Core Data, until a repeat is found. The harness erases a
-        // store in place while another connection still has it open, and a connection that
-        // can write (Core Data's metadata read is one) checkpoints that connection's stale WAL
-        // back into the erased file when it closes, leaving it without its tables. A store
-        // that needs the repair is one nothing has open yet (the launch, before the
-        // container), where the repair's own checkpoint is harmless.
+        /// Read-only, and not through Core Data, until a repeat is found. The harness erases a
+        /// store in place while another connection still has it open, and a connection that
+        /// can write (Core Data's metadata read is one) checkpoints that connection's stale WAL
+        /// back into the erased file when it closes, leaving it without its tables. A store
+        /// that needs the repair is one nothing has open yet (the launch, before the
+        /// container), where the repair's own checkpoint is harmless.
         var db: OpaquePointer?
         defer { unsafe sqlite3_close(db) }
         guard unsafe sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
@@ -155,7 +155,7 @@ enum StoreDeduplicator: Loggable {
             count("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '\(table)'") > 0
         }
 
-        // A later row of a repeated ID: `t` is the table, aliased so the subquery can name it.
+        /// A later row of a repeated ID: `t` is the table, aliased so the subquery can name it.
         func laterRows(_ table: String, _ column: String) -> String {
             "SELECT t.Z_PK FROM \(table) t WHERE t.\(column) IS NOT NULL AND t.Z_PK > "
                 + "(SELECT MIN(k.Z_PK) FROM \(table) k WHERE k.\(column) = t.\(column))"
@@ -186,7 +186,7 @@ enum StoreDeduplicator: Loggable {
         }
         for (key, rows) in repeated {
             for (refTable, refColumn) in key.references where tableExists(refTable) {
-                // Point each reference to a later row at the first row with the same ID.
+                /// Point each reference to a later row at the first row with the same ID.
                 guard exec("""
                     UPDATE \(refTable) SET \(refColumn) = (
                         SELECT MIN(k.Z_PK) FROM \(key.table) k
@@ -310,7 +310,7 @@ enum PendingRestore: Loggable {
                        applySettings: Bool = false) throws {
         guard let staged = stagedStoreURL, let marker = markerURL else { throw Failure.noStoreLocation }
 
-        // What was built, read from the context that built it, while the store is open.
+        /// What was built, read from the context that built it, while the store is open.
         let expected = try StoreInspection.inspect(context ?? container.viewContext)
         guard expected.problems.isEmpty else {
             throw Failure.verificationFailed(expected.problems.joined(separator: "; "))
@@ -322,7 +322,7 @@ enum PendingRestore: Loggable {
         let result = integrityCheck(staged)
         guard result == "ok" else { throw Failure.verificationFailed(result) }
 
-        // What landed, read back through a container that has never seen the objects.
+        /// What landed, read back through a container that has never seen the objects.
         let found = try LibraryStore.withStore(at: staged, readOnly: true, singleFile: true) {
             try StoreInspection.inspect($0)
         }
@@ -389,15 +389,15 @@ enum PendingRestore: Loggable {
             return .failed("The restore's record could not be read.")
         }
         guard fm.fileExists(atPath: staged.path(percentEncoded: false)) else {
-            // discard() removes the marker before the staged store, so a marker without one
-            // was not left by a finished swap: nothing proves this restore was applied.
+            /// discard() removes the marker before the staged store, so a marker without one
+            /// was not left by a finished swap: nothing proves this restore was applied.
             log("ERROR: The marker names a staged store that is missing — keeping the current library")
             discard()
             return .failed("The restored library could not be found.")
         }
-        // Checked again here, not only at commit: replacePersistentStore copies whatever file
-        // it is given, so a staged store damaged since (disk error, a file touched by hand)
-        // would otherwise replace a healthy library with one that cannot open.
+        /// Checked again here, not only at commit: replacePersistentStore copies whatever file
+        /// it is given, so a staged store damaged since (disk error, a file touched by hand)
+        /// would otherwise replace a healthy library with one that cannot open.
         let check = integrityCheck(staged)
         guard check == "ok" else {
             log("ERROR: The staged store failed its check at launch (\(check)) — keeping the current library")
@@ -415,14 +415,14 @@ enum PendingRestore: Loggable {
         var settings: SettingsSnapshot?
         do {
             if !marker.rollbackSaved {
-                // Each step is recorded only once the marker carrying it is written, so the
-                // marker never claims more than happened.
+                /// Each step is recorded only once the marker carrying it is written, so the
+                /// marker never claims more than happened.
                 var next = marker
                 next.previousExisted = fm.fileExists(atPath: live.path(percentEncoded: false))
                 next.rollbackSaved = true
                 if next.previousExisted == true, !copyRollback(of: live, to: rollback) {
-                    // Recorded before the move, so an interrupted move still knows the
-                    // rollback files are this library's.
+                    /// Recorded before the move, so an interrupted move still knows the
+                    /// rollback files are this library's.
                     next.rollbackMoved = true
                     try write(next, to: markerURL)
                     marker = next
@@ -494,8 +494,8 @@ enum PendingRestore: Loggable {
                 log("ERROR: The previous library's files are missing from \(rollback.lastPathComponent)")
                 return
             }
-            // Whatever the failed swap left at the live location goes; the moved files
-            // are the library.
+            /// Whatever the failed swap left at the live location goes; the moved files
+            /// are the library.
             removeLive()
             do {
                 try moveStoreFiles(from: rollback, to: live)
@@ -511,7 +511,7 @@ enum PendingRestore: Loggable {
                 log("ERROR: Could not copy the previous library back: \(error.localizedDescription) — it is kept at \(rollback.lastPathComponent)")
             }
         } else if marker.previousExisted == false {
-            // There was no library before the swap; leave none rather than a bad one.
+            /// There was no library before the swap; leave none rather than a bad one.
             removeLive()
         }
     }
@@ -570,7 +570,7 @@ enum PendingRestore: Loggable {
             return true
         } catch {
             log("WARNING: Could not copy the previous library (\(error.localizedDescription)) — moving its files instead")
-            // A copy that failed partway can leave files the move would collide with.
+            /// A copy that failed partway can leave files the move would collide with.
             for file in LibraryStore.storeFiles(rollback) { try? fm.removeItem(at: file) }
             return false
         }
@@ -859,7 +859,7 @@ class LibraryObject: NSManagedObject {
     final func requiredUUID(_ key: String) -> UUID {
         if let id = value(forKey: key) as? UUID { return id }
         let digest = Insecure.MD5.hash(data: Data((objectID.uriRepresentation().absoluteString + key).utf8))
-        // MD5 is exactly 16 bytes, one UUID; built from indexed bytes rather than a raw load.
+        /// MD5 is exactly 16 bytes, one UUID; built from indexed bytes rather than a raw load.
         let b = Array(digest)
         let id = UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
                              b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
@@ -867,7 +867,7 @@ class LibraryObject: NSManagedObject {
         return id
     }
 
-    // Optional scalars, stored as NSNumber/NSString, read and written as Swift optionals.
+    /// Optional scalars, stored as NSNumber/NSString, read and written as Swift optionals.
     final func optionalInt(_ key: String) -> Int? { (value(forKey: key) as? NSNumber)?.intValue }
     final func setOptionalInt(_ value: Int?, _ key: String) { setValue(value.map { NSNumber(value: $0) }, forKey: key) }
     final func optionalBool(_ key: String) -> Bool? { (value(forKey: key) as? NSNumber)?.boolValue }
@@ -946,11 +946,11 @@ final class LibraryModel: @unchecked Sendable {
     typealias Attribute = (name: String, kind: Kind)
 
     private init() {
-        // `unique`: the entity's identifier, as a uniqueness constraint. The store backs it
-        // with a unique index, so it is also the index every lookup by ID uses, and a second
-        // row with the same ID can never be written. A context that inserts one anyway
-        // resolves the conflict with mergeByPropertyObjectTrump: the insert updates the
-        // existing row's attributes, and the row's relationships are kept.
+        /// `unique`: the entity's identifier, as a uniqueness constraint. The store backs it
+        /// with a unique index, so it is also the index every lookup by ID uses, and a second
+        /// row with the same ID can never be written. A context that inserts one anyway
+        /// resolves the conflict with mergeByPropertyObjectTrump: the insert updates the
+        /// existing row's attributes, and the row's relationships are kept.
         func entity(_ name: String, _ attributes: [Attribute], unique key: String) -> NSEntityDescription {
             let entity = NSEntityDescription()
             entity.name = name
@@ -965,12 +965,12 @@ final class LibraryModel: @unchecked Sendable {
         let membership = entity("ListMembership", Self.listMembershipAttributes, unique: "id")
         let release = entity("Release", Self.releaseAttributes, unique: "id")
         let session = entity("ImportSession", Self.importSessionAttributes, unique: "id")
-        // One settings row, enforced by the uniqueness constraint. Contexts that may insert a second
-        // (the restore's) resolve it with mergeByPropertyObjectTrump.
+        /// One settings row, enforced by the uniqueness constraint. Contexts that may insert a second
+        /// (the restore's) resolve it with mergeByPropertyObjectTrump.
         let settings = entity("SettingsObject", Self.settingsObjectAttributes, unique: "snapshotID")
         let search = entity("SavedSearchObject", Self.savedSearchObjectAttributes, unique: "searchID")
 
-        // Relationships. Every to-many side is optional, as Core Data expects and batch delete requires.
+        /// Relationships. Every to-many side is optional, as Core Data expects and batch delete requires.
         Self.relate(film, "memberships", toMany: true, .cascadeDeleteRule,
                     membership, "film", toMany: false, .nullifyDeleteRule)
         Self.relate(film, "releases", toMany: true, .cascadeDeleteRule,
@@ -988,8 +988,8 @@ final class LibraryModel: @unchecked Sendable {
     private static func attribute(_ spec: Attribute) -> NSAttributeDescription {
         let a = NSAttributeDescription()
         a.name = spec.name
-        // Required unless the Swift property is optional. A UUID has no meaningful default,
-        // so it is optional in the model; every init assigns one.
+        /// Required unless the Swift property is optional. A UUID has no meaningful default,
+        /// so it is optional in the model; every init assigns one.
         a.isOptional = false
         switch spec.kind {
         case .string: a.attributeType = .stringAttributeType; a.defaultValue = ""
@@ -1031,7 +1031,7 @@ final class LibraryModel: @unchecked Sendable {
     }
 
     // MARK: Attribute Tables
-    // One row per stored property of each model class (files 61.00–67.00), in declaration order.
+    /// One row per stored property of each model class (files 61.00–67.00), in declaration order.
 
     static let filmAttributes: [Attribute] = [
         ("id", .uuid), ("posterUID", .string), ("name", .string),

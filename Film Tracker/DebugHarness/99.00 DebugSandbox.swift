@@ -1,32 +1,32 @@
 // MARK: - DebugSandbox.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Opt-in, DEBUG-only redirection of every location Film Tracker writes to, so a
-// throwaway instance can be launched from the command line without reading or
-// touching the user's real library, caches, posters, backups, or preferences.
-//
-// DESIGN — why this is a pure function of ProcessInfo and nothing else
-//
-// The obvious way to build this is a mutable "install the override early" switch.
-// That approach has a real initialization-order hazard: several singletons capture
-// their file URLs in a private init that runs lazily at first access (MetadataCache
-// captures `cacheURL`; LoggerCore captures its log file URL), and Swift statics are
-// initialized on first touch, which is not a point this file could control. A single
-// access from anywhere ahead of the "install" call would permanently bind that
-// subsystem to the production path while everything else used the sandbox — the worst
-// possible failure, because it is silent and partial.
-//
-// So there is no install step and no mutable state. Every value here is derived
-// exclusively from `ProcessInfo.processInfo.arguments`, which is fully populated by
-// the kernel before any Swift code in the process runs. That makes every accessor
-// correct at any point in the lifetime of the process, including from within another
-// type's static initializer. Ordering ceases to be a property anyone has to maintain.
-//
-// SAFETY — the redirect cannot exist in a shipping build
-//
-// `name` is hard-wired to nil outside DEBUG. `isActive` is therefore false, every
-// derived URL is nil, and Preferences/FilmTrackerApp fall through to their production
-// paths. A Release build has no code path that can be argued into the sandbox.
+/// Opt-in, DEBUG-only redirection of every location Film Tracker writes to, so a
+/// throwaway instance can be launched from the command line without reading or
+/// touching the user's real library, caches, posters, backups, or preferences.
+///
+/// DESIGN — why this is a pure function of ProcessInfo and nothing else
+///
+/// The obvious way to build this is a mutable "install the override early" switch.
+/// That approach has a real initialization-order hazard: several singletons capture
+/// their file URLs in a private init that runs lazily at first access (MetadataCache
+/// captures `cacheURL`; LoggerCore captures its log file URL), and Swift statics are
+/// initialized on first touch, which is not a point this file could control. A single
+/// access from anywhere ahead of the "install" call would permanently bind that
+/// subsystem to the production path while everything else used the sandbox — the worst
+/// possible failure, because it is silent and partial.
+///
+/// So there is no install step and no mutable state. Every value here is derived
+/// exclusively from `ProcessInfo.processInfo.arguments`, which is fully populated by
+/// the kernel before any Swift code in the process runs. That makes every accessor
+/// correct at any point in the lifetime of the process, including from within another
+/// type's static initializer. Ordering ceases to be a property anyone has to maintain.
+///
+/// SAFETY — the redirect cannot exist in a shipping build
+///
+/// `name` is hard-wired to nil outside DEBUG. `isActive` is therefore false, every
+/// derived URL is nil, and Preferences/FilmTrackerApp fall through to their production
+/// paths. A Release build has no code path that can be argued into the sandbox.
 
 import Foundation
 
@@ -62,9 +62,9 @@ enum DebugSandbox {
         guard valueIndex < arguments.endIndex else { return nil }
 
         let value = arguments[valueIndex]
-        // A value that looks like the next flag means the caller omitted the argument.
-        // Treating "-FTDebugSandbox -FTDebugHarness foo" as a container literally named
-        // "-FTDebugHarness" would silently succeed and be very confusing to debug.
+        /// A value that looks like the next flag means the caller omitted the argument.
+        /// Treating "-FTDebugSandbox -FTDebugHarness foo" as a container literally named
+        /// "-FTDebugHarness" would silently succeed and be very confusing to debug.
         guard !value.isEmpty, !value.hasPrefix("-") else { return nil }
         return value
     }
@@ -146,10 +146,10 @@ enum DebugSandbox {
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         } catch {
-            // Returning the URL anyway is correct: downstream consumers each report
-            // their own write failures with better context than this initializer could,
-            // and returning nil here would silently fall the whole app back onto the
-            // production paths — the one outcome this file exists to prevent.
+            /// Returning the URL anyway is correct: downstream consumers each report
+            /// their own write failures with better context than this initializer could,
+            /// and returning nil here would silently fall the whole app back onto the
+            /// production paths — the one outcome this file exists to prevent.
             printToStandardError("[DebugSandbox] ERROR: could not create container at \(url.path(percentEncoded: false)): \(error.localizedDescription)\n")
         }
         return url

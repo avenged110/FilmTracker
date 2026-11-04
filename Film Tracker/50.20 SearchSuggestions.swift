@@ -1,9 +1,9 @@
 // MARK: - SearchSuggestions.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The search field's value suggestions: the library vocabulary they draw on, the learned
-// heuristics that rank them, and the ranking itself. All of it runs off the main actor;
-// SearchController only asks for a ranked list and publishes it.
+/// The search field's value suggestions: the library vocabulary they draw on, the learned
+/// heuristics that rank them, and the ranking itself. All of it runs off the main actor;
+/// SearchController only asks for a ranked list and publishes it.
 
 import Foundation
 
@@ -116,16 +116,16 @@ nonisolated struct SearchVocabulary: Sendable {
             titleKeys.append(SearchText.key(film.name))
             add(film.name, to: .title, film: index)
             for (field, path) in people {
-                // A person credited twice on one film still counts once for it.
+                /// A person credited twice on one film still counts once for it.
                 for name in Set(film[keyPath: path]) {
                     add(name, to: field, film: index)
                 }
             }
-            // Crew is the union of the six, so a person in two roles counts once here too.
+            /// Crew is the union of the six, so a person in two roles counts once here too.
             for name in Set(people.flatMap { film[keyPath: $0.1] }) { add(name, to: .crew, film: index) }
             for studio in Set(film.studio) { add(studio, to: .studio, film: index) }
             for tag in Set(film.tags) { add(tag, to: .tags, film: index) }
-            // Genre is one string that may hold several, comma- or slash-separated.
+            /// Genre is one string that may hold several, comma- or slash-separated.
             for genre in Set(film.genre.split(whereSeparator: { $0 == "," || $0 == "/" })) {
                 add(String(genre), to: .genre, film: index)
             }
@@ -135,7 +135,7 @@ nonisolated struct SearchVocabulary: Sendable {
         }
         for (field, byKey) in byField {
             var built: [Term] = byKey.map { key, acc in
-                // Damped by √count: see the type's doc comment.
+                /// Damped by √count: see the type's doc comment.
                 let sum = acc.films.reduce(0.0) { $0 + affinity[Int($1)] }
                 let taste = acc.films.isEmpty ? 0 : sum / Double(acc.films.count).squareRoot()
                 return Term(display: acc.display, key: key, initials: Self.initials(of: key),
@@ -209,8 +209,8 @@ nonisolated struct FilmSignals {
         let watchedDaysAgo = daysBetween(parseDate(from: film.lastWatched), today)
         let recentlyWatched = watchedDaysAgo.map { decay(daysSince: $0, halfLife: 90) } ?? 0
 
-        // Viewing dates are stored "yyyy.MM.dd"; the year is read first so only the last two
-        // years' entries pay for a full date parse.
+        /// Viewing dates are stored "yyyy.MM.dd"; the year is read first so only the last two
+        /// years' entries pay for a full date parse.
         let thisYear = StorageDateFormatters.calendar.component(.year, from: today)
         let viewingsThisYear = film.calendarTable.reduce(0) { count, entry in
             if let year = Int(entry.prefix(4)), year < thisYear - 1 { return count }
@@ -281,7 +281,7 @@ actor SearchHeuristics {
         let prior = entries[key]?.weight(at: date) ?? 0
         entries[key] = Entry(display: display, weight: prior + 1, updated: date)
         if entries.count > Self.maxEntriesPerScope {
-            // Drop the weakest so the store stays bounded however long it is used.
+            /// Drop the weakest so the store stays bounded however long it is used.
             let keep = entries.sorted { $0.value.weight(at: date) > $1.value.weight(at: date) }
                 .prefix(Self.maxEntriesPerScope)
             entries = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
@@ -307,7 +307,7 @@ actor SearchHeuristics {
         guard let url = fileURL, let data = try? Data(contentsOf: url),
               let decoded = try? JSONDecoder().decode([String: [String: Entry]].self, from: data)
         else { return }
-        // Faded entries are dropped on load rather than carried forward forever.
+        /// Faded entries are dropped on load rather than carried forward forever.
         let now = Date()
         scopes = decoded.mapValues { $0.filter { $0.value.weight(at: now) >= Self.minimumWeight } }
     }
@@ -392,8 +392,8 @@ nonisolated enum SearchSuggestionRanker {
     ) -> [SearchSuggestion] {
         guard limit > 0 else { return [] }
         let typed = SearchText.key(request.typed)
-        // Freeform suggestions wait for something to be typed; an empty field has its own
-        // drop-down (recent searches).
+        /// Freeform suggestions wait for something to be typed; an empty field has its own
+        /// drop-down (recent searches).
         if request.field == nil && typed.isEmpty { return [] }
         let field = request.field ?? .title
         let typedWords = typed.split(separator: " ").map(String.init)
@@ -409,28 +409,28 @@ nonisolated enum SearchSuggestionRanker {
             let group: Int
             let prefix: String
         }
-        // Films the context points at, each with the weight of the strongest value
-        // pointing at it.
+        /// Films the context points at, each with the weight of the strongest value
+        /// pointing at it.
         let contextFilms = SearchVocabulary.libraryFields.contains(field)
             ? Self.contextFilms(request.context, vocabulary: vocabulary) : [:]
 
         var scored: [(candidate: Candidate, score: Double)] = []
         var considered = 0
-        // Scores one candidate, or passes over it. False once the request is superseded —
-        // the next keystroke's — so a run over a field of ten thousand names stops there
-        // instead of finishing for nothing.
+        /// Scores one candidate, or passes over it. False once the request is superseded —
+        /// the next keystroke's — so a run over a field of ten thousand names stops there
+        /// instead of finishing for nothing.
         func consider(_ candidate: Candidate) -> Bool {
             considered += 1
             if considered % 1024 == 0, Task.isCancelled { return false }
-            // A value holding "#" would read as a new token once it is in the field.
+            /// A value holding "#" would read as a new token once it is in the field.
             guard !candidate.display.contains("#"), !present.contains(candidate.key),
                   let quality = matchQuality(key: candidate.key, initials: candidate.initials,
                                                       typed: typed, words: typedWords) else { return true }
             var related = 0.0
             if !contextFilms.isEmpty && !candidate.films.isEmpty {
                 let sum = candidate.films.reduce(0.0) { $0 + (contextFilms[$1] ?? 0) }
-                // Damped by √count, as taste is, so a value on every film in the library
-                // does not relate to everything.
+                /// Damped by √count, as taste is, so a value on every film in the library
+                /// does not relate to everything.
                 related = min(1, sum / Double(candidate.films.count).squareRoot())
             }
             let score = Weight.match * quality
@@ -442,13 +442,13 @@ nonisolated enum SearchSuggestionRanker {
             return true
         }
 
-        // Each key is a candidate once. The vocabulary's are unique per field already, so
-        // they are read straight from it rather than gathered into a dictionary first.
+        /// Each key is a candidate once. The vocabulary's are unique per field already, so
+        /// they are read straight from it rather than gathered into a dictionary first.
         if field == .list {
             var seen: Set<String> = []
             for list in request.lists {
                 let key = SearchText.key(list.name)
-                // A user list sharing a smart list's name keeps the first group's row.
+                /// A user list sharing a smart list's name keeps the first group's row.
                 guard seen.insert(key).inserted else { continue }
                 guard consider(Candidate(display: list.name, key: key,
                                          initials: SearchVocabulary.initials(of: key), count: 0,
@@ -474,8 +474,8 @@ nonisolated enum SearchSuggestionRanker {
             if $0.score != $1.score { return $0.score > $1.score }
             return $0.candidate.key < $1.candidate.key
         }
-        // Two films can share a title, and a value can be learned under a spelling the
-        // library also holds; one row per shown value.
+        /// Two films can share a title, and a value can be learned under a spelling the
+        /// library also holds; one row per shown value.
         var shown: Set<String> = []
         var result: [SearchSuggestion] = []
         for entry in scored where shown.insert(entry.candidate.display).inserted {
@@ -496,16 +496,16 @@ nonisolated enum SearchSuggestionRanker {
         if typed.isEmpty { return 0 }
         if key == typed { return 4 }
         if key.hasPrefix(typed) { return 2 }
-        // Bytewise when both are ASCII (see SearchText.contains), where the byte before the
-        // match is the Character before it. The match is not at the start: hasPrefix failed.
+        /// Bytewise when both are ASCII (see SearchText.contains), where the byte before the
+        /// match is the Character before it. The match is not at the start: hasPrefix failed.
         switch SearchText.offset(of: typed, in: key) {
         case .some(.some(let offset)):
             return offset > 0 && key.utf8.dropFirst(offset - 1).first == UInt8(ascii: " ") ? 1 : 0.5
         case .some(.none):
             break
         case .none:
-            // Foundation's range(of:) and Swift's hasPrefix match by different rules, so a
-            // match at the very start is possible here; index(before:) would trap on it.
+            /// Foundation's range(of:) and Swift's hasPrefix match by different rules, so a
+            /// match at the very start is possible here; index(before:) would trap on it.
             if let range = key.range(of: typed) {
                 guard range.lowerBound > key.startIndex else { return 2 }
                 return key[key.index(before: range.lowerBound)] == " " ? 1 : 0.5
@@ -530,12 +530,12 @@ nonisolated enum SearchSuggestionRanker {
             if let field = value.field {
                 guard let index = vocabulary.termIndex[field]?[value.key],
                       let term = vocabulary.terms[field]?[index] else { continue }
-                // A value on a large share of the library ("Drama") says little about
-                // which films are meant; it points at them more weakly.
+                /// A value on a large share of the library ("Drama") says little about
+                /// which films are meant; it points at them more weakly.
                 let weight = value.weight / max(1, log10(Double(term.films.count)))
                 for film in term.films { mark(film, weight) }
             } else {
-                // Freeform text points at the films whose titles hold it.
+                /// Freeform text points at the films whose titles hold it.
                 for (index, title) in vocabulary.titleKeys.enumerated() where title.contains(value.key) {
                     mark(Int32(index), value.weight)
                 }

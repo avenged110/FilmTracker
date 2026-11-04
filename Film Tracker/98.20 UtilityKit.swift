@@ -1,196 +1,196 @@
 // MARK: - UtilityKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Drop-in SwiftUI/AppKit utilities: an NSScrollView-backed scroll view, an async NSOpenPanel
-// presenter, the field-edge chrome for boxed surfaces, a path bar, and glyph badges.
-//
-// STANDARDIZED SWIFTUI/APPKIT UTILITIES — one file, drop into any project.
-//
-// Five pieces, with every per-app constant a defaulted parameter:
-//
-//   1. AppKitScrollView — an NSScrollView-backed replacement for SwiftUI's ScrollView.
-//   2. SharedOpenPanel  — `OpenPanelPresenter`, an async NSOpenPanel-as-a-sheet helper.
-//   3. FieldEdge        — `FieldEdgeStyle`, `.fieldEdgeChrome(...)` and `FieldEdgeLayers`: the
-//                         rounded plate, fading outline and soft shadow of a boxed surface.
-//   4. PathBar          — `PathBarView`, `PathBarChrome` and the `.toolTip(_:)` modifier it uses.
-//   5. GlyphBadge       — `GlyphBadge`, `SymbolBadge` (animated) and `GlyphBadgeView` (AppKit):
-//                         a filled, shadowed circle with a shadowed glyph centered on it.
-//
-// Only the path bar depends on another piece (the field edge), and nothing here depends on
-// the other shared files.
-//
-// WIRING IT UP
-// ────────────
-// Scroll view — a thin facade per context that re-injects what the hosted tree needs
-// (an NSHostingView does not inherit the enclosing SwiftUI environment):
-//
-//   struct PaneScrollView<Content: View>: View {
-//       @Environment(AppModel.self) private var model
-//       @ViewBuilder let content: Content
-//       var body: some View {
-//           AppKitScrollView(modifier: PaneEnvironment(model: model)) { content }
-//       }
-//   }
-//
-//   AppKitScrollView(modifier: EmptyModifier()) { page }    // nothing to re-inject
-//
-// Optional, all off by default: `scrollProxy:` (scroll-to-anchor, viewport tracking,
-// animated-shrink hold), `isActive:` / `activation:` (hit-test gating for tab planes),
-// `onScrollWillStart:`, `contentResetKey:`, `alwaysOverflows:`, and `style:` (the
-// NSScrollView chrome; `.standard` by default).
-//
-// Open panel:
-//
-//   let selection = await OpenPanelPresenter.present(
-//       configuration: .init(canChooseDirectories: true, prompt: "Choose"),
-//       attachedTo: window)                                // nil → key, then main window
-//   guard case .urls(let urls) = selection else { return }
-//
-// Project-wide panel defaults (initial folder, size, resizability, movability) live on
-// `OpenPanelPresenter.defaults`; set them once at launch if they differ from the
-// defaults (Desktop, 600 × 400, fixed, immovable):
-//
-//   OpenPanelPresenter.defaults.directory = .applications  // to browse for app bundles
-//
-// Field edge:
-//
-//   content.fieldEdgeChrome()                                   // plate, outline, shadow
-//   list.fieldEdgeChrome(fill: nil, clipsContent: true,         // a list painting its own rows
-//                        insetsInterior: true, shadow: .content)
-//   card.fieldEdgeChrome(FieldEdgeStyle(cornerRadius: 12))      // a variant of the measures
-//   let edge = FieldEdgeLayers()                                // an AppKit view's layers
-//
-// Path bar:
-//
-//   PathBarView(url: folder, isUnavailable: !exists)            // a location
-//   PathBarView(pathComponents: parts, icon: Image(systemName: "doc.fill"))   // plain components
-//   PathBarChrome { customContent }                             // the shell only
-//
-// Glyph badge:
-//
-//   GlyphBadge(systemName: "checkmark", color: .green)          // 14pt, no circle shadow
-//   GlyphBadge(character: "B", color: .white, ink: .black, inkShadow: nil)
-//   SymbolBadge(systemName: glyph, color: color, diameter: 22)  // animated, 16pt default
-//   badge.content = .symbol("checkmark"); badge.fillColor = .systemGreen   // GlyphBadgeView
-//
-// ─────────────────────────────────────────────────────────────────────────────────────
-// 1. APPKITSCROLLVIEW
-// ─────────────────────────────────────────────────────────────────────────────────────
-//
-// Each consumer wraps this view with a thin facade that captures its required
-// environment values and constructs the matching ViewModifier — leaving call sites
-// completely unchanged and keeping context-specific concerns (event-bus
-// broadcasting, environment re-injection) out of the utility layer.
-//
-// Architecture
-// ────────────
-//   AppKitScrollView<Content, Modifier: ViewModifier>  ← SwiftUI entry point
-//     GeometryReader → AppKitScrollNSView               ← NSViewRepresentable
-//       NSScrollView
-//         AppKitFlippedContainerView (documentView)
-//           NSHostingView<AppKitScrollContentWrapper<Content, Modifier>>
-//
-// Structural diffing
-// ──────────────────
-// The content wrapper uses two concrete generic parameters (Content + Modifier) so
-// NSHostingView holds a fully typed, stable View value across updateNSView calls,
-// letting SwiftUI diff the hosted subtree incrementally instead of tearing it down
-// on every update. AnyView for either parameter would forfeit this.
-//
-// Live-scroll suppression
-// ───────────────────────
-// rootView replacement is deferred during willStartLiveScroll…didEndLiveScroll
-// phases to prevent SwiftUI re-renders from competing with in-flight momentum
-// scroll frames — the primary source of scroll jitter in the SwiftUI ScrollView
-// model. Pending updates flush immediately when the live-scroll phase ends.
-//
-// Programmatic scrolling
-// ──────────────────────
-// AppKitScrollProxy is a plain (deliberately non-@Observable) reference-type
-// bridge. Consumers that need scroll-to-anchor create one proxy per scroll view, passed to both the scroll view
-// (which wires the implementation) and the content view (which calls scroll(to:)).
-// Anchor y-offsets are reported upward via ScrollAnchorPreferenceKey, stored in
-// the coordinator, and used by scrollToAnchor(_:) to drive the NSScrollView's
-// clip view directly. That preference reader is installed only when a proxy that
-// tracks anchors was supplied (see ScrollAnchorReporter), so consumers that pass
-// none do not pay to collect a key nothing in their tree writes or reads.
-// scrollHandler is (re-)wired from syncCoordinatorState
-// whenever the proxy's identity changes, and cleared in dismantleNSView so a
-// proxy outliving its scroll view never keeps a closure aimed at a torn-down
-// coordinator.
-//
-// A proxy made with `tracksViewport` also hears the visible rectangle, on every
-// scroll and resize, and when live scrolls begin and end, through the
-// `viewportHandler` and `liveScrollHandler` its consumer sets — so a long list can mount
-// only the items near the viewport, and change which only when nothing scrolls. Only such a proxy makes the scroll view observe its clip view.
-//
-// Content width
-// ─────────────
-// The width proposed to the hosted SwiftUI tree is the GeometryReader's measured
-// width minus Coordinator.contentWidthInset — the gap between the NSScrollView's
-// own width and the clip view's, measured from live AppKit layout (see
-// AppKitFlippedContainerView.onWidthChange). It's 0 under the default overlay
-// scroller style, and equals the legacy scroller's width under "Show scroll bars:
-// Always," where the clip view is genuinely narrower than the GeometryReader's
-// measurement. Without the correction, content in that configuration lays out too
-// wide (clipped along the trailing edge), and text wrapping at the wrong width can
-// measure a document height short of the real one.
-//
-// isActive / hit-test isolation
-// ─────────────────────────────
-// When isActive == false, the underlying NSScrollView (a HitTestGatedScrollView;
-// see below) has its hitTest(_:) short-circuited to return nil, removing it and
-// its AppKit subviews from AppKit's hit-test chain without ever setting isHidden
-// — defense in depth alongside any event-shield overlay the consumer adds.
-//
-// isHidden is deliberately avoided, even though it also excludes hit testing. Toggling isHidden from true back to
-// false — which happens on every tab activation, not just once — makes AppKit
-// treat the scroll view as newly appearing, triggering its automatic "flash scroll
-// indicators" behavior regardless of whether content actually scrolled. Consumers
-// that reactivate the same scroll view repeatedly (a tab plane, on every tab
-// switch) would flash on every switch instead of only when scrolled content
-// hadn't yet faded. A pure hitTest override sidesteps this: the view is never
-// hidden or re-shown, so nothing looks "newly visible" — only its interactivity toggles.
-//
-// The flag can also arrive through an `AppKitScrollActivation` (see below), and the scroll
-// view honors both: it is active only when the parameter AND the activation say so. The
-// activation route exists for cost. A parameter is part of the representable's value, so
-// flipping it rebuilds that value, stamps a new AppKitScrollRevision, and hands the
-// unchanged content to the hosting view again — a full re-measure of the hosted tree on
-// every tab activation. An environment value avoids the revision but is no cheaper: SwiftUI
-// bridges the enclosing environment into a hosted NSHostingView, so a per-tab flag there
-// dirties every environment-reading node of the hosted tree and re-measures it (profiled at
-// about half the cost of a tab switch). The activation is a reference that
-// stays the same object for the scroll view's life, so flipping it changes no SwiftUI value
-// at all: it gates hit-testing directly and flushes anything buffered while inactive.
-//
-// onScrollWillStart callback
-// ──────────────────────────
-// An optional callback fired synchronously at the start of every live-scroll
-// phase — to broadcast a notification, say, letting subscribers (e.g. a popover)
-// dismiss themselves before content re-lays out. Kept as a callback, not hard-coded, so the utility
-// stays context-free.
-//
-// Scroll view chrome
-// ──────────────────
-// `AppKitScrollStyle` carries the NSScrollView settings applied once, at creation:
-// vertical scroller only, autohiding, no border, no background, vertical elasticity,
-// and no automatic content insets. `.standard` is that set.
-//
-// Horizontal swipe recognition (deliberately not in this utility)
-// ───────────────────────────────────────────────────────────────
-// The utility does not subclass the scroll view to override scrollWheel(with:) for horizontal
-// two-finger swipes. That override made scrolling measurably less smooth than a plain
-// NSScrollView. The responsive-scrolling compatibility method such an override would need is an
-// *instance* method on NSClipView, not a class method on NSScrollView, so a class-level
-// declaration would not take effect.
-//
-// A consumer that needs swipe recognition installs a standalone NSEvent local monitor
-// instead. A local monitor intercepts events before
-// AppKit's normal dispatch and can consume (return nil) or pass them through (return the
-// event) unchanged; when passed through, AppKit dispatches to the NSScrollView exactly as
-// with no monitor installed. Every consumer of this utility receives a plain NSScrollView
-// from makeNSView, differing only in the hit-test gate.
+/// Drop-in SwiftUI/AppKit utilities: an NSScrollView-backed scroll view, an async NSOpenPanel
+/// presenter, the field-edge chrome for boxed surfaces, a path bar, and glyph badges.
+///
+/// STANDARDIZED SWIFTUI/APPKIT UTILITIES — one file, drop into any project.
+///
+/// Five pieces, with every per-app constant a defaulted parameter:
+///
+///   1. AppKitScrollView — an NSScrollView-backed replacement for SwiftUI's ScrollView.
+///   2. SharedOpenPanel  — `OpenPanelPresenter`, an async NSOpenPanel-as-a-sheet helper.
+///   3. FieldEdge        — `FieldEdgeStyle`, `.fieldEdgeChrome(...)` and `FieldEdgeLayers`: the
+///                         rounded plate, fading outline and soft shadow of a boxed surface.
+///   4. PathBar          — `PathBarView`, `PathBarChrome` and the `.toolTip(_:)` modifier it uses.
+///   5. GlyphBadge       — `GlyphBadge`, `SymbolBadge` (animated) and `GlyphBadgeView` (AppKit):
+///                         a filled, shadowed circle with a shadowed glyph centered on it.
+///
+/// Only the path bar depends on another piece (the field edge), and nothing here depends on
+/// the other shared files.
+///
+/// WIRING IT UP
+/// ────────────
+/// Scroll view — a thin facade per context that re-injects what the hosted tree needs
+/// (an NSHostingView does not inherit the enclosing SwiftUI environment):
+///
+///   struct PaneScrollView<Content: View>: View {
+///       @Environment(AppModel.self) private var model
+///       @ViewBuilder let content: Content
+///       var body: some View {
+///           AppKitScrollView(modifier: PaneEnvironment(model: model)) { content }
+///       }
+///   }
+///
+///   AppKitScrollView(modifier: EmptyModifier()) { page }    // nothing to re-inject
+///
+/// Optional, all off by default: `scrollProxy:` (scroll-to-anchor, viewport tracking,
+/// animated-shrink hold), `isActive:` / `activation:` (hit-test gating for tab planes),
+/// `onScrollWillStart:`, `contentResetKey:`, `alwaysOverflows:`, and `style:` (the
+/// NSScrollView chrome; `.standard` by default).
+///
+/// Open panel:
+///
+///   let selection = await OpenPanelPresenter.present(
+///       configuration: .init(canChooseDirectories: true, prompt: "Choose"),
+///       attachedTo: window)                                // nil → key, then main window
+///   guard case .urls(let urls) = selection else { return }
+///
+/// Project-wide panel defaults (initial folder, size, resizability, movability) live on
+/// `OpenPanelPresenter.defaults`; set them once at launch if they differ from the
+/// defaults (Desktop, 600 × 400, fixed, immovable):
+///
+///   OpenPanelPresenter.defaults.directory = .applications  // to browse for app bundles
+///
+/// Field edge:
+///
+///   content.fieldEdgeChrome()                                   // plate, outline, shadow
+///   list.fieldEdgeChrome(fill: nil, clipsContent: true,         // a list painting its own rows
+///                        insetsInterior: true, shadow: .content)
+///   card.fieldEdgeChrome(FieldEdgeStyle(cornerRadius: 12))      // a variant of the measures
+///   let edge = FieldEdgeLayers()                                // an AppKit view's layers
+///
+/// Path bar:
+///
+///   PathBarView(url: folder, isUnavailable: !exists)            // a location
+///   PathBarView(pathComponents: parts, icon: Image(systemName: "doc.fill"))   // plain components
+///   PathBarChrome { customContent }                             // the shell only
+///
+/// Glyph badge:
+///
+///   GlyphBadge(systemName: "checkmark", color: .green)          // 14pt, no circle shadow
+///   GlyphBadge(character: "B", color: .white, ink: .black, inkShadow: nil)
+///   SymbolBadge(systemName: glyph, color: color, diameter: 22)  // animated, 16pt default
+///   badge.content = .symbol("checkmark"); badge.fillColor = .systemGreen   // GlyphBadgeView
+///
+/// ─────────────────────────────────────────────────────────────────────────────────────
+/// 1. APPKITSCROLLVIEW
+/// ─────────────────────────────────────────────────────────────────────────────────────
+///
+/// Each consumer wraps this view with a thin facade that captures its required
+/// environment values and constructs the matching ViewModifier — leaving call sites
+/// completely unchanged and keeping context-specific concerns (event-bus
+/// broadcasting, environment re-injection) out of the utility layer.
+///
+/// Architecture
+/// ────────────
+///   AppKitScrollView<Content, Modifier: ViewModifier>  ← SwiftUI entry point
+///     GeometryReader → AppKitScrollNSView               ← NSViewRepresentable
+///       NSScrollView
+///         AppKitFlippedContainerView (documentView)
+///           NSHostingView<AppKitScrollContentWrapper<Content, Modifier>>
+///
+/// Structural diffing
+/// ──────────────────
+/// The content wrapper uses two concrete generic parameters (Content + Modifier) so
+/// NSHostingView holds a fully typed, stable View value across updateNSView calls,
+/// letting SwiftUI diff the hosted subtree incrementally instead of tearing it down
+/// on every update. AnyView for either parameter would forfeit this.
+///
+/// Live-scroll suppression
+/// ───────────────────────
+/// rootView replacement is deferred during willStartLiveScroll…didEndLiveScroll
+/// phases to prevent SwiftUI re-renders from competing with in-flight momentum
+/// scroll frames — the primary source of scroll jitter in the SwiftUI ScrollView
+/// model. Pending updates flush immediately when the live-scroll phase ends.
+///
+/// Programmatic scrolling
+/// ──────────────────────
+/// AppKitScrollProxy is a plain (deliberately non-@Observable) reference-type
+/// bridge. Consumers that need scroll-to-anchor create one proxy per scroll view, passed to both the scroll view
+/// (which wires the implementation) and the content view (which calls scroll(to:)).
+/// Anchor y-offsets are reported upward via ScrollAnchorPreferenceKey, stored in
+/// the coordinator, and used by scrollToAnchor(_:) to drive the NSScrollView's
+/// clip view directly. That preference reader is installed only when a proxy that
+/// tracks anchors was supplied (see ScrollAnchorReporter), so consumers that pass
+/// none do not pay to collect a key nothing in their tree writes or reads.
+/// scrollHandler is (re-)wired from syncCoordinatorState
+/// whenever the proxy's identity changes, and cleared in dismantleNSView so a
+/// proxy outliving its scroll view never keeps a closure aimed at a torn-down
+/// coordinator.
+///
+/// A proxy made with `tracksViewport` also hears the visible rectangle, on every
+/// scroll and resize, and when live scrolls begin and end, through the
+/// `viewportHandler` and `liveScrollHandler` its consumer sets — so a long list can mount
+/// only the items near the viewport, and change which only when nothing scrolls. Only such a proxy makes the scroll view observe its clip view.
+///
+/// Content width
+/// ─────────────
+/// The width proposed to the hosted SwiftUI tree is the GeometryReader's measured
+/// width minus Coordinator.contentWidthInset — the gap between the NSScrollView's
+/// own width and the clip view's, measured from live AppKit layout (see
+/// AppKitFlippedContainerView.onWidthChange). It's 0 under the default overlay
+/// scroller style, and equals the legacy scroller's width under "Show scroll bars:
+/// Always," where the clip view is genuinely narrower than the GeometryReader's
+/// measurement. Without the correction, content in that configuration lays out too
+/// wide (clipped along the trailing edge), and text wrapping at the wrong width can
+/// measure a document height short of the real one.
+///
+/// isActive / hit-test isolation
+/// ─────────────────────────────
+/// When isActive == false, the underlying NSScrollView (a HitTestGatedScrollView;
+/// see below) has its hitTest(_:) short-circuited to return nil, removing it and
+/// its AppKit subviews from AppKit's hit-test chain without ever setting isHidden
+/// — defense in depth alongside any event-shield overlay the consumer adds.
+///
+/// isHidden is deliberately avoided, even though it also excludes hit testing. Toggling isHidden from true back to
+/// false — which happens on every tab activation, not just once — makes AppKit
+/// treat the scroll view as newly appearing, triggering its automatic "flash scroll
+/// indicators" behavior regardless of whether content actually scrolled. Consumers
+/// that reactivate the same scroll view repeatedly (a tab plane, on every tab
+/// switch) would flash on every switch instead of only when scrolled content
+/// hadn't yet faded. A pure hitTest override sidesteps this: the view is never
+/// hidden or re-shown, so nothing looks "newly visible" — only its interactivity toggles.
+///
+/// The flag can also arrive through an `AppKitScrollActivation` (see below), and the scroll
+/// view honors both: it is active only when the parameter AND the activation say so. The
+/// activation route exists for cost. A parameter is part of the representable's value, so
+/// flipping it rebuilds that value, stamps a new AppKitScrollRevision, and hands the
+/// unchanged content to the hosting view again — a full re-measure of the hosted tree on
+/// every tab activation. An environment value avoids the revision but is no cheaper: SwiftUI
+/// bridges the enclosing environment into a hosted NSHostingView, so a per-tab flag there
+/// dirties every environment-reading node of the hosted tree and re-measures it (profiled at
+/// about half the cost of a tab switch). The activation is a reference that
+/// stays the same object for the scroll view's life, so flipping it changes no SwiftUI value
+/// at all: it gates hit-testing directly and flushes anything buffered while inactive.
+///
+/// onScrollWillStart callback
+/// ──────────────────────────
+/// An optional callback fired synchronously at the start of every live-scroll
+/// phase — to broadcast a notification, say, letting subscribers (e.g. a popover)
+/// dismiss themselves before content re-lays out. Kept as a callback, not hard-coded, so the utility
+/// stays context-free.
+///
+/// Scroll view chrome
+/// ──────────────────
+/// `AppKitScrollStyle` carries the NSScrollView settings applied once, at creation:
+/// vertical scroller only, autohiding, no border, no background, vertical elasticity,
+/// and no automatic content insets. `.standard` is that set.
+///
+/// Horizontal swipe recognition (deliberately not in this utility)
+/// ───────────────────────────────────────────────────────────────
+/// The utility does not subclass the scroll view to override scrollWheel(with:) for horizontal
+/// two-finger swipes. That override made scrolling measurably less smooth than a plain
+/// NSScrollView. The responsive-scrolling compatibility method such an override would need is an
+/// *instance* method on NSClipView, not a class method on NSScrollView, so a class-level
+/// declaration would not take effect.
+///
+/// A consumer that needs swipe recognition installs a standalone NSEvent local monitor
+/// instead. A local monitor intercepts events before
+/// AppKit's normal dispatch and can consume (return nil) or pass them through (return the
+/// event) unchanged; when passed through, AppKit dispatches to the NSScrollView exactly as
+/// with no monitor installed. Every consumer of this utility receives a plain NSScrollView
+/// from makeNSView, differing only in the hit-test gate.
 
 import AppKit
 import SwiftUI
@@ -484,9 +484,9 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
                 revision: AppKitScrollRevision.next(),
                 content: content
             )
-            // The representable must fill the GeometryReader frame so that
-            // SwiftUI passes correct bounds and Auto Layout inside it receives
-            // the right clip view dimensions.
+            /// The representable must fill the GeometryReader frame so that
+            /// SwiftUI passes correct bounds and Auto Layout inside it receives
+            /// the right clip view dimensions.
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -674,15 +674,15 @@ private struct AppKitScrollContentWrapper<Content: View, Modifier: ViewModifier>
 
     var body: some View {
         content
-            // Explicit width lets NSHostingView resolve maxWidth: .infinity before
-            // Auto Layout runs. Height is never set here — the container/hosting-view
-            // bottom constraint chain drives it via Auto Layout.
+            /// Explicit width lets NSHostingView resolve maxWidth: .infinity before
+            /// Auto Layout runs. Height is never set here — the container/hosting-view
+            /// bottom constraint chain drives it via Auto Layout.
             .frame(width: availableWidth)
-            // Re-inject caller-supplied environment values.
+            /// Re-inject caller-supplied environment values.
             .modifier(modifier)
-            // Collect anchor y-offsets from the hosted tree and forward them to
-            // the coordinator for use in scrollToAnchor(_:) — but only for the one
-            // consumer that can actually use them.
+            /// Collect anchor y-offsets from the hosted tree and forward them to
+            /// the coordinator for use in scrollToAnchor(_:) — but only for the one
+            /// consumer that can actually use them.
             .modifier(ScrollAnchorReporter<Content, Modifier>(
                 isEnabled: tracksAnchors,
                 coordinatorBox: coordinatorBox
@@ -944,8 +944,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
             wiredProxy?.viewportHandler?(clip.bounds)
         }
 
-        // The enclosing class is already @MainActor-isolated, so its members
-        // inherit that isolation; no per-member annotation is needed.
+        /// The enclosing class is already @MainActor-isolated, so its members
+        /// inherit that isolation; no per-member annotation is needed.
 
         /// Whether an update may be handed to the hosting view right now. Both
         /// conditions suppress the same operation — the `rootView` assignment and the
@@ -1001,7 +1001,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
             let visibleHeight  = sv.contentView.bounds.height
             let documentHeight = sv.documentView?.frame.height ?? 0
-            // Center the anchor in the visible area; clamp to valid document range.
+            /// Center the anchor in the visible area; clamp to valid document range.
             let centered = yOffset - visibleHeight / 2
             let clamped = max(0, min(centered, max(0, documentHeight - visibleHeight)))
 
@@ -1010,36 +1010,36 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         }
 
         // MARK: Animated shrink
-        //
-        // An animated removal inside the hosted tree changes the content's height in
-        // ONE step: SwiftUI reports the final (shorter) intrinsic size at once and
-        // only the drawing is interpolated, and Auto Layout applies that size to the
-        // document at the next layout pass. When the shorter document can no longer
-        // reach the current scroll offset (the person is scrolled to, or near, the
-        // bottom), NSClipView clamps the offset in that same pass: every row jumps
-        // down by the shortfall in a single frame, and a removed row at the bottom is
-        // pushed out of the viewport before its fade is ever seen. (Measured: the jump lands on the first frame after the removal.)
-        //
-        // The hold answers it with a single clock — SwiftUI's:
-        //
-        //   1. A required minimum-height constraint keeps the document at its current
-        //      height, so nothing clamps, and the caller learns the `slack`: how much
-        //      document lies below the viewport.
-        //   2. The caller lays its content out within the held frame bottom-anchored
-        //      `slack` above the frame's foot (never above its top; see
-        //      `holdForAnimatedShrink`), and makes its change. Whatever the shorter
-        //      content can no longer fill beneath the viewport, the content gives up at
-        //      its TOP instead — the rows above the removal slide down exactly as far
-        //      as the scroll offset will have to come back — and all of it moves in the
-        //      one SwiftUI spring that also fades and closes the removal.
-        //   3. Once that spring has settled, the hold is dropped and the offset shifts
-        //      up by the distance the content was lowered, in the same layout pass that
-        //      shortens the document and lifts the content back to its top. On screen,
-        //      nothing moves.
-        //
-        // The hold uses SwiftUI's own clock, so the start of the motion is known rather than
-        // estimated. A per-frame AppKit copy of the spring would have to estimate that start,
-        // and rows that should stand still could drift by several pixels.
+        ///
+        /// An animated removal inside the hosted tree changes the content's height in
+        /// ONE step: SwiftUI reports the final (shorter) intrinsic size at once and
+        /// only the drawing is interpolated, and Auto Layout applies that size to the
+        /// document at the next layout pass. When the shorter document can no longer
+        /// reach the current scroll offset (the person is scrolled to, or near, the
+        /// bottom), NSClipView clamps the offset in that same pass: every row jumps
+        /// down by the shortfall in a single frame, and a removed row at the bottom is
+        /// pushed out of the viewport before its fade is ever seen. (Measured: the jump lands on the first frame after the removal.)
+        ///
+        /// The hold answers it with a single clock — SwiftUI's:
+        ///
+        ///   1. A required minimum-height constraint keeps the document at its current
+        ///      height, so nothing clamps, and the caller learns the `slack`: how much
+        ///      document lies below the viewport.
+        ///   2. The caller lays its content out within the held frame bottom-anchored
+        ///      `slack` above the frame's foot (never above its top; see
+        ///      `holdForAnimatedShrink`), and makes its change. Whatever the shorter
+        ///      content can no longer fill beneath the viewport, the content gives up at
+        ///      its TOP instead — the rows above the removal slide down exactly as far
+        ///      as the scroll offset will have to come back — and all of it moves in the
+        ///      one SwiftUI spring that also fades and closes the removal.
+        ///   3. Once that spring has settled, the hold is dropped and the offset shifts
+        ///      up by the distance the content was lowered, in the same layout pass that
+        ///      shortens the document and lifts the content back to its top. On screen,
+        ///      nothing moves.
+        ///
+        /// The hold uses SwiftUI's own clock, so the start of the motion is known rather than
+        /// estimated. A per-frame AppKit copy of the spring would have to estimate that start,
+        /// and rows that should stand still could drift by several pixels.
 
         /// Minimum-height constraint on the document view while a shrink is held.
         private var shrinkHold: NSLayoutConstraint?
@@ -1091,16 +1091,16 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
             let now = link.timestamp
             if shrinkReleaseAt == nil {
                 if host.intrinsicContentSize.height < heldHeight - 0.5 {
-                    // The change landed without a `shrinkDidBegin` report.
+                    /// The change landed without a `shrinkDidBegin` report.
                     shrinkReleaseAt = now + shrinkSettling
                 } else if now - shrinkRequestedAt > 1 {
-                    // It never shortened the content; there is nothing to bridge.
+                    /// It never shortened the content; there is nothing to bridge.
                     releaseShrinkHold()
                     return
                 }
             }
-            // Released only between scroll gestures, and at the latest a little after
-            // the longest spring could have run, whatever else happens.
+            /// Released only between scroll gestures, and at the latest a little after
+            /// the longest spring could have run, whatever else happens.
             guard !isLiveScrolling else { return }
             if now - shrinkRequestedAt > shrinkSettling + 2 || (shrinkReleaseAt.map { now >= $0 } ?? false) {
                 releaseShrinkHold()
@@ -1119,7 +1119,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
             }
             let lift = heldAnchor.lowering(frameHeight: heldHeight, contentHeight: host.intrinsicContentSize.height)
             let clip = sv.contentView
-            // Read before the release: the layout below may clamp the offset itself.
+            /// Read before the release: the layout below may clamp the offset itself.
             let held = clip.bounds.origin.y
             endShrinkHold()
             sv.layoutSubtreeIfNeeded()
@@ -1146,15 +1146,15 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
     // MARK: - NSViewRepresentable
 
     func makeNSView(context: Context) -> HitTestGatedScrollView {
-        // Every consumer receives a scroll view whose configuration and scrolling
-        // behavior are identical to a plain, unmodified NSScrollView — horizontal
-        // swipe recognition, where a consumer needs it, is handled entirely outside
-        // this utility via a standalone NSEvent local monitor (see the header
-        // comment above) — so nothing here can affect scrolling responsiveness for
-        // any consumer. The only difference
-        // from a plain NSScrollView is the hitTest(_:) override described in the
-        // "isActive / hit-test isolation" note above and on HitTestGatedScrollView
-        // itself; it changes only click routing, never rendering or scrolling.
+        /// Every consumer receives a scroll view whose configuration and scrolling
+        /// behavior are identical to a plain, unmodified NSScrollView — horizontal
+        /// swipe recognition, where a consumer needs it, is handled entirely outside
+        /// this utility via a standalone NSEvent local monitor (see the header
+        /// comment above) — so nothing here can affect scrolling responsiveness for
+        /// any consumer. The only difference
+        /// from a plain NSScrollView is the hitTest(_:) override described in the
+        /// "isActive / hit-test isolation" note above and on HitTestGatedScrollView
+        /// itself; it changes only click routing, never rendering or scrolling.
         let scrollView = HitTestGatedScrollView()
         configureScrollView(scrollView)
 
@@ -1166,20 +1166,20 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
         context.coordinator.contentWidthInset = AppKitScrollInitialInset.initialInset(alwaysOverflows: alwaysOverflows)
         let hostingView = NSHostingView(rootView: makeWrappedContent(coordinator: context.coordinator))
-        // Intrinsic size only. The default (.standardBounds) also installs min- and
-        // max-size constraints, and each is its own full measurement of the hosted tree
-        // at a different proposal — every time the constraints are refreshed, i.e. on
-        // every rootView hand-off and every width change. Neither constrains anything
-        // here: the width is pinned to the clip view by the container, and the height is
-        // exactly the content's (see the constraints below).
+        /// Intrinsic size only. The default (.standardBounds) also installs min- and
+        /// max-size constraints, and each is its own full measurement of the hosted tree
+        /// at a different proposal — every time the constraints are refreshed, i.e. on
+        /// every rootView hand-off and every width change. Neither constrains anything
+        /// here: the width is pinned to the clip view by the container, and the height is
+        /// exactly the content's (see the constraints below).
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.wantsLayer = true
         hostingView.layerContentsRedrawPolicy = .onSetNeedsDisplay
         container.addSubview(hostingView)
 
-        // Hosting view fills container. Leading/trailing fix width; top/bottom
-        // let the container grow to the hosting view's intrinsic content height.
+        /// Hosting view fills container. Leading/trailing fix width; top/bottom
+        /// let the container grow to the hosting view's intrinsic content height.
         NSLayoutConstraint.activate([
             hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -1188,8 +1188,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         ])
 
         let clipView = scrollView.contentView
-        // Container width and top are pinned to the clip view. bottomAnchor is
-        // intentionally omitted — height is content-driven via Auto Layout.
+        /// Container width and top are pinned to the clip view. bottomAnchor is
+        /// intentionally omitted — height is content-driven via Auto Layout.
         NSLayoutConstraint.activate([
             container.leadingAnchor.constraint(equalTo: clipView.leadingAnchor),
             container.trailingAnchor.constraint(equalTo: clipView.trailingAnchor),
@@ -1198,8 +1198,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
         wire(scrollView: scrollView, container: container, hostingView: hostingView,
              coordinator: context.coordinator)
-        // The hosting view was just built from this value's content, so the updateNSView
-        // SwiftUI sends next has nothing to hand off.
+        /// The hosting view was just built from this value's content, so the updateNSView
+        /// SwiftUI sends next has nothing to hand off.
         context.coordinator.appliedRevision = revision
         return scrollView
     }
@@ -1214,56 +1214,56 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         syncCoordinatorState(coordinator)
         scrollView.isHitTestActive = coordinator.effectiveIsActive
 
-        // Fold the real, AppKit-measured content width back into the width this
-        // view proposes to its hosted SwiftUI tree. Fires only when the clip
-        // view's width actually changes relative to the scroll view's own width
-        // — i.e. when a legacy scroller is tiled in or out — so under the default
-        // overlay scroller style the inset stays 0 and this never rebuilds
-        // anything. See Coordinator.contentWidthInset.
+        /// Fold the real, AppKit-measured content width back into the width this
+        /// view proposes to its hosted SwiftUI tree. Fires only when the clip
+        /// view's width actually changes relative to the scroll view's own width
+        /// — i.e. when a legacy scroller is tiled in or out — so under the default
+        /// overlay scroller style the inset stays 0 and this never rebuilds
+        /// anything. See Coordinator.contentWidthInset.
         container.onWidthChange = { [weak coordinator] width in
             guard let coordinator, let sv = coordinator.scrollView else { return }
-            // Ignore transient zero-width passes during initial layout: at that
-            // point the scroll view may already have its final width while the
-            // container has not yet been sized, which would read as a huge bogus
-            // inset and lay the content out at (or near) zero width.
+            /// Ignore transient zero-width passes during initial layout: at that
+            /// point the scroll view may already have its final width while the
+            /// container has not yet been sized, which would read as a huge bogus
+            /// inset and lay the content out at (or near) zero width.
             let scrollWidth = sv.bounds.width
             guard width > 0, scrollWidth > 0 else { return }
             let inset = max(0, scrollWidth - width)
             guard abs(inset - coordinator.contentWidthInset) > 0.5 else { return }
             coordinator.contentWidthInset = inset
-            // Deferred out of the Auto Layout pass that produced this callback:
-            // assigning rootView here would mutate the hosted view tree in the
-            // middle of the layout currently sizing it. DispatchQueue.main.async
-            // (not Task) keeps this on the same run-loop turn ordering AppKit
-            // expects for deferred work originating in a layout callback.
+            /// Deferred out of the Auto Layout pass that produced this callback:
+            /// assigning rootView here would mutate the hosted view tree in the
+            /// middle of the layout currently sizing it. DispatchQueue.main.async
+            /// (not Task) keeps this on the same run-loop turn ordering AppKit
+            /// expects for deferred work originating in a layout callback.
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let wrapper = coordinator.lastWrapper else { return }
-                    // Recomputed now, exactly as makeWrappedContent would, rather than
-                    // taken from `width`: an updateNSView between the layout callback
-                    // and this block (a live-resize step, say) has already handed off
-                    // content at the newer width, and re-applying the older one would
-                    // leave it laid out wrong until the next update. When that update
-                    // already carries the corrected width, there is nothing to hand off.
+                    /// Recomputed now, exactly as makeWrappedContent would, rather than
+                    /// taken from `width`: an updateNSView between the layout callback
+                    /// and this block (a live-resize step, say) has already handed off
+                    /// content at the newer width, and re-applying the older one would
+                    /// leave it laid out wrong until the next update. When that update
+                    /// already carries the corrected width, there is nothing to hand off.
                     let corrected = max(0, coordinator.measuredWidth - coordinator.contentWidthInset)
                     guard corrected != wrapper.availableWidth else { return }
                     let fixed = wrapper.withAvailableWidth(corrected)
-                    // Recorded as the latest wrapper, so a second correction before the
-                    // next update compares against what was actually handed off.
+                    /// Recorded as the latest wrapper, so a second correction before the
+                    /// next update compares against what was actually handed off.
                     coordinator.lastWrapper = fixed
                     coordinator.applyRootView(fixed)
                 }
             }
         }
 
-        // queue: nil makes NotificationCenter invoke the block synchronously on
-        // the posting thread, which for NSScrollView's live-scroll notifications
-        // is always the main thread. This matters for correctness: `isLiveScrolling`
-        // becomes true immediately, so no updateNSView pass can push a fresh rootView
-        // into the hosting view at the start of a scroll, where it would compete with
-        // in-flight scroll frames. The same applies at didEndLiveScroll. MainActor.assumeIsolated
-        // is the sanctioned way to enter main-actor isolation synchronously from
-        // a callback AppKit already guarantees is on the main thread.
+        /// queue: nil makes NotificationCenter invoke the block synchronously on
+        /// the posting thread, which for NSScrollView's live-scroll notifications
+        /// is always the main thread. This matters for correctness: `isLiveScrolling`
+        /// becomes true immediately, so no updateNSView pass can push a fresh rootView
+        /// into the hosting view at the start of a scroll, where it would compete with
+        /// in-flight scroll frames. The same applies at didEndLiveScroll. MainActor.assumeIsolated
+        /// is the sanctioned way to enter main-actor isolation synchronously from
+        /// a callback AppKit already guarantees is on the main thread.
         let willStart = NotificationCenter.default.addObserver(
             forName: NSScrollView.willStartLiveScrollNotification,
             object: scrollView,
@@ -1290,54 +1290,54 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
     func updateNSView(_ scrollView: HitTestGatedScrollView, context: Context) {
         let coordinator = context.coordinator
-        // Keep the live-scroll callback and the wired proxy current. Both are
-        // cheap assignments and are deliberately kept outside the isContinuous
-        // guard below so neither can go stale mid-animation.
+        /// Keep the live-scroll callback and the wired proxy current. Both are
+        /// cheap assignments and are deliberately kept outside the isContinuous
+        /// guard below so neither can go stale mid-animation.
         syncCoordinatorState(coordinator)
-        // Gate hit-testing (not visibility) when this tab is not active, removing
-        // this view and all its AppKit subviews from AppKit's hit-test traversal
-        // entirely. Deliberately not `isHidden`: see the "isActive / hit-test
-        // isolation" note above for why toggling `isHidden` back to `false` on
-        // every reactivation would trigger an unwanted scroll-indicator flash.
+        /// Gate hit-testing (not visibility) when this tab is not active, removing
+        /// this view and all its AppKit subviews from AppKit's hit-test traversal
+        /// entirely. Deliberately not `isHidden`: see the "isActive / hit-test
+        /// isolation" note above for why toggling `isHidden` back to `false` on
+        /// every reactivation would trigger an unwanted scroll-indicator flash.
         scrollView.isHitTestActive = coordinator.effectiveIsActive
-        // Skip rootView replacement during continuous animation transactions.
-        //
-        // SwiftUI calls updateNSView on every interpolation frame of a running
-        // animation (spring, easeIn/Out, etc.) as well as on genuine content
-        // changes. Each call that reaches hostingView.rootView = ... forces Auto
-        // Layout to re-measure all hosted SwiftUI content from scratch, outside
-        // SwiftUI's animation transaction. For content that contains in-flight
-        // SwiftUI animations (e.g. a card collapsing), this causes
-        // sibling views to be re-laid out at each frame — producing visible size
-        // fluctuations (e.g. bottom-padding shrink/expand) on cards that are not
-        // themselves animating.
-        //
-        // context.transaction.isContinuous is true on every interpolation frame
-        // and false on the discrete update that committed the state change. We
-        // apply rootView only on non-continuous updates; the animation already
-        // running inside NSHostingView's own SwiftUI render loop is unaffected.
-        //
-        // The isHitTestActive assignment above is intentionally kept outside this
-        // guard — it is a cheap assignment that must remain current regardless of
-        // animation state.
+        /// Skip rootView replacement during continuous animation transactions.
+        ///
+        /// SwiftUI calls updateNSView on every interpolation frame of a running
+        /// animation (spring, easeIn/Out, etc.) as well as on genuine content
+        /// changes. Each call that reaches hostingView.rootView = ... forces Auto
+        /// Layout to re-measure all hosted SwiftUI content from scratch, outside
+        /// SwiftUI's animation transaction. For content that contains in-flight
+        /// SwiftUI animations (e.g. a card collapsing), this causes
+        /// sibling views to be re-laid out at each frame — producing visible size
+        /// fluctuations (e.g. bottom-padding shrink/expand) on cards that are not
+        /// themselves animating.
+        ///
+        /// context.transaction.isContinuous is true on every interpolation frame
+        /// and false on the discrete update that committed the state change. We
+        /// apply rootView only on non-continuous updates; the animation already
+        /// running inside NSHostingView's own SwiftUI render loop is unaffected.
+        ///
+        /// The isHitTestActive assignment above is intentionally kept outside this
+        /// guard — it is a cheap assignment that must remain current regardless of
+        /// animation state.
         guard !context.transaction.isContinuous else {
-            // Taking the early return does not mean nothing needs applying. This view
-            // may have just become active again while carrying content buffered from
-            // the period it was hidden, and returning outright would leave a
-            // now-visible tab showing what it held before. Flushing costs one rootView
-            // assignment only when something is genuinely outstanding — and only when
-            // both gates are open — so at-rest continuous frames remain free.
+            /// Taking the early return does not mean nothing needs applying. This view
+            /// may have just become active again while carrying content buffered from
+            /// the period it was hidden, and returning outright would leave a
+            /// now-visible tab showing what it held before. Flushing costs one rootView
+            /// assignment only when something is genuinely outstanding — and only when
+            /// both gates are open — so at-rest continuous frames remain free.
             coordinator.flushPendingRootViewIfPossible()
             return
         }
-        // Hand off a refreshed content tree (suppressed during live scroll, and while
-        // this view is inactive — see Coordinator.isActive). The fresh tree supersedes
-        // anything buffered, so no separate flush is needed on this path.
-        //
-        // Only for a NEW value, though: an update for the value already handed off comes
-        // from an environment change the hosted tree cannot see, and re-handing it would
-        // only re-measure the whole tree for nothing (see AppKitScrollRevision). Anything
-        // still buffered from a suppressed hand-off is flushed instead.
+        /// Hand off a refreshed content tree (suppressed during live scroll, and while
+        /// this view is inactive — see Coordinator.isActive). The fresh tree supersedes
+        /// anything buffered, so no separate flush is needed on this path.
+        ///
+        /// Only for a NEW value, though: an update for the value already handed off comes
+        /// from an environment change the hosted tree cannot see, and re-handing it would
+        /// only re-measure the whole tree for nothing (see AppKitScrollRevision). Anything
+        /// still buffered from a suppressed hand-off is flushed instead.
         if coordinator.appliedRevision != revision {
             coordinator.appliedRevision = revision
             #if DEBUG
@@ -1348,20 +1348,20 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
             coordinator.flushPendingRootViewIfPossible()
         }
 
-        // Return to the top when the content's *subject* changes (a different film in
-        // the right sidebar, say) rather than merely its values. Without this, reusing
-        // one scroll view for successive subjects — which is the whole point of not
-        // giving the hosted content a new SwiftUI identity per subject — would leave
-        // the new subject scrolled to wherever the previous one happened to sit.
-        //
-        // Deliberately keyed on an explicit token rather than inferred from the content:
-        // only the consumer knows which changes are a new subject and which are an
-        // in-place edit of the current one. Consumers that pass no key (the default)
-        // keep the existing behavior — the scroll position is never touched.
-        //
-        // Ordered after the rootView hand-off so the offset applies to the new content,
-        // and skipped on the first update (`appliedResetKey` starts nil) because a
-        // freshly made scroll view is already at the top.
+        /// Return to the top when the content's *subject* changes (a different film in
+        /// the right sidebar, say) rather than merely its values. Without this, reusing
+        /// one scroll view for successive subjects — which is the whole point of not
+        /// giving the hosted content a new SwiftUI identity per subject — would leave
+        /// the new subject scrolled to wherever the previous one happened to sit.
+        ///
+        /// Deliberately keyed on an explicit token rather than inferred from the content:
+        /// only the consumer knows which changes are a new subject and which are an
+        /// in-place edit of the current one. Consumers that pass no key (the default)
+        /// keep the existing behavior — the scroll position is never touched.
+        ///
+        /// Ordered after the rootView hand-off so the offset applies to the new content,
+        /// and skipped on the first update (`appliedResetKey` starts nil) because a
+        /// freshly made scroll view is already at the top.
         if let key = contentResetKey, coordinator.appliedResetKey != key {
             let isFirstApplication = coordinator.appliedResetKey == nil
             coordinator.appliedResetKey = key
@@ -1376,36 +1376,36 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         coordinator.removeObservers()
         coordinator.activation?.detach(coordinator)
         coordinator.activation = nil
-        // Drop the width-report callback before anything else: it is the one
-        // path that could still fire from an AppKit layout pass after teardown.
+        /// Drop the width-report callback before anything else: it is the one
+        /// path that could still fire from an AppKit layout pass after teardown.
         (scrollView.documentView as? AppKitFlippedContainerView)?.onWidthChange = nil
-        // Unwire the proxy so a proxy that outlives this scroll view (they are
-        // typically @State on the consumer and do) is not left holding a closure
-        // pointing at a torn-down coordinator.
+        /// Unwire the proxy so a proxy that outlives this scroll view (they are
+        /// typically @State on the consumer and do) is not left holding a closure
+        /// pointing at a torn-down coordinator.
         coordinator.wiredProxy?.scrollHandler = nil
         coordinator.wiredProxy?.shrinkHandler = nil
         coordinator.wiredProxy?.shrinkBeganHandler = nil
         coordinator.wiredProxy?.viewportRequestHandler = nil
         coordinator.wiredProxy = nil
         coordinator.endShrinkHold()
-        // Release strong references so the hosting view's SwiftUI subtree and
-        // the scroll view's AppKit hierarchy are both eligible for deallocation.
-        // pendingRootView is cleared first in case dismantleNSView fires while an
-        // update is buffered — during a live scroll, or while this view is inactive
-        // (applyRootView defers in both cases).
+        /// Release strong references so the hosting view's SwiftUI subtree and
+        /// the scroll view's AppKit hierarchy are both eligible for deallocation.
+        /// pendingRootView is cleared first in case dismantleNSView fires while an
+        /// update is buffered — during a live scroll, or while this view is inactive
+        /// (applyRootView defers in both cases).
         coordinator.pendingRootView    = nil
         coordinator.lastWrapper        = nil
         coordinator.onScrollWillStart  = nil
         coordinator.anchorOffsets      = [:]
         coordinator.hostingView        = nil
         coordinator.scrollView         = nil
-        // Leave the window NOW rather than when SwiftUI removes this view's host, which it
-        // does in the display cycle's LAYOUT phase — after the CONSTRAINT phase. In between,
-        // the constraint pass still reaches the hosting view, whose graph has been reset by
-        // this teardown, and asks it for its intrinsic size: a full rebuild and measurement of
-        // the entire hosted tree for a view about to be discarded, about 110–125 ms per exit
-        // from a heavy tab, as measured. Removing an already-removed view is a no-op, so
-        // SwiftUI's own removal of the host afterward is unaffected.
+        /// Leave the window NOW rather than when SwiftUI removes this view's host, which it
+        /// does in the display cycle's LAYOUT phase — after the CONSTRAINT phase. In between,
+        /// the constraint pass still reaches the hosting view, whose graph has been reset by
+        /// this teardown, and asks it for its intrinsic size: a full rebuild and measurement of
+        /// the entire hosted tree for a view about to be discarded, about 110–125 ms per exit
+        /// from a heavy tab, as measured. Removing an already-removed view is a no-op, so
+        /// SwiftUI's own removal of the host afterward is unaffected.
         scrollView.removeFromSuperview()
     }
 
@@ -1424,14 +1424,14 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
             coordinator.activation = activation
             activation?.attach(coordinator) { [weak coordinator] in coordinator?.applyActivation() }
         }
-        // Kept in step with the representable so applyRootView can suppress work for a
-        // scroll view that is currently hidden. See Coordinator.isActive.
+        /// Kept in step with the representable so applyRootView can suppress work for a
+        /// scroll view that is currently hidden. See Coordinator.isActive.
         coordinator.isActive = coordinator.effectiveIsActive
 
-        // Re-wire only when the proxy identity actually changes. In practice each
-        // consumer passes a stable @State proxy, so this is a single reference
-        // comparison per update; handling the change case keeps a swapped proxy
-        // from silently pointing at nothing.
+        /// Re-wire only when the proxy identity actually changes. In practice each
+        /// consumer passes a stable @State proxy, so this is a single reference
+        /// comparison per update; handling the change case keeps a swapped proxy
+        /// from silently pointing at nothing.
         if coordinator.wiredProxy !== scrollProxy {
             coordinator.wiredProxy?.scrollHandler = nil
             coordinator.wiredProxy?.shrinkHandler = nil
@@ -1459,16 +1459,16 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
     ) -> AppKitScrollContentWrapper<Content, Modifier> {
         let wrapper = AppKitScrollContentWrapper(
             content: content,
-            // GeometryReader measures the NSScrollView; the hosted tree is laid
-            // out inside the clip view. Subtracting the measured inset makes the
-            // two agree even when a legacy scroller is tiled beside the clip
-            // view. The inset is 0 under the default overlay scroller style, so
-            // this is the identity operation in the common case.
+            /// GeometryReader measures the NSScrollView; the hosted tree is laid
+            /// out inside the clip view. Subtracting the measured inset makes the
+            /// two agree even when a legacy scroller is tiled beside the clip
+            /// view. The inset is 0 under the default overlay scroller style, so
+            /// this is the identity operation in the common case.
             availableWidth: max(0, availableWidth - coordinator.contentWidthInset),
             modifier: modifier,
-            // Only a consumer that supplied a proxy can act on a reported anchor,
-            // so only that consumer pays for the preference reader that collects
-            // them. See ScrollAnchorReporter.
+            /// Only a consumer that supplied a proxy can act on a reported anchor,
+            /// so only that consumer pays for the preference reader that collects
+            /// them. See ScrollAnchorReporter.
             tracksAnchors: scrollProxy?.tracksAnchors == true,
             coordinatorBox: coordinator.coordinatorBox
         )
@@ -1493,10 +1493,10 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         scrollView.horizontalScrollElasticity = .none
         scrollView.wantsLayer                 = true
         scrollView.layerContentsRedrawPolicy  = .onSetNeedsDisplay
-        // Off by default (see `AppKitScrollStyle.automaticallyAdjustsContentInsets`): a
-        // scroll view that is not the window's direct content view under a titlebar never
-        // receives an automatic inset, so only the recomputation on every layout pass is
-        // being skipped here, not any inset the person would actually see.
+        /// Off by default (see `AppKitScrollStyle.automaticallyAdjustsContentInsets`): a
+        /// scroll view that is not the window's direct content view under a titlebar never
+        /// receives an automatic inset, so only the recomputation on every layout pass is
+        /// being skipped here, not any inset the person would actually see.
         scrollView.automaticallyAdjustsContentInsets = style.automaticallyAdjustsContentInsets
         if !style.automaticallyAdjustsContentInsets {
             scrollView.contentInsets = NSEdgeInsets()
@@ -1505,14 +1505,14 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 }
 
 // MARK: - ━━━━━━━━━━ 2. SharedOpenPanel ━━━━━━━━━━
-//
-// Generic, reusable NSOpenPanel helper: presents the panel as a sheet on the asking window
-// and returns the person's choice through `async`, so a call site is one `await` instead
-// of a completion handler and a hand-configured panel.
-//
-// App-wide defaults live on `OpenPanelPresenter.defaults`, with per-call overrides for the
-// initial folder, the size, resizability and movability. `canCreateDirectories` and
-// `delegate` are left out of the panel unless given.
+///
+/// Generic, reusable NSOpenPanel helper: presents the panel as a sheet on the asking window
+/// and returns the person's choice through `async`, so a call site is one `await` instead
+/// of a completion handler and a hand-configured panel.
+///
+/// App-wide defaults live on `OpenPanelPresenter.defaults`, with per-call overrides for the
+/// initial folder, the size, resizability and movability. `canCreateDirectories` and
+/// `delegate` are left out of the panel unless given.
 
 /// App-wide defaults for every panel `OpenPanelPresenter` shows. Set once, at launch,
 /// through `OpenPanelPresenter.defaults`, only where they differ from these.
@@ -1617,24 +1617,24 @@ struct OpenPanelConfiguration {
 @MainActor
 enum OpenPanelSelection { case canceled; case urls([URL]) }
 
-// Centralized helper for presenting NSOpenPanel as a sheet with consistent sizing.
+/// Centralized helper for presenting NSOpenPanel as a sheet with consistent sizing.
 @MainActor
 enum OpenPanelPresenter {
     /// Applied to every panel; each value can be overridden per panel on its configuration.
     static var defaults = OpenPanelDefaults()
 
-    // Presents an NSOpenPanel configured with the provided options.
-    // - Parameters:
-    //   - configuration: Configuration options for the panel.
-    //   - window: The window to attach the sheet to. If nil, uses keyWindow or mainWindow.
-    // - Returns: '.urls([URL])' if the user confirmed, '.canceled' otherwise.
+    /// Presents an NSOpenPanel configured with the provided options.
+    /// - Parameters:
+    ///   - configuration: Configuration options for the panel.
+    ///   - window: The window to attach the sheet to. If nil, uses keyWindow or mainWindow.
+    /// - Returns: '.urls([URL])' if the user confirmed, '.canceled' otherwise.
     static func present(
         configuration: OpenPanelConfiguration,
         attachedTo window: NSWindow? = nil
     ) async -> OpenPanelSelection {
         let panel = NSOpenPanel()
 
-        // Core configuration.
+        /// Core configuration.
         panel.canChooseFiles = configuration.canChooseFiles
         panel.canChooseDirectories = configuration.canChooseDirectories
         panel.allowsMultipleSelection = configuration.allowsMultipleSelection
@@ -1643,7 +1643,7 @@ enum OpenPanelPresenter {
         if !configuration.allowedContentTypes.isEmpty {
             panel.allowedContentTypes = configuration.allowedContentTypes }
 
-        // The configuration's folder, else the project default (~/Desktop unless changed).
+        /// The configuration's folder, else the project default (~/Desktop unless changed).
         if let directoryURL = configuration.directoryURL ?? defaults.directory.url {
             panel.directoryURL = directoryURL }
 
@@ -1653,8 +1653,8 @@ enum OpenPanelPresenter {
         if let canCreate = configuration.canCreateDirectories { panel.canCreateDirectories = canCreate }
         panel.delegate = configuration.delegate
 
-        // Fixed size and non-resizable, immovable behavior unless the project or this
-        // panel says otherwise.
+        /// Fixed size and non-resizable, immovable behavior unless the project or this
+        /// panel says otherwise.
         if !(configuration.isResizable ?? defaults.isResizable) {
             panel.styleMask.remove(.resizable) }
         panel.setContentSize(configuration.contentSize ?? defaults.contentSize)
@@ -1662,20 +1662,20 @@ enum OpenPanelPresenter {
 
         let targetWindow = window ?? NSApp.keyWindow ?? NSApp.mainWindow
 
-        // `panel.delegate` is weak; this reference holds the delegate until the panel closes.
+        /// `panel.delegate` is weak; this reference holds the delegate until the panel closes.
         let delegate = configuration.delegate
         defer { withExtendedLifetime(delegate) {} }
 
         return await withCheckedContinuation { continuation in
             if let targetWindow {
-                // Present as sheet attached to the specified window
+                /// Present as sheet attached to the specified window
                 panel.beginSheetModal(for: targetWindow) { response in
                     if response == .OK { continuation.resume(returning: .urls(panel.urls))
                     } else { continuation.resume(returning: .canceled) } }
             } else {
-                // Fallback: a standalone modeless panel, for when no window is available
-                // to attach a sheet to (should rarely happen). `begin` does not block the
-                // rest of the app.
+                /// Fallback: a standalone modeless panel, for when no window is available
+                /// to attach a sheet to (should rarely happen). `begin` does not block the
+                /// rest of the app.
                 panel.begin { response in
                     if response == .OK { continuation.resume(returning: .urls(panel.urls))
                     } else { continuation.resume(returning: .canceled) } }
@@ -1685,18 +1685,18 @@ enum OpenPanelPresenter {
 }
 
 // MARK: - ━━━━━━━━━━ 3. FieldEdge ━━━━━━━━━━
-//
-// The edge every boxed surface wears — a field, a list, a card, a bar: a rounded plate, an
-// outline that holds its strength across the top and fades out toward the bottom, and an
-// understated drop shadow that carries the lower edge in its place.
-//
-//   • `FieldEdgeStyle` — the measures. `.standard` is the reference; a rounder or stronger
-//     variant is a copy with only the differing fields changed.
-//   • `.fieldEdgeChrome(_:fill:clipsContent:insetsInterior:shadow:)` — draws it in SwiftUI.
-//   • `FieldEdgeLayers` — draws it with Core Animation layers, for AppKit views laid out
-//     by hand.
-//
-// One definition, so surfaces meant to look alike cannot drift apart.
+///
+/// The edge every boxed surface wears — a field, a list, a card, a bar: a rounded plate, an
+/// outline that holds its strength across the top and fades out toward the bottom, and an
+/// understated drop shadow that carries the lower edge in its place.
+///
+///   • `FieldEdgeStyle` — the measures. `.standard` is the reference; a rounder or stronger
+///     variant is a copy with only the differing fields changed.
+///   • `.fieldEdgeChrome(_:fill:clipsContent:insetsInterior:shadow:)` — draws it in SwiftUI.
+///   • `FieldEdgeLayers` — draws it with Core Animation layers, for AppKit views laid out
+///     by hand.
+///
+/// One definition, so surfaces meant to look alike cannot drift apart.
 
 /// The measures of a field edge.
 nonisolated struct FieldEdgeStyle: Equatable, Sendable {
@@ -1712,8 +1712,8 @@ nonisolated struct FieldEdgeStyle: Equatable, Sendable {
     /// is at `borderOpacity`; at the bottom edge it is gone, so the shadow carries that edge.
     var borderFadeStart: Double = 0.1
 
-    // Deliberately understated by default — enough to seat the surface without reading as
-    // a raised control.
+    /// Deliberately understated by default — enough to seat the surface without reading as
+    /// a raised control.
     var shadowOpacity: Double = 0.16
     var shadowRadius: CGFloat = 1.5
     var shadowOffsetY: CGFloat = 1
@@ -1887,8 +1887,8 @@ final class FieldEdgeLayers {
         fillLayer.shadowPath = path
         borderLayer.frame = bounds
         borderMask.frame = bounds
-        // The mask strokes centered on its path, so the path runs half a border width in,
-        // and the outline lands inside the bounds as `strokeBorder` draws it.
+        /// The mask strokes centered on its path, so the path runs half a border width in,
+        /// and the outline lands inside the bounds as `strokeBorder` draws it.
         let inset = style.borderWidth / 2
         borderMask.path = RoundedRectangle(cornerRadius: style.cornerRadius - inset, style: .continuous)
             .path(in: bounds.insetBy(dx: inset, dy: inset)).cgPath
@@ -1907,22 +1907,22 @@ final class FieldEdgeLayers {
 }
 
 // MARK: - ━━━━━━━━━━ 4. PathBar ━━━━━━━━━━
-//
-// A folder or file path drawn as a breadcrumb in a bar with the `.standard` field edge, in
-// three forms:
-//
-//   • `PathBarView(url:isUnavailable:placeholder:icon:fill:)` — a location. The
-//     last component (the item itself) is drawn primary and survives truncation; the
-//     ancestors are secondary and squeezed first. A nil URL draws a dimmed empty state rather
-//     than nothing, so the layout does not change the first time a path is set. The full path
-//     shows on hover, and double-clicking the name reveals it in the Finder.
-//   • `PathBarView(pathComponents:icon:fill:)` — plain components. The components exactly as given
-//     (they may be a message such as "No file selected."), joined and drawn secondary, with
-//     no hover text or double-click.
-//   • `PathBarChrome { … }` — the shell only. Just the edge, at a fixed height, so a caller can
-//     animate its own content without the outline taking part.
-//
-// `.toolTip(_:)` is public because the bar needs it and so may its callers; see `ToolTipView`.
+///
+/// A folder or file path drawn as a breadcrumb in a bar with the `.standard` field edge, in
+/// three forms:
+///
+///   • `PathBarView(url:isUnavailable:placeholder:icon:fill:)` — a location. The
+///     last component (the item itself) is drawn primary and survives truncation; the
+///     ancestors are secondary and squeezed first. A nil URL draws a dimmed empty state rather
+///     than nothing, so the layout does not change the first time a path is set. The full path
+///     shows on hover, and double-clicking the name reveals it in the Finder.
+///   • `PathBarView(pathComponents:icon:fill:)` — plain components. The components exactly as given
+///     (they may be a message such as "No file selected."), joined and drawn secondary, with
+///     no hover text or double-click.
+///   • `PathBarChrome { … }` — the shell only. Just the edge, at a fixed height, so a caller can
+///     animate its own content without the outline taking part.
+///
+/// `.toolTip(_:)` is public because the bar needs it and so may its callers; see `ToolTipView`.
 
 /// The visual shell of a path bar — the `.standard` field edge — at a fixed height,
 /// accepting arbitrary content via a `@ViewBuilder` slot.
@@ -1939,8 +1939,8 @@ struct PathBarChrome<Content: View>: View {
     }
 
     var body: some View {
-        // Content slot — caller controls opacity/animation; the shell around it is always
-        // rendered at full opacity.
+        /// Content slot — caller controls opacity/animation; the shell around it is always
+        /// rendered at full opacity.
         ZStack(alignment: .leading) {
             content
         }
@@ -2005,15 +2005,15 @@ struct PathBarView: View {
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: 14, height: 14)
-            // Dimmed when empty, so the bar does not draw the eye to a value it lacks.
+            /// Dimmed when empty, so the bar does not draw the eye to a value it lacks.
             .foregroundStyle(dimmed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.accentColor))
     }
 
     private func location(_ url: URL?, isUnavailable: Bool, placeholder: String) -> some View {
-        // Leading "/" dropped. Empty when there is no URL, which draws the empty state.
+        /// Leading "/" dropped. Empty when there is no URL, which draws the empty state.
         let parts = url?.pathComponents.filter { $0 != "/" } ?? []
-        // Everything above the item, carrying its own trailing separator so the two `Text`s
-        // butt together.
+        /// Everything above the item, carrying its own trailing separator so the two `Text`s
+        /// butt together.
         let ancestors = parts.count > 1 ? parts.dropLast().joined(separator: " › ") + " › " : nil
         return HStack(spacing: 6) {
             iconView(dimmed: parts.isEmpty)
@@ -2024,7 +2024,7 @@ struct PathBarView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
             } else {
-                // spacing 0: `ancestors` supplies its own trailing separator.
+                /// spacing 0: `ancestors` supplies its own trailing separator.
                 HStack(spacing: 0) {
                     if let ancestors {
                         Text(ancestors)
@@ -2032,7 +2032,7 @@ struct PathBarView: View {
                             .truncationMode(.middle)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
-                            // Lower priority than the name, so the ancestors are squeezed first.
+                            /// Lower priority than the name, so the ancestors are squeezed first.
                             .layoutPriority(0)
                     }
                     Text(parts.last ?? "")
@@ -2041,11 +2041,11 @@ struct PathBarView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(isUnavailable ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
                         .layoutPriority(1)
-                        // Double-click, not single: a one-click target would put a
-                        // Finder-opening hotspot under a pointer just passing over it.
+                        /// Double-click, not single: a one-click target would put a
+                        /// Finder-opening hotspot under a pointer just passing over it.
                         .onTapGesture(count: 2) {
-                            // A deleted or unmounted item simply opens no window, which is
-                            // the Finder's own behavior.
+                            /// A deleted or unmounted item simply opens no window, which is
+                            /// the Finder's own behavior.
                             if let url { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                         }
                 }
@@ -2055,10 +2055,12 @@ struct PathBarView: View {
         }
         .padding(6)
         .fieldEdgeChrome(fill: fill)
-        // The full path and the double-click hint on hover, since the breadcrumb is
-        // truncated. `.toolTip` rather than `.help` — see `ToolTipView`.
-        .toolTip(parts.isEmpty ? nil : parts.joined(separator: "/")
-                 + "\nDouble-click the name to reveal it in the Finder.")
+        /// The full path and the double-click hint on hover, since the breadcrumb is
+        /// truncated. `.toolTip` rather than `.help` — see `ToolTipView`.
+        /// `url.path`, not the components rejoined: those had the leading "/" filtered out.
+        .toolTip(parts.isEmpty ? nil : url.map {
+            $0.path + "\nDouble-click the name to reveal it in the Finder."
+        })
     }
 }
 
@@ -2087,7 +2089,7 @@ private struct ToolTipView: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: TipView,
                       context: Context) -> CGSize? {
-        // Takes whatever the thing it is describing takes; it proposes nothing of its own.
+        /// Takes whatever the thing it is describing takes; it proposes nothing of its own.
         nil
     }
 
@@ -2103,31 +2105,31 @@ extension View {
     /// Use in place of `.help(_:)` wherever the view can be re-laid out after it appears —
     /// see `ToolTipView` for why that distinction matters.
     func toolTip(_ text: String?) -> some View {
-        // `.help` is kept alongside it to carry the string into the accessibility tree,
-        // which a bare tooltip rect does not. Two registrations cannot produce two
-        // tooltips — AppKit asks only the innermost rect under the pointer.
+        /// `.help` is kept alongside it to carry the string into the accessibility tree,
+        /// which a bare tooltip rect does not. Two registrations cannot produce two
+        /// tooltips — AppKit asks only the innermost rect under the pointer.
         background(ToolTipView(text: text).accessibilityHidden(true))
             .help(text ?? "")
     }
 }
 
 // MARK: - ━━━━━━━━━━ 5. GlyphBadge ━━━━━━━━━━
-//
-// A filled circle with a glyph (an SF Symbol or a character) centered on it, a drop shadow
-// under the circle and another under the glyph. Unifies Film Tracker's `IndicatorBadge` /
-// `symbolBadge` / `characterBadge` (ReleasesTable) and its AppKit card composition
-// (`RSBShapeView` + `RSBSymbolView` + `RSBViewShadow`, RTabReleases), and CalShare's
-// animated `StatusBadge` (SharedViews).
-//
-//   GlyphBadge(color: .green) { Image(systemName: "checkmark").font(…) }   // any label
-//   GlyphBadge(systemName: "checkmark", color: .green)                     // Film Tracker's table
-//   GlyphBadge(character: "A", color: .orange, font: .system(size: 10, weight: .semibold))
-//   SymbolBadge(systemName: state.glyph, color: state.color)               // CalShare's, animated
-//   let badge = GlyphBadgeView(); badge.content = .symbol("checkmark")     // AppKit
-//
-// Defaults are each original's: `GlyphBadge` and `GlyphBadgeView` draw Film Tracker's 14pt
-// circle with no circle shadow and no sheen; `SymbolBadge` draws CalShare's 16pt circle
-// with its soft circle shadow and top sheen. Every one of those is a parameter.
+///
+/// A filled circle with a glyph (an SF Symbol or a character) centered on it, a drop shadow
+/// under the circle and another under the glyph. Unifies Film Tracker's `IndicatorBadge` /
+/// `symbolBadge` / `characterBadge` (ReleasesTable) and its AppKit card composition
+/// (`RSBShapeView` + `RSBSymbolView` + `RSBViewShadow`, RTabReleases), and CalShare's
+/// animated `StatusBadge` (SharedViews).
+///
+///   GlyphBadge(color: .green) { Image(systemName: "checkmark").font(…) }   // any label
+///   GlyphBadge(systemName: "checkmark", color: .green)                     // Film Tracker's table
+///   GlyphBadge(character: "A", color: .orange, font: .system(size: 10, weight: .semibold))
+///   SymbolBadge(systemName: state.glyph, color: state.color)               // CalShare's, animated
+///   let badge = GlyphBadgeView(); badge.content = .symbol("checkmark")     // AppKit
+///
+/// Defaults are each original's: `GlyphBadge` and `GlyphBadgeView` draw Film Tracker's 14pt
+/// circle with no circle shadow and no sheen; `SymbolBadge` draws CalShare's 16pt circle
+/// with its soft circle shadow and top sheen. Every one of those is a parameter.
 
 // MARK: - GlyphBadgeShadow
 
@@ -2349,9 +2351,9 @@ struct SymbolBadge: View {
 
     var body: some View {
         ZStack {
-            // A flat fill (which can blend from one color to the next) under the sheen
-            // (which can't, so it stays put). The shadow is cast by the fill alone: on the
-            // fill and sheen together, each gets one, drawn offscreen on every frame of a scroll.
+            /// A flat fill (which can blend from one color to the next) under the sheen
+            /// (which can't, so it stays put). The shadow is cast by the fill alone: on the
+            /// fill and sheen together, each gets one, drawn offscreen on every frame of a scroll.
             Circle()
                 .fill(shown.color)
                 .shadow(color: circleShadow.map { .black.opacity($0.opacity) } ?? .clear,
@@ -2359,9 +2361,9 @@ struct SymbolBadge: View {
                 .overlay {
                     if sheen { Circle().fill(GlyphBadgeSheen.gradient) }
                 }
-            // The glyph's shadow is a second copy of the glyph, darkened, blurred and
-            // dropped, playing the same effects at the same moments: a shadow modifier on
-            // the glyph is drawn outside its symbol effects and doesn't turn.
+            /// The glyph's shadow is a second copy of the glyph, darkened, blurred and
+            /// dropped, playing the same effects at the same moments: a shadow modifier on
+            /// the glyph is drawn outside its symbol effects and doesn't turn.
             ZStack {
                 if let inkShadow {
                     glyphImage
@@ -2372,15 +2374,15 @@ struct SymbolBadge: View {
                 glyphImage
                     .foregroundStyle(ink)
             }
-            // Flattened into one layer, with room for the blur: left live, the blur is a
-            // filter the compositor redraws on every frame of a scroll. The circle stays
-            // outside, since flattening it clips its shadow and shifts its color.
+            /// Flattened into one layer, with room for the blur: left live, the blur is a
+            /// filter the compositor redraws on every frame of a scroll. The circle stays
+            /// outside, since flattening it clips its shadow and shifts its color.
             .padding(2)
             .drawingGroup()
             .padding(-2)
         }
         .frame(width: diameter, height: diameter)
-        // The outer modifier applies first, so the new look's animation is set after the reset.
+        /// The outer modifier applies first, so the new look's animation is set after the reset.
         .transaction(value: shown) { transaction in
             transaction.animation = .easeInOut(duration: animationDuration)
         }
@@ -2461,7 +2463,7 @@ final class GlyphBadgeView: NSView {
         layer?.addSublayer(circle)
         sheenLayer.colors = [NSColor.white.withAlphaComponent(GlyphBadgeSheen.topOpacity).cgColor,
                              NSColor.white.withAlphaComponent(0).cgColor]
-        // The layer is geometry-flipped with the view, so y = 0 is the top.
+        /// The layer is geometry-flipped with the view, so y = 0 is the top.
         sheenLayer.startPoint = CGPoint(x: 0.5, y: 0)
         sheenLayer.endPoint = CGPoint(x: 0.5, y: 1)
         sheenLayer.mask = sheenMask
@@ -2485,8 +2487,8 @@ final class GlyphBadgeView: NSView {
         super.layout()
         let disc = CGRect(x: (bounds.width - diameter) / 2, y: (bounds.height - diameter) / 2,
                           width: diameter, height: diameter)
-        // A continuous capsule rather than an ellipse: on a square it is a hair squarer than
-        // a true circle, and it is the disc the AppKit cards drew before this view replaced them.
+        /// A continuous capsule rather than an ellipse: on a square it is a hair squarer than
+        /// a true circle, and it is the disc the AppKit cards drew before this view replaced them.
         let path = Capsule(style: .continuous).path(in: disc).cgPath
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -2499,7 +2501,7 @@ final class GlyphBadgeView: NSView {
         CATransaction.commit()
         glyphHost.frame = bounds
         symbolView.frame = glyphHost.bounds
-        // The label rule (see the type's notes), rounded in window pixels as SwiftUI rounds.
+        /// The label rule (see the type's notes), rounded in window pixels as SwiftUI rounds.
         let size = characterField.intrinsicContentSize
         let textWidth = min(size.width, bounds.width)
         let height = characterLineHeight ?? size.height
@@ -2596,15 +2598,15 @@ class GlyphSymbolView: NSView {
         let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
         guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(config) else { return nil }
-        // The vector bounds, from an 8x raster's coverage, rounded out to the half point.
+        /// The vector bounds, from an 8x raster's coverage, rounded out to the half point.
         let scale: CGFloat = 8
         let w = Int(image.size.width * scale), h = Int(image.size.height * scale)
         guard let context = unsafe CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w,
                                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue),
               let cg = unsafe image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-        // Read the coverage back as bounds-checked Data rather than through the context's raw
-        // pointer, and step rows by the bitmap's actual bytesPerRow (Core Graphics may pad it).
+        /// Read the coverage back as bounds-checked Data rather than through the context's raw
+        /// pointer, and step rows by the bitmap's actual bytesPerRow (Core Graphics may pad it).
         guard let raster = context.makeImage(), let cfData = raster.dataProvider?.data else { return nil }
         let data = cfData as Data
         let stride = raster.bytesPerRow
@@ -2616,7 +2618,7 @@ class GlyphSymbolView: NSView {
             }
         }
         guard maxX >= 0 else { return nil }
-        // Rows are top-down in the context's memory.
+        /// Rows are top-down in the context's memory.
         func down(_ v: Int) -> CGFloat { (CGFloat(v) / scale * 2).rounded(.down) / 2 }
         func up(_ v: Int) -> CGFloat { (CGFloat(v) / scale * 2).rounded(.up) / 2 }
         let bounds = CGRect(x: down(minX), y: down(minY), width: up(maxX + 1) - down(minX), height: up(maxY + 1) - down(minY))
@@ -2641,8 +2643,8 @@ class GlyphSymbolView: NSView {
             : pixel((bounds.width - align.width) / 2) - align.minX
         let origin = CGPoint(x: x, y: pixel((bounds.height - b.height) / 2) - b.minY)
         let rect = NSRect(origin: origin, size: symbol.image.size)
-        // Replace the black with the tint, keeping its coverage, in an image of its own: a .sourceIn fill
-        // on the view's backing, at a rect off the pixel grid, could leave a dark seam in the glyph.
+        /// Replace the black with the tint, keeping its coverage, in an image of its own: a .sourceIn fill
+        /// on the view's backing, at a rect off the pixel grid, could leave a dark seam in the glyph.
         let image = symbol.image, tint = tint
         let tinted = NSImage(size: image.size, flipped: false) { r in
             image.draw(in: r)

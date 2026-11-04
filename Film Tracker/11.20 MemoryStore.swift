@@ -1,8 +1,8 @@
 // MARK: - MemoryStore.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The in-memory source of truth for all film and list data, held as value types. Core Data
-// objects are read only during startup and converted to snapshots immediately.
+/// The in-memory source of truth for all film and list data, held as value types. Core Data
+/// objects are read only during startup and converted to snapshots immediately.
 
 import Foundation
 import CoreData
@@ -97,7 +97,7 @@ final class MemoryStore: Loggable {
     func suspendCachePersistence(reason: String) {
         guard !cachePersistenceSuspended else { return }
         cachePersistenceSuspended = true
-        // Cancel any save already scheduled, so a throttled task cannot write after suspension.
+        /// Cancel any save already scheduled, so a throttled task cannot write after suspension.
         pendingSaveTask?.cancel()
         pendingSaveTask = nil
         Self.log("Derived-cache persistence suspended for this session: \(reason)")
@@ -114,19 +114,19 @@ final class MemoryStore: Loggable {
     /// Direct film count without array allocation.
     var totalFilmCount: Int { films.count }
     
-    // Throttled save task, to limit disk I/O
+    /// Throttled save task, to limit disk I/O
     private var pendingSaveTask: Task<Void, Never>?
     private let saveThrottleInterval: Duration = .seconds(2)
     
     // MARK: - Initialization
     
-    // STARTUP: Two phases, so the store fetch (Phase 1) overlaps with MetadataCache disk I/O.
-    //
-    //   Phase 1 - loadFromDatabase(): store fetch (or snapshot cache), snapshot conversion, and
-    //             HoF rebuild. Has no MetadataCache dependency.
-    //
-    //   Phase 2 - validateCacheAndFinalize(): checks cache integrity, updates it if needed, and
-    //             sets isInitialized. Requires MetadataCache to be loaded.
+    /// STARTUP: Two phases, so the store fetch (Phase 1) overlaps with MetadataCache disk I/O.
+    ///
+    ///   Phase 1 - loadFromDatabase(): store fetch (or snapshot cache), snapshot conversion, and
+    ///             HoF rebuild. Has no MetadataCache dependency.
+    ///
+    ///   Phase 2 - validateCacheAndFinalize(): checks cache integrity, updates it if needed, and
+    ///             sets isInitialized. Requires MetadataCache to be loaded.
     
     /// Phase 1: Loads all data into memory as FilmSnapshots, from the snapshot cache if valid,
     /// otherwise from the store. Managed objects are converted and not retained. It has no
@@ -150,16 +150,16 @@ final class MemoryStore: Loggable {
         let startTime = Date()
         Self.log("Phase 1: Loading data...")
 
-        // Fast path: try to restore from the on-disk MemoryStore snapshot.
-        // MemoryStoreCache stores the full [UUID: FilmSnapshot] + list data serialized
-        // as JSON, validated by a fingerprint derived from the store.
-        // On a cache hit the entire store fetch + snapshot conversion is skipped —
-        // reducing Phase 1 from O(N × relationships) to a single JSON decode.
+        /// Fast path: try to restore from the on-disk MemoryStore snapshot.
+        /// MemoryStoreCache stores the full [UUID: FilmSnapshot] + list data serialized
+        /// as JSON, validated by a fingerprint derived from the store.
+        /// On a cache hit the entire store fetch + snapshot conversion is skipped —
+        /// reducing Phase 1 from O(N × relationships) to a single JSON decode.
         var cacheResult = await MemoryStoreCache.shared.load(dataManager: dataManager)
 
-        // A cache written by a build that predates the two-component market availability
-        // format still holds legacy tags. Read the store instead: ReleaseSnapshot migrates
-        // them on conversion, and the rebuilt cache is written in the new format.
+        /// A cache written by a build that predates the two-component market availability
+        /// format still holds legacy tags. Read the store instead: ReleaseSnapshot migrates
+        /// them on conversion, and the rebuilt cache is written in the new format.
         if case .hit(let cachedFilms, _, _) = cacheResult,
            cachedFilms.values.contains(where: { $0.releases.contains {
                ReleaseMarketAvailability.needsMigration($0.marketAvailability) } }) {
@@ -173,19 +173,19 @@ final class MemoryStore: Loggable {
             self.films = films
             self.lists = lists
             self.filmToLists = filmToLists
-            // The loaded dictionaries match the file, so a save before any change has nothing to write.
+            /// The loaded dictionaries match the file, so a save before any change has nothing to write.
             MemoryStoreCache.shared.recordOnDisk(contentVersion: contentVersion)
             self.sortedListsCache = nil
             self.rebuildHallOfFame()
-            // No payload is pushed to MemoryStoreCache here: each flush reads the dictionaries when
-            // it runs (see flushCaches). Holding an extra reference would make the first film edit
-            // copy the whole dictionary.
+            /// No payload is pushed to MemoryStoreCache here: each flush reads the dictionaries when
+            /// it runs (see flushCaches). Holding an extra reference would make the first film edit
+            /// copy the whole dictionary.
             let duration = Date().timeIntervalSince(startTime)
             Self.log("Phase 1 fast-path: \(self.films.count) films from snapshot cache in \(Fmt.fixed(duration, 2))s")
 
         case .miss:
-            // Slow path: full store fetch and snapshot conversion. Runs on first launch, or when the
-            // store fingerprint has changed. The cache is rebuilt by validateCacheAndFinalize().
+            /// Slow path: full store fetch and snapshot conversion. Runs on first launch, or when the
+            /// store fingerprint has changed. The cache is rebuilt by validateCacheAndFinalize().
             Self.log("Phase 1 slow-path: snapshot cache miss, reading the store...")
             LaunchReveal.shared.snapshotMissed()
             self.snapshotCacheNeedsRebuild = true
@@ -197,10 +197,10 @@ final class MemoryStore: Loggable {
                 self.sortedListsCache = nil
                 self.rebuildHallOfFame()
             } catch {
-                // The dictionaries stay empty. Mark the store non-authoritative: suspend derived-cache
-                // writes immediately, so none can be scheduled, and DataCoordinator skips post-startup
-                // work that would act on an empty library (poster pruning, orphaned-membership cleanup,
-                // internal list bootstrapping, settings sync).
+                /// The dictionaries stay empty. Mark the store non-authoritative: suspend derived-cache
+                /// writes immediately, so none can be scheduled, and DataCoordinator skips post-startup
+                /// work that would act on an empty library (poster pruning, orphaned-membership cleanup,
+                /// internal list bootstrapping, settings sync).
                 loadFailed = true
                 suspendCachePersistence(reason: "Phase 1 store fetch failed")
                 Self.log("ERROR: Failed to load from database: \(error) — treating this session's in-memory state as non-authoritative")
@@ -225,20 +225,20 @@ final class MemoryStore: Loggable {
         
         let cacheCount = MetadataCache.shared.metadata.count
 
-        // If Phase 1 took the slow path (store fetch), film snapshots are guaranteed
-        // to be fresher than anything on disk. Force a full MetadataCache rebuild so
-        // derived sort keys, rotation dates, and search strings are always consistent
-        // with the newly-loaded snapshot data. This closes the narrow window where
-        // MetadataCache could be stale: both caches are normally written together in the
-        // same throttled save, but a crash between writes could leave MetadataCache out
-        // of sync with the store state that triggered the slow-path load.
+        /// If Phase 1 took the slow path (store fetch), film snapshots are guaranteed
+        /// to be fresher than anything on disk. Force a full MetadataCache rebuild so
+        /// derived sort keys, rotation dates, and search strings are always consistent
+        /// with the newly-loaded snapshot data. This closes the narrow window where
+        /// MetadataCache could be stale: both caches are normally written together in the
+        /// same throttled save, but a crash between writes could leave MetadataCache out
+        /// of sync with the store state that triggered the slow-path load.
         if snapshotCacheNeedsRebuild {
             Self.log("Slow-path load — forcing full MetadataCache rebuild...")
             let rebuildStart = Date()
             await MetadataCache.shared.rebuild(from: films)
             let rebuildDuration = Date().timeIntervalSince(rebuildStart)
             Self.log("Full rebuild in \(Fmt.fixed(rebuildDuration * 1000, 1))ms")
-            // Both caches are now current. Schedule a throttled save to write them together.
+            /// Both caches are now current. Schedule a throttled save to write them together.
             snapshotCacheNeedsRebuild = false
             scheduleThrottledSave()
         } else if cacheCount == 0 {
@@ -253,8 +253,8 @@ final class MemoryStore: Loggable {
             await MetadataCache.shared.incrementalUpdate(from: films)
             scheduleThrottledSave()
         } else {
-            // Cache hit with matching counts. Both caches are written in the same throttled save, so
-            // they agree. A spot check catches a cache file with the right count but different keys.
+            /// Cache hit with matching counts. Both caches are written in the same throttled save, so
+            /// they agree. A spot check catches a cache file with the right count but different keys.
             let filmIDs = Array(films.keys.prefix(5))
             var needsRebuild = false
             for id in filmIDs {
@@ -288,8 +288,8 @@ final class MemoryStore: Loggable {
     private func loadAllDataFromStore(persistentContainer: NSPersistentContainer) async throws -> LoadedData {
         let context = persistentContainer.makeBackgroundContext()
         let loaded = try await context.perform {
-            // Releases are prefetched so that FilmSnapshot.init(from:) reading film.releases
-            // is pure property access, not one SQL round trip per film.
+            /// Releases are prefetched so that FilmSnapshot.init(from:) reading film.releases
+            /// is pure property access, not one SQL round trip per film.
             let filmDescriptor = Film.request()
             filmDescriptor.relationshipKeyPathsForPrefetching = ["releases"]
             filmDescriptor.returnsObjectsAsFaults = false
@@ -307,8 +307,8 @@ final class MemoryStore: Loggable {
                 filmDict[film.id] = FilmSnapshot(from: film)
             }
 
-            // Lists with their memberships and each membership's film prefetched, so that
-            // reading membership.film below does not fault per row.
+            /// Lists with their memberships and each membership's film prefetched, so that
+            /// reading membership.film below does not fault per row.
             let listDescriptor = ListObject.request(
                 sortedBy: [NSSortDescriptor(key: "displayOrder", ascending: true)])
             listDescriptor.relationshipKeyPathsForPrefetching = ["memberships", "memberships.film"]
@@ -348,26 +348,26 @@ final class MemoryStore: Loggable {
         let filmToLists: [UUID: Set<UUID>]
     }
     
-    // Throttled save of both derived caches: MetadataCache (sort and search data) and
-    // MemoryStoreCache (the snapshot, so the next launch can skip the store fetch). This is the
-    // only throttled-save owner, so there is one timer and no cross-file write races.
-    //
-    // The snapshot payload is read from this store's dictionaries when the throttle expires, not
-    // when the save is scheduled. Holding a reference earlier would force a full copy-on-write
-    // copy of the dictionary on the next film edit. See MemoryStoreCache.save(films:lists:).
+    /// Throttled save of both derived caches: MetadataCache (sort and search data) and
+    /// MemoryStoreCache (the snapshot, so the next launch can skip the store fetch). This is the
+    /// only throttled-save owner, so there is one timer and no cross-file write races.
+    ///
+    /// The snapshot payload is read from this store's dictionaries when the throttle expires, not
+    /// when the save is scheduled. Holding a reference earlier would force a full copy-on-write
+    /// copy of the dictionary on the next film edit. See MemoryStoreCache.save(films:lists:).
     private func scheduleThrottledSave() {
-        // Checked here so no timer is armed when suspended, and again after the throttle window
-        // in case suspension was requested while it was pending.
+        /// Checked here so no timer is armed when suspended, and again after the throttle window
+        /// in case suspension was requested while it was pending.
         guard !cachePersistenceSuspended else { return }
 
         pendingSaveTask?.cancel()
-        // Not Task.detached: the task must return to MainActor to read the dictionaries, and
-        // Task.sleep suspends rather than blocking, so inheriting MainActor costs nothing.
+        /// Not Task.detached: the task must return to MainActor to read the dictionaries, and
+        /// Task.sleep suspends rather than blocking, so inheriting MainActor costs nothing.
         pendingSaveTask = Task { [weak self, saveThrottleInterval] in
             do {
                 try await Task.sleep(for: saveThrottleInterval)
             } catch {
-                return  // Canceled during the throttle window — a newer save is scheduled.
+                return  /// Canceled during the throttle window — a newer save is scheduled.
             }
             guard !Task.isCancelled, let self, !self.cachePersistenceSuspended else { return }
             await self.flushCaches()
@@ -377,13 +377,13 @@ final class MemoryStore: Loggable {
     /// Writes both derived caches from this store's current state. The files are independent, so
     /// the writes run concurrently. Callers must check `cachePersistenceSuspended` first.
     private func flushCaches() async {
-        // Read into locals on MainActor, not inside the `async let` initializers: those run in a
-        // child task without this actor's isolation. The locals keep a reference during the write,
-        // so a mutation mid-encode pays one copy-on-write copy. `filmToLists` is not captured, since
-        // it is not persisted (the cache rebuilds it from `lists` on load).
+        /// Read into locals on MainActor, not inside the `async let` initializers: those run in a
+        /// child task without this actor's isolation. The locals keep a reference during the write,
+        /// so a mutation mid-encode pays one copy-on-write copy. `filmToLists` is not captured, since
+        /// it is not persisted (the cache rebuilds it from `lists` on load).
         let filmsPayload = films
         let listsPayload = lists
-        // Read in the same synchronous step as the payload it names (see contentVersion).
+        /// Read in the same synchronous step as the payload it names (see contentVersion).
         let payloadVersion = contentVersion
 
         async let metadataSave: Void = MetadataCache.shared.save()
@@ -393,21 +393,21 @@ final class MemoryStore: Loggable {
         await snapshotSave
     }
 
-    // Immediate save, for shutdown. Cancels the pending throttled task first, so it cannot wake
-    // after the shutdown write and overwrite the new files with a stale payload.
+    /// Immediate save, for shutdown. Cancels the pending throttled task first, so it cannot wake
+    /// after the shutdown write and overwrite the new files with a stale payload.
     func saveImmediately() async {
         pendingSaveTask?.cancel()
         pendingSaveTask = nil
 
-        // A non-authoritative store must not overwrite the on-disk caches. This guard matters most
-        // on failure paths, because the shutdown flush bypasses the throttle.
+        /// A non-authoritative store must not overwrite the on-disk caches. This guard matters most
+        /// on failure paths, because the shutdown flush bypasses the throttle.
         guard !cachePersistenceSuspended else {
             Self.log("Immediate save skipped — derived-cache persistence is suspended for this session")
             return
         }
-        // A quit before startup finishes would write a partial library over caches that are at
-        // least as good. Skipping the write loses nothing: the store is the record, and these
-        // files only save the next launch work.
+        /// A quit before startup finishes would write a partial library over caches that are at
+        /// least as good. Skipping the write loses nothing: the store is the record, and these
+        /// files only save the next launch work.
         guard isInitialized else {
             Self.log("Immediate save skipped — startup had not finished loading the library")
             return
@@ -434,12 +434,12 @@ final class MemoryStore: Loggable {
         let sortedIDs = await MetadataCache.shared.sortAsync(allIDs, by: sortOption, direction: direction)
         var sortedFilms = sortedIDs.compactMap { films[$0] }
 
-        // Apply saved filters, so the cache matches what loadFilms will request.
+        /// Apply saved filters, so the cache matches what loadFilms will request.
         if !filterOptions.isEmpty {
             sortedFilms = applyFilters(sortedFilms, filterOptions: filterOptions)
         }
 
-        // Populate the view cache so the next loadFilms() call is a hit.
+        /// Populate the view cache so the next loadFilms() call is a hit.
         let key = CacheKey(viewID: .allFilms, sortOption: sortOption, direction: direction, filterOptions: filterOptions)
         cachedViews[key] = sortedFilms
 
@@ -455,17 +455,17 @@ final class MemoryStore: Loggable {
     
     func getFilms(viewID: ViewIdentifier, sortOption: SortOption, direction: SortDirection,
                   filterOptions: Set<FilterOption>) -> [FilmSnapshot] {
-        // Before Phase 2, `films` is empty, so any view built here would be empty. Caching that
-        // result would persist it until a data mutation, which initialization is not. Return without
-        // caching, so the first request after initialization builds the view for real. Callers
-        // treat an empty result here as "not ready" (see DataCoordinator.performLoad).
+        /// Before Phase 2, `films` is empty, so any view built here would be empty. Caching that
+        /// result would persist it until a data mutation, which initialization is not. Return without
+        /// caching, so the first request after initialization builds the view for real. Callers
+        /// treat an empty result here as "not ready" (see DataCoordinator.performLoad).
         guard isInitialized else {
             Self.log("getFilms(\(viewID.description)) requested before Phase 2 completion — returning empty without caching")
             return []
         }
 
-        // A saved search's base is the whole library in the requested order — exactly All
-        // Films' array — so it shares that cache entry rather than holding one copy per search.
+        /// A saved search's base is the whole library in the requested order — exactly All
+        /// Films' array — so it shares that cache entry rather than holding one copy per search.
         let cacheViewID: ViewIdentifier
         if case .savedSearch = viewID { cacheViewID = .allFilms } else { cacheViewID = viewID }
         let cacheKey = CacheKey(viewID: cacheViewID, sortOption: sortOption, direction: direction,
@@ -477,26 +477,26 @@ final class MemoryStore: Loggable {
         
         let start = Date()
         
-        // Get base film IDs for the view. Every membership-filtered view (smart lists,
-        // Unwatched, Recents) and Search start from the whole library: DataCoordinator
-        // applies their membership and search filters to the result.
+        /// Get base film IDs for the view. Every membership-filtered view (smart lists,
+        /// Unwatched, Recents) and Search start from the whole library: DataCoordinator
+        /// applies their membership and search filters to the result.
         let baseFilmIDs: [UUID]
         switch viewID {
         case .list(let listID):
             guard let list = lists[listID] else { return [] }
             baseFilmIDs = Array(list.filmIDs)
         case .filmQueue, .imports:
-            // The Film Queue orders films by section (Up Next → Soon → Later) via the
-            // grouped path below, not by a flat union sort; Imports shows no films.
+            /// The Film Queue orders films by section (Up Next → Soon → Later) via the
+            /// grouped path below, not by a flat union sort; Imports shows no films.
             baseFilmIDs = []
         case .allFilms, .smartList, .unwatched, .recents, .reports, .search, .savedSearch:
             baseFilmIDs = Array(films.keys)
         }
         
-        // Sort the IDs. The Film Queue is grouped by section first (Up Next → Soon → Later),
-        // with each section internally ordered by the requested sort — this section grouping is
-        // exactly what lets the gallery draw one labeled divider band per populated section.
-        // Every other view uses the standard flat MetadataCache sort.
+        /// Sort the IDs. The Film Queue is grouped by section first (Up Next → Soon → Later),
+        /// with each section internally ordered by the requested sort — this section grouping is
+        /// exactly what lets the gallery draw one labeled divider band per populated section.
+        /// Every other view uses the standard flat MetadataCache sort.
         let sortedIDs: [UUID]
         if case .filmQueue = viewID {
             sortedIDs = filmQueueSectionGroupedIDs(sortOption: sortOption, direction: direction)
@@ -505,10 +505,10 @@ final class MemoryStore: Loggable {
                                                   purchaseFormat: viewID.purchaseFormatScope)
         }
         
-        // Convert IDs to FilmSnapshot objects
+        /// Convert IDs to FilmSnapshot objects
         var sortedFilms = sortedIDs.compactMap { films[$0] }
         
-        // Apply filters (search filtering is handled by DataCoordinator)
+        /// Apply filters (search filtering is handled by DataCoordinator)
         if !filterOptions.isEmpty {
             sortedFilms = applyFilters(sortedFilms, filterOptions: filterOptions)
         }
@@ -541,14 +541,14 @@ final class MemoryStore: Loggable {
     
     // MARK: - List Access
     
-    // Returns all user-generated lists, sorted by display order. The three internal Film Queue
-    // lists ("Up Next", "Soon", "Later") are excluded here, the single point every user-facing
-    // list enumeration passes through. They stay in `lists` and are reached by UUID via getList(_:).
+    /// Returns all user-generated lists, sorted by display order. The three internal Film Queue
+    /// lists ("Up Next", "Soon", "Later") are excluded here, the single point every user-facing
+    /// list enumeration passes through. They stay in `lists` and are reached by UUID via getList(_:).
     func getAllLists() -> [MemoryList] {
         if let cached = sortedListsCache {
             return cached
         }
-        // Ordered by MemoryList.orderedBefore, the shared rule.
+        /// Ordered by MemoryList.orderedBefore, the shared rule.
         let sorted = lists.values
             .filter { !FilmQueue.isInternalList($0.listID) }
             .sorted(by: MemoryList.orderedBefore)
@@ -581,7 +581,7 @@ final class MemoryStore: Loggable {
         var result: [UUID] = []
         for section in orderedSections {
             guard let list = lists[section.listID] else { continue }
-            // Claim each film for the first (lowest-queueOrder) section it belongs to.
+            /// Claim each film for the first (lowest-queueOrder) section it belongs to.
             var sectionIDs: [UUID] = []
             for id in list.filmIDs where !claimed.contains(id) {
                 sectionIDs.append(id)
@@ -611,13 +611,13 @@ final class MemoryStore: Loggable {
         films[snapshot.id] = snapshot
         MetadataCache.shared.addFilm(snapshot)
         invalidateCacheForAllFilms()
-        // A snapshot carrying a ranked position must be reflected in the ordered Hall of
-        // Fame list, which is derived state that only rebuildHallOfFame() maintains. Newly
-        // created and newly imported films always have hofPosition == 0, so this is skipped
-        // on those paths; the case that needs it is DataCoordinator.deleteFilms' rollback,
-        // which re-adds previously ranked films. Without the rebuild those films would be
-        // restored to the store but silently absent from the Hall of Fame for the rest of
-        // the session.
+        /// A snapshot carrying a ranked position must be reflected in the ordered Hall of
+        /// Fame list, which is derived state that only rebuildHallOfFame() maintains. Newly
+        /// created and newly imported films always have hofPosition == 0, so this is skipped
+        /// on those paths; the case that needs it is DataCoordinator.deleteFilms' rollback,
+        /// which re-adds previously ranked films. Without the rebuild those films would be
+        /// restored to the store but silently absent from the Hall of Fame for the rest of
+        /// the session.
         if snapshot.hofPosition > 0 {
             rebuildHallOfFame()
         }
@@ -679,9 +679,9 @@ final class MemoryStore: Loggable {
             }
         }
 
-        // hallOfFameFilms is derived state maintained only by rebuildHallOfFame(). Rank changes go
-        // through the dedicated Hall of Fame methods, so this check is normally false. It keeps the
-        // invariant at the entry point rather than relying on every caller.
+        /// hallOfFameFilms is derived state maintained only by rebuildHallOfFame(). Rank changes go
+        /// through the dedicated Hall of Fame methods, so this check is normally false. It keeps the
+        /// invariant at the entry point rather than relying on every caller.
         if snapshot.hofPosition != existing.hofPosition {
             rebuildHallOfFame()
         }
@@ -727,10 +727,10 @@ final class MemoryStore: Loggable {
     func deleteFilms(ids: Set<UUID>) -> [UUID] {
         var affectedLists = Set<UUID>()
 
-        // Determined BEFORE the eviction loop below, while the snapshots are still present.
+        /// Determined BEFORE the eviction loop below, while the snapshots are still present.
         let deletedRankedMember = ids.contains { (films[$0]?.hofPosition ?? 0) > 0 }
 
-        // Single pass: collect affected lists, evict from the snapshot store, and update the reverse index.
+        /// Single pass: collect affected lists, evict from the snapshot store, and update the reverse index.
         for id in ids {
             if let listIDs = filmToLists[id] {
                 affectedLists.formUnion(listIDs)
@@ -744,18 +744,18 @@ final class MemoryStore: Loggable {
 
         MetadataCache.shared.removeFilms(ids)
 
-        // Deleting a ranked film would leave a phantom ID in hallOfFameFilms and a gapped position
-        // sequence. That breaks hallOfFameIsFull (at 200 members, the Hall of Fame toggle would stay
-        // disabled) and getNextHallOfFamePosition(), which can collide with an existing position.
-        // Compaction prevents both.
+        /// Deleting a ranked film would leave a phantom ID in hallOfFameFilms and a gapped position
+        /// sequence. That breaks hallOfFameIsFull (at 200 members, the Hall of Fame toggle would stay
+        /// disabled) and getNextHallOfFamePosition(), which can collide with an existing position.
+        /// Compaction prevents both.
         let compactedHofIDs: [UUID] = deletedRankedMember ? compactHallOfFamePositions() : []
 
         invalidateCacheForAllFilms()
         for listID in affectedLists {
             invalidateCacheForList(listID)
         }
-        // MemoryList is a value type, so the sorted-lists cache holds stale copies. Drop it so
-        // getAllLists() rebuilds from `lists`.
+        /// MemoryList is a value type, so the sorted-lists cache holds stale copies. Drop it so
+        /// getAllLists() rebuilds from `lists`.
         if !affectedLists.isEmpty {
             sortedListsCache = nil
         }
@@ -770,9 +770,9 @@ final class MemoryStore: Loggable {
     func addFilmsToList(filmIDs: Set<UUID>, listID: UUID) {
         guard var list = lists[listID] else { return }
 
-        // Filter out IDs with no matching film. A deferred add (for example, the Film Queue "Add on
-        // Drop" confirmation) can outlive a deleted film. Counts use raw filmIDs, so a phantom ID
-        // would inflate them until the next reload. Legitimate adds are unaffected.
+        /// Filter out IDs with no matching film. A deferred add (for example, the Film Queue "Add on
+        /// Drop" confirmation) can outlive a deleted film. Counts use raw filmIDs, so a phantom ID
+        /// would inflate them until the next reload. Legitimate adds are unaffected.
         let validFilmIDs = filmIDs.filter { films[$0] != nil }
         guard !validFilmIDs.isEmpty else {
             if validFilmIDs.count != filmIDs.count {
@@ -790,8 +790,8 @@ final class MemoryStore: Loggable {
         }
         
         lists[listID] = list
-        // MemoryList is a value type, so the sorted-lists cache is now stale. Invalidate it so every
-        // getAllLists() consumer (sidebar counts, alerts, menus) sees fresh data.
+        /// MemoryList is a value type, so the sorted-lists cache is now stale. Invalidate it so every
+        /// getAllLists() consumer (sidebar counts, alerts, menus) sees fresh data.
         sortedListsCache = nil
         invalidateCacheForList(listID)
         scheduleThrottledSave()
@@ -810,7 +810,7 @@ final class MemoryStore: Loggable {
         }
         
         lists[listID] = list
-        // Drop the stale value-type cache, as in addFilmsToList.
+        /// Drop the stale value-type cache, as in addFilmsToList.
         sortedListsCache = nil
         invalidateCacheForList(listID)
         scheduleThrottledSave()
@@ -917,14 +917,14 @@ final class MemoryStore: Loggable {
     // MARK: - Cache Invalidation
     
     private func invalidateCacheForAllFilms() {
-        // Collect the keys to remove, then remove each one in place, to avoid copying the dictionary.
+        /// Collect the keys to remove, then remove each one in place, to avoid copying the dictionary.
         let keysToRemove = cachedViews.keys.filter { key in
             switch key.viewID {
             case .allFilms, .smartList, .unwatched, .recents, .reports, .imports, .search, .filmQueue,
                  .savedSearch:
-                // (.savedSearch never keys a cache entry; getFilms maps it to .allFilms.)
-                // .filmQueue and .unwatched are whole-library views: a film's sort keys, watched
-                // flag, or rating can change without any list mutation.
+                /// (.savedSearch never keys a cache entry; getFilms maps it to .allFilms.)
+                /// .filmQueue and .unwatched are whole-library views: a film's sort keys, watched
+                /// flag, or rating can change without any list mutation.
                 return true
             case .list:
                 return false
@@ -936,8 +936,8 @@ final class MemoryStore: Loggable {
     }
     
     private func invalidateCacheForList(_ listID: UUID) {
-        // Same collect-then-remove pattern as invalidateCacheForAllFilms(). The Film Queue view is the
-        // union of the three internal lists, so an internal list change also invalidates it.
+        /// Same collect-then-remove pattern as invalidateCacheForAllFilms(). The Film Queue view is the
+        /// union of the three internal lists, so an internal list change also invalidates it.
         let alsoInvalidateFilmQueue = FilmQueue.isInternalList(listID)
         let keysToRemove = cachedViews.keys.filter { key in
             if case .list(let id) = key.viewID, id == listID { return true }
@@ -961,11 +961,11 @@ final class MemoryStore: Loggable {
         let otherFilters = filterOptions.filter { !$0.isGenre }
         
         return films.filter { film in
-            // Non-genre filters: all must match
+            /// Non-genre filters: all must match
             for option in otherFilters {
                 if !checkFilter(film, option: option) { return false }
             }
-            // Genre filters: any may match
+            /// Genre filters: any may match
             if !genreFilters.isEmpty {
                 var matchesGenre = false
                 for option in genreFilters {
@@ -1006,7 +1006,7 @@ final class MemoryStore: Loggable {
         case .horror:
             return film.genre.contains("Horror")
         case .kidsAndFamily:
-            // Matches either "Kids" or "Family" genre tags, which name the same category.
+            /// Matches either "Kids" or "Family" genre tags, which name the same category.
             return film.genre.contains("Kids") || film.genre.contains("Family")
         case .sciFiAndFantasy:
             return film.genre.contains("Sci-Fi") || film.genre.contains("Fantasy")
@@ -1025,9 +1025,9 @@ final class MemoryStore: Loggable {
     /// The next free 1-based slot. Private so that positions are assigned only through
     /// `addToHallOfFame(_:)`, which keeps the ranks dense.
     private func getNextHallOfFamePosition() -> Int {
-        // hallOfFameFilms is the ordered list maintained by rebuildHallOfFame(). Its count equals the
-        // number of ranked films, so the next position is count + 1. max(hofPosition) + 1 would be
-        // wrong, because stored positions can have gaps.
+        /// hallOfFameFilms is the ordered list maintained by rebuildHallOfFame(). Its count equals the
+        /// number of ranked films, so the next position is count + 1. max(hofPosition) + 1 would be
+        /// wrong, because stored positions can have gaps.
         return hallOfFameFilms.count + 1
     }
     
@@ -1048,8 +1048,8 @@ final class MemoryStore: Loggable {
             return nil
         }
 
-        // A film that already holds a position must be rejected. Re-ranking it would leave a gap at
-        // its old slot and make the next add collide with its new one. Rejecting it keeps 1..N dense.
+        /// A film that already holds a position must be rejected. Re-ranking it would leave a gap at
+        /// its old slot and make the next add collide with its new one. Rejecting it keeps 1..N dense.
         guard snapshot.hofPosition == 0 else {
             Self.log("addToHallOfFame — film \(filmID) is already ranked at position \(snapshot.hofPosition); ignoring")
             return nil
@@ -1124,8 +1124,8 @@ final class MemoryStore: Loggable {
     func removeFromHallOfFame(_ filmIDs: Set<UUID>) -> [UUID]? {
         var removedCount = 0
         for filmID in filmIDs {
-            // Non-members are skipped rather than written: clearing an already-zero position
-            // would schedule a save and force a compaction pass for no state change.
+            /// Non-members are skipped rather than written: clearing an already-zero position
+            /// would schedule a save and force a compaction pass for no state change.
             guard var snapshot = films[filmID], snapshot.hofPosition > 0 else { continue }
             snapshot.hofPosition = 0
             films[filmID] = snapshot
@@ -1134,7 +1134,7 @@ final class MemoryStore: Loggable {
 
         guard removedCount > 0 else { return nil }
 
-        // Rebuilds the ordered list, then renumbers it 1..N so no gaps remain.
+        /// Rebuilds the ordered list, then renumbers it 1..N so no gaps remain.
         let compacted = compactHallOfFamePositions()
 
         scheduleThrottledSave()
@@ -1190,9 +1190,9 @@ final class MemoryStore: Loggable {
     /// Replaces the stored snapshot atomically, then updates MetadataCache and
     /// invalidates all relevant view caches — ensuring the rollback is always complete.
     func restoreFilm(filmID: UUID, from snapshot: FilmSnapshot) {
-        // The pre-restore rank is used below to decide whether the Hall of Fame must be rebuilt.
-        // No current caller changes a rank through this path, but the check keeps the ordered list
-        // consistent if one does.
+        /// The pre-restore rank is used below to decide whether the Hall of Fame must be rebuilt.
+        /// No current caller changes a rank through this path, but the check keeps the ordered list
+        /// consistent if one does.
         guard let existing = films[filmID] else {
             Self.log("WARNING: restoreFilm called for non-existent film: \(filmID)")
             return
@@ -1226,8 +1226,8 @@ final class MemoryStore: Loggable {
         var position = 0
         var seen = Set<UUID>()
         for filmID in filmIDs {
-            // Duplicates are collapsed. Unknown and unranked films are skipped, so a reorder never
-            // promotes a film into the Hall of Fame.
+            /// Duplicates are collapsed. Unknown and unranked films are skipped, so a reorder never
+            /// promotes a film into the Hall of Fame.
             guard seen.insert(filmID).inserted,
                   var snapshot = films[filmID],
                   snapshot.hofPosition > 0 else { continue }
@@ -1237,7 +1237,7 @@ final class MemoryStore: Loggable {
             films[filmID] = snapshot
         }
 
-        // A ranked film missing from filmIDs keeps its stored position instead of being dropped.
+        /// A ranked film missing from filmIDs keeps its stored position instead of being dropped.
         compactHallOfFamePositions()
 
         scheduleThrottledSave()
@@ -1288,15 +1288,15 @@ final class MemoryStore: Loggable {
     #endif
 
     private func rebuildHallOfFame() {
-        // Every caller has just changed one or more films' `hofPosition`. The cached view
-        // arrays hold FilmSnapshot copies, so they must go too: the Hall of Fame paths
-        // (add, remove, reorder, restore, compaction) write `films` directly rather than
-        // through updateFilm, and without this the gallery's next reload would serve
-        // snapshots carrying the old ranks. Rank changes are rare, so a full clear is cheap.
+        /// Every caller has just changed one or more films' `hofPosition`. The cached view
+        /// arrays hold FilmSnapshot copies, so they must go too: the Hall of Fame paths
+        /// (add, remove, reorder, restore, compaction) write `films` directly rather than
+        /// through updateFilm, and without this the gallery's next reload would serve
+        /// snapshots carrying the old ranks. Rank changes are rare, so a full clear is cheap.
         cachedViews.removeAll()
-        // The `id` tiebreak makes the order total. Sorting on `hofPosition` alone is not
-        // deterministic when positions collide, and Swift's sort is not stable.
-        // compactHallOfFamePositions() then resolves collisions.
+        /// The `id` tiebreak makes the order total. Sorting on `hofPosition` alone is not
+        /// deterministic when positions collide, and Swift's sort is not stable.
+        /// compactHallOfFamePositions() then resolves collisions.
         let hofFilms = films.values
             .filter { $0.hofPosition > 0 }
             .sorted {

@@ -1,11 +1,11 @@
 // MARK: - ImportsView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Displays import history and manages metadata/ratings imports. The scrollable
-// session list is hosted by DataCoordinatorScrollView (27.40 RPTabDataViz.swift),
-// the shared AppKitScrollView facade for consumers that need nothing re-injected
-// into the hosted tree beyond DataCoordinator. The sessions themselves come from
-// ImportHistory (28.20), an in-memory index of value records, not from a fetch.
+/// Displays import history and manages metadata/ratings imports. The scrollable
+/// session list is hosted by DataCoordinatorScrollView (27.40 RPTabDataViz.swift),
+/// the shared AppKitScrollView facade for consumers that need nothing re-injected
+/// into the hosted tree beyond DataCoordinator. The sessions themselves come from
+/// ImportHistory (28.20), an in-memory index of value records, not from a fetch.
 
 import SwiftUI
 import CoreData
@@ -18,35 +18,35 @@ struct ImportsView: View {
     var importsState = ImportsState.shared
     var importHistory = ImportHistory.shared
 
-    // Session-box layout. Boxes grow with the view up to `importBoxMaxWidth`; past
-    // that point the surrounding whitespace grows instead (mirroring the gallery
-    // grid's centered max-width behavior). They never sit closer than
-    // `importBoxEdgeInset` to the view's side edges.
+    /// Session-box layout. Boxes grow with the view up to `importBoxMaxWidth`; past
+    /// that point the surrounding whitespace grows instead (mirroring the gallery
+    /// grid's centered max-width behavior). They never sit closer than
+    /// `importBoxEdgeInset` to the view's side edges.
     private let importBoxMaxWidth: CGFloat = 1000
     private let importBoxEdgeInset: CGFloat = 40
 
-    // Incremented only when a session is inserted, never when one is deleted,
-    // so the insertion spring inside ImportSessionList fires when new cards
-    // appear but never for tab switches or deletions. Card-removal
-    // animation is owned entirely by ImportSessionList — see its declaration
-    // for why that state must live inside the hosted content tree.
+    /// Incremented only when a session is inserted, never when one is deleted,
+    /// so the insertion spring inside ImportSessionList fires when new cards
+    /// appear but never for tab switches or deletions. Card-removal
+    /// animation is owned entirely by ImportSessionList — see its declaration
+    /// for why that state must live inside the hosted content tree.
     @State private var insertionCount: Int = 0
 
-    // Every session on the tab is listed. ImportSessionList builds only the cards on or near the screen (see
-    // "Windowed mounting" there), so the length of the history costs nothing to show.
+    /// Every session on the tab is listed. ImportSessionList builds only the cards on or near the screen (see
+    /// "Windowed mounting" there), so the length of the history costs nothing to show.
 
-    // Lets ImportSessionList hold the scroll view's document height through a card's
-    // removal animation, and tells it which part of the list is on screen (see
-    // ImportSessionList). Anchors are never published.
+    /// Lets ImportSessionList hold the scroll view's document height through a card's
+    /// removal animation, and tells it which part of the list is on screen (see
+    /// ImportSessionList). Anchors are never published.
     @State private var listScrollProxy = AppKitScrollProxy(tracksAnchors: false, tracksViewport: true)
 
     var body: some View {
-        // Compute once per render pass; used for both the empty-state check and
-        // the ForEach/animation-value below, avoiding three separate filter passes.
+        /// Compute once per render pass; used for both the empty-state check and
+        /// the ForEach/animation-value below, avoiding three separate filter passes.
         let sessions = filteredSessions
         let isActiveOnTab = isActiveImportOnSelectedTab
         VStack(spacing: 0) {
-            // Title bar with tab picker and action button.
+            /// Title bar with tab picker and action button.
             GenericTitleBar(
                 glyph: importsState.selectedCategory.glyph,
                 leadingContent: {
@@ -56,7 +56,7 @@ struct ImportsView: View {
                 },
                 trailingButtons: {
                     HStack(spacing: 8) {
-                        // "Import in Progress" label (only visible during import or linger).
+                        /// "Import in Progress" label (only visible during import or linger).
                         if isImportBusy {
                             Text("Import in Progress…")
                                 .foregroundStyle(.secondary)
@@ -64,10 +64,10 @@ struct ImportsView: View {
                                 .transition(.opacity)
                         }
                         
-                        // Both tabs' buttons share this spot; size the chrome to the
-                        // widest title across categories so it never resizes when the
-                        // tab (and thus the visible title) changes. The hidden Texts
-                        // establish that max width; only the last Text is drawn.
+                        /// Both tabs' buttons share this spot; size the chrome to the
+                        /// widest title across categories so it never resizes when the
+                        /// tab (and thus the visible title) changes. The hidden Texts
+                        /// establish that max width; only the last Text is drawn.
                         Button { handleImportAction() } label: {
                             ZStack {
                                 ForEach(ImportsCategory.allCases, id: \.self) { category in
@@ -84,10 +84,10 @@ struct ImportsView: View {
                 }
             )
 
-            // Fixed, omnipresent header beneath the tab bar. While an import that
-            // matches the selected tab is running it shows the live progress UI;
-            // otherwise it shows a placeholder. It is always present so the tab/list
-            // layout below it stays consistent regardless of import state.
+            /// Fixed, omnipresent header beneath the tab bar. While an import that
+            /// matches the selected tab is running it shows the live progress UI;
+            /// otherwise it shows a placeholder. It is always present so the tab/list
+            /// layout below it stays consistent regardless of import state.
             ImportHeaderBar(
                 importProgress: importProgress,
                 isActive: isActiveOnTab,
@@ -96,24 +96,24 @@ struct ImportsView: View {
                 importBoxMaxWidth: importBoxMaxWidth,
                 importBoxEdgeInset: importBoxEdgeInset)
 
-            // Show the empty state only when there are no sessions for the selected tab
-            // AND no active import is running on that tab.
+            /// Show the empty state only when there are no sessions for the selected tab
+            /// AND no active import is running on that tab.
             if sessions.isEmpty && !isActiveOnTab {
-                // Empty state — no ScrollView; fills the remaining space.
+                /// Empty state — no ScrollView; fills the remaining space.
                 StandardPlaceholder(
                     glyph: importsState.selectedCategory.glyph,
                     title: "No Imports",
                     message: emptyStateMessage
                 )
             } else {
-                // Completed import sessions, each rendered as its own bounded box.
-                // Boxes grow with the view up to `importBoxMaxWidth`; beyond that the
-                // surrounding whitespace grows so the boxes stay centered, and they
-                // remain at least `importBoxEdgeInset` from the view's side edges.
-                //
-                // The list itself is a dedicated struct (not built inline here)
-                // because its removal-animation state must live inside the
-                // NSHostingView created by AppKitScrollView — see ImportSessionList.
+                /// Completed import sessions, each rendered as its own bounded box.
+                /// Boxes grow with the view up to `importBoxMaxWidth`; beyond that the
+                /// surrounding whitespace grows so the boxes stay centered, and they
+                /// remain at least `importBoxEdgeInset` from the view's side edges.
+                ///
+                /// The list itself is a dedicated struct (not built inline here)
+                /// because its removal-animation state must live inside the
+                /// NSHostingView created by AppKitScrollView — see ImportSessionList.
                 DataCoordinatorScrollView(scrollProxy: listScrollProxy) {
                     ImportSessionList(
                         sessions: sessions,
@@ -131,33 +131,33 @@ struct ImportsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.windowBackgroundColor))
         // MARK: - Keyboard Shortcuts (Cmd+O, Shift+Cmd+I, Opt+Cmd+I)
-        // Hidden buttons capture keyboard shortcuts only while ImportsView is active.
-        // Cmd+O mirrors the "Select Files" / "Select HTML File" button action and is
-        // reclaimed unconditionally — it has no MenuBar equivalent to conflict with.
-        //
-        // Shift+Cmd+I and Opt+Cmd+I are each the MenuBar's shortcut for "Import
-        // Metadata…" and "Import Ratings…" respectively (MenuBar.swift). Each is
-        // reclaimed here ONLY while its own tab is the one currently selected —
-        // exactly mirroring the tab-specific condition those MenuBar items are
-        // disabled under. This means whichever shortcut belongs to the tab NOT
-        // currently selected is deliberately left unclaimed, so it falls through to
-        // the responder chain and reaches the (enabled) MenuBar item instead, which
-        // switches to that other tab. Reclaiming both regardless of tab would let
-        // this view's "current tab" action silently shadow the other tab's MenuBar
-        // item, since a local key equivalent always wins over a Commands-menu one.
-        //
-        // The two roles compose into a deliberate two-step: from the Ratings tab,
-        // Shift+Cmd+I reaches the MenuBar item and only switches to Metadata; a
-        // second press now lands on the button below and opens the picker. Nothing
-        // in the app opens a file dialog as a side effect of navigation.
+        /// Hidden buttons capture keyboard shortcuts only while ImportsView is active.
+        /// Cmd+O mirrors the "Select Files" / "Select HTML File" button action and is
+        /// reclaimed unconditionally — it has no MenuBar equivalent to conflict with.
+        ///
+        /// Shift+Cmd+I and Opt+Cmd+I are each the MenuBar's shortcut for "Import
+        /// Metadata…" and "Import Ratings…" respectively (MenuBar.swift). Each is
+        /// reclaimed here ONLY while its own tab is the one currently selected —
+        /// exactly mirroring the tab-specific condition those MenuBar items are
+        /// disabled under. This means whichever shortcut belongs to the tab NOT
+        /// currently selected is deliberately left unclaimed, so it falls through to
+        /// the responder chain and reaches the (enabled) MenuBar item instead, which
+        /// switches to that other tab. Reclaiming both regardless of tab would let
+        /// this view's "current tab" action silently shadow the other tab's MenuBar
+        /// item, since a local key equivalent always wins over a Commands-menu one.
+        ///
+        /// The two roles compose into a deliberate two-step: from the Ratings tab,
+        /// Shift+Cmd+I reaches the MenuBar item and only switches to Metadata; a
+        /// second press now lands on the button below and opens the picker. Nothing
+        /// in the app opens a file dialog as a side effect of navigation.
         .overlay(alignment: .topLeading) {
             Group {
-                // Claimed only while no import is running. These three shortcuts are
-                // stand-ins for the title bar's action button, so they are withheld
-                // on exactly the condition that disables it — omitted from the view
-                // tree rather than merely .disabled, so the key equivalent is left
-                // genuinely unclaimed and continues down the responder chain instead
-                // of being swallowed here.
+                /// Claimed only while no import is running. These three shortcuts are
+                /// stand-ins for the title bar's action button, so they are withheld
+                /// on exactly the condition that disables it — omitted from the view
+                /// tree rather than merely .disabled, so the key equivalent is left
+                /// genuinely unclaimed and continues down the responder chain instead
+                /// of being swallowed here.
                 if !isImportBusy {
                     Button("") { handleImportAction() }
                         .keyboardShortcut("o", modifiers: .command)
@@ -175,27 +175,27 @@ struct ImportsView: View {
             .clipped()
         }
         .onAppear {
-            // ImportProgress is already attached to the model context and coordinator
-            // by MainView.onAppear (which fires before any child view appears).
-            // No re-attachment is needed here.
+            /// ImportProgress is already attached to the model context and coordinator
+            /// by MainView.onAppear (which fires before any child view appears).
+            /// No re-attachment is needed here.
 
-            // Tell ImportsState (and MenuBar) we're viewing the Imports screen.
-            // ImportProgress reads this same flag, so it must be set before the
-            // notification below.
+            /// Tell ImportsState (and MenuBar) we're viewing the Imports screen.
+            /// ImportProgress reads this same flag, so it must be set before the
+            /// notification below.
             importsState.isViewingImports = true
             importProgress.viewingImportsDidChange(true)
             
-            // Ensure the view state reflects the currently selected category.
+            /// Ensure the view state reflects the currently selected category.
             importsState.ensureInitialViewLoad()
             
-            // If currently on the default tab, auto-switch to the Ratings tab
-            // when an active or recently completed import is of that type.
-            //
-            // Skipped when the arrival named a tab (a MenuBar item, the toolbar
-            // menu, or their keyboard shortcuts): those must land where they say
-            // they will, every time, or the shortcut stops being predictable.
-            // Only a generic arrival — the sidebar's "Imports" row, which expresses
-            // no preference — gets steered toward the live import.
+            /// If currently on the default tab, auto-switch to the Ratings tab
+            /// when an active or recently completed import is of that type.
+            ///
+            /// Skipped when the arrival named a tab (a MenuBar item, the toolbar
+            /// menu, or their keyboard shortcuts): those must land where they say
+            /// they will, every time, or the shortcut stops being predictable.
+            /// Only a generic arrival — the sidebar's "Imports" row, which expresses
+            /// no preference — gets steered toward the live import.
             let arrivedByName = importsState.consumeCategoryRequest()
             if !arrivedByName, importsState.selectedCategory == .metadata {
                 let activeIsRatings = importProgress.activeImportType == .ratings
@@ -206,37 +206,37 @@ struct ImportsView: View {
             }
         }
         .onDisappear {
-            // Tell ImportsState (and MenuBar) we've left the Imports screen.
+            /// Tell ImportsState (and MenuBar) we've left the Imports screen.
             importsState.isViewingImports = false
             importProgress.viewingImportsDidChange(false)
-            // A by-name request only ever describes the appearance it immediately
-            // precedes; drop any that was raised while this view was on screen.
+            /// A by-name request only ever describes the appearance it immediately
+            /// precedes; drop any that was raised while this view was on screen.
             importsState.clearCategoryRequest()
         }
-        // Increment insertionCount only when the session list grows. This is the
-        // value driving the VStack's insertion animation, and keeping it stable
-        // on deletions ensures the spring never fires when a record is removed.
+        /// Increment insertionCount only when the session list grows. This is the
+        /// value driving the VStack's insertion animation, and keeping it stable
+        /// on deletions ensures the spring never fires when a record is removed.
         .onChange(of: sessions.count) { oldCount, newCount in
             if newCount > oldCount { insertionCount += 1 }
         }
     }
 
-    // The selected tab's sessions, excluding the current active session while importing
-    // or while the UI is lingering post-completion, so the new historical card
-    // only appears once the linger clears and all controls unlock together.
-    // Outside that window this is ImportHistory's own array, so the list receives the
-    // same storage on every pass rather than a copy.
+    /// The selected tab's sessions, excluding the current active session while importing
+    /// or while the UI is lingering post-completion, so the new historical card
+    /// only appears once the linger clears and all controls unlock together.
+    /// Outside that window this is ImportHistory's own array, so the list receives the
+    /// same storage on every pass rather than a copy.
     private var filteredSessions: [ImportSessionRecord] {
         let records = importHistory.records(for: importsState.selectedCategory,
                                             in: dataCoordinator.persistentContainer)
         guard isImportBusy, let currentID = importProgress.currentSessionID else { return records }
         return records.filter { $0.id != currentID } }
 
-    // The single lock in the imports flow: true while an import is running or its
-    // completion UI is still lingering. It gates the title bar's action button and
-    // the keyboard shortcuts that stand in for it — the only two ways to open a
-    // file picker. Navigation to and around this view is deliberately never gated
-    // on it; see the MenuBar and toolbar-menu items.
+    /// The single lock in the imports flow: true while an import is running or its
+    /// completion UI is still lingering. It gates the title bar's action button and
+    /// the keyboard shortcuts that stand in for it — the only two ways to open a
+    /// file picker. Navigation to and around this view is deliberately never gated
+    /// on it; see the MenuBar and toolbar-menu items.
     private var isImportBusy: Bool {
         importProgress.isImporting || importProgress.isUILingering }
 
@@ -247,9 +247,9 @@ struct ImportsView: View {
         case .ratings:
             return "Import ratings from Blu-ray.com HTML files to sync your online ratings with your library." } }
 
-    // True while an import is running OR the UI is lingering post-completion,
-    // and its type matches the selected tab. Drives the fixed header active UI
-    // and keeps all import-related controls locked until the linger clears.
+    /// True while an import is running OR the UI is lingering post-completion,
+    /// and its type matches the selected tab. Drives the fixed header active UI
+    /// and keeps all import-related controls locked until the linger clears.
     private var isActiveImportOnSelectedTab: Bool {
         guard isImportBusy else { return false }
         return importProgress.activeImportType == importsState.selectedCategory }
@@ -293,7 +293,7 @@ final class ImportsState {
     var isViewingImports: Bool = false
     
     init() {
-        // Restore the last-used category if the preference is enabled.
+        /// Restore the last-used category if the preference is enabled.
         if Preferences.rememberImportsTab,
            let savedRawValue = Preferences.lastImportsCategory,
            let saved = ImportsCategory(rawValue: savedRawValue) {
@@ -374,15 +374,15 @@ private struct ImportHeaderBar: View {
     let importBoxMaxWidth: CGFloat
     let importBoxEdgeInset: CGFloat
 
-    // Fixed height sized to the fully-populated ratings-import UI (most rows).
-    // Using a hard value (not minHeight) keeps the header and the list below it
-    // perfectly stable regardless of which state or import type is showing.
+    /// Fixed height sized to the fully-populated ratings-import UI (most rows).
+    /// Using a hard value (not minHeight) keeps the header and the list below it
+    /// perfectly stable regardless of which state or import type is showing.
     private let fixedHeight: CGFloat = 192
 
-    // One-line, tab-specific blurb shown beneath the "No import session in
-    // progress." placeholder. The Ratings variant carries a Markdown link that
-    // opens in the system-default browser (see the .openURL override on `body`),
-    // mirroring the RightSidebar's Web Query hand-off.
+    /// One-line, tab-specific blurb shown beneath the "No import session in
+    /// progress." placeholder. The Ratings variant carries a Markdown link that
+    /// opens in the system-default browser (see the .openURL override on `body`),
+    /// mirroring the RightSidebar's Web Query hand-off.
     @ViewBuilder
     private var placeholderDescription: some View {
         switch category {
@@ -396,8 +396,8 @@ private struct ImportHeaderBar: View {
     var body: some View {
         Group {
             if isActive {
-                // Bound the content to the same max-width as the session cards
-                // below, with matching edge insets, so they stay visually aligned.
+                /// Bound the content to the same max-width as the session cards
+                /// below, with matching edge insets, so they stay visually aligned.
                 HStack(spacing: 0) {
                     Spacer(minLength: importBoxEdgeInset)
                     ActiveImportRow(importProgress: importProgress, onCancel: onCancel)
@@ -407,11 +407,11 @@ private struct ImportHeaderBar: View {
             } else {
                 VStack(spacing: 0) {
                     Text("No import session in progress.")
-                    // Empty lines between the placeholder and the tab-specific description.
+                    /// Empty lines between the placeholder and the tab-specific description.
                     Text(" ")
                     Text(" ")
-                    // Tertiary tint keeps the blurb a step below the placeholder
-                    // line in visual priority (the .ratings link keeps its own tint).
+                    /// Tertiary tint keeps the blurb a step below the placeholder
+                    /// line in visual priority (the .ratings link keeps its own tint).
                     placeholderDescription
                         .foregroundStyle(.tertiary)
                 }
@@ -426,8 +426,8 @@ private struct ImportHeaderBar: View {
         .frame(height: fixedHeight)
         .background(Color(NSColor.controlBackgroundColor))
         .overlay(Divider(), alignment: .bottom)
-        // Route the description's Markdown link through NSWorkspace so it opens
-        // in the system-default browser, matching the Web Query button.
+        /// Route the description's Markdown link through NSWorkspace so it opens
+        /// in the system-default browser, matching the Web Query button.
         .environment(\.openURL, OpenURLAction { url in
             NSWorkspace.shared.open(url)
             return .handled
@@ -443,8 +443,8 @@ private struct ActiveImportRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header — use the captured start date rather than Date() so the string
-            // is stable for the entire import and never re-formatted on each re-render.
+            /// Header — use the captured start date rather than Date() so the string
+            /// is stable for the entire import and never re-formatted on each re-render.
             HStack {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text((importProgress.importStartDate ?? Date()).formatted(Date.FormatStyle(date: .complete, time: .omitted, calendar: AppCalendar.current)))
@@ -455,7 +455,7 @@ private struct ActiveImportRow: View {
                 }
                 Spacer() }
 
-            // Progress bar.
+            /// Progress bar.
             HStack(spacing: 12) {
                 ProgressView(value: Double(importProgress.currentFile),
                            total: Double(importProgress.totalFiles))
@@ -468,7 +468,7 @@ private struct ActiveImportRow: View {
                 .buttonStyle(.plain)
                 .help("Cancel import") }
 
-            // Stats.
+            /// Stats.
             VStack(alignment: .leading, spacing: 4) {
                 StatRow(
                     label: "Processing…",
@@ -488,7 +488,7 @@ private struct ActiveImportRow: View {
                 StatRow(
                     label: "Duplicates Skipped",
                     value: "\(importProgress.duplicateCount)")
-                // "Not Found" is only meaningful for ratings imports.
+                /// "Not Found" is only meaningful for ratings imports.
                 if importProgress.activeImportType == .ratings {
                     StatRow(
                         label: "Skipped Due to Film Not Found in Library",
@@ -499,77 +499,77 @@ private struct ActiveImportRow: View {
 
 // MARK: - Import Session List
 
-// Card removal works by structural exclusion, not by height manipulation. Animating the removed card's own
-// layout (frame collapse, maxHeight, height interpolation) either sheared the siblings or never animated. The
-// hosted list's updateNSView pushes content with a bare `rootView` assignment and no animation transaction, so
-// withAnimation in the outer tree cannot animate it.
-//
-// The mechanism:
-//
-//   1. "Clear This Item" inserts the session's ID into `removingIDs`, which is @State inside the hosted tree, so
-//      the mutation runs in the hosted tree's own render loop and the transaction survives. `remaining` excludes
-//      the ID, so the row leaves the ForEach as one structural change: its .opacity removal transition fades it
-//      out at its full height, while the VStack reflow slides the cards below up on the same spring. The row's
-//      12 pt spacing leaves layout in that same change, so no gap is left to close later.
-//   2. After the spring has settled (400 ms), the database delete runs. When ImportHistory drops the record,
-//      `remaining` is unchanged, so that removal produces no visual change.
-//   3. Once the record is gone from `sessions`, the ID is dropped from `removingIDs` (hygiene; an absent ID
-//      filters nothing).
-//
-// Two more pieces make it work wherever the card sits:
-//
-//   • The scroll view holds the document height through the spring (`holdForAnimatedShrink`, "Animated shrink"
-//     in 98.20 UtilityKit.swift). Without the hold, removing a card near the bottom of a list taller than the
-//     window shortened the document in one step. NSClipView then clamped the offset, every card jumped, and the
-//     removed bottom card faded out of sight. The hold's anchor (ShrinkAnchoredLayout) places the list so the
-//     cards above slide down on the same spring. When the hold ends, the offset follows and nothing moves.
-//   • Only cards near the screen are mounted (see "Windowed mounting" below). The window reaches far enough that
-//     every card a spring moves on screen is already built.
-//
-// The `imports-removal` harness scenario (99.54) covers top, middle, and bottom cards; short and long lists;
-// scrolled to the bottom, near it, and at the top; long lists that are mostly spacer; overlapping removals; and
-// clearing the bottom card repeatedly until the list is empty. It checks each frame for jumps, reversals, snaps,
-// and a visible fade.
-//
-// As defense in depth, the VStack also carries .animation(value: removingIDs), which injects the spring at the
-// modifier level in the exact update that removes the row, independent of the transaction. It is the sole
-// animation source for removals, so a bare `removingIDs.insert(id)` in beginRemoval(), with no withAnimation, is
-// all that is needed. Insertions work the same way, keyed to insertionCount.
-//
-// Windowed mounting
-// ─────────────────
-// The list is still one plain VStack, so the animations above run as they always have. It mounts only the cards
-// on or near the screen. Each run of cards above or below that window is stood in for by one clear spacer exactly
-// as tall as the cards and gaps it replaces (`CardColumn`). Every mounted card therefore sits where it would in the
-// full stack, the document is exactly as tall, and the scroller is unchanged. The cost of showing, switching tabs,
-// or leaving no longer depends on the number of sessions.
-//
-//   • Heights. A card's height depends only on its `ImportCardShape` (canceled or not, ratings or not, failures or
-//     not), since every line is a single line at any width the window allows. ImportCardMetrics records each shape's
-//     height, measured from a real card in this tree: from mounted cards, and from hidden template cards for shapes
-//     not yet seen. Until a shape is measured (a launch's first visit), its height as measured on macOS 15 stands
-//     in. The first visit opens at the top, so the stand-in can only touch the spacer below the screen, and the
-//     measurement replaces it a frame later.
-//   • The window is ImportsListViewport's, fed by the clip view (AppKitScrollProxy.viewportHandler and
-//     liveScrollHandler). Changing it mid-scroll is what costs. Every change, however small, re-lays out the list and
-//     builds cards, at 20 ms or more (`imports-scroll`, 99.55, on a copy of a real library). So the window grows
-//     while the list is at rest: after a visit's first frame (which builds only what it shows) and after each scroll,
-//     one step per run-loop turn. A list up to `ImportsListViewport.wholeListHeight` tall (a few dozen sessions) grows
-//     to all of it, and then scrolls as the full stack did. A longer list grows to `ImportsListViewport.lead` beyond
-//     the viewport each way, and lets go of cards beyond that. Mid-scroll, a long list's window moves only when the
-//     viewport reaches its edge, and then only that edge, a full lead ahead. A live scroll synchronizes with the main
-//     thread every frame, so this costs a few dropped frames, never a gap.
-//   • Edges are invisible. The window always reaches at least one card pitch (the tallest card plus a gap) beyond
-//     the viewport on both sides, farther than any card moves in one removal or insertion spring, the shrink hold's
-//     lowering included. So every card on screen during a spring is already mounted when it starts, and moves exactly
-//     as in the full stack. A card that joins the window only because the layout moved (not a new session) takes no
-//     insertion transition: it appears at its place, out of sight. One that leaves fades where it was, also out of sight.
-//   • Only the cards within two card pitches of the viewport animate in a spring. The others move to their new places
-//     in one step, unseen. Every card that moves is redrawn each frame of a spring, so animating all of a long list
-//     stalled the main thread for 100–400 ms per removal (the `imports-removal` `windowed-*` cases).
-//
-// `imports-window` (99.55) checks that a windowed list is pixel-identical to the full stack at offsets throughout a
-// long history (`window-identical`).
+/// Card removal works by structural exclusion, not by height manipulation. Animating the removed card's own
+/// layout (frame collapse, maxHeight, height interpolation) either sheared the siblings or never animated. The
+/// hosted list's updateNSView pushes content with a bare `rootView` assignment and no animation transaction, so
+/// withAnimation in the outer tree cannot animate it.
+///
+/// The mechanism:
+///
+///   1. "Clear This Item" inserts the session's ID into `removingIDs`, which is @State inside the hosted tree, so
+///      the mutation runs in the hosted tree's own render loop and the transaction survives. `remaining` excludes
+///      the ID, so the row leaves the ForEach as one structural change: its .opacity removal transition fades it
+///      out at its full height, while the VStack reflow slides the cards below up on the same spring. The row's
+///      12 pt spacing leaves layout in that same change, so no gap is left to close later.
+///   2. After the spring has settled (400 ms), the database delete runs. When ImportHistory drops the record,
+///      `remaining` is unchanged, so that removal produces no visual change.
+///   3. Once the record is gone from `sessions`, the ID is dropped from `removingIDs` (hygiene; an absent ID
+///      filters nothing).
+///
+/// Two more pieces make it work wherever the card sits:
+///
+///   • The scroll view holds the document height through the spring (`holdForAnimatedShrink`, "Animated shrink"
+///     in 98.20 UtilityKit.swift). Without the hold, removing a card near the bottom of a list taller than the
+///     window shortened the document in one step. NSClipView then clamped the offset, every card jumped, and the
+///     removed bottom card faded out of sight. The hold's anchor (ShrinkAnchoredLayout) places the list so the
+///     cards above slide down on the same spring. When the hold ends, the offset follows and nothing moves.
+///   • Only cards near the screen are mounted (see "Windowed mounting" below). The window reaches far enough that
+///     every card a spring moves on screen is already built.
+///
+/// The `imports-removal` harness scenario (99.54) covers top, middle, and bottom cards; short and long lists;
+/// scrolled to the bottom, near it, and at the top; long lists that are mostly spacer; overlapping removals; and
+/// clearing the bottom card repeatedly until the list is empty. It checks each frame for jumps, reversals, snaps,
+/// and a visible fade.
+///
+/// As defense in depth, the VStack also carries .animation(value: removingIDs), which injects the spring at the
+/// modifier level in the exact update that removes the row, independent of the transaction. It is the sole
+/// animation source for removals, so a bare `removingIDs.insert(id)` in beginRemoval(), with no withAnimation, is
+/// all that is needed. Insertions work the same way, keyed to insertionCount.
+///
+/// Windowed mounting
+/// ─────────────────
+/// The list is still one plain VStack, so the animations above run as they always have. It mounts only the cards
+/// on or near the screen. Each run of cards above or below that window is stood in for by one clear spacer exactly
+/// as tall as the cards and gaps it replaces (`CardColumn`). Every mounted card therefore sits where it would in the
+/// full stack, the document is exactly as tall, and the scroller is unchanged. The cost of showing, switching tabs,
+/// or leaving no longer depends on the number of sessions.
+///
+///   • Heights. A card's height depends only on its `ImportCardShape` (canceled or not, ratings or not, failures or
+///     not), since every line is a single line at any width the window allows. ImportCardMetrics records each shape's
+///     height, measured from a real card in this tree: from mounted cards, and from hidden template cards for shapes
+///     not yet seen. Until a shape is measured (a launch's first visit), its height as measured on macOS 15 stands
+///     in. The first visit opens at the top, so the stand-in can only touch the spacer below the screen, and the
+///     measurement replaces it a frame later.
+///   • The window is ImportsListViewport's, fed by the clip view (AppKitScrollProxy.viewportHandler and
+///     liveScrollHandler). Changing it mid-scroll is what costs. Every change, however small, re-lays out the list and
+///     builds cards, at 20 ms or more (`imports-scroll`, 99.55, on a copy of a real library). So the window grows
+///     while the list is at rest: after a visit's first frame (which builds only what it shows) and after each scroll,
+///     one step per run-loop turn. A list up to `ImportsListViewport.wholeListHeight` tall (a few dozen sessions) grows
+///     to all of it, and then scrolls as the full stack did. A longer list grows to `ImportsListViewport.lead` beyond
+///     the viewport each way, and lets go of cards beyond that. Mid-scroll, a long list's window moves only when the
+///     viewport reaches its edge, and then only that edge, a full lead ahead. A live scroll synchronizes with the main
+///     thread every frame, so this costs a few dropped frames, never a gap.
+///   • Edges are invisible. The window always reaches at least one card pitch (the tallest card plus a gap) beyond
+///     the viewport on both sides, farther than any card moves in one removal or insertion spring, the shrink hold's
+///     lowering included. So every card on screen during a spring is already mounted when it starts, and moves exactly
+///     as in the full stack. A card that joins the window only because the layout moved (not a new session) takes no
+///     insertion transition: it appears at its place, out of sight. One that leaves fades where it was, also out of sight.
+///   • Only the cards within two card pitches of the viewport animate in a spring. The others move to their new places
+///     in one step, unseen. Every card that moves is redrawn each frame of a spring, so animating all of a long list
+///     stalled the main thread for 100–400 ms per removal (the `imports-removal` `windowed-*` cases).
+///
+/// `imports-window` (99.55) checks that a windowed list is pixel-identical to the full stack at offsets throughout a
+/// long history (`window-identical`).
 
 private struct ImportSessionList: View {
     /// Every session on the current tab, newest first. Those not being removed are
@@ -622,8 +622,8 @@ private struct ImportSessionList: View {
         let mounted = column.map {
             $0.cards(in: viewport.window(margin: $0.maxPitch, contentHeight: $0.height))
         } ?? revealed.indices
-        // The cards that can be on screen at some moment of a spring starting now. Only
-        // they animate; see "Windowed mounting".
+        /// The cards that can be on screen at some moment of a spring starting now. Only
+        /// they animate; see "Windowed mounting".
         let animating = column.flatMap { column in
             viewport.visible.map { column.cards(in: ($0.minY - 2 * column.maxPitch)...($0.maxY + 2 * column.maxPitch)) }
         }
@@ -638,17 +638,17 @@ private struct ImportSessionList: View {
                     .transaction { transaction in
                         if let animating, !animating.contains(index) { transaction.animation = nil }
                     }
-                    // Insertion: new cards slide in from the top and fade in,
-                    // pushing existing cards downward. A card that is only being
-                    // mounted, as the window moves, appears in place.
-                    // Removal: the card fades out in place while the animated
-                    // VStack reflow slides the cards below up through the vacated
-                    // space. Structural removals that carry no animation (e.g.
-                    // Clear All) resolve the .opacity removal transition instantly.
-                    //
-                    // Spelled with the Transition types rather than AnyTransition's
-                    // `.identity`/`.opacity` statics, which the SDK declares
-                    // nonisolated(unsafe); the transitions are the same ones.
+                    /// Insertion: new cards slide in from the top and fade in,
+                    /// pushing existing cards downward. A card that is only being
+                    /// mounted, as the window moves, appears in place.
+                    /// Removal: the card fades out in place while the animated
+                    /// VStack reflow slides the cards below up through the vacated
+                    /// space. Structural removals that carry no animation (e.g.
+                    /// Clear All) resolve the .opacity removal transition instantly.
+                    ///
+                    /// Spelled with the Transition types rather than AnyTransition's
+                    /// `.identity`/`.opacity` statics, which the SDK declares
+                    /// nonisolated(unsafe); the transitions are the same ones.
                     .transition(.asymmetric(
                         insertion: presentIDs.contains(session.id)
                             ? AnyTransition(IdentityTransition())
@@ -659,14 +659,14 @@ private struct ImportSessionList: View {
                 Color.clear.frame(height: column.extent(of: mounted.upperBound..<revealed.count))
             }
         }
-        // Insertion spring. Keyed to insertionCount so it fires only when the
-        // list grows — never for deletions or tab switches.
-        // A plain VStack (not LazyVStack) is required: LazyVStack recycles
-        // views and cannot animate structural changes.
+        /// Insertion spring. Keyed to insertionCount so it fires only when the
+        /// list grows — never for deletions or tab switches.
+        /// A plain VStack (not LazyVStack) is required: LazyVStack recycles
+        /// views and cannot animate structural changes.
         .animation(.spring(response: 0.35, dampingFraction: 0.85),
                    value: insertionCount)
-        // Shapes whose height is not yet known, measured once per app run from
-        // the real card, laid out and never drawn. See "Windowed mounting".
+        /// Shapes whose height is not yet known, measured once per app run from
+        /// the real card, laid out and never drawn. See "Windowed mounting".
         .background(alignment: .top) {
             if !unmeasured.isEmpty {
                 ZStack(alignment: .top) {
@@ -681,22 +681,22 @@ private struct ImportSessionList: View {
         }
         .padding(.vertical, CardColumn.padding)
         }
-        // Removal spring. Keyed to removingIDs so it fires at the exact update
-        // that removes a row from the ForEach — the same transaction-independent
-        // mechanism that drives the insertion spring via insertionCount. This is
-        // the sole animation source for removals (see comment block above). It
-        // sits outside ShrinkAnchoredLayout so the same spring also carries the
-        // list's placement within the held frame (`removalAnchor`).
-        // Also fires at the hygiene cleanup below, where the listed sessions are
-        // provably unchanged, so there is nothing for it to animate there.
+        /// Removal spring. Keyed to removingIDs so it fires at the exact update
+        /// that removes a row from the ForEach — the same transaction-independent
+        /// mechanism that drives the insertion spring via insertionCount. This is
+        /// the sole animation source for removals (see comment block above). It
+        /// sits outside ShrinkAnchoredLayout so the same spring also carries the
+        /// list's placement within the held frame (`removalAnchor`).
+        /// Also fires at the hygiene cleanup below, where the listed sessions are
+        /// provably unchanged, so there is nothing for it to animate there.
         .animation(.spring(response: Self.removalResponse,
                            dampingFraction: Self.removalDampingFraction),
                    value: removingIDs)
-        // Hygiene: once ImportHistory confirms a deletion — or the session set is
-        // swapped wholesale by a tab switch — drop any IDs that no longer
-        // exist in `sessions`. An absent ID filters nothing, so this can never
-        // change the listed sessions, and therefore can never cause a visual
-        // change, an animation, or a jump.
+        /// Hygiene: once ImportHistory confirms a deletion — or the session set is
+        /// swapped wholesale by a tab switch — drop any IDs that no longer
+        /// exist in `sessions`. An absent ID filters nothing, so this can never
+        /// change the listed sessions, and therefore can never cause a visual
+        /// change, an animation, or a jump.
         .onChange(of: sessions.map(\.id)) { _, newIDs in
             let ids = Set(newIDs)
             removingIDs.formIntersection(ids)
@@ -705,13 +705,13 @@ private struct ImportSessionList: View {
             installRemovalProbe()
             #endif
         }
-        // This update is the one that starts the removal spring; the scroll view
-        // times the end of its hold from it.
+        /// This update is the one that starts the removal spring; the scroll view
+        /// times the end of its hold from it.
         .onChange(of: removingIDs) { old, new in
             if new.count > old.count { scrollProxy.shrinkDidBegin() }
         }
-        // Not cleared on disappearance: the scroll view reporting to it goes away with
-        // this list, and a list that replaces this one installs its own.
+        /// Not cleared on disappearance: the scroll view reporting to it goes away with
+        /// this list, and a list that replaces this one installs its own.
         .onAppear {
             presentIDs = Set(sessions.map(\.id))
             scrollProxy.viewportHandler = { [viewport] rect in viewport.update(rect) }
@@ -762,27 +762,27 @@ private struct ImportSessionList: View {
 
     /// Starts the removal of the session with `sessionID`, which must be on screen.
     private func beginRemoval(of sessionID: UUID) {
-        // Ignore re-entry (e.g. invoking the context menu again on a card
-        // whose fade-out is already running) so the delayed delete below can
-        // never be scheduled twice for the same session.
+        /// Ignore re-entry (e.g. invoking the context menu again on a card
+        /// whose fade-out is already running) so the delayed delete below can
+        /// never be scheduled twice for the same session.
         guard !removingIDs.contains(sessionID) else { return }
-        // BEFORE the state change, so the scroll view holds the document at its
-        // current height through the spring instead of clamping the scroll offset
-        // to the shorter list in one frame (see "Animated shrink" in 98.20 UtilityKit.swift). The
-        // anchor it reports places the list within the held frame, in this same
-        // animated update, so a removal near the bottom brings the cards above
-        // down rather than leaving the viewport past the list's end.
+        /// BEFORE the state change, so the scroll view holds the document at its
+        /// current height through the spring instead of clamping the scroll offset
+        /// to the shorter list in one frame (see "Animated shrink" in 98.20 UtilityKit.swift). The
+        /// anchor it reports places the list within the held frame, in this same
+        /// animated update, so a removal near the bottom brings the cards above
+        /// down rather than leaving the viewport past the list's end.
         removalAnchor = scrollProxy.holdForAnimatedShrink(
             response: Self.removalResponse, dampingFraction: Self.removalDampingFraction)
-        // Structural removal from the ForEach, animated. The bare mutation is
-        // picked up by the .animation(value: removingIDs) modifier on the VStack,
-        // which injects the spring at the exact update that removes the row —
-        // the same transaction-independent mechanism that drives the insertion
-        // spring via insertionCount, so withAnimation is unnecessary here.
+        /// Structural removal from the ForEach, animated. The bare mutation is
+        /// picked up by the .animation(value: removingIDs) modifier on the VStack,
+        /// which injects the spring at the exact update that removes the row —
+        /// the same transaction-independent mechanism that drives the insertion
+        /// spring via insertionCount, so withAnimation is unnecessary here.
         removingIDs.insert(sessionID)
-        // Defer the database delete until the animation has visually settled
-        // so the record never leaves `sessions` mid-animation. When the deletion
-        // lands, the listed sessions are unchanged — zero visual delta.
+        /// Defer the database delete until the animation has visually settled
+        /// so the record never leaves `sessions` mid-animation. When the deletion
+        /// lands, the listed sessions are unchanged — zero visual delta.
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(400))
             onDelete(sessionID)
@@ -822,14 +822,14 @@ private struct SessionCardRow: View, Equatable {
                 .frame(maxWidth: importBoxMaxWidth)
             Spacer(minLength: importBoxEdgeInset)
         }
-        // A card is always its ideal height (see "Card Shapes and Heights"); saying so
-        // spares the VStack probing it at other heights on every layout.
+        /// A card is always its ideal height (see "Card Shapes and Heights"); saying so
+        /// spares the VStack probing it at other heights on every layout.
         .fixedSize(horizontal: false, vertical: true)
-        // Shadow on the outer HStack so it is never clipped by the
-        // card's own clip shape.
+        /// Shadow on the outer HStack so it is never clipped by the
+        /// card's own clip shape.
         .shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1)
-        // Every mounted card keeps its shape's height current (see "Windowed
-        // mounting"); a template does the same for a shape no card has shown yet.
+        /// Every mounted card keeps its shape's height current (see "Windowed
+        /// mounting"); a template does the same for a shape no card has shown yet.
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.height
         } action: { height in
@@ -942,9 +942,9 @@ private struct CardColumn {
     /// The cards any part of which lies within `span`.
     func cards(in span: ClosedRange<CGFloat>) -> Range<Int> {
         let count = tops.count - 1
-        // First card whose bottom reaches the span's top.
+        /// First card whose bottom reaches the span's top.
         let first = Self.partition(count) { tops[$0 + 1] - Self.spacing >= span.lowerBound }
-        // First card whose top lies past the span's bottom.
+        /// First card whose top lies past the span's bottom.
         let end = Self.partition(count) { tops[$0] > span.upperBound }
         return first..<max(first, end)
     }
@@ -1015,14 +1015,14 @@ final class ImportsListViewport {
         self.rect = rect
         Self.lastHeight = rect.height
         if let mounted {
-            // Only once the viewport needs it. (Reaching ahead earlier buys nothing: a live
-            // scroll waits on the main thread every frame, so a late window costs dropped
-            // frames, never a gap — and an early one costs them more often.)
+            /// Only once the viewport needs it. (Reaching ahead earlier buys nothing: a live
+            /// scroll waits on the main thread every frame, so a late window costs dropped
+            /// frames, never a gap — and an early one costs them more often.)
             if mounted.lowerBound > rect.minY - margin || mounted.upperBound < rect.maxY + margin {
                 let ahead = target(rect)
-                // Mid-scroll, only the edge the viewport reached moves — a lead ahead — and
-                // nothing is let go: as little as can be built inside the scroll. At rest (a
-                // programmatic scroll, a resize), the window is simply what it should be.
+                /// Mid-scroll, only the edge the viewport reached moves — a lead ahead — and
+                /// nothing is let go: as little as can be built inside the scroll. At rest (a
+                /// programmatic scroll, a resize), the window is simply what it should be.
                 if isLiveScrolling {
                     let lower = mounted.lowerBound > rect.minY - margin ? ahead.lowerBound : mounted.lowerBound
                     let upper = mounted.upperBound < rect.maxY + margin ? ahead.upperBound : mounted.upperBound
@@ -1032,7 +1032,7 @@ final class ImportsListViewport {
                 }
             }
         } else {
-            // The first report: the window the first frame used, now from the real viewport.
+            /// The first report: the window the first frame used, now from the real viewport.
             mounted = (rect.minY - margin)...(rect.maxY + margin)
         }
         if !isLiveScrolling { scheduleGrowth() }
@@ -1122,18 +1122,18 @@ private struct ShrinkAnchoredLayout: Layout {
         guard let subview = subviews.first else { return }
         let ideal = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
         let lowered = anchor.lowering(frameHeight: bounds.height, contentHeight: ideal.height)
-        // Placed with the same unspecified height it was measured at, which it then takes
-        // exactly. A concrete height would be the identical size, but makes the VStack
-        // probe every card at several heights to share it out — on every layout, which
-        // windowed mounting brings about each time the window moves during a scroll.
+        /// Placed with the same unspecified height it was measured at, which it then takes
+        /// exactly. A concrete height would be the identical size, but makes the VStack
+        /// probe every card at several heights to share it out — on every layout, which
+        /// windowed mounting brings about each time the window moves during a scroll.
         subview.place(at: CGPoint(x: bounds.minX, y: bounds.minY + lowered), anchor: .topLeading,
                       proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 
-    // No alignment guides of its own. The default merges its subview's, which asks the
-    // VStack, which asks every card, down to each Details button, on every layout. Nothing
-    // aligns this view by a guide: its container is a fixed-width frame, centered, that
-    // takes exactly its height.
+    /// No alignment guides of its own. The default merges its subview's, which asks the
+    /// VStack, which asks every card, down to each Details button, on every layout. Nothing
+    /// aligns this view by a guide: its container is a fixed-width frame, centered, that
+    /// takes exactly its height.
     func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
                            subviews: Subviews, cache: inout ()) -> CGFloat? { nil }
     func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize,
@@ -1142,14 +1142,14 @@ private struct ShrinkAnchoredLayout: Layout {
 
 // MARK: - Session Card Content
 
-// SessionCardContent renders a completed-import card at its natural, immutable
-// size. No height-related modifiers may ever be added to this view: card
-// heights never change, including during removal — the removal animation is a
-// structural exclusion handled entirely by ImportSessionList above.
-//
-// A card has no interactive state that could change its height. Failed files are listed in the Details popover
-// (its Errors tab shows `errorFileNames`, alongside the other four categories), so nothing here should introduce
-// per-card view state.
+/// SessionCardContent renders a completed-import card at its natural, immutable
+/// size. No height-related modifiers may ever be added to this view: card
+/// heights never change, including during removal — the removal animation is a
+/// structural exclusion handled entirely by ImportSessionList above.
+///
+/// A card has no interactive state that could change its height. Failed files are listed in the Details popover
+/// (its Errors tab shows `errorFileNames`, alongside the other four categories), so nothing here should introduce
+/// per-card view state.
 
 private struct SessionCardContent: View {
     let session: ImportSessionRecord
@@ -1157,12 +1157,12 @@ private struct SessionCardContent: View {
     let onClearAll: () -> Void
     @State private var isShowingDetailsPopover = false
 
-    // Distinguishes a partial failure from a total one. Every processed item failing
-    // means the session accomplished nothing, which is worth saying plainly rather
-    // than filing under "some". Duplicates and in-place updates count as processed
-    // and NOT as errors, so a session that skipped duplicates and failed the rest
-    // correctly reads as partial. `>=` rather than `==` so an unforeseen count skew
-    // can never leave the message understating the outcome.
+    /// Distinguishes a partial failure from a total one. Every processed item failing
+    /// means the session accomplished nothing, which is worth saying plainly rather
+    /// than filing under "some". Duplicates and in-place updates count as processed
+    /// and NOT as errors, so a session that skipped duplicates and failed the rest
+    /// correctly reads as partial. `>=` rather than `==` so an unforeseen count skew
+    /// can never leave the message understating the outcome.
     private var failureMessage: String {
         session.errorCount >= session.totalItems
             ? "Import session failed."
@@ -1171,7 +1171,7 @@ private struct SessionCardContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header.
+            /// Header.
             HStack {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(session.dateFormatted)
@@ -1189,29 +1189,29 @@ private struct SessionCardContent: View {
 
                 Spacer()
 
-                // Failure notice, sitting immediately left of the "Details" button it
-                // is telling the user to press. Canceled sessions are excluded: their
-                // unprocessed remainder isn't a failure, and they show no Details
-                // button for this line to point at.
+                /// Failure notice, sitting immediately left of the "Details" button it
+                /// is telling the user to press. Canceled sessions are excluded: their
+                /// unprocessed remainder isn't a failure, and they show no Details
+                /// button for this line to point at.
                 if !session.isCanceled, session.errorCount > 0 {
                     HStack(spacing: 5) {
-                        // Palette rendering paints the two layers separately: the
-                        // first color is the exclamation mark, the second the
-                        // triangle it sits in — so this is a white mark punched out
-                        // of a red triangle, in both light and dark appearances.
-                        // (Reversing the pair silently yields a red mark on a white
-                        // triangle, which all but vanishes on a light card.)
+                        /// Palette rendering paints the two layers separately: the
+                        /// first color is the exclamation mark, the second the
+                        /// triangle it sits in — so this is a white mark punched out
+                        /// of a red triangle, in both light and dark appearances.
+                        /// (Reversing the pair silently yields a red mark on a white
+                        /// triangle, which all but vanishes on a light card.)
                         Image(systemName: ViewGlyphs.importsFailure.outline)
                             .symbolRenderingMode(.palette)
                             .foregroundStyle(.white, .red)
-                        // The glyph alone carries the alarm; the sentence stays in
-                        // the same secondary tone as the rest of the card header so
-                        // the notice reads as information rather than shouting.
+                        /// The glyph alone carries the alarm; the sentence stays in
+                        /// the same secondary tone as the rest of the card header so
+                        /// the notice reads as information rather than shouting.
                         Text(failureMessage)
-                            // Never wrap. Card height must not vary (see the note
-                            // above the struct), and a message that wrapped to two
-                            // lines at narrow window widths would make this card's
-                            // height depend on the window's.
+                            /// Never wrap. Card height must not vary (see the note
+                            /// above the struct), and a message that wrapped to two
+                            /// lines at narrow window widths would make this card's
+                            /// height depend on the window's.
                             .lineLimit(1)
                             .foregroundStyle(.secondary)
                     }
@@ -1219,9 +1219,9 @@ private struct SessionCardContent: View {
                     .help("Click \"Details\" for specific titles.")
                 }
 
-                // "Details" button — surfaces the specific titles involved in this
-                // session via a popover (SessionDetailsPopover). Hidden for canceled
-                // sessions, which have no per-category title breakdown to show.
+                /// "Details" button — surfaces the specific titles involved in this
+                /// session via a popover (SessionDetailsPopover). Hidden for canceled
+                /// sessions, which have no per-category title breakdown to show.
                 if !session.isCanceled {
                     Button("Details") {
                         isShowingDetailsPopover.toggle()
@@ -1232,17 +1232,17 @@ private struct SessionCardContent: View {
                     .popover(isPresented: $isShowingDetailsPopover, arrowEdge: .leading) {
                         SessionDetailsPopover(session: session)
                     }
-                    // Scroll-dismiss: closes the popover whenever this button's vertical
-                    // position in global coordinates changes — i.e., the session list
-                    // (an AppKitScrollView-backed NSScrollView) was scrolled. This is the
-                    // same onGeometryChange(for:of:action:) pattern HelpPopoverButton
-                    // uses (GlobalUtilities.swift) rather than a background
-                    // GeometryReader: onGeometryChange computes only the reduced minY
-                    // value and fires its action solely when that value actually
-                    // changes, with no extra layout node and no per-frame view-tree
-                    // work — the same efficiency rationale documented there applies
-                    // here, where this button is mounted once per session card in a
-                    // potentially long scrolling list.
+                    /// Scroll-dismiss: closes the popover whenever this button's vertical
+                    /// position in global coordinates changes — i.e., the session list
+                    /// (an AppKitScrollView-backed NSScrollView) was scrolled. This is the
+                    /// same onGeometryChange(for:of:action:) pattern HelpPopoverButton
+                    /// uses (GlobalUtilities.swift) rather than a background
+                    /// GeometryReader: onGeometryChange computes only the reduced minY
+                    /// value and fires its action solely when that value actually
+                    /// changes, with no extra layout node and no per-frame view-tree
+                    /// work — the same efficiency rationale documented there applies
+                    /// here, where this button is mounted once per session card in a
+                    /// potentially long scrolling list.
                     .onGeometryChange(for: CGFloat.self) { proxy in
                         proxy.frame(in: .global).minY
                     } action: { _ in
@@ -1254,7 +1254,7 @@ private struct SessionCardContent: View {
 
             }
 
-            // Stats (showing progress for canceled imports, full stats otherwise).
+            /// Stats (showing progress for canceled imports, full stats otherwise).
             if session.isCanceled {
                 VStack(alignment: .leading, spacing: 4) {
                     StatRow(
@@ -1291,14 +1291,14 @@ private struct SessionCardContent: View {
                 .font(.caption)
             }
         }
-        // Box chrome.
+        /// Box chrome.
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(NSColor.controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: Preferences.cornerRadius))
-        // Context menu lives here so it targets the visible card surface.
-        // Shadow is on the outer HStack in ForEach — not here — so it renders
-        // in an unclipped layer and can extend freely in all directions.
+        /// Context menu lives here so it targets the visible card surface.
+        /// Shadow is on the outer HStack in ForEach — not here — so it renders
+        /// in an unclipped layer and can extend freely in all directions.
         .contextMenu {
             Button("Clear This Item", action: onClearThis)
             Button("Clear All",       action: onClearAll)
@@ -1320,10 +1320,10 @@ private struct StatRow: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Text(value)
-                .monospacedDigit() // Prevents layout shifts as numbers change.
+                .monospacedDigit() /// Prevents layout shifts as numbers change.
                 .fontWeight(.medium)
                 .foregroundStyle(isError ? .red : .primary)
-                .frame(minWidth: 40, alignment: .trailing) // Prevents jiggling.
+                .frame(minWidth: 40, alignment: .trailing) /// Prevents jiggling.
         }
     }
 }
@@ -1342,62 +1342,62 @@ private enum SessionDetailsCategory: String, CaseIterable, Identifiable {
 }
 
 // MARK: - Session Details Popover
-// Presented from SessionCardContent's "Details" button. This deliberately does not
-// reuse HelpPopoverButton (GlobalUtilities.swift): that utility renders a single block
-// of static help text, while this popover needs an internal segmented-Picker header
-// and a separately-scrolling title list — different enough content shape that bolting
-// it onto the shared single-purpose utility would complicate that call site for
-// every other consumer.
-//
-// The header is a SheetSegmentedControl (30.20) — an NSSegmentedControl driven
-// directly — rather than SwiftUI's segmented Picker, because it disables the
-// categories with nothing to list: AppKit's per-segment
-// `setEnabled(_:forSegment:)` is the native way to gray one out, and the SwiftUI
-// Picker has no reliable per-segment equivalent. "All" always stays enabled, as the
-// landing tab, and shows "No Items" for a session that touched nothing. The auto-dismiss/position-tracking behavior of
-// HelpPopoverButton isn't reproduced here since a Details popover is deliberately
-// left open while the user browses between tabs.
+/// Presented from SessionCardContent's "Details" button. This deliberately does not
+/// reuse HelpPopoverButton (GlobalUtilities.swift): that utility renders a single block
+/// of static help text, while this popover needs an internal segmented-Picker header
+/// and a separately-scrolling title list — different enough content shape that bolting
+/// it onto the shared single-purpose utility would complicate that call site for
+/// every other consumer.
+///
+/// The header is a SheetSegmentedControl (30.20) — an NSSegmentedControl driven
+/// directly — rather than SwiftUI's segmented Picker, because it disables the
+/// categories with nothing to list: AppKit's per-segment
+/// `setEnabled(_:forSegment:)` is the native way to gray one out, and the SwiftUI
+/// Picker has no reliable per-segment equivalent. "All" always stays enabled, as the
+/// landing tab, and shows "No Items" for a session that touched nothing. The auto-dismiss/position-tracking behavior of
+/// HelpPopoverButton isn't reproduced here since a Details popover is deliberately
+/// left open while the user browses between tabs.
 private struct SessionDetailsPopover: View {
     let session: ImportSessionRecord
     @State private var selectedCategory: SessionDetailsCategory = .all
 
     // MARK: Layout Constants
     private static let popoverWidth: CGFloat = 300
-    // Fixed total popover height, regardless of content, so every tab (All, Added, Updated, Errors, Duplicates)
-    // is the same size.
+    /// Fixed total popover height, regardless of content, so every tab (All, Added, Updated, Errors, Duplicates)
+    /// is the same size.
     private static let popoverHeight: CGFloat = 400
-    // Horizontal padding applied to the picker (i.e. the header buttons) on each
-    // side, measured from the popover's edges. The divider below is inset by this
-    // same amount on both sides so its ends line up with the picker's edges
-    // rather than running the full popover width.
+    /// Horizontal padding applied to the picker (i.e. the header buttons) on each
+    /// side, measured from the popover's edges. The divider below is inset by this
+    /// same amount on both sides so its ends line up with the picker's edges
+    /// rather than running the full popover width.
     private static let headerHorizontalPadding: CGFloat = 10
 
     var body: some View {
-        // Computed once per render — reused both to decide the branch below and to
-        // size the overall popover so the header never has to recompute this twice.
+        /// Computed once per render — reused both to decide the branch below and to
+        /// size the overall popover so the header never has to recompute this twice.
         let titles = titles(for: selectedCategory)
 
         VStack(spacing: 0) {
-            // Fixed header: segmented category picker atop a divider. The control
-            // refuses first responder, so it is never a Tab stop and never draws the
-            // native focus ring. It is the AppKit equivalent of `.focusable(false)`.
+            /// Fixed header: segmented category picker atop a divider. The control
+            /// refuses first responder, so it is never a Tab stop and never draws the
+            /// native focus ring. It is the AppKit equivalent of `.focusable(false)`.
             SheetSegmentedControl(selection: $selectedCategory, segments: segments,
                                   refusesFirstResponder: true)
                 .padding(.horizontal, Self.headerHorizontalPadding)
                 .padding(.top, 10)
                 .padding(.bottom, 8)
 
-            // Divider is inset by the same horizontal padding as the picker above,
-            // so its ends align with the picker's edges rather than the popover's.
+            /// Divider is inset by the same horizontal padding as the picker above,
+            /// so its ends align with the picker's edges rather than the popover's.
             Divider()
                 .padding(.horizontal, Self.headerHorizontalPadding)
 
-            // Scrollable title list for the currently selected category. maxHeight:
-            // .infinity on both branches below means this always extends to fill
-            // 100% of the space between the divider and the popover's bottom edge —
-            // the actual popover height is fixed by the .frame(height:) below, not
-            // estimated independently here, so there is never a gap between this
-            // view's own bounds and the popover's true bottom edge.
+            /// Scrollable title list for the currently selected category. maxHeight:
+            /// .infinity on both branches below means this always extends to fill
+            /// 100% of the space between the divider and the popover's bottom edge —
+            /// the actual popover height is fixed by the .frame(height:) below, not
+            /// estimated independently here, so there is never a gap between this
+            /// view's own bounds and the popover's true bottom edge.
             if titles.isEmpty {
                 Text("No Items")
                     .font(.caption)
@@ -1405,9 +1405,9 @@ private struct SessionDetailsPopover: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    // LazyVStack defers row creation until scrolled into view, keeping
-                    // both initial popover presentation and scrolling responsive even
-                    // for sessions with large title counts.
+                    /// LazyVStack defers row creation until scrolled into view, keeping
+                    /// both initial popover presentation and scrolling responsive even
+                    /// for sessions with large title counts.
                     LazyVStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(titles.enumerated()), id: \.offset) { _, title in
                             Text(title)
@@ -1424,14 +1424,14 @@ private struct SessionDetailsPopover: View {
             }
         }
         .frame(width: Self.popoverWidth)
-        // A single fixed total height, regardless of content. Because the
-        // ScrollView/placeholder above both use maxHeight: .infinity, they always
-        // expand to consume every point of vertical space this frame allots below
-        // the divider. alignment: .top keeps the header itself from shifting.
+        /// A single fixed total height, regardless of content. Because the
+        /// ScrollView/placeholder above both use maxHeight: .infinity, they always
+        /// expand to consume every point of vertical space this frame allots below
+        /// the divider. alignment: .top keeps the header itself from shifting.
         .frame(height: Self.popoverHeight, alignment: .top)
     }
 
-    // One segment per category; a category with no titles is disabled, except "All".
+    /// One segment per category; a category with no titles is disabled, except "All".
     private var segments: [SheetSegmentedControl<SessionDetailsCategory>.Segment] {
         SessionDetailsCategory.allCases.map { category in
             .init(category, category.rawValue,
@@ -1439,8 +1439,8 @@ private struct SessionDetailsPopover: View {
         }
     }
 
-    // Returns the titles for the given category. "All" concatenates every category
-    // in the same order their counts appear among the card's stat rows.
+    /// Returns the titles for the given category. "All" concatenates every category
+    /// in the same order their counts appear among the card's stat rows.
     private func titles(for category: SessionDetailsCategory) -> [String] {
         switch category {
         case .all:

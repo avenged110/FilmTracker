@@ -1,8 +1,8 @@
-// MARK: - SavedSearchControls.swift
+// MARK: - SSControls.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The saved-search actions that the sidebar, title bar, toolbar, and menu bar share, and the
-// title bar's "Save Search" button.
+/// The saved-search actions that the sidebar, title bar, toolbar, and menu bar share, and the
+/// title bar's "Save Search" button.
 
 import SwiftUI
 
@@ -21,7 +21,21 @@ enum SavedSearchActions {
     /// search returns to the view it was opened from. Once the field changes, the title bar's
     /// Save Search button can update that saved search (`fieldOrigin`).
     static func openInSearchField(_ id: UUID) {
+        if reviewInsteadOfOpening(id) { return }
         AppEventBus.shared.sendCommand(.openSavedSearchInField(id))
+    }
+
+    /// A saved search that needs review (SavedSearchStore.needsReview) is never run with the
+    /// rules it has left, in the field any more than in its own view: that could find far
+    /// more films than its user meant. Asked to open one in the field — from its menus or
+    /// the field's drop-down — this goes to its own view instead, which finds nothing and
+    /// says why, and opens the builder over it once the view has switched. True when it did.
+    static func reviewInsteadOfOpening(_ id: UUID) -> Bool {
+        guard SavedSearchStore.shared.needsReview(id) else { return false }
+        AppDelegate.appState?.navigate(to: .savedSearch(id))
+        /// One turn later, so the sheet opens over the view it is about, not the one left.
+        Task { @MainActor in edit(id) }
+        return true
     }
 
     /// The saved search the field was opened from, while the field still holds it; nil
@@ -96,8 +110,8 @@ struct SaveSearchButton: View {
             } label: {
                 glyph.frame(width: Preferences.buttonWidth)
             }
-            // Sized like TrashMenuButton, the row's other glyph-only menu (see the sizing
-            // note on GalleryTitleBar.buttonSection).
+            /// Sized like TrashMenuButton, the row's other glyph-only menu (see the sizing
+            /// note on GalleryTitleBar.buttonSection).
             .fixedSize()
             .menuIndicator(.hidden)
             .frame(width: Preferences.buttonSpacing)
@@ -110,12 +124,12 @@ struct SaveSearchButton: View {
             } label: {
                 glyph.frame(width: 14)
             }
-            // Sized like the view-style toggle (see the sizing note on
-            // GalleryTitleBar.buttonSection).
+            /// Sized like the view-style toggle (see the sizing note on
+            /// GalleryTitleBar.buttonSection).
             .frame(maxWidth: Preferences.buttonWidth)
             .fixedSize()
             .frame(width: Preferences.buttonSpacing)
-            // A saved search opened in the field and not yet changed is already saved.
+            /// A saved search opened in the field and not yet changed is already saved.
             .disabled(!canSave || isUnchangedOrigin)
             .help("Save this search to the sidebar")
         }

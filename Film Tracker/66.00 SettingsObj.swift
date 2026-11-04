@@ -1,7 +1,7 @@
 // MARK: - SettingsObj.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Core Data model to persist user preferences for backup/restore functionality.
+/// Core Data model to persist user preferences for backup/restore functionality.
 
 import Foundation
 import CoreData
@@ -9,7 +9,7 @@ import CoreData
 @objc(SettingsObject)
 final class SettingsObject: LibraryObject {
     // MARK: - Metadata
-    var snapshotID: UUID { get { requiredUUID("snapshotID") } set { setValue(newValue, forKey: "snapshotID") } } // See requiredUUID.
+    var snapshotID: UUID { get { requiredUUID("snapshotID") } set { setValue(newValue, forKey: "snapshotID") } } /// See requiredUUID.
     @NSManaged var version: Int
     @NSManaged var lastSyncDate: Date
     
@@ -224,22 +224,22 @@ final class SettingsObject: LibraryObject {
 
 // MARK: - Exportable Protocol Conformance
 extension SettingsObject: ExportableModel {
-    // DBReader uses exportStableID() to get the object's UUID
-    // If this returns nil, DBReader generates a random UUID for export!
+    /// DBReader uses exportStableID() to get the object's UUID
+    /// If this returns nil, DBReader generates a random UUID for export!
     func exportStableID() -> String? {
         return snapshotID.uuidString
     }
     
-    // Exports every property explicitly; an unset optional is left out.
+    /// Exports every property explicitly; an unset optional is left out.
     func extractExportValues() -> (properties: [String: Any], relationships: [String: [Any]]) {
         var props: [String: Any] = [:]
         
-        // Metadata (always present)
+        /// Metadata (always present)
         props["snapshotID"] = snapshotID
         props["version"] = version
         props["lastSyncDate"] = lastSyncDate
         
-        // General Preferences - explicitly check each optional
+        /// General Preferences - explicitly check each optional
         if let val = confirmGalleryDelete { props["confirmGalleryDelete"] = val }
         if let val = confirmListEdits { props["confirmListEdits"] = val }
         if let val = listEditScope { props["listEditScope"] = val }
@@ -262,7 +262,7 @@ extension SettingsObject: ExportableModel {
         if let val = performBackupAtLaunch { props["performBackupAtLaunch"] = val }
         if let val = defaultRotationThreshold { props["defaultRotationThreshold"] = val }
         
-        // Import Preferences
+        /// Import Preferences
         if let val = importScanSubfolders { props["importScanSubfolders"] = val }
         if let val = fuzzyImportMatching { props["fuzzyImportMatching"] = val }
         if let val = fuzzyImportYearMatching { props["fuzzyImportYearMatching"] = val }
@@ -270,12 +270,12 @@ extension SettingsObject: ExportableModel {
         if let val = allowUpdatesForDuplicateImports { props["allowUpdatesForDuplicateImports"] = val }
         if let val = allowUpdatesForDuplicateRatings { props["allowUpdatesForDuplicateRatings"] = val }
         
-        // Export Preferences
+        /// Export Preferences
         if let val = exportPosterImages { props["exportPosterImages"] = val }
         if let val = prunePosterImages { props["prunePosterImages"] = val }
         if let val = exportUserSettings { props["exportUserSettings"] = val }
         
-        // UI State Preferences
+        /// UI State Preferences
         if let val = maintainScrollPositionOnViewSwitch { props["maintainScrollPositionOnViewSwitch"] = val }
         if let val = rememberTabSelection { props["rememberTabSelection"] = val }
         if let val = tabRememberScope { props["tabRememberScope"] = val }
@@ -293,14 +293,14 @@ extension SettingsObject: ExportableModel {
         if let val = showWatchDetailsAnnotationGlyphs { props["showWatchDetailsAnnotationGlyphs"] = val }
         if let val = atvq { props["atvq"] = val }
         
-        // Advanced Preferences
+        /// Advanced Preferences
         if let val = loggingEnabled { props["loggingEnabled"] = val }
         
-        // Complex Preferences (JSON strings)
+        /// Complex Preferences (JSON strings)
         if let val = selectedSortOptionsJSON { props["selectedSortOptionsJSON"] = val }
         if let val = ignoredDuplicatePairsJSON { props["ignoredDuplicatePairsJSON"] = val }
         
-        // No relationships for SettingsObject
+        /// No relationships for SettingsObject
         return (props, [:])
     }
 }

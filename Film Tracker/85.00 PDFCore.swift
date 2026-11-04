@@ -1,20 +1,20 @@
 // MARK: - PDFCore.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Shared, content-agnostic PDF machinery: page geometry, fonts, the cell fill palette,
-// and the low-level drawing primitives every PDF report in the app is built from.
-//
-// This file knows nothing about films, releases, or reports. It is the bottom layer of a
-// three-file stack:
-//
-//     85.00 PDFCore.swift            ← geometry, fonts, colors, drawing primitives
-//     85.10 PDFTableRenderer.swift   ← paginated table layout built on those primitives
-//     85.20 PDFReport.swift   ← the complete-library table's content and rules
-//
-// Both PDF-producing features draw from this stack: the per-tab report sheets in
-// ReportExporter.swift (27.50) and the whole-library export in PDFExporter.swift
-// (43.10), which assembles those sheets after the library table. Anything either of them
-// would otherwise restate belongs here.
+/// Shared, content-agnostic PDF machinery: page geometry, fonts, the cell fill palette,
+/// and the low-level drawing primitives every PDF report in the app is built from.
+///
+/// This file knows nothing about films, releases, or reports. It is the bottom layer of a
+/// three-file stack:
+///
+///     85.00 PDFCore.swift            ← geometry, fonts, colors, drawing primitives
+///     85.10 PDFTableRenderer.swift   ← paginated table layout built on those primitives
+///     85.20 PDFReport.swift   ← the complete-library table's content and rules
+///
+/// Both PDF-producing features draw from this stack: the per-tab report sheets in
+/// ReportExporter.swift (27.50) and the whole-library export in PDFExporter.swift
+/// (43.10), which assembles those sheets after the library table. Anything either of them
+/// would otherwise restate belongs here.
 
 import AppKit
 import Foundation
@@ -98,8 +98,8 @@ struct PDFPageGeometry: Sendable {
     /// library document); the PDF harness renders a portrait probe on it to prove the
     /// renderer's per-page media box handles mixed orientations.
     static let portraitLetter = PDFPageGeometry(
-        pageSize: CGSize(width: 612, height: 792), // 8.5" x 11" at 72 DPI
-        margin: 54,                                // 0.75"
+        pageSize: CGSize(width: 612, height: 792), /// 8.5" x 11" at 72 DPI
+        margin: 54,                                /// 0.75"
         fontSize: 6,
         headerFontSize: 6,
         titleFontSize: 9,
@@ -120,8 +120,8 @@ struct PDFPageGeometry: Sendable {
     /// film in the library across sixteen columns, and the smaller type buys width for the
     /// columns that wrap.
     static let landscapeLetter = PDFPageGeometry(
-        pageSize: CGSize(width: 792, height: 612), // 11" x 8.5" at 72 DPI
-        margin: 36,                                // 0.5"
+        pageSize: CGSize(width: 792, height: 612), /// 11" x 8.5" at 72 DPI
+        margin: 36,                                /// 0.5"
         fontSize: 5,
         headerFontSize: 4.5,
         titleFontSize: 8,
@@ -343,9 +343,9 @@ enum PDFPalette {
     static let brown = NSColor(calibratedRed: 0.52, green: 0.34, blue: 0.16, alpha: 1)
 
     // MARK: Aspect-ratio shades
-    // The one column whose fills are its own family. Four bands, deliberately darker than
-    // the shared shades so the column reads as a distinct axis rather than as more of the
-    // same purchase/quality signaling to its left.
+    /// The one column whose fills are its own family. Four bands, deliberately darker than
+    /// the shared shades so the column reads as a distinct axis rather than as more of the
+    /// same purchase/quality signaling to its left.
 
     /// Narrower than 1.60:1.
     static let veryDarkGold = NSColor(calibratedRed: 0.45, green: 0.33, blue: 0.02, alpha: 1)
@@ -377,12 +377,12 @@ enum PDFPalette {
     static let invertedText = NSColor.white
 
     // MARK: Batch hues
-    //
-    // A cycle of distinct hues for banding a ranked list into groups — the Hall of Fame's
-    // position column, which colors each block of twenty-five. These are NOT semantic: a
-    // reader is meant to see "this is a different block from the one above", not to read
-    // any meaning into which color a block got. That is why they are their own set rather
-    // than reuse of the shades above, every one of which does carry a meaning.
+    ///
+    /// A cycle of distinct hues for banding a ranked list into groups — the Hall of Fame's
+    /// position column, which colors each block of twenty-five. These are NOT semantic: a
+    /// reader is meant to see "this is a different block from the one above", not to read
+    /// any meaning into which color a block got. That is why they are their own set rather
+    /// than reuse of the shades above, every one of which does carry a meaning.
 
     /// The hue cycle, in the order blocks consume it. Eight entries against blocks of
     /// twenty-five covers the two hundred positions the Hall of Fame holds without a color
@@ -393,14 +393,14 @@ enum PDFPalette {
     /// to tell apart — exactly what the banding exists to prevent. This sequence steps
     /// across the wheel instead, so no block sits beside its own neighbor.
     static let bandHues: [NSColor] = [
-        NSColor(calibratedRed: 0.26, green: 0.55, blue: 0.88, alpha: 1), // blue
-        NSColor(calibratedRed: 0.90, green: 0.55, blue: 0.16, alpha: 1), // orange
-        NSColor(calibratedRed: 0.55, green: 0.36, blue: 0.84, alpha: 1), // violet
-        NSColor(calibratedRed: 0.30, green: 0.72, blue: 0.33, alpha: 1), // green
-        NSColor(calibratedRed: 0.85, green: 0.40, blue: 0.66, alpha: 1), // magenta
-        NSColor(calibratedRed: 0.85, green: 0.78, blue: 0.20, alpha: 1), // yellow
-        NSColor(calibratedRed: 0.24, green: 0.74, blue: 0.70, alpha: 1), // teal
-        NSColor(calibratedRed: 0.85, green: 0.26, blue: 0.24, alpha: 1), // red
+        NSColor(calibratedRed: 0.26, green: 0.55, blue: 0.88, alpha: 1), /// blue
+        NSColor(calibratedRed: 0.90, green: 0.55, blue: 0.16, alpha: 1), /// orange
+        NSColor(calibratedRed: 0.55, green: 0.36, blue: 0.84, alpha: 1), /// violet
+        NSColor(calibratedRed: 0.30, green: 0.72, blue: 0.33, alpha: 1), /// green
+        NSColor(calibratedRed: 0.85, green: 0.40, blue: 0.66, alpha: 1), /// magenta
+        NSColor(calibratedRed: 0.85, green: 0.78, blue: 0.20, alpha: 1), /// yellow
+        NSColor(calibratedRed: 0.24, green: 0.74, blue: 0.70, alpha: 1), /// teal
+        NSColor(calibratedRed: 0.85, green: 0.26, blue: 0.24, alpha: 1), /// red
     ]
 
     /// The hue for a block index, wrapping if a list ever outgrows the cycle.
@@ -409,7 +409,7 @@ enum PDFPalette {
     }
 
     // MARK: Table chrome
-    // Not cell fills — these are drawn at full opacity and are not subject to `fillAlpha`.
+    /// Not cell fills — these are drawn at full opacity and are not subject to `fillAlpha`.
 
     /// A qualified warning: a region-locked disc that this library's hardware cannot play
     /// without qualification. Light enough to stay a wash under black text, and warm enough
@@ -573,9 +573,9 @@ enum PDFDrawing {
                             context: CGContext,
                             lineWidth: CGFloat = 0.5) {
         guard !edges.isEmpty else { return }
-        // The complete set in the shared color is the overwhelmingly common case and is
-        // drawn as a rectangle rather than as four segments — identical output, a quarter
-        // of the path work.
+        /// The complete set in the shared color is the overwhelmingly common case and is
+        /// drawn as a rectangle rather than as four segments — identical output, a quarter
+        /// of the path work.
         if edges == .all && color == PDFPalette.border {
             return strokeBorder(rect, context: context, lineWidth: lineWidth)
         }
@@ -805,9 +805,9 @@ enum PDFBrandMark {
     /// mark hangs a title's height below the words it is supposed to sit beside.
     static func rect(in geometry: PDFPageGeometry) -> CGRect {
         let side = geometry.titleHeight
-        // The banner is right-aligned to the page margin and the icon is its LEADING half,
-        // so the icon's left edge is the margin less the whole banner's span. Derived from
-        // `reservedWidth` rather than re-adding its terms, so the two cannot drift.
+        /// The banner is right-aligned to the page margin and the icon is its LEADING half,
+        /// so the icon's left edge is the margin less the whole banner's span. Derived from
+        /// `reservedWidth` rather than re-adding its terms, so the two cannot drift.
         return CGRect(x: geometry.pageSize.width - geometry.margin - reservedWidth(in: geometry),
                       y: geometry.pageSize.height - geometry.margin - geometry.titleHeight + 10,
                       width: side,

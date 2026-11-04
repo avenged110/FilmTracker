@@ -1,8 +1,8 @@
 // MARK: - AppEventBus.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Centralized, type-safe event system that uses Combine publishers
-// for efficient, compile-time-checked event handling.
+/// Centralized, type-safe event system that uses Combine publishers
+/// for efficient, compile-time-checked event handling.
 
 import Foundation
 import Combine
@@ -192,8 +192,8 @@ enum UICommand: Equatable, Sendable {
     case reopenViewingEventPopover
 
     // MARK: Notes Tab
-    // No commands here: each frames table's add control is its own last row and
-    // scrolls itself into view, so no command is needed.
+    /// No commands here: each frames table's add control is its own last row and
+    /// scrolls itself into view, so no command is needed.
 
     // MARK: Gallery Navigation
     /// Scroll the gallery so the single selected film appears in the top visible row
@@ -226,8 +226,8 @@ enum AlertCommand: Equatable, Sendable {
     case confirmClearContents(listID: UUID, listName: String)
     
     // MARK: Film Removal Alerts
-    // `clearingSelection` carries the sender's FilmRemoval choice through the alert, so a
-    // confirmed removal treats the selection exactly as the unconfirmed one would.
+    /// `clearingSelection` carries the sender's FilmRemoval choice through the alert, so a
+    /// confirmed removal treats the selection exactly as the unconfirmed one would.
     /// Confirm removal of films from a specific list
     case confirmRemoveFromList(filmIDs: Set<UUID>, listID: UUID, listName: String, clearingSelection: Bool)
     /// Confirm removal of films from all lists

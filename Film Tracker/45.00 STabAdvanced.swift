@@ -1,11 +1,11 @@
 // MARK: - STabAdvanced.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// FilmTracker.app settings window: "Advanced" tab.
-//
-// Rows are built on SettingsKit's row factory (SettingsRow / SettingsDescribedToggle / SettingsControlStrip), and the
-// Debug Logging block is the kit's SettingsLoggingSection. The section's own LogFileMonitor watches the log directory
-// and gates the Reveal and Clear buttons.
+/// FilmTracker.app settings window: "Advanced" tab.
+///
+/// Rows are built on SettingsKit's row factory (SettingsRow / SettingsDescribedToggle / SettingsControlStrip), and the
+/// Debug Logging block is the kit's SettingsLoggingSection. The section's own LogFileMonitor watches the log directory
+/// and gates the Reveal and Clear buttons.
 
 import SwiftUI
 
@@ -26,8 +26,8 @@ struct AdvancedSettingsView: View, Loggable {
     @State private var showResetIgnoredPairsAlert = false
 
     var body: some View {
-        // SettingsPage with no padding: SettingsSheet applies the inset and supplies the scroll container. A scroll
-        // view's content is top-anchored, so this page takes its natural height rather than filling the sheet.
+        /// SettingsPage with no padding: SettingsSheet applies the inset and supplies the scroll container. A scroll
+        /// view's content is top-anchored, so this page takes its natural height rather than filling the sheet.
         SettingsPage(padding: 0) {
             SettingsRow("Show \"Complete Data\" components",
                         description: "Manually flag films as being complete and filter the gallery using this trait.",
@@ -36,11 +36,11 @@ struct AdvancedSettingsView: View, Loggable {
                 SettingsControlStrip {
                     Button("Reset All Flags") { showResetInfoCompleteAlert = true } } }
 
-            // The caveat appears only when there is a caveat to state. With
-            // purchasedDiscGlyphVisibilityOverride off, every glyph answers to this
-            // checkbox and the row needs no explanation; with it on, one glyph visibly
-            // does not, and a user toggling this off would otherwise be left wondering
-            // why the disc stayed behind.
+            /// The caveat appears only when there is a caveat to state. With
+            /// purchasedDiscGlyphVisibilityOverride off, every glyph answers to this
+            /// checkbox and the row needs no explanation; with it on, one glyph visibly
+            /// does not, and a user toggling this off would otherwise be left wondering
+            /// why the disc stayed behind.
             SettingsRow("Show glyphs in contextual sidebar fields",
                         description: Preferences.purchasedDiscGlyphVisibilityOverride
                             ? "This does not apply to the glyph used to denote a purchased release in the \"Source for Viewing\" field, which is always present."
@@ -69,11 +69,11 @@ struct AdvancedSettingsView: View, Loggable {
                 isOn: $prunePosterImages)
 
             // MARK: - Logging Section
-            // The forced log line on disable and shutdownLogging() are the section's own;
-            // this closure adds only Film Tracker's side effects. `Preferences.loggingEnabled`
-            // is already committed by the section's @AppStorage binding — writing it again
-            // through the setter is what routes the "loggingEnabled set to …" log line
-            // through Preferences' deduplicated write.
+            /// The forced log line on disable and shutdownLogging() are the section's own;
+            /// this closure adds only Film Tracker's side effects. `Preferences.loggingEnabled`
+            /// is already committed by the section's @AppStorage binding — writing it again
+            /// through the setter is what routes the "loggingEnabled set to …" log line
+            /// through Preferences' deduplicated write.
             SettingsLoggingSection(loggingEnabledKey: Preferences.loggingEnabledKey,
                                    store: Preferences.store,
                                    title: "Debug logging") { newValue in
@@ -82,8 +82,8 @@ struct AdvancedSettingsView: View, Loggable {
 
             Divider()
 
-            // Turning this on asks for nothing by itself: the Local Network prompt waits
-            // until the first dispatch (see ATVQIntegration.swift).
+            /// Turning this on asks for nothing by itself: the Local Network prompt waits
+            /// until the first dispatch (see ATVQIntegration.swift).
             SettingsRow("ATVQ integration",
                         description: """
                             Dispatch the contents of your "Up Next" Queue to the ATVQ application on your Apple TV.
@@ -94,28 +94,28 @@ struct AdvancedSettingsView: View, Loggable {
             } accessory: {
                 SettingsControlStrip {
                     ATVQTestRelayButton() } }
-                // @AppStorage bypasses Preferences' setter and its preferencesChanged post.
+                /// @AppStorage bypasses Preferences' setter and its preferencesChanged post.
                 .onChange(of: atvq) { _, _ in
                     AppEventBus.shared.send(.view(.preferencesChanged)) } }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .alert("Reset All \"Complete Data\" Flags",
+        .alert("Reset \"Complete Data\" Flags?",
             isPresented: $showResetInfoCompleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
-                // resetAllInfoCompleteFlags() is fire-and-forget:
-                // optimistic MemoryStore update is applied synchronously; background
-                // persistence is dispatched via trackOperation, which handles rollback
-                // and user alerting on failure internally.
+                /// resetAllInfoCompleteFlags() is fire-and-forget:
+                /// optimistic MemoryStore update is applied synchronously; background
+                /// persistence is dispatched via trackOperation, which handles rollback
+                /// and user alerting on failure internally.
                 dataCoordinator.resetAllInfoCompleteFlags()
             }
         } message: {
-            Text("Are you sure you want to reset all \"Complete Data\" flags? This will clear the flag on every film in your library, resetting them all to false. This action cannot be undone.") }
-        .alert("Reset All Ignored Duplicate Pairs",
+            Text("The \"Complete Data\" flag will be cleared on every film in your library. This action cannot be undone.") }
+        .alert("Reset Ignored Duplicate Pairs?",
             isPresented: $showResetIgnoredPairsAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
                 Preferences.resetIgnoredDuplicatePairs()
                 log("User reset all ignored duplicate pairs") }
         } message: {
-            Text("Are you sure you want to reset all ignored duplicate pairs? The next duplicate scan will include these pairs again if they still match as duplicates. This action cannot be undone.") } }
+            Text("All ignored duplicate pairs will be reset. The next duplicate scan will include them again if they still match as duplicates. This action cannot be undone.") } }
 }

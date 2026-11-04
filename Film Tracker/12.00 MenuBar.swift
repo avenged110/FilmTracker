@@ -1,7 +1,7 @@
 // MARK: - MenuBar.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Defines the app's menu bar commands with SwiftUI's Commands API. Items enable or disable from live app state.
+/// Defines the app's menu bar commands with SwiftUI's Commands API. Items enable or disable from live app state.
 
 import SwiftUI
 import Combine
@@ -39,8 +39,8 @@ struct MenuBar: Commands {
         return film.hasNotesContent
     }
     
-    // True when a sheet or an AlertHostView alert (including database-error alerts) is presented.
-    // Menu items lock while either is up.
+    /// True when a sheet or an AlertHostView alert (including database-error alerts) is presented.
+    /// Menu items lock while either is up.
     @MainActor
     var isSheetActive: Bool {
         appState.sheetCoordinator.activeSheet != nil || appState.isDatabaseErrorAlertActive
@@ -51,18 +51,18 @@ struct MenuBar: Commands {
         let _ = LaunchTimeline.mark("menuBodyFirst")
         Group {
             // MARK: - "Application Name" Menu: Customize
-            // "About <application>" menu item.
+            /// "About <application>" menu item.
             CommandGroup(replacing: .appInfo) {
                 Button("About Film Tracker") {
                     NSApplication.shared.orderFrontStandardAboutPanel(nil) }
                 .keyboardShortcut("?", modifiers: .command) }
-            // "Settings" menu item.
+            /// "Settings" menu item.
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {
                     AppEventBus.shared.sendCommand(.openSettingsToTab(tab: .general)) }
                 .keyboardShortcut(",", modifiers: .command)
                 .disabled(isSheetActive) }
-            // "Hide <application>"/"Hide Others"/"Show All" menu items.
+            /// "Hide <application>"/"Hide Others"/"Show All" menu items.
             CommandGroup(replacing: .appVisibility) {
                 Button("Hide Film Tracker") {
                     NSApplication.shared.hide(nil) }
@@ -72,17 +72,17 @@ struct MenuBar: Commands {
                 .keyboardShortcut("h", modifiers: [.command, .option])
                 Button("Show All") {
                     NSApplication.shared.unhideAllApplications(nil) } }
-            // "Quit <application>" menu item.
-            // Normally this calls NSApp.terminate(nil). When locked to the Restore tab (database-error recovery),
-            // AppKit blocks termination while a sheet is attached, so the pending-termination flag is set and the
-            // sheet dismissed. SettingsSheet.onDisappear then terminates.
-            //
-            // During a restore, SettingsCoordinator.isSheetDismissBlocked keeps the sheet up. The dismiss is then a
-            // no-op, onDisappear never fires, and the flag is never acted on.
+            /// "Quit <application>" menu item.
+            /// Normally this calls NSApp.terminate(nil). When locked to the Restore tab (database-error recovery),
+            /// AppKit blocks termination while a sheet is attached, so the pending-termination flag is set and the
+            /// sheet dismissed. SettingsSheet.onDisappear then terminates.
+            ///
+            /// During a restore, SettingsCoordinator.isSheetDismissBlocked keeps the sheet up. The dismiss is then a
+            /// no-op, onDisappear never fires, and the flag is never acted on.
             CommandGroup(replacing: .appTermination) {
                 Button("Quit Film Tracker") {
                     if appState.isLockedToRestoreTab {
-                        // Set the flag before dismissing, so onDisappear knows to terminate.
+                        /// Set the flag before dismissing, so onDisappear knows to terminate.
                         appState.pendingTerminationAfterSheetDismiss = true
                         appState.sheetCoordinator.dismissSheet()
                     } else {
@@ -99,19 +99,19 @@ struct MenuBar: Commands {
                 .disabled(isSheetActive)
 
                 Button("Import Metadata…") {
-                    // Opens the Metadata tab of Imports. It does not open the file picker.
+                    /// Opens the Metadata tab of Imports. It does not open the file picker.
                     AppEventBus.shared.sendCommand(.navigateToImportsMetadata) }
                 .keyboardShortcut("i", modifiers: [.shift, .command])
-                // Not disabled during an import, because this item only navigates. The lock belongs on the
-                // Imports title bar's "Select Files" button, which starts an import.
+                /// Not disabled during an import, because this item only navigates. The lock belongs on the
+                /// Imports title bar's "Select Files" button, which starts an import.
                 .disabled(isSheetActive
                     || (importsState.isViewingImports && importsState.selectedCategory == .metadata))
 
                 Button("Import Ratings…") {
-                    // Opens the Ratings tab of Imports. It does not open the file picker.
+                    /// Opens the Ratings tab of Imports. It does not open the file picker.
                     AppEventBus.shared.sendCommand(.navigateToImportsRatings) }
                 .keyboardShortcut("i", modifiers: [.option, .command])
-                // Navigation only, so no import lock.
+                /// Navigation only, so no import lock.
                 .disabled(isSheetActive
                     || (importsState.isViewingImports && importsState.selectedCategory == .ratings))
 
@@ -174,24 +174,24 @@ struct MenuBar: Commands {
                 Button("Cut") {
                     NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }
                 .keyboardShortcut("x", modifiers: .command)
-                // Enable when sheet is active (let responder chain handle) OR text field focused
+                /// Enable when sheet is active (let responder chain handle) OR text field focused
                 .disabled(!canUseTextEditing())
                 
                 Button("Copy") {
                     NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
                 .keyboardShortcut("c", modifiers: .command)
-                // Enable when sheet is active (let responder chain handle) OR text field focused
+                /// Enable when sheet is active (let responder chain handle) OR text field focused
                 .disabled(!canUseTextEditing())
                 
                 Button("Paste") {
                     NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
                 .keyboardShortcut("v", modifiers: .command)
-                // Enable when sheet is active (let responder chain handle) OR text field focused
+                /// Enable when sheet is active (let responder chain handle) OR text field focused
                 .disabled(!canUseTextEditing())
                 
                 Divider()
                 
-                // Scope-aware "Select All".
+                /// Scope-aware "Select All".
                 Button("Select All") {
                     handleSelectAll() }
                 .keyboardShortcut("a", modifiers: .command)
@@ -200,12 +200,12 @@ struct MenuBar: Commands {
         Group {
             // MARK: - "Film" Menu: Create
             CommandMenu("Film") {
-                // Grouped so the "Film" menu stays comfortably inside ViewBuilder's
-                // ten-child limit as items are added.
+                /// Grouped so the "Film" menu stays comfortably inside ViewBuilder's
+                /// ten-child limit as items are added.
                 Group {
-                    // The three Film Queue sections, shown above "Add to List". They are available for any selection
-                    // and in every view. With no selection or a sheet up, each is a disabled plain item, because
-                    // Commands does not carry .disabled onto a Menu's own item (see SortByMenu).
+                    /// The three Film Queue sections, shown above "Add to List". They are available for any selection
+                    /// and in every view. With no selection or a sheet up, each is a disabled plain item, because
+                    /// Commands does not carry .disabled onto a Menu's own item (see SortByMenu).
                     if selectionCount == 0 || isSheetActive {
                         Button(addToQueueMenuTitle) {}.disabled(true)
                         Button("Add to List") {}.disabled(true)
@@ -240,7 +240,7 @@ struct MenuBar: Commands {
 
                 Divider()
                 
-                // With more than one film selected this opens the MultiFilmSheet.
+                /// With more than one film selected this opens the MultiFilmSheet.
                 Button("Edit Metadata…") {
                     AppEventBus.shared.sendCommand(.editFilm) }
                 .keyboardShortcut("e", modifiers: .command)
@@ -253,10 +253,10 @@ struct MenuBar: Commands {
                 
                 Divider()
                 
-                // Always present, so SwiftUI keeps the Opt+Delete shortcut registered. Conditional omission made the
-                // shortcut stop working whenever the button was absent. Availability shows through .disabled().
-                // In a user list it removes the film from that list. On the Hall of Fame tab it removes the film from
-                // the Hall of Fame.
+                /// Always present, so SwiftUI keeps the Opt+Delete shortcut registered. Conditional omission made the
+                /// shortcut stop working whenever the button was absent. Availability shows through .disabled().
+                /// In a user list it removes the film from that list. On the Hall of Fame tab it removes the film from
+                /// the Hall of Fame.
                 Button("Remove from List") {
                     if forwardedToTextEditor(#selector(NSResponder.deleteWordBackward(_:))) { return }
                     guard let filmIDs = selectedFilmIDs else { return }
@@ -289,7 +289,7 @@ struct MenuBar: Commands {
             }
             
             // MARK: - "Search" Menu: Create
-            // Declared after "Film", so it follows it in the menu bar.
+            /// Declared after "Film", so it follows it in the menu bar.
             CommandMenu("Search") {
                 Button("Search Film Library") {
                     if let toolbar = NSApp.keyWindow?.toolbar,
@@ -300,8 +300,8 @@ struct MenuBar: Commands {
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(isSheetActive)
                 SaveSearchMenuItem(isSheetActive: isSheetActive)
-                // Only in a saved search's view, as Duplicate List is only in a list's (the
-                // two share ⌥⌘N, so they must never be offered together).
+                /// Only in a saved search's view, as Duplicate List is only in a list's (the
+                /// two share ⌥⌘N, so they must never be offered together).
                 if case .savedSearch(let id) = appState.selectedSidebarItem {
                     Divider()
                     Button("Edit Saved Search…") { SavedSearchActions.edit(id) }
@@ -334,7 +334,7 @@ struct MenuBar: Commands {
                 if LaunchReveal.shared.menuContentAllowed {
                     LeftSidebarMenu(appState: appState, isSheetActive: isSheetActive)
                 } else {
-                    // Its items wait for the first frame; see LaunchReveal.menuContentAllowed.
+                    /// Its items wait for the first frame; see LaunchReveal.menuContentAllowed.
                     Menu("Left Sidebar") {}
                 }
                 RightSidebarMenu(isSheetActive: isSheetActive, selectionCount: selectionCount,
@@ -343,9 +343,9 @@ struct MenuBar: Commands {
                 Divider() }
             
             // MARK: - "Window" Menu: the standard one, completed by hand
-            // AppKit supplies the Window menu's tiling items and window list. `.commandsRemoved()` drops SwiftUI's
-            // Minimize, Zoom, and Bring All to Front, so they are restored here. The groups do not replace
-            // `.windowArrangement`, because SwiftUI would then strip AppKit's items again a few frames later.
+            /// AppKit supplies the Window menu's tiling items and window list. `.commandsRemoved()` drops SwiftUI's
+            /// Minimize, Zoom, and Bring All to Front, so they are restored here. The groups do not replace
+            /// `.windowArrangement`, because SwiftUI would then strip AppKit's items again a few frames later.
             CommandGroup(before: .windowArrangement) {
                 Button("Minimize") { NSApp.keyWindow?.performMiniaturize(nil) }
                     .keyboardShortcut("m", modifiers: .command)
@@ -361,22 +361,22 @@ struct MenuBar: Commands {
     /// Checks if a text field is currently focused.
     /// This works across both main window and sheet contexts.
     private func isTextFieldFocused() -> Bool {
-        // Check both the key window AND any active sheets
+        /// Check both the key window AND any active sheets
         var windowsToCheck: [NSWindow] = []
         
-        // Add key window if available
+        /// Add key window if available
         if let keyWindow = NSApp.keyWindow {
             windowsToCheck.append(keyWindow)
         }
         
-        // Add any sheet windows attached to the main window
+        /// Add any sheet windows attached to the main window
         if let mainWindow = NSApp.mainWindow {
             if let sheet = mainWindow.attachedSheet {
                 windowsToCheck.append(sheet)
             }
         }
         
-        // Check all candidate windows for focused text fields
+        /// Check all candidate windows for focused text fields
         for window in windowsToCheck {
             if isTextFieldFocusedInWindow(window) {
                 return true
@@ -395,11 +395,11 @@ struct MenuBar: Commands {
     /// Verify if Select All should be enabled (for menu item state only)
     @MainActor
     private func canUseSelectAll() -> Bool {
-        // Sheet active: always enable and let the responder chain handle it.
+        /// Sheet active: always enable and let the responder chain handle it.
         if isSheetActive { return true }
-        // Text field focused in main window: allow native text selection.
+        /// Text field focused in main window: allow native text selection.
         if isTextFieldFocused() { return true }
-        // Gallery-style view with at least one film: allow multi-select.
+        /// Gallery-style view with at least one film: allow multi-select.
         return appState.selectedSidebarItem.capabilities.supportsMultiSelection && filmCount > 0
     }
     
@@ -408,30 +408,30 @@ struct MenuBar: Commands {
     /// always enable and let the responder chain handle availability.
     @MainActor
     private func canUseTextEditing() -> Bool {
-        // If a sheet is active, always enable and let responder chain handle it
-        // This ensures Cut/Copy/Paste work reliably in sheet and popover text fields
+        /// If a sheet is active, always enable and let responder chain handle it
+        /// This ensures Cut/Copy/Paste work reliably in sheet and popover text fields
         if isSheetActive {
             return true
         }
         
-        // No sheet active - only enable if we detect a focused text field
+        /// No sheet active - only enable if we detect a focused text field
         return isTextFieldFocused()
     }
     
     /// Handle Select All menu item click (keyboard shortcut handled in KeyboardManager)
     @MainActor
     private func handleSelectAll() {
-        // When a sheet is active, always route through the responder chain so the
-        // sheet's own text fields handle Cmd+A correctly.
+        /// When a sheet is active, always route through the responder chain so the
+        /// sheet's own text fields handle Cmd+A correctly.
         if isSheetActive {
             NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
             return
         }
         if isTextFieldFocused() {
-            // Text field focused in the main window — use native text selection.
+            /// Text field focused in the main window — use native text selection.
             NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
         } else if appState.selectedSidebarItem.capabilities.supportsMultiSelection {
-            // Gallery view — select all films.
+            /// Gallery view — select all films.
             AppEventBus.shared.selectAllFilms()
         }
     }
@@ -451,12 +451,12 @@ struct MenuBar: Commands {
     }
 
     // MARK: - Menu Action Handlers
-    //
-    // The three removal commands above hand off to FilmRemoval (LibraryManager.swift). FilmRemoval resolves the
-    // context (user list, Film Queue, or Hall of Fame), applies the membership filter and confirmation preference,
-    // and builds the alert for every surface that offers these commands, including KeyboardManager's Opt+Delete.
-    //
-    // `clearingSelection: false` keeps the selection after an unconfirmed removal here. The gallery surfaces clear it.
+    ///
+    /// The three removal commands above hand off to FilmRemoval (LibraryManager.swift). FilmRemoval resolves the
+    /// context (user list, Film Queue, or Hall of Fame), applies the membership filter and confirmation preference,
+    /// and builds the alert for every surface that offers these commands, including KeyboardManager's Opt+Delete.
+    ///
+    /// `clearingSelection: false` keeps the selection after an unconfirmed removal here. The gallery surfaces clear it.
 
     /// True when "Remove from List" should be enabled — at least one selected film is
     /// actually resident in whatever list context is currently on screen. Shares its
@@ -514,12 +514,12 @@ struct ViewAsListMenu: View {
 
     var body: some View {
         Button(isListView ? "View as Grid" : "View as List") {
-            // Negate the LIVE value, not the local `isListView` mirror. A keyboard shortcut runs this action without
-            // opening the menu, so a stale mirror could name the style already in effect. updateListViewStyle would
-            // then ignore the request, and the shortcut would appear to do nothing.
-            //
-            // Reading through ViewStateManager makes this a toggle of what is actually on screen. The mirror is then
-            // realigned at once, so the title is correct on the next frame.
+            /// Negate the LIVE value, not the local `isListView` mirror. A keyboard shortcut runs this action without
+            /// opening the menu, so a stale mirror could name the style already in effect. updateListViewStyle would
+            /// then ignore the request, and the shortcut would appear to do nothing.
+            ///
+            /// Reading through ViewStateManager makes this a toggle of what is actually on screen. The mirror is then
+            /// realigned at once, so the title is correct on the next frame.
             let target = !ViewStateManager.shared.activeState.isListView
             ViewStateManager.shared.updateListViewStyle(target)
             syncFromViewStateManager()
@@ -536,15 +536,15 @@ struct ViewAsListMenu: View {
 
     @MainActor
     private func syncFromViewStateManager() {
-        // Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
+        /// Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
         guard LaunchReveal.shared.menuRefreshAllowed else { return }
         isListView = ViewStateManager.shared.activeState.isListView
     }
 }
 
 // MARK: - Sort By Menu
-// Sort menu backed by ViewStateManager. It embeds the shared SortMenuContent (SortFilterMenu.swift), so its items
-// are defined once and match GallerySortMenu, including the Jump to Section submenu.
+/// Sort menu backed by ViewStateManager. It embeds the shared SortMenuContent (SortFilterMenu.swift), so its items
+/// are defined once and match GallerySortMenu, including the Jump to Section submenu.
 struct SortByMenu: View {
     let filmCount: Int
     let isSheetActive: Bool
@@ -578,8 +578,8 @@ struct SortByMenu: View {
     /// Computed property that determines if the menu is disabled
     @MainActor
     private var isMenuDisabled: Bool {
-        // Locked until LaunchReveal allows the refresh, as it is before the library loads
-        // (no films), without reading the coordinator that early.
+        /// Locked until LaunchReveal allows the refresh, as it is before the library loads
+        /// (no films), without reading the coordinator that early.
         isSheetActive || !LaunchReveal.shared.menuRefreshAllowed
             || SortMenuInputs.optionsLocked(coordinator: coordinator)
     }
@@ -595,16 +595,16 @@ struct SortByMenu: View {
     var body: some View {
         Group {
             if isMenuNotApplicable {
-                // A disabled plain item, not a disabled Menu. In menu-bar Commands SwiftUI does
-                // not carry `.disabled` onto a Menu's own NSMenuItem — only into its children —
-                // so a sealed "Sort By" still opened, onto a submenu of locked items with the
-                // left-behind gallery view's sort and direction checked. These views are ordered
-                // manually, which no option here describes. A Button does honor `.disabled`,
-                // so the item is grayed and never opens.
+                /// A disabled plain item, not a disabled Menu. In menu-bar Commands SwiftUI does
+                /// not carry `.disabled` onto a Menu's own NSMenuItem — only into its children —
+                /// so a sealed "Sort By" still opened, onto a submenu of locked items with the
+                /// left-behind gallery view's sort and direction checked. These views are ordered
+                /// manually, which no option here describes. A Button does honor `.disabled`,
+                /// so the item is grayed and never opens.
                 Button("Sort By") {}
                     .disabled(true)
             } else if !LaunchReveal.shared.menuContentAllowed {
-                // Its items wait for the first frame; see LaunchReveal.menuContentAllowed.
+                /// Its items wait for the first frame; see LaunchReveal.menuContentAllowed.
                 Menu("Sort By") {}
             } else {
                 sortMenu
@@ -613,8 +613,8 @@ struct SortByMenu: View {
         .onAppear { syncFromViewStateManager() }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
             syncFromViewStateManager() }
-        // Section dividers need no .onChange. The value lives in ViewState, and its changes arrive on the same
-        // viewStateChanged event as the sort mirrors, which re-derives the jump targets.
+        /// Section dividers need no .onChange. The value lives in ViewState, and its changes arrive on the same
+        /// viewStateChanged event as the sort mirrors, which re-derives the jump targets.
         .onViewStateChanged { syncFromViewStateManager() }
         .onChange(of: LaunchReveal.shared.menuRefreshAllowed) { syncFromViewStateManager() }
     }
@@ -627,8 +627,8 @@ struct SortByMenu: View {
                 currentSortOption: inputs.sortOption,
                 currentSortDirection: inputs.sortDirection,
                 onSelectSortOption: { option in
-                    // Realign the mirror immediately so the checkmark is correct without
-                    // waiting for the event-driven resync.
+                    /// Realign the mirror immediately so the checkmark is correct without
+                    /// waiting for the event-driven resync.
                     inputs.sortOption = option
                     ViewStateManager.shared.updateSortOption(option)
                 },
@@ -638,9 +638,9 @@ struct SortByMenu: View {
                 },
                 currentShowSectionDividers: inputs.showSectionDividers,
                 onSelectShowSectionDividers: { showDividers in
-                    // Realigned immediately, exactly as the sort and direction setters
-                    // above are — and so the jump targets recomputed by the resync that
-                    // follows are derived from the value the user just chose.
+                    /// Realigned immediately, exactly as the sort and direction setters
+                    /// above are — and so the jump targets recomputed by the resync that
+                    /// follows are derived from the value the user just chose.
                     inputs.showSectionDividers = showDividers
                     ViewStateManager.shared.updateShowSectionDividers(showDividers)
                 },
@@ -649,21 +649,21 @@ struct SortByMenu: View {
                 onJumpToSection: { ViewStateManager.shared.jumpToSectionBand($0) }
             )
         }
-        // Not sealed as a whole, matching GallerySortMenu. Every view that reaches this menu is gallery-backed,
-        // so its Section Dividers items stay live even where `isMenuDisabled` locks the sort options.
+        /// Not sealed as a whole, matching GallerySortMenu. Every view that reaches this menu is gallery-backed,
+        /// so its Section Dividers items stay live even where `isMenuDisabled` locks the sort options.
     }
 
     @MainActor
     private func syncFromViewStateManager() {
-        // Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
+        /// Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
         guard LaunchReveal.shared.menuRefreshAllowed else { return }
         inputs = SortMenuInputs.current(coordinator: coordinator)
     }
 }
 
 // MARK: - Filter Items Menu
-// Filter menu backed by ViewStateManager. It embeds the shared FilterMenuContent (SortFilterMenu.swift), so its
-// items are defined once and match GalleryFilterMenu.
+/// Filter menu backed by ViewStateManager. It embeds the shared FilterMenuContent (SortFilterMenu.swift), so its
+/// items are defined once and match GalleryFilterMenu.
 struct FilterItemsMenu: View {
     let filmCount: Int
     let isSheetActive: Bool
@@ -680,8 +680,8 @@ struct FilterItemsMenu: View {
     /// Computed property that determines if the menu is disabled
     @MainActor
     private var isMenuDisabled: Bool {
-        // Disabled until LaunchReveal allows the refresh, as it is before the library is
-        // initialized, without reading the coordinator that early.
+        /// Disabled until LaunchReveal allows the refresh, as it is before the library is
+        /// initialized, without reading the coordinator that early.
         isSheetActive || !LaunchReveal.shared.menuRefreshAllowed
             || FilterMenuInputs.menuDisabled(coordinator: dataCoordinator)
     }
@@ -697,10 +697,10 @@ struct FilterItemsMenu: View {
     var body: some View {
         Group {
             if isMenuNotApplicable || isMenuDisabled {
-                // A disabled plain item, for the reason SortByMenu gives: Commands does not
-                // carry `.disabled` onto a Menu's own item, so the submenu still opened.
-                // Also wherever GalleryTitleBar disables its Filter button outright (an
-                // empty view with no filters to clear, initial loading), and behind a sheet.
+                /// A disabled plain item, for the reason SortByMenu gives: Commands does not
+                /// carry `.disabled` onto a Menu's own item, so the submenu still opened.
+                /// Also wherever GalleryTitleBar disables its Filter button outright (an
+                /// empty view with no filters to clear, initial loading), and behind a sheet.
                 Button("Filter") {}
                     .disabled(true)
             } else {
@@ -736,7 +736,7 @@ struct FilterItemsMenu: View {
 
     @MainActor
     private func syncFromViewStateManager() {
-        // Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
+        /// Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
         guard LaunchReveal.shared.menuRefreshAllowed else { return }
         inputs = FilterMenuInputs.current()
     }
@@ -756,7 +756,7 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
     case upForRotation = 6
     case purchased = 7
     case unpurchased = 8
-    // Alternate Versions has a menu item but no shortcut, since Cmd+9 is Upcoming Releases.
+    /// Alternate Versions has a menu item but no shortcut, since Cmd+9 is Upcoming Releases.
     case upcomingReleases = 9
     case filteredLibrary = 0
 
@@ -802,10 +802,10 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
             appState.navigate(to: .libraryItem(.unwatched))
             UnwatchedState.shared.selectCategory(.unwatched)
 
-        // Recents and Reports can remember their last tab (Preferences.rememberTabSelection). Navigating into them
-        // is not a tab choice, so it must neither force the first tab nor save anything. Clicking the sidebar row
-        // takes a different path, through GalleryView.handleSidebarChange. When the preference is off, the view
-        // resets to its first tab.
+        /// Recents and Reports can remember their last tab (Preferences.rememberTabSelection). Navigating into them
+        /// is not a tab choice, so it must neither force the first tab nor save anything. Clicking the sidebar row
+        /// takes a different path, through GalleryView.handleSidebarChange. When the preference is off, the view
+        /// resets to its first tab.
         case .recents:
             appState.navigate(to: .libraryItem(.recents))
             RecentsState.shared.selectCategory(
@@ -824,9 +824,9 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
             appState.navigate(to: .libraryItem(.filmQueue))
             FilmQueueFilterState.shared.selectFilter(.all)
 
-        // All five smart lists take the identical three steps and differ only in the type,
-        // which `smartListType` already holds — so they share one arm rather than five
-        // copies of the same body.
+        /// All five smart lists take the identical three steps and differ only in the type,
+        /// which `smartListType` already holds — so they share one arm rather than five
+        /// copies of the same body.
         case .upForRotation, .purchased, .unpurchased, .upcomingReleases, .filteredLibrary:
             guard let type = smartListType else { return }
             ViewStateManager.shared.switchToViewSync(.smartList(type))
@@ -841,12 +841,12 @@ struct LeftSidebarMenu: View {
     var appState: AppState
     let isSheetActive: Bool
 
-    // Monitor Preferences.smartLists to show/hide smart list entries
+    /// Monitor Preferences.smartLists to show/hide smart list entries
     @AppStorage(preference: Preferences.smartListsKey) private var smartListsEnabled: Bool
 
     var body: some View {
         Menu("Left Sidebar") {
-            // All Films
+            /// All Films
             Toggle("All Films", isOn: Binding(
                 get: { isItemActive(.allFilms) },
                 set: { if $0 { TopLevelSidebarShortcut.allFilms.activate(appState: appState) } }))
@@ -855,9 +855,9 @@ struct LeftSidebarMenu: View {
             
             Divider()
             
-            // Unwatched Tabs
-            // Cmd+2 navigates to the Unwatched view (Unwatched tab).
-            // Opt+Cmd+1–2 switch tabs within Unwatched, but only when already there.
+            /// Unwatched Tabs
+            /// Cmd+2 navigates to the Unwatched view (Unwatched tab).
+            /// Opt+Cmd+1–2 switch tabs within Unwatched, but only when already there.
             Toggle("Unwatched", isOn: Binding(
                 get: { isItemActive(.unwatched(.unwatched)) },
                 set: { if $0 { TopLevelSidebarShortcut.unwatched.activate(appState: appState) } }))
@@ -871,9 +871,9 @@ struct LeftSidebarMenu: View {
             
             Divider()
             
-            // Recents Categories
-            // Cmd+3 navigates to the Recents view (Most Recently Viewed tab).
-            // Opt+Cmd+1–5 switch tabs within Recents, but only when already in Recents.
+            /// Recents Categories
+            /// Cmd+3 navigates to the Recents view (Most Recently Viewed tab).
+            /// Opt+Cmd+1–5 switch tabs within Recents, but only when already in Recents.
             Toggle("Most Recently Viewed", isOn: Binding(
                 get: { isItemActive(.recents(.recentlyViewed)) },
                 set: { if $0 { TopLevelSidebarShortcut.recents.activate(appState: appState) } }))
@@ -902,9 +902,9 @@ struct LeftSidebarMenu: View {
             
             Divider()
             
-            // Reports Categories
-            // Cmd+4 navigates to Reports (Purchase and Expense Tracker tab).
-            // Opt+Cmd+1–5 switch tabs within Reports, but only when already in Reports.
+            /// Reports Categories
+            /// Cmd+4 navigates to Reports (Purchase and Expense Tracker tab).
+            /// Opt+Cmd+1–5 switch tabs within Reports, but only when already in Reports.
             Toggle("Purchase and Expense Tracker", isOn: Binding(
                 get: { isItemActive(.reports(.costTracker)) },
                 set: { if $0 { TopLevelSidebarShortcut.reports.activate(appState: appState) } }))
@@ -933,10 +933,10 @@ struct LeftSidebarMenu: View {
             
             Divider()
             
-            // Imports Categories
-            // Imports has no top-level Cmd+# shortcut.
-            // Opt+Cmd+1–2 switch tabs within Imports (handled by KeyboardManager):
-            //   Opt+Cmd+1 → Metadata, Opt+Cmd+2 → Ratings.
+            /// Imports Categories
+            /// Imports has no top-level Cmd+# shortcut.
+            /// Opt+Cmd+1–2 switch tabs within Imports (handled by KeyboardManager):
+            ///   Opt+Cmd+1 → Metadata, Opt+Cmd+2 → Ratings.
             Toggle("Import Metadata", isOn: Binding(
                 get: { isItemActive(.imports(.metadata)) },
                 set: { if $0 { selectImports(.metadata) } }))
@@ -949,11 +949,11 @@ struct LeftSidebarMenu: View {
 
             Divider()
 
-            // Film Queue — the internal, application-owned viewing queue.
-            // Cmd+5 navigates here. The smart-list shortcuts below follow, from Up for Rotation (Cmd+6) to Filtered Library (Cmd+0).
-            // "Queue" itself is equivalent to the segmented picker's "All" section;
-            // "Up Next"/"Soon"/"Later" map to the same picker's other three sections.
-            // Opt+Cmd+1–4 switch tabs within the Film Queue, but only when already there.
+            /// Film Queue — the internal, application-owned viewing queue.
+            /// Cmd+5 navigates here. The smart-list shortcuts below follow, from Up for Rotation (Cmd+6) to Filtered Library (Cmd+0).
+            /// "Queue" itself is equivalent to the segmented picker's "All" section;
+            /// "Up Next"/"Soon"/"Later" map to the same picker's other three sections.
+            /// Opt+Cmd+1–4 switch tabs within the Film Queue, but only when already there.
             Toggle("Queue", isOn: Binding(
                 get: { isItemActive(.filmQueue) },
                 set: { if $0 { TopLevelSidebarShortcut.filmQueue.activate(appState: appState) } }))
@@ -978,10 +978,10 @@ struct LeftSidebarMenu: View {
             if smartListsEnabled {
                 Divider()
                 
-                // Smart Lists - with keyboard shortcuts for the five top-level lists,
-                // plus sub-variant items nested directly beneath their parent (e.g.
-                // "Viewed Over One Year Ago" under "Up for Rotation"). Sub-variants
-                // never carry a shortcut of their own.
+                /// Smart Lists - with keyboard shortcuts for the five top-level lists,
+                /// plus sub-variant items nested directly beneath their parent (e.g.
+                /// "Viewed Over One Year Ago" under "Up for Rotation"). Sub-variants
+                /// never carry a shortcut of their own.
                 ForEach(SmartListType.sidebarCases) { type in
                     Group {
                         if let shortcut = TopLevelSidebarShortcut(smartListType: type) {
@@ -1005,9 +1005,9 @@ struct LeftSidebarMenu: View {
                         }
                     }
                 }
-                // Note: Opt+Cmd+1–9 in-view tab switching for every smart list group (one
-                // digit per variant, up to Filtered Library's six) is handled entirely by
-                // KeyboardManager.
+                /// Note: Opt+Cmd+1–9 in-view tab switching for every smart list group (one
+                /// digit per variant, up to Filtered Library's six) is handled entirely by
+                /// KeyboardManager.
             }
             
             Divider()
@@ -1042,7 +1042,7 @@ struct LeftSidebarMenu: View {
             return appState.selectedSidebarItem == .libraryItem(.allFilms)
             
         case .unwatched(let category):
-            // Check if we're in the Unwatched view AND have the specific tab selected
+            /// Check if we're in the Unwatched view AND have the specific tab selected
             guard case .libraryItem(.unwatched) = appState.selectedSidebarItem else {
                 return false
             }
@@ -1052,7 +1052,7 @@ struct LeftSidebarMenu: View {
             return false
             
         case .recents(let category):
-            // Check if we're in Recents view AND have the specific category selected
+            /// Check if we're in Recents view AND have the specific category selected
             guard case .libraryItem(.recents) = appState.selectedSidebarItem else {
                 return false
             }
@@ -1062,22 +1062,22 @@ struct LeftSidebarMenu: View {
             return false
             
         case .reports(let category):
-            // Check if we're in Reports view AND have the specific category selected
+            /// Check if we're in Reports view AND have the specific category selected
             guard case .libraryItem(.reports) = appState.selectedSidebarItem else {
                 return false
             }
             return ReportsState.shared.selectedCategory == category
             
         case .imports(let category):
-            // Check if we're in Imports view and have the specific category selected
+            /// Check if we're in Imports view and have the specific category selected
             guard case .libraryItem(.imports) = appState.selectedSidebarItem else {
                 return false
             }
             return ImportsState.shared.selectedCategory == category
             
         case .filmQueue:
-            // "Queue" represents the segmented picker's "All" section specifically, so
-            // it stays mutually exclusive with the three named sections below.
+            /// "Queue" represents the segmented picker's "All" section specifically, so
+            /// it stays mutually exclusive with the three named sections below.
             guard appState.selectedSidebarItem == .libraryItem(.filmQueue) else {
                 return false
             }
@@ -1102,36 +1102,36 @@ struct LeftSidebarMenu: View {
     /// Select an Unwatched view tab
     @MainActor
     private func selectUnwatched(_ category: UnwatchedCategory) {
-        // Update sidebar selection to the Unwatched view
+        /// Update sidebar selection to the Unwatched view
         appState.navigate(to: .libraryItem(.unwatched))
-        // Update UnwatchedState to the selected tab
+        /// Update UnwatchedState to the selected tab
         UnwatchedState.shared.selectCategory(category)
     }
     
     /// Select a recents category
     @MainActor
     private func selectRecents(_ category: RecentsCategory) {
-        // Update sidebar selection to Recents
+        /// Update sidebar selection to Recents
         appState.navigate(to: .libraryItem(.recents))
-        // Update RecentsState to the selected category
+        /// Update RecentsState to the selected category
         RecentsState.shared.selectCategory(category)
     }
     
     /// Select a reports category
     @MainActor
     private func selectReports(_ category: ReportsCategory) {
-        // Update sidebar selection to Reports
+        /// Update sidebar selection to Reports
         appState.navigate(to: .libraryItem(.reports))
-        // Update ReportsState to the selected category
+        /// Update ReportsState to the selected category
         ReportsState.shared.selectCategory(category)
     }
     
     /// Select an imports category
     @MainActor
     private func selectImports(_ category: ImportsCategory) {
-        // Update sidebar selection to Imports
+        /// Update sidebar selection to Imports
         appState.navigate(to: .libraryItem(.imports))
-        // Update ImportsState to the selected category
+        /// Update ImportsState to the selected category
         ImportsState.shared.selectCategory(category)
     }
 
@@ -1146,19 +1146,19 @@ struct LeftSidebarMenu: View {
     /// Select a smart list (updates both ViewStateManager and AppState)
     @MainActor
     private func selectSmartList(_ type: SmartListType) {
-        // Sets the sub-variant pickers first. The sidebar assignment below fires
-        // GalleryView.handleSidebarChange, which resyncs these pickers and re-derives the
-        // destination view, so it must already see the selected variant.
-        // syncAll updates only the family that owns the type. It mirrors
-        // ShowInListNavigation.navigate.
+        /// Sets the sub-variant pickers first. The sidebar assignment below fires
+        /// GalleryView.handleSidebarChange, which resyncs these pickers and re-derives the
+        /// destination view, so it must already see the selected variant.
+        /// syncAll updates only the family that owns the type. It mirrors
+        /// ShowInListNavigation.navigate.
         SmartListVariantState.syncAll(to: type)
 
-        // Update ViewStateManager (single source of truth)
+        /// Update ViewStateManager (single source of truth)
         ViewStateManager.shared.switchToViewSync(.smartList(type))
 
-        // Update AppState.selectedSidebarItem for sidebar highlighting. Only the five
-        // parents have sidebar rows, so a sub-variant highlights its parent via
-        // SmartListType.sidebarParent. ShowInListNavigation uses the same mapping.
+        /// Update AppState.selectedSidebarItem for sidebar highlighting. Only the five
+        /// parents have sidebar rows, so a sub-variant highlights its parent via
+        /// SmartListType.sidebarParent. ShowInListNavigation uses the same mapping.
         appState.navigate(to: .smartList(type.sidebarParent))
     }
 
@@ -1193,9 +1193,9 @@ struct RightSidebarMenu: View {
     let notesTabEnabled: Bool
     private var viewStateManager = ViewStateManager.shared
 
-    // Explicit initializer required because the private stored property above causes the
-    // synthesized memberwise initializer to be private, making it inaccessible at the call
-    // site in MenuBar. This init exposes only the three meaningful parameters.
+    /// Explicit initializer required because the private stored property above causes the
+    /// synthesized memberwise initializer to be private, making it inaccessible at the call
+    /// site in MenuBar. This init exposes only the three meaningful parameters.
     init(isSheetActive: Bool, selectionCount: Int, notesTabEnabled: Bool) {
         self.isSheetActive = isSheetActive
         self.selectionCount = selectionCount
@@ -1216,7 +1216,7 @@ struct RightSidebarMenu: View {
         .disabled(selectionCount != 1 || isSheetActive)
     }
 
-    // Helper function to return the correct keyboard shortcut for each sidebar tab.
+    /// Helper function to return the correct keyboard shortcut for each sidebar tab.
     private func keyForTab(_ tab: RightSidebarTab) -> KeyEquivalent {
         switch tab {
         case .details:  return "1"
@@ -1245,7 +1245,7 @@ struct ListsMenu: View {
                         get: { isListSelected(list.listID) },
                         set: { if $0 {
                             appState.navigate(to: .list(list.listID))
-                            // Switch the ViewStateManager to the selected list view
+                            /// Switch the ViewStateManager to the selected list view
                             ViewStateManager.shared.switchToViewSync(.list(list.listID))
                         } }))
                 }
@@ -1254,12 +1254,12 @@ struct ListsMenu: View {
         .disabled(isSheetActive)
         .onAppear { loadLists() }
         .onListDataChanged { loadLists() }
-        // Also refresh when the coordinator's database state changes (e.g., after initial load).
-        // DataCoordinator is @Observable, so .onReceive($publisher) is unavailable.
-        // .onChange(of:) uses SwiftUI's observation graph to deliver the same notification.
-        // One onChange for both triggers, so the gate opening with films loaded reloads once,
-        // not twice. The `&&` reads hasDatabaseFilms only once the gate is open, so the
-        // library load does not re-render this menu ahead of the first frame.
+        /// Also refresh when the coordinator's database state changes (e.g., after initial load).
+        /// DataCoordinator is @Observable, so .onReceive($publisher) is unavailable.
+        /// .onChange(of:) uses SwiftUI's observation graph to deliver the same notification.
+        /// One onChange for both triggers, so the gate opening with films loaded reloads once,
+        /// not twice. The `&&` reads hasDatabaseFilms only once the gate is open, so the
+        /// library load does not re-render this menu ahead of the first frame.
         .onChange(of: [LaunchReveal.shared.menuRefreshAllowed,
                        LaunchReveal.shared.menuRefreshAllowed && dataCoordinator.hasDatabaseFilms]) {
             loadLists()
@@ -1268,7 +1268,7 @@ struct ListsMenu: View {
 
     @MainActor
     private func loadLists() {
-        // Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
+        /// Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
         guard LaunchReveal.shared.menuRefreshAllowed else { return }
         availableLists = dataCoordinator.getAllLists()
     }
@@ -1297,8 +1297,8 @@ struct AddToQueueMenuContent: View {
     let dataCoordinator: DataCoordinator
 
     var body: some View {
-        // Identity tied to the selection so the checkmark state is recomputed from
-        // scratch whenever the selection changes, exactly as AddToListMenuContent does.
+        /// Identity tied to the selection so the checkmark state is recomputed from
+        /// scratch whenever the selection changes, exactly as AddToListMenuContent does.
         AddToQueueMenuItems(filmIDs: filmIDs, dataCoordinator: dataCoordinator)
             .id(filmIDs)
     }
@@ -1317,10 +1317,10 @@ struct AddToQueueMenuItems: View {
     @State private var upNextBlocked = false
 
     var body: some View {
-        // Items from the shared definition (23.72 SelectionMenu.swift); only the
-        // loading below is this host's own.
-        // The shared view supplies only the item construction. The Group keeps this host's
-        // structure, so the lifecycle modifiers below attach to the same view.
+        /// Items from the shared definition (23.72 SelectionMenu.swift); only the
+        /// loading below is this host's own.
+        /// The shared view supplies only the item construction. The Group keeps this host's
+        /// structure, so the lifecycle modifiers below attach to the same view.
         Group {
             AddToQueueMenuBody(filmIDs: filmIDs,
                                unanimousSection: unanimousSection,
@@ -1330,9 +1330,9 @@ struct AddToQueueMenuItems: View {
         .onAppear {
             loadUnanimousSection()
         }
-        // Queue membership is ordinary list membership, so every change announces itself
-        // via .membershipChanged. Only the three internal Queue lists are watched, because
-        // user lists cannot change a film's Queue section.
+        /// Queue membership is ordinary list membership, so every change announces itself
+        /// via .membershipChanged. Only the three internal Queue lists are watched, because
+        /// user lists cannot change a film's Queue section.
         .onListEvent { event in
             if case .membershipChanged(let listID) = event,
                FilmQueue.isInternalList(listID) {
@@ -1354,8 +1354,8 @@ struct AddToListMenuContent: View {
     let filmIDs: Set<UUID>
     let dataCoordinator: DataCoordinator
     var body: some View {
-        // Recreate the menu content whenever the selection changes
-        // so we do not reuse stale state between openings.
+        /// Recreate the menu content whenever the selection changes
+        /// so we do not reuse stale state between openings.
         AddToListMenuItems(
             filmIDs: filmIDs,
             dataCoordinator: dataCoordinator
@@ -1375,9 +1375,9 @@ struct AddToListMenuItems: View {
     @State private var hasAnyLists = false
 
     var body: some View {
-        // Items come from the shared definition (23.72 SelectionMenu.swift). Only this
-        // menu-bar host supplies the ⇧⌘N shortcut, because a shortcut on the always-mounted
-        // toolbar button would be global. The Group keeps the lifecycle modifiers below attached.
+        /// Items come from the shared definition (23.72 SelectionMenu.swift). Only this
+        /// menu-bar host supplies the ⇧⌘N shortcut, because a shortcut on the always-mounted
+        /// toolbar button would be global. The Group keeps the lifecycle modifiers below attached.
         Group {
             AddToListMenuBody(
                 filmIDs: filmIDs,
@@ -1386,8 +1386,8 @@ struct AddToListMenuItems: View {
                 createShortcut: KeyboardShortcut("n", modifiers: [.shift, .command]),
                 onAddToList: { listID in
                     Task {
-                        // Use batched background operation.
-                        // Progress indication happens in LeftSidebar, not here.
+                        /// Use batched background operation.
+                        /// Progress indication happens in LeftSidebar, not here.
                         FilmManager.addFilmsToList(filmIDs, listID: listID,
                                                    coordinator: dataCoordinator)
                     }
@@ -1396,10 +1396,10 @@ struct AddToListMenuItems: View {
         .onAppear {
             loadAvailableLists()
         }
-        // One subscription covers every list DATA change, matching SelectionMenuButton
-        // (23.70 GalleryTitleBar.swift). Lists appearing or disappearing and memberships
-        // changing both affect which lists a selection can join. Progress-only events carry
-        // no data change and are skipped, so a bulk add or restore reloads once per burst.
+        /// One subscription covers every list DATA change, matching SelectionMenuButton
+        /// (23.70 GalleryTitleBar.swift). Lists appearing or disappearing and memberships
+        /// changing both affect which lists a selection can join. Progress-only events carry
+        /// no data change and are skipped, so a bulk add or restore reloads once per burst.
         .onListEvent { event in
             switch event {
             case .created, .updated, .deleted, .membershipChanged:
@@ -1412,8 +1412,8 @@ struct AddToListMenuItems: View {
 
     @MainActor
     private func loadAvailableLists() {
-        // Resolved through SelectionMenuModel, the same call the gallery context menu and
-        // title bar make. Sharing one rule keeps all three surfaces in agreement.
+        /// Resolved through SelectionMenuModel, the same call the gallery context menu and
+        /// title bar make. Sharing one rule keeps all three surfaces in agreement.
         let options = SelectionMenuModel.addToListOptions(filmIDs: filmIDs,
                                                           coordinator: dataCoordinator)
         availableLists = options.lists
@@ -1428,7 +1428,7 @@ struct ShowInListMenuContent: View {
     let dataCoordinator: DataCoordinator
 
     var body: some View {
-        // Tie identity to filmID so list membership is recomputed when selection changes.
+        /// Tie identity to filmID so list membership is recomputed when selection changes.
         ShowInListMenuItems(
             filmID: filmID,
             appState: appState,
@@ -1452,12 +1452,12 @@ struct ShowInListMenuItems: View {
     @State private var containingSmartLists: [SmartListType] = []
 
     var body: some View {
-        // Items from the shared definition (23.72 SelectionMenu.swift), which also
-        // owns the smart-lists visibility gate. Only ever built for a single selection,
-        // which is already guaranteed: ShowInListMenuContent is instantiated only when
-        // selectionCount == 1 (a multiple selection shows the "Multiple Films Selected"
-        // placeholder in place of this whole view).
-        // The Group keeps the lifecycle modifiers below attached to the shared body.
+        /// Items from the shared definition (23.72 SelectionMenu.swift), which also
+        /// owns the smart-lists visibility gate. Only ever built for a single selection,
+        /// which is already guaranteed: ShowInListMenuContent is instantiated only when
+        /// selectionCount == 1 (a multiple selection shows the "Multiple Films Selected"
+        /// placeholder in place of this whole view).
+        /// The Group keeps the lifecycle modifiers below attached to the shared body.
         Group {
             ShowInListMenuBody(filmID: filmID,
                                containingLists: containingLists,
@@ -1468,9 +1468,9 @@ struct ShowInListMenuItems: View {
             loadContainingLists()
             loadContainingSmartLists()
         }
-        // Every list DATA change, including membershipChanged. The membership case is required
-        // because the Commands menu content is kept until the selection changes, so a film
-        // added to a list elsewhere would otherwise leave this menu stale.
+        /// Every list DATA change, including membershipChanged. The membership case is required
+        /// because the Commands menu content is kept until the selection changes, so a film
+        /// added to a list elsewhere would otherwise leave this menu stale.
         .onListEvent { event in
             switch event {
             case .created, .updated, .deleted, .membershipChanged:
@@ -1480,10 +1480,10 @@ struct ShowInListMenuItems: View {
                 break
             }
         }
-        // Smart list membership is recalculated rather than stored, so it changes without a
-        // LIST event. Two sources are watched, as in onViewStateChanged and onFilmEvent
-        // (AppEventBus.swift): the manager's full-recalculation broadcast, and changes to this
-        // film, whose per-film recalculation emits no view event.
+        /// Smart list membership is recalculated rather than stored, so it changes without a
+        /// LIST event. Two sources are watched, as in onViewStateChanged and onFilmEvent
+        /// (AppEventBus.swift): the manager's full-recalculation broadcast, and changes to this
+        /// film, whose per-film recalculation emits no view event.
         .onReceive(AppEventBus.shared.viewEvents) { event in
             if case .smartListsRecalculated = event { loadContainingSmartLists() }
         }
@@ -1499,18 +1499,18 @@ struct ShowInListMenuItems: View {
 
     @MainActor
     private func loadContainingLists() {
-        // Resolved through SelectionMenuModel, matching GalleryContextMenu's and
-        // GalleryTitleBar's "Show in List" submenus rather than restating their rule.
-        // The shared helper reads the same in-memory MemoryStore relationships (so no
-        // stale store fetch is involved) and excludes the internal Film Queue lists,
-        // which are not navigable user lists and must not appear in this menu.
+        /// Resolved through SelectionMenuModel, matching GalleryContextMenu's and
+        /// GalleryTitleBar's "Show in List" submenus rather than restating their rule.
+        /// The shared helper reads the same in-memory MemoryStore relationships (so no
+        /// stale store fetch is involved) and excludes the internal Film Queue lists,
+        /// which are not navigable user lists and must not appear in this menu.
         containingLists = SelectionMenuModel.listsContaining(filmID: filmID,
                                                              coordinator: dataCoordinator)
     }
 
     @MainActor
     private func loadContainingSmartLists() {
-        // Reads membership through SelectionMenuModel, like the rest of this surface.
+        /// Reads membership through SelectionMenuModel, like the rest of this surface.
         containingSmartLists = SelectionMenuModel.smartListsContaining(filmID: filmID,
                                                                         coordinator: dataCoordinator)
     }

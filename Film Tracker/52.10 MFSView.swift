@@ -1,11 +1,11 @@
-// MARK: - MultiFilmSheetView.swift
+// MARK: - MFSView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The MultiFilmSheet's view: a 600×600 sheet laid out as the FilmSheet is — title strip,
-// tab bar (CustomTabs, 94.00), a fixed band saying what the sheet does, the active tab
-// (Details: the fields, scrolling beneath the band; Selected Films: the films, in the list
-// gallery's table), and the Cancel / Update gutter. The fields are the FilmSheet's own
-// controls (FSSharedFields, 30.25), each opening to what the films share.
+/// The MultiFilmSheet's view: a 600×600 sheet laid out as the FilmSheet is — title strip,
+/// tab bar (CustomTabs, 94.00), a fixed band saying what the sheet does, the active tab
+/// (Details: the fields, scrolling beneath the band; Selected Films: the films, in the list
+/// gallery's table), and the Cancel / Update gutter. The fields are the FilmSheet's own
+/// controls (FSSharedFields, 30.25), each opening to what the films share.
 
 import SwiftUI
 import AppKit
@@ -58,7 +58,7 @@ struct MultiFilmSheetView: View {
                 .background(Color(NSColor.controlBackgroundColor))
                 .overlay(Divider(), alignment: .bottom)
 
-            // As the FilmSheet's tab header is placed (FilmSheetView).
+            /// As the FilmSheet's tab header is placed (FilmSheetView).
             CustomTabHeader(
                 selectedTab: owner.selectedTab,
                 enabled: true,
@@ -90,24 +90,30 @@ struct MultiFilmSheetView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .background(WindowAccessor(window: $window))
         .frame(width: Preferences.sheetSize, height: Preferences.sheetSize)
-        .onAppear(perform: installTabMonitor)
+        /// Installed once the window is known, not on appear: WindowAccessor writes it a
+        /// run-loop turn later, so a monitor installed on appear captured nil and passed
+        /// every Tab on to SwiftUI's own key view chain.
+        .onChange(of: window, initial: true) { _, window in
+            removeTabMonitor()
+            if let window { installTabMonitor(scopedTo: window) }
+        }
         .onDisappear(perform: removeTabMonitor)
     }
 
     // MARK: Tab
-    //
-    // The FilmSheet's Tab rule (FilmSheetView.installTabMonitor): Tab and Shift-Tab walk the
-    // sheet's controls in reading order through FilmSheetKeyLoop, since SwiftUI's own key
-    // view chain skips the AppKit controls the fields are made of. The walk skips the hidden
-    // tab (it is drawn at zero alpha, FilmSheetKeyLoop's hidden-tab test). Scoped to this
-    // sheet's window, and left alone while a menu tracks or a popover (the Tags editor's)
-    // is up.
-    private func installTabMonitor() {
+    ///
+    /// The FilmSheet's Tab rule (FilmSheetView.installTabMonitor): Tab and Shift-Tab walk the
+    /// sheet's controls in reading order through FilmSheetKeyLoop, since SwiftUI's own key
+    /// view chain skips the AppKit controls the fields are made of. The walk skips the hidden
+    /// tab (it is drawn at zero alpha, FilmSheetKeyLoop's hidden-tab test). Scoped to this
+    /// sheet's window, and left alone while a menu tracks or a popover (the Tags editor's)
+    /// is up.
+    private func installTabMonitor(scopedTo sheetWindow: NSWindow) {
         let tracking = FilmSheetKeyLoop.MenuTrackingState.shared
-        tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [window] event in
+        tabMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak sheetWindow] event in
             guard event.keyCode == 48, event.normalizedModifiers.isSubset(of: [.shift]),
                   !tracking.isActive,
-                  let sheetWindow = window, let key = NSApp.keyWindow,
+                  let sheetWindow, let key = NSApp.keyWindow,
                   key === sheetWindow, event.window === key,
                   !(key.childWindows ?? []).contains(where: \.isVisible) else { return event }
             let forward = !event.normalizedModifiers.contains(.shift)
@@ -143,8 +149,8 @@ private struct MultiFilmHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            // A badge, not a control: UtilityKit's GlyphBadge, with the circle family's
-            // drop shadow so it matches the sheet's circular buttons.
+            /// A badge, not a control: UtilityKit's GlyphBadge, with the circle family's
+            /// drop shadow so it matches the sheet's circular buttons.
             GlyphBadge(color: Color.gray.opacity(0.5), diameter: 18,
                        circleShadow: GlyphBadgeShadow(opacity: 0.35, radius: 1.5, offsetY: 1)) {
                 Image(systemName: "info")
@@ -175,9 +181,9 @@ private struct MultiFilmTabContent: View {
     var body: some View {
         ZStack {
             tabLayer(.details) {
-                // The focus sink comes first, so AppKit's automatic first responder lands on
-                // it rather than on the first field (FilmSheetFocusSink). Return is passed on
-                // here, as on the FilmSheet's Details tab.
+                /// The focus sink comes first, so AppKit's automatic first responder lands on
+                /// it rather than on the first field (FilmSheetFocusSink). Return is passed on
+                /// here, as on the FilmSheet's Details tab.
                 VStack(spacing: 0) {
                     FilmSheetFocusSink(swallowReturn: false, reclaimWhenActive: selectedTab == .details)
                         .frame(height: 0)
@@ -194,7 +200,7 @@ private struct MultiFilmTabContent: View {
                     FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .films)
                         .frame(height: 0)
                         .clipped()
-                    // Read-only, as the Saved Search builder's results are.
+                    /// Read-only, as the Saved Search builder's results are.
                     UpNextResultsTable(films: owner.films)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .fieldEdgeChrome(fill: Color(nsColor: NSColor.alternatingContentBackgroundColors[0]), clipsContent: true, insetsInterior: true)
@@ -303,7 +309,7 @@ private struct MultiFilmFields: View {
                                                              vacancies: owner.upNextVacancies))
                 }
                 .changeMarker(false) { }
-                // 4 pt under the picker, as the FilmSheet's note sits.
+                /// 4 pt under the picker, as the FilmSheet's note sits.
                 .padding(.top, -(rowSpacing - 4))
             }
             AutoAddRow(owner: owner)
@@ -340,24 +346,14 @@ private struct MultiFilmFields: View {
             Divider().padding(.vertical, 6)
 
             NotesRow(owner: owner)
-            FilmSheetListRow(model: owner,
-                             keyPath: \.tags,
-                             singularLabel: "Tags:",
-                             pluralLabel: "Tags:",
-                             itemLabel: "Tag",
-                             labelWidth: MultiFilmSheetView.labelWidth,
-                             columnSpacing: colSpacing)
-                .changeMarker(!owner.edit.appendedTags.isEmpty,
-                              top: markerTop(centeredOn: 15, at: ReorderableStringList.labelTopOffset)) {
-                    owner.tags = []
-                }
+            TagsRow(owner: owner)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onReceive(AppEventBus.shared.listEvents) { event in
             switch event {
             case .deleted(let listID):
-                // Through assign, so a choice left equal to the films' own lists reads
-                // unchanged again.
+                /// Through assign, so a choice left equal to the films' own lists reads
+                /// unchanged again.
                 if case .set(var chosen) = owner.userListIDs, chosen.remove(listID) != nil {
                     owner.assign(\.userListIDs, chosen, shared: owner.shared.userListIDs)
                 }
@@ -452,14 +448,14 @@ private struct QueueRow: View {
             set: { newValue in
                 guard case .set(let section) = newValue,
                       owner.shared.queueSection.field(for: section).isSet else {
-                    // Back to where every film already is.
+                    /// Back to where every film already is.
                     owner.queueSection = .unchanged
                     return
                 }
-                // Fallback only: a full "Up Next" disables its segment from the first frame.
-                // Deferred, as every alert raised from a control's action is (FilmQueueRow).
+                /// Fallback only: a full "Up Next" disables its segment from the first frame.
+                /// Deferred, as every alert raised from a control's action is (FilmQueueRow).
                 if section == .upNext,
-                   FilmQueue.upNextOverflow(adding: Set(owner.filmIDs), coordinator: owner.coordinator) > 0 {
+                   FilmQueue.upNextOverflow(adding: Set(owner.liveFilmIDs), coordinator: owner.coordinator) > 0 {
                     DispatchQueue.main.async { showUpNextFull = true }
                     return
                 }
@@ -489,7 +485,7 @@ private struct QueueRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .changeMarker(owner.queueSection.isSet) { owner.queueSection = .unchanged }
-        .alert("Add to Queue", isPresented: $showConfirm) {
+        .alert("Add to Queue?", isPresented: $showConfirm) {
             Button("Cancel", role: .cancel) { pendingSection = nil }
             Button("Add Anyway") {
                 if let pendingSection { owner.queueSection = .set(pendingSection) }
@@ -502,7 +498,7 @@ private struct QueueRow: View {
             Button("OK") { }
                 .keyboardShortcut(.defaultAction)
         } message: {
-            Text(FilmQueue.upNextFullDropMessage(Set(owner.filmIDs), coordinator: owner.coordinator))
+            Text(FilmQueue.upNextFullDropMessage(Set(owner.liveFilmIDs), coordinator: owner.coordinator))
         }
     }
 }
@@ -526,7 +522,7 @@ private struct AutoAddRow: View {
             columnSpacing: MultiFilmSheetView.colSpacing,
             checkboxIsMixed: enabled == nil,
             onCheckboxClick: { owner.clickAutoAddCheckbox() })
-        // On the "Add to … Queue" line: 4 pt down, a pop-up tall.
+        /// On the "Add to … Queue" line: 4 pt down, a pop-up tall.
         .changeMarker(owner.autoAddToQueueOnRotation.isSet,
                       top: markerTop(centeredOn: SheetPopUpButton<Int>.layoutHeight, at: 4)) {
             owner.autoAddToQueueOnRotation = .unchanged
@@ -584,7 +580,7 @@ private struct SpecialSortingRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // On the menu, whose chrome is a 13 pt line with 4 pt above and below.
+        /// On the menu, whose chrome is a 13 pt line with 4 pt above and below.
         .changeMarker(owner.specialSorting.isSet, top: markerTop(centeredOn: 24)) {
             owner.specialSorting = .unchanged
         }
@@ -644,11 +640,31 @@ private struct NotesRow: View {
             FixedHeightScrollingTextView(text: $owner.notes, placeholder: "Notes")
                 .frame(height: height)
         }
-        // On the label's line: a 15 pt line at the label's offset.
+        /// On the label's line: a 15 pt line at the label's offset.
         .changeMarker(owner.notesEdit.isSet,
                       top: markerTop(centeredOn: 15, at: FixedHeightScrollingTextView.labelTopOffset)) {
             owner.revertNotes()
         }
+    }
+}
+
+/// Tags, appended to each film's own. Its own view so the marker's read of `tags` is this
+/// row's alone: in MultiFilmFields' body it made every row's container observe the field.
+private struct TagsRow: View {
+    @Bindable var owner: MultiFilmSheet
+
+    var body: some View {
+        FilmSheetListRow(model: owner,
+                         keyPath: \.tags,
+                         singularLabel: "Tags:",
+                         pluralLabel: "Tags:",
+                         itemLabel: "Tag",
+                         labelWidth: MultiFilmSheetView.labelWidth,
+                         columnSpacing: MultiFilmSheetView.colSpacing)
+            .changeMarker(owner.appendsTags,
+                          top: markerTop(centeredOn: 15, at: ReorderableStringList.labelTopOffset)) {
+                owner.tags = []
+            }
     }
 }
 
@@ -658,6 +674,8 @@ private struct MultiFilmButtonBar: View {
     @Bindable var owner: MultiFilmSheet
 
     var body: some View {
+        /// Once per pass: it builds the edit and, with tags to add, checks every film.
+        let gutterNote = owner.gutterNote
         HStack(spacing: 12) {
             Button { owner.cancel() } label: {
                 Text("Cancel").padding(4).font(.system(size: 12))
@@ -668,12 +686,12 @@ private struct MultiFilmButtonBar: View {
 
             Spacer()
 
-            Text(owner.gutterNote)
+            Text(gutterNote)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .help(owner.gutterNote)
+                .help(gutterNote)
 
             Button { owner.confirm() } label: {
                 Text(owner.confirmButtonTitle).padding(4).font(.system(size: 12))

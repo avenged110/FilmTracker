@@ -1,16 +1,16 @@
 // MARK: - ReportExporter.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Turns one ReportsView tab into the PDF sheet that reports it.
-//
-// This file holds no PDF machinery. Page geometry, fonts, the fill palette, the drawing primitives, and the
-// paginated table renderer live in the shared stack described at the top of PDFCore.swift (85.00), which the
-// whole-library export in PDFExporter.swift (43.10) also draws from.
-//
-// What remains here is the part that is genuinely about REPORTS: the column set and row
-// content for each of the five tabs. `sheet(for:)` is internal to the module precisely so
-// the library export can append these same five sheets to its own document without
-// restating a single column width.
+/// Turns one ReportsView tab into the PDF sheet that reports it.
+///
+/// This file holds no PDF machinery. Page geometry, fonts, the fill palette, the drawing primitives, and the
+/// paginated table renderer live in the shared stack described at the top of PDFCore.swift (85.00), which the
+/// whole-library export in PDFExporter.swift (43.10) also draws from.
+///
+/// What remains here is the part that is genuinely about REPORTS: the column set and row
+/// content for each of the five tabs. `sheet(for:)` is internal to the module precisely so
+/// the library export can append these same five sheets to its own document without
+/// restating a single column width.
 
 import AppKit
 import Foundation
@@ -39,9 +39,9 @@ enum ReportsPDFExporter {
             let stack = dataVisualizationsSheet(visualizations: visualizations, title: data.category.displayName)
             guard !stack.blocks.isEmpty else { return nil }
             return .stack(stack)
-        // The cost, price, and wishlist tabs have no sheet here. The library PDF's Disc-based Releases section
-        // covers them (see `LibraryPDFSection`). These cases are listed rather than folded into a `default`, so
-        // adding a sixth ReportsCategory still fails the build here.
+        /// The cost, price, and wishlist tabs have no sheet here. The library PDF's Disc-based Releases section
+        /// covers them (see `LibraryPDFSection`). These cases are listed rather than folded into a `default`, so
+        /// adding a sixth ReportsCategory still fails the build here.
         case .costTracker, .priceTracker, .releaseWishlist:
             return nil
         }
@@ -53,13 +53,13 @@ enum ReportsPDFExporter {
         films: [HallOfFameFilm],
         title: String
     ) -> PDFTableSection {
-        // The four narrow columns share `narrowBadgeWidth`, sized to the widest badge any of them prints ("Not
-        // Available", in Purchased), so the block reads as one unit. Title takes what a name needs, and Notes takes
-        // the rest, since it is the one column here that genuinely runs long.
+        /// The four narrow columns share `narrowBadgeWidth`, sized to the widest badge any of them prints ("Not
+        /// Available", in Purchased), so the block reads as one unit. Title takes what a name needs, and Notes takes
+        /// the rest, since it is the one column here that genuinely runs long.
         let columns = [
-            // Values centered, matching the header: both sit over the same band of color
-            // beneath them, and a centered rank reads as "labeling the row" rather than as
-            // a right-aligned number inviting comparison against its neighbors.
+            /// Values centered, matching the header: both sit over the same band of color
+            /// beneath them, and a centered rank reads as "labeling the row" rather than as
+            /// a right-aligned number inviting comparison against its neighbors.
             PDFTableColumn("Position",  width: narrowBadgeWidth, alignment: .center,
                            headerAlignment: .center),
             PDFTableColumn("Title",     width: 0.211, alignment: .left),
@@ -116,10 +116,10 @@ enum ReportsPDFExporter {
         switch rating {
         case 10: fill = PDFPalette.darkGreen
         case 9:  fill = PDFPalette.darkGold
-        // The complete-library table's own light blue, the same shade a purchased NATIVE
-        // 4K release uses there (see `fourKDiscCell` in PDFReport.swift), reused here
-        // rather than the aspect-ratio column's dark blue family, which is that column's own
-        // and not meant to be borrowed.
+        /// The complete-library table's own light blue, the same shade a purchased NATIVE
+        /// 4K release uses there (see `fourKDiscCell` in PDFReport.swift), reused here
+        /// rather than the aspect-ratio column's dark blue family, which is that column's own
+        /// and not meant to be borrowed.
         case 8:  fill = PDFPalette.lightBlue
         default: fill = nil
         }
@@ -160,8 +160,8 @@ enum ReportsPDFExporter {
         if let upgrade = film.upgrade {
             items.append(PDFNoteList.Item("\(upgrade.rawValue) available"))
         }
-        // Through the shared joiner, which is the same one the complete-library table's
-        // Notes column uses — so "read alike" is one implementation rather than two.
+        /// Through the shared joiner, which is the same one the complete-library table's
+        /// Notes column uses — so "read alike" is one implementation rather than two.
         return PDFNoteList.joined(items)
     }
 

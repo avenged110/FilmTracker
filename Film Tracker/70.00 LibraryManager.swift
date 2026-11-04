@@ -1,12 +1,12 @@
 // MARK: - LibraryManager.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Centralized management of the library's films and lists: film deletion, poster
-// cleanup and list membership (FilmManager); list creation, renaming, reordering,
-// deletion and content management (ListManager, ListManagerSheet); and the shared
-// "Remove from List" / "Delete from Library" commands built on both (FilmRemoval).
-// All operations use DataCoordinator for immediate in-memory updates with automatic
-// background persistence.
+/// Centralized management of the library's films and lists: film deletion, poster
+/// cleanup and list membership (FilmManager); list creation, renaming, reordering,
+/// deletion and content management (ListManager, ListManagerSheet); and the shared
+/// "Remove from List" / "Delete from Library" commands built on both (FilmRemoval).
+/// All operations use DataCoordinator for immediate in-memory updates with automatic
+/// background persistence.
 
 import SwiftUI
 import AppKit
@@ -28,38 +28,38 @@ struct FilmManager: Loggable {
         guard !filmIDs.isEmpty else { log("Delete aborted: No films provided"); return }
         log("Deleting \(filmIDs.count) film(s) from library")
 
-        // Clear selection before deleting.
+        /// Clear selection before deleting.
         if let selectionState = selectionState {
             log("Clearing selection state")
             selectionState.clearImmediate() }
 
-        // Get poster UIDs for cleanup (from memory).
+        /// Get poster UIDs for cleanup (from memory).
         var posterUIDs: [String] = []
         for filmID in filmIDs {
             if let film = coordinator.getFilm(filmID) {
                 log("Found film to delete: \(film.id) - '\(film.name)'")
                 if !film.posterUID.isEmpty { posterUIDs.append(film.posterUID) } } }
 
-        // Perform deletion through coordinator (updates memory + persists in background).
-        // deleteFilms(withIDs:) is non-throwing; errors are handled internally via rollback.
-        //
-        // Poster teardown — cache eviction AND file removal — is handed to the onPersisted
-        // callback rather than run inline below, because both are irreversible while this
-        // call's return means only "applied to MemoryStore". A failed background persist
-        // rolls the films back into the store; running the teardown here would leave those
-        // recovered films with their artwork already deleted from disk and from the cache,
-        // which no rollback can undo. See DataCoordinator.deleteFilms(withIDs:onPersisted:).
-        // Rebound to a constant: the callback below is concurrently-executing code, which
-        // cannot capture a `var`.
+        /// Perform deletion through coordinator (updates memory + persists in background).
+        /// deleteFilms(withIDs:) is non-throwing; errors are handled internally via rollback.
+        ///
+        /// Poster teardown — cache eviction AND file removal — is handed to the onPersisted
+        /// callback rather than run inline below, because both are irreversible while this
+        /// call's return means only "applied to MemoryStore". A failed background persist
+        /// rolls the films back into the store; running the teardown here would leave those
+        /// recovered films with their artwork already deleted from disk and from the cache,
+        /// which no rollback can undo. See DataCoordinator.deleteFilms(withIDs:onPersisted:).
+        /// Rebound to a constant: the callback below is concurrently-executing code, which
+        /// cannot capture a `var`.
         let posterUIDsToClean = posterUIDs
         let folderURL = Preferences.posterImagesFolderURL
         if folderURL == nil {
             log("WARNING: posterImagesFolderURL not available, poster file cleanup will be skipped")
         }
         await coordinator.deleteFilms(withIDs: filmIDs) { [weak coordinator] in
-            // Never delete artwork a surviving film still points at. The app always gives a
-            // film its own poster UID, but a hand-edited or malformed backup can restore two
-            // films sharing one, and deleting either would strip the other's poster.
+            /// Never delete artwork a surviving film still points at. The app always gives a
+            /// film its own poster UID, but a hand-edited or malformed backup can restore two
+            /// films sharing one, and deleting either would strip the other's poster.
             let stillUsed = Set(coordinator?.getAllPosterUIDs() ?? [])
             let posterUIDsToClean = posterUIDsToClean.filter { !stillUsed.contains($0) }
             guard !posterUIDsToClean.isEmpty else { return }
@@ -69,15 +69,15 @@ struct FilmManager: Loggable {
             log("Posters removed from cache")
 
             guard let folderURL else { return }
-            // Detached so the filesystem work never runs on the MainActor. Nothing here touches
-            // main-actor state, so a large multi-selection delete does not block the UI.
+            /// Detached so the filesystem work never runs on the MainActor. Nothing here touches
+            /// main-actor state, so a large multi-selection delete does not block the UI.
             Task.detached(priority: .utility) {
                 Self.cleanupPosterFiles(posterUIDsToClean, in: folderURL)
             }
         }
         log("Deletion applied for \(filmIDs.count) film(s) (persisting in background)")
 
-        // Post filmDeleted event.
+        /// Post filmDeleted event.
         AppEventBus.shared.filmsDeleted(filmIDs)
         log("Posted .filmDeleted event for \(filmIDs.count) film(s)")
     }
@@ -110,7 +110,7 @@ struct FilmManager: Loggable {
                 AppEventBus.shared.send(.list(.queueAdditionCompleted(listID: listID)))
             }
         } else {
-            // DataCoordinator.addFilmsToList refuses for two reasons; it logs the cap refusal itself.
+            /// DataCoordinator.addFilmsToList refuses for two reasons; it logs the cap refusal itself.
             log("ERROR: Add to list \(listID) failed — list not found, or 'Up Next' would exceed \(FilmQueue.upNextCapacity) films")
         }
 
@@ -162,14 +162,14 @@ struct FilmManager: Loggable {
         guard !filmIDs.isEmpty else {
             log("Remove-from-queue operation aborted: No film IDs provided"); return }
 
-        // Group the selected films by every internal section list they actually
-        // belong to, rather than only each film's single canonical section. Under
-        // normal operation every add path self-heals to guarantee mutual exclusivity,
-        // so a film is never in more than one queue section — but resolving the full
-        // intersection here (the same approach the auto-removal helper in
-        // DataCoordinator already uses) makes this corruption-proof: even a film left
-        // in two sections by a corrupted or pre-exclusivity backup restore will have
-        // every membership stripped in one pass, rather than only the canonical one.
+        /// Group the selected films by every internal section list they actually
+        /// belong to, rather than only each film's single canonical section. Under
+        /// normal operation every add path self-heals to guarantee mutual exclusivity,
+        /// so a film is never in more than one queue section — but resolving the full
+        /// intersection here (the same approach the auto-removal helper in
+        /// DataCoordinator already uses) makes this corruption-proof: even a film left
+        /// in two sections by a corrupted or pre-exclusivity backup restore will have
+        /// every membership stripped in one pass, rather than only the canonical one.
         var filmIDsByListID: [UUID: Set<UUID>] = [:]
         for filmID in filmIDs {
             let queueListIDs = coordinator.filmQueueListIDs(forFilm: filmID)
@@ -197,7 +197,7 @@ struct FilmManager: Loggable {
         for posterUID in posterUIDs {
             guard !posterUID.isEmpty else { continue }
 
-            // Try common JPEG filename variants.
+            /// Try common JPEG filename variants.
             let base = folderURL.appendingPathComponent(posterUID)
             let candidates: [URL] = [
                 base.appendingPathExtension("jpg"),
@@ -240,30 +240,30 @@ final class ListManager: Loggable {
             return nil
         }
 
-        // Get all existing lists from MemoryStore.
+        /// Get all existing lists from MemoryStore.
         let allLists = coordinator.getAllLists()
         
-        // Generate a unique name.
+        /// Generate a unique name.
         let uniqueName = generateUniqueName(baseName: trimmedName,
             existingNames: allLists.map { $0.listName })
 
-        // Calculate next display order.
+        /// Calculate next display order.
         let maxOrder = allLists.map { $0.displayOrder }.max() ?? -1
 
-        // Create new list through coordinator.
+        /// Create new list through coordinator.
         let newListID = coordinator.createList(name: uniqueName, displayOrder: maxOrder + 1)
         log("Created list '\(uniqueName)'")
 
         if let filmIDs = filmIDs, !filmIDs.isEmpty {
             coordinator.addFilmsToList(filmIDs: filmIDs, listID: newListID)
             log("Added \(filmIDs.count) film(s) to the new list")
-            // Mirror the event FilmManager.addFilmsToList posts so that membership
-            // observers (e.g. AddToListMenuItems, AddToQueueMenuItems) respond correctly
-            // to the initial population.
+            /// Mirror the event FilmManager.addFilmsToList posts so that membership
+            /// observers (e.g. AddToListMenuItems, AddToQueueMenuItems) respond correctly
+            /// to the initial population.
             AppEventBus.shared.listMembershipChanged(newListID)
         }
 
-        // Notify observers that the list itself was created.
+        /// Notify observers that the list itself was created.
         AppEventBus.shared.listCreated(newListID)
         return newListID
     }
@@ -304,8 +304,8 @@ final class ListManager: Loggable {
             log("Requested list name '\(trimmedName)' is already in use — using '\(uniqueName)'")
         }
 
-        // Nothing to persist when the name is unchanged. Without this, re-saving an
-        // unedited name would still dispatch a write and post an .updated event.
+        /// Nothing to persist when the name is unchanged. Without this, re-saving an
+        /// unedited name would still dispatch a write and post an .updated event.
         guard uniqueName != oldName else {
             log("List name unchanged ('\(oldName)') — no update dispatched")
             return true
@@ -315,7 +315,7 @@ final class ListManager: Loggable {
             displayOrder: nil, sortFilterOptions: nil)
         log("Updated list name: '\(oldName)' → '\(uniqueName)'")
 
-        // Post event that the list was updated.
+        /// Post event that the list was updated.
         AppEventBus.shared.send(.list(.updated(listID: listID)))
         return true
     }
@@ -323,14 +323,14 @@ final class ListManager: Loggable {
     /// Reorders lists based on new positions.
     static func reorderLists(from source: IndexSet, to destination: Int,
         coordinator: DataCoordinator) {
-        // getAllLists() is already sorted by displayOrder and already excludes the
-        // internal Film Queue lists, so the indices in `source`/`destination` line up
-        // exactly with the sidebar rows the user dragged.
+        /// getAllLists() is already sorted by displayOrder and already excludes the
+        /// internal Film Queue lists, so the indices in `source`/`destination` line up
+        /// exactly with the sidebar rows the user dragged.
         var lists = coordinator.getAllLists()
         log("Reordering lists: moving \(source) to \(destination)")
         lists.move(fromOffsets: source, toOffset: destination)
 
-        // Build updates as a flat array for the single-operation batch call.
+        /// Build updates as a flat array for the single-operation batch call.
         let updates = lists.enumerated().map { (index, list) in
             (listID: list.listID, displayOrder: index)
         }
@@ -338,10 +338,10 @@ final class ListManager: Loggable {
         coordinator.batchUpdateListOrders(updates)
         log("Reordered \(lists.count) list(s)")
 
-        // A single updated event triggers the sidebar's @Observable subscription
-        // to re-read cachedLists, which already reflects the new order via syncListsCache().
-        // Use the first list's ID as a representative value; the sidebar reacts to any
-        // list event regardless of which specific ID is embedded in the payload.
+        /// A single updated event triggers the sidebar's @Observable subscription
+        /// to re-read cachedLists, which already reflects the new order via syncListsCache().
+        /// Use the first list's ID as a representative value; the sidebar reacts to any
+        /// list event regardless of which specific ID is embedded in the payload.
         if let firstListID = lists.first?.listID {
             AppEventBus.shared.send(.list(.updated(listID: firstListID)))
         }
@@ -361,7 +361,7 @@ final class ListManager: Loggable {
 
         log("Deleting list '\(listName)' (ID: \(listID)) with \(filmCount) film(s)")
 
-        // Check if user is actively viewing this list in the current view state.
+        /// Check if user is actively viewing this list in the current view state.
         let wasViewingThisList: Bool
         if case .list(let activeListID) = ViewStateManager.shared.activeView {
             wasViewingThisList = (activeListID == listID)
@@ -369,23 +369,23 @@ final class ListManager: Loggable {
             wasViewingThisList = false
         }
 
-        // Delete through coordinator (handles memberships automatically).
+        /// Delete through coordinator (handles memberships automatically).
         coordinator.deleteList(listID: listID)
         log("Deleted list '\(listName)'")
 
-        // If user was viewing this list, switch the gallery's view state back to
-        // All Films. The sidebar's own selection is NOT touched here: the
-        // .deleted event posted just below is what moves selectedSidebarItem off
-        // the now-gone list, and only when that list is genuinely the selected
-        // row. The sidebar's selection is not cleared by a blanket event, because activeView and
-        // selectedSidebarItem intentionally diverge (for example, a pinned parent row such as
-        // Recents during "Show in List" navigation).
+        /// If user was viewing this list, switch the gallery's view state back to
+        /// All Films. The sidebar's own selection is NOT touched here: the
+        /// .deleted event posted just below is what moves selectedSidebarItem off
+        /// the now-gone list, and only when that list is genuinely the selected
+        /// row. The sidebar's selection is not cleared by a blanket event, because activeView and
+        /// selectedSidebarItem intentionally diverge (for example, a pinned parent row such as
+        /// Recents during "Show in List" navigation).
         if wasViewingThisList {
             ViewStateManager.shared.switchToViewSync(.allFilms)
             log("Switched view to All Films after deleting active list")
         }
 
-        // Notify observers that list was deleted.
+        /// Notify observers that list was deleted.
         AppEventBus.shared.listDeleted(listID)
 
         return true
@@ -420,7 +420,7 @@ final class ListManager: Loggable {
 
         log("Deleting \(filmIDs.count) film(s) from list contents")
 
-        // Use FilmManager for actual deletion (handles poster cleanup, etc.)
+        /// Use FilmManager for actual deletion (handles poster cleanup, etc.)
         await FilmManager.deleteFilms(Set(filmIDs), coordinator: coordinator,
             selectionState: nil)
 
@@ -450,9 +450,9 @@ final class ListManager: Loggable {
         
         log("Clearing \(filmCount) film(s) from list '\(listName)'")
 
-        // The operationStarted / membershipChanged / operationCompleted bracket lives in
-        // FilmManager.removeFilmsFromLists, shared with every other removal surface — see
-        // its doc comment.
+        /// The operationStarted / membershipChanged / operationCompleted bracket lives in
+        /// FilmManager.removeFilmsFromLists, shared with every other removal surface — see
+        /// its doc comment.
         FilmManager.removeFilmsFromLists([listID: memoryList.filmIDs], coordinator: coordinator)
         log("Cleared \(filmCount) film(s) from list '\(listName)'")
         return true
@@ -470,9 +470,9 @@ final class ListManager: Loggable {
         
         log("Removing \(filmIDs.count) film(s) from all lists")
         
-        // Collect the union of all list memberships for the selected films from MemoryStore.
-        // Internal Film Queue lists are excluded: a film's queue membership is managed
-        // exclusively through the FilmSheet's Up Next picker, never via this bulk user action.
+        /// Collect the union of all list memberships for the selected films from MemoryStore.
+        /// Internal Film Queue lists are excluded: a film's queue membership is managed
+        /// exclusively through the FilmSheet's Up Next picker, never via this bulk user action.
         let affectedListIDs = filmIDs.reduce(into: Set<UUID>()) { result, filmID in
             result.formUnion(coordinator.getListIDs(forFilm: filmID))
         }.subtracting(FilmQueue.allListIDs)
@@ -484,11 +484,11 @@ final class ListManager: Loggable {
         
         log("Found \(affectedListIDs.count) list(s) affected")
 
-        // Each affected list gets its own operationStarted/Completed pair, so each row's
-        // progress indicator tracks its own work window — all of which lives in
-        // FilmManager.removeFilmsFromLists rather than being restated here. The same
-        // `filmIDs` set is offered to every affected list; removeFilmsFromList already
-        // ignores IDs a given list does not hold.
+        /// Each affected list gets its own operationStarted/Completed pair, so each row's
+        /// progress indicator tracks its own work window — all of which lives in
+        /// FilmManager.removeFilmsFromLists rather than being restated here. The same
+        /// `filmIDs` set is offered to every affected list; removeFilmsFromList already
+        /// ignores IDs a given list does not hold.
         let removals = Dictionary(uniqueKeysWithValues: affectedListIDs.map { ($0, filmIDs) })
         FilmManager.removeFilmsFromLists(removals, coordinator: coordinator)
 
@@ -507,18 +507,18 @@ final class ListManager: Loggable {
     private static func generateUniqueName(baseName: String,
         existingNames: [String]) -> String {
         let lowerExisting = existingNames.map { $0.lowercased() }
-        // A saved search's name is a #list name too. ListManagerSheet refuses one as typed,
-        // but Duplicate List never shows the sheet, so a numbered suffix must not land on
-        // one either ("Noir" duplicating to a saved search's "Noir 1").
+        /// A saved search's name is a #list name too. ListManagerSheet refuses one as typed,
+        /// but Duplicate List never shows the sheet, so a numbered suffix must not land on
+        /// one either ("Noir" duplicating to a saved search's "Noir 1").
         let savedSearchKeys = Set(SavedSearchStore.shared.nameClaims().map(\.key))
         func isTaken(_ name: String) -> Bool {
             lowerExisting.contains(name.lowercased()) || savedSearchKeys.contains(SearchText.key(name))
         }
 
-        // If the base name is free (case-insensitive), use it as-is.
+        /// If the base name is free (case-insensitive), use it as-is.
         if !isTaken(baseName) { return baseName }
 
-        // Find the next available numbered suffix.
+        /// Find the next available numbered suffix.
         var counter = 1
         var candidateName = "\(baseName) \(counter)"
 
@@ -583,7 +583,7 @@ struct ListManagerSheet: View, Loggable {
     /// Two Set lookups, so it is cheap enough to evaluate on every keystroke.
     private var collidesWithSmartList: Bool {
         let trimmed = listName.trimmingCharacters(in: .whitespaces)
-        // Saved searches share the #list namespace, so a list may not take one's name either.
+        /// Saved searches share the #list namespace, so a list may not take one's name either.
         let key = SearchText.key(trimmed)
         return SmartListType.isReservedName(trimmed) || FilmQueue.isReservedName(trimmed)
             || SavedSearchStore.shared.nameClaims().contains { $0.key == key }
@@ -633,15 +633,15 @@ struct ListManagerSheet: View, Loggable {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Large glyph, shown in both modes so the two sheets share one layout —
-            // "note.text.badge.plus" when creating, its base "note.text" when editing an
-            // existing list's name. The two symbols are the same base glyph plus an
-            // appended "+" badge that only enlarges the canvas to the right and below —
-            // confirmed by rendering both and comparing their visible-pixel bounding
-            // boxes, which share the same top-left origin. Pinning both to `.topLeading`
-            // inside the shared `glyphFrameSize` frame (sized to the larger, badged
-            // variant) therefore keeps the base note shape at the identical position in
-            // both sheets; only the badge appears or doesn't, extending outward from it.
+            /// Large glyph, shown in both modes so the two sheets share one layout —
+            /// "note.text.badge.plus" when creating, its base "note.text" when editing an
+            /// existing list's name. The two symbols are the same base glyph plus an
+            /// appended "+" badge that only enlarges the canvas to the right and below —
+            /// confirmed by rendering both and comparing their visible-pixel bounding
+            /// boxes, which share the same top-left origin. Pinning both to `.topLeading`
+            /// inside the shared `glyphFrameSize` frame (sized to the larger, badged
+            /// variant) therefore keeps the base note shape at the identical position in
+            /// both sheets; only the badge appears or doesn't, extending outward from it.
             Image(systemName: mode == .create ? "note.text.badge.plus" : "note.text")
                 .font(.system(size: 36))
                 .symbolRenderingMode(.hierarchical)
@@ -651,13 +651,13 @@ struct ListManagerSheet: View, Loggable {
                 .offset(y: mode == .create ? Self.createGlyphVerticalCorrection : 0)
                 .padding(.top, 20)
 
-            // Title.
+            /// Title.
             Text(mode == .create ? "Create New List" : "Edit List Name")
                 .font(.system(size: 14, weight: .semibold))
                 .padding(.top, 8)
                 .padding(.bottom, filmIDs != nil ? 4 : 16)
             
-            // Show selection count when creating from selection
+            /// Show selection count when creating from selection
             if mode == .create, let filmIDs = filmIDs, !filmIDs.isEmpty {
                 let count = filmIDs.count
                 let itemText = count == 1 ? "Item" : "Items"
@@ -667,7 +667,7 @@ struct ListManagerSheet: View, Loggable {
                     .padding(.bottom, 16)
             }
             
-            // Text field.
+            /// Text field.
             TextField("List Name", text: $listName)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 280)
@@ -677,8 +677,8 @@ struct ListManagerSheet: View, Loggable {
                     if canSave { saveList() }
                 }
 
-            // Smart list name constraint notice — turns red while the entry is a
-            // reserved name.
+            /// Smart list name constraint notice — turns red while the entry is a
+            /// reserved name.
             Text("Note: Name must not match that of any smart list or saved search.")
                 .font(.system(size: 11))
                 .foregroundStyle(showsCollision ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
@@ -688,7 +688,7 @@ struct ListManagerSheet: View, Loggable {
 
             Divider()
 
-            // Button gutter.
+            /// Button gutter.
             HStack(spacing: 12) {
                 Button {
                     dismiss()
@@ -722,14 +722,14 @@ struct ListManagerSheet: View, Loggable {
                 listName = prefillName
             }
             loadExistingNameSync()
-            // Seed the flag undebounced, so a reserved prefill shows red from the start.
+            /// Seed the flag undebounced, so a reserved prefill shows red from the start.
             showsCollision = collidesWithSmartList
         }
-        // Real-time reserved-name check. `.task(id:)` cancels the previous run on every
-        // keystroke, which is the debounce: only an entry that stays on a reserved name
-        // for `collisionOnsetDelay` raises the flag. A non-colliding entry clears it at
-        // once, so the button never stays disabled after the user has typed past a
-        // reserved name. Writes are guarded so an unchanged flag invalidates nothing.
+        /// Real-time reserved-name check. `.task(id:)` cancels the previous run on every
+        /// keystroke, which is the debounce: only an entry that stays on a reserved name
+        /// for `collisionOnsetDelay` raises the flag. A non-colliding entry clears it at
+        /// once, so the button never stays disabled after the user has typed past a
+        /// reserved name. Writes are guarded so an unchanged flag invalidates nothing.
         .task(id: listName) {
             guard collidesWithSmartList else {
                 if showsCollision { showsCollision = false }
@@ -753,7 +753,7 @@ struct ListManagerSheet: View, Loggable {
     private func loadExistingNameSync() {
         guard mode == .edit, let listID = existingListID else { return }
 
-        // Synchronously load directly from MemoryStore via DataCoordinator (instant)
+        /// Synchronously load directly from MemoryStore via DataCoordinator (instant)
         if let list = coordinator.getList(listID) {
             listName = list.listName
             originalName = list.listName
@@ -766,7 +766,7 @@ struct ListManagerSheet: View, Loggable {
     private func saveList() {
         guard !isSaving else { return }
 
-        // Reject names that collide with a smart list name (case-insensitive).
+        /// Reject names that collide with a smart list name (case-insensitive).
         if collidesWithSmartList {
             showingSmartListCollisionAlert = true
             return
@@ -865,8 +865,8 @@ enum FilmRemoval: Loggable {
                                  coordinator: DataCoordinator) -> Set<UUID> {
         switch context {
         case .hallOfFame:
-            // hallOfFameFilms is an Array; hoisting it into a Set once keeps this linear
-            // rather than quadratic in the size of the selection.
+            /// hallOfFameFilms is an Array; hoisting it into a Set once keeps this linear
+            /// rather than quadratic in the size of the selection.
             let hofIDs = Set(coordinator.hallOfFameFilms)
             return filmIDs.filter { hofIDs.contains($0) }
         case .filmQueue:
@@ -910,10 +910,10 @@ enum FilmRemoval: Loggable {
 
         let confirm = Preferences.shouldConfirmListContents
 
-        // Logged as a request, not as the removal itself, whenever confirmation is on:
-        // this method then only raises an alert — the removal happens later, from the
-        // alert's completion path, and may never happen at all. Announcing the outcome
-        // here made the log assert a removal that a cancel silently contradicted.
+        /// Logged as a request, not as the removal itself, whenever confirmation is on:
+        /// this method then only raises an alert — the removal happens later, from the
+        /// alert's completion path, and may never happen at all. Announcing the outcome
+        /// here made the log assert a removal that a cancel silently contradicted.
         if confirm {
             Self.log("Remove from \(context) requested for \(targets.count) film(s) — awaiting confirmation")
         } else {
@@ -926,9 +926,9 @@ enum FilmRemoval: Loggable {
                 AppEventBus.shared.sendAlert(.confirmRemoveFromHallOfFame(filmIDs: targets,
                                                                           clearingSelection: clearingSelection))
             } else {
-                // Single batched call: one compaction, one atomic database transaction,
-                // and one coherent rollback baseline for the whole selection. Synchronous,
-                // so the selection clear follows it directly.
+                /// Single batched call: one compaction, one atomic database transaction,
+                /// and one coherent rollback baseline for the whole selection. Synchronous,
+                /// so the selection clear follows it directly.
                 coordinator.removeFromHallOfFame(targets)
                 clearSelectionIfRequested(clearingSelection)
             }
@@ -946,10 +946,10 @@ enum FilmRemoval: Loggable {
 
         case .userList(let listID):
             if confirm {
-                // The list record is needed only for the alert's title, so the lookup is
-                // scoped to this branch — requiring it up front would silently swallow the
-                // unconfirmed removal in the one case where it can be missing (the list
-                // deleted out from under an open menu).
+                /// The list record is needed only for the alert's title, so the lookup is
+                /// scoped to this branch — requiring it up front would silently swallow the
+                /// unconfirmed removal in the one case where it can be missing (the list
+                /// deleted out from under an open menu).
                 guard let list = coordinator.getList(listID) else {
                     Self.log("Remove from list aborted: list \(listID) no longer exists")
                     return
@@ -978,7 +978,7 @@ enum FilmRemoval: Loggable {
         guard !filmIDs.isEmpty else { return }
 
         if Preferences.shouldConfirmListContents {
-            // See removeFromCurrentList: request, not outcome.
+            /// See removeFromCurrentList: request, not outcome.
             Self.log("Remove from all lists requested for \(filmIDs.count) film(s) — awaiting confirmation")
             AppEventBus.shared.sendAlert(.confirmRemoveFromAllLists(filmIDs: filmIDs,
                                                                     clearingSelection: clearingSelection))
@@ -1006,8 +1006,8 @@ enum FilmRemoval: Loggable {
         guard !filmIDs.isEmpty else { return }
 
         if Preferences.confirmGalleryDelete {
-            // Logged as a request, not a deletion: with confirmation on, this method only raises an alert.
-            // FilmManager.deleteFilms logs the deletion when the alert's completion path calls it.
+            /// Logged as a request, not a deletion: with confirmation on, this method only raises an alert.
+            /// FilmManager.deleteFilms logs the deletion when the alert's completion path calls it.
             Self.log("Delete from library requested for \(filmIDs.count) film(s) — awaiting confirmation")
             AppEventBus.shared.sendAlert(.confirmDeleteFromLibrary(filmIDs: filmIDs,
                                                                    clearingSelection: clearingSelection))

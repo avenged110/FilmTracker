@@ -1,7 +1,7 @@
 // MARK: - SmartLists.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Manages computed "smart lists" that automatically populate based on film properties.
+/// Manages computed "smart lists" that automatically populate based on film properties.
 
 import SwiftUI
 import Combine
@@ -117,25 +117,25 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
              .filteredLibrary:
             return true
         case .viewedOverOneYearAgo:
-            return false // Accessed via Picker in the Up for Rotation view
+            return false /// Accessed via Picker in the Up for Rotation view
         case .purchased4K, .purchasedBluray, .purchasedDVD:
-            return false // These are accessed via Picker in the Purchased view
+            return false /// These are accessed via Picker in the Purchased view
         case .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD, .noReleasesAdded:
-            return false // These are accessed via Picker in the Unpurchased view
+            return false /// These are accessed via Picker in the Unpurchased view
         case .edited:
-            return false // Accessed via Picker in the Alternate Versions view
+            return false /// Accessed via Picker in the Alternate Versions view
         case .waitingForEdit, .temporarilyOnHold, .indefinitelyOnHold, .ignore, .blacklisted:
-            return false // These are accessed via Picker in the Filtered Library view
+            return false /// These are accessed via Picker in the Filtered Library view
         }
     }
     
     // MARK: - Family Membership Tests
-    //
-    // Each of these asks the same question — "is this type a member of family X?" — and
-    // each is answered by `sidebarParent`, the one exhaustive switch below that assigns
-    // every smart list to its family. Because `sidebarParent` is the only place that
-    // assigns families, a new smart list needs to be added in one place, and the compiler
-    // forces that switch to be updated.
+    ///
+    /// Each of these asks the same question — "is this type a member of family X?" — and
+    /// each is answered by `sidebarParent`, the one exhaustive switch below that assigns
+    /// every smart list to its family. Because `sidebarParent` is the only place that
+    /// assigns families, a new smart list needs to be added in one place, and the compiler
+    /// forces that switch to be updated.
 
     /// True for "Purchased" and its 4K / Blu-ray / DVD format variants.
     var isPurchasedFormat: Bool { sidebarParent == .purchased }
@@ -189,7 +189,7 @@ enum SmartListType: String, CaseIterable, Identifiable, Sendable {
             return .purchased
         case .unpurchased, .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD, .noReleasesAdded:
             return .unpurchased
-        // A family of one, so far: no variants, no picker, no disclosure triangle.
+        /// A family of one, so far: no variants, no picker, no disclosure triangle.
         case .upcomingReleases:
             return .upcomingReleases
         case .alternateVersions, .edited:
@@ -259,13 +259,13 @@ final class SmartListVariantState {
     /// - Parameter immediate: Switch views in this turn; see SubcategoryNavigation.performSwitch.
     func select(_ type: SmartListType, immediate: Bool = false) {
         guard type.sidebarParent == parent, selected != type else { return }
-        // `selected` updates synchronously so the picker label reflects the new choice
-        // immediately; SubcategoryNavigation clears the selection, pins the sidebar
-        // highlight to the parent item, and defers the view switch past the menu-dismissal
-        // animation (see its doc comment for the full rationale). This applies to the
-        // Filtered Library family too: despite the "sorting" name, its variants (Waiting
-        // for Edit, Temporarily On Hold, …) are genuinely distinct film-status subsets,
-        // not a reordering of one set.
+        /// `selected` updates synchronously so the picker label reflects the new choice
+        /// immediately; SubcategoryNavigation clears the selection, pins the sidebar
+        /// highlight to the parent item, and defers the view switch past the menu-dismissal
+        /// animation (see its doc comment for the full rationale). This applies to the
+        /// Filtered Library family too: despite the "sorting" name, its variants (Waiting
+        /// for Edit, Temporarily On Hold, …) are genuinely distinct film-status subsets,
+        /// not a reordering of one set.
         selected = type
         SubcategoryNavigation.performSwitch(
             parentSidebarItem: .smartList(parent),
@@ -327,62 +327,62 @@ final class SmartLists: Loggable {
     /// auto-enqueue logic below refer to it constantly.
     private var upForRotation: Set<UUID> { ids(.upForRotation) }
     
-    // Tracks whether calculateAllLists() has been called at least once this session.
-    // Used by recalculateIfNeeded() to distinguish "never calculated" from "calculated
-    // but all lists are genuinely empty" — the emptiness check alone cannot make that
-    // distinction and would trigger repeated full recalculations for libraries where
-    // no film qualifies for any smart list (no purchases, no watch history, etc.).
+    /// Tracks whether calculateAllLists() has been called at least once this session.
+    /// Used by recalculateIfNeeded() to distinguish "never calculated" from "calculated
+    /// but all lists are genuinely empty" — the emptiness check alone cannot make that
+    /// distinction and would trigger repeated full recalculations for libraries where
+    /// no film qualifies for any smart list (no purchases, no watch history, etc.).
     private var hasCalculated: Bool = false
 
-    // Cache for "Up for Rotation" to avoid recalculating multiple times per day
+    /// Cache for "Up for Rotation" to avoid recalculating multiple times per day
     private var lastRotationCalculationDate: Date?
 
-    // Stored handle for the daily midnight rotation refresh Task.
-    // Retained so it can be canceled when smart lists are cleared/disabled,
-    // preventing an untracked chain from persisting past the feature's lifetime.
+    /// Stored handle for the daily midnight rotation refresh Task.
+    /// Retained so it can be canceled when smart lists are cleared/disabled,
+    /// preventing an untracked chain from persisting past the feature's lifetime.
     private var rotationRefreshTask: Task<Void, Never>?
     
-    // Combine cancellables for event subscriptions
+    /// Combine cancellables for event subscriptions
     private var cancellables = Set<AnyCancellable>()
     
-    // Tracks the last-known value of excludeQueuedFromUpForRotation so the
-    // preferencesChanged listener (which fires for ANY preference change) can detect
-    // whether this specific preference actually changed, and avoid needlessly
-    // re-broadcasting smartListsRecalculated for unrelated preference edits.
+    /// Tracks the last-known value of excludeQueuedFromUpForRotation so the
+    /// preferencesChanged listener (which fires for ANY preference change) can detect
+    /// whether this specific preference actually changed, and avoid needlessly
+    /// re-broadcasting smartListsRecalculated for unrelated preference edits.
     private var lastKnownExcludeQueuedFromUpForRotation: Bool = Preferences.excludeQueuedFromUpForRotation
 
-    // Tracks the last-known value of the master Smart Lists toggle so the preferencesChanged
-    // listener can distinguish an actual on/off transition from the many unrelated preference
-    // edits that also post that event.
+    /// Tracks the last-known value of the master Smart Lists toggle so the preferencesChanged
+    /// listener can distinguish an actual on/off transition from the many unrelated preference
+    /// edits that also post that event.
     private var lastKnownSmartListsEnabled: Bool = Preferences.smartLists
 
     // MARK: - Full-Recalculation Race Protection
-    //
-    // calculateAllLists() snapshots the film array on @MainActor, computes every list on a
-    // background thread, then wholesale-overwrites every set back on @MainActor. Any targeted
-    // per-film recalculation that lands in that window operates on the live sets, but is then
-    // silently discarded when the bulk result is applied — because that result was computed
-    // from a film array captured *before* the edit.
-    //
-    // These two properties close that hole: while a full calculation is in flight, every film
-    // touched by a targeted path is recorded here, and applySmartListSets replays those films
-    // (or removes them, if they were deleted) immediately after applying the bulk result.
+    ///
+    /// calculateAllLists() snapshots the film array on @MainActor, computes every list on a
+    /// background thread, then wholesale-overwrites every set back on @MainActor. Any targeted
+    /// per-film recalculation that lands in that window operates on the live sets, but is then
+    /// silently discarded when the bulk result is applied — because that result was computed
+    /// from a film array captured *before* the edit.
+    ///
+    /// These two properties close that hole: while a full calculation is in flight, every film
+    /// touched by a targeted path is recorded here, and applySmartListSets replays those films
+    /// (or removes them, if they were deleted) immediately after applying the bulk result.
     private var isFullCalculationInFlight: Bool = false
     private var filmsTouchedDuringFullCalculation: Set<UUID> = []
 
     // MARK: - Rotation Baseline (auto-enqueue transition tracking)
-    //
-    // The membership of `upForRotation` as of the last evaluation, persisted across launches.
-    // `nil` means no baseline has been established yet (first launch after this was added, or
-    // after a database restore invalidated it).
-    //
-    // Auto-enqueue must fire only on a genuine transition — a film that was NOT up for
-    // rotation and now is. Comparing against the in-memory `upForRotation` alone cannot
-    // establish that, because that set starts empty every launch, which made the entire
-    // rotation list look "new" and re-ran auto-enqueue over the whole library on every start.
+    ///
+    /// The membership of `upForRotation` as of the last evaluation, persisted across launches.
+    /// `nil` means no baseline has been established yet (first launch after this was added, or
+    /// after a database restore invalidated it).
+    ///
+    /// Auto-enqueue must fire only on a genuine transition — a film that was NOT up for
+    /// rotation and now is. Comparing against the in-memory `upForRotation` alone cannot
+    /// establish that, because that set starts empty every launch, which made the entire
+    /// rotation list look "new" and re-ran auto-enqueue over the whole library on every start.
     private var knownUpForRotation: Set<UUID>?
 
-    // Debounce handle for the baseline's UserDefaults write. See setRotationBaseline.
+    /// Debounce handle for the baseline's UserDefaults write. See setRotationBaseline.
     private var rotationBaselinePersistTask: Task<Void, Never>?
 
     /// The single point through which a wholesale replacement of `upForRotation` must go.
@@ -399,10 +399,10 @@ final class SmartLists: Loggable {
         sets[.upForRotation] = newSet
 
         guard let baseline = knownUpForRotation else {
-            // No baseline to compare against. Adopt silently — acting on a difference we
-            // cannot verify risks enqueueing films the user already removed by hand, and
-            // an unwanted queue mutation is far more costly than a deferred one. The next
-            // genuine transition, evaluated against the baseline recorded here, is honored.
+            /// No baseline to compare against. Adopt silently — acting on a difference we
+            /// cannot verify risks enqueueing films the user already removed by hand, and
+            /// an unwanted queue mutation is far more costly than a deferred one. The next
+            /// genuine transition, evaluated against the baseline recorded here, is honored.
             Self.log("Rotation baseline not established — adopting \(newSet.count) film(s) without auto-enqueue")
             setRotationBaseline(newSet)
             return []
@@ -473,13 +473,13 @@ final class SmartLists: Loggable {
         self.knownUpForRotation = Preferences.knownUpForRotationFilmIDs
         setupEventListeners()
         
-        // STARTUP: Don't calculate lists eagerly in init().
-        // DataCoordinator.initializeMemoryStore() calls recalculateIfNeeded()
-        // as a deferred background task after the UI is responsive. This avoids
-        // the previous pattern where SmartLists.init() calculated every list
-        // immediately (even before films were loaded), and then DataCoordinator
-        // triggered a second full calculation via recalculateIfNeeded() - doubling
-        // the work and blocking the main thread during startup.
+        /// STARTUP: Don't calculate lists eagerly in init().
+        /// DataCoordinator.initializeMemoryStore() calls recalculateIfNeeded()
+        /// as a deferred background task after the UI is responsive. This avoids
+        /// the previous pattern where SmartLists.init() calculated every list
+        /// immediately (even before films were loaded), and then DataCoordinator
+        /// triggered a second full calculation via recalculateIfNeeded() - doubling
+        /// the work and blocking the main thread during startup.
         if Preferences.smartLists {
             Self.log("Smart Lists enabled - calculation deferred until after UI ready")
         } else {
@@ -490,7 +490,7 @@ final class SmartLists: Loggable {
     // MARK: - Event Listening
     
     private func setupEventListeners() {
-        // Listen for film updates
+        /// Listen for film updates
         AppEventBus.shared.filmEvents
             .sink { [weak self] event in
                 guard let self = self else { return }
@@ -498,9 +498,9 @@ final class SmartLists: Loggable {
                 case .updated(let filmID):
                     self.handleFilmUpdate(filmID)
                 case .added(let filmID):
-                    // Recalculate smart list membership for the newly added film.
-                    // Without this, films added via FilmSheet or single-film import
-                    // show no smart list memberships until a subsequent edit fires .updated.
+                    /// Recalculate smart list membership for the newly added film.
+                    /// Without this, films added via FilmSheet or single-film import
+                    /// show no smart list memberships until a subsequent edit fires .updated.
                     self.handleFilmAdded(filmID)
                 case .deleted(let filmIDs):
                     self.handleFilmsDeletion(filmIDs)
@@ -510,53 +510,53 @@ final class SmartLists: Loggable {
             }
             .store(in: &cancellables)
 
-        // Listen for preference changes so that enabling smart lists mid-session
-        // triggers an immediate full recalculation. Without this, all lists remain
-        // empty after the user toggles the feature on — films only trickle in as
-        // subsequent .updated or .added events fire for individual films.
+        /// Listen for preference changes so that enabling smart lists mid-session
+        /// triggers an immediate full recalculation. Without this, all lists remain
+        /// empty after the user toggles the feature on — films only trickle in as
+        /// subsequent .updated or .added events fire for individual films.
         AppEventBus.shared.viewEvents
             .sink { [weak self] event in
                 guard case .preferencesChanged = event else { return }
                 guard let self = self else { return }
 
-                // Detect an actual transition of the master Smart Lists toggle.
-                // preferencesChanged fires for every preference edit, so compare against
-                // the last-known value rather than acting on every notification.
+                /// Detect an actual transition of the master Smart Lists toggle.
+                /// preferencesChanged fires for every preference edit, so compare against
+                /// the last-known value rather than acting on every notification.
                 let smartListsEnabled = Preferences.smartLists
                 if smartListsEnabled != self.lastKnownSmartListsEnabled {
                     self.lastKnownSmartListsEnabled = smartListsEnabled
                     if smartListsEnabled {
-                        // Re-enabled. A full recalculation is mandatory, not optional: while
-                        // the feature was off, handleFilmUpdate/handleFilmAdded/handleFilmsDeletion
-                        // all returned early, so every film change made in that period was
-                        // dropped. Going through clearAllLists() first resets hasCalculated
-                        // and invalidates any stale in-flight result, so calculateAllLists()
-                        // rebuilds from the current library rather than trusting sets that
-                        // silently stopped tracking edits.
+                        /// Re-enabled. A full recalculation is mandatory, not optional: while
+                        /// the feature was off, handleFilmUpdate/handleFilmAdded/handleFilmsDeletion
+                        /// all returned early, so every film change made in that period was
+                        /// dropped. Going through clearAllLists() first resets hasCalculated
+                        /// and invalidates any stale in-flight result, so calculateAllLists()
+                        /// rebuilds from the current library rather than trusting sets that
+                        /// silently stopped tracking edits.
                         Self.log("Smart Lists re-enabled — clearing stale sets and recalculating")
                         self.clearAllLists()
                         self.calculateAllLists()
                     } else {
-                        // Disabled. Empty the sets and cancel the midnight timer so nothing
-                        // keeps running or serving membership data behind a hidden feature.
+                        /// Disabled. Empty the sets and cancel the midnight timer so nothing
+                        /// keeps running or serving membership data behind a hidden feature.
                         Self.log("Smart Lists disabled — clearing all lists")
                         self.clearAllLists()
                     }
                 } else if smartListsEnabled && !self.hasCalculated {
-                    // Safety net for the case where the feature is on and enabled but the
-                    // initial deferred calculation never ran.
+                    /// Safety net for the case where the feature is on and enabled but the
+                    /// initial deferred calculation never ran.
                     Self.log("Smart Lists enabled but not yet calculated — triggering full recalculation")
                     self.calculateAllLists()
                 }
-                // excludeQueuedFromUpForRotation is a pure presentation-layer filter applied
-                // on read (see filmIDs(for:)) — the underlying rotation sets themselves
-                // never change, so toggling the preference does not go through
-                // calculateAllLists(). Instead, re-broadcast smartListsRecalculated so any
-                // gallery currently viewing "Up for Rotation" or "Viewed Over One Year Ago"
-                // re-reads filmIDs(for:) and reflects the new filter state immediately.
-                // Only do this when the preference actually changed, since
-                // preferencesChanged fires for every preference edit and most are
-                // irrelevant to this filter.
+                /// excludeQueuedFromUpForRotation is a pure presentation-layer filter applied
+                /// on read (see filmIDs(for:)) — the underlying rotation sets themselves
+                /// never change, so toggling the preference does not go through
+                /// calculateAllLists(). Instead, re-broadcast smartListsRecalculated so any
+                /// gallery currently viewing "Up for Rotation" or "Viewed Over One Year Ago"
+                /// re-reads filmIDs(for:) and reflects the new filter state immediately.
+                /// Only do this when the preference actually changed, since
+                /// preferencesChanged fires for every preference edit and most are
+                /// irrelevant to this filter.
                 let currentValue = Preferences.excludeQueuedFromUpForRotation
                 if currentValue != self.lastKnownExcludeQueuedFromUpForRotation {
                     self.lastKnownExcludeQueuedFromUpForRotation = currentValue
@@ -566,11 +566,11 @@ final class SmartLists: Loggable {
             }
             .store(in: &cancellables)
 
-        // Listen for Film Queue membership changes (adding/removing films to/from the
-        // three internal Queue lists) so an open "Up for Rotation" or "Viewed Over One
-        // Year Ago" gallery immediately reflects films entering or leaving the
-        // excludeQueuedFromUpForRotation filter, without waiting for an unrelated film
-        // event or the midnight rotation refresh.
+        /// Listen for Film Queue membership changes (adding/removing films to/from the
+        /// three internal Queue lists) so an open "Up for Rotation" or "Viewed Over One
+        /// Year Ago" gallery immediately reflects films entering or leaving the
+        /// excludeQueuedFromUpForRotation filter, without waiting for an unrelated film
+        /// event or the midnight rotation refresh.
         AppEventBus.shared.listEvents
             .compactMap { event -> UUID? in
                 guard case .membershipChanged(let listID) = event else { return nil }
@@ -584,7 +584,7 @@ final class SmartLists: Loggable {
             }
             .store(in: &cancellables)
         
-        // Check rotation status at midnight each day
+        /// Check rotation status at midnight each day
         scheduleRotationRefresh()
     }
     
@@ -619,12 +619,12 @@ final class SmartLists: Loggable {
     // MARK: - Daily Rotation Refresh
     
     private func scheduleRotationRefresh() {
-        // Cancel any previously scheduled task before creating a new one.
-        // Prevents a stale chain from persisting if this is called more than once
-        // (e.g., after a forceFullRecalculation mid-day) or after clearAllLists().
+        /// Cancel any previously scheduled task before creating a new one.
+        /// Prevents a stale chain from persisting if this is called more than once
+        /// (e.g., after a forceFullRecalculation mid-day) or after clearAllLists().
         rotationRefreshTask?.cancel()
 
-        // Calculate time until next midnight.
+        /// Calculate time until next midnight.
         let calendar = AppCalendar.current
         let now = Date()
         
@@ -635,14 +635,14 @@ final class SmartLists: Loggable {
         
         let timeInterval = midnight.timeIntervalSince(now)
         
-        // Guard against negative or zero intervals (e.g., clock skew).
+        /// Guard against negative or zero intervals (e.g., clock skew).
         guard timeInterval > 0 else {
             Self.log("WARNING: Non-positive rotation refresh interval (\(timeInterval)s) — skipping schedule")
             return
         }
 
-        // Use Duration-based sleep to avoid manual UInt64 nanosecond arithmetic,
-        // which is less readable and requires its own overflow guard.
+        /// Use Duration-based sleep to avoid manual UInt64 nanosecond arithmetic,
+        /// which is less readable and requires its own overflow guard.
         let duration = Duration.seconds(timeInterval)
 
         rotationRefreshTask = Task { [weak self] in
@@ -654,7 +654,7 @@ final class SmartLists: Loggable {
                     Self.log("Daily rotation refresh triggered")
                     self.calculateUpForRotation()
                 }
-                // Schedule next refresh.
+                /// Schedule next refresh.
                 self.scheduleRotationRefresh()
             }
         }
@@ -676,51 +676,51 @@ final class SmartLists: Loggable {
             return
         }
         
-        // Clear the rotation sentinel so the midnight scheduler is not blocked
-        // if a full recalculation runs mid-day (e.g. after a database restore).
-        // forceFullRecalculation() already does this explicitly; clearing it here
-        // ensures calculateAllLists() is always safe to call from any path.
+        /// Clear the rotation sentinel so the midnight scheduler is not blocked
+        /// if a full recalculation runs mid-day (e.g. after a database restore).
+        /// forceFullRecalculation() already does this explicitly; clearing it here
+        /// ensures calculateAllLists() is always safe to call from any path.
         lastRotationCalculationDate = nil
 
-        // If smart lists were previously disabled, clearAllLists() will have canceled
-        // the rotation refresh task. Re-arm it now so the daily refresh resumes.
+        /// If smart lists were previously disabled, clearAllLists() will have canceled
+        /// the rotation refresh task. Re-arm it now so the daily refresh resumes.
         if rotationRefreshTask == nil || rotationRefreshTask!.isCancelled {
             scheduleRotationRefresh()
         }
 
-        // Fetch the full film list once on MainActor (required — coordinator is @MainActor).
+        /// Fetch the full film list once on MainActor (required — coordinator is @MainActor).
         let allFilms = coordinator.getAllFilms()
 
-        // Mark as calculated eagerly so that recalculateIfNeeded() does not fire
-        // a second task before this one completes.
+        /// Mark as calculated eagerly so that recalculateIfNeeded() does not fire
+        /// a second task before this one completes.
         hasCalculated = true
 
-        // Advance the generation counter so any in-flight task from a previous call
-        // knows its result is stale and should not be applied.
+        /// Advance the generation counter so any in-flight task from a previous call
+        /// knows its result is stale and should not be applied.
         calculationGeneration &+= 1
         let capturedGeneration = calculationGeneration
         let today = AppCalendar.current.startOfDay(for: Date())
 
-        // Open the race-protection window. Any targeted recalculation that arrives before the
-        // background result is applied will record its film ID so it can be replayed after.
-        // Reset the accumulator here rather than on completion so a superseding call starts
-        // clean while still capturing edits made during its own window.
+        /// Open the race-protection window. Any targeted recalculation that arrives before the
+        /// background result is applied will record its film ID so it can be replayed after.
+        /// Reset the accumulator here rather than on completion so a superseding call starts
+        /// clean while still capturing edits made during its own window.
         isFullCalculationInFlight = true
         filmsTouchedDuringFullCalculation.removeAll()
 
         Self.log("Calculating all smart lists (\(allFilms.count) films) [generation \(capturedGeneration)]")
 
-        // Dispatch the O(N × predicates) computation to a utility-priority background
-        // thread. All inputs ([FilmSnapshot], Date) are Sendable. The returned
-        // SmartListSets struct contains only Set<UUID> values, which are also Sendable.
-        // Results are applied back on @MainActor via a weak-self capture so that a
-        // deallocated SmartLists instance is silently ignored.
+        /// Dispatch the O(N × predicates) computation to a utility-priority background
+        /// thread. All inputs ([FilmSnapshot], Date) are Sendable. The returned
+        /// SmartListSets struct contains only Set<UUID> values, which are also Sendable.
+        /// Results are applied back on @MainActor via a weak-self capture so that a
+        /// deallocated SmartLists instance is silently ignored.
         Task.detached(priority: .utility) { [weak self] in
             let sets = SmartLists.computeSmartListSets(allFilms, today: today)
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                // Drop results produced by an older call that was superseded by a
-                // newer calculateAllLists() invocation.
+                /// Drop results produced by an older call that was superseded by a
+                /// newer calculateAllLists() invocation.
                 guard self.calculationGeneration == capturedGeneration else {
                     Self.log("Discarding stale smart list result [generation \(capturedGeneration), current \(self.calculationGeneration)]")
                     return
@@ -752,14 +752,14 @@ final class SmartLists: Loggable {
     }
     
     private func clearAllLists() {
-        // Cancel the pending midnight rotation refresh — the chain must not fire
-        // while all lists are cleared (e.g., when smart lists are disabled).
+        /// Cancel the pending midnight rotation refresh — the chain must not fire
+        /// while all lists are cleared (e.g., when smart lists are disabled).
         rotationRefreshTask?.cancel()
         rotationRefreshTask = nil
 
-        // Invalidate any full calculation still in flight. Without this, a background
-        // computation launched before the clear would pass its generation check on
-        // completion and re-populate every list that was just emptied.
+        /// Invalidate any full calculation still in flight. Without this, a background
+        /// computation launched before the clear would pass its generation check on
+        /// completion and re-populate every list that was just emptied.
         calculationGeneration &+= 1
         isFullCalculationInFlight = false
         filmsTouchedDuringFullCalculation.removeAll()
@@ -785,8 +785,8 @@ final class SmartLists: Loggable {
         let allFilms = coordinator.getAllFilms()
         var rotationIDs: Set<UUID> = []
         var oneYearIDs: Set<UUID> = []
-        // "Upcoming Releases" is the other date-relative list: a release leaves it on the
-        // day it comes out, so it is refreshed on the same daily pass.
+        /// "Upcoming Releases" is the other date-relative list: a release leaves it on the
+        /// day it comes out, so it is refreshed on the same daily pass.
         var upcomingIDs: Set<UUID> = []
         for film in allFilms {
             let member = Self.membership(of: film, today: today)
@@ -794,25 +794,25 @@ final class SmartLists: Loggable {
             if member.contains(.viewedOverOneYearAgo) { oneYearIDs.insert(film.id) }
             if member.contains(.upcomingReleases) { upcomingIDs.insert(film.id) }
         }
-        // Applied through the choke point so the daily refresh honors the same
-        // cross-launch baseline every other rotation path uses.
+        /// Applied through the choke point so the daily refresh honors the same
+        /// cross-launch baseline every other rotation path uses.
         let newlyUpForRotation = applyUpForRotationMembership(rotationIDs)
         sets[.viewedOverOneYearAgo] = oneYearIDs
         sets[.upcomingReleases] = upcomingIDs
         lastRotationCalculationDate = today
         Self.log("Up for Rotation: \(rotationIDs.count) films | Viewed Over One Year Ago: \(oneYearIDs.count) films")
 
-        // Enqueued after both rotation sets are assigned, for the same reason as in
-        // applySmartListSets: auto-enqueue can drive a gallery reload.
+        /// Enqueued after both rotation sets are assigned, for the same reason as in
+        /// applySmartListSets: auto-enqueue can drive a gallery reload.
         if !newlyUpForRotation.isEmpty {
             coordinator.autoEnqueueFilmsNewlyUpForRotation(newlyUpForRotation)
         }
 
-        // This recalculation runs on its own midnight timer, independent of any specific
-        // film event. Without this notification, a gallery already open on "Up for Rotation"
-        // or "Viewed Over One Year Ago" at the moment the clock passes midnight would keep
-        // showing yesterday's membership until some unrelated film event (or a manual
-        // navigation away and back) happened to trigger a reload.
+        /// This recalculation runs on its own midnight timer, independent of any specific
+        /// film event. Without this notification, a gallery already open on "Up for Rotation"
+        /// or "Viewed Over One Year Ago" at the moment the clock passes midnight would keep
+        /// showing yesterday's membership until some unrelated film event (or a manual
+        /// navigation away and back) happened to trigger a reload.
         AppEventBus.shared.smartListsRecalculated()
     }
     
@@ -842,21 +842,21 @@ final class SmartLists: Loggable {
     ) -> Set<SmartListType> {
         var types: Set<SmartListType> = []
 
-        // --- Rotation ---
-        // Parsed once and shared by both rotation checks. A film with no watch date is
-        // simply not in either list; a non-empty date that will not parse is a data
-        // problem worth reporting.
+        /// --- Rotation ---
+        /// Parsed once and shared by both rotation checks. A film with no watch date is
+        /// simply not in either list; a non-empty date that will not parse is a data
+        /// problem worth reporting.
         let lastWatchedDate = parseDate(from: film.lastWatched)
         if lastWatchedDate == nil && !film.lastWatched.isEmpty {
             log("WARNING: Could not parse lastWatched date '\(film.lastWatched)' for film '\(film.name)'")
         }
-        // Films carrying any specialSorting parameter are excluded from both rotation
-        // lists. Thresholds are rounded up to the 1st of the following month by the shared
-        // helper, so membership turns over on exactly the date the sidebar's "Next Up for
-        // Rotation" field names and counts down to. "Viewed Over One Year Ago" is expressed
-        // as 12 months through that same helper rather than as a raw anniversary so the two
-        // sibling lists round identically and a film on the default 12-month threshold
-        // enters both on the same day.
+        /// Films carrying any specialSorting parameter are excluded from both rotation
+        /// lists. Thresholds are rounded up to the 1st of the following month by the shared
+        /// helper, so membership turns over on exactly the date the sidebar's "Next Up for
+        /// Rotation" field names and counts down to. "Viewed Over One Year Ago" is expressed
+        /// as 12 months through that same helper rather than as a raw anniversary so the two
+        /// sibling lists round identically and a film on the default 12-month threshold
+        /// enters both on the same day.
         if film.specialSorting.isEmpty, let lastWatchedDate {
             if let threshold = rotationEligibilityDate(from: lastWatchedDate, months: film.rotationThreshold),
                threshold <= today {
@@ -868,17 +868,17 @@ final class SmartLists: Loggable {
             }
         }
 
-        // --- Purchases ---
-        // "Purchased X" means at least one purchased release of that format.
+        /// --- Purchases ---
+        /// "Purchased X" means at least one purchased release of that format.
         if film.releases.contains(where: { $0.purchased }) { types.insert(.purchased) }
         for (format, type) in Self.purchasedFormatLists
         where film.releases.contains(where: { $0.format == format && $0.purchased }) {
             types.insert(type)
         }
 
-        // --- Unpurchased ---
-        // "Unpurchased X" means at least one release of that format and none of them
-        // purchased — a film with no releases at all qualifies for none of these.
+        /// --- Unpurchased ---
+        /// "Unpurchased X" means at least one release of that format and none of them
+        /// purchased — a film with no releases at all qualifies for none of these.
         if !film.releases.isEmpty, film.releases.allSatisfy({ !$0.purchased }) {
             types.insert(.unpurchased)
         }
@@ -889,27 +889,27 @@ final class SmartLists: Loggable {
             }
         }
 
-        // The complement the Unpurchased rule above leaves out: no releases at all.
+        /// The complement the Unpurchased rule above leaves out: no releases at all.
         if film.releases.isEmpty { types.insert(.noReleasesAdded) }
 
-        // --- Upcoming ---
-        // At least one release whose date is still ahead of `today`, purchased (a
-        // preorder) or not — see ReleaseDateValue.isUpcoming. Date-relative, like the
-        // rotation lists, so the midnight refresh recomputes it.
+        /// --- Upcoming ---
+        /// At least one release whose date is still ahead of `today`, purchased (a
+        /// preorder) or not — see ReleaseDateValue.isUpcoming. Date-relative, like the
+        /// rotation lists, so the midnight refresh recomputes it.
         if nextUpcomingRelease(of: film, today: today) != nil {
             types.insert(.upcomingReleases)
         }
 
-        // --- Metadata ---
+        /// --- Metadata ---
         if film.edited { types.insert(.edited) }
         if Self.hasAlternateVersions(film) { types.insert(.alternateVersions) }
 
-        // --- Special Sorting ---
-        // specialSorting is an array, so a film can carry more than one tag at once (e.g.
-        // "Waiting for edit" + "Temporarily on hold"). Each list is therefore an
-        // independent membership test rather than an arm of a single-value switch.
-        // "Filtered Library" is the complement: watched, and carrying no tag at all — so it
-        // is mutually exclusive with the five tag lists by construction, not by ordering.
+        /// --- Special Sorting ---
+        /// specialSorting is an array, so a film can carry more than one tag at once (e.g.
+        /// "Waiting for edit" + "Temporarily on hold"). Each list is therefore an
+        /// independent membership test rather than an arm of a single-value switch.
+        /// "Filtered Library" is the complement: watched, and carrying no tag at all — so it
+        /// is mutually exclusive with the five tag lists by construction, not by ordering.
         if film.watched && film.specialSorting.isEmpty {
             types.insert(.filteredLibrary)
         } else {
@@ -994,31 +994,31 @@ final class SmartLists: Loggable {
     /// anything that changed while it was being computed.
     /// Also stamps `lastRotationCalculationDate` so the daily scheduler guard is set correctly.
     private func applySmartListSets(_ newSets: [SmartListType: Set<UUID>], today: Date) {
-        // Rotation membership is applied through applyUpForRotationMembership, which compares
-        // against the persisted cross-launch baseline to decide what is genuinely newly up
-        // for rotation. The resulting delta is enqueued further below, after every other set
-        // has been assigned.
+        /// Rotation membership is applied through applyUpForRotationMembership, which compares
+        /// against the persisted cross-launch baseline to decide what is genuinely newly up
+        /// for rotation. The resulting delta is enqueued further below, after every other set
+        /// has been assigned.
         let newlyUpForRotation = applyUpForRotationMembership(newSets[.upForRotation] ?? [])
 
-        // Assigned rather than merged, and over allCases rather than over newSets' keys, so
-        // that a list nothing qualified for this pass is emptied rather than left holding
-        // its previous membership.
+        /// Assigned rather than merged, and over allCases rather than over newSets' keys, so
+        /// that a list nothing qualified for this pass is emptied rather than left holding
+        /// its previous membership.
         for type in SmartListType.allCases where type != .upForRotation {
             sets[type] = newSets[type] ?? []
         }
         lastRotationCalculationDate = today
 
-        // Close the race-protection window BEFORE replaying, so the replayed targeted
-        // recalculations below do not re-record themselves into the accumulator.
+        /// Close the race-protection window BEFORE replaying, so the replayed targeted
+        /// recalculations below do not re-record themselves into the accumulator.
         let touchedFilmIDs = filmsTouchedDuringFullCalculation
         isFullCalculationInFlight = false
         filmsTouchedDuringFullCalculation.removeAll()
 
-        // Replay every film that was added, updated, or deleted while the background
-        // computation was running. The bulk result above was computed from a film array
-        // captured before those changes, so without this replay each of those films would
-        // silently revert to its pre-edit membership (and deleted films would linger as
-        // phantom IDs) until the next time that specific film happened to change again.
+        /// Replay every film that was added, updated, or deleted while the background
+        /// computation was running. The bulk result above was computed from a film array
+        /// captured before those changes, so without this replay each of those films would
+        /// silently revert to its pre-edit membership (and deleted films would linger as
+        /// phantom IDs) until the next time that specific film happened to change again.
         if !touchedFilmIDs.isEmpty {
             Self.log("Replaying \(touchedFilmIDs.count) film(s) changed during full recalculation")
             var vanishedFilmIDs: Set<UUID> = []
@@ -1034,28 +1034,28 @@ final class SmartLists: Loggable {
             }
         }
 
-        // Every set is now assigned and the replay has reconciled anything that changed
-        // mid-flight, so the smart list state is fully consistent. Only now is it safe to
-        // mutate Film Queue membership, which posts list events and can drive a reload.
-        //
-        // Re-intersected with the live set on purpose. `newlyUpForRotation` was computed from
-        // the background result, which predates the replay above. If the user marked one of
-        // those films watched while the calculation was running, the replay has just removed
-        // it from rotation — enqueueing it now would add a film the user had, moments earlier,
-        // told the app they had just watched. Only films that are still up for rotation after
-        // reconciliation are eligible.
+        /// Every set is now assigned and the replay has reconciled anything that changed
+        /// mid-flight, so the smart list state is fully consistent. Only now is it safe to
+        /// mutate Film Queue membership, which posts list events and can drive a reload.
+        ///
+        /// Re-intersected with the live set on purpose. `newlyUpForRotation` was computed from
+        /// the background result, which predates the replay above. If the user marked one of
+        /// those films watched while the calculation was running, the replay has just removed
+        /// it from rotation — enqueueing it now would add a film the user had, moments earlier,
+        /// told the app they had just watched. Only films that are still up for rotation after
+        /// reconciliation are eligible.
         let enqueueCandidates = newlyUpForRotation.intersection(upForRotation)
         if !enqueueCandidates.isEmpty {
             coordinator.autoEnqueueFilmsNewlyUpForRotation(enqueueCandidates)
         }
 
-        // A full recalculation replaces the membership of every smart list, not just the
-        // rotation pair. Any gallery currently displaying a smart list is holding film IDs
-        // that were resolved before this ran, so it must be told to re-read them — otherwise
-        // the view stays stale until the user navigates away and back. This matters most on
-        // the paths that trigger a full recalculation while a smart list is already on screen:
-        // startup's deferred calculation, enabling the feature mid-session, a database
-        // restore/import, and forceFullRecalculation() after bulk threshold resets.
+        /// A full recalculation replaces the membership of every smart list, not just the
+        /// rotation pair. Any gallery currently displaying a smart list is holding film IDs
+        /// that were resolved before this ran, so it must be told to re-read them — otherwise
+        /// the view stays stale until the user navigates away and back. This matters most on
+        /// the paths that trigger a full recalculation while a smart list is already on screen:
+        /// startup's deferred calculation, enabling the feature mid-session, a database
+        /// restore/import, and forceFullRecalculation() after bulk threshold resets.
         AppEventBus.shared.smartListsRecalculated()
     }
 
@@ -1076,9 +1076,9 @@ final class SmartLists: Loggable {
 
     /// Re-evaluates every smart list for one film.
     private func recalculateForFilm(_ filmID: UUID) {
-        // If a full recalculation is mid-flight, its result was computed from a film array
-        // captured before this change and will overwrite the mutations below. Record the film
-        // so applySmartListSets can replay it once the bulk result has been applied.
+        /// If a full recalculation is mid-flight, its result was computed from a film array
+        /// captured before this change and will overwrite the mutations below. Record the film
+        /// so applySmartListSets can replay it once the bulk result has been applied.
         if isFullCalculationInFlight {
             filmsTouchedDuringFullCalculation.insert(filmID)
         }
@@ -1090,8 +1090,8 @@ final class SmartLists: Loggable {
     /// Re-evaluates only the release-derived smart lists for one film — the response to a
     /// `.releaseChanged` event, which cannot affect any other list.
     private func recalculateReleaseBasedListsForFilm(_ filmID: UUID) {
-        // Same rationale as recalculateForFilm. Recorded here as well because .releaseChanged
-        // events reach this method directly, without passing through recalculateForFilm.
+        /// Same rationale as recalculateForFilm. Recorded here as well because .releaseChanged
+        /// events reach this method directly, without passing through recalculateForFilm.
         if isFullCalculationInFlight {
             filmsTouchedDuringFullCalculation.insert(filmID)
         }
@@ -1125,34 +1125,34 @@ final class SmartLists: Loggable {
 
             guard type == .upForRotation else { continue }
             if shouldBeIn {
-                // Auto-enqueue only if this film was not already up for rotation as of the
-                // last evaluation. `knownUpForRotation` may be nil (baseline unestablished),
-                // in which case the optional comparison below is false and nothing is
-                // enqueued — consistent with applyUpForRotationMembership's policy of never
-                // acting on a difference it cannot verify.
+                /// Auto-enqueue only if this film was not already up for rotation as of the
+                /// last evaluation. `knownUpForRotation` may be nil (baseline unestablished),
+                /// in which case the optional comparison below is false and nothing is
+                /// enqueued — consistent with applyUpForRotationMembership's policy of never
+                /// acting on a difference it cannot verify.
                 if knownUpForRotation?.contains(filmID) == false {
                     coordinator.autoEnqueueFilmsNewlyUpForRotation([filmID])
                 }
                 updateRotationBaseline(inserting: [filmID])
             } else {
-                // Drop it from the baseline too, so that if the film later re-qualifies
-                // that genuinely counts as a new rotation cycle and is honored.
+                /// Drop it from the baseline too, so that if the film later re-qualifies
+                /// that genuinely counts as a new rotation cycle and is honored.
                 updateRotationBaseline(removing: [filmID])
             }
         }
     }
 
     private func removeFilmsFromLists(_ filmIDs: Set<UUID>) {
-        // Deletions are the most damaging case to lose to an in-flight full calculation: the
-        // bulk result still contains these films (they existed when its input array was
-        // captured), so re-applying it would resurrect them as phantom IDs that no longer
-        // resolve to any film. Record them so applySmartListSets strips them again.
+        /// Deletions are the most damaging case to lose to an in-flight full calculation: the
+        /// bulk result still contains these films (they existed when its input array was
+        /// captured), so re-applying it would resurrect them as phantom IDs that no longer
+        /// resolve to any film. Record them so applySmartListSets strips them again.
         if isFullCalculationInFlight {
             filmsTouchedDuringFullCalculation.formUnion(filmIDs)
         }
 
-        // Deleted films must also leave the rotation baseline, otherwise their IDs persist
-        // in UserDefaults indefinitely as phantom entries.
+        /// Deleted films must also leave the rotation baseline, otherwise their IDs persist
+        /// in UserDefaults indefinitely as phantom entries.
         updateRotationBaseline(removing: filmIDs)
 
         for type in SmartListType.allCases {

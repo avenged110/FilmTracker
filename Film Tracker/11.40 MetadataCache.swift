@@ -1,8 +1,8 @@
 // MARK: - MetadataCache.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Persistent cache of metadata derived from FilmSnapshot values, such as sort keys, parsed dates, and
-// recent-activity data. It also maintains the library orders that make sorting fast.
+/// Persistent cache of metadata derived from FilmSnapshot values, such as sort keys, parsed dates, and
+/// recent-activity data. It also maintains the library orders that make sorting fast.
 
 
 import Foundation
@@ -12,48 +12,48 @@ import os
 struct FilmMetadata: Codable {
     let id: UUID
     
-    // Sorting Data
+    /// Sorting Data
     let titleKey: String
     let titleStartsWithNumber: Bool
     let year: String
     let duration: String
-    // The duration the duration sort reads: editedDuration when set, otherwise `duration`. Raw milliseconds.
+    /// The duration the duration sort reads: editedDuration when set, otherwise `duration`. Raw milliseconds.
     let effectiveDuration: String
     let dateAddedRaw: String
     let lastWatchedRaw: String
     let rating: Int
-    // Number of recorded viewings (calendarTable entries). Backs the .viewCount sort.
+    /// Number of recorded viewings (calendarTable entries). Backs the .viewCount sort.
     let viewCount: Int
     let lastModifiedRaw: String
-    // Parsed releaseDate, a secondary key for the .year sort. Nil when absent or not a well-formed "YYYY-MM-DD" prefix.
+    /// Parsed releaseDate, a secondary key for the .year sort. Nil when absent or not a well-formed "YYYY-MM-DD" prefix.
     let releaseDateParsed: Date?
     
-    // Recents Data
+    /// Recents Data
     let dateAddedParsed: Date
     let lastWatchedParsed: Date
     let lastModifiedParsed: Date
     let rotationDate: Date?
     let mostRecentPurchaseDate: Date?
     
-    // True if any release is marked purchased, dated or not. The datePurchased sort uses it to rank undated
-    // purchases between dated ones and never-purchased films.
+    /// True if any release is marked purchased, dated or not. The datePurchased sort uses it to rank undated
+    /// purchases between dated ones and never-purchased films.
 
     let hasPurchasedReleases: Bool
 
-    // Purchase data per release format, keyed by ReleaseFormat raw value. Read through mostRecentPurchaseDate(in:)
-    // and hasPurchasedReleases(in:). A combo pack's Blu-ray child counts as Blu-ray, as it does for Purchased Blu-ray.
+    /// Purchase data per release format, keyed by ReleaseFormat raw value. Read through mostRecentPurchaseDate(in:)
+    /// and hasPurchasedReleases(in:). A combo pack's Blu-ray child counts as Blu-ray, as it does for Purchased Blu-ray.
     let mostRecentPurchaseDateByFormat: [String: Date]
     let purchasedFormats: Set<String>
 
-    // Pre-formatted date strings for display
+    /// Pre-formatted date strings for display
     let dateAddedFormatted: String
     let lastWatchedFormatted: String
     let lastModifiedFormatted: String
     let rotationDateFormatted: String?
     let purchaseDateFormatted: String?
     
-    // Search keys, in SearchText.key form. Alternate titles are joined by a newline, which no key contains, so a
-    // query cannot match across two titles.
+    /// Search keys, in SearchText.key form. Alternate titles are joined by a newline, which no key contains, so a
+    /// query cannot match across two titles.
     let nameSearchKey: String
     let alternateTitleSearchKeys: String
     /// The synopsis (`descriptionText`) in the same form, for the `#synopsis` token.
@@ -66,7 +66,7 @@ struct FilmMetadata: Codable {
     init(from snapshot: FilmSnapshot) {
         self.id = snapshot.id
         
-        // Sorting Data
+        /// Sorting Data
         let nameToSort = snapshot.sortName.isEmpty ? snapshot.name : snapshot.sortName
         let stripped = Self.stripArticles(nameToSort)
         self.titleKey = stripped
@@ -74,7 +74,7 @@ struct FilmMetadata: Codable {
         
         self.year = snapshot.releaseYear
         self.duration = snapshot.duration
-        // The effective sort duration — see FilmSnapshot.effectiveDuration.
+        /// The effective sort duration — see FilmSnapshot.effectiveDuration.
         self.effectiveDuration = snapshot.effectiveDuration
         self.dateAddedRaw = snapshot.dateAdded
         self.lastWatchedRaw = snapshot.lastWatched
@@ -82,10 +82,10 @@ struct FilmMetadata: Codable {
         self.viewCount = snapshot.calendarTable.count
         self.lastModifiedRaw = snapshot.lastModified
         
-        // Parse releaseDate for the .year sort's secondary key.
+        /// Parse releaseDate for the .year sort's secondary key.
         self.releaseDateParsed = Self.parseReleaseDate(snapshot.releaseDate)
         
-        // Recents Data
+        /// Recents Data
         self.dateAddedParsed = Self.parseDate(snapshot.dateAdded)
         self.lastWatchedParsed = Self.parseDate(snapshot.lastWatched)
         self.lastModifiedParsed = Self.parseDate(snapshot.lastModified)
@@ -94,9 +94,9 @@ struct FilmMetadata: Codable {
         self.lastWatchedFormatted = Self.formatDate(self.lastWatchedParsed, includeDay: true)
         self.lastModifiedFormatted = Self.formatDate(self.lastModifiedParsed, includeDay: true)
         
-        // Rotation eligibility date: the viewing anniversary rounded up to the 1st of the next month. Films with a
-        // specialSorting value are excluded. It is stored unconditionally and never gated on `Date()`, because entries
-        // are persisted and trusted at startup. recentFilmIDs(for:) checks whether the date has arrived.
+        /// Rotation eligibility date: the viewing anniversary rounded up to the 1st of the next month. Films with a
+        /// specialSorting value are excluded. It is stored unconditionally and never gated on `Date()`, because entries
+        /// are persisted and trusted at startup. recentFilmIDs(for:) checks whether the date has arrived.
         if !snapshot.lastWatched.isEmpty && snapshot.specialSorting.isEmpty {
             let eligibility = rotationEligibilityDate(
                 from: self.lastWatchedParsed,
@@ -109,9 +109,9 @@ struct FilmMetadata: Codable {
             self.rotationDateFormatted = nil
         }
         
-        // Find most recent purchase date from release snapshots.
-        // Also record whether any release is marked purchased at all (even without a date),
-        // so the datePurchased sort can distinguish "purchased, no date" from "not purchased".
+        /// Find most recent purchase date from release snapshots.
+        /// Also record whether any release is marked purchased at all (even without a date),
+        /// so the datePurchased sort can distinguish "purchased, no date" from "not purchased".
         var mostRecent: Date? = nil
         var anyPurchased = false
         var mostRecentByFormat: [String: Date] = [:]
@@ -122,8 +122,8 @@ struct FilmMetadata: Codable {
             formats.insert(release.format)
             guard !release.purchaseDate.isEmpty else { continue }
 
-            // parseDate() returns Date.distantPast on failure. A malformed purchase date must not be adopted, or it
-            // would sort as year 1. Such a release still counts in anyPurchased.
+            /// parseDate() returns Date.distantPast on failure. A malformed purchase date must not be adopted, or it
+            /// would sort as year 1. Such a release still counts in anyPurchased.
             let purchaseDate = Self.parseDate(release.purchaseDate)
             guard purchaseDate > Date.distantPast else { continue }
 
@@ -141,7 +141,7 @@ struct FilmMetadata: Codable {
         self.purchasedFormats = formats
         self.purchaseDateFormatted = mostRecent.map { Self.formatDate($0, includeDay: true) }
         
-        // Search Cache Data — precomputed so a keystroke never re-normalizes the library.
+        /// Search Cache Data — precomputed so a keystroke never re-normalizes the library.
         self.nameSearchKey = SearchText.key(snapshot.name)
         self.alternateTitleSearchKeys = snapshot.alternateTitle.map(SearchText.key).joined(separator: "\n")
         self.synopsisSearchKey = SearchText.key(snapshot.descriptionText)
@@ -166,10 +166,10 @@ struct FilmMetadata: Codable {
 
     // MARK: - Private Helpers
     
-    // ISO 8601 formatter for "YYYY-MM-DDTHH:MM:SSZ" (full datetime, UTC).
+    /// ISO 8601 formatter for "YYYY-MM-DDTHH:MM:SSZ" (full datetime, UTC).
     private static let releaseDateTimeStyle = Date.ISO8601FormatStyle(timeZoneSeparator: .colon)
     
-    // ISO 8601 formatter for "YYYY-MM-DD" (date-only, UTC).
+    /// ISO 8601 formatter for "YYYY-MM-DD" (date-only, UTC).
     private static let releaseDateOnlyStyle = Date.ISO8601FormatStyle(timeZoneSeparator: .colon).year().month().day()
     
     /// Parses `releaseDate` for the `.year` sort's secondary key. Returns nil for an empty value, a malformed
@@ -177,21 +177,21 @@ struct FilmMetadata: Codable {
     private static func parseReleaseDate(_ raw: String) -> Date? {
         guard raw.count >= 10 else { return nil }
         
-        // Require a strict "YYYY-MM-DD" prefix: digits, with dashes at indexes 4 and 7.
+        /// Require a strict "YYYY-MM-DD" prefix: digits, with dashes at indexes 4 and 7.
         let chars = Array(raw.unicodeScalars)
         let isDigit: (Unicode.Scalar) -> Bool = { $0.value >= 48 && $0.value <= 57 }
         guard isDigit(chars[0]), isDigit(chars[1]), isDigit(chars[2]), isDigit(chars[3]),
-              chars[4].value == 45,   // '-'
+              chars[4].value == 45,   /// '-'
               isDigit(chars[5]), isDigit(chars[6]),
-              chars[7].value == 45,   // '-'
+              chars[7].value == 45,   /// '-'
               isDigit(chars[8]), isDigit(chars[9])
         else { return nil }
         
-        // Try the full datetime first, then the date-only style.
+        /// Try the full datetime first, then the date-only style.
         if raw.count > 10, let date = try? releaseDateTimeStyle.parse(raw) {
             return date
         }
-        // Only the first 10 characters are used for date-only parsing.
+        /// Only the first 10 characters are used for date-only parsing.
         let dateOnly = String(raw.prefix(10))
         return try? releaseDateOnlyStyle.parse(dateOnly)
     }
@@ -200,14 +200,14 @@ struct FilmMetadata: Codable {
     /// leading article ("The ", "A ", "An ", any case) dropped. Shared by the Reports and
     /// DataViz sorts so every title ordering in the app agrees with the gallery's.
     static func stripArticles(_ title: String) -> String {
-        // Strip leading punctuation and whitespace in one pass.
+        /// Strip leading punctuation and whitespace in one pass.
         let specialChars = CharacterSet(charactersIn: "[]():.,-—")
         var result = String(
             title
                 .unicodeScalars
                 .drop(while: { specialChars.contains($0) || CharacterSet.whitespaces.contains($0) })
         )
-        // Trim any whitespace left after the punctuation.
+        /// Trim any whitespace left after the punctuation.
         result = result.trimmingCharacters(in: .whitespaces)
 
         for article in ["The ", "A ", "An "] {
@@ -218,7 +218,7 @@ struct FilmMetadata: Codable {
         return result
     }
     
-    // Reusable formatters (created once per call, not per film)
+    /// Reusable formatters (created once per call, not per film)
     private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -240,7 +240,7 @@ struct FilmMetadata: Codable {
         return includeDay ? dayFormatter.string(from: date) : monthFormatter.string(from: date)
     }
     
-    // Delegates to the shared parseDate(from:) in GlobalUtilities, so formats are handled consistently.
+    /// Delegates to the shared parseDate(from:) in GlobalUtilities, so formats are handled consistently.
     private static func parseDate(_ dateString: String) -> Date {
         guard !dateString.isEmpty else { return Date.distantPast }
         return Film_Tracker.parseDate(from: dateString) ?? Date.distantPast
@@ -333,16 +333,16 @@ final class MetadataCache: Loggable {
     private let cacheURL: URL
 
     // MARK: - Library Orders
-    //
-    // Every comparator ends in a title tiebreak and then the film ID, so each sort option is a strict total order.
-    // Under a total order, sorting any subset yields the subsequence of the full sorted library, and descending is the
-    // ascending order reversed. So each option's ascending order over the whole library is built once, off the main
-    // actor. Later sort() calls filter that order, which is O(N) instead of a full sort.
-    //
-    // An order is used only while it matches the current metadata. `metadataGeneration` advances on every change to
-    // `metadata`, and an order is usable only when `libraryOrdersGeneration` equals it. Single-film mutations repair
-    // the orders in place (reconcileLibraryOrders). Other mutations leave them stale, so sort() falls back to the full
-    // sort until a background rebuild lands. A stale order is never read.
+    ///
+    /// Every comparator ends in a title tiebreak and then the film ID, so each sort option is a strict total order.
+    /// Under a total order, sorting any subset yields the subsequence of the full sorted library, and descending is the
+    /// ascending order reversed. So each option's ascending order over the whole library is built once, off the main
+    /// actor. Later sort() calls filter that order, which is O(N) instead of a full sort.
+    ///
+    /// An order is used only while it matches the current metadata. `metadataGeneration` advances on every change to
+    /// `metadata`, and an order is usable only when `libraryOrdersGeneration` equals it. Single-film mutations repair
+    /// the orders in place (reconcileLibraryOrders). Other mutations leave them stale, so sort() falls back to the full
+    /// sort until a background rebuild lands. A stale order is never read.
 
     /// One library order: a sort option, plus the purchase format for Date Last Purchased (the
     /// only option that reads it; nil for every other option, so they share one order).
@@ -402,19 +402,19 @@ final class MetadataCache: Loggable {
     
     private let maxFilmsPerSection = 200
     private let purchaseWindowDays = 90
-    // Days back from now that the Recently Come Up for Rotation list covers. This is the only place that cutoff is set.
+    /// Days back from now that the Recently Come Up for Rotation list covers. This is the only place that cutoff is set.
     private let recentlyRotatedWindowDays = 60
 
     // MARK: - Recents Result Cache
-    // Sorted [UUID] results per RecentsCategory, so repeated navigation returns at once. Cleared on any metadata change.
+    /// Sorted [UUID] results per RecentsCategory, so repeated navigation returns at once. Cleared on any metadata change.
     private var recentsCategoryCache: [RecentsCategory: [UUID]] = [:]
-    // Day the cached results were computed on. Rotation and purchase results depend on `Date()`, so they expire at midnight.
+    /// Day the cached results were computed on. Rotation and purchase results depend on `Date()`, so they expire at midnight.
     private var recentsCacheDay: Date?
     
     // MARK: - Initialization
     private init() {
         guard let dataFolder = Preferences.dataFolderURL else {
-            // Fallback for an unavailable data folder, which is not expected once launch setup has run.
+            /// Fallback for an unavailable data folder, which is not expected once launch setup has run.
             let appSupport = FileManager.default.urls(
                 for: .applicationSupportDirectory,
                 in: .userDomainMask
@@ -450,7 +450,7 @@ final class MetadataCache: Loggable {
     #endif
     
     // MARK: - Load/Save
-    // STARTUP: disk I/O and plist decoding run on a background task, in parallel with other startup work.
+    /// STARTUP: disk I/O and plist decoding run on a background task, in parallel with other startup work.
     /// Set once load() has run, whatever the outcome. A second call must not overwrite `metadata` with stale disk content.
     private var hasLoadedFromDisk = false
 
@@ -478,13 +478,13 @@ final class MetadataCache: Loggable {
             let decoder = PropertyListDecoder()
             let file = try decoder.decode(FilmMetadataCacheFile.self, from: data)
 
-            // A file with a different schema version cannot be repaired, so it is discarded and rebuilt. Returning an
-            // error leaves `metadata` empty, which routes to MemoryStore's rebuild branch.
+            /// A file with a different schema version cannot be repaired, so it is discarded and rebuilt. Returning an
+            /// error leaves `metadata` empty, which routes to MemoryStore's rebuild branch.
             guard file.schemaVersion == FilmMetadataCacheFile.currentSchemaVersion else {
                 return CacheFileRead(error: "schema version \(file.schemaVersion) ≠ expected \(FilmMetadataCacheFile.currentSchemaVersion) — discarding for rebuild")
             }
 
-            // Validated here, on the read's background thread, which launch does not wait on.
+            /// Validated here, on the read's background thread, which launch does not wait on.
             let validationStart = ContinuousClock.now
             let validated = validatedOrders(file.libraryOrders ?? [:], for: file.entries)
             return CacheFileRead(entries: file.entries, orders: validated.orders,
@@ -579,7 +579,7 @@ final class MetadataCache: Loggable {
             return
         }
         
-        // Usually already under way since FilmTrackerApp.init (see beginEarlyLoad).
+        /// Usually already under way since FilmTrackerApp.init (see beginEarlyLoad).
         let read = earlyRead ?? Task.detached(priority: .userInitiated) { Self.readCacheFile(at: url) }
         earlyRead = nil
         let result = await read.value
@@ -593,9 +593,9 @@ final class MetadataCache: Loggable {
             self.metadata = loaded
             onDiskGeneration = metadataGeneration
             onDiskOrderKeys = Set(result.orders.keys)
-            // Assigning `metadata` wholesale needs the same Recents invalidation as rebuild(from:). Without it, a Recents
-            // query made before this load finished could cache an empty result for the rest of the session. DataCoordinator
-            // also gates Recents loads, so this is a backstop.
+            /// Assigning `metadata` wholesale needs the same Recents invalidation as rebuild(from:). Without it, a Recents
+            /// query made before this load finished could cache an empty result for the rest of the session. DataCoordinator
+            /// also gates Recents loads, so this is a backstop.
             invalidateRecentsCache()
             installSavedLibraryOrders(result.orders, rejected: result.rejectedOrders, validation: result.validation)
             let duration = Date().timeIntervalSince(start)
@@ -628,13 +628,13 @@ final class MetadataCache: Loggable {
     private func write() async {
         let start = Date()
 
-        // Captured together, on MainActor: the generation names exactly these entries, and
-        // the orders are saved only while they describe them.
+        /// Captured together, on MainActor: the generation names exactly these entries, and
+        /// the orders are saved only while they describe them.
         let generation = metadataGeneration
         let orders = libraryOrdersAreCurrent ? libraryOrders : [:]
         let orderKeys = Set(orders.keys)
         let url = cacheURL
-        // The file must still exist. Orders built since the last save are also changes.
+        /// The file must still exist. Orders built since the last save are also changes.
         if generation == onDiskGeneration, orderKeys.isSubset(of: onDiskOrderKeys),
            FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             Self.log("Save skipped: cache on disk is current (\(metadata.count) entries)")
@@ -642,11 +642,11 @@ final class MetadataCache: Loggable {
         }
         onDiskGeneration = nil
 
-        // Capture value-type copies before leaving MainActor so the detached
-        // task has no shared-mutable-state access to self.
+        /// Capture value-type copies before leaving MainActor so the detached
+        /// task has no shared-mutable-state access to self.
         let snapshot = metadata
 
-        // The detached task returns the error text, so the caller can log why a write failed.
+        /// The detached task returns the error text, so the caller can log why a write failed.
         let (saveSuccess, saveError): (Bool, String?) = await Task.detached(priority: .utility) {
             do {
                 let encoder = PropertyListEncoder()
@@ -674,9 +674,9 @@ final class MetadataCache: Loggable {
         }
     }
     
-    // This class has no throttled-save timer. MemoryStore.scheduleThrottledSave() saves MetadataCache and
-    // MemoryStoreCache together, so there is one timer and no write race at shutdown. AppDelegate.performGracefulShutdown()
-    // calls DataCoordinator.saveImmediately(), which reaches save() through MemoryStore.
+    /// This class has no throttled-save timer. MemoryStore.scheduleThrottledSave() saves MetadataCache and
+    /// MemoryStoreCache together, so there is one timer and no write race at shutdown. AppDelegate.performGracefulShutdown()
+    /// calls DataCoordinator.saveImmediately(), which reaches save() through MemoryStore.
 
     // MARK: - Build from Snapshots
     
@@ -685,7 +685,7 @@ final class MetadataCache: Loggable {
     func rebuild(from snapshots: [UUID: FilmSnapshot]) async {
         let start = Date()
 
-        // Built off MainActor, across the cores (see buildEntries).
+        /// Built off MainActor, across the cores (see buildEntries).
         let newCache = await Self.buildEntries(snapshots)
 
         self.metadata = newCache
@@ -741,16 +741,16 @@ final class MetadataCache: Loggable {
         let existingKeys = Set(metadata.keys)
         let snapshotKeys = Set(snapshots.keys)
 
-        // Remove entries for deleted films (cheap dictionary mutation, stays on MainActor).
+        /// Remove entries for deleted films (cheap dictionary mutation, stays on MainActor).
         let toRemove = existingKeys.subtracting(snapshotKeys)
         for id in toRemove {
             metadata.removeValue(forKey: id)
         }
 
-        // Build new entries for films that have no existing metadata entry.
+        /// Build new entries for films that have no existing metadata entry.
         let toAddIDs = snapshotKeys.subtracting(existingKeys)
         if !toAddIDs.isEmpty {
-            // Pass only the snapshots that need new entries, to avoid copying the rest across the actor boundary.
+            /// Pass only the snapshots that need new entries, to avoid copying the rest across the actor boundary.
             var toAddSnapshots: [UUID: FilmSnapshot] = [:]
             toAddSnapshots.reserveCapacity(toAddIDs.count)
             for id in toAddIDs {
@@ -761,7 +761,7 @@ final class MetadataCache: Loggable {
 
             let newEntries = await Self.buildEntries(toAddSnapshots)
 
-            // Merge the newly-built entries back into the actor-isolated dictionary.
+            /// Merge the newly-built entries back into the actor-isolated dictionary.
             for (id, entry) in newEntries {
                 metadata[id] = entry
             }
@@ -900,7 +900,7 @@ final class MetadataCache: Loggable {
             }
             for id in changedIDs {
                 guard let entry = metadata[id] else { continue }
-                // First position whose film does not sort before the new entry.
+                /// First position whose film does not sort before the new entry.
                 var low = 0, high = updated.count
                 while low < high {
                     let mid = (low + high) / 2
@@ -987,7 +987,7 @@ final class MetadataCache: Loggable {
         guard usesLibraryOrders else { return false }
         var orders = built
         if builtGeneration != metadataGeneration {
-            // The library changed during the build, so the built orders are brought forward by the difference.
+            /// The library changed during the build, so the built orders are brought forward by the difference.
             var changed: Set<UUID> = []
             for (id, entry) in metadata {
                 if let old = snapshot[id], old.sortsIdentically(to: entry) { continue }
@@ -1000,7 +1000,7 @@ final class MetadataCache: Loggable {
             }
             orders = repaired
         }
-        // Current orders agree with the built ones, since each order is unique. Stale orders are discarded.
+        /// Current orders agree with the built ones, since each order is unique. Stale orders are discarded.
         if !libraryOrdersAreCurrent { libraryOrders.removeAll() }
         libraryOrders.merge(orders) { _, new in new }
         libraryOrdersGeneration = metadataGeneration
@@ -1019,7 +1019,7 @@ final class MetadataCache: Loggable {
               libraryOrdersAreCurrent, let order = libraryOrders[key] else { return nil }
         let ascending: [UUID]
         if filmIDs.count == order.count {
-            // Possibly the whole library: then the order is the answer as it stands.
+            /// Possibly the whole library: then the order is the answer as it stands.
             let members = Set(filmIDs)
             guard members.count == filmIDs.count,
                   filmIDs.allSatisfy({ metadata[$0] != nil }) else { return nil }
@@ -1028,7 +1028,7 @@ final class MetadataCache: Loggable {
             let members = Set(filmIDs)
             guard members.count == filmIDs.count else { return nil }
             let filtered = order.filter { members.contains($0) }
-            // Shorter only when some ID has no entry (the order holds every entry).
+            /// Shorter only when some ID has no entry (the order holds every entry).
             guard filtered.count == filmIDs.count else { return nil }
             ascending = filtered
         }
@@ -1052,7 +1052,7 @@ final class MetadataCache: Loggable {
             }
             libraryOrders[key] = direction == .ascending ? sorted : sorted.reversed()
         }
-        // Small sorts land here on every refresh. Only a missing order is worth building.
+        /// Small sorts land here on every refresh. Only a missing order is worth building.
         if !libraryOrdersAreCurrent || libraryOrders.count < Self.wantedLibraryOrderKeys.count {
             scheduleLibraryOrderBuild()
         }
@@ -1098,13 +1098,13 @@ final class MetadataCache: Loggable {
             return cmp == .orderedAscending
         }
         
-        // If titles are identical, use year as the next tiebreaker
+        /// If titles are identical, use year as the next tiebreaker
         let year1 = Int(data1.year) ?? 0
         let year2 = Int(data2.year) ?? 0
         if year1 != year2 { return year1 < year2 }
 
-        // Same title and year. The film ID is the last tiebreak, which keeps the comparison total. Caller order is
-        // not stable across launches, so it cannot be used.
+        /// Same title and year. The film ID is the last tiebreak, which keeps the comparison total. Caller order is
+        /// not stable across launches, so it cannot be used.
         return data1.id.uuidString < data2.id.uuidString
     }
     
@@ -1150,8 +1150,8 @@ final class MetadataCache: Loggable {
         let tier2 = purchaseTier(data2, in: format)
         if tier1 != tier2 { return tier1 < tier2 }
 
-        // Same tier. Only tier 2 carries a value to order by; the other two are
-        // distinguished by nothing but their titles.
+        /// Same tier. Only tier 2 carries a value to order by; the other two are
+        /// distinguished by nothing but their titles.
         if tier1 == 2,
            let date1 = data1.mostRecentPurchaseDate(in: format),
            let date2 = data2.mostRecentPurchaseDate(in: format),
@@ -1204,11 +1204,11 @@ final class MetadataCache: Loggable {
     /// Its only caller is the All Films pre-warm, which has no purchase format scope.
     func sortAsync(_ filmIDs: [UUID], by option: SortOption, direction: SortDirection) async -> [UUID] {
         guard !filmIDs.isEmpty else { return [] }
-        // A current order answers without sorting — at launch, the one saved with the cache.
+        /// A current order answers without sorting — at launch, the one saved with the cache.
         if let ordered = sortFromLibraryOrder(filmIDs, key: LibraryOrderKey(option), direction: direction) {
             return ordered
         }
-        // Copy the metadata on MainActor. Copy-on-write means the detached task reads it without copying.
+        /// Copy the metadata on MainActor. Copy-on-write means the detached task reads it without copying.
         let metadataSnapshot = metadata
         let generation = metadataGeneration
         let start = Date()
@@ -1216,7 +1216,7 @@ final class MetadataCache: Loggable {
             Self._performSort(filmIDs, by: option, direction: direction,
                               purchaseFormat: nil, using: metadataSnapshot)
         }.value
-        // Sorted against the metadata as it was; only that metadata may adopt it.
+        /// Sorted against the metadata as it was; only that metadata may adopt it.
         if generation == metadataGeneration {
             adoptLibraryOrder(sorted, from: filmIDs, key: LibraryOrderKey(option), direction: direction)
         }
@@ -1236,18 +1236,18 @@ final class MetadataCache: Loggable {
         return filmIDs.sorted { id1, id2 in
             let entry1 = metadata[id1], entry2 = metadata[id2]
             guard let data1 = entry1, let data2 = entry2 else {
-                // Degenerate path: an ID with no metadata entry. Such IDs sort after every
-                // film that has one, and by UUID among themselves. Comparing only the two
-                // UUIDs whenever EITHER entry was missing mixed two unrelated orderings —
-                // not a strict weak ordering — so the sort could scatter them arbitrarily.
-                // Left outside the direction handling below deliberately — there is no
-                // meaningful "reverse" of an arbitrary tiebreak.
+                /// Degenerate path: an ID with no metadata entry. Such IDs sort after every
+                /// film that has one, and by UUID among themselves. Comparing only the two
+                /// UUIDs whenever EITHER entry was missing mixed two unrelated orderings —
+                /// not a strict weak ordering — so the sort could scatter them arbitrarily.
+                /// Left outside the direction handling below deliberately — there is no
+                /// meaningful "reverse" of an arbitrary tiebreak.
                 if (entry1 == nil) != (entry2 == nil) { return entry2 == nil }
                 return id1.uuidString < id2.uuidString
             }
 
-            // Direction is applied by swapping operands, never by negating the result. Negation breaks the strict weak
-            // ordering that sorted(by:) requires, because equal elements would compare as less than themselves.
+            /// Direction is applied by swapping operands, never by negating the result. Negation breaks the strict weak
+            /// ordering that sorted(by:) requires, because equal elements would compare as less than themselves.
             return direction == .ascending
                 ? compare(data1, data2, by: option, purchaseFormat: purchaseFormat)
                 : compare(data2, data1, by: option, purchaseFormat: purchaseFormat)
@@ -1269,28 +1269,28 @@ final class MetadataCache: Loggable {
             if year1 != year2 {
                 return year1 < year2
             } else if let rd1 = data1.releaseDateParsed, let rd2 = data2.releaseDateParsed {
-                // Both films have a parseable releaseDate — use it as the intermediate
-                // tiebreaker within the same releaseYear, falling back to title if equal.
+                /// Both films have a parseable releaseDate — use it as the intermediate
+                /// tiebreaker within the same releaseYear, falling back to title if equal.
                 return rd1 != rd2 ? rd1 < rd2 : compareTitles(data1, data2)
             } else if data1.releaseDateParsed != nil {
-                // Only film 1 has a releaseDate — it sorts before the undated film 2.
+                /// Only film 1 has a releaseDate — it sorts before the undated film 2.
                 return true
             } else if data2.releaseDateParsed != nil {
-                // Only film 2 has a releaseDate — it sorts before the undated film 1.
+                /// Only film 2 has a releaseDate — it sorts before the undated film 1.
                 return false
             } else {
-                // Neither film has a parseable releaseDate — fall back to title sort.
+                /// Neither film has a parseable releaseDate — fall back to title sort.
                 return compareTitles(data1, data2)
             }
 
         case .duration:
-            // Compared in whole minutes, because the UI shows minutes. Otherwise films that look identical would be ordered
-            // by milliseconds the user cannot see, and the title tiebreak would never apply.
+            /// Compared in whole minutes, because the UI shows minutes. Otherwise films that look identical would be ordered
+            /// by milliseconds the user cannot see, and the title tiebreak would never apply.
             let ms1 = Int(data1.effectiveDuration) ?? 0
             let ms2 = Int(data2.effectiveDuration) ?? 0
 
-            // Films with no runtime form a leading tier. Truncating to minutes would otherwise place them among short films,
-            // which would break the duration divider bands. Like every other rule, the tier is direction-blind.
+            /// Films with no runtime form a leading tier. Truncating to minutes would otherwise place them among short films,
+            /// which would break the duration divider bands. Like every other rule, the tier is direction-blind.
             if (ms1 <= 0) != (ms2 <= 0) { return ms1 <= 0 }
 
             let dur1 = ms1 / 60_000
@@ -1306,7 +1306,7 @@ final class MetadataCache: Loggable {
                                 tiebreak: data1, data2)
 
         case .viewCount:
-            // An integer comparison with a title tiebreak.
+            /// An integer comparison with a title tiebreak.
             return data1.viewCount != data2.viewCount
                 ? data1.viewCount < data2.viewCount
                 : compareTitles(data1, data2)
@@ -1342,7 +1342,7 @@ final class MetadataCache: Loggable {
             result = newestFirst { $0.lastModifiedParsed > .distantPast ? $0.lastModifiedParsed : nil }
 
         case .recentlyViewed:
-            // Same-day viewings fall back to the most recent edit before the title.
+            /// Same-day viewings fall back to the most recent edit before the title.
             result = newestFirst({ $0.lastWatchedParsed > .distantPast ? $0.lastWatchedParsed : nil },
                                  tiebreak: {
                                      $0.lastModifiedParsed != $1.lastModifiedParsed
@@ -1354,9 +1354,9 @@ final class MetadataCache: Loggable {
             guard let cutoff = AppCalendar.current.date(byAdding: .day,
                                                      value: -recentlyRotatedWindowDays,
                                                      to: now) else { return [] }
-            // The rotation date is the eligibility date, whether or not it has arrived. Both bounds are checked against
-            // the current `Date()`: a date not yet reached is excluded, and so is one more than `recentlyRotatedWindowDays` ago.
-            // Rotation dates fall on the 1st of a month, so ties are common, and the title tiebreak orders them.
+            /// The rotation date is the eligibility date, whether or not it has arrived. Both bounds are checked against
+            /// the current `Date()`: a date not yet reached is excluded, and so is one more than `recentlyRotatedWindowDays` ago.
+            /// Rotation dates fall on the 1st of a month, so ties are common, and the title tiebreak orders them.
             result = newestFirst { data in
                 data.rotationDate.flatMap { $0 <= now && $0 >= cutoff ? $0 : nil }
             }
@@ -1419,11 +1419,11 @@ final class MetadataCache: Loggable {
     }
     
     // MARK: - Preference Change Handling
-    //
-    // `rotationDate` depends on Preferences.defaultRotationThreshold for every film
-    // without an override, so a change to that default makes those entries stale.
-    // DataCoordinator.handleDefaultRotationThresholdChangeIfNeeded() refreshes them
-    // through MemoryStore.refreshRotationDerivedMetadata() → setEntries(_:).
+    ///
+    /// `rotationDate` depends on Preferences.defaultRotationThreshold for every film
+    /// without an override, so a change to that default makes those entries stale.
+    /// DataCoordinator.handleDefaultRotationThresholdChangeIfNeeded() refreshes them
+    /// through MemoryStore.refreshRotationDerivedMetadata() → setEntries(_:).
     
     // MARK: - Search Cache Access
     

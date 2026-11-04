@@ -1,26 +1,26 @@
 // MARK: - DBReader.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Reads NSManagedObjectContext contents and exposes a normalized export structure.
-//
-// Usage summary:
-//   1. Make your model types conform to `ExportableModel` (examples below).
-//   2. Create DBReader and call exportAll(types:progress:).
+/// Reads NSManagedObjectContext contents and exposes a normalized export structure.
+///
+/// Usage summary:
+///   1. Make your model types conform to `ExportableModel` (examples below).
+///   2. Create DBReader and call exportAll(types:progress:).
 
 import Foundation
 import CoreData
 
-// Shared ISO 8601 style ("2026-09-27T12:34:56Z", UTC) — reused by AnyCodable and DBReader.
-// A Sendable value, so it is usable from Codable's nonisolated requirements with no escape.
+/// Shared ISO 8601 style ("2026-09-27T12:34:56Z", UTC) — reused by AnyCodable and DBReader.
+/// A Sendable value, so it is usable from Codable's nonisolated requirements with no escape.
 private let sharedISO8601Style = Date.ISO8601FormatStyle(timeZoneSeparator: .colon)
 
 // MARK: - Export Types
 /// A normalized representation of an exported object.
 public struct ExportedObject: Codable {
-    public let exportID: String // stable id for cross-references during export
+    public let exportID: String /// stable id for cross-references during export
     public let entityName: String
-    public let properties: [String: AnyCodable] // scalar properties
-    public let relationships: [String: [String]] // relationshipName -> [exportIDs]
+    public let properties: [String: AnyCodable] /// scalar properties
+    public let relationships: [String: [String]] /// relationshipName -> [exportIDs]
 
     /// Property name → the model's DECLARED type, for the properties whose type cannot be
     /// recovered from the written text.
@@ -56,15 +56,15 @@ public struct ExportedObject: Codable {
 
 /// Container for the whole export
 public struct ExportPackage: Codable {
-    public let format: String // FilmTrackerXML
+    public let format: String /// FilmTrackerXML
     public let version: Int
     public let createdISO8601: String
     public let appVersion: String?
-    public let manifest: [String: Int] // entityName -> count
+    public let manifest: [String: Int] /// entityName -> count
     public let objects: [ExportedObject]
 }
 
-// Small wrapper to allow encoding heterogenous property values
+/// Small wrapper to allow encoding heterogenous property values
 public struct AnyCodable: Codable {
     public let value: Any
 
@@ -73,7 +73,7 @@ public struct AnyCodable: Codable {
     }
 
     public init(from decoder: any Decoder) throws {
-        // decode as null / basic types
+        /// decode as null / basic types
         let container = try decoder.singleValueContainer()
         if container.decodeNil() {
             self.value = NSNull()
@@ -107,17 +107,17 @@ public struct AnyCodable: Codable {
         case let s as String:
             try container.encode(s)
         case let date as Date:
-            // encode dates as ISO8601 strings
+            /// encode dates as ISO8601 strings
             try container.encode(sharedISO8601Style.format(date))
         default:
-            // fallback to description
+            /// fallback to description
             try container.encode(String(describing: value))
         }
     }
 }
 
-// AnyCodable holds `Any`, so its conformance is asserted: it only ever wraps the immutable
-// scalars it encodes (Bool, Int, Double, String, Date). The containers are compiler-checked.
+/// AnyCodable holds `Any`, so its conformance is asserted: it only ever wraps the immutable
+/// scalars it encodes (Bool, Int, Double, String, Date). The containers are compiler-checked.
 extension AnyCodable: @unchecked Sendable {}
 extension ExportedObject: Sendable {}
 extension ExportPackage: Sendable {}
@@ -193,35 +193,35 @@ public final class DBReader {
         var exportedObjects: [ExportedObject] = []
         var assignedIDs: Set<String> = []
 
-        // One JSON encoder serves every [String] array property across all objects, because
-        // JSONEncoder allocation is not free and a large library has tens of thousands of
-        // array fields. The whole loop runs in one isolation (the caller's), so the encoder
-        // is never used concurrently.
+        /// One JSON encoder serves every [String] array property across all objects, because
+        /// JSONEncoder allocation is not free and a large library has tens of thousands of
+        /// array fields. The whole loop runs in one isolation (the caller's), so the encoder
+        /// is never used concurrently.
         let jsonEncoder = JSONEncoder()
 
-        // One moment for the whole backup. Each entity is a separate fetch, and a write
-        // committed between two of them (a film added after the Film fetch, its releases
-        // fetched after) would otherwise put two moments in one file. Pinning the context to
-        // the store's current query generation makes every fetch read the same snapshot.
-        // Both callers pass a fresh context used only for this read, so nothing else is
-        // frozen. Only on a writable WAL store: on any other (read-only, rollback-journal,
-        // in-memory) the pin is accepted but every fetch after it fails, so those read as
-        // they always did.
+        /// One moment for the whole backup. Each entity is a separate fetch, and a write
+        /// committed between two of them (a film added after the Film fetch, its releases
+        /// fetched after) would otherwise put two moments in one file. Pinning the context to
+        /// the store's current query generation makes every fetch read the same snapshot.
+        /// Both callers pass a fresh context used only for this read, so nothing else is
+        /// frozen. Only on a writable WAL store: on any other (read-only, rollback-journal,
+        /// in-memory) the pin is accepted but every fetch after it fails, so those read as
+        /// they always did.
         if Self.canPinQueryGeneration(context) {
             try? context.setQueryGenerationFrom(.current)
         }
 
-        // Single pass: fetch all entities once and cache the results, so the database is
-        // read once.
+        /// Single pass: fetch all entities once and cache the results, so the database is
+        /// read once.
         var totalObjectsToExport = 0
         var cachedFetches: [String: [any ExportableModel]] = [:]
         
         for t in types {
-            // Cancellation is checked here and once per chunk below, not only between phases.
-            // The read is the longest stretch of an export, and aborting inside it is clean:
-            // nothing has been written yet, so the only cost of stopping is the work already
-            // done. `Task.yield()` never throws and cannot observe cancellation, so it is not
-            // a substitute for this check.
+            /// Cancellation is checked here and once per chunk below, not only between phases.
+            /// The read is the longest stretch of an export, and aborting inside it is clean:
+            /// nothing has been written yet, so the only cost of stopping is the work already
+            /// done. `Task.yield()` never throws and cannot observe cancellation, so it is not
+            /// a substitute for this check.
             try Task.checkCancellation()
             do {
                 let fetched = try t.fetchAll(in: context)
@@ -230,59 +230,59 @@ public final class DBReader {
             } catch {
                 throw DBReaderError.fetchFailed(entity: t.entityName, underlying: error)
             }
-            // Yield after each fetch to keep UI responsive
+            /// Yield after each fetch to keep UI responsive
             await Task.yield()
         }
 
         if totalObjectsToExport == 0 {
-            // return an empty package
+            /// return an empty package
             return ExportPackage(format: "FilmTrackerXML", version: 1, createdISO8601: created, appVersion: appVersion, manifest: [:], objects: [])
         }
 
         var exportedSoFar = 0
         
-        // Foreground exports convert in chunks of 100 with a yield between them. Background
-        // exports run off the main thread (BackgroundExportReader) in chunks of 25, paced by
-        // time slices with a pause between them. That keeps their CPU and store I/O footprint
-        // small at low priority. Completion time is deliberately not a concern for them.
+        /// Foreground exports convert in chunks of 100 with a yield between them. Background
+        /// exports run off the main thread (BackgroundExportReader) in chunks of 25, paced by
+        /// time slices with a pause between them. That keeps their CPU and store I/O footprint
+        /// small at low priority. Completion time is deliberately not a concern for them.
         let chunkSize = isBackgroundExport ? 25 : 100
         let backgroundSliceBudget: Duration = .milliseconds(2)
         let backgroundPause: Duration = .milliseconds(5)
         var sliceStart = ContinuousClock.now
 
-        // Export from cached results (no second database fetch)
+        /// Export from cached results (no second database fetch)
         for t in types {
             let entityName = t.entityName
             let fetched = cachedFetches[entityName] ?? []
 
             manifest[entityName] = fetched.count
 
-            // Process objects in chunks to allow cooperative yielding
+            /// Process objects in chunks to allow cooperative yielding
             for (_, chunk) in fetched.chunked(into: chunkSize).enumerated() {
                 try Task.checkCancellation()
                 for instance in chunk {
-                    // unique export id
+                    /// unique export id
                     var exportID: String
                     if let stable = instance.exportStableID() {
-                        exportID = "\(entityName)-\(stable)" // namespaced
+                        exportID = "\(entityName)-\(stable)" /// namespaced
                     } else {
-                        // fallback: assign an UUID and ensure uniqueness
+                        /// fallback: assign an UUID and ensure uniqueness
                         repeat { exportID = UUID().uuidString } while assignedIDs.contains(exportID)
                     }
                     assignedIDs.insert(exportID)
 
-                    // extract properties & relationships
+                    /// extract properties & relationships
                     let (props, relsRaw) = instance.extractExportValues()
 
-                    // transform properties -> AnyCodable-friendly map
+                    /// transform properties -> AnyCodable-friendly map
                     var propsEncoded: [String: AnyCodable] = [:]
-                    // Declared types for the values that need one. See ExportedObject.propertyTypes.
+                    /// Declared types for the values that need one. See ExportedObject.propertyTypes.
                     var propTypes: [String: String] = [:]
                     for (k,boxed) in props {
-                        // An unset optional arrives boxed as `Optional.none` (FilmField's
-                        // `value(of:)` keeps optionals boxed). Unwrapped here, so it is
-                        // written as the empty value every reader takes as nil rather than
-                        // falling through to `String(describing:)` and writing the text "nil".
+                        /// An unset optional arrives boxed as `Optional.none` (FilmField's
+                        /// `value(of:)` keeps optionals boxed). Unwrapped here, so it is
+                        /// written as the empty value every reader takes as nil rather than
+                        /// falling through to `String(describing:)` and writing the text "nil".
                         let v = (boxed as? any OptionalBox).map { $0.unboxed ?? NSNull() } ?? boxed
                         if v is NSNull {
                             propsEncoded[k] = AnyCodable(NSNull())
@@ -291,12 +291,12 @@ public final class DBReader {
                         } else if let u = v as? UUID {
                             propsEncoded[k] = AnyCodable(u.uuidString)
                         } else if let arr = v as? [String] {
-                            // Encode [String] arrays as JSON strings here rather than relying on
-                            // AnyCodable (which has no [String] case and would fall through to
-                            // String(describing:), producing output that is not valid JSON and
-                            // breaks round-tripping for any element containing control characters).
-                            // Illegal XML scalars are stripped before encoding (see
-                            // strippingIllegalXMLScalars).
+                            /// Encode [String] arrays as JSON strings here rather than relying on
+                            /// AnyCodable (which has no [String] case and would fall through to
+                            /// String(describing:), producing output that is not valid JSON and
+                            /// breaks round-tripping for any element containing control characters).
+                            /// Illegal XML scalars are stripped before encoding (see
+                            /// strippingIllegalXMLScalars).
                             let sanitized = arr.map(\.strippingIllegalXMLScalars)
                             if let jsonData = try? jsonEncoder.encode(sanitized),
                                let jsonString = String(data: jsonData, encoding: .utf8) {
@@ -306,8 +306,8 @@ public final class DBReader {
                             }
                         } else if let s = v as? String {
                             propsEncoded[k] = AnyCodable(s)
-                            // The only branch that marks a type: this value IS a String in
-                            // the model, whatever its text happens to look like.
+                            /// The only branch that marks a type: this value IS a String in
+                            /// the model, whatever its text happens to look like.
                             propTypes[k] = "string"
                         } else if let b = v as? Bool {
                             propsEncoded[k] = AnyCodable(b)
@@ -318,17 +318,17 @@ public final class DBReader {
                         } else if let dbl = v as? Double {
                             propsEncoded[k] = AnyCodable(dbl)
                         } else {
-                            // fallback to string representation
+                            /// fallback to string representation
                             propsEncoded[k] = AnyCodable(String(describing: v))
                         }
                     }
 
-                    // transform relationships into arrays of exportIDs
-                    // Note: For Film, ListObject, ListMembership, and Release,
-                    // relationships are exported via filmID/listID properties, not relationship arrays
+                    /// transform relationships into arrays of exportIDs
+                    /// Note: For Film, ListObject, ListMembership, and Release,
+                    /// relationships are exported via filmID/listID properties, not relationship arrays
                     var relsEncoded: [String: [String]] = [:]
                     for (relName, relElements) in relsRaw {
-                        // Skip memberships and releases relationships - these are handled via ID properties
+                        /// Skip memberships and releases relationships - these are handled via ID properties
                         if relName == "memberships" || relName == "releases" {
                             relsEncoded[relName] = []
                             continue
@@ -336,27 +336,27 @@ public final class DBReader {
                         
                         var ids: [String] = []
                         for element in relElements {
-                            // If element is an ExportableModel instance.
+                            /// If element is an ExportableModel instance.
                             if let target = element as? any ExportableModel {
                                 if let targetStable = target.exportStableID() {
                                     ids.append("\(type(of: target).entityName)-\(targetStable)")
                                 } else {
-                                    // Can't guarantee stable mapping; Assign an ad-hoc ID later.
-                                    // Create temporary placeholder and map it when/if encountered.
+                                    /// Can't guarantee stable mapping; Assign an ad-hoc ID later.
+                                    /// Create temporary placeholder and map it when/if encountered.
                                     let adHoc = UUID().uuidString
                                     ids.append(adHoc)
-                                    // NOTE: This ad-hoc ID may not match later assigned exportIDs
-                                    // for that object. To handle full graph consistency reliably,
-                                    // make sure related objects are present in 'types' and will be
-                                    // exported (then stable IDs can be used or implement explicit
-                                    // relationship ID extraction).
+                                    /// NOTE: This ad-hoc ID may not match later assigned exportIDs
+                                    /// for that object. To handle full graph consistency reliably,
+                                    /// make sure related objects are present in 'types' and will be
+                                    /// exported (then stable IDs can be used or implement explicit
+                                    /// relationship ID extraction).
                                 }
                             } else if let uuid = element as? UUID {
                                 ids.append(uuid.uuidString)
                             } else if let s = element as? String {
                                 ids.append(s)
                             } else {
-                                // fallback
+                                /// fallback
                                 ids.append(String(describing: element))
                             }
                         }
@@ -373,12 +373,12 @@ public final class DBReader {
                     exportedSoFar += 1
                 }
                 
-                // Report progress after each chunk
+                /// Report progress after each chunk
                 progress?(Double(exportedSoFar) / Double(totalObjectsToExport))
                 
-                // Foreground: yield briefly after every chunk. Background: once a slice has
-                // used its budget, pause before the next. Task.sleep throws on cancellation,
-                // which stops a canceled export here rather than at the next chunk.
+                /// Foreground: yield briefly after every chunk. Background: once a slice has
+                /// used its budget, pause before the next. Task.sleep throws on cancellation,
+                /// which stops a canceled export here rather than at the next chunk.
                 if isBackgroundExport {
                     if ContinuousClock.now - sliceStart >= backgroundSliceBudget {
                         try await Task.sleep(for: backgroundPause)
@@ -412,8 +412,8 @@ public final class DBReader {
 /// main-queue context DBExporter creates for it. Its jobs run on that context's private
 /// queue (ContextExecutor), wherever the actor was created.
 actor BackgroundExportReader {
-    // A context actor, as DataManager is: a fresh private-queue context whose queue runs
-    // this actor's jobs (ContextExecutor).
+    /// A context actor, as DataManager is: a fresh private-queue context whose queue runs
+    /// this actor's jobs (ContextExecutor).
     private nonisolated let executor: ContextExecutor
     nonisolated var unownedExecutor: UnownedSerialExecutor { unsafe executor.asUnownedSerialExecutor() }
 

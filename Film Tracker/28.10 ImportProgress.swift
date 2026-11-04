@@ -1,7 +1,7 @@
 // MARK: - ImportProgress.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Manages background import progress tracking for ImportsView.swift
+/// Manages background import progress tracking for ImportsView.swift
 
 import SwiftUI
 import CoreData
@@ -11,18 +11,18 @@ import CoreData
 final class ImportProgress: Loggable {
     nonisolated static let logTag = "[ImportProgress]"
 
-    // Global singleton.
+    /// Global singleton.
     static let shared = ImportProgress()
 
-    // Completion status.
+    /// Completion status.
     enum CompletionStatus { case none; case success; case successWithErrors }
 
-    // Import state tracking.
+    /// Import state tracking.
     var isImporting = false
-    // True for 800ms after isImporting drops to false at completion.
-    // Downstream UI reads (isImporting || isUILingering) so the button,
-    // status label, and session list all stay locked until the progress
-    // bar has had time to animate to 100% before anything unlocks.
+    /// True for 800ms after isImporting drops to false at completion.
+    /// Downstream UI reads (isImporting || isUILingering) so the button,
+    /// status label, and session list all stay locked until the progress
+    /// bar has had time to animate to 100% before anything unlocks.
     var isUILingering = false
     var completionStatus: CompletionStatus = .none
     var currentSessionID: UUID?
@@ -33,16 +33,16 @@ final class ImportProgress: Loggable {
     var duplicateCount = 0
     var notFoundCount = 0
     var errorFiles: [String] = []
-    // Titles (the imported Film model's "name" field value) for items added, updated,
-    // or skipped as duplicates during the active/most recent session. Persisted onto
-    // ImportSession alongside the counts above and surfaced in ImportsView's per-card
-    // "Details" popover.
+    /// Titles (the imported Film model's "name" field value) for items added, updated,
+    /// or skipped as duplicates during the active/most recent session. Persisted onto
+    /// ImportSession alongside the counts above and surfaced in ImportsView's per-card
+    /// "Details" popover.
     var addedTitles: [String] = []
     var updatedTitles: [String] = []
     var duplicateTitles: [String] = []
-    // Captured once when an import starts so ActiveImportRow can display a stable date
-    // string without calling Date() on every re-render during the high-frequency update
-    // period. Set in the two didStart... delegate callbacks; cleared in reset().
+    /// Captured once when an import starts so ActiveImportRow can display a stable date
+    /// string without calling Date() on every re-render during the high-frequency update
+    /// period. Set in the two didStart... delegate callbacks; cleared in reset().
     var importStartDate: Date?
 
     private weak var dataCoordinator: DataCoordinator?
@@ -54,12 +54,12 @@ final class ImportProgress: Loggable {
     
     private var glyphClearTask: Task<Void, Never>?
     
-    // Throttle ALL updates (UI and database) to prevent hitching and menu dismissal.
+    /// Throttle ALL updates (UI and database) to prevent hitching and menu dismissal.
     private var lastUIUpdateTime: Date = .distantPast
-    private let minUIUpdateInterval: TimeInterval = 0.5 // 500ms between all updates
+    private let minUIUpdateInterval: TimeInterval = 0.5 /// 500ms between all updates
     private var pendingUIUpdateTask: Task<Void, Never>?
     
-    // Track pending progress values to batch updates.
+    /// Track pending progress values to batch updates.
     private var pendingCurrentFile: Int?
     private var pendingSuccessCount: Int?
     private var pendingUpdatedCount: Int?
@@ -71,25 +71,25 @@ final class ImportProgress: Loggable {
     private var pendingDuplicateTitles: [String]?
 
     // MARK: - Initialization
-    // Private to enforce singleton usage — every consumer goes through `shared`.
+    /// Private to enforce singleton usage — every consumer goes through `shared`.
     private init() {}
 
-    // Allow modelContext to be attached; idempotent after first assignment.
+    /// Allow modelContext to be attached; idempotent after first assignment.
     func attachContext(_ context: NSManagedObjectContext) {
         guard modelContext == nil else { return }
         self.modelContext = context
     }
 
-    // Allow dataCoordinator to be attached; idempotent after first assignment.
+    /// Allow dataCoordinator to be attached; idempotent after first assignment.
     func attachCoordinator(_ coordinator: DataCoordinator) {
         guard dataCoordinator == nil else { return }
         self.dataCoordinator = coordinator
     }
     
     // MARK: - Context Resolution
-    // Single canonical resolver used by all session-management methods.
-    // Prefers the directly-attached modelContext; falls back to the coordinator's
-    // main context, which is equivalent when both originate from the same container.
+    /// Single canonical resolver used by all session-management methods.
+    /// Prefers the directly-attached modelContext; falls back to the coordinator's
+    /// main context, which is equivalent when both originate from the same container.
     private var resolvedContext: NSManagedObjectContext? {
         if let ctx = modelContext { return ctx }
         if let coordinator = dataCoordinator { return coordinator.persistentContainer.viewContext }
@@ -97,32 +97,32 @@ final class ImportProgress: Loggable {
     }
     
     // MARK: - View Tracking
-    // Whether the Imports screen is on-screen. ImportsState owns this flag (MenuBar
-    // and the toolbar menu read it there too); this is only a read-through so the
-    // auto-clear behavior below has a single source of truth to consult.
+    /// Whether the Imports screen is on-screen. ImportsState owns this flag (MenuBar
+    /// and the toolbar menu read it there too); this is only a read-through so the
+    /// auto-clear behavior below has a single source of truth to consult.
     private var isViewingImports: Bool { ImportsState.shared.isViewingImports }
 
-    // Called by ImportsView after it has updated ImportsState.isViewingImports.
+    /// Called by ImportsView after it has updated ImportsState.isViewingImports.
     func viewingImportsDidChange(_ isViewing: Bool) {
         if isViewing {
-            // Clear completion status immediately when user views the Imports page.
+            /// Clear completion status immediately when user views the Imports page.
             if completionStatus != .none {
                 clearCompletionStatus()
             }
-            // Start auto-clear timer if glyph is showing.
+            /// Start auto-clear timer if glyph is showing.
             scheduleGlyphAutoClear()
         } else {
-            // Cancel auto-clear if navigating away.
+            /// Cancel auto-clear if navigating away.
             glyphClearTask?.cancel()
             glyphClearTask = nil
         }
     }
     
     private func scheduleGlyphAutoClear() {
-        // Cancel any existing timer.
+        /// Cancel any existing timer.
         glyphClearTask?.cancel()
         
-        // Only schedule if we have a completion status to clear.
+        /// Only schedule if we have a completion status to clear.
         guard completionStatus != .none, isViewingImports else { return }
         
         glyphClearTask = Task { @MainActor in
@@ -136,10 +136,10 @@ final class ImportProgress: Loggable {
     // MARK: - Begin Import
     func beginImport(of type: ImportsCategory) {
         guard let coordinator = dataCoordinator else { return }
-        // A metadata import still scanning its selection, or a ratings import still parsing
-        // its file, has not reported a start, so the import button is not locked yet.
-        // Starting another here would reset this object under it and run two imports into
-        // one session.
+        /// A metadata import still scanning its selection, or a ratings import still parsing
+        /// its file, has not reported a start, so the import button is not locked yet.
+        /// Starting another here would reset this object under it and run two imports into
+        /// one session.
         if metaImporter?.isScanningSelection == true || ratingsImporter?.isParsingSelection == true {
             log("Import request ignored: the previous selection is still being read")
             return
@@ -160,7 +160,7 @@ final class ImportProgress: Loggable {
             importer.beginImport() } }
 
     // MARK: - Session Management
-    // Create a session after successful file selection.
+    /// Create a session after successful file selection.
     func createSession(for category: ImportsCategory) {
         guard let context = resolvedContext else {
             log("Failed to create import session: No context available")
@@ -178,18 +178,18 @@ final class ImportProgress: Loggable {
         } catch {
             log("Failed to create import session: \(error)") } }
 
-    // Called by an importer that ends before any item is processed — the file
-    // picker was dismissed, or the selection held nothing importable. No session
-    // exists yet in either case (importers create one only once they have work),
-    // so this just releases the active-type state that beginImport optimistically
-    // set, which would otherwise stay stale until the next import.
+    /// Called by an importer that ends before any item is processed — the file
+    /// picker was dismissed, or the selection held nothing importable. No session
+    /// exists yet in either case (importers create one only once they have work),
+    /// so this just releases the active-type state that beginImport optimistically
+    /// set, which would otherwise stay stale until the next import.
     func importAbandonedBeforeStart() {
         activeImportType = nil }
 
     // MARK: - Cancel Import
     func cancelImport() {
-        // Dispatch cancellation to the underlying importer (if any), then perform
-        // shared teardown regardless of which importer was active.
+        /// Dispatch cancellation to the underlying importer (if any), then perform
+        /// shared teardown regardless of which importer was active.
         if activeImportType == .metadata, let importer = metaImporter {
             Task {
                 await importer.cancelImport()
@@ -201,10 +201,10 @@ final class ImportProgress: Loggable {
         } else {
             finalizeCancellation() } }
 
-    // Shared teardown after any cancel path.
+    /// Shared teardown after any cancel path.
     private func finalizeCancellation() {
-        // A throttled update still waiting would otherwise land after this and write the
-        // uncounted successes back over the canceled session's zeroed tallies.
+        /// A throttled update still waiting would otherwise land after this and write the
+        /// uncounted successes back over the canceled session's zeroed tallies.
         pendingUIUpdateTask?.cancel()
         pendingUIUpdateTask = nil
         flushPendingState()
@@ -213,17 +213,17 @@ final class ImportProgress: Loggable {
         isUILingering = false
         activeImportType = nil }
 
-    // Shared fetch-by-ID for the three session-persistence methods below. Each call site keeps its own do/catch,
-    // so error logs say what was being attempted.
+    /// Shared fetch-by-ID for the three session-persistence methods below. Each call site keeps its own do/catch,
+    /// so error logs say what was being attempted.
     private func fetchCurrentSession(context: NSManagedObjectContext) throws -> ImportSession? {
         guard let sessionID = currentSessionID else { return nil }
         let descriptor = ImportSession.request(.equals("id", sessionID))
         return try context.fetch(descriptor).first
     }
 
-    // Writes the counts and titles common to all three persistence paths. `zeroSuccessAndUpdated` is the
-    // cancellation rule: success and updated counts and their titles are cleared, since work that did not complete
-    // is not a success. Error, duplicate, and not-found data reflect outcomes already observed, so they are kept.
+    /// Writes the counts and titles common to all three persistence paths. `zeroSuccessAndUpdated` is the
+    /// cancellation rule: success and updated counts and their titles are cleared, since work that did not complete
+    /// is not a success. Error, duplicate, and not-found data reflect outcomes already observed, so they are kept.
     private func writeSessionCounts(_ session: ImportSession, zeroSuccessAndUpdated: Bool) {
         session.totalItems = totalFiles
         session.errorCount = errorFiles.count
@@ -294,7 +294,7 @@ final class ImportProgress: Loggable {
         glyphClearTask?.cancel()
         glyphClearTask = nil
         
-        // Cancel any pending UI updates.
+        /// Cancel any pending UI updates.
         pendingUIUpdateTask?.cancel()
         pendingUIUpdateTask = nil
         clearPendingState()
@@ -319,7 +319,7 @@ final class ImportProgress: Loggable {
         totalFiles = totalItems
         resetTallies()
         importStartDate = Date()
-        lastUIUpdateTime = Date() // Reset throttle timer.
+        lastUIUpdateTime = Date() /// Reset throttle timer.
         updateSessionProgress()
     }
 
@@ -337,8 +337,8 @@ final class ImportProgress: Loggable {
     }
     
     // MARK: - Pending State Flush
-    // Applies all accumulated pending values to the live @Observable properties and clears the pending slots.
-    // Called from the throttled update path and immediately at completion.
+    /// Applies all accumulated pending values to the live @Observable properties and clears the pending slots.
+    /// Called from the throttled update path and immediately at completion.
     private func flushPendingState() {
         if let current = pendingCurrentFile { currentFile = current }
         if let success = pendingSuccessCount { successCount = success }
@@ -353,25 +353,25 @@ final class ImportProgress: Loggable {
     }
     
     // MARK: - Completion Finalization
-    // Shared logic for both metadata and ratings import completion.
-    // Cancels any pending throttled update, flushes remaining pending state,
-    // then waits 200ms for layout to settle before committing final status.
+    /// Shared logic for both metadata and ratings import completion.
+    /// Cancels any pending throttled update, flushes remaining pending state,
+    /// then waits 200ms for layout to settle before committing final status.
     private func flushAndFinalize() {
         pendingUIUpdateTask?.cancel()
         flushPendingState()
         
         Task { @MainActor in
-            // Brief delay to let any in-flight SwiftUI layout pass complete
-            // before transitioning the import row to its completed state.
+            /// Brief delay to let any in-flight SwiftUI layout pass complete
+            /// before transitioning the import row to its completed state.
             try? await Task.sleep(for: .milliseconds(200))
 
             self.isImporting = false
-            // Lock the rest of the UI (button, status label, session list) for
-            // 800ms so they all clear in sync with the progress bar reaching 100%.
+            /// Lock the rest of the UI (button, status label, session list) for
+            /// 800ms so they all clear in sync with the progress bar reaching 100%.
             self.isUILingering = true
             self.lastCompletedImportType = self.activeImportType
-            // For ratings imports, "not found" items are not processing errors,
-            // so completion status only reflects actual errorFiles entries.
+            /// For ratings imports, "not found" items are not processing errors,
+            /// so completion status only reflects actual errorFiles entries.
             self.completionStatus = self.errorFiles.isEmpty ? .success : .successWithErrors
             self.completeSession()
             
@@ -386,15 +386,15 @@ final class ImportProgress: Loggable {
     }
     
     // MARK: - Throttled UI Update Helper
-    // Schedules a throttled UI and database update, batching all @Observable
-    // property writes to at most one flush per 500ms. This prevents UI hitching
-    // and spurious menu dismissals during large imports.
+    /// Schedules a throttled UI and database update, batching all @Observable
+    /// property writes to at most one flush per 500ms. This prevents UI hitching
+    /// and spurious menu dismissals during large imports.
     private func scheduleThrottledUpdate() {
-        // Cancel any pending update.
+        /// Cancel any pending update.
         pendingUIUpdateTask?.cancel()
         
         pendingUIUpdateTask = Task { @MainActor in
-            // Calculate wait time based on last update.
+            /// Calculate wait time based on last update.
             let now = Date()
             let timeSinceLastUpdate = now.timeIntervalSince(lastUIUpdateTime)
             let waitTime = max(0, minUIUpdateInterval - timeSinceLastUpdate)
@@ -405,10 +405,10 @@ final class ImportProgress: Loggable {
             
             guard !Task.isCancelled else { return }
             
-            // Apply all pending values atomically.
+            /// Apply all pending values atomically.
             flushPendingState()
             
-            // Persist progress to the database (non-UI operation).
+            /// Persist progress to the database (non-UI operation).
             updateSessionProgress()
             
             lastUIUpdateTime = Date()
@@ -424,9 +424,9 @@ extension ImportProgress: MetaImporterProgressDelegate {
 
     func didUpdateProgress(currentFile: Int, success: Bool, failedFileName: String?,
         wasDuplicate: Bool, wasUpdated: Bool, title: String?) {
-        // Accumulate into pending state — do not write @Observable properties directly.
-        // All writes are batched and applied via scheduleThrottledUpdate to prevent
-        // UI hitching and spurious menu dismissals during large imports.
+        /// Accumulate into pending state — do not write @Observable properties directly.
+        /// All writes are batched and applied via scheduleThrottledUpdate to prevent
+        /// UI hitching and spurious menu dismissals during large imports.
         pendingCurrentFile = currentFile
         
         if !success, let fileName = failedFileName {
@@ -474,7 +474,7 @@ extension ImportProgress: RatingsImporterProgressDelegate {
     
     func didUpdateRatingsProgress(currentRating: Int, imported: Int, updated: Int,
         notFound: Int, duplicateSkipped: Int) {
-        // Accumulate into pending state — do not write @Observable properties directly.
+        /// Accumulate into pending state — do not write @Observable properties directly.
         pendingCurrentFile = currentRating
         pendingSuccessCount = imported
         pendingUpdatedCount = updated
@@ -486,8 +486,8 @@ extension ImportProgress: RatingsImporterProgressDelegate {
     func didCompleteRatingsImport(imported: Int, updated: Int, notFound: Int,
         duplicateSkipped: Int, addedTitles: [String], updatedTitles: [String],
         duplicateTitles: [String]) {
-        // Apply final authoritative totals from the importer before flushing,
-        // since the ratings importer passes absolute values (not deltas).
+        /// Apply final authoritative totals from the importer before flushing,
+        /// since the ratings importer passes absolute values (not deltas).
         pendingSuccessCount = imported
         pendingUpdatedCount = updated
         pendingNotFoundCount = notFound

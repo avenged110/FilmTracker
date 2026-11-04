@@ -1,10 +1,10 @@
 // MARK: - RSBHelpers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Generic UI-forming components and formatting helpers for the right sidebar's modules. Also contains
-// QueryHandoff, which normalizes film titles and opens external web queries, and the "Releases Tab:
-// Shared Derivations" section. That section is the single definition of what the Releases summary
-// table (24.21) and release cards (24.20) say about a release.
+/// Generic UI-forming components and formatting helpers for the right sidebar's modules. Also contains
+/// QueryHandoff, which normalizes film titles and opens external web queries, and the "Releases Tab:
+/// Shared Derivations" section. That section is the single definition of what the Releases summary
+/// table (24.21) and release cards (24.20) say about a release.
 
 import SwiftUI
 import AppKit
@@ -64,8 +64,8 @@ extension View {
                         .font(.system(size: RSBHelpers.glyphPointSize(for: glyph),
                                       weight: RSBHelpers.glyphWeight(for: glyph)))
                         .foregroundStyle(glyphColor)
-                        // Top-aligned in a box one single-line row tall. The glyph stays where it would on a
-                        // one-line row when the text wraps, instead of drifting to the center of the taller plate.
+                        /// Top-aligned in a box one single-line row tall. The glyph stays where it would on a
+                        /// one-line row when the text wraps, instead of drifting to the center of the taller plate.
                         .frame(width: RSBHelpers.glyphBoxWidth,
                                height: RSBHelpers.singleLineRowHeight)
                         .offset(x: RSBHelpers.glyphHorizontalOffset(for: glyph))
@@ -76,7 +76,7 @@ extension View {
 }
 
 struct RSBHelpers {
-    // Appearance parameters.
+    /// Appearance parameters.
     static let sectionSpacing: CGFloat = 10
     static let headerRowSpacing: CGFloat = 4
     static let headerFontSize: CGFloat = 10
@@ -87,7 +87,7 @@ struct RSBHelpers {
     static let rowHorizontalPadding: CGFloat = 8
 
     // MARK: - UI Styling and Layout
-    // Single-value text section (manual header + row so spacing is controllable).
+    /// Single-value text section (manual header + row so spacing is controllable).
     @ViewBuilder
     static func textSection(title: String, value: String?, glyph: String? = nil,
                             glyphColor: Color? = nil,
@@ -137,8 +137,8 @@ struct RSBHelpers {
         trailingInset: CGFloat = RSBHelpers.rowHorizontalPadding,
         rowFontSize: CGFloat = RSBHelpers.rowFontSize
     ) -> some View {
-        // The glyph takes the row's resolved color, so a placeholder's tertiary gray reaches the symbol
-        // without callers restating the rule.
+        /// The glyph takes the row's resolved color, so a placeholder's tertiary gray reaches the symbol
+        /// without callers restating the rule.
         let color: Color = isPlaceholder ? Color(nsColor: .tertiaryLabelColor) : .primary
         Text(displayValue)
             .foregroundStyle(color)
@@ -209,17 +209,17 @@ struct RSBHelpers {
         glyphColor: Color = .primary,
         rowFontSize: CGFloat = RSBHelpers.rowFontSize
     ) -> some View {
-        // Bounded here, so the body and `maxAbbreviationCandidates` cannot disagree on how many steps are
-        // offered. Surplus candidates are ignored, which is the documented degradation.
+        /// Bounded here, so the body and `maxAbbreviationCandidates` cannot disagree on how many steps are
+        /// offered. Surplus candidates are ignored, which is the documented degradation.
         let offered = Array(abbreviations.prefix(Self.maxAbbreviationCandidates))
         Group {
             if offered.isEmpty {
                 full.font(.system(size: rowFontSize))
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                // Each candidate is its own direct child of ViewThatFits, on purpose. A ForEach would be one child
-                // containing many views, so ViewThatFits would accept or reject the whole ladder as one unit. Hence
-                // the fixed slots, and hence `maxAbbreviationCandidates`.
+                /// Each candidate is its own direct child of ViewThatFits, on purpose. A ForEach would be one child
+                /// containing many views, so ViewThatFits would accept or reject the whole ladder as one unit. Hence
+                /// the fixed slots, and hence `maxAbbreviationCandidates`.
                 ViewThatFits(in: .horizontal) {
                     full.font(.system(size: rowFontSize)).lineLimit(1)
                     if offered.count > 0 {
@@ -508,7 +508,7 @@ struct RSBHelpers {
         }
     }
 
-    // List-based text section (joins values into a single row string).
+    /// List-based text section (joins values into a single row string).
     @ViewBuilder
     static func textSectionList(title: String, values: [String]?, glyph: String? = nil,
                                 glyphColor: Color? = nil) -> some View {
@@ -517,14 +517,14 @@ struct RSBHelpers {
     }
 
     // MARK: - Searchable Item Section
-    // Multi-row section where each item gets its own text row with an inline
-    // "Search" button on the trailing edge. Clicking the button fires an
-    // .activateTokenSearch UICommand for the specified SearchField and item value.
-    // Used for Studio, Cast, Directors, Producers, Executive Producers,
-    // Screenwriters, and Composers in the Details tab's Metadata module.
-    //
-    // An optional `glyph` goes on EVERY row, not just the first: the gutter it reserves
-    // insets the text, so a glyph on one row alone would stagger the names under it.
+    /// Multi-row section where each item gets its own text row with an inline
+    /// "Search" button on the trailing edge. Clicking the button fires an
+    /// .activateTokenSearch UICommand for the specified SearchField and item value.
+    /// Used for Studio, Cast, Directors, Producers, Executive Producers,
+    /// Screenwriters, and Composers in the Details tab's Metadata module.
+    ///
+    /// An optional `glyph` goes on EVERY row, not just the first: the gutter it reserves
+    /// insets the text, so a glyph on one row alone would stagger the names under it.
     @ViewBuilder
     static func searchableItemSection(title: String, items: [String]?, field: SearchField,
                                       glyph: String? = nil,
@@ -535,7 +535,7 @@ struct RSBHelpers {
             sectionHeader(title)
 
             if trimmedItems.isEmpty {
-                // Placeholder row — no search button since there's nothing to search.
+                /// Placeholder row — no search button since there's nothing to search.
                 Text("None provided")
                     .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                     .font(.system(size: rowFontSize))
@@ -547,16 +547,16 @@ struct RSBHelpers {
                                       glyph: glyph, glyphColor: glyphColor)
                 }
             } else {
-                // The same rows in AppKit, re-pointed rather than rebuilt per film. See
-                // CrewRowList.
+                /// The same rows in AppKit, re-pointed rather than rebuilt per film. See
+                /// CrewRowList.
                 CrewRowList(items: trimmedItems, field: field, glyph: glyph, glyphColor: glyphColor)
             }
         }
     }
 
     // MARK: - Data Formatting and Conversion
-    // Convert a duration in milliseconds (stored as a string) into a user-friendly
-    // format like "2 hours 15 minutes".
+    /// Convert a duration in milliseconds (stored as a string) into a user-friendly
+    /// format like "2 hours 15 minutes".
     static func formattedDuration(from millisecondsString: String?) -> String {
         guard let parts = hoursAndMinutes(from: millisecondsString) else { return "" }
         let hours = parts.hours
@@ -571,8 +571,8 @@ struct RSBHelpers {
         }
     }
 
-    // Abbreviated duration such as "2 hr. 15 min.", for when two durations share one line (for example,
-    // edited and original).
+    /// Abbreviated duration such as "2 hr. 15 min.", for when two durations share one line (for example,
+    /// edited and original).
     static func formattedDurationAbbreviated(from millisecondsString: String?) -> String {
         guard let parts = hoursAndMinutes(from: millisecondsString) else { return "" }
         let hours = parts.hours
@@ -587,18 +587,18 @@ struct RSBHelpers {
     }
 
     // MARK: - ISO8601 Timestamp Formatting (for stored string timestamps)
-    // Parsers for full timestamps (such as lastModified). Both are private, since they exist only for
-    // formatFullTimestamp(_:) in this file.
+    /// Parsers for full timestamps (such as lastModified). Both are private, since they exist only for
+    /// formatFullTimestamp(_:) in this file.
     @MainActor
     private static let isoTimestampParser: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
-        // Support full internet date-time with fractional seconds, in UTC ("Z").
+        /// Support full internet date-time with fractional seconds, in UTC ("Z").
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter
     }()
 
-    // Fallback parser for timestamps without fractional seconds.
+    /// Fallback parser for timestamps without fractional seconds.
     @MainActor
     private static let isoTimestampFallbackParser: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -607,62 +607,62 @@ struct RSBHelpers {
         return formatter
     }()
 
-    // "Month Day, Year, at HH:MM AM/PM" for full timestamps. Private and @MainActor, like the parsers above. It is
-    // read only by formatFullTimestamp(_:). Nonisolated would expose this mutable, non-Sendable formatter to every
-    // isolation domain.
+    /// "Month Day, Year, at HH:MM AM/PM" for full timestamps. Private and @MainActor, like the parsers above. It is
+    /// read only by formatFullTimestamp(_:). Nonisolated would expose this mutable, non-Sendable formatter to every
+    /// isolation domain.
     @MainActor
     private static let fullTimestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = .current
-        formatter.calendar = AppCalendar.gregorian  // .current alone carries the system calendar
+        formatter.calendar = AppCalendar.gregorian  /// .current alone carries the system calendar
         formatter.timeZone = .current
         formatter.dateFormat = "MMMM d, yyyy, 'at' h:mm a"
         return formatter
     }()
 
-    // Formats a full ISO8601 timestamp as "Month Day, Year, HH:MM AM/PM" in the user's locale and time zone.
-    // If parsing fails, it tries the non-fractional parser, then YYYY.MM.DD via formatDateString. If all of
-    // those fail, it returns the raw string so a real value shows rather than a placeholder.
+    /// Formats a full ISO8601 timestamp as "Month Day, Year, HH:MM AM/PM" in the user's locale and time zone.
+    /// If parsing fails, it tries the non-fractional parser, then YYYY.MM.DD via formatDateString. If all of
+    /// those fail, it returns the raw string so a real value shows rather than a placeholder.
     @MainActor
     static func formatFullTimestamp(_ raw: String?) -> String {
         guard let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
             !value.isEmpty else { return "" }
 
-        // Primary attempt: Fractional seconds-capable parser.
+        /// Primary attempt: Fractional seconds-capable parser.
         if let date = isoTimestampParser.date(from: value) {
             return fullTimestampFormatter.string(from: date)
         }
 
-        // Secondary attempt: Try again without fractional seconds.
+        /// Secondary attempt: Try again without fractional seconds.
         if let date = isoTimestampFallbackParser.date(from: value) {
             return fullTimestampFormatter.string(from: date)
         }
 
-        // Tertiary attempt: Try YYYY.MM.DD format.
+        /// Tertiary attempt: Try YYYY.MM.DD format.
         let formattedDate = formatDateString(value)
         if formattedDate != "Unknown date" {
             return formattedDate
         }
 
-        // As a last resort, show the raw string instead of an empty value.
+        /// As a last resort, show the raw string instead of an empty value.
         return value
     }
 
-    // Splits a millisecond duration (stored as a string) into whole hours and minutes. Returns nil for a
-    // missing, unparseable, or non-positive value. That nil is the single "no duration" signal both duration
-    // formatters translate into an empty string. Sharing this keeps the parse rule in one place.
-    //
-    // Internal, not private: GalleryListView's duration column draws hours and minutes as two aligned items,
-    // so it needs the components rather than a formatted string. A second copy of the rule there could
-    // disagree with the formatters about what counts as "no duration."
+    /// Splits a millisecond duration (stored as a string) into whole hours and minutes. Returns nil for a
+    /// missing, unparseable, or non-positive value. That nil is the single "no duration" signal both duration
+    /// formatters translate into an empty string. Sharing this keeps the parse rule in one place.
+    ///
+    /// Internal, not private: GalleryListView's duration column draws hours and minutes as two aligned items,
+    /// so it needs the components rather than a formatted string. A second copy of the rule there could
+    /// disagree with the formatters about what counts as "no duration."
     static func hoursAndMinutes(from millisecondsString: String?) -> (hours: Int, minutes: Int)? {
         guard let totalMinutes = DurationHelpers.storedMinutes(millisecondsString) else { return nil }
         return (totalMinutes / 60, totalMinutes % 60)
     }
 
     // MARK: - Other Field Formatting
-    // Formats an integer so that nil or 0 becomes "no value" (empty string). The UI layer then shows the
-    // tertiary "None provided" placeholder.
+    /// Formats an integer so that nil or 0 becomes "no value" (empty string). The UI layer then shows the
+    /// tertiary "None provided" placeholder.
     static func formatNumericalValue(_ value: Int?) -> String {
         guard let value = value, value != 0 else { return "" }
         return String(value)
@@ -670,7 +670,7 @@ struct RSBHelpers {
 
     static func formatNumericalValue(_ value: Double?) -> String {
         guard let value = value, value != 0, value.isFinite else { return "" }
-        // Display as integer if no decimal part.
+        /// Display as integer if no decimal part.
         let display = value.truncatingRemainder(dividingBy: 1) == 0 && abs(value) < 1e15
             ? String(Int(value))
             : String(value)
@@ -678,38 +678,38 @@ struct RSBHelpers {
     }
 
     // MARK: - Source-Field Logic
-    // Computes the "Source for Viewing" display string for a film snapshot.
-    //
-    // Selection rules:
-    //   • Edited films: a purchased Blu-ray, otherwise the digital source. 4K releases are skipped.
-    //   • Non-edited films: 4K preferred, then Blu-ray, then DVD, then digitalSource.
-    //   • A purchased disc always gets its own tier ("4K disc", "Blu-ray disc", "DVD") and never a " rip"
-    //     suffix. "Rip" is reserved for the digitalSource fallback, used when no purchased disc of that format exists.
-    //   • The best-scored purchased release (ReleaseSnapshot.qualityScore) is shown. Year, studio, remastered,
-    //     and origin all come from that one release, so they are never mixed across releases.
-    //   • Prefix rules check ALL releases of the format, purchased or not, so any release, wishlist or owned,
-    //     can add a disambiguating prefix:
-    //       – Year: another same-format release shares the best release's studio and has a different effective
-    //         base year (baseReleaseYear, or releaseYear when that is empty). Same-studio releases with one
-    //         effective base year are variants of one release (for example, a 2014 disc and a 2016 repackaging
-    //         with baseReleaseYear "2014"), so no year is shown. When a year is shown, it is the best release's
-    //         effective base year, not its releaseYear. A 2020 purchase of a disc with baseReleaseYear "2014"
-    //         reads "2014".
-    //       – Studio: at least one same-format release, of any purchase status, has a different studio from the
-    //         best purchased release.
-    //       – Origin: sits between year and studio ("2022 AU Imprint remastered Blu-ray disc"). It is shown for
-    //         ANY import, meaning a release with an origin set that is not domestic, since a foreign disc is
-    //         non-standard. A domestic release names its origin only to disambiguate: when all same-studio
-    //         colliders share the best release's year but differ in origin.
-    //       All three can apply together, giving "YEAR ORIGIN STUDIO ...". With one domestic release of the
-    //       format, no prefix appears.
-    //   • "remastered" goes before the format label, not in a parenthetical suffix. It is lowercase internally,
-    //     and the final string is sentence-capitalized, so it is capitalized only when it is the first word.
-    //   • An edited film using a Blu-ray digital fallback (no purchased Blu-ray) always gets "rip". Its remastered
-    //     flag comes from any Blu-ray release in the pool, purchased or wishlist.
-    //   • The three companion outputs (disc glyph, "available for purchase" suffix, "Region B locked" suffix) are
-    //     returned with the string, not recomputed elsewhere. Each describes which branch was taken, so deriving
-    //     them elsewhere would duplicate this structure and could drift (see `isPurchasedDiscSource`).
+    /// Computes the "Source for Viewing" display string for a film snapshot.
+    ///
+    /// Selection rules:
+    ///   • Edited films: a purchased Blu-ray, otherwise the digital source. 4K releases are skipped.
+    ///   • Non-edited films: 4K preferred, then Blu-ray, then DVD, then digitalSource.
+    ///   • A purchased disc always gets its own tier ("4K disc", "Blu-ray disc", "DVD") and never a " rip"
+    ///     suffix. "Rip" is reserved for the digitalSource fallback, used when no purchased disc of that format exists.
+    ///   • The best-scored purchased release (ReleaseSnapshot.qualityScore) is shown. Year, studio, remastered,
+    ///     and origin all come from that one release, so they are never mixed across releases.
+    ///   • Prefix rules check ALL releases of the format, purchased or not, so any release, wishlist or owned,
+    ///     can add a disambiguating prefix:
+    ///       – Year: another same-format release shares the best release's studio and has a different effective
+    ///         base year (baseReleaseYear, or releaseYear when that is empty). Same-studio releases with one
+    ///         effective base year are variants of one release (for example, a 2014 disc and a 2016 repackaging
+    ///         with baseReleaseYear "2014"), so no year is shown. When a year is shown, it is the best release's
+    ///         effective base year, not its releaseYear. A 2020 purchase of a disc with baseReleaseYear "2014"
+    ///         reads "2014".
+    ///       – Studio: at least one same-format release, of any purchase status, has a different studio from the
+    ///         best purchased release.
+    ///       – Origin: sits between year and studio ("2022 AU Imprint remastered Blu-ray disc"). It is shown for
+    ///         ANY import, meaning a release with an origin set that is not domestic, since a foreign disc is
+    ///         non-standard. A domestic release names its origin only to disambiguate: when all same-studio
+    ///         colliders share the best release's year but differ in origin.
+    ///       All three can apply together, giving "YEAR ORIGIN STUDIO ...". With one domestic release of the
+    ///       format, no prefix appears.
+    ///   • "remastered" goes before the format label, not in a parenthetical suffix. It is lowercase internally,
+    ///     and the final string is sentence-capitalized, so it is capitalized only when it is the first word.
+    ///   • An edited film using a Blu-ray digital fallback (no purchased Blu-ray) always gets "rip". Its remastered
+    ///     flag comes from any Blu-ray release in the pool, purchased or wishlist.
+    ///   • The three companion outputs (disc glyph, "available for purchase" suffix, "Region B locked" suffix) are
+    ///     returned with the string, not recomputed elsewhere. Each describes which branch was taken, so deriving
+    ///     them elsewhere would duplicate this structure and could drift (see `isPurchasedDiscSource`).
     struct SourceDisplay: Equatable {
         /// Sentence-capitalized display string; empty when the film has no source at all.
         var value: String = ""
@@ -738,8 +738,9 @@ struct RSBHelpers {
         /// the film owns no purchased disc of, and names one format, never a list. The 4K and Blu-ray notes can
         /// appear beside a displayed purchased disc of a different format, such as a purchased Blu-ray with an
         /// unpurchased 4K. The 4K note is suppressed for edited films. The DVD note still requires that the displayed
-        /// value is not a purchased disc. If the backing release is not out on `today`, the note reads "Upcoming
-        /// <format> release on <date>" (or "… release in <year>" for a year-only date), since it cannot be bought yet.
+        /// value is not a purchased disc. Any unpurchased release not out on `today` overrides all of that, edited
+        /// or not, owned format or not: the soonest one reads "Upcoming <format> release on <date>" (or "… in
+        /// <year>"), with "remastered" in the label when it applies.
         var availableForPurchaseNote: String = ""
         /// `availableForPurchaseNote` with the release date's month abbreviated, or nil
         /// when the two would be identical — every note but the upcoming form, and an
@@ -772,67 +773,67 @@ struct RSBHelpers {
     ) -> SourceDisplay {
         let isEdited = film.edited
 
-        // All releases per format — used for prefix disambiguation rules.
+        /// All releases per format — used for prefix disambiguation rules.
         let all4K  = film.releases.filter { $0.format == ReleaseFormat.uhd4K.rawValue }
         let all2K  = film.releases.filter { $0.format == ReleaseFormat.bluRay.rawValue }
         let allDVD = film.releases.filter { $0.format == ReleaseFormat.dvd.rawValue }
 
-        // Purchased-only pools — used for selecting the best release to display.
+        /// Purchased-only pools — used for selecting the best release to display.
         let purchased4K  = all4K.filter  { $0.purchased }
         let purchased2K  = all2K.filter  { $0.purchased }
         let purchasedDVD = allDVD.filter { $0.purchased }
 
-        // Best-scored purchased releases — all prefix/flag values always come
-        // from the same release so they cannot be mixed across releases.
+        /// Best-scored purchased releases — all prefix/flag values always come
+        /// from the same release so they cannot be mixed across releases.
         let best4K  = ReleaseSnapshot.best(from: purchased4K)
         let best2K  = ReleaseSnapshot.best(from: purchased2K)
         let bestDVD = ReleaseSnapshot.best(from: purchasedDVD)
 
-        // film.digitalSource stores the remastered flag as a "Remastered " prefix (the FSTabMetadata.computedDigitalSource
-        // encoding). Strip it before any format comparison, so "Remastered Blu-ray disc" branches like "Blu-ray disc",
-        // and the remastered state is carried separately as a boolean.
+        /// film.digitalSource stores the remastered flag as a "Remastered " prefix (the FSTabMetadata.computedDigitalSource
+        /// encoding). Strip it before any format comparison, so "Remastered Blu-ray disc" branches like "Blu-ray disc",
+        /// and the remastered state is carried separately as a boolean.
         let rawDigitalSource = film.digitalSource.trimmingCharacters(in: .whitespacesAndNewlines)
         let (digitalSource, digitalSourceIsRemastered) = FilmDigitalSource.decompose(rawDigitalSource)
         let hasDigitalSource = !digitalSource.isEmpty
 
-        // The value in every spelling the ladder can offer: the full form and the three with the origin, the studio,
-        // or both compacted. Every branch fills all four; branches with no prefix fill them identically. See
-        // SourceDisplay.originAbbreviatedValue and its siblings.
+        /// The value in every spelling the ladder can offer: the full form and the three with the origin, the studio,
+        /// or both compacted. Every branch fills all four; branches with no prefix fill them identically. See
+        /// SourceDisplay.originAbbreviatedValue and its siblings.
         let raw: SourceValueForms
 
-        // Set by whichever branch wins. `isPurchasedDisc` answers "is the value displayed a disc the user owns?", which
-        // differs from "does the film own any disc?" (see SourceDisplay.isPurchasedDiscSource). `displayedBluRay` is
-        // non-nil only on the branch the Region B suffix is scoped to (non-edited, purchased Blu-ray), so the suffix
-        // cannot drift from the branch it describes.
+        /// Set by whichever branch wins. `isPurchasedDisc` answers "is the value displayed a disc the user owns?", which
+        /// differs from "does the film own any disc?" (see SourceDisplay.isPurchasedDiscSource). `displayedBluRay` is
+        /// non-nil only on the branch the Region B suffix is scoped to (non-edited, purchased Blu-ray), so the suffix
+        /// cannot drift from the branch it describes.
         var isPurchasedDisc = false
         var displayedBluRay: ReleaseSnapshot?
-        // The purchased release the value row names, if any. It drives the pre-order note.
+        /// The purchased release the value row names, if any. It drives the pre-order note.
         var displayedPurchased: ReleaseSnapshot?
 
         if isEdited {
-            // Edited films: Blu-ray only.
+            /// Edited films: Blu-ray only.
             if !purchased2K.isEmpty {
                 let prefix = sourcePrefix(best: best2K, allOfFormat: all2K)
                 let label  = formatLabel("Blu-ray disc", remastered: best2K?.remastered ?? false)
                 raw = SourceValueForms(lead: "Edited ", prefix: prefix, label: label)
                 isPurchasedDisc = true
                 displayedPurchased = best2K
-                // Deliberately no displayedBluRay: the Region B suffix is scoped to
-                // non-edited films only.
+                /// Deliberately no displayedBluRay: the Region B suffix is scoped to
+                /// non-edited films only.
             } else if hasDigitalSource {
-                // No purchased Blu-ray. "rip" is appended for "Blu-ray disc" and "DVD" digital sources (the disc
-                // itself was not purchased). A purchased DVD is the exception: the disc was bought, so "rip" is omitted,
-                // mirroring the purchased-disc paths. Remastered comes from the digitalSource prefix flag for a Blu-ray
-                // source, with the release-pool flag as a fallback in case no release object exists.
+                /// No purchased Blu-ray. "rip" is appended for "Blu-ray disc" and "DVD" digital sources (the disc
+                /// itself was not purchased). A purchased DVD is the exception: the disc was bought, so "rip" is omitted,
+                /// mirroring the purchased-disc paths. Remastered comes from the digitalSource prefix flag for a Blu-ray
+                /// source, with the release-pool flag as a fallback in case no release object exists.
                 let base: String
                 if digitalSource == FilmDigitalSource.dvd && !purchasedDVD.isEmpty {
                     base = "DVD"
                     displayedPurchased = bestDVD
-                    // The disc was bought, which is why "rip" is omitted, so this branch displays a purchased disc.
+                    /// The disc was bought, which is why "rip" is omitted, so this branch displays a purchased disc.
                     isPurchasedDisc = true
                 } else if digitalSource == FilmDigitalSource.blurayDisc {
-                    // Remastered: the stored digitalSource prefix flag first, then any Blu-ray release in the pool
-                    // (purchased or wishlist).
+                    /// Remastered: the stored digitalSource prefix flag first, then any Blu-ray release in the pool
+                    /// (purchased or wishlist).
                     let anyBlurayRemastered = digitalSourceIsRemastered
                         || (ReleaseSnapshot.best(from: all2K)?.remastered ?? false)
                     base = anyBlurayRemastered ? "remastered Blu-ray disc rip" : "Blu-ray disc rip"
@@ -846,7 +847,7 @@ struct RSBHelpers {
                 raw = SourceValueForms(uniform: "")
             }
         } else {
-            // Non-edited: 4K → Blu-ray → DVD → digital.
+            /// Non-edited: 4K → Blu-ray → DVD → digital.
             if !purchased4K.isEmpty {
                 let prefix = sourcePrefix(best: best4K, allOfFormat: all4K, requiresNotableDifference: true)
                 let label  = formatLabel("4K disc", remastered: best4K?.remastered ?? false)
@@ -859,24 +860,24 @@ struct RSBHelpers {
                 raw = SourceValueForms(lead: "", prefix: prefix, label: label)
                 isPurchasedDisc = true
                 displayedPurchased = best2K
-                // The one branch the Region B suffix applies to.
+                /// The one branch the Region B suffix applies to.
                 displayedBluRay = best2K
             } else if !purchasedDVD.isEmpty {
-                // Purchased DVD release — display as "DVD" (with optional prefix),
-                // never as "DVD rip", mirroring the Blu-ray and 4K purchased paths.
+                /// Purchased DVD release — display as "DVD" (with optional prefix),
+                /// never as "DVD rip", mirroring the Blu-ray and 4K purchased paths.
                 let prefix = sourcePrefix(best: bestDVD, allOfFormat: allDVD)
                 let label  = formatLabel("DVD", remastered: bestDVD?.remastered ?? false)
                 raw = SourceValueForms(lead: "", prefix: prefix, label: label)
                 isPurchasedDisc = true
                 displayedPurchased = bestDVD
             } else if hasDigitalSource {
-                // No purchased disc of any format. "Blu-ray disc" and "DVD" digital
-                // sources represent rips from unpurchased discs, so append " rip".
+                /// No purchased disc of any format. "Blu-ray disc" and "DVD" digital
+                /// sources represent rips from unpurchased discs, so append " rip".
                 let base = (digitalSource == FilmDigitalSource.blurayDisc
                             || digitalSource == FilmDigitalSource.dvd)
                     ? "\(digitalSource) rip" : digitalSource
-                // Remastered flag: honor the digitalSource prefix flag and any disc
-                // pool's best release (none purchased, but flags may still be set).
+                /// Remastered flag: honor the digitalSource prefix flag and any disc
+                /// pool's best release (none purchased, but flags may still be set).
                 let anyRemastered = digitalSourceIsRemastered
                     || (best4K?.remastered ?? false)
                     || (best2K?.remastered ?? false)
@@ -887,39 +888,39 @@ struct RSBHelpers {
             }
         }
 
-        // Sentence-capitalize: "remastered" is always written lowercase internally
-        // so it is only capitalized here when it happens to be the first word.
+        /// Sentence-capitalize: "remastered" is always written lowercase internally
+        /// so it is only capitalized here when it happens to be the first word.
         func sentenceCapitalized(_ s: String) -> String {
             s.isEmpty ? s : s.prefix(1).uppercased() + s.dropFirst()
         }
         let value = sentenceCapitalized(raw.full)
-        // Each alternate is offered only when it actually differs from the value; a nil
-        // here is what lets the ladder skip a step that would change nothing.
+        /// Each alternate is offered only when it actually differs from the value; a nil
+        /// here is what lets the ladder skip a step that would change nothing.
         func alternate(_ form: String) -> String? {
             let capitalized = sentenceCapitalized(form)
             return capitalized == value ? nil : capitalized
         }
 
-        // ── Companion notes, each derived from the branch taken above ──
-        // Each is a standalone phrase on its own row beneath the value, not spliced onto `value`.
-        // The 4K and Blu-ray clauses are not gated on `!isPurchasedDisc`: a purchased Blu-ray still advertises
-        // an unpurchased 4K. Each format is advertised only when no purchased disc of that format is owned.
-        //
-        //   • 4K UHD: not edited, no purchased 4K, and a 4K release is buyable. Covers both "no purchased 4K or
-        //     Blu-ray" and "purchased Blu-ray plus an unpurchased 4K".
-        //   • Blu-ray: the 4K note did not fire, an unpurchased Blu-ray exists, and no purchased Blu-ray is owned.
-        //     A purchased 4K does not suppress it. Owning the 4K says nothing about the Blu-ray, and an edited film
-        //     (Blu-ray only) has no 4K source.
-        //   • DVD: shown only when the value is not a purchased disc, nothing on Blu-ray is buyable, and nothing on
-        //     4K is either. The 4K condition is waived for edited films, where 4K never applies, as the Blu-ray rule
-        //     waives it.
+        /// ── Companion notes, each derived from the branch taken above ──
+        /// Each is a standalone phrase on its own row beneath the value, not spliced onto `value`.
+        /// The 4K and Blu-ray clauses are not gated on `!isPurchasedDisc`: a purchased Blu-ray still advertises
+        /// an unpurchased 4K. Each format is advertised only when no purchased disc of that format is owned.
+        ///
+        ///   • 4K UHD: not edited, no purchased 4K, and a 4K release is buyable. Covers both "no purchased 4K or
+        ///     Blu-ray" and "purchased Blu-ray plus an unpurchased 4K".
+        ///   • Blu-ray: the 4K note did not fire, an unpurchased Blu-ray exists, and no purchased Blu-ray is owned.
+        ///     A purchased 4K does not suppress it. Owning the 4K says nothing about the Blu-ray, and an edited film
+        ///     (Blu-ray only) has no 4K source.
+        ///   • DVD: shown only when the value is not a purchased disc, nothing on Blu-ray is buyable, and nothing on
+        ///     4K is either. The 4K condition is waived for edited films, where 4K never applies, as the Blu-ray rule
+        ///     waives it.
         let has4KToBuy  = all4K.contains  { !$0.purchased }
         let has2KToBuy  = all2K.contains  { !$0.purchased }
         let hasDVDToBuy = allDVD.contains { !$0.purchased }
 
-        // The backing release is the best unpurchased one of that format. A foreign origin makes the note say
-        // "foreign". If the release is still to come, the note names its date instead ("Upcoming Blu-ray release
-        // on November 3, 2026").
+        /// The backing release is the best unpurchased one of that format. A foreign origin makes the note say
+        /// "foreign". If the release is still to come, the note names its date instead ("Upcoming Blu-ray release
+        /// on November 3, 2026").
         func buyPhrase(_ format: String, _ pool: [ReleaseSnapshot]) -> String {
             let backing = ReleaseSnapshot.best(from: pool.filter { !$0.purchased })
             let foreign = backing.map { ReleaseOrigin.isImport($0.nationalOrigin) } ?? false
@@ -934,8 +935,40 @@ struct RSBHelpers {
             return "Available for purchase on \(label)"
         }
 
+        /// An upcoming unpurchased release of any format takes the note over, whatever the film owns: the
+        /// soonest one wins. On a date tie the precedence is 4K → Blu-ray → DVD, except that an edited film
+        /// whose owned Blu-ray (if any) is not remastered puts a remastered Blu-ray first. Purchased upcoming
+        /// releases are pre-orders and get `preorderNote` instead.
+        let preferRemastered2K = isEdited && !(best2K?.remastered ?? false)
+        func tieRank(_ release: ReleaseSnapshot) -> Int {
+            switch release.format {
+            case ReleaseFormat.bluRay.rawValue where preferRemastered2K && release.remastered: return 0
+            case ReleaseFormat.uhd4K.rawValue:  return 1
+            case ReleaseFormat.bluRay.rawValue: return 2
+            default:                            return 3
+            }
+        }
+        let upcoming = film.releases.compactMap { release -> (ReleaseSnapshot, ReleaseDateValue)? in
+            guard !release.purchased,
+                  let date = ReleaseDateValue(release.releaseDate, format: release.format),
+                  date.isUpcoming(today: today) else { return nil }
+            return (release, date)
+        }
+        let soonestUpcoming = upcoming.min { a, b in
+            if a.1.sortKey != b.1.sortKey { return a.1.sortKey < b.1.sortKey }
+            let (ra, rb) = (tieRank(a.0), tieRank(b.0))
+            if ra != rb { return ra < rb }
+            return a.0.qualityScore > b.0.qualityScore
+        }
+
         var availableForPurchase = ""
-        if !isEdited && has4KToBuy && purchased4K.isEmpty {
+        if let (release, date) = soonestUpcoming {
+            let foreign = ReleaseOrigin.isImport(release.nationalOrigin)
+            let label = "\(foreign ? "foreign " : "")\(formatLabel(release.format, remastered: release.remastered))"
+            availableForPurchase = date.isYearOnly
+                ? "Upcoming \(label) release in \(date.displayText)"
+                : "Upcoming \(label) release on \(date.displayText)"
+        } else if !isEdited && has4KToBuy && purchased4K.isEmpty {
             availableForPurchase = buyPhrase(ReleaseFormat.uhd4K.rawValue, all4K)
         } else if has2KToBuy && purchased2K.isEmpty {
             availableForPurchase = buyPhrase(ReleaseFormat.bluRay.rawValue, all2K)
@@ -947,7 +980,7 @@ struct RSBHelpers {
             ? "Region B locked"
             : ""
 
-        // A purchased disc that has not come out yet: a paid pre-order.
+        /// A purchased disc that has not come out yet: a paid pre-order.
         var preorderNote = ""
         if let displayedPurchased,
            let date = ReleaseDateValue(displayedPurchased.releaseDate, format: displayedPurchased.format),
@@ -1004,18 +1037,18 @@ struct RSBHelpers {
         }
     }
 
-    // The studio spelling for the Source for Viewing field, in two tiers (see ReleaseStudio for the three-tier
-    // scheme). Both are gated by Preferences.abbreviateSourceStudio. When that is off, every tier returns the
-    // original name, so the ladder has nothing to retreat to.
-    //
-    //   • shorthandStudioName: the default spelling ("Universal").
-    //   • abbreviatedStudioName: the retreat when the shorthand would wrap ("Uni"). It falls back to the shorthand
-    //     when no tighter form exists, so that ladder step equals the default and is dropped.
-    //
-    // Studios not in the table display at full length at both tiers.
-    //
-    // Free-text "Other" entries (not matching a known studio) are not looked up. They are truncated to 30
-    // characters plus an ellipsis, whatever the preference, so arbitrary user input cannot grow the layout.
+    /// The studio spelling for the Source for Viewing field, in two tiers (see ReleaseStudio for the three-tier
+    /// scheme). Both are gated by Preferences.abbreviateSourceStudio. When that is off, every tier returns the
+    /// original name, so the ladder has nothing to retreat to.
+    ///
+    ///   • shorthandStudioName: the default spelling ("Universal").
+    ///   • abbreviatedStudioName: the retreat when the shorthand would wrap ("Uni"). It falls back to the shorthand
+    ///     when no tighter form exists, so that ladder step equals the default and is dropped.
+    ///
+    /// Studios not in the table display at full length at both tiers.
+    ///
+    /// Free-text "Other" entries (not matching a known studio) are not looked up. They are truncated to 30
+    /// characters plus an ellipsis, whatever the preference, so arbitrary user input cannot grow the layout.
     private static func shorthandStudioName(_ studio: String) -> String {
         guard Preferences.abbreviateSourceStudio else { return studio }
         return ReleaseStudio.shorthand(studio)
@@ -1026,8 +1059,8 @@ struct RSBHelpers {
         return ReleaseStudio.abbreviated(studio)
     }
 
-    // The 30-character truncation for free-text studios. Known names never reach this length, but the guard
-    // is unconditional, so a future long name is handled safely.
+    /// The 30-character truncation for free-text studios. Known names never reach this length, but the guard
+    /// is unconditional, so a future long name is handled safely.
     private static func truncatedStudioDisplayName(_ studio: String) -> String {
         let maxLength = 30
         guard studio.count > maxLength else { return studio }
@@ -1035,7 +1068,7 @@ struct RSBHelpers {
         return "\(truncated)…"
     }
 
-    // Display string for a studio: shortened to the tier when enabled, then truncated as a final safety net.
+    /// Display string for a studio: shortened to the tier when enabled, then truncated as a final safety net.
     private static func displayStudioName(_ studio: String) -> String {
         return truncatedStudioDisplayName(shorthandStudioName(studio))
     }
@@ -1044,59 +1077,59 @@ struct RSBHelpers {
         return truncatedStudioDisplayName(abbreviatedStudioName(studio))
     }
 
-    // Builds the disambiguation prefix for a disc-format pool.
-    //
-    // `best`        — the best-scored purchased release (the one displayed).
-    // `allOfFormat` — every release of the format, purchased or not. Prefix rules use this full set, so
-    //                 wishlist releases disambiguate as owned ones do.
-    //
-    // Rules (applied only when allOfFormat has 2+ releases):
-    //   showYear:   another release in allOfFormat shares the best release's studio, and that collider's
-    //               effective base year (baseReleaseYear, or its releaseYear when that is empty) differs from the
-    //               best's. Colliders with the same effective base year are variants of one release, so a year
-    //               would not disambiguate and is suppressed. When shown, the year is the best release's effective
-    //               base year, not its releaseYear.
-    //   showStudio: at least one release in allOfFormat has a different studio from the best. The studio name
-    //               identifies the release shown.
-    //   showOrigin: same-studio colliders that share the best's effective base year differ in national origin.
-    //               This is evaluated INDEPENDENTLY of showYear. The same-year group is exactly what a year cannot
-    //               separate, so origin is needed when no different-year collider exists. Do not derive it from
-    //               showYear: the "ORIGIN " form would then be unreachable, since showYear needs a different-year
-    //               collider and origin needs a same-year one.
-    //               The two tokens then compose naturally: a different-year collider
-    //               contributes the year, a same-year origin difference contributes
-    //               the origin, and a pool containing both contributes both — the
-    //               year narrowing to the correct same-year sub-group first, then
-    //               origin discriminating within it.
-    //
-    //   import:     INDEPENDENT of the collision rules above and of the 2+ gate: a
-    //               release whose national origin is anything other than the domestic
-    //               one (`ReleaseOrigin.domestic`) always names it. A foreign disc is
-    //               inherently non-standard for this library, so the origin is part of
-    //               what the disc IS rather than a disambiguator, and is stated even
-    //               when there is nothing to tell it apart from. An empty origin is
-    //               unset, not foreign, and stays silent.
-    //
-    // The three tokens are independent, so each combination is emitted in YEAR ORIGIN STUDIO order. The origin
-    // precedes the studio whenever it appears, since it describes the disc's provenance. "English Criterion
-    // Blu-ray disc" reads as the nation's edition of that studio's disc, which is what it is.
-    //   ""                       — single domestic release; or 2+ releases sharing
-    //                              studio, effective base year, and origin
-    //   "YEAR "                  — 2+ releases, all same studio, years differ
-    //   "ORIGIN "                — an import; or 2+ same-studio same-year releases whose
-    //                              origins differ
-    //   "YEAR ORIGIN "           — either origin trigger plus a different-year collider
-    //   "STUDIO "                — 2+ releases, all different studios
-    //   "YEAR STUDIO "           — mixed studios with a same-studio/different-year collision
-    //   "ORIGIN STUDIO "         — mixed studios plus either origin trigger
-    //   "YEAR ORIGIN STUDIO "    — all three
-    //
-    // Four spellings differ only in their proper-name tokens. `full` uses the origin's demonym ("Australian")
-    // and the studio's shorthand ("Universal"). `originAbbreviated` uses the origin's short form ("AU",
-    // `ReleaseOrigin.shortForm`). `studioAbbreviated` uses the studio's abbreviation ("Uni",
-    // `ReleaseStudio.abbreviated`), and `originAndStudioAbbreviated` uses both. The compact forms are
-    // overflow-only fallbacks, like "rem." for "remastered". A spelling equals `full` when its token is not
-    // shown or has no compact form. Each ends with a space, so the format label can be concatenated directly.
+    /// Builds the disambiguation prefix for a disc-format pool.
+    ///
+    /// `best`        — the best-scored purchased release (the one displayed).
+    /// `allOfFormat` — every release of the format, purchased or not. Prefix rules use this full set, so
+    ///                 wishlist releases disambiguate as owned ones do.
+    ///
+    /// Rules (applied only when allOfFormat has 2+ releases):
+    ///   showYear:   another release in allOfFormat shares the best release's studio, and that collider's
+    ///               effective base year (baseReleaseYear, or its releaseYear when that is empty) differs from the
+    ///               best's. Colliders with the same effective base year are variants of one release, so a year
+    ///               would not disambiguate and is suppressed. When shown, the year is the best release's effective
+    ///               base year, not its releaseYear.
+    ///   showStudio: at least one release in allOfFormat has a different studio from the best. The studio name
+    ///               identifies the release shown.
+    ///   showOrigin: same-studio colliders that share the best's effective base year differ in national origin.
+    ///               This is evaluated INDEPENDENTLY of showYear. The same-year group is exactly what a year cannot
+    ///               separate, so origin is needed when no different-year collider exists. Do not derive it from
+    ///               showYear: the "ORIGIN " form would then be unreachable, since showYear needs a different-year
+    ///               collider and origin needs a same-year one.
+    ///               The two tokens then compose naturally: a different-year collider
+    ///               contributes the year, a same-year origin difference contributes
+    ///               the origin, and a pool containing both contributes both — the
+    ///               year narrowing to the correct same-year sub-group first, then
+    ///               origin discriminating within it.
+    ///
+    ///   import:     INDEPENDENT of the collision rules above and of the 2+ gate: a
+    ///               release whose national origin is anything other than the domestic
+    ///               one (`ReleaseOrigin.domestic`) always names it. A foreign disc is
+    ///               inherently non-standard for this library, so the origin is part of
+    ///               what the disc IS rather than a disambiguator, and is stated even
+    ///               when there is nothing to tell it apart from. An empty origin is
+    ///               unset, not foreign, and stays silent.
+    ///
+    /// The three tokens are independent, so each combination is emitted in YEAR ORIGIN STUDIO order. The origin
+    /// precedes the studio whenever it appears, since it describes the disc's provenance. "English Criterion
+    /// Blu-ray disc" reads as the nation's edition of that studio's disc, which is what it is.
+    ///   ""                       — single domestic release; or 2+ releases sharing
+    ///                              studio, effective base year, and origin
+    ///   "YEAR "                  — 2+ releases, all same studio, years differ
+    ///   "ORIGIN "                — an import; or 2+ same-studio same-year releases whose
+    ///                              origins differ
+    ///   "YEAR ORIGIN "           — either origin trigger plus a different-year collider
+    ///   "STUDIO "                — 2+ releases, all different studios
+    ///   "YEAR STUDIO "           — mixed studios with a same-studio/different-year collision
+    ///   "ORIGIN STUDIO "         — mixed studios plus either origin trigger
+    ///   "YEAR ORIGIN STUDIO "    — all three
+    ///
+    /// Four spellings differ only in their proper-name tokens. `full` uses the origin's demonym ("Australian")
+    /// and the studio's shorthand ("Universal"). `originAbbreviated` uses the origin's short form ("AU",
+    /// `ReleaseOrigin.shortForm`). `studioAbbreviated` uses the studio's abbreviation ("Uni",
+    /// `ReleaseStudio.abbreviated`), and `originAndStudioAbbreviated` uses both. The compact forms are
+    /// overflow-only fallbacks, like "rem." for "remastered". A spelling equals `full` when its token is not
+    /// shown or has no compact form. Each ends with a space, so the format label can be concatenated directly.
     struct SourcePrefix {
         var full: String = ""
         var originAbbreviated: String = ""
@@ -1117,10 +1150,10 @@ struct RSBHelpers {
         let originShortToken = bestOrigin.isEmpty ? "" : "\(ReleaseOrigin.shortForm(for: bestOrigin)) "
         let isImport = ReleaseOrigin.isImport(bestOrigin)
 
-        // One release of the format: nothing to disambiguate, so no year or studio. Only the import rule
-        // applies. All four spellings are filled, since no studio is shown. Left empty, they would read as
-        // ladder steps that drop the origin ("Blu-ray disc" for an Australian disc), which the row could pick
-        // on overflow.
+        /// One release of the format: nothing to disambiguate, so no year or studio. Only the import rule
+        /// applies. All four spellings are filled, since no studio is shown. Left empty, they would read as
+        /// ladder steps that drop the origin ("Blu-ray disc" for an Australian disc), which the row could pick
+        /// on overflow.
         guard allOfFormat.count >= 2 else {
             return isImport ? SourcePrefix(full: originToken,
                                            originAbbreviated: originShortToken,
@@ -1129,15 +1162,15 @@ struct RSBHelpers {
                             : SourcePrefix()
         }
 
-        // Same-studio colliders: other releases that share the best release's studio.
+        /// Same-studio colliders: other releases that share the best release's studio.
         let sameStudioOthers = allOfFormat.filter { $0.id != best.id && $0.studio == bestStudio }
 
-        // The effective base year identifies which original release a disc is a variant of. It is baseReleaseYear
-        // when set (a re-issue or repack of an earlier release), otherwise the year of the release's own date.
-        // Releases sharing one effective base year are variants of one release (for example, a 2014 Blu-ray and
-        // its 2016 repackaging with baseReleaseYear "2014"), so a year would mislead rather than help.
-        //
-        // Years only, never the full date. The base year has no month or day.
+        /// The effective base year identifies which original release a disc is a variant of. It is baseReleaseYear
+        /// when set (a re-issue or repack of an earlier release), otherwise the year of the release's own date.
+        /// Releases sharing one effective base year are variants of one release (for example, a 2014 Blu-ray and
+        /// its 2016 repackaging with baseReleaseYear "2014"), so a year would mislead rather than help.
+        ///
+        /// Years only, never the full date. The base year has no month or day.
         func effectiveBaseYear(_ release: ReleaseSnapshot) -> String {
             release.baseReleaseYear.isEmpty
                 ? ReleaseDateValue.yearText(of: release.releaseDate, format: release.format)
@@ -1145,14 +1178,14 @@ struct RSBHelpers {
         }
         let bestEffectiveBaseYear = effectiveBaseYear(best)
 
-        // showYear needs a same-studio collider to tell apart, unless all share the year (then showOrigin applies).
-        //
-        // For requiresNotableDifference formats (currently 4K), the year is shown only if a same-studio collider
-        // differs notably from the best: remastered, videoFormat, audioFormat, audioChannels, hasSubtitles, or
-        // releaseAspectRatio. Otherwise, such as the same disc bought twice, the year adds nothing.
-        //
-        // The year is also suppressed when every same-studio collider shares the best's effective base year. Those
-        // are variants of one release, so a year would only create a false distinction.
+        /// showYear needs a same-studio collider to tell apart, unless all share the year (then showOrigin applies).
+        ///
+        /// For requiresNotableDifference formats (currently 4K), the year is shown only if a same-studio collider
+        /// differs notably from the best: remastered, videoFormat, audioFormat, audioChannels, hasSubtitles, or
+        /// releaseAspectRatio. Otherwise, such as the same disc bought twice, the year adds nothing.
+        ///
+        /// The year is also suppressed when every same-studio collider shares the best's effective base year. Those
+        /// are variants of one release, so a year would only create a false distinction.
         let hasSameStudioColliders = !sameStudioOthers.isEmpty
         let hasNotableCollider: Bool = {
             guard requiresNotableDifference else { return true }
@@ -1170,28 +1203,28 @@ struct RSBHelpers {
         }
         let showYear = hasSameStudioColliders && hasNotableCollider && hasDistinctBaseYearCollider
 
-        // showStudio fires when at least one release carries a different studio.
+        /// showStudio fires when at least one release carries a different studio.
         let showStudio = allOfFormat.contains { $0.studio != bestStudio }
 
-        // showOrigin fires when a same-studio collider shares the best's effective base year (a re-issue counts as
-        // its original, as above) and differs in national origin. That covers two cases: all same-year (origin
-        // replaces the year token) and mixed years (origin narrows within the effective-year group).
-        //
-        // Not predicated on showYear: that would make the all-same-year case unreachable, since showYear needs a
-        // different-year collider. The notable-difference gate still applies, since it separates distinct discs from copies.
+        /// showOrigin fires when a same-studio collider shares the best's effective base year (a re-issue counts as
+        /// its original, as above) and differs in national origin. That covers two cases: all same-year (origin
+        /// replaces the year token) and mixed years (origin narrows within the effective-year group).
+        ///
+        /// Not predicated on showYear: that would make the all-same-year case unreachable, since showYear needs a
+        /// different-year collider. The notable-difference gate still applies, since it separates distinct discs from copies.
         let sameStudioSameYearOthers = sameStudioOthers.filter { effectiveBaseYear($0) == bestEffectiveBaseYear }
         let originDiffersAmongSameYearGroup = sameStudioSameYearOthers.contains { $0.nationalOrigin != bestOrigin }
         let showOrigin = hasNotableCollider && !sameStudioSameYearOthers.isEmpty && originDiffersAmongSameYearGroup
 
-        // Build the tokens. Each is emitted independently by the flags above. The year token is the best release's
-        // effective base year, not its releaseYear. A 2020 purchase of a disc with baseReleaseYear "2014" is
-        // effectively a 2014 release, so it reads "2014".
+        /// Build the tokens. Each is emitted independently by the flags above. The year token is the best release's
+        /// effective base year, not its releaseYear. A 2020 purchase of a disc with baseReleaseYear "2014" is
+        /// effectively a 2014 release, so it reads "2014".
         let yearToken        = bestEffectiveBaseYear.isEmpty  ? "" : "\(bestEffectiveBaseYear) "
         let studioToken      = bestStudio.isEmpty ? "" : "\(displayStudioName(bestStudio)) "
         let studioShortToken = bestStudio.isEmpty ? "" : "\(displayStudioAbbreviation(bestStudio)) "
 
-        // The tokens are independent and always appear in this order, so the prefix is their concatenation. This
-        // covers every documented form with no unreachable states.
+        /// The tokens are independent and always appear in this order, so the prefix is their concatenation. This
+        /// covers every documented form with no unreachable states.
         let showOriginToken = showOrigin || isImport
         func compose(_ origin: String, _ studio: String) -> String {
             "\(showYear ? yearToken : "")\(showOriginToken ? origin : "")\(showStudio ? studio : "")"
@@ -1203,7 +1236,7 @@ struct RSBHelpers {
     }
 
     // MARK: - Shared Utilities
-    // Returns singular or plural form of a title based on count.
+    /// Returns singular or plural form of a title based on count.
     static func pluralizedTitle(_ singular: String, _ plural: String, count: Int) -> String {
         return count == 1 ? singular : plural
     }
@@ -1217,7 +1250,7 @@ struct RSBHelpers {
         withTransaction(transaction, change)
     }
 
-    // Standard section divider used throughout sidebar modules.
+    /// Standard section divider used throughout sidebar modules.
     static var sectionDivider: some View {
         Divider()
             .padding(.vertical, 8)
@@ -1225,16 +1258,16 @@ struct RSBHelpers {
 }
 
 // MARK: - Releases Tab: Shared Derivations
-// ═══════════════════════════════════════════════════════════════════════════════════════
-// The Releases tab shows each release twice: as a row in the summary table (DiscReleasesTable, 24.21) and as a
-// card (RTabReleases, 24.20). A row and its card describe the same disc, so the derivations that define what
-// they say must match: the region mark and its color, the video line, and the release order.
-//
-// Every derivation lives here only, so the table and the cards cannot drift apart.
-//
-// Chrome and geometry are not shared. They differ by context on purpose: the cards draw into a fixed slot on an
-// opaque gray pill, and the table draws into a column on the row background.
-// ═══════════════════════════════════════════════════════════════════════════════════════
+/// ═══════════════════════════════════════════════════════════════════════════════════════
+/// The Releases tab shows each release twice: as a row in the summary table (DiscReleasesTable, 24.21) and as a
+/// card (RTabReleases, 24.20). A row and its card describe the same disc, so the derivations that define what
+/// they say must match: the region mark and its color, the video line, and the release order.
+///
+/// Every derivation lives here only, so the table and the cards cannot drift apart.
+///
+/// Chrome and geometry are not shared. They differ by context on purpose: the cards draw into a fixed slot on an
+/// opaque gray pill, and the table draws into a column on the row background.
+/// ═══════════════════════════════════════════════════════════════════════════════════════
 
 // MARK: Region Lock Badging
 
@@ -1272,7 +1305,7 @@ enum RSBRegionIndicator: Equatable {
 
         if trimmed == ReleaseRegionRules.regionFree { return .globe }
 
-        // DVD numbers its regions; 4K UHD and Blu-ray letter them.
+        /// DVD numbers its regions; 4K UHD and Blu-ray letter them.
         if format == ReleaseFormat.dvd.rawValue {
             guard let digit = dvdRegionDigit(trimmed) else { return .raw(trimmed) }
             return .character(String(digit), playable: digit == 1)
@@ -1343,7 +1376,7 @@ func releaseVideoDisplay(for release: ReleaseSnapshot) -> String {
             : codec
     case .dvd:
         return "\(ReleaseVideoFormat.mpeg2) (\(ReleaseScanningMethod.interlaced))"
-    default: // Blu-ray, and any format this build does not recognize.
+    default: /// Blu-ray, and any format this build does not recognize.
         return ReleaseScanningMethod.isInterlaced(release.scanningMethod)
             ? "\(release.videoFormat) (\(ReleaseScanningMethod.interlaced))"
             : release.videoFormat
@@ -1357,25 +1390,25 @@ func releaseVideoDisplay(for release: ReleaseSnapshot) -> String {
 /// all four tie. Each caller decides the tiebreak. The table's flat `.standard` sort treats a tie as `false`,
 /// and the grouped ordering below falls back to a unique ID so its result is total.
 func releaseSortKeysPrecede(_ lhs: ReleaseSnapshot, _ rhs: ReleaseSnapshot) -> Bool? {
-    // Primary: format group (4K → Blu-ray → DVD)
+    /// Primary: format group (4K → Blu-ray → DVD)
     let lhsOrder = ReleaseFormat.displayRank(for: lhs.format)
     let rhsOrder = ReleaseFormat.displayRank(for: rhs.format)
     if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
 
-    // Secondary: release date (descending). A year-only date sorts after the full dates
-    // in its year (ReleaseDateValue.sortKey); no date at all sorts last, as 0 always has.
+    /// Secondary: release date (descending). A year-only date sorts after the full dates
+    /// in its year (ReleaseDateValue.sortKey); no date at all sorts last, as 0 always has.
     let lhsReleased = ReleaseDateValue(lhs.releaseDate, format: lhs.format)?.sortKey ?? 0
     let rhsReleased = ReleaseDateValue(rhs.releaseDate, format: rhs.format)?.sortKey ?? 0
     if lhsReleased != rhsReleased { return lhsReleased > rhsReleased }
 
-    // Tertiary: purchase date (descending)
+    /// Tertiary: purchase date (descending)
     let lhsDate = parseDate(from: lhs.purchaseDate)
     let rhsDate = parseDate(from: rhs.purchaseDate)
     if let l = lhsDate, let r = rhsDate, l != r { return l > r }
     if lhsDate != nil && rhsDate == nil { return true }
     if lhsDate == nil && rhsDate != nil { return false }
 
-    // Quaternary: studio (ascending)
+    /// Quaternary: studio (ascending)
     let studioOrder = lhs.studio.englishStandardCompare(rhs.studio)
     if studioOrder != .orderedSame { return studioOrder == .orderedAscending }
 
@@ -1424,7 +1457,7 @@ func releasesGroupedByHierarchy(_ source: [ReleaseSnapshot]) -> [[ReleaseSnapsho
 
     return grouped.values
         .map { members in
-            // Parent first, then children in format order, then descending release date.
+            /// Parent first, then children in format order, then descending release date.
             members.sorted { lhs, rhs in
                 if lhs.isTopLevel != rhs.isTopLevel { return lhs.isTopLevel }
                 let lhsOrder = ReleaseFormat.displayRank(for: lhs.format)
@@ -1471,12 +1504,12 @@ enum QueryTarget {
     func directURL(identifier: String, dashedName: String) -> URL? {
         switch self {
         case .imdb:
-            // Direct title reference page: /title/tt<id>/reference/
+            /// Direct title reference page: /title/tt<id>/reference/
             return URL(string: "\(baseURL)/title/tt\(identifier)/reference/")
 
         case .bluray:
-            // Direct title page: /<dashed-name>/<id>/
-            // dashedName is already lowercased, punctuation-stripped, and hyphen-joined.
+            /// Direct title page: /<dashed-name>/<id>/
+            /// dashedName is already lowercased, punctuation-stripped, and hyphen-joined.
             return URL(string: "\(baseURL)/\(dashedName)/\(identifier)/")
         }
     }
@@ -1485,22 +1518,22 @@ enum QueryTarget {
     /// `normalizedTitle` must already have had dash variants collapsed and must
     /// be plain Unicode text — percent-encoding is applied internally.
     func searchURL(for normalizedTitle: String) -> URL? {
-        // A value inside a query string. `.urlQueryAllowed` leaves `&`, `=`, `+` and `?` literal, which would cut a
-        // title such as "Fast & Furious" at the ampersand and read a `+` as a space.
+        /// A value inside a query string. `.urlQueryAllowed` leaves `&`, `=`, `+` and `?` literal, which would cut a
+        /// title such as "Fast & Furious" at the ampersand and read a `+` as a space.
         var valueAllowed = CharacterSet.urlQueryAllowed
         valueAllowed.remove(charactersIn: "&=+?")
         switch self {
         case .imdb:
-            // IMDb find: restrict to feature films, exact-title search.
+            /// IMDb find: restrict to feature films, exact-title search.
             guard let encoded = normalizedTitle.addingPercentEncoding(
                 withAllowedCharacters: valueAllowed
             ) else { return nil }
             return URL(string: "\(baseURL)/find/?q=\(encoded)&s=tt&ttype=ft&exact=true")
 
         case .bluray:
-            // Blu-ray.com quick-search, US theatrical section.
-            // The keyword parameter uses "+" as a word separator on this site,
-            // so we percent-encode the name and then swap encoded spaces for "+".
+            /// Blu-ray.com quick-search, US theatrical section.
+            /// The keyword parameter uses "+" as a word separator on this site,
+            /// so we percent-encode the name and then swap encoded spaces for "+".
             guard let encoded = normalizedTitle
                 .addingPercentEncoding(withAllowedCharacters: valueAllowed)?
                 .replacingOccurrences(of: "%20", with: "+")
@@ -1521,14 +1554,14 @@ enum QueryHandoff {
     /// hyphen-minus (U+002D) before URL encoding so they don't produce
     /// unexpected percent-encoded sequences.
     private static let dashVariants: [(Unicode.Scalar, Unicode.Scalar)] = [
-        ("\u{2014}", "\u{002D}"),  // em dash        →  -
-        ("\u{2013}", "\u{002D}"),  // en dash        →  -
-        ("\u{2012}", "\u{002D}"),  // figure dash    →  -
-        ("\u{2011}", "\u{002D}"),  // non-breaking hyphen → -
-        ("\u{2010}", "\u{002D}"),  // hyphen         →  -
-        ("\u{FE58}", "\u{002D}"),  // small em dash  →  -
-        ("\u{FE63}", "\u{002D}"),  // small hyphen-minus → -
-        ("\u{FF0D}", "\u{002D}"),  // fullwidth hyphen-minus → -
+        ("\u{2014}", "\u{002D}"),  /// em dash        →  -
+        ("\u{2013}", "\u{002D}"),  /// en dash        →  -
+        ("\u{2012}", "\u{002D}"),  /// figure dash    →  -
+        ("\u{2011}", "\u{002D}"),  /// non-breaking hyphen → -
+        ("\u{2010}", "\u{002D}"),  /// hyphen         →  -
+        ("\u{FE58}", "\u{002D}"),  /// small em dash  →  -
+        ("\u{FE63}", "\u{002D}"),  /// small hyphen-minus → -
+        ("\u{FF0D}", "\u{002D}"),  /// fullwidth hyphen-minus → -
     ]
 
     /// Returns a copy of `title` with all recognized dash variants replaced by
@@ -1544,7 +1577,7 @@ enum QueryHandoff {
         return result
     }
 
-    // Pre-built CharacterSets used by dashedSlug to avoid per-scalar allocation.
+    /// Pre-built CharacterSets used by dashedSlug to avoid per-scalar allocation.
     private static let slugAllowedScalars: CharacterSet =
         .letters.union(.decimalDigits).union(.init(charactersIn: " -"))
     private static let slugSeparatorScalars: CharacterSet =
@@ -1555,17 +1588,17 @@ enum QueryHandoff {
     /// Example: "The Lord of the Rings: The Return of the King"
     ///        → "the-lord-of-the-rings-the-return-of-the-king"
     private static func dashedSlug(for filmName: String) -> String {
-        // Normalize dash variants first so they don't survive as punctuation.
+        /// Normalize dash variants first so they don't survive as punctuation.
         let dashNormalized = normalizeDashes(in: filmName)
-        // Lowercase, then strip every character that isn't a letter, digit,
-        // space, or plain hyphen-minus, then collapse runs of whitespace/hyphens
-        // into a single hyphen to form the final slug.
+        /// Lowercase, then strip every character that isn't a letter, digit,
+        /// space, or plain hyphen-minus, then collapse runs of whitespace/hyphens
+        /// into a single hyphen to form the final slug.
         let stripped = dashNormalized
             .lowercased()
             .unicodeScalars
             .filter { slugAllowedScalars.contains($0) }
         let result = String(stripped)
-            // Replace one or more spaces or hyphens with a single hyphen.
+            /// Replace one or more spaces or hyphens with a single hyphen.
             .components(separatedBy: slugSeparatorScalars)
             .filter { !$0.isEmpty }
             .joined(separator: "-")
@@ -1593,7 +1626,7 @@ enum QueryHandoff {
     ) {
         let normalized = normalizeDashes(in: filmName)
 
-        // Resolve stored identifier for this target, if present.
+        /// Resolve stored identifier for this target, if present.
         let storedID: String? = {
             let idx = target.identifierIndex
             guard idx < externalIdentifiers.count else { return nil }
@@ -1605,12 +1638,12 @@ enum QueryHandoff {
         let mode: String
 
         if let id = storedID {
-            // Direct URL path — use the stored numeric identifier.
+            /// Direct URL path — use the stored numeric identifier.
             let slug = dashedSlug(for: filmName)
             url  = target.directURL(identifier: id, dashedName: slug)
             mode = "direct"
         } else {
-            // Fallback — keyword search query.
+            /// Fallback — keyword search query.
             url  = target.searchURL(for: normalized)
             mode = "search"
         }
@@ -1640,7 +1673,7 @@ struct SearchableItemRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // Item text — expands to fill available space, truncating before the button.
+            /// Item text — expands to fill available space, truncating before the button.
             Text(item)
                 .foregroundStyle(.primary)
                 .font(.system(size: RSBHelpers.rowFontSize))
@@ -1649,7 +1682,7 @@ struct SearchableItemRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Search button — standard macOS bordered style.
+            /// Search button — standard macOS bordered style.
             Button {
                 AppEventBus.shared.sendCommand(.activateTokenSearch(field: field, value: item))
             } label: {
@@ -1665,16 +1698,16 @@ struct SearchableItemRow: View {
 }
 
 // MARK: - Crew Row List
-//
-// The rows of one Metadata crew section (Cast, Directors, …), built from AppKit views rather
-// than as a ForEach of SearchableItemRow. Each row is a plate (fill, shadow and fading
-// outline), an optional glyph, the name as a selectable label, and the token-search button
-// — the same parts SearchableItemRow draws, to the point. A film change re-points the rows:
-// a name is a string assignment, and a longer list adds rows to a pool that a shorter one
-// leaves intact. The section header above stays SwiftUI.
-//
-// SwiftUI rows re-render even when nothing in them changes, and a film's crew lists run to 20 or 30 rows. The
-// `rsb-crew-parity` harness scenario compares these rows with SearchableItemRow pixel for pixel, in light and dark.
+///
+/// The rows of one Metadata crew section (Cast, Directors, …), built from AppKit views rather
+/// than as a ForEach of SearchableItemRow. Each row is a plate (fill, shadow and fading
+/// outline), an optional glyph, the name as a selectable label, and the token-search button
+/// — the same parts SearchableItemRow draws, to the point. A film change re-points the rows:
+/// a name is a string assignment, and a longer list adds rows to a pool that a shorter one
+/// leaves intact. The section header above stays SwiftUI.
+///
+/// SwiftUI rows re-render even when nothing in them changes, and a film's crew lists run to 20 or 30 rows. The
+/// `rsb-crew-parity` harness scenario compares these rows with SearchableItemRow pixel for pixel, in light and dark.
 struct CrewRowList: NSViewRepresentable {
     let items: [String]
     let field: SearchField
@@ -1840,7 +1873,7 @@ final class CrewRowView: NSView {
         self.field = field
         if label.stringValue != item {
             label.stringValue = item
-            // The label is as wide as its text, so a new name needs a new frame.
+            /// The label is as wide as its text, so a new name needs a new frame.
             needsLayout = true
         }
         if glyph != self.glyph {
@@ -1876,19 +1909,19 @@ final class CrewRowView: NSView {
                                      y: 0, width: RSBHelpers.glyphBoxWidth, height: RSBHelpers.singleLineRowHeight)
         }
         let leading = pad + (glyph == nil ? 0 : RSBHelpers.glyphGutterWidth)
-        // The button's alignment rectangle ends at the plate's trailing padding, centered
-        // vertically; its frame is placed around that.
+        /// The button's alignment rectangle ends at the plate's trailing padding, centered
+        /// vertically; its frame is placed around that.
         let align = Self.buttonAlignmentSize
         let alignRect = NSRect(x: b.width - pad - align.width, y: (b.height - align.height) / 2,
                                width: align.width, height: align.height)
         var buttonFrame = button.frame(forAlignmentRect: alignRect)
         buttonFrame.size = Self.buttonFrameSize
         button.frame = buttonFrame
-        // SwiftUI's selectable Text is a text field 2 pt wider on each side than the text
-        // (the field's own intrinsic width is the text's alone),
-        // centered on the row and, as SwiftUI places it, on the window's pixels (the 15 pt line
-        // in the 24 pt row centers on a half point, between two pixels at 1x); a truncated name
-        // runs to the HStack's 6 pt gap.
+        /// SwiftUI's selectable Text is a text field 2 pt wider on each side than the text
+        /// (the field's own intrinsic width is the text's alone),
+        /// centered on the row and, as SwiftUI places it, on the window's pixels (the 15 pt line
+        /// in the 24 pt row centers on a half point, between two pixels at 1x); a truncated name
+        /// runs to the HStack's 6 pt gap.
         let available = max(0, alignRect.minX - 6 - leading)
         let height = Self.labelHeight
         let scale = unsafe window?.backingScaleFactor ?? 2
@@ -1922,9 +1955,9 @@ final class CrewGlyphView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let image else { return }
-        // SwiftUI's placement, read off `rsb-crew-parity` captures of all seven crew symbols:
-        // horizontally the alignment rectangle's width is centered, vertically the image's
-        // full height, and the origin is rounded to the nearest device pixel.
+        /// SwiftUI's placement, read off `rsb-crew-parity` captures of all seven crew symbols:
+        /// horizontally the alignment rectangle's width is centered, vertically the image's
+        /// full height, and the origin is rounded to the nearest device pixel.
         let size = image.size
         let align = image.alignmentRect
         let scale = unsafe window?.backingScaleFactor ?? 2
@@ -1933,24 +1966,24 @@ final class CrewGlyphView: NSView {
                           y: pixel((bounds.height - size.height) / 2),
                           width: size.width, height: size.height)
         image.draw(in: rect)
-        // The symbol is a template: replace what it drew with the tint, keeping its coverage.
-        // (.sourceAtop would blend a translucent tint, such as .secondary, over the black.)
+        /// The symbol is a template: replace what it drew with the tint, keeping its coverage.
+        /// (.sourceAtop would blend a translucent tint, such as .secondary, over the black.)
         tint.set()
         rect.fill(using: .sourceIn)
     }
 }
 
 // MARK: - Sidebar Text Abbreviation
-//
-// The shortened spellings `RSBHelpers.fittingValueRow` falls back to when a value would
-// otherwise wrap. Kept here, apart from the row builder, because they are pure string
-// rules with no view involvement — testable on their own, and extensible without touching
-// layout code.
-//
-// Every rule returns `nil` when it changed nothing. That is the signal `fittingValueRow`
-// uses to skip its measurement entirely, so a value with no applicable abbreviation costs
-// exactly what it always did. It also means a caller never has to compare the two strings
-// itself to decide whether offering an alternative is meaningful.
+///
+/// The shortened spellings `RSBHelpers.fittingValueRow` falls back to when a value would
+/// otherwise wrap. Kept here, apart from the row builder, because they are pure string
+/// rules with no view involvement — testable on their own, and extensible without touching
+/// layout code.
+///
+/// Every rule returns `nil` when it changed nothing. That is the signal `fittingValueRow`
+/// uses to skip its measurement entirely, so a value with no applicable abbreviation costs
+/// exactly what it always did. It also means a caller never has to compare the two strings
+/// itself to decide whether offering an alternative is meaningful.
 enum SidebarTextAbbreviation {
 
     // MARK: Time Units
@@ -1978,10 +2011,10 @@ enum SidebarTextAbbreviation {
     /// it is never the cause of an overflow, and there is no abbreviation for "days" that
     /// is both shorter and still readable.
     static func abbreviatingTimeUnits(in value: String) -> String? {
-        // The parenthetical is the LAST "(...)" run and closes at the very end of the
-        // string, which is exactly the shape both formatters produce. Anything else — no
-        // parenthetical at all ("Ready for viewing", "Blacklisted", "Unknown date"), or a
-        // stray parenthesis mid-string — leaves the value alone.
+        /// The parenthetical is the LAST "(...)" run and closes at the very end of the
+        /// string, which is exactly the shape both formatters produce. Anything else — no
+        /// parenthetical at all ("Ready for viewing", "Blacklisted", "Unknown date"), or a
+        /// stray parenthesis mid-string — leaves the value alone.
         guard value.hasSuffix(")"), let openIndex = value.lastIndex(of: "(") else { return nil }
 
         let clauseStart = value.index(after: openIndex)
@@ -2148,17 +2181,17 @@ enum SidebarTextAbbreviation {
     /// notes above `sourceDisplay`). Returns `nil` for any value that does not contain the
     /// word, which is the common case and skips the measurement entirely.
     static func abbreviatingRemastered(in value: String) -> String? {
-        // Both spellings sourceDisplay can produce, each rewritten to the matching
-        // short form. The two replacements are case-SENSITIVE on purpose: which one
-        // applies is exactly what decides whether the abbreviation comes back
-        // capitalized, so a single case-insensitive pass could not preserve it.
+        /// Both spellings sourceDisplay can produce, each rewritten to the matching
+        /// short form. The two replacements are case-SENSITIVE on purpose: which one
+        /// applies is exactly what decides whether the abbreviation comes back
+        /// capitalized, so a single case-insensitive pass could not preserve it.
         let shortened = value
             .replacingOccurrences(of: #"\bremastered\b"#, with: "rem.", options: .regularExpression)
             .replacingOccurrences(of: #"\bRemastered\b"#, with: "Rem.", options: .regularExpression)
 
-        // Report "nothing to shorten" by comparing the result, not by testing for the word first. A case-insensitive
-        // presence check with case-sensitive replacements would disagree on other spellings, such as an all-caps
-        // "REMASTERED", which matches neither replacement and would come back as an identical "abbreviation".
+        /// Report "nothing to shorten" by comparing the result, not by testing for the word first. A case-insensitive
+        /// presence check with case-sensitive replacements would disagree on other spellings, such as an all-caps
+        /// "REMASTERED", which matches neither replacement and would come back as an identical "abbreviation".
         return shortened == value ? nil : shortened
     }
 }
@@ -2182,7 +2215,7 @@ enum SidebarTextAbbreviation {
 /// Top placement also keeps a shorter stack at the top instead of centered.
 struct RSBTopPinnedLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        // A plain pass-through under the profile flag, to measure what pinning costs.
+        /// A plain pass-through under the profile flag, to measure what pinning costs.
         if RSBProfileFlags.noTopPinnedLayout { return subviews.first?.sizeThatFits(proposal) ?? .zero }
         let ideal = subviews.first?.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) ?? .zero
         let height = proposal.height.flatMap { $0.isFinite ? $0 : nil } ?? ideal.height

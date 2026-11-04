@@ -1,28 +1,28 @@
 // MARK: - FSStringList.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The reorderable plain-string list used by the FilmSheet Metadata and Notes tabs.
-//
-// The two list components (this one and ReorderableFramesList in 30.40 FSFramesList.swift)
-// are deliberately NOT unified. A frames entry is a four-field comma-packed record edited
-// through a popover, whereas a string-list entry is a bare value edited in place, so a single
-// type would carry two disjoint row models and two disjoint edit paths.
-//
-// What the two share lives in 30.20 FSControlHelpers.swift: `ListCircleButton` and
-// `ListCircleButtonStyle` (the circular control family), `ListImportPopover` (the bulk-entry
-// sheet), and `ListRowMetrics` (the row and control geometry). Everything else in this file
-// is specific to the string list: its in-place editing field, the focus machinery behind it,
-// and the click tracking that ends an edit.
+/// The reorderable plain-string list used by the FilmSheet Metadata and Notes tabs.
+///
+/// The two list components (this one and ReorderableFramesList in 30.40 FSFramesList.swift)
+/// are deliberately NOT unified. A frames entry is a four-field comma-packed record edited
+/// through a popover, whereas a string-list entry is a bare value edited in place, so a single
+/// type would carry two disjoint row models and two disjoint edit paths.
+///
+/// What the two share lives in 30.20 FSControlHelpers.swift: `ListCircleButton` and
+/// `ListCircleButtonStyle` (the circular control family), `ListImportPopover` (the bulk-entry
+/// sheet), and `ListRowMetrics` (the row and control geometry). Everything else in this file
+/// is specific to the string list: its in-place editing field, the focus machinery behind it,
+/// and the click tracking that ends an edit.
 
 import SwiftUI
 import AppKit
 
 // MARK: - Row Metrics
-//
-// Row geometry lives on `ListRowMetrics` (30.20 FSControlHelpers.swift), which both list
-// components use, so the two tables agree by construction. This is the arrangement
-// the shared `FieldEdgeStyle` establishes for the container chrome: values that must agree across both
-// tables are defined once, in a file both depend on, rather than restated in two places.
+///
+/// Row geometry lives on `ListRowMetrics` (30.20 FSControlHelpers.swift), which both list
+/// components use, so the two tables agree by construction. This is the arrangement
+/// the shared `FieldEdgeStyle` establishes for the container chrome: values that must agree across both
+/// tables are defined once, in a file both depend on, rather than restated in two places.
 
 // MARK: - Row Control Region Tracking
 
@@ -139,9 +139,9 @@ private struct RowClickReporter: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Rows are index-identified and reused, so the inputs are refreshed on
-        // every update; otherwise a row could fire its predecessor's action
-        // after a reorder.
+        /// Rows are index-identified and reused, so the inputs are refreshed on
+        /// every update; otherwise a row could fire its predecessor's action
+        /// after a reorder.
         context.coordinator.hostView = nsView
         apply(to: context.coordinator)
     }
@@ -178,44 +178,44 @@ private struct RowClickReporter: NSViewRepresentable {
         }
 
         func classify(_ event: NSEvent) -> Outcome {
-            // Neither of the reporter's jobs applies to a plain click on a row
-            // that is not being edited — only a double-click begins an edit, and
-            // only an open edit can be ended by clicking away — so that case is
-            // discarded up front, before any window lookup or coordinate
-            // conversion.
-            //
-            // The monitor delivers left clicks only, so no button check is
-            // needed here; see `RowClickBroadcaster.installIfNeeded`.
+            /// Neither of the reporter's jobs applies to a plain click on a row
+            /// that is not being edited — only a double-click begins an edit, and
+            /// only an open edit can be ended by clicking away — so that case is
+            /// discarded up front, before any window lookup or coordinate
+            /// conversion.
+            ///
+            /// The monitor delivers left clicks only, so no button check is
+            /// needed here; see `RowClickBroadcaster.installIfNeeded`.
             guard isEditing || event.clickCount == 2 else { return .ignore }
 
             guard let view = hostView, let window = unsafe view.window else { return .ignore }
 
-            // A click in a different window is outside this row by definition.
+            /// A click in a different window is outside this row by definition.
             guard event.window === window else {
                 return isEditing ? .clickOutside : .ignore
             }
 
-            // Hit-test against this row's own bounds. The row also contains
-            // buttons and, while editing, a text field; a click on those is
-            // inside the row and must not be treated as a click away from it.
-            //
-            // Bounds containment alone is NOT proof the click reached this row.
-            // FilmSheet keeps every visited tab mounted at full size, hidden
-            // behind `.opacity(0)`, so a hidden Metadata row occupies real
-            // window coordinates while the user is looking at Details or Notes.
-            // AppKit already knows those coordinates are unreachable —
-            // `TabEventShield` claims them and the tab's scroll view gates its
-            // own `hitTest` to nil — but a local event monitor observes the
-            // stream before and outside that routing, so it has to consult it
-            // explicitly. The check is short-circuited behind the bounds test,
-            // so it costs one hit-test only for a click that actually landed on
-            // some row's rect.
+            /// Hit-test against this row's own bounds. The row also contains
+            /// buttons and, while editing, a text field; a click on those is
+            /// inside the row and must not be treated as a click away from it.
+            ///
+            /// Bounds containment alone is NOT proof the click reached this row.
+            /// FilmSheet keeps every visited tab mounted at full size, hidden
+            /// behind `.opacity(0)`, so a hidden Metadata row occupies real
+            /// window coordinates while the user is looking at Details or Notes.
+            /// AppKit already knows those coordinates are unreachable —
+            /// `TabEventShield` claims them and the tab's scroll view gates its
+            /// own `hitTest` to nil — but a local event monitor observes the
+            /// stream before and outside that routing, so it has to consult it
+            /// explicitly. The check is short-circuited behind the bounds test,
+            /// so it costs one hit-test only for a click that actually landed on
+            /// some row's rect.
             let local = view.convert(event.locationInWindow, from: nil)
             if view.bounds.contains(local), clickReachesThisTab(event, from: view, in: window) {
                 guard event.clickCount == 2 else { return .ignore }
-                // The row's own buttons handle their clicks themselves; a second
-                // click on one of them is another button click, not a gesture on
-                // the row. See `ClickExclusionRegion`.
+                /// The row's own buttons handle their clicks themselves; a second
+                /// click on one of them is another button click, not a gesture on
+                /// the row. See `ClickExclusionRegion`.
                 if let controlsRegion,
                    controlsRegion.contains(windowPoint: event.locationInWindow, in: window) {
                     return .ignore
@@ -223,8 +223,8 @@ private struct RowClickReporter: NSViewRepresentable {
                 return .doubleClickInside
             }
 
-            // Everything below ends an edit, so a row that is not editing has
-            // nothing further to do with a click that landed outside it.
+            /// Everything below ends an edit, so a row that is not editing has
+            /// nothing further to do with a click that landed outside it.
             guard isEditing else { return .ignore }
 
             return .clickOutside
@@ -243,13 +243,13 @@ private struct RowClickReporter: NSViewRepresentable {
         /// future host that does not use the FilmSheet's tab architecture keeps
         /// the unconditional behavior.
         private func clickReachesThisTab(_ event: NSEvent, from view: NSView, in window: NSWindow) -> Bool {
-            // `outermostEnclosingScrollView` (30.20 FSControlHelpers.swift)
-            // rather than `enclosingScrollView`: the nearest ancestor is the
-            // scroll view backing this row's own `List`, whereas the outermost
-            // is `FilmSheetScrollView`, whose `hitTest` gate is what
-            // distinguishes an active tab from a hidden one. `ListAddRowRevealer`
-            // needs the same view for its own reasons, which is why the walk is
-            // shared rather than restated here.
+            /// `outermostEnclosingScrollView` (30.20 FSControlHelpers.swift)
+            /// rather than `enclosingScrollView`: the nearest ancestor is the
+            /// scroll view backing this row's own `List`, whereas the outermost
+            /// is `FilmSheetScrollView`, whose `hitTest` gate is what
+            /// distinguishes an active tab from a hidden one. `ListAddRowRevealer`
+            /// needs the same view for its own reasons, which is why the walk is
+            /// shared rather than restated here.
             guard let tabScrollView = view.outermostEnclosingScrollView else { return true }
             guard let hit = window.contentView?.hitTest(event.locationInWindow) else { return false }
             return hit.isDescendant(of: tabScrollView)
@@ -320,14 +320,14 @@ private final class RowClickBroadcaster {
 
     private func installIfNeeded() {
         guard monitor == nil else { return }
-        // Left clicks only, deliberately. A right click elsewhere in the sheet
-        // does NOT resolve an open edit: it raises a context menu without moving
-        // first responder, and the edit is expected to still be there when that
-        // menu is dismissed. Widening the mask would make dismissing a stray
-        // context menu destroy an in-progress edit.
+        /// Left clicks only, deliberately. A right click elsewhere in the sheet
+        /// does NOT resolve an open edit: it raises a context menu without moving
+        /// first responder, and the edit is expected to still be there when that
+        /// menu is dismissed. Widening the mask would make dismissing a stray
+        /// context menu destroy an in-progress edit.
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
-            // Returning the event unchanged is what preserves dragging: this
-            // monitor observes, it never consumes.
+            /// Returning the event unchanged is what preserves dragging: this
+            /// monitor observes, it never consumes.
             MainActor.assumeIsolated { RowClickBroadcaster.shared.dispatch(event) }
             return event
         }
@@ -365,7 +365,7 @@ private final class RowClickBroadcaster {
         for key in stale { listeners.removeValue(forKey: key) }
         removeIfIdle()
 
-        // Phase order is the point — see the note on the type.
+        /// Phase order is the point — see the note on the type.
         for action in beginEdits { action() }
         for action in endEdits { action() }
     }
@@ -422,8 +422,8 @@ struct ReorderableStringList: View {
     /// produces "Import Cast Members". Defaults to a neutral term.
     var itemLabel: String = "Item"
 
-    // No scroll bridge. The add control is the table's last row, so it can be clicked only when it is
-    // already on screen, and the row it turns into is that same row. Nothing needs to scroll to an anchor.
+    /// No scroll bridge. The add control is the table's last row, so it can be clicked only when it is
+    /// already on screen, and the row it turns into is that same row. Nothing needs to scroll to an anchor.
 
     /// Upper bound on row count. The list does not scroll internally, so every row adds to the sheet's
     /// overall content height. 30 bounds the worst case.
@@ -431,12 +431,12 @@ struct ReorderableStringList: View {
     nonisolated static let maxItems = 30
 
     // MARK: - Editing State
-    //
-    // Both live on the parent rather than in the row so that a move or delete
-    // can clear them atomically with the mutation that invalidates them. Rows
-    // are identified by index (see the ForEach note below), so a stale
-    // editingIndex surviving a reorder would silently retarget the edit at
-    // whichever item now occupies that position.
+    ///
+    /// Both live on the parent rather than in the row so that a move or delete
+    /// can clear them atomically with the mutation that invalidates them. Rows
+    /// are identified by index (see the ForEach note below), so a stale
+    /// editingIndex surviving a reorder would silently retarget the edit at
+    /// whichever item now occupies that position.
 
     @State private var editingIndex: Int?
 
@@ -490,17 +490,17 @@ struct ReorderableStringList: View {
     @State private var duplicatePrompt: ListDuplicatePrompt?
 
     // MARK: - Row Geometry
-    //
-    // Every value comes from `ListRowMetrics` (30.20 FSControlHelpers.swift), which both list
-    // components share.
+    ///
+    /// Every value comes from `ListRowMetrics` (30.20 FSControlHelpers.swift), which both list
+    /// components share.
 
     // MARK: Container Chrome
-    //
-    // The outline and shadow are the shared `FieldEdgeStyle.standard` (UtilityKit), shared with
-    // `ReorderableFramesList` and `FixedHeightScrollingTextView`.
-    //
-    // The corner radius and border width must agree: the clip below is inset by exactly the width
-    // the border occupies. Both come from the same place, which keeps them agreeing.
+    ///
+    /// The outline and shadow are the shared `FieldEdgeStyle.standard` (UtilityKit), shared with
+    /// `ReorderableFramesList` and `FixedHeightScrollingTextView`.
+    ///
+    /// The corner radius and border width must agree: the clip below is inset by exactly the width
+    /// the border occupies. Both come from the same place, which keeps them agreeing.
 
     /// Rows drawn: every entry, plus the trailing add row.
     ///
@@ -520,11 +520,11 @@ struct ReorderableStringList: View {
     // MARK: - Body
 
     // MARK: - Vertical Alignment Tuning
-    //
-    // The field label offset is a single value. The inset List always applies its internal top padding,
-    // because the table always holds at least the add row, so one constant lines up in every state.
-    //
-    // Sign convention: positive moves DOWN, negative moves UP.
+    ///
+    /// The field label offset is a single value. The inset List always applies its internal top padding,
+    /// because the table always holds at least the add row, so one constant lines up in every state.
+    ///
+    /// Sign convention: positive moves DOWN, negative moves UP.
 
     /// Vertical offset that aligns an adjacent field label with the list's first
     /// row. Exposed statically so the owning tab applies the same rule the
@@ -533,33 +533,33 @@ struct ReorderableStringList: View {
     static let labelTopOffset: CGFloat = 14
 
     var body: some View {
-        // The table is the whole component. Every control lives inside it, including the bulk-import
-        // button in the add row, so the table takes the full column width. Emptying the table is an
-        // ordinary row removal, animated like any other.
+        /// The table is the whole component. Every control lives inside it, including the bulk-import
+        /// button in the add row, so the table takes the full column width. Emptying the table is an
+        /// ordinary row removal, animated like any other.
         listContainer
-        //
-        // Scroll detection, done in AppKit rather than in SwiftUI.
-        //
-        // An `NSPopover` is pinned to the screen rectangle its anchor occupied
-        // when it was presented, so scrolling the sheet leaves the bulk-import
-        // popover floating over unrelated content. `ScrollActivityObserver`
-        // (30.20 FSControlHelpers.swift) watches the enclosing clip view's
-        // bounds — a notification AppKit posts for its own purposes — instead of
-        // the `GeometryReader` that would otherwise put SwiftUI layout on the
-        // live-scroll path, which is precisely what `AppKitScrollView`'s
-        // live-scroll suppression exists to prevent.
-        //
-        // This list has exactly one popover, and the guard means a scroll tick
-        // with that popover shut reads a `Bool` and writes nothing — so SwiftUI
-        // is not invalidated and no work reaches the view tree.
+        ///
+        /// Scroll detection, done in AppKit rather than in SwiftUI.
+        ///
+        /// An `NSPopover` is pinned to the screen rectangle its anchor occupied
+        /// when it was presented, so scrolling the sheet leaves the bulk-import
+        /// popover floating over unrelated content. `ScrollActivityObserver`
+        /// (30.20 FSControlHelpers.swift) watches the enclosing clip view's
+        /// bounds — a notification AppKit posts for its own purposes — instead of
+        /// the `GeometryReader` that would otherwise put SwiftUI layout on the
+        /// live-scroll path, which is precisely what `AppKitScrollView`'s
+        /// live-scroll suppression exists to prevent.
+        ///
+        /// This list has exactly one popover, and the guard means a scroll tick
+        /// with that popover shut reads a `Bool` and writes nothing — so SwiftUI
+        /// is not invalidated and no work reaches the view tree.
         .background(
             ScrollActivityObserver {
                 if showImportPopover { showImportPopover = false }
             }
         )
-        // Raised by `commitAdd` and `commitEdit` when the finished value already
-        // exists verbatim. Attached to the component rather than to the row, so
-        // it survives the row being rebuilt as the edit resolves.
+        /// Raised by `commitAdd` and `commitEdit` when the finished value already
+        /// exists verbatim. Attached to the component rather than to the row, so
+        /// it survives the row being rebuilt as the edit resolves.
         .listDuplicateAlert($duplicatePrompt)
     }
 
@@ -567,14 +567,14 @@ struct ReorderableStringList: View {
 
     private var listContainer: some View {
         List {
-            // Index identity is deliberate. `id: \.self` on the strings would
-            // collapse duplicate entries onto a single identity — two identical
-            // tags or a repeated crew name are entirely plausible here — which
-            // breaks both reordering and row-level state. The cost of index
-            // identity is that editing state must be cleared across mutations,
-            // which is handled centrally in the mutation helpers below, and that
-            // a drafted commit has to be verified against the position it
-            // targets before it is applied.
+            /// Index identity is deliberate. `id: \.self` on the strings would
+            /// collapse duplicate entries onto a single identity — two identical
+            /// tags or a repeated crew name are entirely plausible here — which
+            /// breaks both reordering and row-level state. The cost of index
+            /// identity is that editing state must be cleared across mutations,
+            /// which is handled centrally in the mutation helpers below, and that
+            /// a drafted commit has to be verified against the position it
+            /// targets before it is applied.
             ForEach(items.indices, id: \.self) { index in
                 StringListRow(
                     text: items[index],
@@ -592,22 +592,22 @@ struct ReorderableStringList: View {
                 .listRowInsets(ListRowMetrics.rowInsets)
             }
             .onMove { source, destination in
-                // Editing must end before the move: editingIndex refers to a
-                // position, and the move redefines what occupies it. The drag's
-                // own mouseDown has normally already ended the edit through the
-                // row's click-away monitor, so this is the belt to that braces;
-                // any commit that does still arrive afterward is caught by the
-                // position check in commitEdit.
+                /// Editing must end before the move: editingIndex refers to a
+                /// position, and the move redefines what occupies it. The drag's
+                /// own mouseDown has normally already ended the edit through the
+                /// row's click-away monitor, so this is the belt to that braces;
+                /// any commit that does still arrive afterward is caught by the
+                /// position check in commitEdit.
                 endEditing()
                 items.move(fromOffsets: source, toOffset: destination)
             }
 
-            // The add row, outside the `ForEach` and therefore outside `.onMove`
-            // — it is not an entry, so it must be neither draggable nor a valid
-            // drop destination. Keeping it a sibling rather than an extra
-            // iteration of the same `ForEach` is what gives that for free:
-            // `.onMove` bounds both the source and the destination to the range
-            // its `ForEach` covers.
+            /// The add row, outside the `ForEach` and therefore outside `.onMove`
+            /// — it is not an entry, so it must be neither draggable nor a valid
+            /// drop destination. Keeping it a sibling rather than an extra
+            /// iteration of the same `ForEach` is what gives that for free:
+            /// `.onMove` bounds both the source and the destination to the range
+            /// its `ForEach` covers.
             StringListAddRow(
                 editSession: editSession,
                 isAdding: isAdding,
@@ -618,34 +618,34 @@ struct ReorderableStringList: View {
                 onCommit: { newValue in commitAdd(newValue) },
                 onCancel: { endAdding() },
                 showImportPopover: $showImportPopover,
-                // Reset here rather than inside the row: these are this type's
-                // state, and the row is not given them to write.
+                /// Reset here rather than inside the row: these are this type's
+                /// state, and the row is not given them to write.
                 onBeginImport: {
-                    // Replace mode is the only mode that can do anything at the
-                    // cap, so the popover opens in it and locks it; see
-                    // `ListImportPopover.isAtCapacity`.
+                    /// Replace mode is the only mode that can do anything at the
+                    /// cap, so the popover opens in it and locks it; see
+                    /// `ListImportPopover.isAtCapacity`.
                     importReplaces = !canAdd
                 },
                 importPopover: { importPopoverContent }
             )
-            // Brings this row back into the viewport after a commit pushes it
-            // down. Attached here rather than inside `StringListAddRow` because
-            // the token belongs to the list, which is what knows an entry was
-            // appended. A background contributes no layout and consumes no
-            // events, so the row is unaffected.
+            /// Brings this row back into the viewport after a commit pushes it
+            /// down. Attached here rather than inside `StringListAddRow` because
+            /// the token belongs to the list, which is what knows an entry was
+            /// appended. A background contributes no layout and consumes no
+            /// events, so the row is unaffected.
             .background(ListAddRowRevealer(token: addRevealToken))
             .listRowInsets(ListRowMetrics.rowInsets)
         }
-        // List style, sizing, clip, border, and shadow — one modifier, shared with the
-        // frames and text lists so all three tables are drawn identically and,
-        // just as importantly, in the same order. The sequence is load-bearing:
-        // sizing before the clip is what stops the last alternating background
-        // band's overhang from escaping it, and the clip's inset is what keeps
-        // the translucent border from compositing over that fill into a
-        // distinctly darker bottom edge. The full account is on
-        // `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
+        /// List style, sizing, clip, border, and shadow — one modifier, shared with the
+        /// frames and text lists so all three tables are drawn identically and,
+        /// just as importantly, in the same order. The sequence is load-bearing:
+        /// sizing before the clip is what stops the last alternating background
+        /// band's overhang from escaping it, and the clip's inset is what keeps
+        /// the translucent border from compositing over that fill into a
+        /// distinctly darker bottom edge. The full account is on
+        /// `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
-        // The placeholder is the add row's own label, a real row with the list's own leading inset.
+        /// The placeholder is the add row's own label, a real row with the list's own leading inset.
     }
 
     // MARK: - Bulk Import
@@ -660,14 +660,14 @@ struct ReorderableStringList: View {
         ListImportPopover(
             itemLabel: itemLabel,
             maxItems: Self.maxItems,
-            // One count, from which the popover derives both the append-mode headroom and the
-            // two locked states of its Replace toggle.
+            /// One count, from which the popover derives both the append-mode headroom and the
+            /// two locked states of its Replace toggle.
             currentCount: items.count,
             replaces: $importReplaces,
             onImport: { parsed in
-                // Dismiss, then commit once the popover has finished closing.
-                // An import changes the row count, which moves this popover's own
-                // anchor — see `ListPopoverDismissal`.
+                /// Dismiss, then commit once the popover has finished closing.
+                /// An import changes the row count, which moves this popover's own
+                /// anchor — see `ListPopoverDismissal`.
                 showImportPopover = false
                 ListPopoverDismissal.afterClose { commitImport(parsed) }
             },
@@ -677,13 +677,13 @@ struct ReorderableStringList: View {
 
     // MARK: - Import Popover
 
-    // Parsing lives on `ListImportPopover.parseItems(from:)`, which the popover calls and passes
-    // the result of through `onImport`.
+    /// Parsing lives on `ListImportPopover.parseItems(from:)`, which the popover calls and passes
+    /// the result of through `onImport`.
 
     // MARK: - Mutation Helpers
-    //
-    // Every mutation that can invalidate `editingIndex` routes through one of
-    // these, so the clearing rule is stated once rather than at each call site.
+    ///
+    /// Every mutation that can invalidate `editingIndex` routes through one of
+    /// these, so the clearing rule is stated once rather than at each call site.
 
     /// Opens the add row's text field.
     ///
@@ -691,17 +691,17 @@ struct ReorderableStringList: View {
     /// canceled add leaves the array untouched by construction.
     private func beginAdd() {
         guard canAdd, !isAdding else { return }
-        // Clearing `editingIndex` ends any open row edit through the row's own
-        // `onChange(of: isEditing)`, which DISCARDS its draft — the rule every
-        // unconfirmed exit follows, since only Return and the pencil save. That
-        // is the same path used when the edit is retargeted from one row to
-        // another.
+        /// Clearing `editingIndex` ends any open row edit through the row's own
+        /// `onChange(of: isEditing)`, which DISCARDS its draft — the rule every
+        /// unconfirmed exit follows, since only Return and the pencil save. That
+        /// is the same path used when the edit is retargeted from one row to
+        /// another.
         editingIndex = nil
         isAdding = true
         editSession &+= 1
-        // Focus is deliberately NOT assigned here: the add row's field claims
-        // first responder itself, against the window, and verifies that the
-        // claim took. See `EditingTextField`.
+        /// Focus is deliberately NOT assigned here: the add row's field claims
+        /// first responder itself, against the window, and verifies that the
+        /// claim took. See `EditingTextField`.
     }
 
     /// Appends the drafted entry and returns the add row to its placeholder
@@ -713,13 +713,13 @@ struct ReorderableStringList: View {
     private func commitAdd(_ newValue: String) {
         isAdding = false
         let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Re-checked rather than trusted from the button's enablement: the cap
-        // is a limit on the model, not merely a UI rule.
+        /// Re-checked rather than trusted from the button's enablement: the cap
+        /// is a limit on the model, not merely a UI rule.
         guard !trimmed.isEmpty, items.count < Self.maxItems else { return }
-        // An exact duplicate is confirmed rather than refused — see
-        // `ListDuplicateCheck`. The append is deferred whole, so the confirmed
-        // path and the immediate one are the same code and the cap is re-checked
-        // either way.
+        /// An exact duplicate is confirmed rather than refused — see
+        /// `ListDuplicateCheck`. The append is deferred whole, so the confirmed
+        /// path and the immediate one are the same code and the cap is re-checked
+        /// either way.
         confirmingDuplicate(trimmed, prompt: ListDuplicatePrompt { appendCommitted(trimmed) })
     }
 
@@ -732,9 +732,9 @@ struct ReorderableStringList: View {
     private func appendCommitted(_ trimmed: String) {
         guard items.count < Self.maxItems else { return }
         items.append(trimmed)
-        // Only on a write that actually grew the table. A draft that trimmed to
-        // nothing, or one rejected at the cap, leaves the add row where it was,
-        // and scrolling for it would move the viewport for no visible reason.
+        /// Only on a write that actually grew the table. A draft that trimmed to
+        /// nothing, or one rejected at the cap, leaves the add row where it was,
+        /// and scrolling for it would move the viewport for no visible reason.
         addRevealToken &+= 1
     }
 
@@ -770,8 +770,8 @@ struct ReorderableStringList: View {
 
     private func beginEdit(at index: Int) {
         guard items.indices.contains(index) else { return }
-        // Mutually exclusive with the add row; see `isAdding`. The add row's own
-        // `onChange` discards its draft when this clears the flag.
+        /// Mutually exclusive with the add row; see `isAdding`. The add row's own
+        /// `onChange` discards its draft when this clears the flag.
         isAdding = false
         editingIndex = index
         editSession &+= 1
@@ -800,7 +800,7 @@ struct ReorderableStringList: View {
     /// silent data loss. If the slot no longer holds the seeded value the commit
     /// is stale by definition and is dropped.
     private func commitEdit(at index: Int, expecting original: String, to newValue: String) {
-        // Only surrender editing state if this row is still the one holding it.
+        /// Only surrender editing state if this row is still the one holding it.
         if editingIndex == index { endEditing() }
 
         guard items.indices.contains(index), items[index] == original else { return }
@@ -810,11 +810,11 @@ struct ReorderableStringList: View {
             items.remove(at: index)
             shiftEditingIndex(afterRemovalAt: index)
         } else if items[index] != trimmed {
-            // The row's own value is excluded from the comparison — an edit that
-            // did not change the text never reaches here, but an edit that
-            // changed it to match a DIFFERENT row is exactly the case worth
-            // catching. Canceling leaves the array untouched, so the row simply
-            // redraws the value it held.
+            /// The row's own value is excluded from the comparison — an edit that
+            /// did not change the text never reaches here, but an edit that
+            /// changed it to match a DIFFERENT row is exactly the case worth
+            /// catching. Canceling leaves the array untouched, so the row simply
+            /// redraws the value it held.
             confirmingDuplicate(trimmed,
                                 excluding: index,
                                 prompt: ListDuplicatePrompt {
@@ -858,8 +858,8 @@ struct ReorderableStringList: View {
 
     private func deleteItem(at index: Int) {
         guard items.indices.contains(index) else { return }
-        // Clear editing only when deleting the row being edited. Blanket
-        // clearing would drop an unrelated in-flight edit on the floor.
+        /// Clear editing only when deleting the row being edited. Blanket
+        /// clearing would drop an unrelated in-flight edit on the floor.
         if editingIndex == index { endEditing() }
         items.remove(at: index)
         shiftEditingIndex(afterRemovalAt: index)
@@ -887,14 +887,14 @@ struct ReorderableStringList: View {
                                                       cap: Self.maxItems)
         else { return }
         endEditing()
-        // Measured before the write, so the comparison is against the array the
-        // import is replacing rather than the one it produced.
+        /// Measured before the write, so the comparison is against the array the
+        /// import is replacing rather than the one it produced.
         let grew = updated.count > items.count
         items = updated
-        // The add row moves down by one row per entry gained, so a bulk import can push it well below
-        // the fold, which is the case the reveal exists for. Only on growth: a
-        // Replace-mode import that shrinks the table moves the add row UP, and
-        // scrolling to it then would drag the viewport for no reason.
+        /// The add row moves down by one row per entry gained, so a bulk import can push it well below
+        /// the fold, which is the case the reveal exists for. Only on growth: a
+        /// Replace-mode import that shrinks the table moves the add row UP, and
+        /// scrolling to it then would drag the viewport for no reason.
         if grew { addRevealToken &+= 1 }
     }
 
@@ -989,16 +989,16 @@ struct FilmSheetListRow<Model: AnyObject & Observable>: View {
         HStack(alignment: .top, spacing: columnSpacing) {
             FilmSheetFieldLabel(count <= 1 ? singularLabel : pluralLabel,
                                 width: labelWidth)
-                // .offset rather than .padding: the alignment constants are
-                // signed, so either element can be nudged upward, which padding
-                // cannot express.
+                /// .offset rather than .padding: the alignment constants are
+                /// signed, so either element can be nudged upward, which padding
+                /// cannot express.
                 .offset(y: ReorderableStringList.labelTopOffset)
 
-            // The stand-in's height is the same expression both lists hand to
-            // `listContainerChrome(height:)` — entry count plus the unconditional
-            // trailing add row — so the swap cannot move anything.
-            // Read from the same `count` the label above already reads, so this
-            // adds no observation and no second array access.
+            /// The stand-in's height is the same expression both lists hand to
+            /// `listContainerChrome(height:)` — entry count plus the unconditional
+            /// trailing add row — so the swap cannot move anything.
+            /// Read from the same `count` the label above already reads, so this
+            /// adds no observation and no second array access.
             DeferredFieldContent(
                 wave: renderWave,
                 placeholderHeight: ListRowMetrics.listHeight(rowCount: count + 1)
@@ -1107,11 +1107,11 @@ private struct EditingTextField: NSViewRepresentable {
         let field = FocusClaimingTextField(frame: .zero)
         field.delegate = context.coordinator
 
-        // Matches SwiftUI's `.squareBorder` style, a bezeled NSTextField with the square bezel, so the
-        // row's metrics and text position are unchanged.
-        // isBordered and isBezeled are mutually exclusive on NSTextField —
-        // setting either clears the other — so the plain border is cleared
-        // first and the bezel established second.
+        /// Matches SwiftUI's `.squareBorder` style, a bezeled NSTextField with the square bezel, so the
+        /// row's metrics and text position are unchanged.
+        /// isBordered and isBezeled are mutually exclusive on NSTextField —
+        /// setting either clears the other — so the plain border is cleared
+        /// first and the bezel established second.
         field.isBordered = false
         field.isBezeled = true
         field.bezelStyle = .squareBezel
@@ -1125,7 +1125,7 @@ private struct EditingTextField: NSViewRepresentable {
         field.cell?.wraps = false
         field.cell?.isScrollable = true
 
-        // The row supplies the width and height; the field must not fight it.
+        /// The row supplies the width and height; the field must not fight it.
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
@@ -1137,10 +1137,10 @@ private struct EditingTextField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: FocusClaimingTextField, context: Context) {
-        // Rows are index-identified, so a row's view can in principle be reused
-        // across a change of session. Refreshing the callbacks and re-seeding on
-        // a token change keeps a reused field correct rather than relying on it
-        // never being reused.
+        /// Rows are index-identified, so a row's view can in principle be reused
+        /// across a change of session. Refreshing the callbacks and re-seeding on
+        /// a token change keeps a reused field correct rather than relying on it
+        /// never being reused.
         context.coordinator.parent = self
         if context.coordinator.seedIfNeeded(token: focusToken, seed: seed) {
             nsView.stringValue = seed
@@ -1193,21 +1193,21 @@ private struct EditingTextField: NSViewRepresentable {
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
-            // Straight into the buffer — no SwiftUI state is touched, so typing
-            // costs nothing beyond the keystroke itself.
+            /// Straight into the buffer — no SwiftUI state is touched, so typing
+            /// costs nothing beyond the keystroke itself.
             parent.buffer.current = field.stringValue
         }
 
         func controlTextDidEndEditing(_ obj: Notification) {
-            // Deferred by one main-queue turn. This notification is posted
-            // synchronously when AppKit tears the field down, which happens
-            // *inside* a SwiftUI update — and the handler mutates the bound
-            // array. Hopping past the update keeps the mutation out of it.
-            //
-            // Safe to defer because resolution is idempotent: whichever path
-            // actually ended the edit has normally already resolved it, in which
-            // case this is a no-op, and if none has, the parent's own
-            // position check guards the late write.
+            /// Deferred by one main-queue turn. This notification is posted
+            /// synchronously when AppKit tears the field down, which happens
+            /// *inside* a SwiftUI update — and the handler mutates the bound
+            /// array. Hopping past the update keeps the mutation out of it.
+            ///
+            /// Safe to defer because resolution is idempotent: whichever path
+            /// actually ended the edit has normally already resolved it, in which
+            /// case this is a no-op, and if none has, the parent's own
+            /// position check guards the late write.
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     self?.parent.onEndEditing()
@@ -1220,8 +1220,8 @@ private struct EditingTextField: NSViewRepresentable {
                      doCommandBy commandSelector: Selector) -> Bool {
             switch commandSelector {
             case #selector(NSResponder.insertNewline(_:)):
-                // The field editor holds the authoritative text until editing
-                // ends, so read it rather than the cell.
+                /// The field editor holds the authoritative text until editing
+                /// ends, so read it rather than the cell.
                 parent.buffer.current = textView.string
                 parent.onSubmit()
                 return true
@@ -1231,8 +1231,8 @@ private struct EditingTextField: NSViewRepresentable {
                 return true
 
             default:
-                // Tab and everything else stay with AppKit; leaving the field by
-                // Tab ends editing and is picked up by controlTextDidEndEditing.
+                /// Tab and everything else stay with AppKit; leaving the field by
+                /// Tab ends editing and is picked up by controlTextDidEndEditing.
                 return false
             }
         }
@@ -1273,8 +1273,8 @@ private final class FocusClaimingTextField: NSTextField, FilmSheetReturnHandling
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // The authoritative moment: a field that could not take focus because it
-        // had no window now has one.
+        /// The authoritative moment: a field that could not take focus because it
+        /// had no window now has one.
         guard unsafe window != nil else { return }
         beginFocusClaim()
     }
@@ -1291,9 +1291,9 @@ private final class FocusClaimingTextField: NSTextField, FilmSheetReturnHandling
         attemptsRemaining -= 1
 
         guard let window = unsafe window else {
-            // Not in a window yet. viewDidMoveToWindow will restart the claim
-            // with a fresh budget; the retry below covers the case where the
-            // insertion happens within the same run-loop turn.
+            /// Not in a window yet. viewDidMoveToWindow will restart the claim
+            /// with a fresh budget; the retry below covers the case where the
+            /// insertion happens within the same run-loop turn.
             scheduleRetry()
             return
         }
@@ -1305,8 +1305,8 @@ private final class FocusClaimingTextField: NSTextField, FilmSheetReturnHandling
 
         if window.makeFirstResponder(self), isFirstResponderOrEditing(in: window) {
             satisfiedToken = focusToken
-            // Matches the selection behavior of a SwiftUI TextField receiving
-            // focus: the existing value is selected, so typing replaces it.
+            /// Matches the selection behavior of a SwiftUI TextField receiving
+            /// focus: the existing value is selected, so typing replaces it.
             currentEditor()?.selectAll(nil)
             return
         }
@@ -1317,9 +1317,9 @@ private final class FocusClaimingTextField: NSTextField, FilmSheetReturnHandling
     private func scheduleRetry() {
         guard !retryScheduled, attemptsRemaining > 0 else { return }
         retryScheduled = true
-        // A run-loop hop rather than a Task: this has to land after AppKit
-        // finishes the view-insertion or window-attachment work that caused the
-        // first attempt to fail, and the main queue orders against that work.
+        /// A run-loop hop rather than a Task: this has to land after AppKit
+        /// finishes the view-insertion or window-attachment work that caused the
+        /// first attempt to fail, and the main queue orders against that work.
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -1362,9 +1362,9 @@ private struct StringListRow: View {
     let onCancel: (_ original: String) -> Void
     let onDelete: () -> Void
 
-    // Row control geometry comes from `ListRowMetrics`. Diameter and glyph size are separate values there,
-    // so the symbol's optical weight and the row's layout stay independent. The frames list's rows
-    // (`PairedFramesListRow`, 30.40) share them, since their controls sit in the same column.
+    /// Row control geometry comes from `ListRowMetrics`. Diameter and glyph size are separate values there,
+    /// so the symbol's optical weight and the row's layout stay independent. The frames list's rows
+    /// (`PairedFramesListRow`, 30.40) share them, since their controls sit in the same column.
 
     /// Draft, baseline, and resolution flag for this row's edit.
     ///
@@ -1402,29 +1402,29 @@ private struct StringListRow: View {
     var body: some View {
         HStack(spacing: 8) {
             if isEditing {
-                // A bezeled NSTextField with the square bezel — the same control
-                // `.squareBorder` wraps, so the row's geometry and text position
-                // are unchanged, but with an explicit, verified first-responder
-                // claim in place of `@FocusState`. See `EditingTextField`.
+                /// A bezeled NSTextField with the square bezel — the same control
+                /// `.squareBorder` wraps, so the row's geometry and text position
+                /// are unchanged, but with an explicit, verified first-responder
+                /// claim in place of `@FocusState`. See `EditingTextField`.
                 EditingTextField(
                     seed: text,
                     buffer: buffer,
                     focusToken: editSession,
-                    // Return.
+                    /// Return.
                     onSubmit: { commitIfNeeded() },
-                    // Escape.
+                    /// Escape.
                     onCancel: { cancelIfNeeded() },
-                    // Focus left the field by a route that has not already
-                    // resolved the edit — tabbing away, most commonly.
-                    //
-                    // Discarding rather than saving is deliberate, and it is the
-                    // rule for every unconfirmed exit: an edit is committed only
-                    // by Return or by the pencil. Escape, the delete button, and
-                    // a click anywhere outside the field all cancel, so the two
-                    // confirming gestures are the whole of the save vocabulary
-                    // and there is nothing to remember about which exit means
-                    // what. `StringListAddRow` follows the identical rule.
-                    // Resolved paths make this a no-op.
+                    /// Focus left the field by a route that has not already
+                    /// resolved the edit — tabbing away, most commonly.
+                    ///
+                    /// Discarding rather than saving is deliberate, and it is the
+                    /// rule for every unconfirmed exit: an edit is committed only
+                    /// by Return or by the pencil. Escape, the delete button, and
+                    /// a click anywhere outside the field all cancel, so the two
+                    /// confirming gestures are the whole of the save vocabulary
+                    /// and there is nothing to remember about which exit means
+                    /// what. `StringListAddRow` follows the identical rule.
+                    /// Resolved paths make this a no-op.
                     onEndEditing: { cancelIfNeeded() }
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1433,25 +1433,25 @@ private struct StringListRow: View {
                     .font(.system(size: 12))
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    // Matches the inset that .squareBorder applies to its own
-                    // text, so the glyphs stay put when the row flips into edit
-                    // mode instead of nudging sideways as the field appears.
+                    /// Matches the inset that .squareBorder applies to its own
+                    /// text, so the glyphs stay put when the row flips into edit
+                    /// mode instead of nudging sideways as the field appears.
                     .padding(.leading, ListRowMetrics.fieldTextInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Delete, then edit — the delete control leads, and it is present
-            // ONLY while the row is being edited.
-            //
-            // Gating it on the edit state is what makes a resting table read as
-            // a list rather than as a bank of destructive controls: at rest each
-            // row offers one affordance, the pencil, and destruction is
-            // something the user has to open the row to reach. The pencil is
-            // last, so it holds the trailing edge in both states and does not
-            // shift when its neighbor appears; the text simply yields the width.
-            // Grouped so their combined bounds can be published in one region.
-            // Individually captured, the gap between them would not be covered,
-            // and a double-click landing in it would still reach the row.
+            /// Delete, then edit — the delete control leads, and it is present
+            /// ONLY while the row is being edited.
+            ///
+            /// Gating it on the edit state is what makes a resting table read as
+            /// a list rather than as a bank of destructive controls: at rest each
+            /// row offers one affordance, the pencil, and destruction is
+            /// something the user has to open the row to reach. The pencil is
+            /// last, so it holds the trailing edge in both states and does not
+            /// shift when its neighbor appears; the text simply yields the width.
+            /// Grouped so their combined bounds can be published in one region.
+            /// Individually captured, the gap between them would not be covered,
+            /// and a double-click landing in it would still reach the row.
             HStack(spacing: 8) {
                 if isEditing {
                     ListCircleButton(
@@ -1462,47 +1462,47 @@ private struct StringListRow: View {
                         help: "Delete this entry",
                         role: .destructive,
                         glyphOffset: ListCircleButtonStyle.minusGlyphOffset,
-                        // Opt+Delete, bound to the control rather than layered
-                        // over it, so the key equivalent lands on the button
-                        // directly. See `ListCircleButton.shortcut`.
+                        /// Opt+Delete, bound to the control rather than layered
+                        /// over it, so the key equivalent lands on the button
+                        /// directly. See `ListCircleButton.shortcut`.
                         shortcut: KeyboardShortcut(.delete, modifiers: .option),
                         action: {
-                            // Resolve the edit before deleting, so the teardown
-                            // that follows cannot also act on it. Tearing the
-                            // field down drops focus, which fires the
-                            // end-editing path; marking the edit resolved here
-                            // is what keeps that a no-op.
-                            //
-                            // On this row the control deletes the entry rather
-                            // than merely abandoning the edit — it is the
-                            // table's only route to removing a row, and there is
-                            // nowhere else to put it. It still satisfies the
-                            // rule that only Return and the pencil save: what
-                            // was typed is discarded either way.
+                            /// Resolve the edit before deleting, so the teardown
+                            /// that follows cannot also act on it. Tearing the
+                            /// field down drops focus, which fires the
+                            /// end-editing path; marking the edit resolved here
+                            /// is what keeps that a no-op.
+                            ///
+                            /// On this row the control deletes the entry rather
+                            /// than merely abandoning the edit — it is the
+                            /// table's only route to removing a row, and there is
+                            /// nowhere else to put it. It still satisfies the
+                            /// rule that only Return and the pencil save: what
+                            /// was typed is discarded either way.
                             buffer.isResolved = true
                             onDelete()
                         }
                     )
-                    // The Opt+Delete binding above is scoped entirely by this
-                    // control's own lifetime: the "-" exists only while its row
-                    // is being edited, so at rest nothing claims the key, and at
-                    // most one row across the sheet is in edit mode at a time
-                    // (any route into editing another row is a click, which the
-                    // click monitor reads as a click-away and resolves the open
-                    // edit first).
-                    //
-                    // A key equivalent rather than an event monitor is also what
-                    // makes it beat the field editor:
-                    // `performKeyEquivalent(with:)` runs before the responder
-                    // chain sees `keyDown`, so the focused `NSTextField` never
-                    // interprets the event as its default "delete word
-                    // backward".
+                    /// The Opt+Delete binding above is scoped entirely by this
+                    /// control's own lifetime: the "-" exists only while its row
+                    /// is being edited, so at rest nothing claims the key, and at
+                    /// most one row across the sheet is in edit mode at a time
+                    /// (any route into editing another row is a click, which the
+                    /// click monitor reads as a click-away and resolves the open
+                    /// edit first).
+                    ///
+                    /// A key equivalent rather than an event monitor is also what
+                    /// makes it beat the field editor:
+                    /// `performKeyEquivalent(with:)` runs before the responder
+                    /// chain sees `keyDown`, so the focused `NSTextField` never
+                    /// interprets the event as its default "delete word
+                    /// backward".
                 }
 
-                // From the shared factory so the row controls and the table's
-                // other circular controls stay in visual lockstep. `isActive`
-                // while its row is being edited, which holds the accent fill for
-                // the duration rather than only while the mouse is down.
+                /// From the shared factory so the row controls and the table's
+                /// other circular controls stay in visual lockstep. `isActive`
+                /// while its row is being edited, which holds the accent fill for
+                /// the duration rather than only while the mouse is down.
                 ListCircleButton(
                     systemImage: "pencil",
                     fill: Color.gray.opacity(0.5),
@@ -1523,11 +1523,11 @@ private struct StringListRow: View {
         }
         .frame(height: ListRowMetrics.rowContentHeight)
         .listRowSeparator(.hidden)
-        // Double-click to edit, detected via a local NSEvent monitor rather
-        // than a SwiftUI gesture. See `RowClickReporter` for why every
-        // gesture-based approach broke drag-to-reorder. The reporter is a
-        // background view: it contributes no layout and consumes no events, so
-        // the row remains draggable across its entire width.
+        /// Double-click to edit, detected via a local NSEvent monitor rather
+        /// than a SwiftUI gesture. See `RowClickReporter` for why every
+        /// gesture-based approach broke drag-to-reorder. The reporter is a
+        /// background view: it contributes no layout and consumes no events, so
+        /// the row remains draggable across its entire width.
         .background(
             RowClickReporter(
                 isEditing: isEditing,
@@ -1535,17 +1535,17 @@ private struct StringListRow: View {
                     if !isEditing { onBeginEdit() }
                 },
                 onClickOutside: {
-                    // Discards the edit for a click anywhere else in the sheet,
-                    // including on chrome that never takes first responder and
-                    // so would not otherwise resign focus.
+                    /// Discards the edit for a click anywhere else in the sheet,
+                    /// including on chrome that never takes first responder and
+                    /// so would not otherwise resign focus.
                     cancelIfNeeded()
                 },
                 controlsRegion: controlsRegion
             )
         )
-        // Resolves the edit if the row leaves editing state by any route that
-        // has not already done so — for example the parent retargeting the edit
-        // to a different row, or opening the add row.
+        /// Resolves the edit if the row leaves editing state by any route that
+        /// has not already done so — for example the parent retargeting the edit
+        /// to a different row, or opening the add row.
         .onChange(of: isEditing) { _, editing in
             if !editing { cancelIfNeeded() }
         }
@@ -1616,9 +1616,9 @@ private struct StringListAddRow<ImportPopover: View>: View {
     let onBeginImport: () -> Void
     @ViewBuilder let importPopover: () -> ImportPopover
 
-    // Geometry lives on `ListRowMetrics` (30.20 FSControlHelpers.swift) rather than on the type itself.
-    // These are process-wide constants that do not vary by instance or by type argument. The shared
-    // namespace guarantees the "+" here is the same size as the frames list's.
+    /// Geometry lives on `ListRowMetrics` (30.20 FSControlHelpers.swift) rather than on the type itself.
+    /// These are process-wide constants that do not vary by instance or by type argument. The shared
+    /// namespace guarantees the "+" here is the same size as the frames list's.
 
     /// Draft and resolution flag for the add in progress. Its `original` is
     /// unused here — there is no array slot to verify against — but the type is
@@ -1652,49 +1652,49 @@ private struct StringListAddRow<ImportPopover: View>: View {
                     buffer: buffer,
                     focusToken: editSession,
                     onSubmit: { commitIfNeeded() },
-                    // Escape.
+                    /// Escape.
                     onCancel: { cancelIfNeeded() },
-                    // Focus left the field by a route that has not already
-                    // resolved the add — tabbing away, most commonly. Canceling
-                    // rather than committing is deliberate: an add is confirmed
-                    // explicitly, by Return or by the pencil, and every other
-                    // exit means the user did not confirm it. Resolved paths
-                    // make this a no-op.
+                    /// Focus left the field by a route that has not already
+                    /// resolved the add — tabbing away, most commonly. Canceling
+                    /// rather than committing is deliberate: an add is confirmed
+                    /// explicitly, by Return or by the pencil, and every other
+                    /// exit means the user did not confirm it. Resolved paths
+                    /// make this a no-op.
                     onEndEditing: { cancelIfNeeded() }
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                // At the cap the invitation is replaced by the reason there is
-                // none: the "+" beside it can only gray out and darken, which
-                // says "not now" without saying why. Scaled rather than
-                // truncated, because a sentence cut off mid-word explains
-                // nothing.
+                /// At the cap the invitation is replaced by the reason there is
+                /// none: the "+" beside it can only gray out and darken, which
+                /// says "not now" without saying why. Scaled rather than
+                /// truncated, because a sentence cut off mid-word explains
+                /// nothing.
                 Text(canAdd ? placeholder : ListAddRowCopy.atCapacity)
                     .font(.system(size: 12))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                     .foregroundStyle(.tertiary)
-                    // Matches the inset `.squareBezel` applies to its own text,
-                    // so the caret lands where the placeholder's first glyph was
-                    // rather than a few points to its side.
+                    /// Matches the inset `.squareBezel` applies to its own text,
+                    /// so the caret lands where the placeholder's first glyph was
+                    /// rather than a few points to its side.
                     .padding(.leading, ListRowMetrics.fieldTextInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Grouped so their combined bounds can be published in one region,
-            // covering the gap between them as well as the controls themselves.
+            /// Grouped so their combined bounds can be published in one region,
+            /// covering the gap between them as well as the controls themselves.
             HStack(spacing: 8) {
-                // One slot, two occupants, decided by whether an add is open.
-                //
-                // At rest it holds bulk import; while adding it holds cancel.
-                // The two can share a position because they can never both be
-                // wanted: opening the field is a commitment to typing one entry,
-                // and reaching for a pasted list is a decision not to. The slot
-                // is therefore always "the thing you do instead of confirming",
-                // which is also what makes it read correctly beside the "+" that
-                // becomes a pencil in exactly the same way.
+                /// One slot, two occupants, decided by whether an add is open.
+                ///
+                /// At rest it holds bulk import; while adding it holds cancel.
+                /// The two can share a position because they can never both be
+                /// wanted: opening the field is a commitment to typing one entry,
+                /// and reaching for a pasted list is a decision not to. The slot
+                /// is therefore always "the thing you do instead of confirming",
+                /// which is also what makes it read correctly beside the "+" that
+                /// becomes a pencil in exactly the same way.
                 if isAdding {
-                    // Cancel, mirroring the delete control on a real row.
+                    /// Cancel, mirroring the delete control on a real row.
                     ListCircleButton(
                         systemImage: "minus",
                         fill: Preferences.red,
@@ -1703,27 +1703,27 @@ private struct StringListAddRow<ImportPopover: View>: View {
                         help: "Cancel this entry",
                         role: .cancel,
                         glyphOffset: ListCircleButtonStyle.minusGlyphOffset,
-                        // Opt+Delete, on the same terms as an entry row's: the
-                        // key does whatever this row's "-" does. Here that is
-                        // discarding the unconfirmed draft rather than removing
-                        // an entry, because this row has no backing array
-                        // element — which is the correct reading of "delete this
-                        // row" for a row that does not exist in the model yet.
-                        //
-                        // Mutually exclusive with the entry rows' binding by
-                        // construction: `beginAdd` clears `editingIndex` and
-                        // `beginEdit` clears `isAdding`, so exactly one "-" is
-                        // ever on screen within a table.
+                        /// Opt+Delete, on the same terms as an entry row's: the
+                        /// key does whatever this row's "-" does. Here that is
+                        /// discarding the unconfirmed draft rather than removing
+                        /// an entry, because this row has no backing array
+                        /// element — which is the correct reading of "delete this
+                        /// row" for a row that does not exist in the model yet.
+                        ///
+                        /// Mutually exclusive with the entry rows' binding by
+                        /// construction: `beginAdd` clears `editingIndex` and
+                        /// `beginEdit` clears `isAdding`, so exactly one "-" is
+                        /// ever on screen within a table.
                         shortcut: KeyboardShortcut(.delete, modifiers: .option),
                         action: { cancelIfNeeded() }
                     )
                 } else {
-                    // Bulk import, from the shared control all three tables
-                    // present it with — same fill, same glyph size, same
-                    // per-symbol offset, same accent-while-open behavior. The
-                    // account of why it is permanently gray and deliberately
-                    // NOT gated on `canAdd` lives on `ListBulkImportButton`
-                    // (30.20 FSControlHelpers.swift).
+                    /// Bulk import, from the shared control all three tables
+                    /// present it with — same fill, same glyph size, same
+                    /// per-symbol offset, same accent-while-open behavior. The
+                    /// account of why it is permanently gray and deliberately
+                    /// NOT gated on `canAdd` lives on `ListBulkImportButton`
+                    /// (30.20 FSControlHelpers.swift).
                     ListBulkImportButton(
                         isPresented: $showImportPopover,
                         help: "Add multiple \(itemLabel.lowercased())s from a comma-separated list",
@@ -1732,23 +1732,23 @@ private struct StringListAddRow<ImportPopover: View>: View {
                     )
                 }
 
-                // "+" at rest, "pencil" while adding — the same slot, so
-                // confirming an add is the same gesture in the same place as
-                // confirming an edit. Accent-filled while adding, matching a row
-                // under edit.
+                /// "+" at rest, "pencil" while adding — the same slot, so
+                /// confirming an add is the same gesture in the same place as
+                /// confirming an edit. Accent-filled while adding, matching a row
+                /// under edit.
                 ListCircleButton(
                     systemImage: isAdding ? "pencil" : "plus",
                     fill: isAdding ? Color.gray.opacity(0.5) : Preferences.green,
                     diameter: ListRowMetrics.circleDiameter,
                     glyphSize: isAdding ? ListRowMetrics.circleGlyphSize : ListRowMetrics.plusGlyphSize,
                     isActive: isAdding,
-                    // Enabled while adding regardless of the cap: the field is
-                    // already open, and the user must be able to resolve it. The
-                    // list re-checks the cap before appending.
+                    /// Enabled while adding regardless of the cap: the field is
+                    /// already open, and the user must be able to resolve it. The
+                    /// list re-checks the cap before appending.
                     isEnabled: isAdding || canAdd,
                     help: isAdding ? "Save this entry" : "Add \(itemLabel.lowercased())",
-                    // Per-symbol, so the correction follows the glyph rather
-                    // than the control it is drawn in.
+                    /// Per-symbol, so the correction follows the glyph rather
+                    /// than the control it is drawn in.
                     glyphOffset: isAdding
                         ? ListCircleButtonStyle.defaultGlyphOffset
                         : ListCircleButtonStyle.plusGlyphOffset,
@@ -1765,24 +1765,24 @@ private struct StringListAddRow<ImportPopover: View>: View {
         }
         .frame(height: ListRowMetrics.rowContentHeight)
         .listRowSeparator(.hidden)
-        // Same click reporting as a real row: double-click to open, and a click
-        // anywhere else in the sheet to resolve. See `RowClickReporter`.
+        /// Same click reporting as a real row: double-click to open, and a click
+        /// anywhere else in the sheet to resolve. See `RowClickReporter`.
         .background(
             RowClickReporter(
                 isEditing: isAdding,
                 onDoubleClickInside: {
                     if !isAdding, canAdd { onBeginAdd() }
                 },
-                // Clicking away from an unconfirmed add discards it, which is
-                // the same rule Escape and the cancel button follow.
+                /// Clicking away from an unconfirmed add discards it, which is
+                /// the same rule Escape and the cancel button follow.
                 onClickOutside: {
                     cancelIfNeeded()
                 },
                 controlsRegion: controlsRegion
             )
         )
-        // Resolves the add if the list closes it by some other route — beginning
-        // an edit on a real row, a bulk import, a reorder.
+        /// Resolves the add if the list closes it by some other route — beginning
+        /// an edit on a real row, a bulk import, a reorder.
         .onChange(of: isAdding) { _, adding in
             if !adding { cancelIfNeeded() }
         }

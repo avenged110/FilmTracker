@@ -1,10 +1,10 @@
 // MARK: - BulkFilmEdit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// What the MultiFilmSheet changes, as one value, and the pure rules that turn it into each
-// film's new fields, the list and Hall of Fame changes, and the capacity checks. Nothing
-// here reads app state: callers hand in what a rule needs, so the rules run without the
-// app (Staging/BulkEdit/Rig).
+/// What the MultiFilmSheet changes, as one value, and the pure rules that turn it into each
+/// film's new fields, the list and Hall of Fame changes, and the capacity checks. Nothing
+/// here reads app state: callers hand in what a rule needs, so the rules run without the
+/// app (Staging/BulkEdit/Rig).
 
 import Foundation
 
@@ -330,8 +330,8 @@ struct BulkFilmEdit: Sendable, Equatable {
                 for list in queueListsByFilm[film] ?? [] { changes.removals[list, default: []].insert(film) }
             }
         case .set(let section?):
-            // Exactly [section] is already placed; anything else — elsewhere, nowhere, or in
-            // two sections after a damaged restore — is moved (FilmQueueAssignment's test).
+            /// Exactly [section] is already placed; anything else — elsewhere, nowhere, or in
+            /// two sections after a damaged restore — is moved (FilmQueueAssignment's test).
             let moving = filmIDs.filter { (queueListsByFilm[$0] ?? []) != [section.listID] }
             if !moving.isEmpty { changes.queueAddition = (section, Set(moving)) }
         }

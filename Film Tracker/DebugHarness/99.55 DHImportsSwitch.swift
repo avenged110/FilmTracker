@@ -1,29 +1,29 @@
 // MARK: - DHImportsSwitch.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only measurement of switching into and out of the Imports view (28_00).
-//
-// `imports-switch-perf` (opt-in) drives the REAL main window on the 1,400-film reportsCorpus.
-// For each import-history size it seeds the sandbox store with that many ImportSessions and
-// times, with the same run-loop busy recorder `view-switch-perf` uses:
-//   • enter      — All Films → Imports,
-//   • leave      — Imports → All Films, after the list has settled (its window grown),
-//   • tab        — Metadata ⟷ Ratings inside the view,
-//   • scroll     — a programmatic scroll down the list, per 16 ms step.
-// A gallery → gallery sidebar switch is measured on the same corpus for scale. The goal it
-// pins: entering and leaving cost the same whatever the history size.
-//
-// `-FTDebugImportsSizes 0,1,20,1000` picks the history sizes (that is the default);
-// `-FTDebugImportsReps N` the repetitions per measurement (default 5).
-//
-// `imports-window` (in the `imports` suite) checks what makes those costs flat:
-//   • ImportHistory (28_20) matches the store after main-context inserts and updates —
-//     synchronously, before `save()` returns — and after DataManager's deletes;
-//   • ImportSessionList mounts only a window of a long list, and what the window
-//     shows is pixel-identical to the full stack at offsets throughout it, to within one
-//     8-bit level of compositing rounding (`window-identical`), scroller strip left out;
-//   • every card shape keeps its height at the window's minimum width, which the windowed
-//     layout's spacers rely on.
+/// DEBUG-only measurement of switching into and out of the Imports view (28_00).
+///
+/// `imports-switch-perf` (opt-in) drives the REAL main window on the 1,400-film reportsCorpus.
+/// For each import-history size it seeds the sandbox store with that many ImportSessions and
+/// times, with the same run-loop busy recorder `view-switch-perf` uses:
+///   • enter      — All Films → Imports,
+///   • leave      — Imports → All Films, after the list has settled (its window grown),
+///   • tab        — Metadata ⟷ Ratings inside the view,
+///   • scroll     — a programmatic scroll down the list, per 16 ms step.
+/// A gallery → gallery sidebar switch is measured on the same corpus for scale. The goal it
+/// pins: entering and leaving cost the same whatever the history size.
+///
+/// `-FTDebugImportsSizes 0,1,20,1000` picks the history sizes (that is the default);
+/// `-FTDebugImportsReps N` the repetitions per measurement (default 5).
+///
+/// `imports-window` (in the `imports` suite) checks what makes those costs flat:
+///   • ImportHistory (28_20) matches the store after main-context inserts and updates —
+///     synchronously, before `save()` returns — and after DataManager's deletes;
+///   • ImportSessionList mounts only a window of a long list, and what the window
+///     shows is pixel-identical to the full stack at offsets throughout it, to within one
+///     8-bit level of compositing rounding (`window-identical`), scroller strip left out;
+///   • every card shape keeps its height at the window's minimum width, which the windowed
+///     layout's spacers rely on.
 
 #if DEBUG
 
@@ -137,7 +137,7 @@ extension DebugHarness {
         appState.navigate(to: .libraryItem(.allFilms))
         await settle(1500)
 
-        // `-FTDebugImportsFetch YES`: what the fetch variants cost on the largest size.
+        /// `-FTDebugImportsFetch YES`: what the fetch variants cost on the largest size.
         if UserDefaults.standard.bool(forKey: "FTDebugImportsFetch") {
             seed(sizes.max() ?? 1000)
             let type = ImportsCategory.metadata.rawValue
@@ -179,8 +179,8 @@ extension DebugHarness {
             return r
         }
 
-        // `-FTDebugImportsLoop enter|tab|leave-all` (for `sample`): repeats one transition on
-        // the first history size for 30 s, between LOOP-BEGIN and LOOP-END lines on stdout.
+        /// `-FTDebugImportsLoop enter|tab|leave-all` (for `sample`): repeats one transition on
+        /// the first history size for 30 s, between LOOP-BEGIN and LOOP-END lines on stdout.
         if let loop = UserDefaults.standard.string(forKey: "FTDebugImportsLoop") {
             seed(sizes.first ?? 1000)
             await settle(500)
@@ -202,7 +202,7 @@ extension DebugHarness {
             return r
         }
 
-        // Scale: the same corpus, gallery to gallery.
+        /// Scale: the same corpus, gallery to gallery.
         for _ in 0..<reps {
             await measure("gallery→gallery") { appState.navigate(to: .libraryItem(.unwatched)) }
             await measure("gallery→gallery(back)") { appState.navigate(to: .libraryItem(.allFilms)) }
@@ -231,8 +231,8 @@ extension DebugHarness {
                 await measure("tab→metadata@\(size)") { ImportsState.shared.selectCategory(.metadata, persist: false) }
             }
 
-            // Scrolling down the list, 60 pt per 16 ms step (a brisk trackpad scroll):
-            // main-thread busy time per step and the longest.
+            /// Scrolling down the list, 60 pt per 16 ms step (a brisk trackpad scroll):
+            /// main-thread busy time per step and the longest.
             if metadataCount > 10, let sv = importsScrollView() {
                 await settle(600)
                 recorder.reset()
@@ -320,7 +320,7 @@ extension DebugHarness {
             return false
         }
 
-        // Inserts and an update saved on the main context are in the index before save() returns.
+        /// Inserts and an update saved on the main context are in the index before save() returns.
         seedImportSessions(120, context)
         r.check("index-after-insert", indexed() == stored(), "index \(describe(indexed())); store \(describe(stored()))")
         let target = (try? context.fetch(ImportSession.request(sortedBy: [NSSortDescriptor(key: "sessionDate", ascending: false)])))?[4]
@@ -331,7 +331,7 @@ extension DebugHarness {
         let updated = target.map { t in history.records(for: .metadata, in: container).first { $0.id == t.id } } ?? nil
         r.check("index-after-update", indexed() == stored() && updated?.errorCount == 3,
                 "updated record errors \(updated?.errorCount ?? -1)")
-        // Deletes saved by DataManager's own context, as "Clear This Item" and "Clear All" make them.
+        /// Deletes saved by DataManager's own context, as "Clear This Item" and "Clear All" make them.
         let deleteIDs = history.records(for: .metadata, in: container).prefix(3).map(\.id)
         for id in deleteIDs { coordinator.deleteImportSession(id: id) }
         let afterDelete = await eventuallyMatches { store in
@@ -422,7 +422,7 @@ extension DebugHarness {
                 scroll(sv, to: y)
                 await settle(700)
                 images.append(await capture(sv))
-                // `-FTDebugImportsDumpFrames YES` keeps each capture as a PNG in the container.
+                /// `-FTDebugImportsDumpFrames YES` keeps each capture as a PNG in the container.
                 if UserDefaults.standard.bool(forKey: "FTDebugImportsDumpFrames"), let dir = DebugSandbox.rootURL,
                    let grab = unsafe windowImageFunction {
                     let onScreen = window.convertToScreen(sv.convert(sv.bounds, to: nil))
@@ -441,12 +441,12 @@ extension DebugHarness {
         ImportsListDebug.windows = true
         if let windowed = shots[true], let full = shots[false], windowed.count == full.count {
             for (i, y) in offsets.enumerated() {
-                // The same pixels, to within one 8-bit level per channel. Core Animation
-                // composites a tree with spacers in it slightly differently: at the top of
-                // the list, a few dozen pixels along the viewport's bottom edge come out one
-                // level apart. Anything
-                // laid out differently — a card, a shadow, a line a pixel out of place —
-                // differs by far more than that.
+                /// The same pixels, to within one 8-bit level per channel. Core Animation
+                /// composites a tree with spacers in it slightly differently: at the top of
+                /// the list, a few dozen pixels along the viewport's bottom edge come out one
+                /// level apart. Anything
+                /// laid out differently — a card, a shadow, a line a pixel out of place —
+                /// differs by far more than that.
                 var detail = "offset \(Int(y))"
                 var same = false
                 if let a = windowed[i], let b = full[i], a.count == b.count {
@@ -478,7 +478,7 @@ extension DebugHarness {
         await settle(500)
         if let sv = await mountFresh() {
             let maxY = max(0, (sv.documentView?.frame.height ?? 0) - sv.contentView.bounds.height)
-            // Every card mounts at some point on the way down, and reports its height.
+            /// Every card mounts at some point on the way down, and reports its height.
             var y: CGFloat = 0
             while y < maxY {
                 scroll(sv, to: y)
@@ -502,30 +502,30 @@ extension DebugHarness {
 
 // MARK: - Imports QoS
 
-// `imports-qos` (opt-in): saves an import session on the main context — what ImportProgress
-// does while an import runs, every 500 ms (updateSessionProgress) — while ImportHistory's
-// full load runs, over and over. Every context shares the store's one SQLite connection, so
-// a main-thread save waits for the load's fetch; at a lower QoS than the main thread that
-// wait is a priority inversion. The launch itself overlaps the first load with DataManager's
-// bootstrap saves. libRPAC does not print outside Xcode: run it under lldb with
-// /usr/lib/libRPAC.dylib in DYLD_INSERT_LIBRARIES and a breakpoint on libRPAC's
-// `generateCulledBacktrace`, which stops on every priority inversion it detects. With the load
-// at `.utility`, a save stops in `NSSQLDefaultConnectionManager _checkoutConnectionOfType:`.
-//
-// Without libRPAC it still measures what an inversion costs: the worst main-thread save
-// (`worstSaveMs`), and checks that every save landed and the index followed the last one.
+/// `imports-qos` (opt-in): saves an import session on the main context — what ImportProgress
+/// does while an import runs, every 500 ms (updateSessionProgress) — while ImportHistory's
+/// full load runs, over and over. Every context shares the store's one SQLite connection, so
+/// a main-thread save waits for the load's fetch; at a lower QoS than the main thread that
+/// wait is a priority inversion. The launch itself overlaps the first load with DataManager's
+/// bootstrap saves. libRPAC does not print outside Xcode: run it under lldb with
+/// /usr/lib/libRPAC.dylib in DYLD_INSERT_LIBRARIES and a breakpoint on libRPAC's
+/// `generateCulledBacktrace`, which stops on every priority inversion it detects. With the load
+/// at `.utility`, a save stops in `NSSQLDefaultConnectionManager _checkoutConnectionOfType:`.
+///
+/// Without libRPAC it still measures what an inversion costs: the worst main-thread save
+/// (`worstSaveMs`), and checks that every save landed and the index followed the last one.
 extension DebugHarness {
     private static func importsQoSScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "imports-qos")
         let container = coordinator.persistentContainer
         let context = container.viewContext
-        // `-FTDebugImportsQoSSize none` keeps the container's own sessions (a copy of a real
-        // library, say); otherwise this many are seeded (default 1000).
+        /// `-FTDebugImportsQoSSize none` keeps the container's own sessions (a copy of a real
+        /// library, say); otherwise this many are seeded (default 1000).
         let sizeArgument = UserDefaults.standard.string(forKey: "FTDebugImportsQoSSize")
         let size = sizeArgument == "none" ? 0 : (sizeArgument.flatMap(Int.init) ?? 1000)
         if size > 0 { seedImportSessions(size, context) }
 
-        // The running import's session, as ImportProgress.createSession makes it.
+        /// The running import's session, as ImportProgress.createSession makes it.
         let session = ImportSession(importType: ImportsCategory.metadata.rawValue, isCompleted: false, isCanceled: false)
         context.insert(session)
         try? context.commit()
@@ -555,8 +555,8 @@ extension DebugHarness {
         r.check("saves", saves == 72, "\(saves) of 72 main-context session saves during background loads")
         r.metric("worstSaveMs", Double(worst.components.attoseconds) / 1e15 + Double(worst.components.seconds) * 1000, "ms")
 
-        // The loads' results are folded with the saves made while they ran; the last one
-        // must win once every load has landed.
+        /// The loads' results are folded with the saves made while they ran; the last one
+        /// must win once every load has landed.
         var latest = -1
         for _ in 0..<60 {
             latest = ImportHistory.shared.records(for: .metadata, in: container).first { $0.id == sessionID }?.successCount ?? -1
@@ -575,18 +575,18 @@ extension DebugHarness {
 
 // MARK: - Imports Scroll
 
-// `imports-scroll` (opt-in): how scrolling the Imports list LOOKS. A real trackpad scroll
-// cannot be synthesized (see `coast-stop`, 99.20), so it drives AppKit's own automated live
-// scroll (`_automateLiveScroll`) — the same concurrent, display-link-driven scrolling a
-// trackpad gets — six passes down the list, each carrying on from the last
-// (`-FTDebugImportsScrollFromTop YES`: each from the top). `-FTDebugImportsScrollLong YES`
-// instead scrolls ~3,500 pt per pass from the top on the main thread, between the
-// live-scroll notifications, one step per display frame — a long flick, which the
-// automation (it always stops ~800 pt down) cannot make — and films the list's rectangle
-// through the window server (the `imports-removal` capture, scroller strip excluded) while
-// a 4 ms main-thread heartbeat runs. Per pass: distinct frames per second of motion, the
-// median and worst gap between them, and the longest main-thread stall. Uses the
-// container's own sessions (a copy of a real library).
+/// `imports-scroll` (opt-in): how scrolling the Imports list LOOKS. A real trackpad scroll
+/// cannot be synthesized (see `coast-stop`, 99.20), so it drives AppKit's own automated live
+/// scroll (`_automateLiveScroll`) — the same concurrent, display-link-driven scrolling a
+/// trackpad gets — six passes down the list, each carrying on from the last
+/// (`-FTDebugImportsScrollFromTop YES`: each from the top). `-FTDebugImportsScrollLong YES`
+/// instead scrolls ~3,500 pt per pass from the top on the main thread, between the
+/// live-scroll notifications, one step per display frame — a long flick, which the
+/// automation (it always stops ~800 pt down) cannot make — and films the list's rectangle
+/// through the window server (the `imports-removal` capture, scroller strip excluded) while
+/// a 4 ms main-thread heartbeat runs. Per pass: distinct frames per second of motion, the
+/// median and worst gap between them, and the longest main-thread stall. Uses the
+/// container's own sessions (a copy of a real library).
 extension DebugHarness {
     private static func importsScrollScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "imports-scroll")
@@ -598,7 +598,7 @@ extension DebugHarness {
         }
         if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
-        // `-FTDebugImportsScrollSeed N` replaces the container's sessions with N seeded ones.
+        /// `-FTDebugImportsScrollSeed N` replaces the container's sessions with N seeded ones.
         let seeded = UserDefaults.standard.integer(forKey: "FTDebugImportsScrollSeed")
         if seeded > 0 { seedImportSessions(seeded, coordinator.persistentContainer.viewContext) }
         defer { if seeded > 0 { clearImportSessions(coordinator.persistentContainer.viewContext) } }
@@ -632,9 +632,9 @@ extension DebugHarness {
         }
         let passes = UserDefaults.standard.integer(forKey: "FTDebugImportsScrollPasses").nonZero ?? 6
         if passes > 6 { print("LOOP-BEGIN scroll"); unsafe fflush(stdout) }
-        // Each pass carries on from where the last one stopped, as successive flicks
-        // down a long list do, so passes cross the edge of the window mounted at rest.
-        // Back to the top (and a pause to settle) only when the next pass would run out.
+        /// Each pass carries on from where the last one stopped, as successive flicks
+        /// down a long list do, so passes cross the edge of the window mounted at rest.
+        /// Back to the top (and a pause to settle) only when the next pass would run out.
         let long = UserDefaults.standard.bool(forKey: "FTDebugImportsScrollLong")
         let continues = !long && !UserDefaults.standard.bool(forKey: "FTDebugImportsScrollFromTop")
         for _ in 0..<passes {
@@ -653,9 +653,9 @@ extension DebugHarness {
             try? await Task.sleep(until: origin, clock: .continuous)
             let frames: [RemovalFrame]
             if long {
-                // A long flick, on the main thread: the live-scroll notifications AppKit
-                // posts around a gesture, and between them one scroll per display frame
-                // whose step decays from 90 pt, ~3,500 pt in all.
+                /// A long flick, on the main thread: the live-scroll notifications AppKit
+                /// posts around a gesture, and between them one scroll per display frame
+                /// whose step decays from 90 pt, ~3,500 pt in all.
                 NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: sv)
                 var y = sv.contentView.bounds.origin.y, speed: CGFloat = 90
                 let maxY = (sv.documentView?.frame.height ?? 0) - sv.contentView.bounds.height
@@ -671,13 +671,13 @@ extension DebugHarness {
             } else {
                 _ = unsafe sv.perform(automate)
                 frames = await filmed
-                // AppKit asserts if an automation starts while the last is still registered.
+                /// AppKit asserts if an automation starts while the last is still registered.
                 stopAutomatedCoast(sv)
             }
             await settle(200)
             beats.stop()
             travel.append(Double(sv.contentView.bounds.origin.y - before))
-            // Motion: from the first frame that differs to the last.
+            /// Motion: from the first frame that differs to the last.
             let times = frames.map(\.milliseconds).filter { $0 >= 0 }
             guard times.count > 2, let first = times.first, let last = times.last, last > first else { continue }
             let gaps = zip(times, times.dropFirst()).map { $1 - $0 }.sorted()

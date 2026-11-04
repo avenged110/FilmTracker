@@ -1,31 +1,31 @@
 // MARK: - Preferences.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Centralized preferences wrapper used across Film Tracker.app, providing
-// a single place to read/write UserDefaults-backed settings.
+/// Centralized preferences wrapper used across Film Tracker.app, providing
+/// a single place to read/write UserDefaults-backed settings.
 
 import Foundation
 import SwiftUI
 
 struct Preferences: Loggable {
     nonisolated static let logTag = "[Preferences]"
-    // UserDefaults is documented thread-safe but not marked Sendable, so the store is
-    // held in `SharedDefaults`, the one place that vouches for it — accessors read it as
-    // an ordinary Sendable `let` rather than through a `nonisolated(unsafe)` escape.
-    //
-    // In a debug sandbox run this resolves to a private suite instead, so a throwaway
-    // instance neither reads nor writes the user's real preferences. Resolved once, in a
-    // lazy static, and derived purely from launch arguments — see DebugSandbox for why
-    // that removes any initialization-order concern. If the suite cannot be opened
-    // (a malformed suite name is the only realistic cause, and the name is sanitized),
-    // the fallback is `.standard`; the sandbox-integrity harness scenario asserts against
-    // that outcome rather than letting it pass unnoticed.
-    //
-    // The registered defaults are installed HERE, inside the same initializer, so there is
-    // no way to reach the suite without them: every accessor below goes through `defaults`,
-    // and a lazy static runs its initializer to completion before the first access returns.
-    // An early read therefore never sees an unregistered value, such as `bool(forKey:)`
-    // returning false for a preference whose registered default is true.
+    /// UserDefaults is documented thread-safe but not marked Sendable, so the store is
+    /// held in `SharedDefaults`, the one place that vouches for it — accessors read it as
+    /// an ordinary Sendable `let` rather than through a `nonisolated(unsafe)` escape.
+    ///
+    /// In a debug sandbox run this resolves to a private suite instead, so a throwaway
+    /// instance neither reads nor writes the user's real preferences. Resolved once, in a
+    /// lazy static, and derived purely from launch arguments — see DebugSandbox for why
+    /// that removes any initialization-order concern. If the suite cannot be opened
+    /// (a malformed suite name is the only realistic cause, and the name is sanitized),
+    /// the fallback is `.standard`; the sandbox-integrity harness scenario asserts against
+    /// that outcome rather than letting it pass unnoticed.
+    ///
+    /// The registered defaults are installed HERE, inside the same initializer, so there is
+    /// no way to reach the suite without them: every accessor below goes through `defaults`,
+    /// and a lazy static runs its initializer to completion before the first access returns.
+    /// An early read therefore never sees an unregistered value, such as `bool(forKey:)`
+    /// returning false for a preference whose registered default is true.
     private static var defaults: UserDefaults { shared.store }
     private static let shared = SharedDefaults({
         let resolved: UserDefaults
@@ -107,10 +107,10 @@ struct Preferences: Loggable {
     static var store: UserDefaults { defaults }
 
     // MARK: - Internal Testing Switches
-    // Every hardcoded behavior toggle in the app, gathered so a testing pass is a set of
-    // edits to ONE file rather than a hunt throughout the project. These are build-time
-    // constants, not user preferences: nothing in Settings writes them, they are never
-    // persisted to UserDefaults, and flipping any of them requires a rebuild.
+    /// Every hardcoded behavior toggle in the app, gathered so a testing pass is a set of
+    /// edits to ONE file rather than a hunt throughout the project. These are build-time
+    /// constants, not user preferences: nothing in Settings writes them, they are never
+    /// persisted to UserDefaults, and flipping any of them requires a rebuild.
 
     /// Reserves the full two lines of the RightSidebar header's film title at all times, so
     /// nothing below it shifts when a title's length changes. `false` keeps the existing
@@ -157,62 +157,62 @@ struct Preferences: Loggable {
     static let importRatingsDebugLogging = false
 
     // MARK: - Centralized Internal Constants
-    // Gallery items
+    /// Gallery items
     static let cornerRadius: CGFloat = 12
     static let selectionLineWidth: CGFloat = 5
-    // Gallery grid column geometry, read by SmoothResizingGridLayout (GalleryViewUI.swift).
-    // Narrowest a column may be before the layout drops a column.
+    /// Gallery grid column geometry, read by SmoothResizingGridLayout (GalleryViewUI.swift).
+    /// Narrowest a column may be before the layout drops a column.
     static let galleryMinItemWidth: CGFloat = 130
-    // Column-count ceiling: the default, and the one the largeGalleryGrid preference selects.
+    /// Column-count ceiling: the default, and the one the largeGalleryGrid preference selects.
     static let galleryMaxColumns: Int = 8
     static let galleryMaxColumnsLargeGrid: Int = 6
-    // The grid stops widening beyond this and centers itself in the remaining space.
+    /// The grid stops widening beyond this and centers itself in the remaining space.
     static let galleryMaxGridWidth: CGFloat = 1500
-    // Fixed label-column width for FilmSheet rows (hard-clipped; not a minimum)
+    /// Fixed label-column width for FilmSheet rows (hard-clipped; not a minimum)
     static let filmSheetLabelWidth: CGFloat = 128
     static let filmSheetReleasesLabelWidth: CGFloat = 122
-    // Inset around each FilmSheet / MultiFilmSheet / Settings tab's content.
+    /// Inset around each FilmSheet / MultiFilmSheet / Settings tab's content.
     static let sheetContentMargin: CGFloat = 26
     static let standardPickerWidth: CGFloat = 180
-    static let spacingBeforeCheckbox: CGFloat = 20 // Space between Picker/Stepper and checkbox
-    static let spacingAfterCheckbox: CGFloat = 6   // Space between checkbox and label text
-    // Normalized poster sizes and quality.
+    static let spacingBeforeCheckbox: CGFloat = 20 /// Space between Picker/Stepper and checkbox
+    static let spacingAfterCheckbox: CGFloat = 6   /// Space between checkbox and label text
+    /// Normalized poster sizes and quality.
     static let normalizedPosterWidth: CGFloat = 120
     static let normalizedPosterHeight: CGFloat = 180
     static let normalizedPosterQuality: CGFloat = 0.9
-    // MainWindow dimension parameters.
-    // NOTE: Both are applied directly to the main content area's frame instead of the
-    // NavigationSplitView's to avoid layout bugs when unhiding the left sidebar.
+    /// MainWindow dimension parameters.
+    /// NOTE: Both are applied directly to the main content area's frame instead of the
+    /// NavigationSplitView's to avoid layout bugs when unhiding the left sidebar.
     static let minimumWidth: CGFloat = 820
     static let minimumHeight: CGFloat = 600
-    // Consistent sheet dimensions.
+    /// Consistent sheet dimensions.
     static let sheetSize: CGFloat = 600
-    // Button sizing constants.
+    /// Button sizing constants.
     static let buttonWidth: CGFloat = 30
     static let buttonSpacing: CGFloat = 30
-    // Shared chrome width for the "Select Destination…" (Export tab) and "Select Backup
-    // File…" (Restore tab) buttons, so the two carry identical widths despite their labels
-    // measuring subtly differently — "Select Destination…" 121pt, "Select Backup File…" 122pt.
+    /// Shared chrome width for the "Select Destination…" (Export tab) and "Select Backup
+    /// File…" (Restore tab) buttons, so the two carry identical widths despite their labels
+    /// measuring subtly differently — "Select Destination…" 121pt, "Select Backup File…" 122pt.
     static let settingsSelectButtonWidth: CGFloat = 122
-    // Consistent custom colors for UI chrome.
+    /// Consistent custom colors for UI chrome.
     static let green = Color(red: 0.2, green: 0.7, blue: 0.2)
     static let red = Color(red: 0.7, green: 0, blue: 0)
     static let orange = Color(red: 0.8, green: 0.5, blue: 0.1)
     static let darkGray = Color(red: 0.34, green: 0.34, blue: 0.35)
-    // "Source for Viewing" field in the RSB's "Watch Details" module: whether a known
-    // studio is shown by its shorthand ("Universal"), retreating to its abbreviation
-    // ("Uni") only when the row would otherwise wrap — see ReleaseStudio for the tiers.
-    // Off, the full stored name is shown and the field never shortens a studio.
+    /// "Source for Viewing" field in the RSB's "Watch Details" module: whether a known
+    /// studio is shown by its shorthand ("Universal"), retreating to its abbreviation
+    /// ("Uni") only when the row would otherwise wrap — see ReleaseStudio for the tiers.
+    /// Off, the full stored name is shown and the field never shortens a studio.
     static let abbreviateSourceStudio = true
     
     // MARK: - Keys
-    // Keys used for UserDefaults.
-    //
-    // Every block from here to the end of the accessors lists the preferences in the order
-    // the Settings sheet shows them, tab by tab. A key with no control of its own sits
-    // beside the preference it belongs with.
+    /// Keys used for UserDefaults.
+    ///
+    /// Every block from here to the end of the accessors lists the preferences in the order
+    /// the Settings sheet shows them, tab by tab. A key with no control of its own sits
+    /// beside the preference it belongs with.
     private enum Keys {
-        // Settings: General tab
+        /// Settings: General tab
         static let iCalIntegration =
             "preferences.iCalIntegration"
         static let defaultRotationThreshold =
@@ -239,10 +239,10 @@ struct Preferences: Loggable {
             "preferences.smartLists"
         static let excludeQueuedFromUpForRotation =
             "preferences.excludeQueuedFromUpForRotation"
-        // Internal state, not a user-facing preference. See the accessor below.
+        /// Internal state, not a user-facing preference. See the accessor below.
         static let knownUpForRotationFilmIDs =
             "preferences.knownUpForRotationFilmIDs"
-        // Internal state, not a user-facing preference. See the accessor below.
+        /// Internal state, not a user-facing preference. See the accessor below.
         static let expandedSmartListFamilies =
             "preferences.expandedSmartListFamilies"
         static let queueIsDropTarget =
@@ -288,7 +288,7 @@ struct Preferences: Loggable {
         static let performBackupAtLaunch =
             "preferences.performBackupAtLaunch"
 
-        // Settings: Import tab
+        /// Settings: Import tab
         static let importScanSubfolders =
             "preferences.importScanSubfolders"
         static let fuzzyImportMatching =
@@ -302,7 +302,7 @@ struct Preferences: Loggable {
         static let allowUpdatesForDuplicateRatings =
             "preferences.allowUpdatesForDuplicateRatings"
 
-        // Settings: Export tab
+        /// Settings: Export tab
         static let exportPathBookmark =
             "preferences.exportPathBookmark"
         static let exportUserSettings =
@@ -310,9 +310,9 @@ struct Preferences: Loggable {
         static let exportPosterImages =
             "preferences.exportPosterImages"
 
-        // Settings: Restore tab — no preferences.
+        /// Settings: Restore tab — no preferences.
 
-        // Settings: Advanced tab
+        /// Settings: Advanced tab
         static let showInfoComplete =
             "preferences.showInfoComplete"
         static let showWatchDetailsAnnotationGlyphs =
@@ -329,17 +329,17 @@ struct Preferences: Loggable {
             "preferences.loggingEnabled"
         static let atvq =
             "preferences.atvq"
-        // CalendarPopover's remembered calendar. Predates the "preferences." prefix; the
-        // stored spelling is kept so existing selections survive.
+        /// CalendarPopover's remembered calendar. Predates the "preferences." prefix; the
+        /// stored spelling is kept so existing selections survive.
         static let lastSelectedCalendarID =
             "LastSelectedCalendarID" }
 
-    // Expose the key strings for use by other modules that need to post/update.
-    // (This keeps a single canonical definition of the key names.)
-    // Declared as `let` constants rather than computed `var`s — they simply re-expose
-    // string literals from the private Keys enum and are immutable by nature. `let`
-    // allows the compiler to inline them; computed `var` would add a getter call site
-    // on every access with no benefit.
+    /// Expose the key strings for use by other modules that need to post/update.
+    /// (This keeps a single canonical definition of the key names.)
+    /// Declared as `let` constants rather than computed `var`s — they simply re-expose
+    /// string literals from the private Keys enum and are immutable by nature. `let`
+    /// allows the compiler to inline them; computed `var` would add a getter call site
+    /// on every access with no benefit.
     static let iCalIntegrationKey                    = Keys.iCalIntegration
     static let defaultRotationThresholdKey           = Keys.defaultRotationThreshold
     static let confirmGalleryDeleteKey               = Keys.confirmGalleryDelete
@@ -378,25 +378,25 @@ struct Preferences: Loggable {
     static let showInfoCompleteKey                   = Keys.showInfoComplete
     static let showWatchDetailsAnnotationGlyphsKey   = Keys.showWatchDetailsAnnotationGlyphs
     static let lastSelectedCalendarIDKey             = Keys.lastSelectedCalendarID
-    // NOTE: overrideDateClampKey is intentionally NOT included in SettingsManager's
-    // export/restore pipeline or SettingsObject's persisted schema. See the
-    // overrideDateClamp property below for the full rationale — this preference
-    // always resets to false on quit, so persisting its state would be pointless.
+    /// NOTE: overrideDateClampKey is intentionally NOT included in SettingsManager's
+    /// export/restore pipeline or SettingsObject's persisted schema. See the
+    /// overrideDateClamp property below for the full rationale — this preference
+    /// always resets to false on quit, so persisting its state would be pointless.
     static let overrideDateClampKey                  = Keys.overrideDateClamp
-    // Unlike overrideDateClampKey above, this one IS a durable preference: it
-    // describes how the user wants to enter data, not a one-session escape
-    // hatch, so it participates in SettingsManager's export/restore pipeline and
-    // in SettingsObject's persisted schema exactly like every other key here.
+    /// Unlike overrideDateClampKey above, this one IS a durable preference: it
+    /// describes how the user wants to enter data, not a one-session escape
+    /// hatch, so it participates in SettingsManager's export/restore pipeline and
+    /// in SettingsObject's persisted schema exactly like every other key here.
     static let strictFramesTableCheckingKey          = Keys.strictFramesTableChecking
     static let prunePosterImagesKey                  = Keys.prunePosterImages
     static let loggingEnabledKey                     = Keys.loggingEnabled
     static let atvqKey                               = Keys.atvq
 
-    // Sane defaults for every key — THE master list. Registered by the `defaults`
-    // initializer above so no caller needs special 'nil' checks, and read back through
-    // registeredDefault(_:orFallback:) by everything else that needs a default. A
-    // function rather than a stored `[String: Any]`, which strict concurrency rejects as
-    // shared mutable state; it is called exactly once, by `registered`.
+    /// Sane defaults for every key — THE master list. Registered by the `defaults`
+    /// initializer above so no caller needs special 'nil' checks, and read back through
+    /// registeredDefault(_:orFallback:) by everything else that needs a default. A
+    /// function rather than a stored `[String: Any]`, which strict concurrency rejects as
+    /// shared mutable state; it is called exactly once, by `registered`.
     private static func registeredDefaults() -> [String: Any] {
         return [
             Keys.iCalIntegration: false,
@@ -473,14 +473,14 @@ struct Preferences: Loggable {
     static var defaultRotationThreshold: Int {
         get {
             let value = defaults.integer(forKey: Keys.defaultRotationThreshold)
-            // Validate that the value is one of the allowed options.
+            /// Validate that the value is one of the allowed options.
             if rotationThresholdOptions.contains(value) {
                 return value }
-            // Fall back to the registered default if invalid.
+            /// Fall back to the registered default if invalid.
             return registeredRotationThreshold }
         set {
-            // Only allow values in rotationThresholdOptions; anything else stores the
-            // registered default.
+            /// Only allow values in rotationThresholdOptions; anything else stores the
+            /// registered default.
             let validValue = rotationThresholdOptions.contains(newValue)
                 ? newValue : registeredRotationThreshold
             setIfChanged(validValue, forKey: Keys.defaultRotationThreshold,
@@ -505,16 +505,16 @@ struct Preferences: Loggable {
                 logMessage: "confirmListEdits set to \(newValue)") } }
 
     // MARK: - List Edit Scope
-    // Governs which class of user-generated list changes triggers a confirmation alert
-    // when confirmListEdits is enabled. The scope has no effect when confirmListEdits is false.
-    //
-    // .both        → alerts for all list-related changes (default)
-    // .listOnly    → alerts only for changes to the list itself (delete, rename, duplicate)
-    // .contentsOnly → alerts only for changes to list contents (remove, clear)
+    /// Governs which class of user-generated list changes triggers a confirmation alert
+    /// when confirmListEdits is enabled. The scope has no effect when confirmListEdits is false.
+    ///
+    /// .both        → alerts for all list-related changes (default)
+    /// .listOnly    → alerts only for changes to the list itself (delete, rename, duplicate)
+    /// .contentsOnly → alerts only for changes to list contents (remove, clear)
     enum ListEditScope: Int {
-        case both         = 0   // Warn for all list-related changes
-        case listOnly     = 1   // Warn only for list-structure changes
-        case contentsOnly = 2   // Warn only for list-contents changes
+        case both         = 0   /// Warn for all list-related changes
+        case listOnly     = 1   /// Warn only for list-structure changes
+        case contentsOnly = 2   /// Warn only for list-contents changes
     }
 
     static var listEditScope: ListEditScope {
@@ -526,26 +526,26 @@ struct Preferences: Loggable {
             setIfChanged(newValue.rawValue, forKey: Keys.listEditScope,
                 logMessage: "listEditScope set to \(newValue.rawValue)") } }
 
-    // Convenience: returns true when the user should be presented with a confirmation
-    // alert for a list-structure change (delete, rename, duplicate).
+    /// Convenience: returns true when the user should be presented with a confirmation
+    /// alert for a list-structure change (delete, rename, duplicate).
     static var shouldConfirmListStructure: Bool {
         guard confirmListEdits else { return false }
         switch listEditScope {
         case .both, .listOnly: return true
         case .contentsOnly:    return false } }
 
-    // Convenience: returns true when the user should be presented with a confirmation
-    // alert for a list-contents change (remove film(s), clear list).
+    /// Convenience: returns true when the user should be presented with a confirmation
+    /// alert for a list-contents change (remove film(s), clear list).
     static var shouldConfirmListContents: Bool {
         guard confirmListEdits else { return false }
         switch listEditScope {
         case .both, .contentsOnly: return true
         case .listOnly:            return false } }
 
-    // Governs whether the user is shown a confirmation alert before adding a film that
-    // carries a special sorting parameter (e.g. "Ignore", "Blacklisted") to the Up Next
-    // Queue via the FilmSheet Details tab's segmented Picker. When false, films are added
-    // to the queue without any warning regardless of their special sorting state.
+    /// Governs whether the user is shown a confirmation alert before adding a film that
+    /// carries a special sorting parameter (e.g. "Ignore", "Blacklisted") to the Up Next
+    /// Queue via the FilmSheet Details tab's segmented Picker. When false, films are added
+    /// to the queue without any warning regardless of their special sorting state.
     static var confirmFilmQueueAdd: Bool {
         get { return defaults.bool(forKey: Keys.confirmFilmQueueAdd) }
         set {
@@ -553,9 +553,9 @@ struct Preferences: Loggable {
                 logMessage: "confirmFilmQueueAdd set to \(newValue)") } }
 
     // MARK: - New-Release Notifications
-    // Whether Film Tracker posts a notification on the release date of each release that was
-    // cataloged with a date still ahead (see ReleaseNotifications), and whether that is
-    // limited to wishlisted releases. The scope has no effect when notifications are off.
+    /// Whether Film Tracker posts a notification on the release date of each release that was
+    /// cataloged with a date still ahead (see ReleaseNotifications), and whether that is
+    /// limited to wishlisted releases. The scope has no effect when notifications are off.
     static var notifyAboutNewReleases: Bool {
         get { return defaults.bool(forKey: Keys.notifyAboutNewReleases) }
         set {
@@ -569,14 +569,14 @@ struct Preferences: Loggable {
                 logMessage: "onlyNotifyForWishlisted set to \(newValue)") } }
 
     // MARK: - Gallery Sorting Sections
-    // NOTE: there is no global preference here. Whether a gallery inserts labeled
-    // divider bands derived from its active sort option — alphabetical letters for Title,
-    // one band per year for Year, runtime brackets for Duration, relative-age brackets for
-    // the three date sorts, and one band per discrete step for Rating and Recorded View
-    // Count (see GallerySections.swift for the per-option derivation) — is per-view state,
-    // stored as ViewState.showSectionDividers in the viewSortStates dictionary below and
-    // chosen from each view's own Sort menu. The backup schema has no key for a global
-    // setting, and a backup that carries no value for it leaves every view at the `false` default.
+    /// NOTE: there is no global preference here. Whether a gallery inserts labeled
+    /// divider bands derived from its active sort option — alphabetical letters for Title,
+    /// one band per year for Year, runtime brackets for Duration, relative-age brackets for
+    /// the three date sorts, and one band per discrete step for Rating and Recorded View
+    /// Count (see GallerySections.swift for the per-option derivation) — is per-view state,
+    /// stored as ViewState.showSectionDividers in the viewSortStates dictionary below and
+    /// chosen from each view's own Sort menu. The backup schema has no key for a global
+    /// setting, and a backup that carries no value for it leaves every view at the `false` default.
 
     static var largeGalleryGrid: Bool {
         get { return defaults.bool(forKey: Keys.largeGalleryGrid) }
@@ -596,12 +596,12 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.smartLists,
                 logMessage: "smartLists set to \(newValue)") } }
 
-    // Governs whether films that are already present on any of the three internal Film
-    // Queue lists (Up Next, Soon, Later) are hidden from the "Up for Rotation" smart list.
-    // This is purely a presentation-layer filter — it has no effect on whether a film
-    // actually qualifies as up for rotation, nor on its Film Queue membership. Has no
-    // effect when Preferences.smartLists is false, since the smart list itself is hidden
-    // in that case.
+    /// Governs whether films that are already present on any of the three internal Film
+    /// Queue lists (Up Next, Soon, Later) are hidden from the "Up for Rotation" smart list.
+    /// This is purely a presentation-layer filter — it has no effect on whether a film
+    /// actually qualifies as up for rotation, nor on its Film Queue membership. Has no
+    /// effect when Preferences.smartLists is false, since the smart list itself is hidden
+    /// in that case.
     static var excludeQueuedFromUpForRotation: Bool {
         get { return defaults.bool(forKey: Keys.excludeQueuedFromUpForRotation) }
         set {
@@ -609,20 +609,20 @@ struct Preferences: Loggable {
                 logMessage: "excludeQueuedFromUpForRotation set to \(newValue)") } }
 
     // MARK: - Known "Up for Rotation" Membership (internal state)
-    //
-    // The set of film IDs that were already up for rotation the last time SmartLists
-    // evaluated the library. This is NOT a user-facing preference and is deliberately
-    // excluded from the settings export/restore pipeline and from the registered defaults.
-    //
-    // It exists so that "newly up for rotation" means genuinely newly up for rotation
-    // ACROSS LAUNCHES, not merely "present in a freshly populated in-memory set". Without
-    // it, every launch would treat the entire rotation list as new and re-run auto-enqueue
-    // over the whole library, undoing any Film Queue placement the user made by hand.
-    //
-    // `nil` (key absent) is meaningful and distinct from an empty set: it means "no baseline
-    // has been established", which happens before the first evaluation and after a database restore. In that state SmartLists adopts whatever it computes
-    // without auto-enqueueing anything, because it has no prior state to legitimately
-    // compare against and must not act on a difference it cannot verify.
+    ///
+    /// The set of film IDs that were already up for rotation the last time SmartLists
+    /// evaluated the library. This is NOT a user-facing preference and is deliberately
+    /// excluded from the settings export/restore pipeline and from the registered defaults.
+    ///
+    /// It exists so that "newly up for rotation" means genuinely newly up for rotation
+    /// ACROSS LAUNCHES, not merely "present in a freshly populated in-memory set". Without
+    /// it, every launch would treat the entire rotation list as new and re-run auto-enqueue
+    /// over the whole library, undoing any Film Queue placement the user made by hand.
+    ///
+    /// `nil` (key absent) is meaningful and distinct from an empty set: it means "no baseline
+    /// has been established", which happens before the first evaluation and after a database restore. In that state SmartLists adopts whatever it computes
+    /// without auto-enqueueing anything, because it has no prior state to legitimately
+    /// compare against and must not act on a difference it cannot verify.
     static var knownUpForRotationFilmIDs: Set<UUID>? {
         get {
             guard let raw = defaults.array(forKey: Keys.knownUpForRotationFilmIDs) as? [String] else {
@@ -635,10 +635,10 @@ struct Preferences: Loggable {
                 defaults.removeObject(forKey: Keys.knownUpForRotationFilmIDs)
                 return
             }
-            // Written directly rather than through setIfChanged() on purpose: this is
-            // high-frequency internal bookkeeping, and setIfChanged() posts
-            // preferencesChanged, which SmartLists itself subscribes to. Routing this
-            // through that path would feed SmartLists' own writes back into its listener.
+            /// Written directly rather than through setIfChanged() on purpose: this is
+            /// high-frequency internal bookkeeping, and setIfChanged() posts
+            /// preferencesChanged, which SmartLists itself subscribes to. Routing this
+            /// through that path would feed SmartLists' own writes back into its listener.
             defaults.set(newValue.map(\.uuidString), forKey: Keys.knownUpForRotationFilmIDs)
         }
     }
@@ -653,11 +653,11 @@ struct Preferences: Loggable {
         log("Reset known Up for Rotation baseline") }
 
     // MARK: - Expanded Smart List Families
-    // Which smart list families are expanded in the left sidebar, by their parent's raw
-    // value. Internal state, not a user-facing preference: never shown in Settings, not in
-    // the registered defaults (absent means all collapsed), and not exported or restored.
-    // Written directly rather than through setIfChanged() for the same reason as the
-    // rotation baseline above — it is UI bookkeeping, and nothing listens for it.
+    /// Which smart list families are expanded in the left sidebar, by their parent's raw
+    /// value. Internal state, not a user-facing preference: never shown in Settings, not in
+    /// the registered defaults (absent means all collapsed), and not exported or restored.
+    /// Written directly rather than through setIfChanged() for the same reason as the
+    /// rotation baseline above — it is UI bookkeeping, and nothing listens for it.
     static var expandedSmartListFamilies: Set<SmartListType> {
         get {
             let raw = defaults.array(forKey: Keys.expandedSmartListFamilies) as? [String] ?? []
@@ -668,10 +668,10 @@ struct Preferences: Loggable {
         }
     }
 
-    // Governs whether the "Film Queue" sidebar item accepts film drops. When true,
-    // dragging a selection of films onto the sidebar's "Film Queue" row adds them to
-    // whichever of the three internal Film Queue lists is selected via
-    // queueSectionOnDrop below.
+    /// Governs whether the "Film Queue" sidebar item accepts film drops. When true,
+    /// dragging a selection of films onto the sidebar's "Film Queue" row adds them to
+    /// whichever of the three internal Film Queue lists is selected via
+    /// queueSectionOnDrop below.
     static var queueIsDropTarget: Bool {
         get { return defaults.bool(forKey: Keys.queueIsDropTarget) }
         set {
@@ -679,16 +679,16 @@ struct Preferences: Loggable {
                 logMessage: "queueIsDropTarget set to \(newValue)") } }
 
     // MARK: - Queue Section On Drop
-    // Determines which of the three internal Film Queue lists receives films dragged
-    // onto the "Film Queue" sidebar item when queueIsDropTarget is enabled. Has no
-    // effect when queueIsDropTarget is false.
+    /// Determines which of the three internal Film Queue lists receives films dragged
+    /// onto the "Film Queue" sidebar item when queueIsDropTarget is enabled. Has no
+    /// effect when queueIsDropTarget is false.
     enum QueueDropSection: Int, CaseIterable {
-        case upNext = 0   // "Up Next" section
-        case soon   = 1   // "Soon" section
-        case later  = 2   // "Later" section
+        case upNext = 0   /// "Up Next" section
+        case soon   = 1   /// "Soon" section
+        case later  = 2   /// "Later" section
 
-        // Maps this preference-facing case to the corresponding FilmQueueSection used by
-        // the Film Queue's underlying internal list implementation (FilmQueue.swift).
+        /// Maps this preference-facing case to the corresponding FilmQueueSection used by
+        /// the Film Queue's underlying internal list implementation (FilmQueue.swift).
         var filmQueueSection: FilmQueueSection {
             switch self {
             case .upNext: return .upNext
@@ -735,11 +735,11 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.rememberRightSidebarReleasesFilter,
                 logMessage: "rememberRightSidebarReleasesFilter set to \(newValue)") } }
 
-    // Governs whether the right sidebar's "Releases" tab prepends the summary table
-    // (DiscReleasesTable) above the release cards. The table is an addition to that
-    // tab, not a replacement for anything in it: when this is false the section is
-    // never constructed, so it costs nothing. The identical table shown in the
-    // "Details" tab is unaffected by this preference.
+    /// Governs whether the right sidebar's "Releases" tab prepends the summary table
+    /// (DiscReleasesTable) above the release cards. The table is an addition to that
+    /// tab, not a replacement for anything in it: when this is false the section is
+    /// never constructed, so it costs nothing. The identical table shown in the
+    /// "Details" tab is unaffected by this preference.
     static var showReleasesSummaryTable: Bool {
         get { return defaults.bool(forKey: Keys.showReleasesSummaryTable) }
         set {
@@ -775,16 +775,16 @@ struct Preferences: Loggable {
                 logMessage: "maintainScrollPositionOnViewSwitch set to \(newValue)") } }
 
     // MARK: - Tab Remember Scope
-    // Governs which tab(s) — Recents, Reports, or both — have their last-selected
-    // sub-tab remembered across sessions. Mirrors the confirmListEdits/ListEditScope
-    // design: rememberTabSelection is the master on/off switch, and tabRememberScope
-    // refines which tab(s) it applies to when enabled. Turning rememberTabSelection
-    // off has no effect on which scope is remembered — it merely stops applying
-    // whichever scope is currently selected, without disturbing that selection.
+    /// Governs which tab(s) — Recents, Reports, or both — have their last-selected
+    /// sub-tab remembered across sessions. Mirrors the confirmListEdits/ListEditScope
+    /// design: rememberTabSelection is the master on/off switch, and tabRememberScope
+    /// refines which tab(s) it applies to when enabled. Turning rememberTabSelection
+    /// off has no effect on which scope is remembered — it merely stops applying
+    /// whichever scope is currently selected, without disturbing that selection.
     enum TabRememberScope: Int {
-        case recents = 0   // Remember Recents' last-selected sub-tab only
-        case reports = 1   // Remember Reports' last-selected sub-tab only
-        case both    = 2   // Remember both (default)
+        case recents = 0   /// Remember Recents' last-selected sub-tab only
+        case reports = 1   /// Remember Reports' last-selected sub-tab only
+        case both    = 2   /// Remember both (default)
     }
 
     static var rememberTabSelection: Bool {
@@ -802,12 +802,12 @@ struct Preferences: Loggable {
             setIfChanged(newValue.rawValue, forKey: Keys.tabRememberScope,
                 logMessage: "tabRememberScope set to \(newValue.rawValue)") } }
 
-    // Convenience per-tab accessors, derived from the consolidated pair above.
-    // Preserved so existing call sites (RecentsView, ReportsView, and the
-    // SettingsManager restore path) can keep reading/writing per-tab granularity
-    // as a plain Bool without needing to know about the combined representation.
-    // Setting one tab's Bool only ever adjusts the scope enough to reflect the
-    // requested state for that tab, leaving the other tab's current state intact.
+    /// Convenience per-tab accessors, derived from the consolidated pair above.
+    /// Preserved so existing call sites (RecentsView, ReportsView, and the
+    /// SettingsManager restore path) can keep reading/writing per-tab granularity
+    /// as a plain Bool without needing to know about the combined representation.
+    /// Setting one tab's Bool only ever adjusts the scope enough to reflect the
+    /// requested state for that tab, leaving the other tab's current state intact.
     static var rememberRecentsTab: Bool {
         get { rememberTabSelection && (tabRememberScope == .recents || tabRememberScope == .both) }
         set {
@@ -818,25 +818,25 @@ struct Preferences: Loggable {
                 switch tabRememberScope {
                 case .recents: rememberTabSelection = false
                 case .both:    tabRememberScope = .reports
-                case .reports: break // Recents wasn't enabled; nothing to change
+                case .reports: break /// Recents wasn't enabled; nothing to change
                 }
             } } }
 
     static var lastRecentsCategory: String? {
         get { return defaults.string(forKey: Keys.lastRecentsCategory) }
         set {
-            // Written directly to UserDefaults without firing postPreferenceChangedEvent.
-            // This is a high-frequency UI state value (fires on every tab switch) that no
-            // other subsystem needs to react to; it is only read back at the next launch.
-            // Routing it through setIfChanged would defer the write until the background
-            // SettingsManager sync completes, and the value could be lost if the user quits first.
-            //
-            // synchronize() forces an immediate flush of the UserDefaults in-memory state
-            // to the backing plist file. Without it, macOS batches the write lazily and
-            // may not flush before the user quits, reproducing the same lost-on-quit
-            // symptom. synchronize() is technically deprecated for general use (the OS
-            // handles flushing automatically in most cases), but it is the correct and
-            // intentional tool when quit-safe persistence is required — exactly this scenario.
+            /// Written directly to UserDefaults without firing postPreferenceChangedEvent.
+            /// This is a high-frequency UI state value (fires on every tab switch) that no
+            /// other subsystem needs to react to; it is only read back at the next launch.
+            /// Routing it through setIfChanged would defer the write until the background
+            /// SettingsManager sync completes, and the value could be lost if the user quits first.
+            ///
+            /// synchronize() forces an immediate flush of the UserDefaults in-memory state
+            /// to the backing plist file. Without it, macOS batches the write lazily and
+            /// may not flush before the user quits, reproducing the same lost-on-quit
+            /// symptom. synchronize() is technically deprecated for general use (the OS
+            /// handles flushing automatically in most cases), but it is the correct and
+            /// intentional tool when quit-safe persistence is required — exactly this scenario.
             if let value = newValue {
                 guard defaults.string(forKey: Keys.lastRecentsCategory) != value else { return }
                 defaults.set(value, forKey: Keys.lastRecentsCategory)
@@ -856,16 +856,16 @@ struct Preferences: Loggable {
                 switch tabRememberScope {
                 case .reports: rememberTabSelection = false
                 case .both:    tabRememberScope = .recents
-                case .recents: break // Reports wasn't enabled; nothing to change
+                case .recents: break /// Reports wasn't enabled; nothing to change
                 }
             } } }
 
     static var lastReportsCategory: String? {
         get { return defaults.string(forKey: Keys.lastReportsCategory) }
         set {
-            // Written directly to UserDefaults without firing postPreferenceChangedEvent.
-            // Same rationale as lastRecentsCategory: high-frequency UI state, no downstream
-            // subscribers, and delay-free persistence is required for correct quit behavior.
+            /// Written directly to UserDefaults without firing postPreferenceChangedEvent.
+            /// Same rationale as lastRecentsCategory: high-frequency UI state, no downstream
+            /// subscribers, and delay-free persistence is required for correct quit behavior.
             if let value = newValue {
                 guard defaults.string(forKey: Keys.lastReportsCategory) != value else { return }
                 defaults.set(value, forKey: Keys.lastReportsCategory)
@@ -884,8 +884,8 @@ struct Preferences: Loggable {
     static var lastImportsCategory: String? {
         get { return defaults.string(forKey: Keys.lastImportsCategory) }
         set {
-            // Written directly to UserDefaults without firing postPreferenceChangedEvent.
-            // Same rationale as lastRecentsCategory and lastReportsCategory.
+            /// Written directly to UserDefaults without firing postPreferenceChangedEvent.
+            /// Same rationale as lastRecentsCategory and lastReportsCategory.
             if let value = newValue {
                 guard defaults.string(forKey: Keys.lastImportsCategory) != value else { return }
                 defaults.set(value, forKey: Keys.lastImportsCategory)
@@ -896,18 +896,18 @@ struct Preferences: Loggable {
                 defaults.synchronize() } } }
 
     // MARK: - Remember Sort/Filter Selections
-    // Controls whether user-selected sort and filter options for the All Films, Recents,
-    // and smart list views are persisted across application launches.
-    //
-    // When true (default): runtime changes are written to selectedSortOptions as usual.
-    // When false: writes to selectedSortOptions are skipped for all affected views, so
-    //   upon the next launch those views return to their built-in default selections.
-    //   Additionally, the existing selectedSortOptions data is cleared immediately when
-    //   the preference is set to false so that current runtime state becomes ephemeral.
-    //
-    // When re-enabled from false: the caller (STabGeneral) is responsible for capturing
-    //   the live runtime state from ViewStateManager and writing it back into
-    //   selectedSortOptions so the current session's selections survive the next restart.
+    /// Controls whether user-selected sort and filter options for the All Films, Recents,
+    /// and smart list views are persisted across application launches.
+    ///
+    /// When true (default): runtime changes are written to selectedSortOptions as usual.
+    /// When false: writes to selectedSortOptions are skipped for all affected views, so
+    ///   upon the next launch those views return to their built-in default selections.
+    ///   Additionally, the existing selectedSortOptions data is cleared immediately when
+    ///   the preference is set to false so that current runtime state becomes ephemeral.
+    ///
+    /// When re-enabled from false: the caller (STabGeneral) is responsible for capturing
+    ///   the live runtime state from ViewStateManager and writing it back into
+    ///   selectedSortOptions so the current session's selections survive the next restart.
     static var rememberSortFilterSelections: Bool {
         get {
             return defaults.bool(forKey: Keys.rememberSortFilterSelections) }
@@ -916,35 +916,35 @@ struct Preferences: Loggable {
                 logMessage: "rememberSortFilterSelections set to \(newValue)") } }
 
     // MARK: - View Sort States Dictionary
-    // Consolidated sort/filter state for all non-user-generated-list views that persist
-    // selection across launches. Stored under the same UserDefaults key as the legacy
-    // selectedSortOptions array so the backup XML attribute name is unchanged.
-    //
-    // Keys:
-    //   "allFilms"              → All Films view
-    //   "unwatched.<rawValue>"  → One entry per UnwatchedCategory
-    //   "recents.<rawValue>"    → One entry per RecentsCategory
-    //   "smartList.<rawValue>"  → One entry per SmartListType
-    //
-    // Each value is a five-element [String] array:
-    //   [sortOption, filterString, sortDirection, listViewStyle, sectionDividers]
-    // where filterString is comma-separated FilterOption raw values (or "" for none),
-    // listViewStyle is "list" or "", and sectionDividers is "dividers" or "". Shorter
-    // arrays written by earlier versions are read positionally and the missing trailing
-    // elements take their ViewState defaults — see ViewState.parseSettings.
-    //
-    // Backward compatibility: old backups store a flat [String] under this key.
-    // SettingsManager.applySnapshotToPreferences() handles the [String] fallback gracefully
-    // (the old allFilms-only data is silently dropped), so restores never crash or corrupt.
+    /// Consolidated sort/filter state for all non-user-generated-list views that persist
+    /// selection across launches. Stored under the same UserDefaults key as the legacy
+    /// selectedSortOptions array so the backup XML attribute name is unchanged.
+    ///
+    /// Keys:
+    ///   "allFilms"              → All Films view
+    ///   "unwatched.<rawValue>"  → One entry per UnwatchedCategory
+    ///   "recents.<rawValue>"    → One entry per RecentsCategory
+    ///   "smartList.<rawValue>"  → One entry per SmartListType
+    ///
+    /// Each value is a five-element [String] array:
+    ///   [sortOption, filterString, sortDirection, listViewStyle, sectionDividers]
+    /// where filterString is comma-separated FilterOption raw values (or "" for none),
+    /// listViewStyle is "list" or "", and sectionDividers is "dividers" or "". Shorter
+    /// arrays written by earlier versions are read positionally and the missing trailing
+    /// elements take their ViewState defaults — see ViewState.parseSettings.
+    ///
+    /// Backward compatibility: old backups store a flat [String] under this key.
+    /// SettingsManager.applySnapshotToPreferences() handles the [String] fallback gracefully
+    /// (the old allFilms-only data is silently dropped), so restores never crash or corrupt.
     static var viewSortStates: [String: [String]] {
         get {
-            // Attempt to read as the new [String:[String]] dictionary format.
+            /// Attempt to read as the new [String:[String]] dictionary format.
             if let dict = defaults.dictionary(forKey: Keys.selectedSortOptions) as? [String: [String]] {
                 return dict
             }
-            // Key is absent or holds the legacy flat-array format — return empty dictionary
-            // so all views fall back to their built-in defaults. The legacy value is never
-            // re-written in the new format until the user triggers a state change.
+            /// Key is absent or holds the legacy flat-array format — return empty dictionary
+            /// so all views fall back to their built-in defaults. The legacy value is never
+            /// re-written in the new format until the user triggers a state change.
             return [:]
         }
         set {
@@ -953,9 +953,9 @@ struct Preferences: Loggable {
         }
     }
 
-    // Removes all persisted sort/filter state from selectedSortOptions, effectively
-    // making any runtime selections ephemeral. Called when the user disables the
-    // rememberSortFilterSelections preference.
+    /// Removes all persisted sort/filter state from selectedSortOptions, effectively
+    /// making any runtime selections ephemeral. Called when the user disables the
+    /// rememberSortFilterSelections preference.
     static func clearViewSortStates() {
         defaults.removeObject(forKey: Keys.selectedSortOptions)
         log("Cleared all persisted view sort states (rememberSortFilterSelections disabled)")
@@ -1004,7 +1004,7 @@ struct Preferences: Loggable {
                 logMessage: "allowUpdatesForDuplicateRatings set to \(newValue)") } }
 
     // MARK: - Export Location
-    // User-selected export location (bookmark-backed).
+    /// User-selected export location (bookmark-backed).
     static var exportPathURL: URL? {
         get { return resolveBookmark(forKey: Keys.exportPathBookmark) }
         set {
@@ -1034,17 +1034,17 @@ struct Preferences: Loggable {
                 logMessage: "showInfoComplete set to \(newValue)") } }
 
     // MARK: - Show Watch Details Glyphs
-    // Draws an inline SF Symbol ahead of the value and annotation rows in the RightSidebar's
-    // "Watch Details" module — the Last Watched, Next Up for Rotation, Recorded View Count,
-    // Duration and Source for Viewing values, the special-sorting and Film Queue notes, and
-    // the purchase-availability note. When false those rows render as text alone.
-    //
-    // Purely presentational: it changes no stored value and nothing downstream reads it, so
-    // it is safe to toggle at any time. Views observe it through @AppStorage rather than this
-    // accessor, which is what makes a change in Settings redraw an open sidebar immediately.
-    //
-    // Preferences.purchasedDiscGlyphVisibilityOverride still governs whether the
-    // "Source for Viewing" disc glyph answers to this preference at all.
+    /// Draws an inline SF Symbol ahead of the value and annotation rows in the RightSidebar's
+    /// "Watch Details" module — the Last Watched, Next Up for Rotation, Recorded View Count,
+    /// Duration and Source for Viewing values, the special-sorting and Film Queue notes, and
+    /// the purchase-availability note. When false those rows render as text alone.
+    ///
+    /// Purely presentational: it changes no stored value and nothing downstream reads it, so
+    /// it is safe to toggle at any time. Views observe it through @AppStorage rather than this
+    /// accessor, which is what makes a change in Settings redraw an open sidebar immediately.
+    ///
+    /// Preferences.purchasedDiscGlyphVisibilityOverride still governs whether the
+    /// "Source for Viewing" disc glyph answers to this preference at all.
     static var showWatchDetailsAnnotationGlyphs: Bool {
         get { return defaults.bool(forKey: Keys.showWatchDetailsAnnotationGlyphs) }
         set {
@@ -1052,8 +1052,8 @@ struct Preferences: Loggable {
                 logMessage: "showWatchDetailsAnnotationGlyphs set to \(newValue)") } }
 
     // MARK: - Ignored Duplicate Pairs
-    // Array of ignored duplicate film pairs, stored as "UUID1-UUID2" strings
-    // where UUID1 < UUID2 alphabetically for consistent ordering.
+    /// Array of ignored duplicate film pairs, stored as "UUID1-UUID2" strings
+    /// where UUID1 < UUID2 alphabetically for consistent ordering.
     static var ignoredDuplicatePairs: [String] {
         get {
             return defaults.array(forKey: Keys.ignoredDuplicatePairs) as? [String] ?? [] }
@@ -1061,30 +1061,30 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.ignoredDuplicatePairs,
                 logMessage: "ignoredDuplicatePairs updated (count: \(newValue.count))") } }
 
-    // Helper to generate a consistent pair key from two film UUIDs.
+    /// Helper to generate a consistent pair key from two film UUIDs.
     static func makeDuplicatePairKey(film1ID: UUID, film2ID: UUID) -> String {
         let id1 = film1ID.uuidString
         let id2 = film2ID.uuidString
         return id1 < id2 ? "\(id1)-\(id2)" : "\(id2)-\(id1)" }
 
-    // Reset all ignored duplicate pairs.
+    /// Reset all ignored duplicate pairs.
     static func resetIgnoredDuplicatePairs() {
         defaults.removeObject(forKey: Keys.ignoredDuplicatePairs)
         log("Reset all ignored duplicate pairs")
         postPreferenceChangedEvent() }
 
     // MARK: - Override Date Clamp
-    // Temporarily allows a user to enter a past viewing event dated prior to a film's
-    // release date. The CustomDateStepper instances in CalendarPopover and
-    // ViewingDatesTable's add/edit popovers normally clamp their lower bound to the
-    // film's release date; when this preference is true, that clamp is skipped.
-    //
-    // IMPORTANT — this preference always resets to false on application quit
-    // (see FilmTrackerApp.applicationShouldTerminate). It is a session-only,
-    // "at your own risk" override, not a persistent setting: it deliberately does
-    // NOT appear in SettingsObject's schema or SettingsManager's export/restore
-    // pipeline, since there would be no point in saving a value that is guaranteed
-    // to be false again the next time the app launches.
+    /// Temporarily allows a user to enter a past viewing event dated prior to a film's
+    /// release date. The CustomDateStepper instances in CalendarPopover and
+    /// ViewingDatesTable's add/edit popovers normally clamp their lower bound to the
+    /// film's release date; when this preference is true, that clamp is skipped.
+    ///
+    /// IMPORTANT — this preference always resets to false on application quit
+    /// (see FilmTrackerApp.applicationShouldTerminate). It is a session-only,
+    /// "at your own risk" override, not a persistent setting: it deliberately does
+    /// NOT appear in SettingsObject's schema or SettingsManager's export/restore
+    /// pipeline, since there would be no point in saving a value that is guaranteed
+    /// to be false again the next time the app launches.
     static var overrideDateClamp: Bool {
         get { return defaults.bool(forKey: Keys.overrideDateClamp) }
         set {
@@ -1092,17 +1092,17 @@ struct Preferences: Loggable {
                 logMessage: "overrideDateClamp set to \(newValue)") } }
 
     // MARK: - Strict Frames Table Checking
-    // Governs how the FilmSheet Notes tab's frames table (ReorderableFramesList)
-    // collects a row's frame number and time code. When false, each is a single
-    // free-text field that accepts anything the user types. When true, each row is
-    // collected as a validated range — two equal-width fields separated by a dash,
-    // digits only, with the time-code halves formatted and completed as ##:##:## —
-    // and the two halves are joined into the same single string the permissive
-    // fields would have produced.
-    //
-    // This affects data ENTRY only. The storage format, the bulk-import popover,
-    // and every record already on disk are untouched by it, which is what makes the
-    // preference safe to turn on or off at any time.
+    /// Governs how the FilmSheet Notes tab's frames table (ReorderableFramesList)
+    /// collects a row's frame number and time code. When false, each is a single
+    /// free-text field that accepts anything the user types. When true, each row is
+    /// collected as a validated range — two equal-width fields separated by a dash,
+    /// digits only, with the time-code halves formatted and completed as ##:##:## —
+    /// and the two halves are joined into the same single string the permissive
+    /// fields would have produced.
+    ///
+    /// This affects data ENTRY only. The storage format, the bulk-import popover,
+    /// and every record already on disk are untouched by it, which is what makes the
+    /// preference safe to turn on or off at any time.
     static var strictFramesTableChecking: Bool {
         get { return defaults.bool(forKey: Keys.strictFramesTableChecking) }
         set {
@@ -1117,11 +1117,11 @@ struct Preferences: Loggable {
 
     static var loggingEnabled: Bool {
         get {
-            // A sandbox run starts from a fresh defaults suite, where this would be false —
-            // leaving a harness run with no application log at all, which removes most of
-            // its diagnostic value. Forced on instead. The log lands in the sandbox's own
-            // folder (LoggerCore derives its path from dataFolderURL), so the user's
-            // FilmTracker.log is neither read nor appended to.
+            /// A sandbox run starts from a fresh defaults suite, where this would be false —
+            /// leaving a harness run with no application log at all, which removes most of
+            /// its diagnostic value. Forced on instead. The log lands in the sandbox's own
+            /// folder (LoggerCore derives its path from dataFolderURL), so the user's
+            /// FilmTracker.log is neither read nor appended to.
             #if DEBUG
             if DebugSandbox.isActive { return true }
             #endif
@@ -1132,9 +1132,9 @@ struct Preferences: Loggable {
                 logMessage: "loggingEnabled set to \(newValue)") } }
 
     // MARK: - ATVQ Integration
-    // Dispatches the "Up Next" Queue to the ATVQ app on an Apple TV (or its Deployer
-    // relay). Off, nothing ATVQ-related runs — no Bonjour browsing, no connections, and so
-    // no Local Network prompt. See ATVQIntegration.swift.
+    /// Dispatches the "Up Next" Queue to the ATVQ app on an Apple TV (or its Deployer
+    /// relay). Off, nothing ATVQ-related runs — no Bonjour browsing, no connections, and so
+    /// no Local Network prompt. See ATVQIntegration.swift.
     static var atvq: Bool {
         get { return defaults.bool(forKey: Keys.atvq) }
         set {
@@ -1142,29 +1142,29 @@ struct Preferences: Loggable {
                 logMessage: "atvq set to \(newValue)") } }
 
     // MARK: - Stored properties
-    // Persistent "Application Support" folder (fixed sandbox path).
+    /// Persistent "Application Support" folder (fixed sandbox path).
     static var dataFolderURL: URL? { computedApplicationSupportURL }
 
-    // Persistent "Backups" folder (fixed sandbox path).
+    /// Persistent "Backups" folder (fixed sandbox path).
     static var backupFolderURL: URL? {
         guard let base = computedApplicationSupportURL else { return nil }
         return base.appendingPathComponent("Backups", isDirectory: true) }
 
-    // Persistent "PosterImages" folder (fixed sandbox path).
+    /// Persistent "PosterImages" folder (fixed sandbox path).
     static var posterImagesFolderURL: URL? {
         guard let base = computedApplicationSupportURL else { return nil }
         return base.appendingPathComponent("PosterImages", isDirectory: true) }
 
     // MARK: — URL Helpers
-    // Lazily compute a default "Application Support" URL. This function is only called
-    // on demand from the property getters — avoiding being invoked during static init().
+    /// Lazily compute a default "Application Support" URL. This function is only called
+    /// on demand from the property getters — avoiding being invoked during static init().
     private static var computedApplicationSupportURL: URL? {
-        // Debug sandbox: relocate the entire derived-data footprint in one place.
-        // dataFolderURL, backupFolderURL, and posterImagesFolderURL are all defined in
-        // terms of this property, and every disk consumer in the app (MetadataCache,
-        // MemStoreCache, PosterCache, PosterUtilities, DBExporter/DBPackager,
-        // DBRestorer, LoggerCore) is defined in terms of those three — so this single
-        // branch redirects all of them, with no per-call-site opt-in to forget.
+        /// Debug sandbox: relocate the entire derived-data footprint in one place.
+        /// dataFolderURL, backupFolderURL, and posterImagesFolderURL are all defined in
+        /// terms of this property, and every disk consumer in the app (MetadataCache,
+        /// MemStoreCache, PosterCache, PosterUtilities, DBExporter/DBPackager,
+        /// DBRestorer, LoggerCore) is defined in terms of those three — so this single
+        /// branch redirects all of them, with no per-call-site opt-in to forget.
         #if DEBUG
         if DebugSandbox.isActive { return DebugSandbox.rootURL }
         #endif
@@ -1177,22 +1177,22 @@ struct Preferences: Loggable {
     private static func saveBookmark(_ url: URL, forKey key: String, logMessage: String? = nil) {
         do {
             let standardized = url.standardizedFileURL
-            // Do NOT call startAccessingSecurityScopedResource() here.
-            //
-            // This function has two callers:
-            //   1. exportPathURL.set — the URL comes directly from NSOpenPanel.
-            //      NSOpenPanel returns a powerbox-granted URL whose sandbox extension is
-            //      already active for the duration of the call. Calling
-            //      startAccessingSecurityScopedResource() on a URL that does not yet have
-            //      a persisted security-scoped bookmark is incorrect — it returns false and
-            //      the OS refuses the subsequent open() syscall, producing:
-            //        NSCocoaErrorDomain Code=256 "Could not open() the item"
-            //      Calling bookmarkData(options:.withSecurityScope) directly on the
-            //      powerbox URL is the correct approach.
-            //   2. resolveBookmark stale-refresh — the URL was just resolved from an
-            //      existing bookmark via URL(resolvingBookmarkData:options:.withSecurityScope).
-            //      The sandbox extension for that resolved URL is implicitly active through
-            //      the resolve call; no explicit start/stop is needed here either.
+            /// Do NOT call startAccessingSecurityScopedResource() here.
+            ///
+            /// This function has two callers:
+            ///   1. exportPathURL.set — the URL comes directly from NSOpenPanel.
+            ///      NSOpenPanel returns a powerbox-granted URL whose sandbox extension is
+            ///      already active for the duration of the call. Calling
+            ///      startAccessingSecurityScopedResource() on a URL that does not yet have
+            ///      a persisted security-scoped bookmark is incorrect — it returns false and
+            ///      the OS refuses the subsequent open() syscall, producing:
+            ///        NSCocoaErrorDomain Code=256 "Could not open() the item"
+            ///      Calling bookmarkData(options:.withSecurityScope) directly on the
+            ///      powerbox URL is the correct approach.
+            ///   2. resolveBookmark stale-refresh — the URL was just resolved from an
+            ///      existing bookmark via URL(resolvingBookmarkData:options:.withSecurityScope).
+            ///      The sandbox extension for that resolved URL is implicitly active through
+            ///      the resolve call; no explicit start/stop is needed here either.
             let data = try standardized.bookmarkData(
                 options: [.withSecurityScope], includingResourceValuesForKeys: nil,
                 relativeTo: nil)
@@ -1214,15 +1214,15 @@ struct Preferences: Loggable {
             return nil } }
 
     // MARK: – Event Bus handling
-    // Post preferences-changed event via AppEventBus
+    /// Post preferences-changed event via AppEventBus
     private static func postPreferenceChangedEvent() {
         Task { @MainActor in AppEventBus.shared.preferencesChanged() } }
 
-    // Change Guard: Sets a value only if it actually differs, logs, and posts an event.
+    /// Change Guard: Sets a value only if it actually differs, logs, and posts an event.
     private static func setIfChanged<T: Equatable>(_ value: T, forKey key: String,
         logMessage: String? = nil) {
-        // Compare current value using typed accessors where possible so registered
-        // defaults (registered via register(defaults:)) are respected.
+        /// Compare current value using typed accessors where possible so registered
+        /// defaults (registered via register(defaults:)) are respected.
         var isSame = false
 
         if let v = value as? Bool { isSame = defaults.bool(forKey: key) == v
@@ -1249,7 +1249,7 @@ struct Preferences: Loggable {
                 isSame = normalized == v
             } else { isSame = false }
         } else {
-            // Fallback for other Equatable types (may fail for bridged/unexpected types).
+            /// Fallback for other Equatable types (may fail for bridged/unexpected types).
             let current: T? = defaults.object(forKey: key) as? T
             isSame = (current == value) }
 
@@ -1261,11 +1261,11 @@ struct Preferences: Loggable {
 }
 
 // MARK: - @AppStorage Binding
-// How every view binds a preference: `@AppStorage(preference: Preferences.fooKey)` with
-// the property's type written out and no initial value. The store is always
-// `Preferences.store` (see its doc comment for why that matters in a debug sandbox) and
-// the initial value is the registered default, so a declaration can disagree with
-// neither. Bool and Int cover every preference a view binds.
+/// How every view binds a preference: `@AppStorage(preference: Preferences.fooKey)` with
+/// the property's type written out and no initial value. The store is always
+/// `Preferences.store` (see its doc comment for why that matters in a debug sandbox) and
+/// the initial value is the registered default, so a declaration can disagree with
+/// neither. Bool and Int cover every preference a view binds.
 extension AppStorage where Value == Bool {
     init(preference key: String) {
         self.init(wrappedValue: Preferences.registeredDefault(key, orFallback: false), key,

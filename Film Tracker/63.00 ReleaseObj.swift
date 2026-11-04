@@ -1,8 +1,8 @@
 // MARK: - ReleaseObj.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Defines the data model for a physical media release (DVD, Blu-ray, 4K UHD, etc.)
-// associated with a Film object.
+/// Defines the data model for a physical media release (DVD, Blu-ray, 4K UHD, etc.)
+/// associated with a Film object.
 
 import Foundation
 import CoreData
@@ -278,9 +278,9 @@ enum ReleaseArtwork {
     static let noMultiPack = "No (Multi-pack)"
 
     // MARK: Picker option lists
-    //
-    // Each list is what the card offers ON TOP OF `steelbook`, which is seeded
-    // unconditionally. Selected by the release's independence value.
+    ///
+    /// Each list is what the card offers ON TOP OF `steelbook`, which is seeded
+    /// unconditionally. Selected by the release's independence value.
 
     static let standaloneOptions     = [yes, yesIncorrectRelease, yesCustom, no]
     static let comboPackOptions      = [yesComboPack, no]
@@ -300,7 +300,7 @@ enum ReleaseArtwork {
             return comboMultiPackOptions
         case ReleaseIndependence.multiPack:
             return multiPackOptions
-        default: // Standalone
+        default: /// Standalone
             return standaloneOptions
         }
     }
@@ -777,6 +777,7 @@ enum ReleaseAudioChannels {
     static let surround40   = "4.0"
     static let surround50   = "5.0"
     static let surround51   = "5.1"
+    static let surround60   = "6.0"
     static let surround61   = "6.1"
     static let surround71   = "7.1"
 
@@ -784,7 +785,7 @@ enum ReleaseAudioChannels {
     /// exactly the condition the pickers' tag-set fallback covers, both for a DVD restored
     /// holding it and for the bare integers the restorer can produce.
     static let commonOptions = [mono10, mono20, stereo20, surround30,
-                                surround40, surround50, surround51, surround61]
+                                surround40, surround50, surround51, surround60, surround61]
 
     /// The layouts offered for a given format.
     static func options(isDVD: Bool) -> [String] {
@@ -879,12 +880,12 @@ enum ReleaseRegionRules {
         Set(ReleaseOrigin.all.filter(\.isRegionA).map(\.name))
 
     // MARK: The tag vocabulary
-    //
-    // Extended from the compatibility rule's own needs to the full stored set, because the
-    // tags were being respelled at every surface that touched them: the card's two region
-    // pickers, the sidebar's region-indicator resolver, the search token mapper, and the
-    // new-release defaults. `regionBTags` in particular was defined here AND respelled as
-    // a two-element literal in both the card's option builder and the search mapper.
+    ///
+    /// Extended from the compatibility rule's own needs to the full stored set, because the
+    /// tags were being respelled at every surface that touched them: the card's two region
+    /// pickers, the sidebar's region-indicator resolver, the search token mapper, and the
+    /// new-release defaults. `regionBTags` in particular was defined here AND respelled as
+    /// a two-element literal in both the card's option builder and the search mapper.
 
     /// No region coding, or coding that imposes no restriction. Legal on every format —
     /// the Blu-ray picker offers it unconditionally regardless of national origin, which
@@ -1106,11 +1107,11 @@ enum ReleaseFormat: String, CaseIterable, Sendable {
 
     var newReleaseDefaults: NewReleaseDefaults {
         switch self {
-        // Subtitles are all but universal on the two HD formats, so they start selected
-        // and the user unticks the rare disc that lacks them. DVD is left unticked: the
-        // format spans far enough back, and enough bare catalog reissues, that a
-        // pre-selected trait there would assert something about the disc more often than
-        // it saved a click.
+        /// Subtitles are all but universal on the two HD formats, so they start selected
+        /// and the user unticks the rare disc that lacks them. DVD is left unticked: the
+        /// format spans far enough back, and enough bare catalog reissues, that a
+        /// pre-selected trait there would assert something about the disc more often than
+        /// it saved a click.
         case .uhd4K:
             return NewReleaseDefaults(nationalOrigin: ReleaseOrigin.domestic,
                                       videoFormat:    ReleaseVideoFormat.hevc,
@@ -1126,12 +1127,12 @@ enum ReleaseFormat: String, CaseIterable, Sendable {
                                       audioFormat:    ReleaseAudioFormat.dtsHDMA,
                                       audioChannels:  ReleaseAudioChannels.surround51,
                                       scanningMethod: ReleaseScanningMethod.progressive,
-                                      // The overwhelmingly common case for the format,
-                                      // and always a legal tag on the Blu-ray region
-                                      // picker regardless of national origin — see
-                                      // _CountryRow.bluRayRegionOptions, which offers
-                                      // "Region Free" unconditionally, so this default
-                                      // can never be cleared by the origin cascade.
+                                      /// The overwhelmingly common case for the format,
+                                      /// and always a legal tag on the Blu-ray region
+                                      /// picker regardless of national origin — see
+                                      /// _CountryRow.bluRayRegionOptions, which offers
+                                      /// "Region Free" unconditionally, so this default
+                                      /// can never be cleared by the origin cascade.
                                       regionLock:     ReleaseRegionRules.regionFree,
                                       hasSubtitles:   true)
         case .dvd:
@@ -1139,9 +1140,9 @@ enum ReleaseFormat: String, CaseIterable, Sendable {
                                       videoFormat:    ReleaseVideoFormat.mpeg2,
                                       audioFormat:    "Dolby Digital",
                                       scanningMethod: ReleaseScanningMethod.interlaced,
-                                      // Matches the default national origin. The DVD
-                                      // region picker's tag set is fixed (it does not
-                                      // vary with origin), so this is always valid.
+                                      /// Matches the default national origin. The DVD
+                                      /// region picker's tag set is fixed (it does not
+                                      /// vary with origin), so this is always valid.
                                       regionLock:     ReleaseRegionRules.dvdRegionTag(1))
         }
     }
@@ -1383,8 +1384,8 @@ struct ReleaseDateValue: Hashable, Sendable {
 // MARK: - Release Model Object Definition
 @objc(Release)
 final class Release: LibraryObject {
-    // Primary stable id for the release.
-    var id: UUID { get { requiredUUID("id") } set { setValue(newValue, forKey: "id") } } // See requiredUUID.
+    /// Primary stable id for the release.
+    var id: UUID { get { requiredUUID("id") } set { setValue(newValue, forKey: "id") } } /// See requiredUUID.
 
     // MARK: - Basic Information
     @NSManaged var studio: String
@@ -1399,50 +1400,50 @@ final class Release: LibraryObject {
     /// Stored as `Int` rather than `Bool` so the display ordering is persisted in-model
     /// and survives the backup/restore cycle without any separate order storage.
     @NSManaged var wishlist: Int
-    @NSManaged var format: String // Values: "4K UHD", "Blu-ray", "DVD"
+    @NSManaged var format: String /// Values: "4K UHD", "Blu-ray", "DVD"
     @NSManaged var includedVersions: [String]
-    // Values: "Standalone", "Combo-pack", "Combo-pack (dual BD)", "Combo-pack (multi-pack)",
-    // "Multi-pack". See ReleaseIndependence for the vocabulary and the child-count rules
-    // derived from it. "Combo-pack (dual BD)" and "Combo-pack (multi-pack)" only ever
-    // appear on a 4K UHD parent.
+    /// Values: "Standalone", "Combo-pack", "Combo-pack (dual BD)", "Combo-pack (multi-pack)",
+    /// "Multi-pack". See ReleaseIndependence for the vocabulary and the child-count rules
+    /// derived from it. "Combo-pack (dual BD)" and "Combo-pack (multi-pack)" only ever
+    /// appear on a 4K UHD parent.
     @NSManaged var independence: String
 
     // MARK: - Technical Details
-    //
-    // Every String field below holds an OPEN vocabulary — see the enum named beside it for
-    // the tags, the rules, and the reason none of them is a closed Swift type. Write and
-    // compare through those enums; never spell a tag out at a call site.
-    @NSManaged var videoFormat: String // Blu-ray and DVD-only. See ReleaseVideoFormat.
+    ///
+    /// Every String field below holds an OPEN vocabulary — see the enum named beside it for
+    /// the tags, the rules, and the reason none of them is a closed Swift type. Write and
+    /// compare through those enums; never spell a tag out at a call site.
+    @NSManaged var videoFormat: String /// Blu-ray and DVD-only. See ReleaseVideoFormat.
     @NSManaged var releaseAspectRatio: [String]
-    @NSManaged var scanningMethod: String // Blu-ray only. See ReleaseScanningMethod.
-    @NSManaged var audioFormat: String // See ReleaseAudioFormat.
-    @NSManaged var audioChannels: String // See ReleaseAudioChannels.
+    @NSManaged var scanningMethod: String /// Blu-ray only. See ReleaseScanningMethod.
+    @NSManaged var audioFormat: String /// See ReleaseAudioFormat.
+    @NSManaged var audioChannels: String /// See ReleaseAudioChannels.
     @NSManaged var hasSubtitles: Bool
     @NSManaged var numberOfDiscs: Int
     @NSManaged var discMultiPack: Bool
-    @NSManaged var hasArtwork: String // See ReleaseArtwork.
+    @NSManaged var hasArtwork: String /// See ReleaseArtwork.
     @NSManaged var remastered: Bool
     @NSManaged var nationalOrigin: String
-    @NSManaged var replicationType: String // See ReleaseReplicationType.
+    @NSManaged var replicationType: String /// See ReleaseReplicationType.
     @NSManaged var discCapacity: [String]
 
     // MARK: - Format-Specific Items
-    @NSManaged var hasHDR: String // 4K-only. See ReleaseHDR.
-    @NSManaged var masterType: String // 4K-only. See ReleaseMasterType.
-    @NSManaged var regionLock: String // Blu-ray and DVD-only. See ReleaseRegionRules.
+    @NSManaged var hasHDR: String /// 4K-only. See ReleaseHDR.
+    @NSManaged var masterType: String /// 4K-only. See ReleaseMasterType.
+    @NSManaged var regionLock: String /// Blu-ray and DVD-only. See ReleaseRegionRules.
     /// Mirrors `regionLock == ReleaseRegionRules.looselyLockedTag`; written by the card's
     /// region cascade. Blu-ray only.
     @NSManaged var regionLockBypass: Bool
 
     // MARK: - Purchase Information
-    @NSManaged var marketAvailability: [String] // See ReleaseMarketAvailability.
+    @NSManaged var marketAvailability: [String] /// See ReleaseMarketAvailability.
     @NSManaged var numberOfCopies: Int
     @NSManaged var cost: Double
     @NSManaged var amountSpent: Double
     @NSManaged var purchaseDate: String
     @NSManaged var lowestPrice: Double
     @NSManaged var lowestPriceDate: String
-    @NSManaged var condition: String // See ReleaseCondition.
+    @NSManaged var condition: String /// See ReleaseCondition.
 
     // MARK: - Additional Notes
     @NSManaged var notes: String
@@ -1455,17 +1456,17 @@ final class Release: LibraryObject {
     @NSManaged var film: Film?
 
     // MARK: - Release Hierarchy
-    // A release may optionally be a "child" of another release belonging to the same film.
-    // Only one level of depth is supported: a parent release can have children, but a
-    // child release cannot itself have children. This constraint is enforced by
-    // DataCoordinator at the business-logic layer, not in the schema itself.
-    //
-    // Both sides of the self-referential relationship are declared, as inverses of each
-    // other (LibraryModel), so Core Data keeps childReleases in step with parentRelease.
-    //
-    // Delete rule: .nullify — deleting a parent release clears the parentRelease pointer
-    // on its children, making them independent top-level releases rather than cascading
-    // deletion through to them. This is the safe default that preserves child release data.
+    /// A release may optionally be a "child" of another release belonging to the same film.
+    /// Only one level of depth is supported: a parent release can have children, but a
+    /// child release cannot itself have children. This constraint is enforced by
+    /// DataCoordinator at the business-logic layer, not in the schema itself.
+    ///
+    /// Both sides of the self-referential relationship are declared, as inverses of each
+    /// other (LibraryModel), so Core Data keeps childReleases in step with parentRelease.
+    ///
+    /// Delete rule: .nullify — deleting a parent release clears the parentRelease pointer
+    /// on its children, making them independent top-level releases rather than cascading
+    /// deletion through to them. This is the safe default that preserves child release data.
     @NSManaged var parentRelease: Release?
 
     @NSManaged var childReleases: Set<Release>
@@ -1512,7 +1513,7 @@ final class Release: LibraryObject {
         film: Film? = nil,
         parentRelease: Release? = nil) {
         self.init(detached: ())
-        // Joined to the film's context before the relationships are set; see ListMembership.
+        /// Joined to the film's context before the relationships are set; see ListMembership.
         unsafe (film?.managedObjectContext ?? parentRelease?.managedObjectContext)?.insert(self)
         self.id = id
         self.studio = studio
@@ -1602,17 +1603,17 @@ extension Release: ExportableModel {
         props["dateAdded"] = self.dateAdded
         props["sortOrder"] = self.sortOrder
 
-        // Export the related film ID for reconstruction during import.
+        /// Export the related film ID for reconstruction during import.
         props["filmID"] = self.film?.id
-        // Export the parent release ID only when a parent exists. The restorer treats an absent
-        // parentReleaseID as a top-level release, so a parentless release omits the key.
-        //
-        // childReleases are not exported here — they are reconstructed during restore by
-        // linking each child's parentReleaseID back to its parent.
+        /// Export the parent release ID only when a parent exists. The restorer treats an absent
+        /// parentReleaseID as a top-level release, so a parentless release omits the key.
+        ///
+        /// childReleases are not exported here — they are reconstructed during restore by
+        /// linking each child's parentReleaseID back to its parent.
         if let parentReleaseID = self.parentRelease?.id {
             props["parentReleaseID"] = parentReleaseID
         }
-        // No relationship arrays needed - film and parentRelease are referenced by ID.
+        /// No relationship arrays needed - film and parentRelease are referenced by ID.
         let rels: [String: [Any]] = [:]
         return (properties: props, relationships: rels) }
 

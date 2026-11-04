@@ -1,58 +1,58 @@
 // MARK: - DHBackup.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only harness scenarios that exercise the backup / restore pipeline as a whole
-// system rather than one stage at a time.
-//
-// WHAT THIS FILE ADDS OVER `restore-endtoend`
-//
-// `restore-endtoend` (DHPipelines.swift) proves that FILM string fields survive a real
-// export and a real restore. That is the hardest single case, but it is one entity out of
-// six, and the backup's job is the whole library:
-//
-//   • Releases carry 37 persisted fields across six Swift types, plus a parent/child
-//     hierarchy whose inverse array the restorer populates by hand.
-//   • ListMemberships are the only record of which film sits in which list, and in what
-//     order — losing `sortOrder` silently reshuffles every custom-ordered list.
-//   • ImportSessions and the SettingsObject are each written by one bespoke extractor.
-//   • Posters are files, not rows, and the restore path for them contains a security
-//     guard that nothing exercised.
-//
-// So the scenarios here are organized around four questions the user's data actually
-// depends on, each of which is answered by running the real code and reading the result
-// back off disk — never by inspecting the source:
-//
-//   1. IS EVERYTHING WRITTEN?  `backup-schema-coverage` derives the persisted field list
-//      from the live Core Data model (LibraryModel) — not from a hand-maintained list that would rot —
-//      and requires every attribute to appear in the produced XML. A field added to a
-//      model class but forgotten in its `extractExportValues()` is invisible to every other
-//      check in the suite: it exports cleanly, restores cleanly, and is simply gone.
-//
-//   2. DOES IT ALL COME BACK?  `backup-graph-roundtrip` seeds one fully-populated instance
-//      of every entity, with a value in every field chosen to be distinguishable from that
-//      field's default, and compares field by field after a real restore. Populating every
-//      field matters: a comparison against default-valued objects passes for a field the
-//      restorer never reads.
-//
-//   3. IS IT REPEATABLE?  `backup-repeatability` exports the same store twice and requires
-//      the two files to agree, then restores and re-exports and requires the SECOND
-//      generation to agree with the first. A pipeline that loses a little on each pass
-//      still looks correct in a single round trip; it is only visible as a fixed-point
-//      failure.
-//
-//   4. WHAT HAPPENS WHEN IT GOES WRONG?  `backup-integrity` damages a real package in the
-//      four ways a real one can be damaged and asserts the property that matters more than
-//      any error message: that the restore refuses BEFORE it commits its staged store, so
-//      the user's library is left as it was (see PendingRestore).
-//
-// STORE OWNERSHIP — why these scenarios never touch the coordinator's container
-//
-// The coordinator's container holds the library this session loaded, and a restore's result
-// is only read after the swap the relaunch would do (applyRestoreAsRelaunchWould), into a
-// separate store. Every scenario here therefore opens its OWN container at the store URL,
-// and starts by erasing the store so it begins from a known-empty library regardless of
-// what ran before it. That also makes each scenario individually runnable via
-// `-FTDebugHarness backup`.
+/// DEBUG-only harness scenarios that exercise the backup / restore pipeline as a whole
+/// system rather than one stage at a time.
+///
+/// WHAT THIS FILE ADDS OVER `restore-endtoend`
+///
+/// `restore-endtoend` (DHPipelines.swift) proves that FILM string fields survive a real
+/// export and a real restore. That is the hardest single case, but it is one entity out of
+/// six, and the backup's job is the whole library:
+///
+///   • Releases carry 37 persisted fields across six Swift types, plus a parent/child
+///     hierarchy whose inverse array the restorer populates by hand.
+///   • ListMemberships are the only record of which film sits in which list, and in what
+///     order — losing `sortOrder` silently reshuffles every custom-ordered list.
+///   • ImportSessions and the SettingsObject are each written by one bespoke extractor.
+///   • Posters are files, not rows, and the restore path for them contains a security
+///     guard that nothing exercised.
+///
+/// So the scenarios here are organized around four questions the user's data actually
+/// depends on, each of which is answered by running the real code and reading the result
+/// back off disk — never by inspecting the source:
+///
+///   1. IS EVERYTHING WRITTEN?  `backup-schema-coverage` derives the persisted field list
+///      from the live Core Data model (LibraryModel) — not from a hand-maintained list that would rot —
+///      and requires every attribute to appear in the produced XML. A field added to a
+///      model class but forgotten in its `extractExportValues()` is invisible to every other
+///      check in the suite: it exports cleanly, restores cleanly, and is simply gone.
+///
+///   2. DOES IT ALL COME BACK?  `backup-graph-roundtrip` seeds one fully-populated instance
+///      of every entity, with a value in every field chosen to be distinguishable from that
+///      field's default, and compares field by field after a real restore. Populating every
+///      field matters: a comparison against default-valued objects passes for a field the
+///      restorer never reads.
+///
+///   3. IS IT REPEATABLE?  `backup-repeatability` exports the same store twice and requires
+///      the two files to agree, then restores and re-exports and requires the SECOND
+///      generation to agree with the first. A pipeline that loses a little on each pass
+///      still looks correct in a single round trip; it is only visible as a fixed-point
+///      failure.
+///
+///   4. WHAT HAPPENS WHEN IT GOES WRONG?  `backup-integrity` damages a real package in the
+///      four ways a real one can be damaged and asserts the property that matters more than
+///      any error message: that the restore refuses BEFORE it commits its staged store, so
+///      the user's library is left as it was (see PendingRestore).
+///
+/// STORE OWNERSHIP — why these scenarios never touch the coordinator's container
+///
+/// The coordinator's container holds the library this session loaded, and a restore's result
+/// is only read after the swap the relaunch would do (applyRestoreAsRelaunchWould), into a
+/// separate store. Every scenario here therefore opens its OWN container at the store URL,
+/// and starts by erasing the store so it begins from a known-empty library regardless of
+/// what ran before it. That also makes each scenario individually runnable via
+/// `-FTDebugHarness backup`.
 
 #if DEBUG
 
@@ -135,13 +135,13 @@ extension DebugHarness {
     /// previous scenario into this one and make every count check meaningless.
     @MainActor
     static func resetBackupStore() throws -> NSPersistentContainer {
-        // Back to the library's own store, before its URL is read below.
+        /// Back to the library's own store, before its URL is read below.
         restoredStoreInUse = false
         guard let url = backupHarnessStoreURL else {
             throw DBRestorerError.storeRebuildFailed("no store URL in this sandbox")
         }
-        // Erased in place, not unlinked: the app's own container has this file open, and
-        // deleting it from under that connection is what SQLite reports as error 6922.
+        /// Erased in place, not unlinked: the app's own container has this file open, and
+        /// deleting it from under that connection is what SQLite reports as error 6922.
         PendingRestore.discard()
         if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             try LibraryStore.destroyStore(at: url)
@@ -237,8 +237,8 @@ extension DebugHarness {
             return r
         }
 
-        // One fully-populated instance of every entity, so no field can be absent from the
-        // file merely because it was nil or empty in the corpus.
+        /// One fully-populated instance of every entity, so no field can be absent from the
+        /// file merely because it was nil or empty in the corpus.
         let graph: SeededGraph
         do {
             graph = try await seedFullGraph(container: container)
@@ -263,8 +263,8 @@ extension DebugHarness {
         }
         r.check("backup-parses", true, "\(parsed.objects.count) object(s)")
 
-        // The exporter's type list must be the whole schema. A model added to the schema but
-        // not to `allModelTypes` is never fetched, so none of its rows reach any backup.
+        /// The exporter's type list must be the whole schema. A model added to the schema but
+        /// not to `allModelTypes` is never fetched, so none of its rows reach any backup.
         let schemaEntityNames = Set(backupHarnessSchema.entities.map(\.name))
         let exportedTypeNames = Set(DBExporter.allModelTypes.map { $0.entityName })
         r.check("exporter-covers-every-model",
@@ -275,13 +275,13 @@ extension DebugHarness {
                     : "in the schema but never exported: "
                         + schemaEntityNames.subtracting(exportedTypeNames).sorted().joined(separator: ", "))
 
-        // --- Layer 1: the extractor, in isolation -----------------------------------------
-        //
-        // Asked of a fully-populated instance held in memory, so the answer depends on
-        // nothing but the extractor itself. This is the layer that actually catches the bug
-        // the scenario exists for — a field added to a model class and forgotten in its
-        // `extractExportValues()` — and it is deterministic, which the file layer below is
-        // not for `SettingsObject` (see the note there).
+        /// --- Layer 1: the extractor, in isolation -----------------------------------------
+        ///
+        /// Asked of a fully-populated instance held in memory, so the answer depends on
+        /// nothing but the extractor itself. This is the layer that actually catches the bug
+        /// the scenario exists for — a field added to a model class and forgotten in its
+        /// `extractExportValues()` — and it is deterministic, which the file layer below is
+        /// not for `SettingsObject` (see the note there).
         let extractorSources: [(String, () -> [String: Any])] = [
             ("Film", { self.probeFilm().extractExportValues().properties }),
             ("ListObject", { self.probeList().extractExportValues().properties }),
@@ -305,21 +305,21 @@ extension DebugHarness {
             r.metric("extra-keys:\(entityName)", Double(extra.count), "count")
         }
 
-        // --- Layer 2: the produced file -----------------------------------------------------
-        //
-        // The extractor offering a key proves nothing about the key reaching the file: the
-        // reader normalizes, the packager writes, and either could drop it. So the same
-        // question is asked again of the XML that was actually written.
-        //
-        // `SettingsObject` is deliberately NOT held to this layer. Its row is a singleton the
-        // running application rewrites on a five-second debounce — every restore posts a
-        // `preferencesChanged` event, so a write is nearly always in flight — and that write
-        // reaches the same store path this scenario seeds. The row that gets exported is
-        // therefore whichever of the two landed last, and its nil-valued optionals are
-        // legitimately omitted by the extractor. The settings question is answered instead by
-        // the extractor layer above and, for the restore direction, by
-        // `settings-restore-covers-every-field` in `backup-integrity`, which uses a
-        // hand-written file no live code can touch.
+        /// --- Layer 2: the produced file -----------------------------------------------------
+        ///
+        /// The extractor offering a key proves nothing about the key reaching the file: the
+        /// reader normalizes, the packager writes, and either could drop it. So the same
+        /// question is asked again of the XML that was actually written.
+        ///
+        /// `SettingsObject` is deliberately NOT held to this layer. Its row is a singleton the
+        /// running application rewrites on a five-second debounce — every restore posts a
+        /// `preferencesChanged` event, so a write is nearly always in flight — and that write
+        /// reaches the same store path this scenario seeds. The row that gets exported is
+        /// therefore whichever of the two landed last, and its nil-valued optionals are
+        /// legitimately omitted by the extractor. The settings question is answered instead by
+        /// the extractor layer above and, for the restore direction, by
+        /// `settings-restore-covers-every-field` in `backup-integrity`, which uses a
+        /// hand-written file no live code can touch.
         let fileCoverageEntities = ["Film", "ListObject", "ListMembership", "Release", "ImportSession",
                                     "SavedSearchObject"]
         for entityName in fileCoverageEntities {
@@ -332,8 +332,8 @@ extension DebugHarness {
                             + "either the fetch or the write dropped it entirely")
                 continue
             }
-            // Union across every instance: an optional attribute is written only where it has
-            // a value, so one instance can legitimately lack a key another carries.
+            /// Union across every instance: an optional attribute is written only where it has
+            /// a value, so one instance can legitimately lack a key another carries.
             let writtenKeys = objects.reduce(into: Set<String>()) { $0.formUnion($1.properties.keys) }
             let missing = attributeNames.subtracting(writtenKeys)
             r.check("coverage:\(entityName)", missing.isEmpty,
@@ -343,8 +343,8 @@ extension DebugHarness {
                             + missing.sorted().joined(separator: ", "))
         }
 
-        // Relationships must be recoverable. Each is exported as an ID property rather than
-        // a <Relationship> element, so the check is that the naming ID is present and parses.
+        /// Relationships must be recoverable. Each is exported as an ID property rather than
+        /// a <Relationship> element, so the check is that the naming ID is present and parses.
         func hasUUID(_ entityName: String, _ key: String) -> Bool {
             let objects = parsed.objects.filter { $0.entityName == entityName }
             guard !objects.isEmpty else { return false }
@@ -356,8 +356,8 @@ extension DebugHarness {
         r.check("relationship:ListMembership.listID", hasUUID("ListMembership", "listID"), "")
         r.check("relationship:Release.filmID", hasUUID("Release", "filmID"), "")
 
-        // The parent link is written only for children, by design — a parentless release
-        // omits the key entirely so the restorer's "absent means top-level" reading is exact.
+        /// The parent link is written only for children, by design — a parentless release
+        /// omits the key entirely so the restorer's "absent means top-level" reading is exact.
         let releaseObjects = parsed.objects.filter { $0.entityName == "Release" }
         let withParent = releaseObjects.filter { $0.properties["parentReleaseID"] != nil }
         r.check("relationship:Release.parentReleaseID-only-on-children",
@@ -367,8 +367,8 @@ extension DebugHarness {
                 releaseObjects.allSatisfy { ($0.properties["parentReleaseID"] as? String) != "nil" },
                 "a parentless release must omit the key, never write the text \"nil\"")
 
-        // Manifest counts must equal what is actually in the file. The restorer only warns on
-        // a mismatch, so a wrong manifest is otherwise silent.
+        /// Manifest counts must equal what is actually in the file. The restorer only warns on
+        /// a mismatch, so a wrong manifest is otherwise silent.
         var actual: [String: Int] = [:]
         for object in parsed.objects { actual[object.entityName, default: 0] += 1 }
         let manifestMatches = parsed.manifest.allSatisfy { actual[$0.key] ?? 0 == $0.value }
@@ -411,8 +411,8 @@ extension DebugHarness {
     @MainActor
     static func probeRelease() -> Release {
         let release = fullyPopulatedRelease(id: UUID(), film: probeFilm(), dateAdded: Date())
-        // A parent, so `parentReleaseID` is offered too — the extractor omits the key for a
-        // top-level release by design, which would otherwise read as a missing field.
+        /// A parent, so `parentReleaseID` is offered too — the extractor omits the key for a
+        /// top-level release by design, which would otherwise read as a missing field.
         release.parentRelease = Release(id: UUID(), independence: ReleaseIndependence.standalone)
         return release
     }
@@ -474,7 +474,7 @@ extension DebugHarness {
         Release(
             id: id,
             studio: "Criterion & Co. <Special>",
-            // A full date, so the round trip covers the dot shape, not only a bare year.
+            /// A full date, so the round trip covers the dot shape, not only a bare year.
             releaseDate: "2019.04.12",
             baseReleaseYear: "1974",
             purchased: true,
@@ -485,8 +485,8 @@ extension DebugHarness {
             videoFormat: "AVC",
             releaseAspectRatio: ["2.39:1", "1.33:1"],
             scanningMethod: "Progressive",
-            // A value the reader's type inference sees as the Double 7.1 — the field is a
-            // String in the model, and `parseAudioChannels` exists solely to put it back.
+            /// A value the reader's type inference sees as the Double 7.1 — the field is a
+            /// String in the model, and `parseAudioChannels` exists solely to put it back.
             audioChannels: "7.1",
             hasSubtitles: true,
             numberOfDiscs: 3,
@@ -502,8 +502,8 @@ extension DebugHarness {
             regionLockBypass: true,
             marketAvailability: ["UK", "EU"],
             numberOfCopies: 2,
-            // Money: a value with cents, and one whose decimal expansion is not exact in
-            // binary, so a Double written as text and read back must still compare equal.
+            /// Money: a value with cents, and one whose decimal expansion is not exact in
+            /// binary, so a Double written as text and read back must still compare equal.
             cost: 39.99,
             amountSpent: 74.85,
             purchaseDate: "2021.06.14",
@@ -584,9 +584,9 @@ extension DebugHarness {
     static func expectedSettingsBool(_ index: Int) -> Bool { index % 2 == 0 }
     static func expectedSettingsInt(_ index: Int) -> Int { 101 + index * 7 }
     static func expectedSettingsString(_ index: Int) -> String {
-        // Deliberately type-ambiguous text: a JSON object, a JSON array, a bare number and a
-        // boolean word are all shapes the reader's inference would misread without the
-        // declared-type attribute, and all shapes these fields really hold.
+        /// Deliberately type-ambiguous text: a JSON object, a JSON array, a bare number and a
+        /// boolean word are all shapes the reader's inference would misread without the
+        /// declared-type attribute, and all shapes these fields really hold.
         ["Watched", "true", #"["alpha","beta"]"#, #"{"gallery":"name","sort":"desc"}"#, "42"][index % 5]
     }
 
@@ -612,20 +612,20 @@ extension DebugHarness {
         var graph = SeededGraph()
         let context = container.makeMainContext()
 
-        // FilmSnapshot.id is a `let`, so the harness-chosen identity is stamped on the model
-        // object after conversion. Doing it this way rather than through the snapshot keeps
-        // the seed going through `toFilm()`, which is the same conversion the app uses.
+        /// FilmSnapshot.id is a `let`, so the harness-chosen identity is stamped on the model
+        /// object after conversion. Doing it this way rather than through the snapshot keeps
+        /// the seed going through `toFilm()`, which is the same conversion the app uses.
         let filmA = makeSnapshot(name: "Graph Film A").toFilm()
         filmA.id = graph.filmA
         let filmB = makeSnapshot(name: "Graph Film B").toFilm()
         filmB.id = graph.filmB
 
-        // Values chosen so no field equals its model default, and several are the
-        // type-ambiguous shapes the untyped format has to survive.
-        // Lowercase on purpose: `posterUID` names a file on disk, and a pipeline that
-        // canonicalized it as a UUID would upper-case it and break the link between the film
-        // and its poster image. The seeded value is recorded on the graph so the comparison
-        // is against what was written rather than against the restored value's own lowercase.
+        /// Values chosen so no field equals its model default, and several are the
+        /// type-ambiguous shapes the untyped format has to survive.
+        /// Lowercase on purpose: `posterUID` names a file on disk, and a pipeline that
+        /// canonicalized it as a UUID would upper-case it and break the link between the film
+        /// and its poster image. The seeded value is recorded on the graph so the comparison
+        /// is against what was written rather than against the restored value's own lowercase.
         graph.posterUID = UUID().uuidString.lowercased()
         filmA.posterUID = graph.posterUID
         filmA.releaseYear = "1974"
@@ -694,9 +694,9 @@ extension DebugHarness {
         context.insert(listOne)
         context.insert(listTwo)
 
-        // Memberships with DISTINCT sortOrder values, and deliberately not in ascending
-        // insertion order: `sortOrder` is the only record of a custom list's arrangement, and
-        // a restore that dropped it would still produce the right membership set.
+        /// Memberships with DISTINCT sortOrder values, and deliberately not in ascending
+        /// insertion order: `sortOrder` is the only record of a custom list's arrangement, and
+        /// a restore that dropped it would still produce the right membership set.
         for (film, list, order) in [(filmA, listOne, 4), (filmB, listOne, 1), (filmA, listTwo, 2)] {
             let membership = ListMembership(id: UUID(), film: film, list: list,
                                             dateAdded: graph.membershipDateAdded,
@@ -705,9 +705,9 @@ extension DebugHarness {
             context.insert(membership)
         }
 
-        // Release hierarchy: a 4K parent bundling two Blu-rays. Two children rather than one,
-        // because the one-level guard and the inverse-array repair both behave differently
-        // for a second child.
+        /// Release hierarchy: a 4K parent bundling two Blu-rays. Two children rather than one,
+        /// because the one-level guard and the inverse-array repair both behave differently
+        /// for a second child.
         let parent = Release(id: graph.parentReleaseID, studio: "Parent Studio",
                              releaseDate: "2021", format: "4K UHD",
                              independence: ReleaseIndependence.comboPackDualBD,
@@ -738,7 +738,7 @@ extension DebugHarness {
             isCompleted: true, isCanceled: false)
         context.insert(session)
 
-        // One saved search, so the file layer has a SavedSearchObject to check.
+        /// One saved search, so the file layer has a SavedSearchObject to check.
         context.insert(probeSavedSearch())
 
         let settings = SettingsObject(snapshotID: SettingsObject.singletonID,
@@ -785,8 +785,8 @@ extension DebugHarness {
 
         let films: [Film], lists: [ListObject], memberships: [ListMembership]
         let releases: [Release], sessions: [ImportSession], settingsRows: [SettingsObject]
-        // Held for the rest of the scenario: a managed object whose context is gone reads
-        // every attribute as nil, and the checks below read these long after the fetch.
+        /// Held for the rest of the scenario: a managed object whose context is gone reads
+        /// every attribute as nil, and the checks below read these long after the fetch.
         var keepAlive: [AnyObject] = []
         defer { withExtendedLifetime(keepAlive) {} }
         do {
@@ -814,7 +814,7 @@ extension DebugHarness {
         r.check("counts:import-sessions", sessions.count == 1, "\(sessions.count) of 1")
         r.check("counts:settings", settingsRows.count == 1, "\(settingsRows.count) of 1")
 
-        // --- Film A, field by field ---------------------------------------------------------
+        /// --- Film A, field by field ---------------------------------------------------------
         guard let filmA = films.first(where: { $0.id == graph.filmA }) else {
             r.check("film-a-present", false, "the fully-populated film is absent from the restore")
             return r
@@ -891,11 +891,11 @@ extension DebugHarness {
                 filmLosses.isEmpty ? "every populated Film field round-tripped"
                     : "\(filmLosses.count) field(s): " + filmLosses.prefix(8).joined(separator: " | "))
 
-        // --- Optional Int fields: nil must stay nil ------------------------------------------
-        // The counterpart to the two checks above. `parseOptionalInt` returns nil for an
-        // absent or null value, and Film B carries neither override — a restore that
-        // substituted 0 (the non-optional default) would change the film's rotation
-        // behavior without changing any visible field.
+        /// --- Optional Int fields: nil must stay nil ------------------------------------------
+        /// The counterpart to the two checks above. `parseOptionalInt` returns nil for an
+        /// absent or null value, and Film B carries neither override — a restore that
+        /// substituted 0 (the non-optional default) would change the film's rotation
+        /// behavior without changing any visible field.
         if let filmB = films.first(where: { $0.id == graph.filmB }) {
             r.check("film-b-nil-optionals-stay-nil",
                     filmB.rotationThresholdOverride == nil && filmB.autoAddToQueueOnRotation == nil,
@@ -905,7 +905,7 @@ extension DebugHarness {
             r.check("film-b-nil-optionals-stay-nil", false, "film B absent")
         }
 
-        // --- Lists ---------------------------------------------------------------------------
+        /// --- Lists ---------------------------------------------------------------------------
         var listLosses: [String] = []
         if let one = lists.first(where: { $0.listID == graph.listOne }) {
             if one.listName != "Graph List One" { listLosses.append("listOne.listName → \(one.listName)") }
@@ -916,16 +916,16 @@ extension DebugHarness {
         if let two = lists.first(where: { $0.listID == graph.listTwo }) {
             if two.listName != "Graph List Two" { listLosses.append("listTwo.listName → \(two.listName)") }
             if two.viewStyle != "gallery" { listLosses.append("listTwo.viewStyle → \(two.viewStyle)") }
-            // An EMPTY array must come back empty, not as a one-element array containing "[]"
-            // or the literal text — the round trip for an empty collection goes through the
-            // null/empty-string path, which is a different branch from a populated one.
+            /// An EMPTY array must come back empty, not as a one-element array containing "[]"
+            /// or the literal text — the round trip for an empty collection goes through the
+            /// null/empty-string path, which is a different branch from a populated one.
             if !two.sortFilterOptions.isEmpty { listLosses.append("listTwo.sortFilterOptions → \(two.sortFilterOptions)") }
             if two.displayOrder != 9 { listLosses.append("listTwo.displayOrder → \(two.displayOrder)") }
         } else { listLosses.append("listTwo absent") }
         r.check("lists-all-fields-survive", listLosses.isEmpty,
                 listLosses.isEmpty ? "both lists round-tripped" : listLosses.joined(separator: " | "))
 
-        // --- Memberships: the arrangement, not just the set ----------------------------------
+        /// --- Memberships: the arrangement, not just the set ----------------------------------
         var membershipLosses: [String] = []
         let expectedMemberships: [(UUID, UUID, Int)] = [
             (graph.filmA, graph.listOne, 4), (graph.filmB, graph.listOne, 1), (graph.filmA, graph.listTwo, 2)]
@@ -947,24 +947,24 @@ extension DebugHarness {
                     ? "all 3 memberships restored with their film, list, order and date"
                     : membershipLosses.joined(separator: " | "))
 
-        // Every membership must name BOTH ends. A membership restored with a nil film or list
-        // is an orphan row that no list will ever show and nothing will ever clean up.
+        /// Every membership must name BOTH ends. A membership restored with a nil film or list
+        /// is an orphan row that no list will ever show and nothing will ever clean up.
         r.check("memberships-have-both-ends",
                 memberships.allSatisfy { $0.film != nil && $0.list != nil },
                 "\(memberships.filter { $0.film == nil || $0.list == nil }.count) orphaned membership(s)")
 
-        // The list's own view of its membership must agree — this is what the app reads.
+        /// The list's own view of its membership must agree — this is what the app reads.
         if let one = lists.first(where: { $0.listID == graph.listOne }) {
             r.check("list-membership-inverse-populated",
                     Set(one.filmIDs) == Set([graph.filmA, graph.filmB]),
                     "listOne.filmIDs → \(one.filmIDs.map { $0.uuidString.prefix(8) })")
-            // filmIDs is sorted by sortOrder, so film B (order 1) must precede film A (order 4).
+            /// filmIDs is sorted by sortOrder, so film B (order 1) must precede film A (order 4).
             r.check("list-membership-order-observable",
                     one.filmIDs.first == graph.filmB,
                     "listOne.filmIDs in sortOrder → \(one.filmIDs.map { $0.uuidString.prefix(8) })")
         }
 
-        // --- Releases: every field of the fully-populated one ---------------------------------
+        /// --- Releases: every field of the fully-populated one ---------------------------------
         var releaseLosses: [String] = []
         if let solo = releases.first(where: { $0.id == graph.soloReleaseID }) {
             func expect(_ label: String, _ got: String, _ want: String) {
@@ -1014,16 +1014,16 @@ extension DebugHarness {
                 releaseLosses.isEmpty ? "all 37 Release fields round-tripped"
                     : "\(releaseLosses.count) field(s): " + releaseLosses.prefix(8).joined(separator: " | "))
 
-        // --- Release hierarchy, both directions -----------------------------------------------
+        /// --- Release hierarchy, both directions -----------------------------------------------
         let parent = releases.first { $0.id == graph.parentReleaseID }
         let children = releases.filter { graph.childReleaseIDs.contains($0.id) }
         r.check("hierarchy:children-restored", children.count == 2, "\(children.count) of 2 child release(s)")
         r.check("hierarchy:children-name-their-parent",
                 children.allSatisfy { $0.parentRelease?.id == graph.parentReleaseID },
                 children.map { String(describing: $0.parentRelease?.id.uuidString.prefix(8)) }.joined(separator: ", "))
-        // The inverse array is populated by hand during the restore, because it is not relied
-        // on to follow the relationship for a batch of unsaved inserts. The FilmSheet's
-        // combo-pack logic reads this side.
+        /// The inverse array is populated by hand during the restore, because it is not relied
+        /// on to follow the relationship for a batch of unsaved inserts. The FilmSheet's
+        /// combo-pack logic reads this side.
         r.check("hierarchy:parent-claims-both-children",
                 Set(parent?.childReleases.map(\.id) ?? []) == Set(graph.childReleaseIDs),
                 "parent.childReleases → \(parent?.childReleases.map { $0.id.uuidString.prefix(8) } ?? [])")
@@ -1034,17 +1034,17 @@ extension DebugHarness {
                 releases.filter { $0.film?.id == graph.filmA }.count == 3,
                 "\(releases.filter { $0.film?.id == graph.filmA }.count) of 3 release(s) on film A")
 
-        // --- Dates -----------------------------------------------------------------------------
-        // Date fields are written as ISO8601 with second resolution, so the assertion is
-        // second-level equality rather than exact Date equality. Stated as a check so the
-        // documented precision limit is pinned rather than assumed.
+        /// --- Dates -----------------------------------------------------------------------------
+        /// Date fields are written as ISO8601 with second resolution, so the assertion is
+        /// second-level equality rather than exact Date equality. Stated as a check so the
+        /// documented precision limit is pinned rather than assumed.
         if let solo = releases.first(where: { $0.id == graph.soloReleaseID }) {
             let drift = abs(solo.dateAdded.timeIntervalSince(graph.releaseDateAdded.addingTimeInterval(60)))
             r.check("release-dateAdded-survives-to-the-second", drift < 1,
                     "drift \(drift)s — the format writes ISO8601 without fractional seconds")
         }
 
-        // --- Import session --------------------------------------------------------------------
+        /// --- Import session --------------------------------------------------------------------
         var sessionLosses: [String] = []
         if let session = sessions.first(where: { $0.id == graph.importSessionID }) {
             if session.importType != "metadata" { sessionLosses.append("importType → \(session.importType)") }
@@ -1070,18 +1070,18 @@ extension DebugHarness {
                 sessionLosses.isEmpty ? "every ImportSession field round-tripped"
                     : sessionLosses.joined(separator: " | "))
 
-        // --- Settings: what the FILE carries must be what the store gets --------------------------
-        //
-        // The expectation is read from the exported file rather than from the values this
-        // scenario seeded, and that is not a weakening — it is the only formulation that is
-        // both strong and true. The settings row is a singleton the running application
-        // rewrites on a five-second debounce (every restore posts `preferencesChanged`), and
-        // that write targets the same store path, so which of the two rows gets exported is a
-        // race this scenario cannot win. Comparing file → store measures the pipeline and
-        // nothing else. The two questions the seeded values were meant to answer are answered
-        // deterministically elsewhere: `extractor-covers:SettingsObject` in
-        // `backup-schema-coverage` for the write side, and
-        // `settings-restore-covers-every-field` in `backup-integrity` for the read side.
+        /// --- Settings: what the FILE carries must be what the store gets --------------------------
+        ///
+        /// The expectation is read from the exported file rather than from the values this
+        /// scenario seeded, and that is not a weakening — it is the only formulation that is
+        /// both strong and true. The settings row is a singleton the running application
+        /// rewrites on a five-second debounce (every restore posts `preferencesChanged`), and
+        /// that write targets the same store path, so which of the two rows gets exported is a
+        /// race this scenario cannot win. Comparing file → store measures the pipeline and
+        /// nothing else. The two questions the seeded values were meant to answer are answered
+        /// deterministically elsewhere: `extractor-covers:SettingsObject` in
+        /// `backup-schema-coverage` for the write side, and
+        /// `settings-restore-covers-every-field` in `backup-integrity` for the read side.
         var settingsLosses: [String] = []
         var settingsCompared = 0
         let fileSettings: [String: Any]
@@ -1119,9 +1119,9 @@ extension DebugHarness {
                 let got = settings[keyPath: field.1]
                 if got != want { settingsLosses.append("\(field.0): file \(String(reflecting: want)) → store \(String(describing: got))") }
             }
-            // A key the file does NOT carry must come back nil, not as some default. This is
-            // the other half of the round trip and the half a "compare only what is present"
-            // check would otherwise skip entirely.
+            /// A key the file does NOT carry must come back nil, not as some default. This is
+            /// the other half of the round trip and the half a "compare only what is present"
+            /// check would otherwise skip entirely.
             for field in settingsBoolFields where fileSettings[field.0] == nil {
                 if settings[keyPath: field.1] != nil {
                     settingsLosses.append("\(field.0): absent from the file → store \(String(describing: settings[keyPath: field.1]))")
@@ -1150,14 +1150,14 @@ extension DebugHarness {
                         + "and every absent field came back nil"
                     : "\(settingsLosses.count) field(s): " + settingsLosses.prefix(8).joined(separator: " | "))
 
-        // The comparison above is only as complete as its three key-path tables, so the tables
-        // themselves are held to the live schema. A settings field added to the model and not
-        // to a table would otherwise be "verified" by a check that never looks at it.
+        /// The comparison above is only as complete as its three key-path tables, so the tables
+        /// themselves are held to the live schema. A settings field added to the model and not
+        /// to a table would otherwise be "verified" by a check that never looks at it.
         let comparedNames = Set(settingsBoolFields.map(\.0) + settingsIntFields.map(\.0)
                                     + settingsStringFields.map(\.0))
-        // Metadata fields are deliberately NOT restored from the backup — DBRestorer stamps
-        // the singleton ID, the current schema version and the restore's own date — so they
-        // are exempt from the value comparison by design.
+        /// Metadata fields are deliberately NOT restored from the backup — DBRestorer stamps
+        /// the singleton ID, the current schema version and the restore's own date — so they
+        /// are exempt from the value comparison by design.
         let metadataFields: Set<String> = ["snapshotID", "version", "lastSyncDate"]
         let settingsAttributes = Set(backupHarnessSchema.entities
             .first { $0.name == "SettingsObject" }?.attributes.map(\.name) ?? [])
@@ -1200,26 +1200,26 @@ extension DebugHarness {
             return r
         }
 
-        // Two well-formed posters with distinct contents, so a mix-up between them is visible
-        // and not merely a count. `<UUID>.jpg` is the only shape the restore accepts.
+        /// Two well-formed posters with distinct contents, so a mix-up between them is visible
+        /// and not merely a count. `<UUID>.jpg` is the only shape the restore accepts.
         let goodUID1 = UUID().uuidString, goodUID2 = UUID().uuidString
         let payload1 = Data((0..<2048).map { UInt8($0 % 251) })
         let payload2 = Data((0..<777).map { UInt8(($0 * 7) % 253) })
-        // Two names the restore must refuse: a non-UUID basename and a non-JPEG extension.
-        // These are the guard's two clauses; a crafted package is how a malicious backup would
-        // try to write outside the PosterImages folder.
+        /// Two names the restore must refuse: a non-UUID basename and a non-JPEG extension.
+        /// These are the guard's two clauses; a crafted package is how a malicious backup would
+        /// try to write outside the PosterImages folder.
         let hostileNames = ["not-a-uuid.jpg", "\(UUID().uuidString).png"]
-        // A file OUTSIDE the posters folder, used as a symlink target below so that "nothing
-        // was written outside PosterImages" can be asserted against a real path rather than
-        // inferred from the absence of a filename.
+        /// A file OUTSIDE the posters folder, used as a symlink target below so that "nothing
+        /// was written outside PosterImages" can be asserted against a real path rather than
+        /// inferred from the absence of a filename.
         let scratchOutsideURL = (DebugSandbox.rootURL ?? fm.temporaryDirectory)
             .appendingPathComponent("poster-symlink-target.txt")
 
         do {
             try payload1.write(to: postersFolder.appendingPathComponent("\(goodUID1).jpg"))
             try payload2.write(to: postersFolder.appendingPathComponent("\(goodUID2).jpg"))
-            // Backdated: the pruner keeps anything written since its UID snapshot (see
-            // `pruneOrphanedPosters`), and these stand for files that were already there.
+            /// Backdated: the pruner keeps anything written since its UID snapshot (see
+            /// `pruneOrphanedPosters`), and these stand for files that were already there.
             let longAgo = Date().addingTimeInterval(-3_600)
             for name in hostileNames {
                 let url = postersFolder.appendingPathComponent(name)
@@ -1227,8 +1227,8 @@ extension DebugHarness {
                 try fm.setAttributes([.modificationDate: longAgo],
                                      ofItemAtPath: url.path(percentEncoded: false))
             }
-            // A nested directory, to confirm the enumerator's skipsSubdirectoryDescendants
-            // holds and that a directory entry does not abort the copy loop.
+            /// A nested directory, to confirm the enumerator's skipsSubdirectoryDescendants
+            /// holds and that a directory entry does not abort the copy loop.
             let nested = postersFolder.appendingPathComponent("nested", isDirectory: true)
             try fm.createDirectory(at: nested, withIntermediateDirectories: true)
             try Data([0x00]).write(to: nested.appendingPathComponent("\(UUID().uuidString).jpg"))
@@ -1254,16 +1254,16 @@ extension DebugHarness {
                 packagedNames.contains("\(goodUID1).jpg") && packagedNames.contains("\(goodUID2).jpg"),
                 "package holds \(packagedNames.sorted())")
 
-        // --- The export PRUNES the user's live poster folder ------------------------------------
-        //
-        // Pinned here because it is easy
-        // to miss when reading the export: with `Preferences.prunePosterImages` on (its default),
-        // `DBExporter` runs `PosterPruner` over the LIVE PosterImages folder before packaging,
-        // and the pruner deletes every non-JPEG outright plus every JPEG whose basename is not
-        // in the supplied posterUID set. So taking a backup is a destructive operation on that
-        // folder — the two malformed files seeded above are gone from disk, not merely absent
-        // from the package. The pruner's own empty-set guard (see PosterUtilities) is what keeps
-        // that from being catastrophic when the library fails to load.
+        /// --- The export PRUNES the user's live poster folder ------------------------------------
+        ///
+        /// Pinned here because it is easy
+        /// to miss when reading the export: with `Preferences.prunePosterImages` on (its default),
+        /// `DBExporter` runs `PosterPruner` over the LIVE PosterImages folder before packaging,
+        /// and the pruner deletes every non-JPEG outright plus every JPEG whose basename is not
+        /// in the supplied posterUID set. So taking a backup is a destructive operation on that
+        /// folder — the two malformed files seeded above are gone from disk, not merely absent
+        /// from the package. The pruner's own empty-set guard (see PosterUtilities) is what keeps
+        /// that from being catastrophic when the library fails to load.
         let liveAfterExport = Set((try? fm.contentsOfDirectory(atPath: postersFolder.path(percentEncoded: false))) ?? [])
         r.check("export-prunes-orphans-from-the-live-folder",
                 hostileNames.allSatisfy { !liveAfterExport.contains($0) },
@@ -1273,13 +1273,13 @@ extension DebugHarness {
                 liveAfterExport.contains("\(goodUID1).jpg") && liveAfterExport.contains("\(goodUID2).jpg"),
                 "live PosterImages holds \(liveAfterExport.sorted())")
 
-        // --- A poster saved while a prune is running survives it -------------------------------
-        //
-        // The race: the UID set is read, a film is then saved with a new poster (reserved,
-        // written, committed, released), and only then does the prune reach the file. It is
-        // in neither the stale set nor PosterReservations, so without the snapshot-time rule
-        // it would be deleted and the film left pointing at nothing. Replayed here in that order,
-        // beside an old orphan that must still go, so the rule cannot pass by pruning nothing.
+        /// --- A poster saved while a prune is running survives it -------------------------------
+        ///
+        /// The race: the UID set is read, a film is then saved with a new poster (reserved,
+        /// written, committed, released), and only then does the prune reach the file. It is
+        /// in neither the stale set nor PosterReservations, so without the snapshot-time rule
+        /// it would be deleted and the film left pointing at nothing. Replayed here in that order,
+        /// beside an old orphan that must still go, so the rule cannot pass by pruning nothing.
         do {
             let snapshotTakenAt = Date()
             let savedDuringPrune = "\(UUID().uuidString).jpg"
@@ -1301,14 +1301,14 @@ extension DebugHarness {
             r.check("prune-race-seed", false, "\(error)")
         }
 
-        // --- Now exercise the RESTORE-side guard --------------------------------------------------
-        //
-        // The pruner above removed the malformed files before they could reach the package, so
-        // restoring it would never have put the guard to the question at all — the scenario
-        // would have passed by describing a folder that never contained anything hostile. The
-        // hostile entries are therefore written directly into the PACKAGE, which is exactly the
-        // threat model the guard exists for: a .ftbackup is a plain directory the user can
-        // receive from anywhere, and nothing between it and `copyItem` but that guard.
+        /// --- Now exercise the RESTORE-side guard --------------------------------------------------
+        ///
+        /// The pruner above removed the malformed files before they could reach the package, so
+        /// restoring it would never have put the guard to the question at all — the scenario
+        /// would have passed by describing a folder that never contained anything hostile. The
+        /// hostile entries are therefore written directly into the PACKAGE, which is exactly the
+        /// threat model the guard exists for: a .ftbackup is a plain directory the user can
+        /// receive from anywhere, and nothing between it and `copyItem` but that guard.
         let pngName = "\(UUID().uuidString).png"
         let upperCaseJPG = "\(UUID().uuidString).JPG"
         let dirNamedLikePoster = "\(UUID().uuidString).jpg"
@@ -1317,17 +1317,17 @@ extension DebugHarness {
         do {
             try Data([0xFF, 0xD8]).write(to: packagePosters.appendingPathComponent("not-a-uuid.jpg"))
             try Data([0xFF, 0xD8]).write(to: packagePosters.appendingPathComponent(pngName))
-            // Uppercase extension: the guard lowercases before comparing, so this one is
-            // EXPECTED to be accepted. Included so the guard is shown to be a filter rather
-            // than a blanket refusal of anything unusual.
+            /// Uppercase extension: the guard lowercases before comparing, so this one is
+            /// EXPECTED to be accepted. Included so the guard is shown to be a filter rather
+            /// than a blanket refusal of anything unusual.
             try Data([0xFF, 0xD8, 0x01]).write(to: packagePosters.appendingPathComponent(upperCaseJPG))
-            // A DIRECTORY whose name passes the name test. `copyItem` would copy a whole tree.
+            /// A DIRECTORY whose name passes the name test. `copyItem` would copy a whole tree.
             let fakeDir = packagePosters.appendingPathComponent(dirNamedLikePoster, isDirectory: true)
             try fm.createDirectory(at: fakeDir, withIntermediateDirectories: true)
             try Data([0x00]).write(to: fakeDir.appendingPathComponent("payload.txt"))
-            // A SYMLINK whose name passes the name test and whose target is outside the package.
-            // The guard validates the NAME; whether the link or its target is copied is what
-            // this pins.
+            /// A SYMLINK whose name passes the name test and whose target is outside the package.
+            /// The guard validates the NAME; whether the link or its target is copied is what
+            /// this pins.
             try Data("outside the package".utf8).write(to: symlinkTarget)
             try fm.createSymbolicLink(at: packagePosters.appendingPathComponent(symlinkName),
                                       withDestinationURL: symlinkTarget)
@@ -1339,8 +1339,8 @@ extension DebugHarness {
                 "package Posters now holds a non-UUID name, a .png, an uppercase .JPG, a "
                     + "directory named <UUID>.jpg, and a symlink named <UUID>.jpg pointing outside")
 
-        // Wipe the live folder so a "restored" poster cannot be one that was simply never
-        // removed — the single most likely way this scenario could pass vacuously.
+        /// Wipe the live folder so a "restored" poster cannot be one that was simply never
+        /// removed — the single most likely way this scenario could pass vacuously.
         do {
             try fm.removeItem(at: postersFolder)
         } catch {
@@ -1375,10 +1375,10 @@ extension DebugHarness {
                 "the guard lowercases the extension before comparing, so <UUID>.JPG is a valid "
                     + "poster name; PosterImages holds \(restoredNames.sorted())")
 
-        // A directory and a symlink both pass the NAME test, so what stops them is whatever
-        // `copyItem` does with them. Pinned as observations of the real behavior: the property
-        // that matters is that nothing lands OUTSIDE PosterImages and that the restore does not
-        // abort, both of which are asserted below.
+        /// A directory and a symlink both pass the NAME test, so what stops them is whatever
+        /// `copyItem` does with them. Pinned as observations of the real behavior: the property
+        /// that matters is that nothing lands OUTSIDE PosterImages and that the restore does not
+        /// abort, both of which are asserted below.
         let copiedDir = postersFolder.appendingPathComponent(dirNamedLikePoster)
         var isDirectory: ObjCBool = false
         let dirLanded = unsafe fm.fileExists(atPath: copiedDir.path(percentEncoded: false), isDirectory: &isDirectory)
@@ -1397,8 +1397,8 @@ extension DebugHarness {
                     ? "a symlink named <UUID>.jpg was copied AS A LINK into PosterImages; the link "
                         + "file itself is inside the folder, and nothing was written to its target"
                     : "the symlink was not copied")
-        // The target must not have been overwritten — a copy that followed the link and wrote
-        // THROUGH it would have replaced the file outside the folder.
+        /// The target must not have been overwritten — a copy that followed the link and wrote
+        /// THROUGH it would have replaced the file outside the folder.
         let targetContents = (try? String(contentsOf: symlinkTarget, encoding: .utf8)) ?? ""
         r.check("guard:nothing-written-outside-the-posters-folder",
                 targetContents == "outside the package",
@@ -1408,16 +1408,16 @@ extension DebugHarness {
                 !restoredNames.contains("nested"),
                 "PosterImages holds \(restoredNames.sorted())")
 
-        // Every entry that landed must have a UUID basename. This is the invariant the guard
-        // enforces, restated over the folder as a whole rather than over the names the scenario
-        // happens to know about — a crafted name the checks above did not anticipate still has
-        // to satisfy it.
+        /// Every entry that landed must have a UUID basename. This is the invariant the guard
+        /// enforces, restated over the folder as a whole rather than over the names the scenario
+        /// happens to know about — a crafted name the checks above did not anticipate still has
+        /// to satisfy it.
         let strays = restoredNames.filter { UUID(uuidString: ($0 as NSString).deletingPathExtension) == nil }
         r.check("no-unexpected-files-in-posters-folder", strays.isEmpty,
                 strays.isEmpty ? "\(restoredNames.count) entr(ies), every basename a UUID"
                     : "unexpected: " + strays.sorted().joined(separator: ", "))
 
-        // --- A package with no posters must not disturb the ones on disk -----------------------
+        /// --- A package with no posters must not disturb the ones on disk -----------------------
         guard let posterlessURL = await exportBackupPackage(
             container: container, filename: "posterless", includePosters: false) else {
             r.check("posterless-export-succeeds", false, "createCompleteBackup threw")
@@ -1520,9 +1520,9 @@ extension DebugHarness {
                 + "\(session.successCount)|\(session.addedTitles)|\(session.isCompleted)|"
                 + "\(Int(session.sessionDate.timeIntervalSince1970))")
         }
-        // The settings singleton is deliberately absent, for the reason given on
-        // `backupDigest`: the running application rewrites it on a timer, so comparing two
-        // stores on it would measure the timer rather than the restore.
+        /// The settings singleton is deliberately absent, for the reason given on
+        /// `backupDigest`: the running application rewrites it on a timer, so comparing two
+        /// stores on it would measure the timer rather than the restore.
         return lines.joined(separator: "\n")
     }
 
@@ -1551,8 +1551,8 @@ extension DebugHarness {
         do {
             container = try resetBackupStore()
             _ = try await seedFullGraph(container: container)
-            // The type-ambiguous film corpus as well: those are the values most likely to be
-            // reformatted on a pass, which is exactly what the fixed-point check is for.
+            /// The type-ambiguous film corpus as well: those are the values most likely to be
+            /// reformatted on a pass, which is exactly what the fixed-point check is for.
             let context = container.makeMainContext()
             for film in adversarialBackupCorpus() { context.insert(film) }
             try context.save()
@@ -1584,9 +1584,9 @@ extension DebugHarness {
                     ? "two exports of one store carry identical content (\(parsedFirst.objects.count) objects)"
                     : backupFirstDifference(digestFirst, digestSecond))
 
-        // Byte-level equality is a stronger property than content equality and is NOT
-        // guaranteed — the `created` attribute alone differs. Recorded as a metric so the
-        // size of a real backup is tracked, rather than asserted as something it is not.
+        /// Byte-level equality is a stronger property than content equality and is NOT
+        /// guaranteed — the `created` attribute alone differs. Recorded as a metric so the
+        /// size of a real backup is tracked, rather than asserted as something it is not.
         let sizeFirst = (try? first.appendingPathComponent("backup.xml")
             .resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         let sizeSecond = (try? second.appendingPathComponent("backup.xml")
@@ -1595,7 +1595,7 @@ extension DebugHarness {
                 "\(sizeFirst) vs \(sizeSecond) bytes")
         r.metric("backup-xml-size", Double(sizeFirst), "bytes")
 
-        // --- Generation 2: restore, re-export, compare ------------------------------------------
+        /// --- Generation 2: restore, re-export, compare ------------------------------------------
         let (restoreError, _) = await restoreBackupPackage(first, container: container)
         guard restoreError == nil else {
             r.check("first-restore-completes", false, "\(restoreError!)")
@@ -1631,7 +1631,7 @@ extension DebugHarness {
                         + "per-generation drift across \(parsedThird.objects.count) object(s)"
                     : backupFirstDifference(digestFirst, digestThird))
 
-        // --- Restoring the same file twice lands in the same place --------------------------------
+        /// --- Restoring the same file twice lands in the same place --------------------------------
         let (secondRestoreError, _) = await restoreBackupPackage(first, container: restoredContainer)
         guard secondRestoreError == nil else {
             r.check("repeat-restore-completes", false, "\(secondRestoreError!)")
@@ -1744,7 +1744,7 @@ extension DebugHarness {
             let (error, rebuilt) = await restoreBackupPackage(packageURL, container: container)
             r.check("\(label):rejected", error != nil,
                     error.map { "\($0)" } ?? "the restore ACCEPTED a damaged package")
-            // The property that matters more than the error itself.
+            /// The property that matters more than the error itself.
             r.check("\(label):store-not-destroyed", !rebuilt,
                     rebuilt
                         ? "the store was rebuilt before the failure was detected — the user's "
@@ -1761,23 +1761,23 @@ extension DebugHarness {
             return error
         }
 
-        // 1. Truncated XML — the shape a backup takes when a write is interrupted by a full
-        //    disk, a crash, or an ejected volume. This damage can occur after the export has
-        //    verified its own output, so the restore must refuse it (see `export-verification` below).
+        /// 1. Truncated XML — the shape a backup takes when a write is interrupted by a full
+        ///    disk, a crash, or an ejected volume. This damage can occur after the export has
+        ///    verified its own output, so the restore must refuse it (see `export-verification` below).
         let truncated = goodXML.prefix(goodXML.count / 2)
         let truncatedError = await attemptRestore("truncated-xml", xml: Data(truncated))
         r.check("truncated-xml:reports-a-parse-error",
                 isImporterError(truncatedError, oneOf: ["invalidXML", "corrupted", "missingRequiredElement"]),
                 "\(String(describing: truncatedError))")
 
-        // 2. A package with no backup.xml at all.
+        /// 2. A package with no backup.xml at all.
         let missingError = await attemptRestore("missing-xml", xml: nil)
         r.check("missing-xml:reports-missingXML",
                 { if case DBRestorerError.missingXML = missingError ?? DBRestorerError.restorationFailed("") { return true }; return false }(),
                 "\(String(describing: missingError))")
 
-        // 3. Well-formed XML that is not a FilmTracker backup. A restore must not treat an
-        //    arbitrary XML document as an empty library and wipe the store to match it.
+        /// 3. Well-formed XML that is not a FilmTracker backup. A restore must not treat an
+        ///    arbitrary XML document as an empty library and wipe the store to match it.
         let foreignError = await attemptRestore("foreign-xml", xml: Data("""
             <?xml version="1.0" encoding="utf-8"?>
             <SomeOtherDocument><Item value="1" /></SomeOtherDocument>
@@ -1785,9 +1785,9 @@ extension DebugHarness {
         r.check("foreign-xml:rejected-not-treated-as-empty",
                 foreignError != nil, "\(String(describing: foreignError))")
 
-        // 4. A future format version. Refusing forward is the correct behavior: a v2 file may
-        //    encode fields this build would silently drop, and dropping them here is
-        //    irreversible because the restore has already replaced the store.
+        /// 4. A future format version. Refusing forward is the correct behavior: a v2 file may
+        ///    encode fields this build would silently drop, and dropping them here is
+        ///    irreversible because the restore has already replaced the store.
         let futureError = await attemptRestore("future-version", xml: Data("""
             <?xml version="1.0" encoding="utf-8"?>
             <FilmTrackerBackup format="FilmTrackerXML" version="99" created="2026-01-01T00:00:00Z">
@@ -1799,7 +1799,7 @@ extension DebugHarness {
                 { if case DBImporterError.unsupportedVersion = futureError ?? DBRestorerError.restorationFailed("") { return true }; return false }(),
                 "\(String(describing: futureError))")
 
-        // 5. A wrong format key.
+        /// 5. A wrong format key.
         let formatError = await attemptRestore("wrong-format", xml: Data("""
             <?xml version="1.0" encoding="utf-8"?>
             <FilmTrackerBackup format="SomethingElse" version="1" created="2026-01-01T00:00:00Z">
@@ -1810,7 +1810,7 @@ extension DebugHarness {
                 { if case DBImporterError.unsupportedFormat = formatError ?? DBRestorerError.restorationFailed("") { return true }; return false }(),
                 "\(String(describing: formatError))")
 
-        // 6. A plain FILE with the .ftbackup extension rather than a package directory.
+        /// 6. A plain FILE with the .ftbackup extension rather than a package directory.
         do {
             let fileURL = scratch.appendingPathComponent("not-a-package.ftbackup")
             try? fm.removeItem(at: fileURL)
@@ -1824,7 +1824,7 @@ extension DebugHarness {
             r.check("plain-file:rejected-as-notAPackage", false, "\(error)")
         }
 
-        // 7. A wrong extension. The guard is the first thing `restoreFromBackup` does.
+        /// 7. A wrong extension. The guard is the first thing `restoreFromBackup` does.
         do {
             let wrongExt = scratch.appendingPathComponent("wrong.zip", isDirectory: true)
             try? fm.removeItem(at: wrongExt)
@@ -1839,11 +1839,11 @@ extension DebugHarness {
             r.check("wrong-extension:rejected", false, "\(error)")
         }
 
-        // --- Damage that is deliberately TOLERATED -------------------------------------------
-        // A manifest that disagrees with the file is a warning, not a rejection: the objects
-        // are all there and refusing the restore would help nobody. Asserted so the tolerance
-        // is a stated decision rather than an untested assumption, and so a future change that
-        // turns it into a hard failure is noticed here.
+        /// --- Damage that is deliberately TOLERATED -------------------------------------------
+        /// A manifest that disagrees with the file is a warning, not a rejection: the objects
+        /// are all there and refusing the restore would help nobody. Asserted so the tolerance
+        /// is a stated decision rather than an untested assumption, and so a future change that
+        /// turns it into a hard failure is noticed here.
         do {
             var text = String(decoding: goodXML, as: UTF8.self)
             text = text.replacingOccurrences(of: "<Entity name=\"Film\" count=\"2\" />",
@@ -1866,10 +1866,10 @@ extension DebugHarness {
             r.check("manifest-mismatch:restore-still-completes", false, "\(error)")
         }
 
-        // --- An empty library ------------------------------------------------------------------
-        // The 0-object path in DBPackager is a separate early-return branch that writes and
-        // closes the file by itself, so it is exercised here. A user with an empty library who
-        // takes a backup and restores it must get an empty library, not an error.
+        /// --- An empty library ------------------------------------------------------------------
+        /// The 0-object path in DBPackager is a separate early-return branch that writes and
+        /// closes the file by itself, so it is exercised here. A user with an empty library who
+        /// takes a backup and restores it must get an empty library, not an error.
         do {
             container = try resetBackupStore()
             guard let emptyPackage = await exportBackupPackage(container: container, filename: "empty-library") else {
@@ -1891,11 +1891,11 @@ extension DebugHarness {
             r.check("empty-library:parses-with-no-objects", false, "\(error)")
         }
 
-        // --- A backup written without settings ---------------------------------------------------
-        // `includeSettings: false` is a user-facing toggle. The resulting file must carry no
-        // SettingsObject, and restoring it must leave the settings that are already there
-        // alone rather than clearing them — the restore's own note says the pipeline
-        // "tolerates backups that contain no SettingsObject", which nothing verified.
+        /// --- A backup written without settings ---------------------------------------------------
+        /// `includeSettings: false` is a user-facing toggle. The resulting file must carry no
+        /// SettingsObject, and restoring it must leave the settings that are already there
+        /// alone rather than clearing them — the restore's own note says the pipeline
+        /// "tolerates backups that contain no SettingsObject", which nothing verified.
         do {
             container = try resetBackupStore()
             _ = try await seedFullGraph(container: container)
@@ -1928,13 +1928,13 @@ extension DebugHarness {
             r.check("no-settings:export-succeeds", false, "\(error)")
         }
 
-        // --- Every settings field, restored from a file nothing else can touch ---------------------
-        //
-        // The deterministic counterpart to `extractor-covers:SettingsObject`. The XML is
-        // written by hand here, with a value for every restorable settings field, precisely
-        // so the running application's own debounced settings write — which reaches the store
-        // but cannot reach this file — is out of the picture. If DBRestorer.createSettingsObject
-        // forgets a field, this is where it shows.
+        /// --- Every settings field, restored from a file nothing else can touch ---------------------
+        ///
+        /// The deterministic counterpart to `extractor-covers:SettingsObject`. The XML is
+        /// written by hand here, with a value for every restorable settings field, precisely
+        /// so the running application's own debounced settings write — which reaches the store
+        /// but cannot reach this file — is out of the picture. If DBRestorer.createSettingsObject
+        /// forgets a field, this is where it shows.
         do {
             container = try resetBackupStore()
             let packageURL = scratch.appendingPathComponent("settings-full.ftbackup", isDirectory: true)
@@ -1953,9 +1953,9 @@ extension DebugHarness {
                 properties.append("<Property name=\"\(field.0)\">\(expectedSettingsInt(index))</Property>")
             }
             for (index, field) in settingsStringFields.enumerated() {
-                // Written with the declared-type attribute, exactly as the current writer would.
-                // Several of these values are deliberately type-ambiguous text ("true", a JSON
-                // array, a bare number), which is the shape the attribute exists to protect.
+                /// Written with the declared-type attribute, exactly as the current writer would.
+                /// Several of these values are deliberately type-ambiguous text ("true", a JSON
+                /// array, a bare number), which is the shape the attribute exists to protect.
                 let escaped = expectedSettingsString(index)
                     .replacingOccurrences(of: "&", with: "&amp;")
                     .replacingOccurrences(of: "<", with: "&lt;")
@@ -2020,16 +2020,16 @@ extension DebugHarness {
             r.check("settings-restore-covers-every-field", false, "\(error)")
         }
 
-        // --- Two settings rows in one file -----------------------------------------------------
-        //
-        // `SettingsObject.snapshotID` is `@Attribute(.unique)`, and the restorer stamps the
-        // SINGLETON id on every settings object it creates regardless of what the file said.
-        // A backup carrying two settings rows — hand-edited, or merged from two libraries —
-        // therefore produces two objects with the same unique key in one unsaved batch. What
-        // happens at `context.save()` is the question: if it throws, the restore fails AFTER
-        // the store has already been destroyed, which is the unrecoverable half of the
-        // pipeline. This case exists to find out rather than to assume, and the check states
-        // whichever answer the run gives.
+        /// --- Two settings rows in one file -----------------------------------------------------
+        ///
+        /// `SettingsObject.snapshotID` is `@Attribute(.unique)`, and the restorer stamps the
+        /// SINGLETON id on every settings object it creates regardless of what the file said.
+        /// A backup carrying two settings rows — hand-edited, or merged from two libraries —
+        /// therefore produces two objects with the same unique key in one unsaved batch. What
+        /// happens at `context.save()` is the question: if it throws, the restore fails AFTER
+        /// the store has already been destroyed, which is the unrecoverable half of the
+        /// pipeline. This case exists to find out rather than to assume, and the check states
+        /// whichever answer the run gives.
         do {
             container = try resetBackupStore()
             let packageURL = scratch.appendingPathComponent("two-settings.ftbackup", isDirectory: true)
@@ -2073,10 +2073,10 @@ extension DebugHarness {
             let context = verify.makeMainContext()
             let films = (try? context.fetch(Film.request())) ?? []
             let rows = (try? context.fetch(SettingsObject.request())) ?? []
-            // The outcome that would be a genuine data-loss defect is: the save throws, the
-            // restore reports failure, and the library is NOT in the store — because by then
-            // the previous database has already been deleted and there is nothing to go back
-            // to. The check is written against that, not against a particular row count.
+            /// The outcome that would be a genuine data-loss defect is: the save throws, the
+            /// restore reports failure, and the library is NOT in the store — because by then
+            /// the previous database has already been deleted and there is nothing to go back
+            /// to. The check is written against that, not against a particular row count.
             let libraryLanded = films.contains { $0.id == filmID }
             r.check("duplicate-settings:library-still-restored", libraryLanded,
                     libraryLanded
@@ -2091,19 +2091,19 @@ extension DebugHarness {
             r.check("duplicate-settings:library-still-restored", false, "\(error)")
         }
 
-        // --- The export verifies its own output ------------------------------------------------------
-        //
-        // `DBExporter` re-parses the package it wrote, through the same `DBImporter` a restore
-        // uses, and requires the object count and manifest to match what it exported. This is
-        // the step that turns "the write calls did not throw" into "a restore can read this",
-        // and the two questions are not the same one — see `oversized-node` in
-        // `backup-limits`, which is the shape this verification exists to catch.
-        //
-        // Asserted here from the outside: a healthy export must pass verification and produce
-        // a package whose re-parse describes exactly the seeded library. The negative
-        // direction — verification actually REFUSING a bad package — is asserted by
-        // `oversized-node` rather than simulated here, because a package damaged after the
-        // export returns is a different failure from one the export itself produced.
+        /// --- The export verifies its own output ------------------------------------------------------
+        ///
+        /// `DBExporter` re-parses the package it wrote, through the same `DBImporter` a restore
+        /// uses, and requires the object count and manifest to match what it exported. This is
+        /// the step that turns "the write calls did not throw" into "a restore can read this",
+        /// and the two questions are not the same one — see `oversized-node` in
+        /// `backup-limits`, which is the shape this verification exists to catch.
+        ///
+        /// Asserted here from the outside: a healthy export must pass verification and produce
+        /// a package whose re-parse describes exactly the seeded library. The negative
+        /// direction — verification actually REFUSING a bad package — is asserted by
+        /// `oversized-node` rather than simulated here, because a package damaged after the
+        /// export returns is a different failure from one the export itself produced.
         do {
             container = try resetBackupStore()
             _ = try await seedFullGraph(container: container)
@@ -2117,7 +2117,7 @@ extension DebugHarness {
             let xmlURL = package.appendingPathComponent("backup.xml")
             let written = try Data(contentsOf: xmlURL)
             let reparsed = try await DBImporter().parseBackupFile(at: xmlURL)
-            let expectedObjects = 2 + 2 + 3 + 4 + 1 + 1  // films, lists, memberships, releases, session, settings
+            let expectedObjects = 2 + 2 + 3 + 4 + 1 + 1  /// films, lists, memberships, releases, session, settings
             r.check("export-verification:written-file-describes-the-library",
                     reparsed.objects.count == expectedObjects,
                     "the produced file re-parses to \(reparsed.objects.count) object(s), expected \(expectedObjects)")
@@ -2218,7 +2218,7 @@ extension DebugHarness {
             """
         }
 
-        // --- A release whose film is not in the backup ------------------------------------------
+        /// --- A release whose film is not in the backup ------------------------------------------
         do {
             let goodFilm = UUID().uuidString
             let goodRelease = UUID().uuidString
@@ -2252,7 +2252,7 @@ extension DebugHarness {
                     "\(result.films.count) film(s)")
         }
 
-        // --- A membership whose list, or whose film, is not in the backup ------------------------
+        /// --- A membership whose list, or whose film, is not in the backup ------------------------
         do {
             let filmID = UUID().uuidString
             let listID = UUID().uuidString
@@ -2297,10 +2297,10 @@ extension DebugHarness {
                     "\(result.films.count) film(s), \(result.lists.count) list(s)")
         }
 
-        // --- A backup that repeats IDs --------------------------------------------------------------
-        // Every entity's ID is unique in the store, but a backup file can still repeat one; the
-        // restore must keep the
-        // first of each, link everything to it, and still pass its own row-count check.
+        /// --- A backup that repeats IDs --------------------------------------------------------------
+        /// Every entity's ID is unique in the store, but a backup file can still repeat one; the
+        /// restore must keep the
+        /// first of each, link everything to it, and still pass its own row-count check.
         do {
             let filmA = UUID().uuidString, filmB = UUID().uuidString
             let releaseID = UUID().uuidString, childID = UUID().uuidString
@@ -2372,10 +2372,10 @@ extension DebugHarness {
                     "\(result.memberships.map(\.sortOrder))")
         }
 
-        // --- A film whose id will not parse, sitting between two good ones -----------------------
-        // The required-UUID parse throws, the film is skipped, and — the part that matters —
-        // the loop keeps going. A `throw` that escaped here would abandon the restore with the
-        // old database already deleted.
+        /// --- A film whose id will not parse, sitting between two good ones -----------------------
+        /// The required-UUID parse throws, the film is skipped, and — the part that matters —
+        /// the loop keeps going. A `throw` that escaped here would abandon the restore with the
+        /// old database already deleted.
         do {
             let firstID = UUID().uuidString, lastID = UUID().uuidString
             let broken = """
@@ -2399,9 +2399,9 @@ extension DebugHarness {
                     "\(result.films.count) film(s): \(result.films.map(\.name).sorted())")
         }
 
-        // --- The same film id twice in one file ---------------------------------------------------
-        // `Film.id` is a uniqueness constraint, so the restore keeps the first of the two (see
-        // `repeated-ids` for every entity). What must NOT happen is the restore failing outright.
+        /// --- The same film id twice in one file ---------------------------------------------------
+        /// `Film.id` is a uniqueness constraint, so the restore keeps the first of the two (see
+        /// `repeated-ids` for every entity). What must NOT happen is the restore failing outright.
         do {
             let duplicateID = UUID().uuidString
             let result = await restoreHandBuilt(
@@ -2415,17 +2415,17 @@ extension DebugHarness {
                     "\(result.films.count) film(s): \(result.films.map(\.name).sorted())")
         }
 
-        // --- The reader's per-text-node ceiling ----------------------------------------------------
-        //
-        // `DBImporter` refuses any text node over 4 MiB, and the writer enforces no size limit
-        // at all. That disagreement would produce the worst outcome a backup system has: an
-        // export that reports success and a file that cannot be restored, discovered only when
-        // the user needs it.
-        //
-        // `DBExporter` re-parses the package it wrote before claiming success, so the
-        // contract under test is that the export REFUSES, at a moment when the
-        // library is still intact and the message can name the problem, and it leaves no
-        // unusable package behind under a plausible name.
+        /// --- The reader's per-text-node ceiling ----------------------------------------------------
+        ///
+        /// `DBImporter` refuses any text node over 4 MiB, and the writer enforces no size limit
+        /// at all. That disagreement would produce the worst outcome a backup system has: an
+        /// export that reports success and a file that cannot be restored, discovered only when
+        /// the user needs it.
+        ///
+        /// `DBExporter` re-parses the package it wrote before claiming success, so the
+        /// contract under test is that the export REFUSES, at a moment when the
+        /// library is still intact and the message can name the problem, and it leaves no
+        /// unusable package behind under a plausible name.
         do {
             container = try resetBackupStore()
             let context = container.makeMainContext()
@@ -2466,8 +2466,8 @@ extension DebugHarness {
                         : "the export REPORTED SUCCESS for a package the importer refuses to read — "
                             + "error: \(String(describing: exportError))")
 
-            // The discarded package must not be sitting in the destination under a name the
-            // user would reach for. A file that cannot be restored is worse than no file.
+            /// The discarded package must not be sitting in the destination under a name the
+            /// user would reach for. A file that cannot be restored is worse than no file.
             let strandedURL = (DebugSandbox.rootURL ?? fm.temporaryDirectory)
                 .appendingPathComponent("oversized.ftbackup")
             r.check("oversized-node:no-unusable-package-left-behind",
@@ -2478,12 +2478,12 @@ extension DebugHarness {
             r.check("oversized-node:export-refuses-an-unreadable-package", false, "\(error)")
         }
 
-        // --- The reader's object-count ceiling -------------------------------------------------------
-        //
-        // 100 000 objects in `DBImporter`, again with no export-side counterpart. A library of
-        // 33 000 films with one release and one membership each would cross it. The file is
-        // written by hand rather than exported because seeding 100 000 rows through Core Data
-        // would dominate the suite's runtime, and the ceiling under test belongs to the READER.
+        /// --- The reader's object-count ceiling -------------------------------------------------------
+        ///
+        /// 100 000 objects in `DBImporter`, again with no export-side counterpart. A library of
+        /// 33 000 films with one release and one membership each would cross it. The file is
+        /// written by hand rather than exported because seeding 100 000 rows through Core Data
+        /// would dominate the suite's runtime, and the ceiling under test belongs to the READER.
         do {
             let packageURL = scratch.appendingPathComponent("object-ceiling.ftbackup", isDirectory: true)
             try? fm.removeItem(at: packageURL)
@@ -2526,8 +2526,8 @@ extension DebugHarness {
                         + "objects and the writer caps nothing, so a library of roughly 33 000 films "
                         + "with one release and one membership each would produce a backup this "
                         + "build cannot read back")
-            // And the property that keeps it survivable: the refusal happens at parse time, so
-            // the user's database is untouched.
+            /// And the property that keeps it survivable: the refusal happens at parse time, so
+            /// the user's database is untouched.
             let (restoreError, rebuilt) = await restoreBackupPackage(packageURL, container: container)
             r.check("object-ceiling:store-not-destroyed", !rebuilt && restoreError != nil,
                     "rebuilt: \(rebuilt), error: \(String(describing: restoreError))")
@@ -2605,10 +2605,10 @@ extension DebugHarness {
 
         do {
             let parsed = try await DBImporter().parseBackupFile(at: packageURL.appendingPathComponent("backup.xml"))
-            // The settings row is excluded from the arithmetic: this scenario seeds none, and
-            // whether one exists depends on the running application's own debounced settings
-            // write, which targets the same store path (see the note in
-            // `backup-schema-coverage`). Counting it would make the check depend on a timer.
+            /// The settings row is excluded from the arithmetic: this scenario seeds none, and
+            /// whether one exists depends on the running application's own debounced settings
+            /// write, which targets the same store path (see the note in
+            /// `backup-schema-coverage`). Counting it would make the check depend on a timer.
             let seeded = parsed.objects.filter { $0.entityName != "SettingsObject" }.count
             r.check("scale:every-object-written",
                     seeded == filmCount * 3 + 1,
@@ -2643,7 +2643,7 @@ extension DebugHarness {
             r.check("scale:release-count-restored", releases.count == filmCount, "\(releases.count) of \(filmCount)")
             r.check("scale:membership-count-restored", memberships.count == filmCount, "\(memberships.count) of \(filmCount)")
 
-            // Identity, not just cardinality: the right films, with their own values.
+            /// Identity, not just cardinality: the right films, with their own values.
             var mismatches = 0
             var firstMismatch = ""
             for film in films {
@@ -2663,8 +2663,8 @@ extension DebugHarness {
                     mismatches == 0 ? "\(films.count) film(s) matched by id, name and rating"
                         : "\(mismatches) mismatch(es), first: \(firstMismatch)")
 
-            // Every release must still name its film, and every membership both ends. At this
-            // size a lookup-map failure would strand rows rather than throw.
+            /// Every release must still name its film, and every membership both ends. At this
+            /// size a lookup-map failure would strand rows rather than throw.
             r.check("scale:no-orphaned-releases",
                     releases.allSatisfy { $0.film != nil },
                     "\(releases.filter { $0.film == nil }.count) orphan(s)")
@@ -2674,10 +2674,10 @@ extension DebugHarness {
             r.check("scale:membership-sort-orders-preserved",
                     Set(memberships.map(\.sortOrder)) == Set(1...filmCount),
                     "\(Set(memberships.map(\.sortOrder)).count) distinct sortOrder value(s) of \(filmCount)")
-            // Compared against the values that were seeded, not against a self-consistency
-            // property. A Double is written to the backup as text and parsed back, so this is
-            // the check that says the conversion is lossless across the whole corpus rather
-            // than for the handful of literals `backup-graph-roundtrip` names.
+            /// Compared against the values that were seeded, not against a self-consistency
+            /// property. A Double is written to the backup as text and parsed back, so this is
+            /// the check that says the conversion is lossless across the whole corpus rather
+            /// than for the handful of literals `backup-graph-roundtrip` names.
             let expectedCosts = Set((0..<filmCount).map { Double($0) / 100.0 })
             r.check("scale:release-costs-preserved",
                     Set(releases.map(\.cost)) == expectedCosts,
@@ -2723,8 +2723,8 @@ extension DebugHarness {
             return r
         }
 
-        // --- A package already holds the name ---------------------------------------------
-        // A decoy package with a marker the user "expects to retain".
+        /// --- A package already holds the name ---------------------------------------------
+        /// A decoy package with a marker the user "expects to retain".
         let decoy = destination.appendingPathComponent("delivery.ftbackup", isDirectory: true)
         let marker = decoy.appendingPathComponent("backup.xml")
         do {
@@ -2764,11 +2764,11 @@ extension DebugHarness {
                 "the numbered package parses through the restore reader")
         r.check("staging-empty-after-success", stagingIsEmpty(), "")
 
-        // --- Failed deliveries -------------------------------------------------------------
-        // Both fail after a complete, verified package was staged — the last point at which
-        // anything can go wrong. A folder that no longer exists must never be read as "write
-        // the package beside it, under the folder's name"; a read-only folder refuses the
-        // rename AND the copy fallback, which is the path a cross-volume delivery takes.
+        /// --- Failed deliveries -------------------------------------------------------------
+        /// Both fail after a complete, verified package was staged — the last point at which
+        /// anything can go wrong. A folder that no longer exists must never be read as "write
+        /// the package beside it, under the folder's name"; a read-only folder refuses the
+        /// rename AND the copy fallback, which is the path a cross-volume delivery takes.
         let missing = destination.appendingPathComponent("missing", isDirectory: true)
         let readOnly = destination.appendingPathComponent("read-only", isDirectory: true)
         try? fm.createDirectory(at: readOnly, withIntermediateDirectories: true)
@@ -2789,9 +2789,9 @@ extension DebugHarness {
         }
         try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnly.path(percentEncoded: false))
 
-        // --- An empty folder holds the name ----------------------------------------------
-        // Plain rename(2) — what FileManager.moveItem calls after its own existence check —
-        // silently REPLACES an empty folder. The exclusive rename must refuse it.
+        /// --- An empty folder holds the name ----------------------------------------------
+        /// Plain rename(2) — what FileManager.moveItem calls after its own existence check —
+        /// silently REPLACES an empty folder. The exclusive rename must refuse it.
         do {
             let emptyFolder = destination.appendingPathComponent("Empty.pdf", isDirectory: true)
             try fm.createDirectory(at: emptyFolder, withIntermediateDirectories: true)
@@ -2810,8 +2810,8 @@ extension DebugHarness {
             r.check("empty-folder-not-replaced", false, "\(error)")
         }
 
-        // --- A plain file already holds the name -------------------------------------------
-        // The PDF export's shape, driven straight through `deliver`.
+        /// --- A plain file already holds the name -------------------------------------------
+        /// The PDF export's shape, driven straight through `deliver`.
         do {
             let existing = destination.appendingPathComponent("Report.pdf")
             try Data("KEEP".utf8).write(to: existing)
@@ -2829,7 +2829,7 @@ extension DebugHarness {
             r.check("file-delivery", false, "\(error)")
         }
 
-        // --- Launch purge ------------------------------------------------------------------
+        /// --- Launch purge ------------------------------------------------------------------
         do {
             let stranded = try ExportStaging.makeDirectory()
             try Data([0x00]).write(to: stranded.appendingPathComponent("partial"))
@@ -2877,9 +2877,9 @@ extension DebugHarness {
             return r
         }
 
-        // Older automatic backups, a manual one, and — under the very name this run's backup
-        // will want — a stand-in already holding it. Dated in the past so retention has a
-        // well-defined order.
+        /// Older automatic backups, a manual one, and — under the very name this run's backup
+        /// will want — a stand-in already holding it. Dated in the past so retention has a
+        /// well-defined order.
         let filename = BackupFilename.make(auto: true)
         func fakePackage(_ name: String, daysAgo: Double) {
             let url = backups.appendingPathComponent(name, isDirectory: true)
@@ -2948,8 +2948,8 @@ extension DebugHarness {
     private static func backupBackgroundScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "backup-background")
 
-        // The content and restore checks hold at any size; the latency metrics only mean
-        // something at the real library's scale, which `full` keeps.
+        /// The content and restore checks hold at any size; the latency metrics only mean
+        /// something at the real library's scale, which `full` keeps.
         let filmCount = isThorough ? 3000 : 400
         let container: NSPersistentContainer
         let seededDigest: String
@@ -2988,7 +2988,7 @@ extension DebugHarness {
         }
         r.check("seed", true, "\(filmCount) extra film(s) with a release and a membership each")
 
-        // Reference: the manual export path.
+        /// Reference: the manual export path.
         let foregroundStart = ContinuousClock.now
         guard let reference = await exportBackupPackage(container: container, filename: "bg-reference") else {
             r.check("foreground-export-succeeds", false, "createCompleteBackup threw")
@@ -2997,7 +2997,7 @@ extension DebugHarness {
         r.metric("foreground-export-ms", milliseconds(ContinuousClock.now - foregroundStart), "ms")
         r.check("foreground-export-succeeds", true, reference.lastPathComponent)
 
-        // The automatic backup's path, probed.
+        /// The automatic backup's path, probed.
         let probe = MainThreadLatencyProbe()
         probe.start()
         let backgroundStart = ContinuousClock.now
@@ -3023,7 +3023,7 @@ extension DebugHarness {
         r.metric("probe-samples", Double(stats.samples), "count")
         r.check("hitch-log", true, stats.hitches.joined(separator: ", "))
 
-        // Same content as the manual path.
+        /// Same content as the manual path.
         let referenceXML = reference.appendingPathComponent("backup.xml")
         let backgroundXML = background.appendingPathComponent("backup.xml")
         do {
@@ -3036,8 +3036,8 @@ extension DebugHarness {
         } catch {
             r.check("background-content-matches-foreground", false, "\(error)")
         }
-        // Byte equality is not available: attribute order follows dictionary order, which
-        // differs between any two exports (see `backup-repeatability`). Size is.
+        /// Byte equality is not available: attribute order follows dictionary order, which
+        /// differs between any two exports (see `backup-repeatability`). Size is.
         let referenceSize = (try? referenceXML.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -1
         let backgroundSize = (try? backgroundXML.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? -2
         r.check("background-xml-same-size-as-foreground", referenceSize == backgroundSize,
@@ -3047,7 +3047,7 @@ extension DebugHarness {
             try? FileManager.default.contentsOfDirectory(atPath: $0.path(percentEncoded: false)) } ?? []
         r.check("background-staging-empty", stagingLeft.isEmpty, stagingLeft.isEmpty ? "" : "\(stagingLeft)")
 
-        // Restoring it reproduces the store it was taken from.
+        /// Restoring it reproduces the store it was taken from.
         let (restoreError, _) = await restoreBackupPackage(background, container: container)
         guard restoreError == nil else {
             r.check("background-restore-completes", false, "\(restoreError!)")

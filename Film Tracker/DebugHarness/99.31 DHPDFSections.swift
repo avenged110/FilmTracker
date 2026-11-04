@@ -1,29 +1,29 @@
 // MARK: - DHPDFSections.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Harness scenario for the library PDF's two per-film detail sections:
-// `-FTDebugHarness library-detail-sections`.
-//
-// WHAT THIS PROVES
-//
-// `ViewingHistoryPDFReport` and `DiscReleasesPDFReport` (85.30) both express a NESTED
-// structure — a film, then its own detail rows — in a renderer that only draws a flat list.
-// The nesting therefore lives entirely in how the rows are built: a film row filled edge to
-// edge, detail rows with their two leading columns empty, and a strict count of detail rows
-// per film. Every one of those is invisible to the compiler and every one of them still
-// renders a perfectly clean-looking page when it is wrong. A film row that lost its fill, a
-// release that emitted one row instead of two, or a detail row that drifted one column left
-// all produce a document that opens fine and misattributes data.
-//
-// So the scenario drives the REAL section builders over a corpus shaped to land on every
-// branch — both empty states of each section, a wishlist release, a combo pack, an
-// unrecorded price — and asserts the row SHAPE (which rows exist, in what order, and which
-// carry the band) as well as the cell text and fills. It then renders both sections through
-// the REAL `PDFTableRenderer` and reopens the file with PDFKit, which is what catches a
-// section that measures to zero pages or drops rows on the floor.
-//
-// The rendered document is left in the sandbox as `harness-scratch-detail-sections.pdf` so
-// it can be opened and looked at.
+/// Harness scenario for the library PDF's two per-film detail sections:
+/// `-FTDebugHarness library-detail-sections`.
+///
+/// WHAT THIS PROVES
+///
+/// `ViewingHistoryPDFReport` and `DiscReleasesPDFReport` (85.30) both express a NESTED
+/// structure — a film, then its own detail rows — in a renderer that only draws a flat list.
+/// The nesting therefore lives entirely in how the rows are built: a film row filled edge to
+/// edge, detail rows with their two leading columns empty, and a strict count of detail rows
+/// per film. Every one of those is invisible to the compiler and every one of them still
+/// renders a perfectly clean-looking page when it is wrong. A film row that lost its fill, a
+/// release that emitted one row instead of two, or a detail row that drifted one column left
+/// all produce a document that opens fine and misattributes data.
+///
+/// So the scenario drives the REAL section builders over a corpus shaped to land on every
+/// branch — both empty states of each section, a wishlist release, a combo pack, an
+/// unrecorded price — and asserts the row SHAPE (which rows exist, in what order, and which
+/// carry the band) as well as the cell text and fills. It then renders both sections through
+/// the REAL `PDFTableRenderer` and reopens the file with PDFKit, which is what catches a
+/// section that measures to zero pages or drops rows on the floor.
+///
+/// The rendered document is left in the sandbox as `harness-scratch-detail-sections.pdf` so
+/// it can be opened and looked at.
 
 #if DEBUG
 
@@ -74,8 +74,8 @@ extension DebugHarness {
             Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15
         }
 
-        // Every film has a release; every second one has a second; every fifth is a combo
-        // pack. Viewings average seven, which is where the sidebar's calendar tables sit.
+        /// Every film has a release; every second one has a second; every fifth is a combo
+        /// pack. Viewings average seven, which is where the sidebar's calendar tables sit.
         let films = (1...1400).map { index -> FilmSnapshot in
             var film = makeSnapshot(
                 name: "Timing Probe \(Fmt.padded(index, 4))",
@@ -118,9 +118,9 @@ extension DebugHarness {
 
         let geometry = LibraryTableLayout.standard.geometry
         var longest: (phase: String, ms: Double) = ("", 0)
-        // The longest gap between two suspensions during a cooperative draw — the stretch
-        // the run loop actually experiences, and the number that decides whether the
-        // system's spinning cursor appears.
+        /// The longest gap between two suspensions during a cooperative draw — the stretch
+        /// the run loop actually experiences, and the number that decides whether the
+        /// system's spinning cursor appears.
         var longestStretch: Double = 0
         func timed<T>(_ phase: String, _ work: () -> T) -> T {
             let start = clock.now
@@ -161,9 +161,9 @@ extension DebugHarness {
         var mediaBox = CGRect(origin: .zero, size: geometry.pageSize)
         if let consumer = CGDataConsumer(url: url as CFURL),
            let context = unsafe CGContext(consumer: consumer, mediaBox: &mediaBox, nil) {
-            // Drawn through the cooperative path, so these phases now report WALL time
-            // across their yields rather than one synchronous stretch — which is the point.
-            // The longest single stretch between yields is what `longest-stretch` records.
+            /// Drawn through the cooperative path, so these phases now report WALL time
+            /// across their yields rather than one synchronous stretch — which is the point.
+            /// The longest single stretch between yields is what `longest-stretch` records.
             for (name, section, metrics) in [("complete-library", library, libraryMetrics),
                                              ("viewing-history", history, historyMetrics),
                                              ("disc-releases", discs, discMetrics)] {
@@ -177,8 +177,8 @@ extension DebugHarness {
         }
 
         // MARK: The whole thing, as the exporter runs it
-        // `finish()` measures every sheet and draws every page in one call. Whatever the
-        // phases above cost individually, THIS is the stretch the run loop actually sees.
+        /// `finish()` measures every sheet and draws every page in one call. Whatever the
+        /// phases above cost individually, THIS is the stretch the run loop actually sees.
         let wholeURL = scratchURL("timing-whole.pdf")
         try? FileManager.default.removeItem(at: wholeURL)
         if let consumer = CGDataConsumer(url: wholeURL as CFURL),
@@ -187,11 +187,11 @@ extension DebugHarness {
             builder.add(library, geometry: geometry)
             builder.add(history, geometry: geometry)
             builder.add(discs, geometry: geometry)
-            // A heartbeat on the same actor, asking to wake every few milliseconds. When
-            // the export is between suspensions the main actor is busy and the wake is
-            // delayed; the longest delay is exactly the longest stretch the run loop —
-            // and therefore the user — went without a turn. This measures what the system
-            // sees, not what the code intended.
+            /// A heartbeat on the same actor, asking to wake every few milliseconds. When
+            /// the export is between suspensions the main actor is busy and the wake is
+            /// delayed; the longest delay is exactly the longest stretch the run loop —
+            /// and therefore the user — went without a turn. This measures what the system
+            /// sees, not what the code intended.
             let gaps = HeartbeatGaps()
             let heartbeat = Task { @MainActor in
                 var last = clock.now
@@ -214,12 +214,12 @@ extension DebugHarness {
 
         r.metric("longest-build-phase", longest.ms, "ms")
         r.metric("longest-stretch-between-yields", longestStretch, "ms")
-        // The thing that is actually a bug. macOS shows the spinning cursor after the main
-        // thread has been unresponsive for on the order of a second; a stretch a quarter of
-        // that leaves ample margin for a slower machine and a larger library. The section
-        // BUILD phases are not held to this — they run between the exporter's own yields
-        // and are a fraction of the draw — but are reported above so a regression there is
-        // visible too.
+        /// The thing that is actually a bug. macOS shows the spinning cursor after the main
+        /// thread has been unresponsive for on the order of a second; a stretch a quarter of
+        /// that leaves ample margin for a slower machine and a larger library. The section
+        /// BUILD phases are not held to this — they run between the exporter's own yields
+        /// and are a fraction of the draw — but are reported above so a regression there is
+        /// visible too.
         r.check("no-stretch-long-enough-to-hang",
                 longestStretch < 250,
                 "longest stretch between yields during the draw: "
@@ -260,8 +260,8 @@ extension DebugHarness {
         r.check("picker-no-blank-rows", names.allSatisfy { !$0.isEmpty },
                 "a section would appear in the picker as a blank row: \(names)")
 
-        // The two per-film detail sections belong to no ReportsView tab; reporting one
-        // would send the exporter down the report-sheet path and draw the wrong table.
+        /// The two per-film detail sections belong to no ReportsView tab; reporting one
+        /// would send the exporter down the report-sheet path and draw the wrong table.
         r.check("picker-detail-sections-uncategorized",
                 LibraryPDFSection.viewingHistory.reportsCategory == nil
                     && LibraryPDFSection.discReleases.reportsCategory == nil,
@@ -311,8 +311,8 @@ extension DebugHarness {
         let history = ViewingHistoryPDFReport.section(films: [])
         let releases = DiscReleasesPDFReport.section(films: [])
 
-        // A paired header's two words each get HALF the cell — see `PDFPairedText` — so
-        // they are measured against that half rather than against the whole column.
+        /// A paired header's two words each get HALF the cell — see `PDFPairedText` — so
+        /// they are measured against that half rather than against the whole column.
         if let paired = releases.columns[11].pairedTitle {
             r.check("fit-paired-header",
                     fits(paired.leading, width: releases.columns[11].width / 2, font: headerFont)
@@ -327,21 +327,21 @@ extension DebugHarness {
         r.check("fit-releases-headers", headerOverflows(releases).isEmpty,
                 "wrapping in the Disc-based Releases header band: \(headerOverflows(releases))")
 
-        // The longest date the Viewing Date column can ever be asked to print. September is
-        // the longest month name, 30 the widest two-digit day at these figures, and 2044 a
-        // year of four wide digits.
+        /// The longest date the Viewing Date column can ever be asked to print. September is
+        /// the longest month name, 30 the widest two-digit day at these figures, and 2044 a
+        /// year of four wide digits.
         r.check("fit-longest-viewing-date",
                 fits("September 30, 2044", width: history.columns[4].width, font: bodyFont),
                 "'September 30, 2044' wraps in a \(history.columns[4].width)pt Viewing Date column")
 
-        // Four figures, in the fixed-width face both sections number their films in. A
-        // wrapped index would grow the height of every row it landed on.
+        /// Four figures, in the fixed-width face both sections number their films in. A
+        /// wrapped index would grow the height of every row it landed on.
         let indexFont = PDFFonts.monospacedFont(size: geometry.fontSize, weight: .semibold)
         r.check("fit-four-figure-index",
                 fits("4444", width: PDFColumnWidth.index, font: indexFont),
                 "a four-figure index wraps in a \(PDFColumnWidth.index)pt column")
 
-        // The widest video string, which sizes its column.
+        /// The widest video string, which sizes its column.
         r.check("fit-widest-video",
                 fits("HEVC (Upscaled), Dolby Vision", width: releases.columns[6].width,
                      font: bodyFont),
@@ -357,27 +357,27 @@ extension DebugHarness {
                      font: bodyFont),
                 "the abbreviated loosely-locked tag wraps in a "
                     + "\(releases.columns[5].width)pt column")
-        // The Status column is merged down a release's pair, so a wrapped value is not a
-        // fit failure so much as a legibility one — and it is the film band's own summary
-        // that shares the column, not either of the release fields.
+        /// The Status column is merged down a release's pair, so a wrapped value is not a
+        /// fit failure so much as a legibility one — and it is the film band's own summary
+        /// that shares the column, not either of the release fields.
         r.check("fit-not-purchased",
                 fits("Not purchased", width: releases.columns[2].width, font: bodyFont),
                 "'Not purchased' wraps in a \(releases.columns[2].width)pt Status column")
-        // Sized for three ratios and an ellipsis, past which the cell truncates.
-        // Measured against the SPAN the value covers, not one of the two columns it is
-        // built from — neither is a field on its own. See the column map in `Width`.
+        /// Sized for three ratios and an ellipsis, past which the cell truncates.
+        /// Measured against the SPAN the value covers, not one of the two columns it is
+        /// built from — neither is a field on its own. See the column map in `Width`.
         let aspectSpan = releases.columns[7].width + releases.columns[8].width
         r.check("fit-three-aspect-ratios",
                 fits("4.44:4, 4.44:4, 4.44:4", width: aspectSpan, font: bodyFont),
                 "three aspect ratios do not fit a \(aspectSpan)pt span")
-        // Likewise the two bottom-row fields, each of which spans two columns.
+        /// Likewise the two bottom-row fields, each of which spans two columns.
         let versionsSpan = releases.columns[6].width + releases.columns[7].width
         r.check("fit-versions-span-restored", versionsSpan == 120,
                 "Versions Included spans \(versionsSpan)pt, not the 120pt it had")
         let packagingSpan = releases.columns[8].width + releases.columns[9].width
         r.check("fit-packaging-span-restored", packagingSpan == 103,
                 "Packaging spans \(packagingSpan)pt, not the 103pt it had")
-        // The longest format label, plus the indent that steps it under its film's title.
+        /// The longest format label, plus the indent that steps it under its film's title.
         r.check("fit-longest-format-label",
                 fits("Blu-ray (included in combo-pack)",
                      width: releases.columns[1].width - 5, font: bodyFont),
@@ -413,21 +413,21 @@ extension DebugHarness {
                 "\(places.count) placements for \(rows.count) rows")
         guard places.count == rows.count else { return }
 
-        // Reading order: (page, pane, y) never goes backwards.
+        /// Reading order: (page, pane, y) never goes backwards.
         let monotonic = zip(places, places.dropFirst()).allSatisfy { previous, next in
             (previous.page, previous.pane, previous.y) < (next.page, next.pane, next.y)
         }
         r.check("flow-reading-order", monotonic,
                 "a row is placed above or before the row that precedes it")
 
-        // Both panes are actually used, and no third one is invented.
+        /// Both panes are actually used, and no third one is invented.
         let panes = Set(places.map(\.pane))
         r.check("flow-uses-both-panes", panes == [0, 1],
                 "panes used: \(panes.sorted())")
 
-        // Two-up must genuinely halve the page count against the same rows drawn full
-        // width — that is the entire point of the layout, and the one claim a caller makes
-        // by setting `columnsPerPage`.
+        /// Two-up must genuinely halve the page count against the same rows drawn full
+        /// width — that is the entire point of the layout, and the one claim a caller makes
+        /// by setting `columnsPerPage`.
         var singleUp = section
         singleUp.columnsPerPage = 1
         let singlePages = PDFTableRenderer.pageCount(of: singleUp, geometry: geometry)
@@ -435,8 +435,8 @@ extension DebugHarness {
                 metrics.pageCount <= (singlePages + 1) / 2 && metrics.pageCount > 0,
                 "\(metrics.pageCount) pages two-up against \(singlePages) full width")
 
-        // Every pane starts below the title band and the header band, and no row is placed
-        // into the footer's reserve.
+        /// Every pane starts below the title band and the header band, and no row is placed
+        /// into the footer's reserve.
         let top = geometry.margin + geometry.titleHeight + geometry.headerRowHeight
         let floor = geometry.pageSize.height - geometry.margin - geometry.footerReserve
         r.check("flow-within-page",
@@ -444,8 +444,8 @@ extension DebugHarness {
                 "a row is placed outside the page's content band")
 
         // MARK: Spans are never split
-        // A merged cell with half its rows on one pane and half on the next is not
-        // something a reader can interpret, so the flow treats the run as atomic.
+        /// A merged cell with half its rows on one pane and half on the next is not
+        /// something a reader can interpret, so the flow treats the run as atomic.
         let paired = PDFTableSection(
             title: "Span Probe",
             columns: [PDFTableColumn("#", width: 1), PDFTableColumn("Value", width: 4)],
@@ -481,11 +481,11 @@ extension DebugHarness {
         r.check("vh-two-up", section.columnsPerPage == 2,
                 "the section declares \(section.columnsPerPage) pane(s) per page")
 
-        // The index column is the SAME width as the complete-library table's. All three
-        // per-film sections number the same films, and a reader moving between them must
-        // meet the same column in the same place — which only holds because each section's
-        // weights sum to its own content width. Asserted here because that is a convention,
-        // not something the type system can enforce.
+        /// The index column is the SAME width as the complete-library table's. All three
+        /// per-film sections number the same films, and a reader moving between them must
+        /// meet the same column in the same place — which only holds because each section's
+        /// weights sum to its own content width. Asserted here because that is a convention,
+        /// not something the type system can enforce.
         r.check("vh-shared-index-width",
                 section.columns[0].width == PDFColumnWidth.index
                     && LibraryTableLayout.standard.index == PDFColumnWidth.index,
@@ -499,34 +499,34 @@ extension DebugHarness {
                     + "is not this section's pane width — the shared index width is then a "
                     + "different size here than elsewhere")
 
-        // The dates are a column the eye runs down, so the VALUES are right-aligned; the
-        // label is not, because a short header pinned to the right of its column reads as
-        // though it belonged to the column beside it.
+        /// The dates are a column the eye runs down, so the VALUES are right-aligned; the
+        /// label is not, because a short header pinned to the right of its column reads as
+        /// though it belonged to the column beside it.
         let dateColumn = section.columns[4]
         r.check("vh-date-alignment",
                 dateColumn.alignment == .right && dateColumn.resolvedHeaderAlignment == .center,
                 "Viewing Date is \(dateColumn.alignment.rawValue) with a "
                     + "\(dateColumn.resolvedHeaderAlignment.rawValue) header")
 
-        // Film order is the complete-library table's, so a reader carries a film's position
-        // between sections. Asserted against the shared helper rather than against a
-        // hand-written expectation, which would pass even if BOTH had drifted.
+        /// Film order is the complete-library table's, so a reader carries a film's position
+        /// between sections. Asserted against the shared helper rather than against a
+        /// hand-written expectation, which would pass even if BOTH had drifted.
         let expectedOrder = LibraryPDFReport.ordered(films).map(\.name)
         let bandedTitles = section.rows.filter { $0[0].text != "" }.map { $0[1].text }
         r.check("vh-film-order", bandedTitles == expectedOrder,
                 "film rows are \(bandedTitles)")
 
-        // Every film row is filled ACROSS — the band is the only thing separating one
-        // film's viewings from the next film's.
+        /// Every film row is filled ACROSS — the band is the only thing separating one
+        /// film's viewings from the next film's.
         let bands = section.rows.filter { $0[0].text != "" }
         r.check("vh-film-band",
                 bands.allSatisfy { row in row.allSatisfy { sameFill($0.fill, PDFPalette.lightGray) } },
                 "a film row is not filled across all seven columns")
 
-        // …and the band has no internal vertical rules, so it reads as one block rather
-        // than as a row of mostly-empty cells. The index keeps all four of its edges: it is
-        // a value in its own column, and the rule after it separates the number from the
-        // heading it labels.
+        /// …and the band has no internal vertical rules, so it reads as one block rather
+        /// than as a row of mostly-empty cells. The index keeps all four of its edges: it is
+        /// a value in its own column, and the rule after it separates the number from the
+        /// heading it labels.
         r.check("vh-band-is-one-block",
                 bands.allSatisfy { row in
                     row[0].borders == .all
@@ -535,15 +535,15 @@ extension DebugHarness {
                 },
                 "a film band still carries internal column rules")
 
-        // …and no detail row is, which is what keeps the bands readable as bands.
+        /// …and no detail row is, which is what keeps the bands readable as bands.
         let detailsUnbanded = section.rows
             .filter { $0[0].text == "" }
             .allSatisfy { row in row.allSatisfy { $0.fill == nil } }
         r.check("vh-detail-unbanded", detailsUnbanded,
                 "a viewing row carries a fill; only film rows may")
 
-        // The release year identifies the film and so appears on the FILM row only — a
-        // year repeated beside every viewing would read as the year of that viewing.
+        /// The release year identifies the film and so appears on the FILM row only — a
+        /// year repeated beside every viewing would read as the year of that viewing.
         let yearsOnBands = section.rows.filter { $0[0].text != "" }.map { $0[2].text }
         r.check("vh-film-year", yearsOnBands.allSatisfy { $0 == "2000" },
                 "film rows carry years \(yearsOnBands)")
@@ -552,7 +552,7 @@ extension DebugHarness {
                 "a viewing row carries a release year")
 
         // MARK: Row shape
-        // One film row plus one row per parsed viewing, in that order.
+        /// One film row plus one row per parsed viewing, in that order.
         guard let watched = filmBlock(in: section, title: "PDF VH Watched") else {
             r.check("vh-watched-present", false, "no block for the multi-viewing film")
             return
@@ -562,11 +562,11 @@ extension DebugHarness {
         r.check("vh-watched-rows", watched.details.count == 3,
                 "expected 3 viewing rows, got \(watched.details.count)")
 
-        // The four columns that describe the FILM — index, title, year, viewing count —
-        // are one OPEN field beneath its band, not four unruled columns: the only verticals
-        // left are the table's own left edge and the rule that opens the Viewing Date
-        // column. A film does not change between two of its own viewings, and nothing in
-        // this region carries a value, so every rule inside it divides nothing.
+        /// The four columns that describe the FILM — index, title, year, viewing count —
+        /// are one OPEN field beneath its band, not four unruled columns: the only verticals
+        /// left are the table's own left edge and the rule that opens the Viewing Date
+        /// column. A film does not change between two of its own viewings, and nothing in
+        /// this region carries a value, so every rule inside it divides nothing.
         let expected: [PDFCellBorders] = [.left, [], [], .right]
         let openField = watched.details.enumerated().allSatisfy { offset, row in
             let closing = offset == watched.details.count - 1
@@ -579,17 +579,17 @@ extension DebugHarness {
                 "the region under a film band still carries rules: "
                     + "\(watched.details.map { row in (0..<4).map { row[$0].borders.rawValue } })")
 
-        // The viewing columns are NOT merged — each viewing is its own record and must be
-        // ruled off from the next.
+        /// The viewing columns are NOT merged — each viewing is its own record and must be
+        /// ruled off from the next.
         r.check("vh-viewing-columns-ruled",
                 watched.details.allSatisfy { row in
                     row[4].borders == .all && row[5].borders == .all && row[6].borders == .all
                 },
                 "a viewing's own columns lost their rules")
 
-        // Newest first, and the "since prior" gaps measured against the NEXT-OLDER
-        // viewing — both inherited from `viewingHistoryEntries`, which the sidebar's own
-        // table calls. 2026.03.01 → 2026.02.01 is 28 days; 2026.02.01 → 2026.01.01 is 31.
+        /// Newest first, and the "since prior" gaps measured against the NEXT-OLDER
+        /// viewing — both inherited from `viewingHistoryEntries`, which the sidebar's own
+        /// table calls. 2026.03.01 → 2026.02.01 is 28 days; 2026.02.01 → 2026.01.01 is 31.
         let dates = watched.details.map { $0[4].text }
         r.check("vh-newest-first",
                 dates == ["March 1, 2026", "February 1, 2026", "January 1, 2026"],
@@ -598,11 +598,11 @@ extension DebugHarness {
         r.check("vh-since-prior", gaps == ["28 days", "31 days", "\u{2013}"],
                 "since-prior column is \(gaps)")
 
-        // The version code rides on the stored entry and is read with the same call the
-        // sidebar's detailed table uses; an entry with no code prints the placeholder.
-        // Compared against `ViewingVersion`'s OWN display names rather than against typed
-        // literals — the apostrophe in "Director's Cut" is a punctuation choice this file
-        // must not get a second vote on.
+        /// The version code rides on the stored entry and is read with the same call the
+        /// sidebar's detailed table uses; an entry with no code prints the placeholder.
+        /// Compared against `ViewingVersion`'s OWN display names rather than against typed
+        /// literals — the apostrophe in "Director's Cut" is a punctuation choice this file
+        /// must not get a second vote on.
         let versions = watched.details.map { $0[6].text }
         r.check("vh-versions",
                 versions == [ViewingVersion.theatrical.displayName,
@@ -611,9 +611,9 @@ extension DebugHarness {
                 "version column is \(versions)")
 
         // MARK: The two empty states
-        // "Unwatched" and "No viewing history" are DIFFERENT facts and the section must
-        // not collapse them: the first says the user has never watched the film, the
-        // second that they have but did not record when.
+        /// "Unwatched" and "No viewing history" are DIFFERENT facts and the section must
+        /// not collapse them: the first says the user has never watched the film, the
+        /// second that they have but did not record when.
         if let unwatched = filmBlock(in: section, title: "PDF VH Unwatched") {
             r.check("vh-unwatched-text", unwatched.film[3].text == "Unwatched",
                     "reads '\(unwatched.film[3].text)'")
@@ -638,10 +638,10 @@ extension DebugHarness {
                                                  films: [FilmSnapshot]) {
         let section = DiscReleasesPDFReport.section(films: films)
 
-        // The header band is TWO rows that mirror a release's two rows: the group titles
-        // are the upper row and the column titles the lower one. That mirroring is the
-        // whole reason the body cells carry no inline labels, so it is asserted rather than
-        // left to the eye.
+        /// The header band is TWO rows that mirror a release's two rows: the group titles
+        /// are the upper row and the column titles the lower one. That mirroring is the
+        /// whole reason the body cells carry no inline labels, so it is asserted rather than
+        /// left to the eye.
         r.check("dr-header-lower-row",
                 section.columns.map(\.title)
                     == ["#", "Title / Release", "Status", "Condition", "Provenance",
@@ -652,16 +652,16 @@ extension DebugHarness {
                 section.headerGroups.map(\.title)
                     == ["Release Date", "Studio", "Video", "Aspect Ratio", "Notes"],
                 "upper header row is \(section.headerGroups.map(\.title))")
-        // Studio banners the Provenance/Region Lock pair; Aspect Ratio and Notes each
-        // banner the columns their own row spans. The region after Studio is four columns
-        // that are NOT fields — the two body rows divide it at different points, and every
-        // field there is a span over one or two of them.
+        /// Studio banners the Provenance/Region Lock pair; Aspect Ratio and Notes each
+        /// banner the columns their own row spans. The region after Studio is four columns
+        /// that are NOT fields — the two body rows divide it at different points, and every
+        /// field there is a span over one or two of them.
         r.check("dr-header-group-spans",
                 section.headerGroups.map(\.columns) == [3..<4, 4..<6, 6..<7, 7..<9, 9..<13],
                 "header groups span \(section.headerGroups.map(\.columns))")
-        // Both bottom-row labels straddle a boundary the top row draws, so each is merged
-        // across two header cells by dropping the rule between them — and the rule BETWEEN
-        // the two labels survives, or they would read as one field.
+        /// Both bottom-row labels straddle a boundary the top row draws, so each is merged
+        /// across two header cells by dropping the rule between them — and the rule BETWEEN
+        /// the two labels survives, or they would read as one field.
         r.check("dr-bottom-headers-merged",
                 section.columns[6].headerBorders == [.top, .bottom, .left]
                     && section.columns[7].headerBorders == [.top, .bottom, .right]
@@ -669,28 +669,28 @@ extension DebugHarness {
                     && section.columns[9].headerBorders == [.top, .bottom, .right],
                 "the bottom header row is divided at the top row's boundaries")
 
-        // The four banners over left-aligned values are left-aligned too, so each label
-        // starts where the field it names starts.
+        /// The four banners over left-aligned values are left-aligned too, so each label
+        /// starts where the field it names starts.
         r.check("dr-banner-alignment",
                 section.headerGroups.map(\.alignment) == [.center, .left, .left, .left, .left],
                 "banner alignments are \(section.headerGroups.map { $0.alignment.rawValue })")
 
-        // Provenance is centered like the tag columns around it; Date of Purchase is
-        // right-aligned so the dates line up on their year down the page.
+        /// Provenance is centered like the tag columns around it; Date of Purchase is
+        /// right-aligned so the dates line up on their year down the page.
         r.check("dr-column-alignment",
                 section.columns[4].alignment == .center
                     && section.columns[12].alignment == .right,
                 "Provenance is \(section.columns[4].alignment.rawValue), Date of Purchase "
                     + "is \(section.columns[12].alignment.rawValue)")
 
-        // The money header sits on the same axis as the values beneath it, which is the
-        // point of pairing it — one vertical rule of slashes from the header down.
+        /// The money header sits on the same axis as the values beneath it, which is the
+        /// point of pairing it — one vertical rule of slashes from the header down.
         r.check("dr-paired-header",
                 section.columns[11].pairedTitle?.plain == "Cost / Spent",
                 "the money header is not a balanced pair")
 
-        // Full release dates print as "yyyy.MM.dd", the film's own date too; a year-only
-        // release keeps its bare year.
+        /// Full release dates print as "yyyy.MM.dd", the film's own date too; a year-only
+        /// release keeps its bare year.
         let dated = makeSnapshot(name: "PDF Dated Film", releaseYear: "2014", releaseDate: "2014-05-02",
                                  releases: [
                                     ReleaseSnapshot(releaseDate: "2016.03.01", baseReleaseYear: "1977",
@@ -701,13 +701,13 @@ extension DebugHarness {
         let datedRows = datedSection.rows
         r.check("dr-film-full-date", datedRows.first?[3].text == "2014.05.02",
                 "film band reads '\(datedRows.first?[3].text ?? "")'")
-        // Each release is a specification row then a provenance row; the date is on the first.
+        /// Each release is a specification row then a provenance row; the date is on the first.
         let specRows = Array(datedRows.dropFirst()).enumerated().filter { $0.offset % 2 == 0 }.map(\.element)
         let datedYears = Set(specRows.map { $0[3].text })
         r.check("dr-release-dates", datedYears == ["2016.03.01 (1977)", "2018", "2019.11.05"],
                 "release date cells read \(datedYears)")
-        // The two widths this column pair must hold: "Not purchased" and the widest date,
-        // each on one line inside the standard padding.
+        /// The two widths this column pair must hold: "Not purchased" and the widest date,
+        /// each on one line inside the standard padding.
         let geometry = PDFPageGeometry.landscapeLetter
         let face = PDFFonts.font(size: geometry.fontSize, weight: .semibold)
         func fits(_ text: String, column: Int) -> Bool {
@@ -722,8 +722,8 @@ extension DebugHarness {
         r.check("dr-single-pane", section.columnsPerPage == 1,
                 "this section has an elastic Notes column and must stay full width")
 
-        // The shared index width, and the convention that makes it shared — see the same
-        // pair of checks on the Viewing History section.
+        /// The shared index width, and the convention that makes it shared — see the same
+        /// pair of checks on the Viewing History section.
         r.check("dr-shared-index-width",
                 section.columns[0].width == PDFColumnWidth.index,
                 "index width is \(section.columns[0].width) against "
@@ -739,7 +739,7 @@ extension DebugHarness {
         r.check("dr-film-order", bands.map { $0[1].text } == expectedOrder,
                 "film rows are \(bands.map { $0[1].text })")
 
-        // The band is one block from the title to the last column — no internal rules.
+        /// The band is one block from the title to the last column — no internal rules.
         r.check("dr-band-is-one-block",
                 bands.allSatisfy { row in
                     row[0].borders == .all
@@ -748,8 +748,8 @@ extension DebugHarness {
                 },
                 "a film band still carries internal column rules")
 
-        // The film's own release year prints in the same column its releases print theirs
-        // in — a release's "2016 (1977)" carries this very figure in the parentheses.
+        /// The film's own release year prints in the same column its releases print theirs
+        /// in — a release's "2016 (1977)" carries this very figure in the parentheses.
         r.check("dr-film-year", bands.allSatisfy { $0[3].text == "2000" },
                 "film rows carry years \(bands.map { $0[3].text })")
 
@@ -768,7 +768,7 @@ extension DebugHarness {
             r.check("dr-combo-present", false, "no block for the combo-pack film")
             return
         }
-        // One purchase, one box: the pair counts ONCE.
+        /// One purchase, one box: the pair counts ONCE.
         r.check("dr-combo-summary", combo.film[2].text == "1 release",
                 "reads '\(combo.film[2].text)'")
         r.check("dr-combo-rows", combo.details.count == 4,
@@ -780,71 +780,71 @@ extension DebugHarness {
         let prov = combo.details[1]
 
         // MARK: Merges — the combo-pack record
-        // The pair is one purchase, so the fields that describe the PURCHASE rather than
-        // the disc are drawn once and merged down: Status across all four rows, Studio
-        // across three (leaving the child's provenance row for Provenance and Region Lock),
-        // and the parent's Year across its two (displacing its Condition, which the child
-        // reports). Studio, packaging and notes still describe the sub-columns beneath or
-        // beside them and merge across.
+        /// The pair is one purchase, so the fields that describe the PURCHASE rather than
+        /// the disc are drawn once and merged down: Status across all four rows, Studio
+        /// across three (leaving the child's provenance row for Provenance and Region Lock),
+        /// and the parent's Year across its two (displacing its Condition, which the child
+        /// reports). Studio, packaging and notes still describe the sub-columns beneath or
+        /// beside them and merge across.
         let childSpec = combo.details[2]
         let childProv = combo.details[3]
         r.check("dr-merges",
-                spec[1].rowSpan == 2                       // format, parent
-                    && spec[2].rowSpan == 4                // status, the whole pair
-                    && spec[3].rowSpan == 2                // parent's year
-                    && spec[4].rowSpan == 3 && spec[4].columnSpan == 2   // studio
-                    && spec[7].columnSpan == 2             // aspect ratio
-                    && spec[9].columnSpan == 4             // notes
-                    && prov[6].columnSpan == 2             // versions included
-                    && prov[8].columnSpan == 2             // packaging
-                    && childSpec[1].rowSpan == 2,          // format, child
+                spec[1].rowSpan == 2                       /// format, parent
+                    && spec[2].rowSpan == 4                /// status, the whole pair
+                    && spec[3].rowSpan == 2                /// parent's year
+                    && spec[4].rowSpan == 3 && spec[4].columnSpan == 2   /// studio
+                    && spec[7].columnSpan == 2             /// aspect ratio
+                    && spec[9].columnSpan == 4             /// notes
+                    && prov[6].columnSpan == 2             /// versions included
+                    && prov[8].columnSpan == 2             /// packaging
+                    && childSpec[1].rowSpan == 2,          /// format, child
                 "spans are status=\(spec[2].rowSpan)x, year=\(spec[3].rowSpan)x, "
                     + "studio=\(spec[4].rowSpan)x\(spec[4].columnSpan), "
                     + "aspect=x\(spec[7].columnSpan), notes=x\(spec[9].columnSpan)")
         r.check("dr-merge-placeholders",
                 spec.count == 13 && prov.count == 13
                     && [5, 8, 10, 11, 12].allSatisfy { spec[$0].text.isEmpty }
-                    // Parent's provenance row: condition, provenance and region are all
-                    // covered by the year and studio merged down from above.
+                    /// Parent's provenance row: condition, provenance and region are all
+                    /// covered by the year and studio merged down from above.
                     && [1, 2, 3, 4, 5, 7, 9].allSatisfy { prov[$0].text.isEmpty }
-                    // Child's specification row: status and studio covered from above.
+                    /// Child's specification row: status and studio covered from above.
                     && [2, 4, 5].allSatisfy { childSpec[$0].text.isEmpty },
                 "a covered cell carries text the renderer will not draw")
 
-        // The child's provenance row carries the pair's cataloguing detail — the parent's
-        // own row said nothing a 4K disc could add.
+        /// The child's provenance row carries the pair's cataloguing detail — the parent's
+        /// own row said nothing a 4K disc could add.
         r.check("dr-child-carries-provenance",
                 childProv[3].text == "New" && childProv[4].text == "United States"
                     && childProv[5].text == "Region A",
                 "child provenance row reads \(childProv[3...5].map(\.text))")
-        // The child's own year prints because it carries a base year — and prints ONLY the
-        // base year, in its parentheses, since the release year it shares with the parent
-        // is printed directly above. Purchased, so it takes one row and the child's
-        // Condition keeps the other.
+        /// The child's own year prints because it carries a base year — and prints ONLY the
+        /// base year, in its parentheses, since the release year it shares with the parent
+        /// is printed directly above. Purchased, so it takes one row and the child's
+        /// Condition keeps the other.
         r.check("dr-child-year-with-base",
                 childSpec[3].text == "(1977)" && childSpec[3].rowSpan == 1,
                 "child year cell reads '\(childSpec[3].text)' spanning \(childSpec[3].rowSpan)")
-        // With a base year on the child, the parent's year stops at its own two rows.
+        /// With a base year on the child, the parent's year stops at its own two rows.
         r.check("dr-parent-year-reach-with-base", spec[3].rowSpan == 2,
                 "parent year spans \(spec[3].rowSpan) rows")
 
         // MARK: Rule weights
-        // Three weights of horizontal rule: black across the top of a film's band, the
-        // darker gray across the top of each release (from the trailing edge of the index
-        // column), and the ordinary border everywhere else — including between a parent
-        // and its child, which are one release.
+        /// Three weights of horizontal rule: black across the top of a film's band, the
+        /// darker gray across the top of each release (from the trailing edge of the index
+        /// column), and the ordinary border everywhere else — including between a parent
+        /// and its child, which are one release.
         r.check("dr-film-rule",
                 bands.allSatisfy { row in row.allSatisfy { $0.topRuleColor == PDFPalette.filmRule } },
                 "a film band's top rule is not black the whole way across")
-        // The combo is the FIRST release of its film, so its top edge is the band's bottom
-        // and it takes no rule of its own — the black film rule above already divides it.
+        /// The combo is the FIRST release of its film, so its top edge is the band's bottom
+        /// and it takes no rule of its own — the black film rule above already divides it.
         r.check("dr-first-release-unruled",
                 spec.allSatisfy { $0.topRuleColor == nil }
                     && prov.allSatisfy { $0.topRuleColor == nil }
                     && childSpec.allSatisfy { $0.topRuleColor == nil },
                 "a film's first release (or its child) must not carry a release rule")
-        // The rule proper is asserted on a SECOND release — the Mixed film's wishlisted
-        // Blu-ray — where it runs from the index column across the specification row only.
+        /// The rule proper is asserted on a SECOND release — the Mixed film's wishlisted
+        /// Blu-ray — where it runs from the index column across the specification row only.
         if let mixedForRule = filmBlock(in: section, title: "PDF DR Mixed"),
            mixedForRule.details.count >= 4 {
             let secondSpec = mixedForRule.details[2]
@@ -860,9 +860,9 @@ extension DebugHarness {
         }
 
         // MARK: De-emphasis of the unremarkable
-        // A single plain ratio and a theatrical-only version list are the defaults restated;
-        // more than one ratio, an open-matte ratio, or any other cut is the reason to read
-        // the cell.
+        /// A single plain ratio and a theatrical-only version list are the defaults restated;
+        /// more than one ratio, an open-matte ratio, or any other cut is the reason to read
+        /// the cell.
         r.check("dr-single-ratio-secondary",
                 spec[7].textColor == PDFPalette.secondaryText,
                 "a lone plain ratio is not de-emphasized")
@@ -871,7 +871,7 @@ extension DebugHarness {
         r.check("dr-theatrical-only-secondary",
                 childProv[6].text == "Theatrical" && childProv[6].textColor == PDFPalette.secondaryText,
                 "a theatrical-only version list is not de-emphasized")
-        // Placeholders, wherever they land, are secondary too.
+        /// Placeholders, wherever they land, are secondary too.
         r.check("dr-placeholders-secondary",
                 childSpec[9].text == "\u{2013}" && childSpec[9].textColor == PDFPalette.secondaryText,
                 "a placeholder dash is drawn in the primary color")
@@ -879,12 +879,12 @@ extension DebugHarness {
         let badges = [spec[1], combo.details[2][1]]
         r.check("dr-parent-first", badges[0].text == "4K UHD",
                 "first release row reads '\(badges[0].text)'")
-        // Hyphenated, matching the stored vocabulary the packaging column prints.
+        /// Hyphenated, matching the stored vocabulary the packaging column prints.
         r.check("dr-child-labeled",
                 badges[1].text == "Blu-ray (included in combo-pack)",
                 "child release row reads '\(badges[1].text)'")
-        // Stepped in under the film title in the same column, and the bundled disc stepped
-        // in again under the box it came in.
+        /// Stepped in under the film title in the same column, and the bundled disc stepped
+        /// in again under the box it came in.
         r.check("dr-format-indented",
                 badges[0].indent > 0 && badges[1].indent > badges[0].indent,
                 "format indents are \(badges.map(\.indent)); the child must step in further")
@@ -897,8 +897,8 @@ extension DebugHarness {
                 sameFill(badges[1].fill, PDFPalette.veryDarkBlue) && !badges[1].fillIsOpaque,
                 "the bundled Blu-ray badge is \(fillName(badges[1].fill))")
 
-        // The index column runs unbroken beneath the band: only the LAST release's
-        // provenance row closes it.
+        /// The index column runs unbroken beneath the band: only the LAST release's
+        /// provenance row closes it.
         r.check("dr-index-contiguous",
                 combo.details[0][0].borders == .sides
                     && combo.details[1][0].borders == .sides
@@ -920,41 +920,41 @@ extension DebugHarness {
                 "audio cell reads '\(prov[10].text)'")
 
         // MARK: De-emphasis
-        // The provenance row's cataloguing detail sits in the secondary gray so the eye can
-        // run down the specification rows and drop into it only when it wants the detail.
+        /// The provenance row's cataloguing detail sits in the secondary gray so the eye can
+        /// run down the specification rows and drop into it only when it wants the detail.
         r.check("dr-provenance-row-secondary",
                 [childProv[3], childProv[4], prov[8], childProv[8]]
                     .allSatisfy { $0.textColor == PDFPalette.secondaryText },
                 "condition/provenance/packaging are not de-emphasized")
-        // …but a FLAGGED region keeps the primary color, or the gray would take back what
-        // the orange fill gives.
+        /// …but a FLAGGED region keeps the primary color, or the gray would take back what
+        /// the orange fill gives.
         r.check("dr-region-unflagged-secondary",
                 childProv[5].fill == nil && childProv[5].textColor == PDFPalette.secondaryText,
                 "an unflagged region lock is not de-emphasized")
 
-        // On 4K only the CODEC is secondary — the master type and HDR flavor are what vary
-        // and what a reader is looking for, so they stay primary.
+        /// On 4K only the CODEC is secondary — the master type and HDR flavor are what vary
+        /// and what a reader is looking for, so they stay primary.
         r.check("dr-4k-video-codec-only",
                 spec[6].textColor == nil
                     && spec[6].highlights.count == 1
                     && spec[6].highlights[0].text == ReleaseVideoFormat.hevc
                     && spec[6].highlights[0].color == PDFPalette.secondaryText,
                 "the 4K video cell must gray its codec alone, not the whole string")
-        // On Blu-ray and DVD the whole string is secondary: the codec is fixed by the
-        // format in practice, so the cell confirms rather than informs.
+        /// On Blu-ray and DVD the whole string is secondary: the codec is fixed by the
+        /// format in practice, so the cell confirms rather than informs.
         r.check("dr-2k-video-secondary",
                 combo.details[2][6].textColor == PDFPalette.secondaryText
                     && combo.details[2][6].highlights.isEmpty,
                 "the Blu-ray video cell is not de-emphasized wholesale")
-        // The aspect column truncates rather than wrapping — it is sized for three ratios
-        // and an ellipsis, and every point it gave up went to Notes.
+        /// The aspect column truncates rather than wrapping — it is sized for three ratios
+        /// and an ellipsis, and every point it gave up went to Notes.
         r.check("dr-aspect-truncates", spec[7].truncates,
                 "the aspect column wraps, which grows the row it lands on")
 
         // MARK: The 4K region default and the Region A case
-        // A standalone 4K has no region coding and reads Region Free by default — see the
-        // Mixed film below, whose 4K is standalone. On the combo record that cell is
-        // covered, so the default is asserted there rather than here.
+        /// A standalone 4K has no region coding and reads Region Free by default — see the
+        /// Mixed film below, whose 4K is standalone. On the combo record that cell is
+        /// covered, so the default is asserted there rather than here.
         let childRegion = childProv[5]
         r.check("dr-region-a-unfilled",
                 childRegion.text == "Region A" && childRegion.fill == nil,
@@ -994,7 +994,7 @@ extension DebugHarness {
                     + "'\(looseProv[5].text)' / \(fillName(looseProv[5].fill))")
 
         // MARK: Money and dates
-        // A purchase is a balanced pair, so the slash falls in the same place on every row.
+        /// A purchase is a balanced pair, so the slash falls in the same place on every row.
         let purchased = mixed.details[1]
         r.check("dr-purchased-money",
                 purchased[11].paired?.leading == "$49.99"
@@ -1007,8 +1007,8 @@ extension DebugHarness {
                     && purchased[12].alignment == nil,
                 "date cell reads '\(purchased[12].text)'")
 
-        // An unpurchased release reports the lowest price alone, prefixed, de-emphasized,
-        // and NOT paired — there is no relation for a single figure to be aligned on.
+        /// An unpurchased release reports the lowest price alone, prefixed, de-emphasized,
+        /// and NOT paired — there is no relation for a single figure to be aligned on.
         r.check("dr-wishlist-money",
                 wishlistProv[11].text == "Lowest: $14.99"
                     && wishlistProv[11].paired == nil
@@ -1016,8 +1016,8 @@ extension DebugHarness {
                     && wishlistProv[11].textColor == PDFPalette.secondaryText,
                 "an unpurchased release must report the lowest price alone and in the "
                     + "secondary gray, not '\(wishlistProv[11].text)'")
-        // Abbreviated, with no trailing period, and left-aligned: it is a sentence, not a
-        // date, and pinned right its prefix would move on every row.
+        /// Abbreviated, with no trailing period, and left-aligned: it is a sentence, not a
+        /// date, and pinned right its prefix would move on every row.
         r.check("dr-wishlist-date",
                 wishlistProv[12].text == "Last seen: Mar 2, 2024"
                     && wishlistProv[12].alignment == .left
@@ -1026,34 +1026,34 @@ extension DebugHarness {
         r.check("dr-abbreviated-may", looseProv[12].text == "Last seen: May 4, 2023",
                 "date cell reads '\(looseProv[12].text)'")
 
-        // A bundled Blu-ray's money is the parent's, and both cells say so rather than
-        // dashing out as though the fields were never filled.
+        /// A bundled Blu-ray's money is the parent's, and both cells say so rather than
+        /// dashing out as though the fields were never filled.
         r.check("dr-combo-child-money",
                 childProv[11].text == "(Combo-pack)"
                     && childProv[12].text == "(Combo-pack)"
                     && childProv[11].paired == nil
-                    // Both left-aligned, so the one remark reads across the two cells.
+                    /// Both left-aligned, so the one remark reads across the two cells.
                     && childProv[11].alignment == .left
                     && childProv[12].alignment == .left
                     && childProv[11].textColor == PDFPalette.secondaryText,
                 "the bundled Blu-ray's money cells read '\(childProv[11].text)' / "
                     + "'\(childProv[12].text)'")
 
-        // A purchase with a recorded cost but nothing spent reads $0.00, not a dash: on a
-        // disc the user owns, a zero paid is a figure, and the app's own card reports it so.
+        /// A purchase with a recorded cost but nothing spent reads $0.00, not a dash: on a
+        /// disc the user owns, a zero paid is a figure, and the app's own card reports it so.
         if let gift = filmBlock(in: section, title: "PDF DR Gift") {
             r.check("dr-zero-spent-is-a-figure",
                     gift.details[1][11].paired?.trailing == "$0.00",
                     "a purchased release with nothing spent reads "
                         + "'\(gift.details[1][11].text)'")
-            // Purchased and standalone: the year keeps to its row and Condition has the one
-            // beneath it.
+            /// Purchased and standalone: the year keeps to its row and Condition has the one
+            /// beneath it.
             r.check("dr-purchased-year-stack",
                     gift.details[0][3].rowSpan == 1 && gift.details[1][3].text == "New",
                     "year spans \(gift.details[0][3].rowSpan), condition reads "
                         + "'\(gift.details[1][3].text)'")
-            // An open-matte ratio is the one framing choice that changes what the viewer
-            // sees, and stays primary.
+            /// An open-matte ratio is the one framing choice that changes what the viewer
+            /// sees, and stays primary.
             r.check("dr-open-matte-primary",
                     gift.details[0][7].text.contains("Open matte") && gift.details[0][7].textColor == nil,
                     "an open-matte ratio was de-emphasized: '\(gift.details[0][7].text)'")
@@ -1062,14 +1062,14 @@ extension DebugHarness {
         }
 
         // MARK: The year stack on unpurchased records
-        // An unpurchased release has no Condition to print, so its year takes that row too.
+        /// An unpurchased release has no Condition to print, so its year takes that row too.
         r.check("dr-unpurchased-year-stack",
                 mixed.details[2][3].rowSpan == 2 && mixed.details[3][3].text.isEmpty,
                 "unpurchased year spans \(mixed.details[2][3].rowSpan); condition cell "
                     + "reads '\(mixed.details[3][3].text)'")
-        // On a combo pack with no base year on the child, the parent's year reaches all
-        // the way down: three rows when purchased (the child's Condition needs its row),
-        // four when not.
+        /// On a combo pack with no base year on the child, the parent's year reaches all
+        /// the way down: three rows when purchased (the child's Condition needs its row),
+        /// four when not.
         if let plain = filmBlock(in: section, title: "PDF DR Combo Plain") {
             r.check("dr-combo-purchased-no-base-reach",
                     plain.details[0][3].rowSpan == 3
@@ -1093,8 +1093,8 @@ extension DebugHarness {
             r.check("dr-combo-wanted-present", false, "no block for the unpurchased combo")
         }
 
-        // Condition still describes a disc in hand, so an unpurchased release leaves it
-        // BLANK — not dashed, which would claim the field was merely unfilled.
+        /// Condition still describes a disc in hand, so an unpurchased release leaves it
+        /// BLANK — not dashed, which would claim the field was merely unfilled.
         r.check("dr-condition-purchased-only",
                 purchased[3].text == "\u{2013}" && wishlistProv[3].text.isEmpty
                     && looseProv[3].text.isEmpty,
@@ -1141,8 +1141,8 @@ extension DebugHarness {
                     && text.contains(DiscReleasesPDFReport.sectionTitle),
                 "one of the two section headings is missing from the drawn text")
 
-        // Every film reaches the page in BOTH sections — the cheapest end-to-end check
-        // that a block is not being laid out off the bottom of the page and lost.
+        /// Every film reaches the page in BOTH sections — the cheapest end-to-end check
+        /// that a block is not being laid out off the bottom of the page and lost.
         let missing = films.map(\.name).filter { name in
             text.components(separatedBy: name).count - 1 < 2
         }
@@ -1163,14 +1163,14 @@ extension DebugHarness {
     @MainActor
     private static func checkTwoUpRender(_ r: inout HarnessScenarioResult,
                                          geometry: PDFPageGeometry) async {
-        // Titles are numbered so their order on the page is readable at a glance: a wrap
-        // that ran across the page before it ran down it would be obvious immediately.
+        /// Titles are numbered so their order on the page is readable at a glance: a wrap
+        /// that ran across the page before it ran down it would be obvious immediately.
         let films = (1...140).map { index -> FilmSnapshot in
             var film = makeSnapshot(
                 name: "Two-Up Probe \(Fmt.padded(index, 3))",
                 releaseYear: "\(1970 + index % 50)",
-                // Every third film carries viewings, so the section has the ragged block
-                // heights a real library has rather than a uniform row per film.
+                /// Every third film carries viewings, so the section has the ragged block
+                /// heights a real library has rather than a uniform row per film.
                 calendarTable: index % 3 == 0 ? viewingDates(count: 1 + index % 4) : [])
             film.watched = index % 3 == 0
             return film
@@ -1208,9 +1208,9 @@ extension DebugHarness {
                 lost.isEmpty ? "all \(films.count) films survived the wrap"
                              : "lost in the wrap: \(lost.prefix(5))")
 
-        // No film's viewings are stranded on a different pane from the band that names
-        // them. A pane opening with unattributed dates is the specific failure two-up makes
-        // twice as likely, and the reason `keepTogether` exists.
+        /// No film's viewings are stranded on a different pane from the band that names
+        /// them. A pane opening with unattributed dates is the specific failure two-up makes
+        /// twice as likely, and the reason `keepTogether` exists.
         let split = section.keepTogether.filter { block in
             let first = metrics.placements[block.lowerBound]
             return block.contains { metrics.placements[$0].page != first.page
@@ -1253,21 +1253,21 @@ extension DebugHarness {
     private static func detailSectionsCorpus() -> [FilmSnapshot] {
         var films: [FilmSnapshot] = []
 
-        // Three viewings, newest first once sorted, with and without version codes — and
-        // no releases at all, which is also the Disc-based Releases section's empty state.
+        /// Three viewings, newest first once sorted, with and without version codes — and
+        /// no releases at all, which is also the Disc-based Releases section's empty state.
         films.append(makeSnapshot(
             name: "PDF VH Watched",
             calendarTable: ["2026.01.01.DC", "2026.03.01.TH", "2026.02.01"]))
 
-        // Never watched, nothing to list, no releases.
+        /// Never watched, nothing to list, no releases.
         films.append(makeSnapshot(name: "PDF VH Unwatched"))
 
-        // Marked watched, but with no dated entries — the OTHER empty state.
+        /// Marked watched, but with no dated entries — the OTHER empty state.
         var unrecorded = makeSnapshot(name: "PDF VH No History")
         unrecorded.watched = true
         films.append(unrecorded)
 
-        // A 4K parent with its bundled Blu-ray child.
+        /// A 4K parent with its bundled Blu-ray child.
         let parentID = UUID()
         var combo = makeSnapshot(name: "PDF DR Combo")
         combo.watched = true
@@ -1299,22 +1299,22 @@ extension DebugHarness {
                 releaseAspectRatio: ["2.39:1"],
                 audioFormat: ReleaseAudioFormat.dtsHDMA,
                 audioChannels: ReleaseAudioChannels.surround51,
-                // Mirrors the parent, as `FSTabReleases` keeps a child's origin in step —
-                // the merged record reads the pair's provenance off the child's row.
+                /// Mirrors the parent, as `FSTabReleases` keeps a child's origin in step —
+                /// the merged record reads the pair's provenance off the child's row.
                 nationalOrigin: "United States",
-                // The real stored tag, not a bare letter: the section reads this field
-                // through the same vocabulary the sidebar's region badge does, and a value
-                // outside it would exercise the fallback rather than the Region A case.
+                /// The real stored tag, not a bare letter: the section reads this field
+                /// through the same vocabulary the sidebar's region badge does, and a value
+                /// outside it would exercise the fallback rather than the Region A case.
                 regionLock: ReleaseRegionRules.regionA, condition: "new",
                 parentReleaseID: parentID),
         ]
         films.append(combo)
 
-        // The three purchase standings on one film, in the order the format sort puts them:
-        // 4K purchased, Blu-ray wishlisted, Blu-ray neither. The two Blu-rays also carry
-        // the two region-lock cases that must be told apart — a plain Region B, which does
-        // not play here and is flagged, and a loosely-locked one, which does and is not —
-        // and the two ends of the month-abbreviation rule, March and the unshortenable May.
+        /// The three purchase standings on one film, in the order the format sort puts them:
+        /// 4K purchased, Blu-ray wishlisted, Blu-ray neither. The two Blu-rays also carry
+        /// the two region-lock cases that must be told apart — a plain Region B, which does
+        /// not play here and is flagged, and a loosely-locked one, which does and is not —
+        /// and the two ends of the month-abbreviation rule, March and the unshortenable May.
         var mixed = makeSnapshot(name: "PDF DR Mixed")
         mixed.watched = true
         mixed.releases = [
@@ -1332,8 +1332,8 @@ extension DebugHarness {
         ]
         films.append(mixed)
 
-        // A purchase with a recorded cost and nothing spent — the one case where a zero in
-        // the Amount Spent field is a real figure rather than an empty one.
+        /// A purchase with a recorded cost and nothing spent — the one case where a zero in
+        /// the Amount Spent field is a real figure rather than an empty one.
         var gift = makeSnapshot(name: "PDF DR Gift")
         gift.watched = true
         gift.releases = [
@@ -1346,8 +1346,8 @@ extension DebugHarness {
         ]
         films.append(gift)
 
-        // A purchased combo pack whose child has NO base year: the parent's year reaches
-        // down three rows, stopping short of the child's Condition.
+        /// A purchased combo pack whose child has NO base year: the parent's year reaches
+        /// down three rows, stopping short of the child's Condition.
         let plainParent = UUID()
         var plain = makeSnapshot(name: "PDF DR Combo Plain")
         plain.watched = true
@@ -1365,8 +1365,8 @@ extension DebugHarness {
         ]
         films.append(plain)
 
-        // The same, unpurchased: nothing beneath the year has anything to say, and it
-        // reaches all four rows.
+        /// The same, unpurchased: nothing beneath the year has anything to say, and it
+        /// reaches all four rows.
         let wantedParent = UUID()
         var wanted = makeSnapshot(name: "PDF DR Combo Wanted")
         wanted.watched = true

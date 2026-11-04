@@ -1,7 +1,7 @@
 // MARK: - ReportsView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Displays reports and analytics for the film library.
+/// Displays reports and analytics for the film library.
 
 import SwiftUI
 
@@ -18,9 +18,9 @@ struct ReportsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        // Switching Reports tabs swaps the whole content view, but SelectionState is one shared instance that persists across the swap.
-        // Without this clear, a selection would survive into a tab where nothing is highlighted, and reappear later. This matches the clear on full
-        // view switches (see MainView's handleViewChange). It fires on selectedCategory, not the deferred displayedCategory, so it clears on request from any source.
+        /// Switching Reports tabs swaps the whole content view, but SelectionState is one shared instance that persists across the swap.
+        /// Without this clear, a selection would survive into a tab where nothing is highlighted, and reappear later. This matches the clear on full
+        /// view switches (see MainView's handleViewChange). It fires on selectedCategory, not the deferred displayedCategory, so it clears on request from any source.
         .onChange(of: reportsState.selectedCategory) { _, _ in
             selectionState.clearImmediate()
         }
@@ -43,7 +43,7 @@ private struct ReportsTitleBar: View {
             trailingButtons: {
                 HStack(spacing: 8) {
                     Button {
-                        // The Settings sheet's Export tab holds every export option, so this button is a shortcut to it. It sends the same command as ⇧⌘E.
+                        /// The Settings sheet's Export tab holds every export option, so this button is a shortcut to it. It sends the same command as ⇧⌘E.
                         AppEventBus.shared.sendCommand(.openSettingsToTab(tab: .export))
                     } label: {
                         Image(systemName: "square.and.arrow.up")
@@ -102,7 +102,7 @@ private struct ReportsContentSwitcher: View {
                 DataVisualizationsView()
             }
         }
-        // Strips inherited animation so the incoming tab renders at once. It sits here, not on ReportsView, so it does not suppress animations in the title bar or export button.
+        /// Strips inherited animation so the incoming tab renders at once. It sits here, not on ReportsView, so it does not suppress animations in the title bar or export button.
         .transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 }
@@ -119,7 +119,7 @@ final class ReportsState {
     private(set) var displayedCategory: ReportsCategory = .costTracker
     var visibleItemCount: Int = 0
     
-    // Export data storage per category
+    /// Export data storage per category
     private var costTrackerData: [ReleaseData] = []
     private var priceTrackerData: [ReleaseData] = []
     private var hallOfFameData: [HallOfFameFilm] = []
@@ -148,13 +148,13 @@ final class ReportsState {
         periodCache = (key, period)
     }
     
-    // Sort order storage per category
+    /// Sort order storage per category
     private var costTrackerSortOrder: [KeyPathComparator<ReleaseData>] = []
     private var priceTrackerSortOrder: [KeyPathComparator<ReleaseData>] = []
 
     // MARK: - Mount Caches
-    // The data stores above persist across tab switches. On mount, a tab seeds its state from these caches and renders at once, with no scan, sort, or placeholder.
-    // It then reloads two run-loop cycles later, after the Picker's fade. The AppKit table or list is still rebuilt on each switch.
+    /// The data stores above persist across tab switches. On mount, a tab seeds its state from these caches and renders at once, with no scan, sort, or placeholder.
+    /// It then reloads two run-loop cycles later, after the Picker's fade. The AppKit table or list is still rebuilt on each switch.
 
     /// Categories whose stores were populated this launch. "Never loaded" must scan at mount, to avoid a placeholder flash. "Loaded and empty"
     /// can show the placeholder, and the deferred reconcile confirms it.
@@ -227,13 +227,13 @@ final class ReportsState {
     }
     
     init() {
-        // Load saved category if preference is enabled
+        /// Load saved category if preference is enabled
         if Preferences.rememberReportsTab,
            let savedRawValue = Preferences.lastReportsCategory,
            let saved = ReportsCategory(rawValue: savedRawValue) {
             selectedCategory = saved
         }
-        // The displayed content must match the restored selection at launch.
+        /// The displayed content must match the restored selection at launch.
         displayedCategory = selectedCategory
     }
     
@@ -242,20 +242,20 @@ final class ReportsState {
     /// - Parameter immediate: Swap the content now, rather than two run-loop turns later. The title-bar pop-up passes true. Its NSPopUpButton
     ///   sends the action only after the menu fade (see SubcategoryPicker), so deferring would gain nothing. Menu commands and shortcuts defer.
     func selectCategory(_ category: ReportsCategory, persist: Bool = true, immediate: Bool = false) {
-        // Don't skip if it's the same category - we might need to reload
+        /// Don't skip if it's the same category - we might need to reload
         selectedCategory = category
 
-        // Save if preference is enabled
+        /// Save if preference is enabled
         if persist && Preferences.rememberReportsTab {
             Preferences.lastReportsCategory = category.rawValue
         }
         
-        // The content swap (displayedCategory) and the item count are deferred two run-loop cycles. The Picker's binding setter runs inside the
-        // menu action, so an immediate swap would build the new tab in the same transaction that commits the menu fade, which stutters the fade.
-        // A single async hop still lands before that commit. A second hop lands after it, so the fade runs out of process. DispatchQueue.main.async
-        // is used rather than Task because this originates from an AppKit event (see RecentsState.selectCategory).
-        //
-        // selectedCategory is already set above, so the picker label, glyph, and checkmarks update at once.
+        /// The content swap (displayedCategory) and the item count are deferred two run-loop cycles. The Picker's binding setter runs inside the
+        /// menu action, so an immediate swap would build the new tab in the same transaction that commits the menu fade, which stutters the fade.
+        /// A single async hop still lands before that commit. A second hop lands after it, so the fade runs out of process. DispatchQueue.main.async
+        /// is used rather than Task because this originates from an AppKit event (see RecentsState.selectCategory).
+        ///
+        /// selectedCategory is already set above, so the picker label, glyph, and checkmarks update at once.
         let swap: @MainActor () -> Void = {
             self.displayedCategory = category
             switch category {
@@ -278,7 +278,7 @@ final class ReportsState {
         }
     }
     
-    // Update data for a specific category
+    /// Update data for a specific category
     func updateData(_ data: [ReleaseData], for category: ReportsCategory) {
         switch category {
         case .costTracker:
@@ -291,44 +291,44 @@ final class ReportsState {
             break
         }
         
-        // Update visible count if this is the currently displayed category
+        /// Update visible count if this is the currently displayed category
         if category == displayedCategory {
             visibleItemCount = data.count
         }
     }
     
-    // Update hall of fame data
-    //
-    // Both properties are observed, so every assignment notifies, even when the value is unchanged. HallOfFameView reloads once per shifted
-    // member during a drag-reorder, so both writes are change-guarded. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
+    /// Update hall of fame data
+    ///
+    /// Both properties are observed, so every assignment notifies, even when the value is unchanged. HallOfFameView reloads once per shifted
+    /// member during a drag-reorder, so both writes are change-guarded. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
     func updateHallOfFameData(_ data: [HallOfFameFilm]) {
         let wasLoaded = loadedCategories.contains(.hallOfFame)
         if !wasLoaded {
             loadedCategories.insert(.hallOfFame)
         }
 
-        // The `!wasLoaded` term makes the first call always assign, so an empty first load still fills the cache.
+        /// The `!wasLoaded` term makes the first call always assign, so an empty first load still fills the cache.
         if !wasLoaded || hallOfFameData != data {
             hallOfFameData = data
         }
         
-        // Update visible count if hall of fame is the currently displayed category
+        /// Update visible count if hall of fame is the currently displayed category
         if displayedCategory == .hallOfFame, visibleItemCount != data.count {
             visibleItemCount = data.count
         }
     }
     
-    // Update wishlist data
-    //
-    // Change-guarded for the same reason as updateHallOfFameData. A wishlist drag-reorder sends one .film(.releaseChanged) per moved film,
-    // each triggering a full reload. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
+    /// Update wishlist data
+    ///
+    /// Change-guarded for the same reason as updateHallOfFameData. A wishlist drag-reorder sends one .film(.releaseChanged) per moved film,
+    /// each triggering a full reload. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
     func updateWishlistData(_ data: [WishlistRelease]) {
         let wasLoaded = loadedCategories.contains(.releaseWishlist)
         if !wasLoaded {
             loadedCategories.insert(.releaseWishlist)
         }
 
-        // The `!wasLoaded` term makes the first call always assign, so an empty first load still fills the cache.
+        /// The `!wasLoaded` term makes the first call always assign, so an empty first load still fills the cache.
         if !wasLoaded || wishlistData != data {
             wishlistData = data
         }
@@ -375,7 +375,7 @@ final class ReportsState {
     func debugResetVisualizations() { visualizations = nil }
     #endif
     
-    // Update sort order for a specific category
+    /// Update sort order for a specific category
     func updateSortOrder(_ sortOrder: [KeyPathComparator<ReleaseData>], for category: ReportsCategory) {
         switch category {
         case .costTracker:

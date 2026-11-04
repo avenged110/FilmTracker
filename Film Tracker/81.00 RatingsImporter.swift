@@ -1,7 +1,7 @@
 // MARK: - RatingsImporter.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Handles file selection and orchestrates ratings import workflow.
+/// Handles file selection and orchestrates ratings import workflow.
 
 import SwiftUI
 import UniformTypeIdentifiers
@@ -12,18 +12,18 @@ protocol RatingsImporterProgressDelegate: ImportSessionReporting {
     func didStartRatingsImport(totalRatings: Int)
     func didUpdateRatingsProgress(currentRating: Int, imported: Int, updated: Int,
         notFound: Int, duplicateSkipped: Int)
-    // `addedTitles`/`updatedTitles`/`duplicateTitles` hold the matched Film "name" field
-    // values for items in each respective category, for display in ImportsView's
-    // per-card "Details" popover.
+    /// `addedTitles`/`updatedTitles`/`duplicateTitles` hold the matched Film "name" field
+    /// values for items in each respective category, for display in ImportsView's
+    /// per-card "Details" popover.
     func didCompleteRatingsImport(imported: Int, updated: Int, notFound: Int,
         duplicateSkipped: Int, addedTitles: [String], updatedTitles: [String],
         duplicateTitles: [String])
 }
 
 // MARK: - Matching Value Types
-// The subset of a library film's fields the matching loop needs. Extracted from
-// the FilmSnapshot array once, up front, so the detached matching task works
-// purely with immutable Sendable values and never touches MemoryStore.
+/// The subset of a library film's fields the matching loop needs. Extracted from
+/// the FilmSnapshot array once, up front, so the detached matching task works
+/// purely with immutable Sendable values and never touches MemoryStore.
 private struct FilmRow: Sendable {
     let id: UUID
     let name: String
@@ -32,21 +32,21 @@ private struct FilmRow: Sendable {
     let existingRating: Int
 }
 
-// One matching strategy: which titles of a film an incoming rating may match
-// against. Two are used, in order — primary name first, then alternate titles
-// for whatever the first pass could not place.
+/// One matching strategy: which titles of a film an incoming rating may match
+/// against. Two are used, in order — primary name first, then alternate titles
+/// for whatever the first pass could not place.
 private struct MatchPass: Sendable {
-    // Appears in the debug log's "Source:" line.
+    /// Appears in the debug log's "Source:" line.
     let label: String
-    // Exact-match index: title → films carrying that title. An array because
-    // multiple films could theoretically share a title; in practice k ≈ 1.
+    /// Exact-match index: title → films carrying that title. An array because
+    /// multiple films could theoretically share a title; in practice k ≈ 1.
     let index: [String: [FilmRow]]
-    // Whether a film's title is a fuzzy (Levenshtein) match for the incoming
-    // rating's title under this pass. Used only when `index` misses and the
-    // fuzzy-matching preference is on.
+    /// Whether a film's title is a fuzzy (Levenshtein) match for the incoming
+    /// rating's title under this pass. Used only when `index` misses and the
+    /// fuzzy-matching preference is on.
     let matchesFuzzily: @Sendable (FilmRow, String) -> Bool
-    // True for the pass that matches on alternate titles, which logs the matched
-    // film's alternate-title list alongside its name.
+    /// True for the pass that matches on alternate titles, which logs the matched
+    /// film's alternate-title list alongside its name.
     let logsAlternateTitles: Bool
 }
 
@@ -62,7 +62,7 @@ final class RatingsImporter: Loggable {
     /// so ImportProgress.beginImport reads this to refuse a second import meanwhile.
     private(set) var isParsingSelection = false
 
-    // Batch updates every 500ms to prevent scroll hitching
+    /// Batch updates every 500ms to prevent scroll hitching
     private var pendingUpdates: [(UUID, Int)] = []
     private var updateBatchTask: Task<Void, Never>?
     private let updateBatchInterval: TimeInterval = 0.5
@@ -70,7 +70,7 @@ final class RatingsImporter: Loggable {
     init(dataCoordinator: DataCoordinator) { self.dataCoordinator = dataCoordinator }
 
     // MARK: - Public Interface
-    // Presents a file picker and begins the import process.
+    /// Presents a file picker and begins the import process.
     func beginImport() {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
@@ -85,32 +85,32 @@ final class RatingsImporter: Loggable {
                 self.progressDelegate?.importAbandonedBeforeStart()
                 return }
 
-            // Reset cancelation flag.
+            /// Reset cancelation flag.
             self.isCanceled = false
 
-            // Create session only after successful file selection.
+            /// Create session only after successful file selection.
             self.progressDelegate?.createSession(for: .ratings)
 
             await self.processFile(url) } }
 
-    // Cancel the ongoing import.
+    /// Cancel the ongoing import.
     func cancelImport() async {
         Self.log("Ratings import canceled by user")
         isCanceled = true
 
-        // Cancel batch update task
+        /// Cancel batch update task
         updateBatchTask?.cancel()
         updateBatchTask = nil
     }
 
-    // Reports a completion carrying no results. Used for every path that ends the
-    // import without a usable outcome — unreadable/unrecognized file or empty file —
-    // so the UI unlocks and the session is closed out identically in each case.
-    //
-    // NOT for cancellation. ImportProgress.cancelImport already closes a canceled
-    // import out (finalizeCancellation: session marked canceled, UI unlocked). A
-    // completion report on top of that would run flushAndFinalize a second time, which
-    // would show the canceled import with the success glyph and re-save it as completed.
+    /// Reports a completion carrying no results. Used for every path that ends the
+    /// import without a usable outcome — unreadable/unrecognized file or empty file —
+    /// so the UI unlocks and the session is closed out identically in each case.
+    ///
+    /// NOT for cancellation. ImportProgress.cancelImport already closes a canceled
+    /// import out (finalizeCancellation: session marked canceled, UI unlocked). A
+    /// completion report on top of that would run flushAndFinalize a second time, which
+    /// would show the canceled import with the success glyph and re-save it as completed.
     private func reportEmptyCompletion() {
         progressDelegate?.didCompleteRatingsImport(imported: 0, updated: 0,
             notFound: 0, duplicateSkipped: 0, addedTitles: [], updatedTitles: [],
@@ -122,7 +122,7 @@ final class RatingsImporter: Loggable {
         guard let coordinator = dataCoordinator else { return }
         Self.log("Starting ratings import from: \(url.lastPathComponent)")
 
-        // Initialize parser and parse file - keep parser local to this MainActor function
+        /// Initialize parser and parse file - keep parser local to this MainActor function
         let parser = RatingsParser()
 
         isParsingSelection = true
@@ -131,7 +131,7 @@ final class RatingsImporter: Loggable {
 
         guard let parsedRatings = parsed else {
             Self.log("ERROR: Failed to read or validate ratings file")
-            // Report completion with zero results to clear the UI.
+            /// Report completion with zero results to clear the UI.
             reportEmptyCompletion()
             return
         }
@@ -144,20 +144,20 @@ final class RatingsImporter: Loggable {
 
         Self.log("Successfully parsed \(parsedRatings.count) ratings from file")
 
-        // Check if import was canceled during parsing.
+        /// Check if import was canceled during parsing.
         if isCanceled {
             Self.log("Import canceled after parsing - aborting")
             return }
 
-        // Notify delegate that import is starting with total count.
+        /// Notify delegate that import is starting with total count.
         progressDelegate?.didStartRatingsImport(totalRatings: parsedRatings.count)
 
-        // Get preference values on MainActor.
+        /// Get preference values on MainActor.
         let allowUpdates = Preferences.allowUpdatesForDuplicateRatings
         let useFuzzyMatching = Preferences.fuzzyImportMatching
         let useFuzzyYearMatching = Preferences.fuzzyImportYearMatching
 
-        // Get all films and extract immutable data
+        /// Get all films and extract immutable data
         let allFilms = coordinator.getAllFilms()
 
         if allFilms.isEmpty {
@@ -165,8 +165,8 @@ final class RatingsImporter: Loggable {
             reportEmptyCompletion()
             return }
 
-        // Extract immutable film data for comparison.
-        // Includes alternateTitle for the secondary matching pass.
+        /// Extract immutable film data for comparison.
+        /// Includes alternateTitle for the secondary matching pass.
         let filmData: [FilmRow] = allFilms.map { film in
             FilmRow(id: film.id, name: film.name, alternateTitles: film.alternateTitle,
                 year: film.releaseYear, existingRating: film.userRating)
@@ -174,16 +174,16 @@ final class RatingsImporter: Loggable {
 
         Self.log("Processing \(parsedRatings.count) ratings against \(filmData.count) films in library")
 
-        // Clear pending updates
+        /// Clear pending updates
         pendingUpdates.removeAll()
 
-        // Start the batch update task
+        /// Start the batch update task
         startBatchUpdateTask()
 
-        // Process ratings in a detached task to avoid blocking the UI
-        // Capture only immutable values to avoid concurrency issues
-        let ratingsToProcess = parsedRatings // Immutable copy
-        let debugLogging = Preferences.importRatingsDebugLogging // Capture debug flag
+        /// Process ratings in a detached task to avoid blocking the UI
+        /// Capture only immutable values to avoid concurrency issues
+        let ratingsToProcess = parsedRatings /// Immutable copy
+        let debugLogging = Preferences.importRatingsDebugLogging /// Capture debug flag
 
         let (finalImportedCount, finalUpdatedCount, finalNotFoundCount, finalDuplicateSkippedCount,
              finalAddedTitles, finalUpdatedTitles, finalDuplicateTitles) =
@@ -191,26 +191,26 @@ final class RatingsImporter: Loggable {
             guard let self = self else { return (0, 0, 0, 0, [String](), [String](), [String]()) }
 
             var localCurrentRating = 0
-            var localImportedCount = 0      // New ratings applied (no prior rating)
-            var localUpdatedCount = 0        // Existing ratings changed
-            var localNotFoundCount = 0       // Not in library
-            var localDuplicateSkippedCount = 0 // Matched but skipped (same rating or updates disabled)
+            var localImportedCount = 0      /// New ratings applied (no prior rating)
+            var localUpdatedCount = 0        /// Existing ratings changed
+            var localNotFoundCount = 0       /// Not in library
+            var localDuplicateSkippedCount = 0 /// Matched but skipped (same rating or updates disabled)
 
-            // Titles (Film "name" field values) for items in each category, matched
-            // during either pass below. Surfaced in ImportsView's Details popover.
+            /// Titles (Film "name" field values) for items in each category, matched
+            /// during either pass below. Surfaced in ImportsView's Details popover.
             var localAddedTitles: [String] = []
             var localUpdatedTitles: [String] = []
             var localDuplicateTitles: [String] = []
 
-            // Build local updates array - avoid MainActor calls in hot loop
+            /// Build local updates array - avoid MainActor calls in hot loop
             var localUpdates: [(UUID, Int)] = []
 
-            // Shared cancellation check used by both the first and second
-            // matching passes below. On cancellation it flushes any locally
-            // buffered rating updates (so work already matched isn't silently
-            // discarded) and tears down the batch-update task. The UI and session
-            // are closed out by the cancel itself — see reportEmptyCompletion.
-            // Returns true if the caller should stop processing immediately.
+            /// Shared cancellation check used by both the first and second
+            /// matching passes below. On cancellation it flushes any locally
+            /// buffered rating updates (so work already matched isn't silently
+            /// discarded) and tears down the batch-update task. The UI and session
+            /// are closed out by the cancel itself — see reportEmptyCompletion.
+            /// Returns true if the caller should stop processing immediately.
             func checkCancellationAndTeardownIfNeeded(logSuffix: String) async -> Bool {
                 let canceled = await MainActor.run { self.isCanceled }
                 guard canceled else { return false }
@@ -226,13 +226,13 @@ final class RatingsImporter: Loggable {
                 return true
             }
 
-            // --- Matching passes ---
-            // Pass 1 matches an incoming rating against each film's primary name;
-            // pass 2 re-tries whatever pass 1 could not place against the films'
-            // alternate titles. Both use an exact-match dictionary first (O(1) on
-            // title, O(k) on year where k ≈ 1), falling back to a linear Levenshtein
-            // scan only when the dictionary misses AND fuzzy matching is enabled —
-            // that scan cannot be dictionary-optimized.
+            /// --- Matching passes ---
+            /// Pass 1 matches an incoming rating against each film's primary name;
+            /// pass 2 re-tries whatever pass 1 could not place against the films'
+            /// alternate titles. Both use an exact-match dictionary first (O(1) on
+            /// title, O(k) on year where k ≈ 1), falling back to a linear Levenshtein
+            /// scan only when the dictionary misses AND fuzzy matching is enabled —
+            /// that scan cannot be dictionary-optimized.
             var filmsByName: [String: [FilmRow]] = [:]
             for f in filmData { filmsByName[f.name, default: []].append(f) }
 
@@ -254,8 +254,8 @@ final class RatingsImporter: Loggable {
                         FilmTitleComparison.titlesAreSimilar($0, title) } },
                 logsAlternateTitles: true)
 
-            // Locates the library film an incoming rating belongs to under the given
-            // pass, returning the match and whether it required fuzzy title matching.
+            /// Locates the library film an incoming rating belongs to under the given
+            /// pass, returning the match and whether it required fuzzy title matching.
             func findMatch(for rating: ParsedRating,
                 using pass: MatchPass) -> (film: FilmRow, wasFuzzy: Bool)? {
                 if let candidates = pass.index[rating.title],
@@ -275,15 +275,15 @@ final class RatingsImporter: Loggable {
                 return nil
             }
 
-            // Applies a matched rating: queues the film's new rating when it should
-            // change, otherwise counts it as a skip. Identical for both passes; only
-            // the log's "Source:" line differs.
+            /// Applies a matched rating: queues the film's new rating when it should
+            /// change, otherwise counts it as a skip. Identical for both passes; only
+            /// the log's "Source:" line differs.
             func recordMatch(_ match: (film: FilmRow, wasFuzzy: Bool),
                 for rating: ParsedRating, pass: MatchPass) async {
                 let film = match.film
                 let existingRating = film.existingRating
-                // Existing rating present and either unchanged or locked by the
-                // "update existing ratings" preference — nothing to write.
+                /// Existing rating present and either unchanged or locked by the
+                /// "update existing ratings" preference — nothing to write.
                 if existingRating != 0 && !(allowUpdates && existingRating != rating.rating) {
                     localDuplicateSkippedCount += 1
                     localDuplicateTitles.append(film.name)
@@ -319,8 +319,8 @@ final class RatingsImporter: Loggable {
                 }
             }
 
-            // FIRST PASS: Match against primary film names
-            // Anything unmatched here is retried against alternate titles below.
+            /// FIRST PASS: Match against primary film names
+            /// Anything unmatched here is retried against alternate titles below.
             var unmatchedRatings: [ParsedRating] = []
             for rating in ratingsToProcess {
                 localCurrentRating += 1
@@ -331,9 +331,9 @@ final class RatingsImporter: Loggable {
                     unmatchedRatings.append(rating)
                 }
 
-                // Sync local updates to MainActor every 100 ratings to keep batch size reasonable
+                /// Sync local updates to MainActor every 100 ratings to keep batch size reasonable
                 if localCurrentRating % 100 == 0 && !localUpdates.isEmpty {
-                    // Create immutable copy to avoid concurrency issues
+                    /// Create immutable copy to avoid concurrency issues
                     let updatesToSync = localUpdates
                     localUpdates.removeAll()
 
@@ -342,9 +342,9 @@ final class RatingsImporter: Loggable {
                     }
                 }
 
-                // Check cancellation and update progress every 50 ratings.
-                // Cancellation is checked here rather than per-rating to avoid hundreds
-                // of MainActor hops; response time remains well under 1 second.
+                /// Check cancellation and update progress every 50 ratings.
+                /// Cancellation is checked here rather than per-rating to avoid hundreds
+                /// of MainActor hops; response time remains well under 1 second.
                 if localCurrentRating % 50 == 0 {
                     if await checkCancellationAndTeardownIfNeeded(logSuffix: "") {
                         return (0, 0, 0, 0, [String](), [String](), [String]())
@@ -366,15 +366,15 @@ final class RatingsImporter: Loggable {
                         )
                     }
 
-                    // Yield to allow UI updates
+                    /// Yield to allow UI updates
                     await Task.yield()
                 }
             }
 
-            // SECOND PASS: Try matching unmatched ratings against alternateTitle
+            /// SECOND PASS: Try matching unmatched ratings against alternateTitle
             if !unmatchedRatings.isEmpty {
                 if debugLogging {
-                    // Capture immutable count
+                    /// Capture immutable count
                     let unmatchedCount = unmatchedRatings.count
                     await MainActor.run {
                         Self.log("---")
@@ -387,7 +387,7 @@ final class RatingsImporter: Loggable {
                 for rating in unmatchedRatings {
                     secondPassCount += 1
 
-                    // Check cancellation periodically (every 50 ratings), same as first pass.
+                    /// Check cancellation periodically (every 50 ratings), same as first pass.
                     if secondPassCount % 50 == 0 {
                         if await checkCancellationAndTeardownIfNeeded(logSuffix: " during second pass") {
                             return (0, 0, 0, 0, [String](), [String](), [String]())
@@ -397,7 +397,7 @@ final class RatingsImporter: Loggable {
                     if let match = findMatch(for: rating, using: altTitlePass) {
                         await recordMatch(match, for: rating, pass: altTitlePass)
                     } else {
-                        // Still no match found even with alternateTitle
+                        /// Still no match found even with alternateTitle
                         localNotFoundCount += 1
 
                         if debugLogging {
@@ -413,9 +413,9 @@ final class RatingsImporter: Loggable {
                 }
             }
 
-            // Sync any remaining local updates to MainActor
+            /// Sync any remaining local updates to MainActor
             if !localUpdates.isEmpty {
-                // Create immutable copy to avoid concurrency issues
+                /// Create immutable copy to avoid concurrency issues
                 let updatesToSync = localUpdates
 
                 await MainActor.run {
@@ -427,22 +427,22 @@ final class RatingsImporter: Loggable {
                 localAddedTitles, localUpdatedTitles, localDuplicateTitles)
         }.value
 
-        // Cancel batch task and flush any remaining updates
+        /// Cancel batch task and flush any remaining updates
         updateBatchTask?.cancel()
         updateBatchTask = nil
         await flushPendingUpdates()
 
-        // Check if import was canceled before final event.
+        /// Check if import was canceled before final event.
         if isCanceled {
             Self.log("Import canceled before completion event - aborting")
             return }
 
-        // Give the store time (300ms) to complete all operations.
+        /// Give the store time (300ms) to complete all operations.
         try? await Task.sleep(for: .milliseconds(300))
 
-        // applyImportedRatingUpdate already mutates MemoryStore and fires AppEventBus
-        // events per-film; a full reloadFilms() is not needed and would re-sort/re-filter
-        // all films unnecessarily. The view refreshes naturally from @Published properties.
+        /// applyImportedRatingUpdate already mutates MemoryStore and fires AppEventBus
+        /// events per-film; a full reloadFilms() is not needed and would re-sort/re-filter
+        /// all films unnecessarily. The view refreshes naturally from @Published properties.
         progressDelegate?.didCompleteRatingsImport(
             imported: finalImportedCount,
             updated: finalUpdatedCount,
@@ -477,9 +477,9 @@ final class RatingsImporter: Loggable {
 
         Self.log("Flushing \(updates.count) batched rating updates...")
 
-        // Delegate the whole batch to DataCoordinator, which applies every mutation to the
-        // MemoryStore Films and dispatches ONE background transaction via DataManager.
-        // No Film objects are accessed here — the importer works purely with IDs and values.
+        /// Delegate the whole batch to DataCoordinator, which applies every mutation to the
+        /// MemoryStore Films and dispatches ONE background transaction via DataManager.
+        /// No Film objects are accessed here — the importer works purely with IDs and values.
         coordinator.applyImportedRatingUpdates(
             updates.map { (filmID: $0.0, rating: $0.1) })
     }

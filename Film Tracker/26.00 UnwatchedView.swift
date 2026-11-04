@@ -1,8 +1,8 @@
 // MARK: - UnwatchedView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Unwatched library section (Unwatched and Not Rated tabs), shown in the standard GalleryView. The segmented picker sits in
-// GalleryTitleBar, as in the Film Queue. Its lifecycle matches RecentsState's ensureInitialViewLoad and resetInitialization.
+/// The Unwatched library section (Unwatched and Not Rated tabs), shown in the standard GalleryView. The segmented picker sits in
+/// GalleryTitleBar, as in the Film Queue. Its lifecycle matches RecentsState's ensureInitialViewLoad and resetInitialization.
 
 import Foundation
 
@@ -54,12 +54,12 @@ final class UnwatchedState: SubcategoryViewState {
     }
 
     func selectCategory(_ category: UnwatchedCategory) {
-        // Don't skip a repeated category, since it may need a reload.
+        /// Don't skip a repeated category, since it may need a reload.
         let categoryChanged = category != selectedCategory
-        // selectedCategory updates synchronously, so the segmented control shows the new choice at once.
+        /// selectedCategory updates synchronously, so the segmented control shows the new choice at once.
         selectedCategory = category
 
-        // No parent sidebar item is passed, since selectedSidebarItem is already .libraryItem(.unwatched) for every tab, as in RecentsState.
+        /// No parent sidebar item is passed, since selectedSidebarItem is already .libraryItem(.unwatched) for every tab, as in RecentsState.
         SubcategoryNavigation.performSwitch(
             clearingSelection: categoryChanged,
             to: .unwatched(category))

@@ -1,18 +1,18 @@
 // MARK: - ListObj.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Defines the Core Data model for a List object in the user's library.
+/// Defines the Core Data model for a List object in the user's library.
 
 import Foundation
 import CoreData
 
 @objc(ListObject)
 final class ListObject: LibraryObject {
-    // listID is indexed (LibraryModel): it is the target of every predicate-based fetch
-    // that resolves a list in DataManager.
+    /// listID is indexed (LibraryModel): it is the target of every predicate-based fetch
+    /// that resolves a list in DataManager.
 
-    // Primary stable id for the list.
-    var listID: UUID { get { requiredUUID("listID") } set { setValue(newValue, forKey: "listID") } } // See requiredUUID.
+    /// Primary stable id for the list.
+    var listID: UUID { get { requiredUUID("listID") } set { setValue(newValue, forKey: "listID") } } /// See requiredUUID.
 
     // MARK: - List Properties
     @NSManaged var listName: String
@@ -43,13 +43,13 @@ final class ListObject: LibraryObject {
         self.displayOrder = displayOrder }
 
     // MARK: - Relationship Helpers
-    // Returns the film IDs in this list.
+    /// Returns the film IDs in this list.
     var filmIDs: [UUID] {
         return memberships
             .sorted { $0.sortOrder < $1.sortOrder }
             .compactMap { $0.film?.id } }
 
-    // Returns the film IDs as strings.
+    /// Returns the film IDs as strings.
     var filmIDStrings: [String] { return filmIDs.map { $0.uuidString } }
 }
 
@@ -68,10 +68,10 @@ extension ListObject: ExportableModel {
         props["sortFilterOptions"] = self.sortFilterOptions
         props["displayOrder"] = self.displayOrder
 
-        // Export film membership as an array of film IDs.
+        /// Export film membership as an array of film IDs.
         props["containsFilms"] = self.filmIDStrings
-        // Don't export memberships as a relationship array
-        // These are handled via the ListMembership join entity
+        /// Don't export memberships as a relationship array
+        /// These are handled via the ListMembership join entity
         let rels: [String: [Any]] = [:]
         return (properties: props, relationships: rels) }
 

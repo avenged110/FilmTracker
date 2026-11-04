@@ -1,8 +1,8 @@
 // MARK: - SearchToken.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Token data type for SwiftUI's native searchable token support.
-// Tokens must conform to Identifiable for SwiftUI to render them.
+/// Token data type for SwiftUI's native searchable token support.
+/// Tokens must conform to Identifiable for SwiftUI to render them.
 
 import Foundation
 
@@ -44,24 +44,24 @@ struct SearchToken: Identifiable, Hashable {
     /// Recognized month forms: month, months, mo, mo.
     /// All other fields return the raw value unchanged.
     private var displayValue: String {
-        // A list name can run long; the pill keeps its first 20 characters, as the
-        // abbreviated field labels keep the pill itself compact.
+        /// A list name can run long; the pill keeps its first 20 characters, as the
+        /// abbreviated field labels keep the pill itself compact.
         if field == .list {
             guard value.count > 20 else { return value }
             return value.prefix(20).trimmingCharacters(in: .whitespaces) + "…"
         }
         guard field == .rotationThreshold else { return value }
-        // A single substitution pass per unit family is sufficient because the
-        // patterns are mutually exclusive (no overlap between year and month terms).
-        //
-        // Each pattern matches a unit word at a left word boundary, consumes any trailing
-        // period as PART of the match, and uses a negative look-ahead for a following
-        // letter as the right-hand boundary. Consuming the period inside the match avoids
-        // the double-period artifact a trailing \b produced for the already-abbreviated
-        // forms (e.g. "3 yr." → "3 yr.."), since \b cannot match between a period and the
-        // end of the string and the engine would otherwise match only "yr" and re-append
-        // a period. The look-ahead still prevents the match from firing inside a longer
-        // word such as "yearly".
+        /// A single substitution pass per unit family is sufficient because the
+        /// patterns are mutually exclusive (no overlap between year and month terms).
+        ///
+        /// Each pattern matches a unit word at a left word boundary, consumes any trailing
+        /// period as PART of the match, and uses a negative look-ahead for a following
+        /// letter as the right-hand boundary. Consuming the period inside the match avoids
+        /// the double-period artifact a trailing \b produced for the already-abbreviated
+        /// forms (e.g. "3 yr." → "3 yr.."), since \b cannot match between a period and the
+        /// end of the string and the engine would otherwise match only "yr" and re-append
+        /// a period. The look-ahead still prevents the match from firing inside a longer
+        /// word such as "yearly".
         let abbreviated = value
             .replacingOccurrences(of: #"(?i)\b(?:years?|yr)\.?(?![a-z])"#,  with: "yr.", options: .regularExpression)
             .replacingOccurrences(of: #"(?i)\b(?:months?|mo)\.?(?![a-z])"#, with: "mo.", options: .regularExpression)
@@ -399,8 +399,8 @@ nonisolated enum SearchText {
                 pendingSpace = false
                 result.append(scalar)
             }
-            // Anything else — punctuation, symbols, combining marks the fold left
-            // behind — is dropped without separating the letters either side of it.
+            /// Anything else — punctuation, symbols, combining marks the fold left
+            /// behind — is dropped without separating the letters either side of it.
         }
         return String(result)
     }

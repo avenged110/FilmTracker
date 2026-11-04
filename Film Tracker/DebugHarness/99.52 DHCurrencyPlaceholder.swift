@@ -1,12 +1,12 @@
 // MARK: - DHCurrencyPlaceholder.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only scenario for the currency fields' placeholder: hosts the real Releases carousel
-// with a purchased card, focuses every DigitTextField on it over and over (fresh mounts
-// included), renders the field at 4× through the window's own display path — so the shared
-// field editor's drawing is what gets measured, not the cell's — and reads back where the
-// placeholder ink actually sits relative to the bezel. Opt-in and in `all` as
-// `currency-placeholder`: the verdict is that the ink never moves when a field takes focus.
+/// DEBUG-only scenario for the currency fields' placeholder: hosts the real Releases carousel
+/// with a purchased card, focuses every DigitTextField on it over and over (fresh mounts
+/// included), renders the field at 4× through the window's own display path — so the shared
+/// field editor's drawing is what gets measured, not the cell's — and reads back where the
+/// placeholder ink actually sits relative to the bezel. Opt-in and in `all` as
+/// `currency-placeholder`: the verdict is that the ink never moves when a field takes focus.
 
 #if DEBUG
 
@@ -58,14 +58,14 @@ extension DebugHarness {
         content.cacheDisplay(in: rectInContent, to: rep)
         let png = rep.representation(using: .png, properties: [:])
 
-        // Interior: skip the bezel and the focus ring (about 3 pt in from the field's own
-        // bounds, i.e. 5 pt in from the rendered rect), and a 1 pt band at the trailing
-        // edge where the insertion point is drawn for an empty right-aligned field.
+        /// Interior: skip the bezel and the focus ring (about 3 pt in from the field's own
+        /// bounds, i.e. 5 pt in from the rendered rect), and a 1 pt band at the trailing
+        /// edge where the insertion point is drawn for an empty right-aligned field.
         let inset = 5 * scale
         let x0 = inset, x1 = pw - inset, y0 = inset, y1 = ph - inset
         guard x1 > x0, y1 > y0, let data = unsafe rep.bitmapData else { return (nil, png) }
         let bpr = rep.bytesPerRow, spp = rep.samplesPerPixel
-        // Background is the interior's modal luminance (sampled at the four interior corners).
+        /// Background is the interior's modal luminance (sampled at the four interior corners).
         func rawLum(_ x: Int, _ y: Int) -> Int {
             let p = unsafe data + y * bpr + x * spp
             return unsafe (Int(p[0]) + Int(p[1]) + Int(p[2])) / 3
@@ -73,16 +73,16 @@ extension DebugHarness {
         let bg = [rawLum(x0, y0), rawLum(x1 - 1, y0), rawLum(x0, y1 - 1), rawLum(x1 - 1, y1 - 1)].sorted()[1]
         func lum(_ x: Int, _ y: Int) -> Int {
             let p = unsafe data + y * bpr + x * spp
-            // The insertion point is drawn in the accent color; a strongly blue pixel is
-            // the caret, not placeholder ink, and reads as background.
+            /// The insertion point is drawn in the accent color; a strongly blue pixel is
+            /// the caret, not placeholder ink, and reads as background.
             if unsafe Int(p[2]) > Int(p[0]) + 40 { return bg }
             return unsafe (Int(p[0]) + Int(p[1]) + Int(p[2])) / 3
         }
 
-        // The placeholder is drawn in a tertiary gray whose contrast against the bezel
-        // interior differs between appearances and between the cell's and the field
-        // editor's drawing, so the ink threshold is half the strongest deviation seen,
-        // floored at a level that background noise never reaches.
+        /// The placeholder is drawn in a tertiary gray whose contrast against the bezel
+        /// interior differs between appearances and between the cell's and the field
+        /// editor's drawing, so the ink threshold is half the strongest deviation seen,
+        /// floored at a level that background noise never reaches.
         var peak = 0
         for x in x0..<x1 { for y in y0..<y1 { peak = max(peak, abs(lum(x, y) - bg)) } }
         let threshold = max(12, peak / 2)
@@ -95,7 +95,7 @@ extension DebugHarness {
         guard let lo = inkCols.first, let hi = inkCols.last else {
             return (InkReading(minX: -1, maxX: -1, columns: 0), png)
         }
-        // Points from the field's leading edge (the render rect starts 2 pt before it).
+        /// Points from the field's leading edge (the render rect starts 2 pt before it).
         let toPt = { (px: Int) -> Double in Double(px) / Double(scale) - 2 }
         return (InkReading(minX: toPt(lo), maxX: toPt(hi + 1), columns: inkCols.count), png)
     }
@@ -119,10 +119,10 @@ extension DebugHarness {
     static func currencyPlaceholderScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "currency-placeholder")
 
-        // The whole FilmSheet, in an on-screen key window, the way the user meets it: a
-        // release is added through the view model, the Purchased checkbox on the new card is
-        // clicked, and the cost field that swap just created is clicked. The delay between
-        // the two clicks is varied, since the report is that the shift is intermittent.
+        /// The whole FilmSheet, in an on-screen key window, the way the user meets it: a
+        /// release is added through the view model, the Purchased checkbox on the new card is
+        /// clicked, and the cost field that swap just created is clicked. The delay between
+        /// the two clicks is varied, since the report is that the shift is intermittent.
         let sheet = FilmSheet(coordinator: coordinator)
         guard let vm = sheet.releasesTab else {
             r.check("view-model", false, "FilmSheet has no releases tab")
@@ -154,8 +154,8 @@ extension DebugHarness {
             window.displayIfNeeded()
             await turn()
         }
-        // Posted, not sent: an NSTextField's mouse-down runs a tracking loop that pulls
-        // the mouse-up from the event queue, so both events must already be queued.
+        /// Posted, not sent: an NSTextField's mouse-down runs a tracking loop that pulls
+        /// the mouse-up from the event queue, so both events must already be queued.
         func click(_ v: NSView) {
             let p = v.convert(NSPoint(x: v.bounds.midX, y: v.bounds.midY), to: nil)
             let t = ProcessInfo.processInfo.systemUptime
@@ -186,7 +186,7 @@ extension DebugHarness {
             await settle()
             vm.addRelease(format: ReleaseFormat.bluRay.rawValue)
             for _ in 0..<12 { await turn() }
-            try? await Task.sleep(for: .milliseconds(700))   // the carousel's travel
+            try? await Task.sleep(for: .milliseconds(700))   /// the carousel's travel
             await settle()
             let model = vm.carouselEntries.indices.contains(vm.currentCardIndex)
                 ? vm.releases.first { $0.id == vm.carouselEntries[vm.currentCardIndex].id } : nil
@@ -201,7 +201,7 @@ extension DebugHarness {
             click(checkbox)
             if delayMs > 0 { try? await Task.sleep(for: .milliseconds(delayMs)) } else { await turn() }
 
-            // The cost field: the first right-aligned digit field on the current card.
+            /// The cost field: the first right-aligned digit field on the current card.
             let field = findDigitFields(in: host).filter { f in
                 loopControls().contains { $0 === f }
             }.sorted { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }.first
@@ -210,7 +210,7 @@ extension DebugHarness {
                 r.check("t\(trial)-cost-field", model.purchased, "purchased=\(model.purchased) and no cost field after \(delayMs) ms")
                 continue
             }
-            // A reference reading of the unfocused field for this trial, taken before the click.
+            /// A reference reading of the unfocused field for this trial, taken before the click.
             let (before, _) = render(field, in: window)
             let geoBefore = geometry(field, in: window)
             click(field)
@@ -225,7 +225,7 @@ extension DebugHarness {
             r.check("\(label)-purchased", model.purchased, "checkbox click did not set purchased")
             r.check("\(label)-editing", editing, "cost field did not take the field editor")
             guard let before, let after else { r.check("\(label)-rendered", false, "render failed"); continue }
-            let shift = after.minX - 12.25   // the settled, unfocused reading (12.25 pt) for this layout
+            let shift = after.minX - 12.25   /// the settled, unfocused reading (12.25 pt) for this layout
             let line = unsafe String(format: "%@ editing=%d before[%@] after[%@] shift=%.2f\n   before: %@\n   after:  %@",
                               label, editing ? 1 : 0, before.description, after.description, shift, geoBefore, geoAfter)
             summary.append(line)
@@ -238,16 +238,16 @@ extension DebugHarness {
             }
             window.makeFirstResponder(nil)
             await settle()
-            // Remove the card again so the carousel does not fill up.
+            /// Remove the card again so the carousel does not fill up.
             vm.releases.removeAll { $0.id == model.id }
             await settle()
         }
         // MARK: The stale field editor
-        // The mechanism: the window's shared field editor keeps the frame width of the field
-        // it served last, and shrinks to the new cell's rect only at the next layout, so a
-        // right-aligned placeholder is drawn far to the right of the clip for the first frame.
-        // This is reproduced by focusing a wide field, then a cost field, and reading the
-        // editor's width synchronously, before any run-loop turn: it must already match the clip.
+        /// The mechanism: the window's shared field editor keeps the frame width of the field
+        /// it served last, and shrinks to the new cell's rect only at the next layout, so a
+        /// right-aligned placeholder is drawn far to the right of the clip for the first frame.
+        /// This is reproduced by focusing a wide field, then a cost field, and reading the
+        /// editor's width synchronously, before any run-loop turn: it must already match the clip.
         do {
             vm.addRelease(format: ReleaseFormat.bluRay.rawValue)
             for _ in 0..<12 { await turn() }
@@ -276,15 +276,15 @@ extension DebugHarness {
                 for (i, text) in texts.enumerated() {
                     window.makeFirstResponder(wide)
                     await settle()
-                    // Type into the wide field the way a user would, so the editor's layout
-                    // manager holds that text's glyphs when it moves on.
+                    /// Type into the wide field the way a user would, so the editor's layout
+                    /// manager holds that text's glyphs when it moves on.
                     if let wed = wide.currentEditor() as? NSTextView { wed.insertText(text, replacementRange: wed.selectedRange()) }
                     await settle()
                     let wideEditor = (wide.currentEditor() as? NSTextView).map { $0.frame.width } ?? -1
                     for viaClick in [false, true] {
                         if viaClick { window.makeFirstResponder(wide); await settle(); click(cost) } else { window.makeFirstResponder(cost) }
-                        // Synchronous reading, then one after each of the next turns: the
-                        // first draw happens somewhere in there.
+                        /// Synchronous reading, then one after each of the next turns: the
+                        /// first draw happens somewhere in there.
                         var readings: [String] = []
                         var excess = 0.0
                         for step in 0..<4 {
@@ -300,17 +300,17 @@ extension DebugHarness {
                         window.makeFirstResponder(nil)
                         await settle()
                     }
-                    // Leave the wide field as it was.
+                    /// Leave the wide field as it was.
                     wide.stringValue = ""
                 }
                 r.metric("stale-editor-excess", worst, "pt")
                 r.check("editor-width-matches-clip-on-focus", worst <= 0.5,
                         "field editor is \(Fmt.fixed(worst, 0)) pt wider than its clip at focus")
 
-                // The configuration that makes a stale width impossible, and that a full
-                // value still fits: the editor is not horizontally resizable, its width
-                // tracks the clip, and "999" typed into the field renders whole inside the
-                // bezel interior (9…38 pt), with nothing drawn wider than the placeholder was.
+                /// The configuration that makes a stale width impossible, and that a full
+                /// value still fits: the editor is not horizontally resizable, its width
+                /// tracks the clip, and "999" typed into the field renders whole inside the
+                /// bezel interior (9…38 pt), with nothing drawn wider than the placeholder was.
                 window.makeFirstResponder(cost)
                 await settle()
                 if let ed = cost.currentEditor() as? NSTextView {

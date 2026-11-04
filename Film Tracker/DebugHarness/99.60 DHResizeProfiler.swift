@@ -1,57 +1,57 @@
 // MARK: - DHResizeProfiler.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only, opt-in profiler for a live window-resize drag. Armed with `-FTDebugLiveResize`;
-// prints one report per completed drag and changes nothing about how the app behaves.
-//
-// WHY THIS IS NOT A DebugHarness SCENARIO
-//
-// Every scenario in DebugHarness is headless: it builds a corpus, drives production code, checks
-// invariants, and exits. A resize cannot be measured that way. Driving `window.setFrame` from a
-// Task reproduces the layout work but not the mechanism — AppKit's live resize runs its own
-// event-tracking loop, the window server participates in every frame, and the frame CADENCE is
-// set by neither the app nor the test. A synthetic sweep therefore measures how long the layout
-// takes while saying nothing about whether the app is what limits the frame rate. This profiler
-// is passive instead: it observes a real drag performed by a real person and reports what
-// actually happened.
-//
-// WHAT IT MEASURES, AND WHY THAT PARTICULAR THING
-//
-// The naive metric, time spent inside `WidthObservingScrollView.layout()`, is not useful here.
-// That method returns
-// long before the work it triggers is done: the collection view lays its cells out later in the
-// same display cycle, and the compositor later still. The number it yields is ~0.01ms no matter
-// how heavy the grid is.
-//
-// The two quantities that do answer the question are:
-//
-//   1. The INTERVAL between consecutive real geometry updates — the achieved update rate. Compare
-//      it against the display's frame period (16.67ms at 60Hz) to see whether the gallery is
-//      keeping up.
-//
-//   2. The main-thread DUTY CYCLE — what fraction of the drag the main thread was busy at all.
-//      This is the one that decides what to do next, because the interval alone cannot
-//      distinguish two opposite situations that look identical from the outside:
-//
-//        • ~100% busy → the main thread is saturated; it is the bottleneck, and making the app do
-//          less work per frame will raise the frame rate.
-//        • well below → the main thread finishes early and then waits for the next resize event.
-//          The ceiling is somewhere else (compositing, event delivery), and optimizing app code
-//          cannot move it, however much work is removed.
-//
-// TWO CORRECTIONS THAT THE RAW NUMBERS REQUIRE
-//
-// Idle gaps. A person dragging a window edge pauses — at a direction reversal, or just to look.
-// While the mouse is still, no resize events arrive, no layout runs, and the gap between passes
-// balloons to hundreds of milliseconds. Counted naively those pauses ARE the tail: they push p99
-// to ~50ms and the maximum past 350ms, and they mean nothing at all. Gaps longer than 100ms are
-// therefore excluded and reported separately, so the tail describes frames rather than hesitation.
-//
-// No-op passes. AppKit calls the scroll view's `layout()` about twice per actual width change;
-// on the second call the width has not moved, `shouldInvalidateLayout(forBoundsChange:)` returns
-// false, and `prepare()` never runs. Counting those as frames halves every interval and doubles
-// the apparent frame rate. Passes are classified by whether the width actually moved, and only
-// the ones that did are treated as geometry updates.
+/// DEBUG-only, opt-in profiler for a live window-resize drag. Armed with `-FTDebugLiveResize`;
+/// prints one report per completed drag and changes nothing about how the app behaves.
+///
+/// WHY THIS IS NOT A DebugHarness SCENARIO
+///
+/// Every scenario in DebugHarness is headless: it builds a corpus, drives production code, checks
+/// invariants, and exits. A resize cannot be measured that way. Driving `window.setFrame` from a
+/// Task reproduces the layout work but not the mechanism — AppKit's live resize runs its own
+/// event-tracking loop, the window server participates in every frame, and the frame CADENCE is
+/// set by neither the app nor the test. A synthetic sweep therefore measures how long the layout
+/// takes while saying nothing about whether the app is what limits the frame rate. This profiler
+/// is passive instead: it observes a real drag performed by a real person and reports what
+/// actually happened.
+///
+/// WHAT IT MEASURES, AND WHY THAT PARTICULAR THING
+///
+/// The naive metric, time spent inside `WidthObservingScrollView.layout()`, is not useful here.
+/// That method returns
+/// long before the work it triggers is done: the collection view lays its cells out later in the
+/// same display cycle, and the compositor later still. The number it yields is ~0.01ms no matter
+/// how heavy the grid is.
+///
+/// The two quantities that do answer the question are:
+///
+///   1. The INTERVAL between consecutive real geometry updates — the achieved update rate. Compare
+///      it against the display's frame period (16.67ms at 60Hz) to see whether the gallery is
+///      keeping up.
+///
+///   2. The main-thread DUTY CYCLE — what fraction of the drag the main thread was busy at all.
+///      This is the one that decides what to do next, because the interval alone cannot
+///      distinguish two opposite situations that look identical from the outside:
+///
+///        • ~100% busy → the main thread is saturated; it is the bottleneck, and making the app do
+///          less work per frame will raise the frame rate.
+///        • well below → the main thread finishes early and then waits for the next resize event.
+///          The ceiling is somewhere else (compositing, event delivery), and optimizing app code
+///          cannot move it, however much work is removed.
+///
+/// TWO CORRECTIONS THAT THE RAW NUMBERS REQUIRE
+///
+/// Idle gaps. A person dragging a window edge pauses — at a direction reversal, or just to look.
+/// While the mouse is still, no resize events arrive, no layout runs, and the gap between passes
+/// balloons to hundreds of milliseconds. Counted naively those pauses ARE the tail: they push p99
+/// to ~50ms and the maximum past 350ms, and they mean nothing at all. Gaps longer than 100ms are
+/// therefore excluded and reported separately, so the tail describes frames rather than hesitation.
+///
+/// No-op passes. AppKit calls the scroll view's `layout()` about twice per actual width change;
+/// on the second call the width has not moved, `shouldInvalidateLayout(forBoundsChange:)` returns
+/// false, and `prepare()` never runs. Counting those as frames halves every interval and doubles
+/// the apparent frame rate. Passes are classified by whether the width actually moved, and only
+/// the ones that did are treated as geometry updates.
 
 #if DEBUG
 
@@ -133,8 +133,8 @@ final class DebugLiveResizeProfiler {
         guard recording else { return }
         let now = CFAbsoluteTimeGetCurrent()
         let cpu = threadCPUMilliseconds()
-        // The first pass of a drag has no predecessor to measure against, so it seeds the
-        // baselines rather than producing a sample.
+        /// The first pass of a drag has no predecessor to measure against, so it seeds the
+        /// baselines rather than producing a sample.
         if lastTick > 0 {
             passes.append(Pass(interval: (now - lastTick) * 1000.0,
                                cpuSincePrevious: cpu - lastCPU,
@@ -157,9 +157,9 @@ final class DebugLiveResizeProfiler {
         let realUpdates = passes.filter(\.widthChanged)
         let noOpPasses = passes.count - realUpdates.count
 
-        // Interval between consecutive REAL updates. A run of no-op passes between two real ones
-        // contributes its time to the enclosing interval rather than splitting it, which is why
-        // this accumulates rather than reading `interval` off the real passes directly.
+        /// Interval between consecutive REAL updates. A run of no-op passes between two real ones
+        /// contributes its time to the enclosing interval rather than splitting it, which is why
+        /// this accumulates rather than reading `interval` off the real passes directly.
         var intervals: [Double] = []
         var excludedIdleGaps = 0
         var accumulated = 0.0

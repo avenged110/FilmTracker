@@ -1,10 +1,10 @@
 // MARK: - GalleryMenu.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The secondary-click (contextual) menu for gallery items, shared by the grid (GallerySubview)
-// and the list (GalleryListView). Its items match their counterparts in the MenuBar's "Film"
-// menu (12.00 MenuBar.swift) and in GalleryTitleBar's SelectionMenuButton and TrashMenuButton
-// (23.70 GalleryTitleBar.swift).
+/// The secondary-click (contextual) menu for gallery items, shared by the grid (GallerySubview)
+/// and the list (GalleryListView). Its items match their counterparts in the MenuBar's "Film"
+/// menu (12.00 MenuBar.swift) and in GalleryTitleBar's SelectionMenuButton and TrashMenuButton
+/// (23.70 GalleryTitleBar.swift).
 
 import AppKit
 
@@ -145,9 +145,9 @@ enum GalleryContextMenu: Loggable {
               let appState = AppDelegate.appState,
               let coordinator = AppDelegate.dataCoordinator else { return nil }
 
-        // Mirrors MenuBar.isSheetActive. No film operation may start behind an active sheet or
-        // database-error alert. A sheet blocks the main window in practice, so this is a
-        // safeguard, but it keeps this menu's gating identical to every other entry point.
+        /// Mirrors MenuBar.isSheetActive. No film operation may start behind an active sheet or
+        /// database-error alert. A sheet blocks the main window in practice, so this is a
+        /// safeguard, but it keeps this menu's gating identical to every other entry point.
         guard appState.sheetCoordinator.activeSheet == nil,
               !appState.isSheetPresented,
               !appState.isDatabaseErrorAlertActive else { return nil }
@@ -155,16 +155,16 @@ enum GalleryContextMenu: Loggable {
         let isSingleSelection = filmIDs.count == 1
 
         let menu = NSMenu()
-        // Enablement is set explicitly. With autoenablesItems on, AppKit would override every
-        // isEnabled value below through validateMenuItem(_:).
+        /// Enablement is set explicitly. With autoenablesItems on, AppKit would override every
+        /// isEnabled value below through validateMenuItem(_:).
         menu.autoenablesItems = false
 
         // MARK: Edit section
-        //
-        // SheetHostView resolves both commands against SelectionState, not a passed ID. This is
-        // safe because the calling coordinator makes the menu's films the live selection first.
-        // As in the menu bar, Edit Metadata… takes any selection (more than one film opens
-        // MultiFilmSheet), and Edit Releases… takes exactly one film (SelectionState.selectedFilmID).
+        ///
+        /// SheetHostView resolves both commands against SelectionState, not a passed ID. This is
+        /// safe because the calling coordinator makes the menu's films the live selection first.
+        /// As in the menu bar, Edit Metadata… takes any selection (more than one film opens
+        /// MultiFilmSheet), and Edit Releases… takes exactly one film (SelectionState.selectedFilmID).
         menu.addItem(actionItem(titled: "Edit Metadata…") {
             AppEventBus.shared.sendCommand(.editFilm)
         })
@@ -176,10 +176,10 @@ enum GalleryContextMenu: Loggable {
         menu.addItem(.separator())
 
         // MARK: List membership section
-        //
-        // "Add to Queue" sits above "Add to List" and offers the three Film Queue sections. It
-        // appears for any selection size and in every view, including the Film Queue, where it
-        // moves films between sections.
+        ///
+        /// "Add to Queue" sits above "Add to List" and offers the three Film Queue sections. It
+        /// appears for any selection size and in every view, including the Film Queue, where it
+        /// moves films between sections.
         let addToQueueTitle = SelectionMenuModel.anyFilmInQueue(filmIDs: filmIDs, coordinator: coordinator)
             ? "Manage Queue Membership" : "Add to Queue"
         let addToQueue = NSMenuItem(title: addToQueueTitle, action: nil, keyEquivalent: "")
@@ -199,19 +199,19 @@ enum GalleryContextMenu: Loggable {
         menu.addItem(.separator())
 
         // MARK: Removal section
-        //
-        // "Remove from List" appears in any view where removing from THIS list differs from
-        // removing from every list (a user list or the Film Queue), for any selection size.
-        // Every visible film is a member of that list, so a multiple selection is as valid a
-        // target as a single one, as in MenuBar and TrashMenuButton. The view test is the
-        // ViewCapabilities flag TrashMenuButton uses, so the two always agree.
-        //
-        // Enablement, confirmation gating, membership pre-filtering, and alert payloads live in
-        // FilmRemoval (LibraryManager.swift). The MenuBar's "Film" menu, TrashMenuButton, and
-        // KeyboardManager's Opt+Delete use the same code, so the four cannot disagree.
-        // `clearingSelection: true` is this surface's one local choice. The films leave the view
-        // under the cursor, so the selection clears once an unconfirmed removal completes, as in
-        // TrashMenuButton. The MenuBar and keyboard paths differ, as they always have.
+        ///
+        /// "Remove from List" appears in any view where removing from THIS list differs from
+        /// removing from every list (a user list or the Film Queue), for any selection size.
+        /// Every visible film is a member of that list, so a multiple selection is as valid a
+        /// target as a single one, as in MenuBar and TrashMenuButton. The view test is the
+        /// ViewCapabilities flag TrashMenuButton uses, so the two always agree.
+        ///
+        /// Enablement, confirmation gating, membership pre-filtering, and alert payloads live in
+        /// FilmRemoval (LibraryManager.swift). The MenuBar's "Film" menu, TrashMenuButton, and
+        /// KeyboardManager's Opt+Delete use the same code, so the four cannot disagree.
+        /// `clearingSelection: true` is this surface's one local choice. The films leave the view
+        /// under the cursor, so the selection clears once an unconfirmed removal completes, as in
+        /// TrashMenuButton. The MenuBar and keyboard paths differ, as they always have.
         if appState.selectedSidebarItem.capabilities.showsRemoveFromListInTrashMenu {
             let enabled = FilmRemoval.canRemoveFromCurrentList(filmIDs: filmIDs,
                                                               appState: appState,
@@ -282,11 +282,11 @@ enum GalleryContextMenu: Loggable {
 
         let currentSection = SelectionMenuModel.unanimousQueueSection(filmIDs: filmIDs,
                                                                       coordinator: coordinator)
-        // Sorted explicitly, as in AddToQueueMenuBody, so the menu stays in queue order if a
-        // case is ever inserted out of order.
+        /// Sorted explicitly, as in AddToQueueMenuBody, so the menu stays in queue order if a
+        /// case is ever inserted out of order.
         for section in FilmQueueSection.allCases.sorted(by: { $0.queueOrder < $1.queueOrder }) {
-            // "Up Next" is disabled when the selection would not fit. This is evaluated at build
-            // time, so it is current when the menu opens.
+            /// "Up Next" is disabled when the selection would not fit. This is evaluated at build
+            /// time, so it is current when the menu opens.
             let blocked = section == .upNext
                 && FilmQueue.upNextOverflow(adding: filmIDs, coordinator: coordinator) > 0
             submenu.addItem(actionItem(titled: section.displayName,
@@ -314,8 +314,8 @@ enum GalleryContextMenu: Loggable {
         let options = SelectionMenuModel.addToListOptions(filmIDs: filmIDs,
                                                           coordinator: coordinator)
 
-        // Two empty states, each with its own placeholder (see addToListPlaceholderTitle,
-        // GlobalUtilities.swift).
+        /// Two empty states, each with its own placeholder (see addToListPlaceholderTitle,
+        /// GlobalUtilities.swift).
         guard !options.lists.isEmpty else {
             submenu.addItem(disabledItem(
                 titled: addToListPlaceholderTitle(hasAnyLists: options.hasAnyLists)))
@@ -327,7 +327,7 @@ enum GalleryContextMenu: Loggable {
             submenu.addItem(actionItem(titled: truncateListName(list.listName)) {
                 Self.log("Adding \(filmIDs.count) film(s) to list \(listID)")
                 Task {
-                        // Progress indication is LeftSidebar's job, as on the MenuBar and title-bar paths.
+                        /// Progress indication is LeftSidebar's job, as on the MenuBar and title-bar paths.
                     FilmManager.addFilmsToList(filmIDs, listID: listID,
                                                coordinator: coordinator)
                 }
@@ -350,10 +350,10 @@ enum GalleryContextMenu: Loggable {
             return submenu
         }
 
-        // The "Smart Lists" submenu leads the list, with a divider beneath, as "Create New List
-        // from Selection…" leads makeAddToListSubmenu. The guard above ensures a single
-        // selection. The submenu appears only while the smart lists feature is on. With it off,
-        // nothing is computed or navigable, so the submenu and its divider are omitted.
+        /// The "Smart Lists" submenu leads the list, with a divider beneath, as "Create New List
+        /// from Selection…" leads makeAddToListSubmenu. The guard above ensures a single
+        /// selection. The submenu appears only while the smart lists feature is on. With it off,
+        /// nothing is computed or navigable, so the submenu and its divider are omitted.
         if Preferences.smartLists {
             let smartList = NSMenuItem(title: "Smart Lists", action: nil, keyEquivalent: "")
             smartList.submenu = makeSmartListsSubmenu(filmID: filmID, coordinator: coordinator)
@@ -373,10 +373,10 @@ enum GalleryContextMenu: Loggable {
             let isCurrent = appState.selectedSidebarItem == .list(listID)
             submenu.addItem(actionItem(titled: truncateListName(list.listName),
                                        state: isCurrent ? .on : .off) {
-                // Navigation and selection preservation live in ShowInListNavigation
-                // (GlobalUtilities.swift), shared with the MenuBar's ShowInListMenuItems.
-                // Re-selecting the list being viewed is a no-op in navigate, matching the
-                // Toggle binding's `if $0` gate.
+                /// Navigation and selection preservation live in ShowInListNavigation
+                /// (GlobalUtilities.swift), shared with the MenuBar's ShowInListMenuItems.
+                /// Re-selecting the list being viewed is a no-op in navigate, matching the
+                /// Toggle binding's `if $0` gate.
                 ShowInListNavigation.navigate(to: .list(listID), preserving: filmID)
             })
         }
@@ -403,9 +403,9 @@ enum GalleryContextMenu: Loggable {
         }
 
         for type in types {
-            // Checked against activeView, not selectedSidebarItem. The thirteen sub-variants
-            // share their parent's sidebar row, so the sidebar item cannot tell "Purchased" from
-            // "Purchased 4K". activeView names the exact smart list on screen.
+            /// Checked against activeView, not selectedSidebarItem. The thirteen sub-variants
+            /// share their parent's sidebar row, so the sidebar item cannot tell "Purchased" from
+            /// "Purchased 4K". activeView names the exact smart list on screen.
             let isCurrent = ViewStateManager.shared.activeView == .smartList(type)
             submenu.addItem(actionItem(titled: type.rawValue,
                                        state: isCurrent ? .on : .off) {

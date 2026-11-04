@@ -1,40 +1,40 @@
 // MARK: - ReleaseNotifications.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Release-day notifications: when `Preferences.notifyAboutNewReleases` is on, Film Tracker
-// posts a Notification Center notification on the release date of every release that was
-// cataloged while that date was still ahead — or, with `Preferences.onlyNotifyForWishlisted`,
-// of every such release that is also wishlisted.
-//
+/// Release-day notifications: when `Preferences.notifyAboutNewReleases` is on, Film Tracker
+/// posts a Notification Center notification on the release date of every release that was
+/// cataloged while that date was still ahead — or, with `Preferences.onlyNotifyForWishlisted`,
+/// of every such release that is also wishlisted.
+///
 // MARK: Scheduled with the system, not fired by the app
-//
-// Each notification is a pending UNNotificationRequest with a calendar trigger at
-// `deliveryHour` on the release day, so macOS delivers it whether or not Film Tracker is
-// running then. The app's job is only to keep the pending set equal to what the library and
-// the two preferences call for, which `sync()` does on launch, after any change to a film or
-// its releases, when either preference changes, and when the day changes.
-//
+///
+/// Each notification is a pending UNNotificationRequest with a calendar trigger at
+/// `deliveryHour` on the release day, so macOS delivers it whether or not Film Tracker is
+/// running then. The app's job is only to keep the pending set equal to what the library and
+/// the two preferences call for, which `sync()` does on launch, after any change to a film or
+/// its releases, when either preference changes, and when the day changes.
+///
 // MARK: "Cataloged with a date still ahead"
-//
-// A release is scheduled only while its date lies after today. On the release day itself it
-// is no longer upcoming, so a sync that day keeps a request only if one is ALREADY pending for
-// it — and one can be pending only because it was scheduled while the date was still ahead.
-// That is what keeps a release cataloged on the day it comes out from being announced, while
-// a sync on the morning of a release day (a relaunch, an unrelated edit) does not cancel the
-// notification it is about to deliver.
-//
+///
+/// A release is scheduled only while its date lies after today. On the release day itself it
+/// is no longer upcoming, so a sync that day keeps a request only if one is ALREADY pending for
+/// it — and one can be pending only because it was scheduled while the date was still ahead.
+/// That is what keeps a release cataloged on the day it comes out from being announced, while
+/// a sync on the morning of a release day (a relaunch, an unrelated edit) does not cancel the
+/// notification it is about to deliver.
+///
 // MARK: What is left out
-//
-// • Combo-pack children: a bundled Blu-ray shares its 4K parent's date and is one purchase
-//   with it, so the pack is announced once, through the parent.
-// • Year-only release dates, which name no day to deliver on.
-// • Debug sandbox runs, which must never touch the real app's pending notifications, and a
-//   session whose library could not be read (DataCoordinator.isLibraryStateUnreliable),
-//   where the empty library would otherwise cancel every pending notification.
-//
-// macOS keeps a limited number of pending requests per app, so at most `maxScheduled` are
-// kept — the soonest. Later ones are added as earlier ones are delivered, by the sync that
-// runs when the day changes.
+///
+/// • Combo-pack children: a bundled Blu-ray shares its 4K parent's date and is one purchase
+///   with it, so the pack is announced once, through the parent.
+/// • Year-only release dates, which name no day to deliver on.
+/// • Debug sandbox runs, which must never touch the real app's pending notifications, and a
+///   session whose library could not be read (DataCoordinator.isLibraryStateUnreliable),
+///   where the empty library would otherwise cancel every pending notification.
+///
+/// macOS keeps a limited number of pending requests per app, so at most `maxScheduled` are
+/// kept — the soonest. Later ones are added as earlier ones are delivered, by the sync that
+/// runs when the day changes.
 
 import Foundation
 import Combine
@@ -89,9 +89,9 @@ final class ReleaseNotifications: Loggable {
         }
         UNUserNotificationCenter.current().delegate = presenter
 
-        // Any change to a film can change what is due: its releases, its wishlist state, or
-        // its name, which the notification carries. Debounced, so a burst of edits costs one
-        // sync.
+        /// Any change to a film can change what is due: its releases, its wishlist state, or
+        /// its name, which the notification carries. Debounced, so a burst of edits costs one
+        /// sync.
         AppEventBus.shared.filmEvents
             .sink { [weak self] _ in self?.scheduleSync() }
             .store(in: &cancellables)
@@ -101,8 +101,8 @@ final class ReleaseNotifications: Loggable {
             .sink { [weak self] _ in self?.handlePreferencesChanged() }
             .store(in: &cancellables)
 
-        // A new day turns yesterday's "upcoming" into today's release and frees places
-        // under `maxScheduled` for later dates.
+        /// A new day turns yesterday's "upcoming" into today's release and frees places
+        /// under `maxScheduled` for later dates.
         CurrentDay.shared.dayChanged
             .sink { [weak self] _ in self?.scheduleSync(delay: .zero) }
             .store(in: &cancellables)
@@ -119,8 +119,8 @@ final class ReleaseNotifications: Loggable {
         lastWishlistedOnly = wishlistedOnly
         log("Preferences changed — notify \(notify), wishlisted only \(wishlistedOnly)")
         if turnedOn {
-            // Turning the setting on is the moment to ask macOS for permission, and to say so
-            // if it is refused, since nothing will be delivered until it is granted.
+            /// Turning the setting on is the moment to ask macOS for permission, and to say so
+            /// if it is refused, since nothing will be delivered until it is granted.
             Task { [weak self] in
                 await self?.requestAuthorization(announceRefusal: true)
                 self?.scheduleSync(delay: .zero)
@@ -165,8 +165,8 @@ final class ReleaseNotifications: Loggable {
         guard let coordinator, !coordinator.isLibraryStateUnreliable else { return }
         let center = UNUserNotificationCenter.current()
 
-        // The pending list is read from the system on the first sync, and again whenever
-        // what is due depends on it (see "Cataloged with a date still ahead").
+        /// The pending list is read from the system on the first sync, and again whenever
+        /// what is due depends on it (see "Cataloged with a date still ahead").
         let pendingIDs = Set(await center.pendingNotificationRequests()
             .map(\.identifier)
             .filter { $0.hasPrefix(Self.identifierPrefix) })
@@ -177,15 +177,15 @@ final class ReleaseNotifications: Loggable {
             var status = await center.notificationSettings().authorizationStatus
             guard !Task.isCancelled else { return }
             if status == .notDetermined {
-                // Enabled in a restored backup or before permission was ever asked.
+                /// Enabled in a restored backup or before permission was ever asked.
                 await requestAuthorization(announceRefusal: false)
                 status = await center.notificationSettings().authorizationStatus
             }
-            // Refused: nothing can be scheduled, and trying on every sync would only log a
-            // failure per release each time. The pending set is left as it is.
+            /// Refused: nothing can be scheduled, and trying on every sync would only log a
+            /// failure per release each time. The pending set is left as it is.
             guard status != .denied else { return }
-            // The inputs are read here; the plan itself — a walk over every release of every
-            // film — runs off the main actor. It is pure and takes only Sendable values.
+            /// The inputs are read here; the plan itself — a walk over every release of every
+            /// film — runs off the main actor. It is pure and takes only Sendable values.
             let films = coordinator.getAllFilms()
             let today = CurrentDay.shared.today
             let wishlistedOnly = Preferences.onlyNotifyForWishlisted
@@ -205,7 +205,7 @@ final class ReleaseNotifications: Loggable {
         var added = 0
         var nowApplied = wanted
         for (id, planned) in wanted where !pendingIDs.contains(id) || applied?[id] != planned {
-            // A newer sync is waiting with newer data; it will finish the job.
+            /// A newer sync is waiting with newer data; it will finish the job.
             if Task.isCancelled { nowApplied[id] = nil; continue }
             let content = UNMutableNotificationContent()
             content.title = planned.title
@@ -217,7 +217,7 @@ final class ReleaseNotifications: Loggable {
                 try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger))
                 added += 1
             } catch {
-                // Left out of `applied`, so the next sync tries it again.
+                /// Left out of `applied`, so the next sync tries it again.
                 nowApplied[id] = nil
                 log("WARNING: Could not schedule \(id): \(error.localizedDescription)")
             }
@@ -235,7 +235,7 @@ final class ReleaseNotifications: Loggable {
                                  now: Date, wishlistedOnly: Bool) -> [String: Planned] {
         let todayComps = StorageDateFormatters.calendar.dateComponents([.year, .month, .day], from: today)
         let todayKey = (todayComps.year ?? 0) * 10_000 + (todayComps.month ?? 0) * 100 + (todayComps.day ?? 0)
-        // Delivered in the Mac's own time zone, at the hour on the release day.
+        /// Delivered in the Mac's own time zone, at the hour on the release day.
         var local = Calendar(identifier: .gregorian)
         local.timeZone = .current
 
@@ -246,7 +246,7 @@ final class ReleaseNotifications: Loggable {
                 guard let date = ReleaseDateValue(release.releaseDate, format: release.format),
                       let monthDay = date.monthDay else { continue }
                 let id = Self.identifierPrefix + release.id.uuidString
-                // Ahead of today, or today with a request already waiting (see the header).
+                /// Ahead of today, or today with a request already waiting (see the header).
                 guard date.isUpcoming(today: today)
                         || (date.sortKey == todayKey && pendingIDs.contains(id)) else { continue }
                 var trigger = DateComponents(year: date.year, month: monthDay.month,

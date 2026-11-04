@@ -1,7 +1,7 @@
 // MARK: - ReportsHelpers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Reusable view components and configuration types shared across ReportsView tabs.
+/// Reusable view components and configuration types shared across ReportsView tabs.
 
 import SwiftUI
 import AppKit
@@ -72,7 +72,7 @@ struct ReportsEmptyStateWrapper<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     var body: some View {
-        // A Group, since only one of the three arms is ever present.
+        /// A Group, since only one of the three arms is ever present.
         Group {
             if totalFilmCount == 0 {
                 StandardPlaceholder(
@@ -181,18 +181,18 @@ protocol RankedItem: Identifiable {
 }
 
 // MARK: - Report Table (AppKit)
-//
-// The one table every Reports tab uses: a plain NSTableView driven directly, in place of
-// SwiftUI's `Table` (the two trackers) and `List` (the two ranked lists).
-//
-// WHY. A sub-tab switch into a SwiftUI Table or
-// List blocked the main thread before its first frame, more than a gallery sub-tab did. Most of that time went to the per-cell SwiftUI
-// machinery. Each cell was its own NSHostingView, measured for automatic row heights and given fresh Auto Layout constraints. Here a
-// row has a fixed height, and a cell is one reused view or one that draws itself.
-//
-// WHAT IS KEPT. The inset, alternating-row style. Header sorting maps onto the tabs' existing `KeyPathComparator` orders, so the saved sort
-// and PDF export are unchanged. Multi-selection uses the same `Set<UUID>` binding. Drag-to-reorder uses SwiftUI `onMove`'s (IndexSet,
-// destination) meaning, which matches NSTableView's "drop above row" index.
+///
+/// The one table every Reports tab uses: a plain NSTableView driven directly, in place of
+/// SwiftUI's `Table` (the two trackers) and `List` (the two ranked lists).
+///
+/// WHY. A sub-tab switch into a SwiftUI Table or
+/// List blocked the main thread before its first frame, more than a gallery sub-tab did. Most of that time went to the per-cell SwiftUI
+/// machinery. Each cell was its own NSHostingView, measured for automatic row heights and given fresh Auto Layout constraints. Here a
+/// row has a fixed height, and a cell is one reused view or one that draws itself.
+///
+/// WHAT IS KEPT. The inset, alternating-row style. Header sorting maps onto the tabs' existing `KeyPathComparator` orders, so the saved sort
+/// and PDF export are unchanged. Multi-selection uses the same `Set<UUID>` binding. Drag-to-reorder uses SwiftUI `onMove`'s (IndexSet,
+/// destination) meaning, which matches NSTableView's "drop above row" index.
 
 /// One column of a `ReportTable`.
 struct ReportTableColumn<Row> {
@@ -282,7 +282,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             } else {
                 tc.resizingMask = [.autoresizingMask, .userResizingMask]
             }
-            // Header titles stay leading-aligned, whatever the column's content alignment.
+            /// Header titles stay leading-aligned, whatever the column's content alignment.
             if let key = column.sortKey {
                 tc.sortDescriptorPrototype = NSSortDescriptor(key: key, ascending: true)
             }
@@ -296,9 +296,9 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         table.delegate = coordinator
         if onMove != nil {
             table.registerForDraggedTypes([Self.rowDragType])
-            // `.none`: the table draws no drop feedback. ReportNSTableView draws the sidebar-style indicator instead, since the built-in styles
-            // do not draw the circle in an `.inset` table. The source row stays put during the drag, and rows slide only on the drop (see `move`).
-            // `.gap` was tried and glitched, so it is not used.
+            /// `.none`: the table draws no drop feedback. ReportNSTableView draws the sidebar-style indicator instead, since the built-in styles
+            /// do not draw the circle in an `.inset` table. The source row stays put during the drag, and rows slide only on the drop (see `move`).
+            /// `.gap` was tried and glitched, so it is not used.
             table.draggingDestinationFeedbackStyle = .none
             table.setDraggingSourceOperationMask(.move, forLocal: true)
         }
@@ -314,8 +314,8 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentInsets = NSEdgeInsets(top: topInset, left: 0, bottom: 0, right: 0)
         }
-        // NSTableView fits its columns only when its width changes, so the starting widths would overflow sideways if they sum to more than the view.
-        // Fit them once, when the table first has a real width.
+        /// NSTableView fits its columns only when its width changes, so the starting widths would overflow sideways if they sum to more than the view.
+        /// Fit them once, when the table first has a real width.
         scroll.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(
             coordinator, selector: #selector(Coordinator.clipFrameDidChange(_:)),
@@ -361,8 +361,8 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
                 table.reloadData()
             } else if parent.rows != rows {
                 if parent.rows.map(\.id) == rows.map(\.id) {
-                    // Same rows in the same order, typically renumbered ranks after a drop `move` has animated. Refresh the cells in place, since a
-                    // full reload would cut the slide short.
+                    /// Same rows in the same order, typically renumbered ranks after a drop `move` has animated. Refresh the cells in place, since a
+                    /// full reload would cut the slide short.
                     rows = parent.rows
                     table.reloadData(forRowIndexes: IndexSet(integersIn: 0..<rows.count),
                                      columnIndexes: IndexSet(integersIn: 0..<table.numberOfColumns))
@@ -375,7 +375,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             let descriptors = parent.sort.map { NSSortDescriptor(key: $0.key, ascending: $0.ascending) }
             if table.sortDescriptors != descriptors { table.sortDescriptors = descriptors }
 
-            // Reselect from the binding: after a reload row indexes may have moved.
+            /// Reselect from the binding: after a reload row indexes may have moved.
             var wanted = IndexSet()
             if !parent.selection.isEmpty {
                 for (index, row) in rows.enumerated() where parent.selection.contains(row.id) {
@@ -439,7 +439,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
                        row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
             guard parent?.onMove != nil else { return false }
             var source = IndexSet()
-            // The dragged rows' pasteboard items, read directly. This avoids the unsafe stop pointer of enumerateDraggingItems.
+            /// The dragged rows' pasteboard items, read directly. This avoids the unsafe stop pointer of enumerateDraggingItems.
             for item in info.draggingPasteboard.pasteboardItems ?? [] {
                 if let string = item.string(forType: ReportTable.rowDragType),
                    let index = Int(string) { source.insert(index) }
@@ -457,8 +457,8 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             if let table {
                 isApplying = true
                 table.beginUpdates()
-                // Each moveRow shifts later indexes, and the offsets track that. Rows from above the destination land just above it, in order.
-                // Rows from below land just after the previous one.
+                /// Each moveRow shifts later indexes, and the offsets track that. Rows from above the destination land just above it, in order.
+                /// Rows from below land just after the previous one.
                 var aboveOffset = 0
                 var belowOffset = 0
                 for index in source {
@@ -498,7 +498,7 @@ final class ReportNSTableView: NSTableView {
     func showDropIndicator(aboveRow row: Int) {
         guard numberOfRows > 0, numberOfColumns > 0 else { hideDropIndicator(); return }
         let y = row < numberOfRows ? rect(ofRow: row).minY : rect(ofRow: numberOfRows - 1).maxY
-        // Spans the row content, from the first cell's leading edge to the last cell's trailing edge, where the inset highlight sits.
+        /// Spans the row content, from the first cell's leading edge to the last cell's trailing edge, where the inset highlight sits.
         let reference = min(row, numberOfRows - 1)
         let minX = frameOfCell(atColumn: 0, row: reference).minX
         let maxX = frameOfCell(atColumn: numberOfColumns - 1, row: reference).maxX
@@ -512,7 +512,7 @@ final class ReportNSTableView: NSTableView {
             return view
         }()
         if indicator.frame != frame { indicator.frame = frame }
-        // Row views added while scrolling would otherwise cover it.
+        /// Row views added while scrolling would otherwise cover it.
         if subviews.last !== indicator { addSubview(indicator, positioned: .above, relativeTo: nil) }
         indicator.isHidden = false
     }
@@ -690,14 +690,14 @@ final class ReportTableCellView: NSTableCellView {
             text.draw(with: NSRect(x: 0, y: floor((bounds.height - height) / 2), width: width, height: height),
                       options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
         case .badge(let badge):
-            // 10 pt heavy, centered on a 4 pt-radius continuous-corner plate, 1 pt taller than the text above and below (the SwiftUI row's
-            // `.padding(.vertical, 1)`). The plate and lettering colors are fixed, so they read the same on a selected row.
+            /// 10 pt heavy, centered on a 4 pt-radius continuous-corner plate, 1 pt taller than the text above and below (the SwiftUI row's
+            /// `.padding(.vertical, 1)`). The plate and lettering colors are fixed, so they read the same on a selected row.
             let badgeFont = NSFont.systemFont(ofSize: 10, weight: .heavy)
             let attributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: badge.ink]
             let text = badge.text as NSString
             let size = text.size(withAttributes: attributes)
-            // The plate starts `badgeOutsideAllowance` in from the leading edge, so the cell does not clip its shadow. The trailing side spills
-            // into `trailingPad`, which is wider.
+            /// The plate starts `badgeOutsideAllowance` in from the leading edge, so the cell does not clip its shadow. The trailing side spills
+            /// into `trailingPad`, which is wider.
             let plateHeight = ceil(size.height) + 2
             let plate = NSRect(x: Self.badgeOutsideAllowance, y: floor((bounds.height - plateHeight) / 2),
                                width: width, height: plateHeight)

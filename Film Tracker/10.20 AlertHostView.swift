@@ -1,8 +1,8 @@
 // MARK: - AlertHostView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Invisible view that exists solely to listen for alert events and present
-// user-facing alerts. Centralizes all alert logic from across the application.
+/// Invisible view that exists solely to listen for alert events and present
+/// user-facing alerts. Centralizes all alert logic from across the application.
 
 import SwiftUI
 
@@ -30,8 +30,8 @@ enum HostAlert {
     case deleteSavedSearch(id: UUID, name: String)
     case deleteListContents(listID: UUID, listName: String, filmIDs: [UUID])
     case clearListContents(listID: UUID, listName: String, filmCount: Int)
-    // `clearingSelection` carries the sender's FilmRemoval choice through the alert, so a
-    // confirmed removal treats the selection exactly as the unconfirmed one would.
+    /// `clearingSelection` carries the sender's FilmRemoval choice through the alert, so a
+    /// confirmed removal treats the selection exactly as the unconfirmed one would.
     case removeFromList(filmIDs: Set<UUID>, listID: UUID, listName: String, clearingSelection: Bool)
     case removeFromAllLists(filmIDs: Set<UUID>, clearingSelection: Bool)
     case deleteFromLibrary(filmIDs: Set<UUID>, clearingSelection: Bool)
@@ -95,18 +95,19 @@ enum HostAlert {
 
     var title: String {
         switch self {
-        case .backupRestore: "Restore from Backup"
-        case .removeList: "Remove List"
+        case .backupRestore: "Restore from Backup?"
+        case .removeList: "Remove List?"
         case .deleteSavedSearch: "Delete Saved Search?"
-        case .deleteListContents: "Delete List Contents"
-        case .clearListContents: "Clear List Contents"
-        // The Film Queue removal shares the list wording: to the user the queue sections
-        // are lists.
-        case .removeFromList, .removeFromFilmQueue: "Remove from List"
-        case .removeFromAllLists: "Remove from All Lists"
-        case .deleteFromLibrary: "Delete from Library"
-        case .removeFromHallOfFame: "Remove from Hall of Fame"
-        case .filmQueueAdd: "Add to Queue"
+        case .deleteListContents: "Delete List Contents?"
+        case .clearListContents: "Clear List Contents?"
+        /// The Film Queue removal shares the list wording: to the user the queue sections
+        /// are lists.
+        case .removeFromList: "Remove from List?"
+        case .removeFromFilmQueue: "Remove from Queue?"
+        case .removeFromAllLists: "Remove from All Lists?"
+        case .deleteFromLibrary: "Delete from Library?"
+        case .removeFromHallOfFame: "Remove from Hall of Fame?"
+        case .filmQueueAdd: "Add to Queue?"
         case .persistenceFailure: "Database Write Failed"
         case .databaseError: "Library Unavailable"
         case .libraryReadFailure: "Library Could Not Be Read"
@@ -114,7 +115,7 @@ enum HostAlert {
         case .duplicateViewingDate: "Event Already Exists"
         case .calendarEventFailure: "Calendar Event Not Created"
         case .notice(let title, _): title
-        case .upNextFullDrop: FilmQueue.upNextFullTitle
+        case .upNextFullDrop: FilmQueue.upNextFullDropOfferTitle
         }
     }
 }
@@ -128,7 +129,7 @@ struct AlertHostView: View, Loggable {
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
 
-    // Whether debug logging is on, which decides how a persistence failure is described.
+    /// Whether debug logging is on, which decides how a persistence failure is described.
     @AppStorage(preference: Preferences.loggingEnabledKey) private var loggingEnabled: Bool
 
     /// The alert on screen.
@@ -160,23 +161,23 @@ struct AlertHostView: View, Loggable {
             } message: { alert in
                 message(for: alert)
             }
-            // The next waiting alert goes up one turn after the answered one is dismissed,
-            // off the dismissal's own call stack.
+            /// The next waiting alert goes up one turn after the answered one is dismissed,
+            /// off the dismissal's own call stack.
             .onChange(of: presented == nil) { _, isEmpty in
                 guard isEmpty else { return }
                 DispatchQueue.main.async { presentNextWaiting() }
             }
             .onReceive(AppEventBus.shared.alertCommands) { receive($0) }
             // MARK: Deferred Film Queue Drop Alert Presentation
-            // GalleryDragEngine posts .dragSessionDidEnd from its grid and list session-end callbacks,
-            // which AppKit defers until after its drag-completion rendering. Presenting then, rather
-            // than when the drop was stashed, lets Core Animation drive the alert's appear animation
-            // with nothing from the drag teardown contending for the main thread. A session end with
-            // nothing stashed is a no-op. The DispatchQueue.main.async hop moves presentation off the
-            // notification's delivery stack, the codebase rule for presentation changes made from AppKit
-            // delegate callbacks.
+            /// GalleryDragEngine posts .dragSessionDidEnd from its grid and list session-end callbacks,
+            /// which AppKit defers until after its drag-completion rendering. Presenting then, rather
+            /// than when the drop was stashed, lets Core Animation drive the alert's appear animation
+            /// with nothing from the drag teardown contending for the main thread. A session end with
+            /// nothing stashed is a no-op. The DispatchQueue.main.async hop moves presentation off the
+            /// notification's delivery stack, the codebase rule for presentation changes made from AppKit
+            /// delegate callbacks.
             .onReceive(NotificationCenter.default.publisher(for: .dragSessionDidEnd)) { _ in
-                // A drop-time notice rides the same hand-off as the Queue drop below.
+                /// A drop-time notice rides the same hand-off as the Queue drop below.
                 if stashedNotice != nil {
                     DispatchQueue.main.async {
                         guard let notice = stashedNotice else { return }
@@ -191,14 +192,14 @@ struct AlertHostView: View, Loggable {
                     enqueue(.filmQueueAdd(add))
                 }
             }
-            // Publishes "an alert is on screen or waiting" for MenuBar's lock. The two
-            // database-error alerts keep their own isDatabaseErrorAlertActive as well; this
-            // flag is what also locks the menu under "Library Could Not Be Read" and every
-            // confirmation.
+            /// Publishes "an alert is on screen or waiting" for MenuBar's lock. The two
+            /// database-error alerts keep their own isDatabaseErrorAlertActive as well; this
+            /// flag is what also locks the menu under "Library Could Not Be Read" and every
+            /// confirmation.
             .onChange(of: isAnyAlertActive, initial: true) { _, isActive in
                 appState.isHostAlertActive = isActive
             }
-            // Locks the menu bar while "Library Unavailable" or its result is up.
+            /// Locks the menu bar while "Library Unavailable" or its result is up.
             .onChange(of: isDatabaseAlertActive) { _, isActive in
                 appState.isDatabaseErrorAlertActive = isActive
             }
@@ -248,17 +249,17 @@ struct AlertHostView: View, Loggable {
     private func receive(_ command: AlertCommand) {
         switch command {
         case .showBackupRestoreAlert(_, let file):
-            // isSheetPresented (set by SheetHostView) is cleared only when
-            // NSWindow.didEndSheetNotification fires, after the dismiss animation. That is more
-            // conservative than sheetCoordinator.activeSheet, which clears when the animation starts.
-            //
-            // A) No sheet on screen: present the confirmation alert.
-            // B) Settings sheet on screen: forward to the in-place load path, with no alert. The
-            //    "Restore Database" button in STabRestore is the confirmation.
-            // C) Any other sheet on screen: ignore it, logging why. The user must dismiss that sheet first.
-            //
-            // Another alert on screen or waiting is treated like C, since the prompt would surface
-            // later, out of context. Re-opening while the restore prompt is up retargets it.
+            /// isSheetPresented (set by SheetHostView) is cleared only when
+            /// NSWindow.didEndSheetNotification fires, after the dismiss animation. That is more
+            /// conservative than sheetCoordinator.activeSheet, which clears when the animation starts.
+            ///
+            /// A) No sheet on screen: present the confirmation alert.
+            /// B) Settings sheet on screen: forward to the in-place load path, with no alert. The
+            ///    "Restore Database" button in STabRestore is the confirmation.
+            /// C) Any other sheet on screen: ignore it, logging why. The user must dismiss that sheet first.
+            ///
+            /// Another alert on screen or waiting is treated like C, since the prompt would surface
+            /// later, out of context. Re-opening while the restore prompt is up retargets it.
             if isAnyAlertActive && !hasAlert(.backupRestore) {
                 log("Backup file open ignored — another alert is on screen")
             } else if !appState.isSheetPresented {
@@ -274,13 +275,13 @@ struct AlertHostView: View, Loggable {
         case .confirmDeleteSavedSearch(let id, let name):
             enqueue(.deleteSavedSearch(id: id, name: name))
         case .confirmDeleteContents(let listID, let listName):
-            // The film IDs are not carried on the event, so they are read here, once.
+            /// The film IDs are not carried on the event, so they are read here, once.
             if let list = dataCoordinator.getList(listID) {
                 enqueue(.deleteListContents(listID: listID, listName: listName,
                                             filmIDs: Array(list.filmIDs)))
             }
         case .confirmClearContents(let listID, let listName):
-            // Film count is not carried on the event either, so it is read here.
+            /// Film count is not carried on the event either, so it is read here.
             if let list = dataCoordinator.getList(listID) {
                 enqueue(.clearListContents(listID: listID, listName: listName,
                                            filmCount: list.filmIDs.count))
@@ -291,29 +292,29 @@ struct AlertHostView: View, Loggable {
         case .confirmRemoveFromAllLists(let filmIDs, let clearing):
             enqueue(.removeFromAllLists(filmIDs: filmIDs, clearingSelection: clearing))
         case .confirmDeleteFromLibrary(let filmIDs, let clearing):
-            // "Delete from Library" always routes to the standard single-purpose alert.
-            // The dedicated "Remove from List" menu item handles the list-removal path.
+            /// "Delete from Library" always routes to the standard single-purpose alert.
+            /// The dedicated "Remove from List" menu item handles the list-removal path.
             enqueue(.deleteFromLibrary(filmIDs: filmIDs, clearingSelection: clearing))
         case .confirmRemoveFromHallOfFame(let filmIDs, let clearing):
             enqueue(.removeFromHallOfFame(filmIDs: filmIDs, clearingSelection: clearing))
         case .confirmRemoveFromFilmQueue(let filmIDs, let clearing):
             enqueue(.removeFromFilmQueue(filmIDs: filmIDs, clearingSelection: clearing))
         case .confirmFilmQueueAddOnDrop(let filmIDs, let listID):
-            // Sent from LeftSidebar's performDragOperation, inside NSDraggingSession's tracking run
-            // loop. Not presented here: the alert transaction would open while AppKit is still
-            // rendering the drag completion, and the appear animation would be dropped. The request
-            // is stashed with its message composed now, and presented from the .dragSessionDidEnd
-            // handler above, which AppKit delivers after rendering for every begun session.
-            //
-            // One Queue alert at a time: a request arriving while one is open or waiting is ignored.
+            /// Sent from LeftSidebar's performDragOperation, inside NSDraggingSession's tracking run
+            /// loop. Not presented here: the alert transaction would open while AppKit is still
+            /// rendering the drag completion, and the appear animation would be dropped. The request
+            /// is stashed with its message composed now, and presented from the .dragSessionDidEnd
+            /// handler above, which AppKit delivers after rendering for every begun session.
+            ///
+            /// One Queue alert at a time: a request arriving while one is open or waiting is ignored.
             guard !hasAlert(.filmQueueAdd) else { break }
             stashedQueueDrop = HostAlert.QueueAdd(
                 filmIDs: filmIDs, listID: listID,
                 message: filmQueueAddMessage(filmIDs), fromMenu: false)
         case .confirmFilmQueueAddFromMenu(let filmIDs, let listID):
-            // Same request, presented at once: the sender (FilmQueueAssignment.toggle)
-            // already ran past the menu's dismissal animation, and no drag session end will
-            // arrive to present it. It supersedes any drop still stashed.
+            /// Same request, presented at once: the sender (FilmQueueAssignment.toggle)
+            /// already ran past the menu's dismissal animation, and no drag session end will
+            /// arrive to present it. It supersedes any drop still stashed.
             guard !hasAlert(.filmQueueAdd) else { break }
             stashedQueueDrop = nil
             enqueue(.filmQueueAdd(HostAlert.QueueAdd(
@@ -330,12 +331,12 @@ struct AlertHostView: View, Loggable {
         case .calendarEventCreationFailed:
             coalesce(.calendarEventFailure)
         case .offerSoonForFullUpNextDrop(let filmIDs, let message):
-            // Sent from inside performDragOperation, so it rides the stashed-notice
-            // hand-off to the drag session's end, as a drop-time notice does.
+            /// Sent from inside performDragOperation, so it rides the stashed-notice
+            /// hand-off to the drag session's end, as a drop-time notice does.
             stashedNotice = .upNextFullDrop(filmIDs: filmIDs, message: message)
         case .showNotice(let title, let message, let afterDragSession):
-            // Same-kind coalescing would let an unrelated notice replace one on screen, so notices
-            // queue. An identical notice already on screen is not repeated.
+            /// Same-kind coalescing would let an unrelated notice replace one on screen, so notices
+            /// queue. An identical notice already on screen is not repeated.
             let notice = HostAlert.notice(title: title, message: message)
             if afterDragSession {
                 stashedNotice = notice
@@ -358,7 +359,7 @@ struct AlertHostView: View, Loggable {
                 if let backupFile {
                     AppEventBus.shared.sendCommand(.openSettingsWithBackup(file: backupFile))
                 }
-                // Clear the reference regardless of whether it was used.
+                /// Clear the reference regardless of whether it was used.
                 backupFile = nil
             }
             Button("Cancel", role: .cancel) { backupFile = nil }
@@ -422,13 +423,13 @@ struct AlertHostView: View, Loggable {
 
         case .deleteFromLibrary(let filmIDs, let clearing):
             Button("Cancel", role: .cancel) {
-                // Closes the "awaiting confirmation" line FilmRemoval logged when the command was invoked.
+                /// Closes the "awaiting confirmation" line FilmRemoval logged when the command was invoked.
                 log("Delete from library canceled — \(filmIDs.count) film(s) left in place")
             }
             Button("Delete", role: .destructive) {
-                // Mirrors FilmRemoval.deleteFromLibrary's direct branch: deleteFilms
-                // reconciles the selection itself, so the flag chooses whether to hand the
-                // selection over.
+                /// Mirrors FilmRemoval.deleteFromLibrary's direct branch: deleteFilms
+                /// reconciles the selection itself, so the flag chooses whether to hand the
+                /// selection over.
                 Task {
                     await FilmManager.deleteFilms(filmIDs, coordinator: dataCoordinator,
                                                   selectionState: clearing ? selectionState : nil)
@@ -440,9 +441,9 @@ struct AlertHostView: View, Loggable {
                 log("Remove from Hall of Fame canceled — \(filmIDs.count) film(s) left in place")
             }
             Button("Remove", role: .destructive) {
-                // Single batched call: one compaction of the surviving ranking, one atomic
-                // database transaction, and one coherent rollback baseline for the whole
-                // selection.
+                /// Single batched call: one compaction of the surviving ranking, one atomic
+                /// database transaction, and one coherent rollback baseline for the whole
+                /// selection.
                 dataCoordinator.removeFromHallOfFame(filmIDs)
                 clearSelection(if: clearing)
             }
@@ -459,13 +460,13 @@ struct AlertHostView: View, Loggable {
             }
 
         case .filmQueueAdd(let add):
-            // Mirrors FSTabDetails/DetailsView's Film Queue confirmation alert. Canceling
-            // cancels the whole request; confirming adds the full set exactly as the
-            // unconfirmed path does.
+            /// Mirrors FSTabDetails/DetailsView's Film Queue confirmation alert. Canceling
+            /// cancels the whole request; confirming adds the full set exactly as the
+            /// unconfirmed path does.
             Button("Cancel", role: .cancel) { }
             Button("Add Anyway") {
-                // "Up Next" may have filled while this alert was up; re-checked at the
-                // moment of commitment, as FilmQueueAssignment.toggle does for its menus.
+                /// "Up Next" may have filled while this alert was up; re-checked at the
+                /// moment of commitment, as FilmQueueAssignment.toggle does for its menus.
                 if add.listID == FilmQueueSection.upNext.listID,
                    FilmQueue.refuseUpNextAddIfFull(add.filmIDs, coordinator: dataCoordinator) {
                     return
@@ -478,10 +479,10 @@ struct AlertHostView: View, Loggable {
             }
 
         case .persistenceFailure(let detail):
-            // Button order is deliberate and counterintuitive: the alert panel lays buttons
-            // out RIGHT to LEFT in declaration order, so OK is declared first to sit
-            // rightmost as the highlighted default, leaving Copy Error to its left.
-            // Reversing these two swaps their positions on screen.
+            /// Button order is deliberate and counterintuitive: the alert panel lays buttons
+            /// out RIGHT to LEFT in declaration order, so OK is declared first to sit
+            /// rightmost as the highlighted default, leaving Copy Error to its left.
+            /// Reversing these two swaps their positions on screen.
             Button("OK") { }
                 .keyboardShortcut(.defaultAction)
             if let detail, !loggingEnabled {
@@ -489,13 +490,13 @@ struct AlertHostView: View, Loggable {
             }
 
         case .databaseError:
-            // "Quit" has role .cancel. On macOS that stops SwiftUI injecting a system "OK" when no
-            // cancel-role button is present, and Escape then chooses Quit, the right deferral for
-            // this forced action.
+            /// "Quit" has role .cancel. On macOS that stops SwiftUI injecting a system "OK" when no
+            /// cancel-role button is present, and Escape then chooses Quit, the right deferral for
+            /// this forced action.
             Button("Quit", role: .cancel) { NSApp.terminate(nil) }
-            // .defaultAction designates this as the primary button — it receives the
-            // Return-key binding and the keyboard focus ring on presentation, ensuring
-            // focus lands here rather than drifting to another button.
+            /// .defaultAction designates this as the primary button — it receives the
+            /// Return-key binding and the keyboard focus ring on presentation, ensuring
+            /// focus lands here rather than drifting to another button.
             Button("Restore from Backup") {
                 AppEventBus.shared.sendCommand(.openSettingsLockedToRestore)
             }
@@ -505,8 +506,8 @@ struct AlertHostView: View, Loggable {
             }
 
         case .libraryReadFailure:
-            // No destructive option is offered (see HostAlert.libraryReadFailure). "Quit"
-            // carries role: .cancel for the same macOS reason as "Library Unavailable".
+            /// No destructive option is offered (see HostAlert.libraryReadFailure). "Quit"
+            /// carries role: .cancel for the same macOS reason as "Library Unavailable".
             Button("Quit", role: .cancel) { NSApp.terminate(nil) }
             Button("Restore from Backup") {
                 AppEventBus.shared.sendCommand(.openSettingsLockedToRestore)
@@ -519,11 +520,11 @@ struct AlertHostView: View, Loggable {
                 .keyboardShortcut(.defaultAction)
 
         case .duplicateViewingDate:
-            // A single "OK" carries the default action (Return), per the app's standard
-            // single-button alert convention.
+            /// A single "OK" carries the default action (Return), per the app's standard
+            /// single-button alert convention.
             Button("OK") {
-                // The alert auto-dismissed the CalendarPopover (an alert sheet closes an open NSPopover).
-                // Ask WatchDetails to reopen it, seeded from the entry snapshot taken before the alert.
+                /// The alert auto-dismissed the CalendarPopover (an alert sheet closes an open NSPopover).
+                /// Ask WatchDetails to reopen it, seeded from the entry snapshot taken before the alert.
                 AppEventBus.shared.sendCommand(.reopenViewingEventPopover)
             }
             .keyboardShortcut(.defaultAction)
@@ -533,9 +534,9 @@ struct AlertHostView: View, Loggable {
                 .keyboardShortcut(.defaultAction)
 
         case .upNextFullDrop(let filmIDs, _):
-            // The user's explicit answer overrides their "drop onto Queue adds to Up Next"
-            // preference for this one drop. The special-sorting gate still applies to the
-            // films now headed for "Soon".
+            /// The user's explicit answer overrides their "drop onto Queue adds to Up Next"
+            /// preference for this one drop. The special-sorting gate still applies to the
+            /// films now headed for "Soon".
             Button("Cancel", role: .cancel) {
                 log("Full 'Up Next' drop canceled — \(filmIDs.count) film(s) not added")
             }
@@ -553,10 +554,10 @@ struct AlertHostView: View, Loggable {
             .keyboardShortcut(.defaultAction)
 
         case .calendarEventFailure:
-            // Deliberately does NOT reopen the popover: unlike the duplicate-date case, the
-            // viewing HAS been committed by the time this alert appears, so reopening it
-            // would invite the user to enter it a second time (and be rejected as a
-            // duplicate for their trouble).
+            /// Deliberately does NOT reopen the popover: unlike the duplicate-date case, the
+            /// viewing HAS been committed by the time this alert appears, so reopening it
+            /// would invite the user to enter it a second time (and be rejected as a
+            /// duplicate for their trouble).
             Button("OK") { }
                 .keyboardShortcut(.defaultAction)
         }
@@ -568,9 +569,9 @@ struct AlertHostView: View, Loggable {
     private func message(for alert: HostAlert) -> some View {
         switch alert {
         case .backupRestore:
-            Text("Do you want to open Settings to restore from this backup? Completing the restore there will replace all existing data with the backup contents.")
+            Text("Settings will open so you can restore from this backup. Completing the restore there will replace all existing data with the backup contents.")
         case .removeList(_, let listName):
-            Text("Are you sure you want to remove \"\(truncateListName(listName, maxLength: 42))\"? This action cannot be undone.")
+            Text("\"\(truncateListName(listName, maxLength: 42))\" will be removed. This action cannot be undone.")
         case .deleteSavedSearch(_, let name):
             Text("\"\(truncateListName(name, maxLength: 42))\" will be removed from the sidebar. Films are not affected.")
         case .deleteListContents(_, let listName, let filmIDs):
@@ -590,9 +591,9 @@ struct AlertHostView: View, Loggable {
         case .filmQueueAdd(let add):
             Text(add.message)
         case .persistenceFailure(let detail):
-            // With debug logging ON, "check the log" is sound advice and the user — who
-            // turned it on deliberately — knows where to look. With logging OFF, no log
-            // exists to consult, so the fault text travels in the alert itself instead.
+            /// With debug logging ON, "check the log" is sound advice and the user — who
+            /// turned it on deliberately — knows where to look. With logging OFF, no log
+            /// exists to consult, so the fault text travels in the alert itself instead.
             if loggingEnabled {
                 Text("The change was not saved. Check the log for more information.")
             } else if let detail {
@@ -603,10 +604,10 @@ struct AlertHostView: View, Loggable {
         case .databaseError:
             Text("Film Tracker encountered a fatal, unrecoverable error and could not open its database. You can either restore your library from a backup or create a new, empty library to continue. This will delete all existing data and cannot be undone.")
         case .libraryReadFailure:
-            // The persistent store opened normally but the Phase 1 fetch threw, so the
-            // library renders as empty despite the data being intact on disk. Surfacing
-            // this is not cosmetic: an unexplained empty library invites the user to "fix"
-            // it by re-importing or restoring over a healthy store.
+            /// The persistent store opened normally but the Phase 1 fetch threw, so the
+            /// library renders as empty despite the data being intact on disk. Surfacing
+            /// this is not cosmetic: an unexplained empty library invites the user to "fix"
+            /// it by re-importing or restoring over a healthy store.
             Text("Film Tracker opened its database but could not read your library, so no films are shown. Your data has not been changed or deleted, and background maintenance has been disabled for this session to keep it that way. Relaunching will usually resolve this.")
         case .newLibraryResult(_, let message):
             Text(message)
@@ -644,10 +645,10 @@ struct AlertHostView: View, Loggable {
     }
 
     // MARK: Create New Library
-    // Takes the same staged-store pathway as the restore flow, but without importing any
-    // data: an empty store is staged, and the relaunch swaps it in (PendingRestore). A
-    // restart is required because the app's current NSPersistentContainer is an in-memory
-    // fallback opened at launch.
+    /// Takes the same staged-store pathway as the restore flow, but without importing any
+    /// data: an empty store is staged, and the relaunch swaps it in (PendingRestore). A
+    /// restart is required because the app's current NSPersistentContainer is an in-memory
+    /// fallback opened at launch.
     private func createNewLibrary() async {
         let restorer = DBRestorer(container: dataCoordinator.persistentContainer)
         do {
@@ -672,10 +673,9 @@ private struct DeleteContentsMessage: View {
             let truncatedName = truncateListName(listName, maxLength: 42)
             let isPlural = filmCount != 1
             Text("""
-                Are you sure you want to delete all \
-                \(filmCount) film\(isPlural ? "s" : "") in "\(truncatedName)"? \
-                This will remove \(isPlural ? "them" : "it") from your \
-                library. This action cannot be undone.
+                \(isPlural ? "All \(filmCount) films" : "The film") in "\(truncatedName)" \
+                will be deleted from your library. \
+                This action cannot be undone.
                 """)
         }
     }
@@ -690,7 +690,8 @@ private struct ClearContentsMessage: View {
             let truncatedName = truncateListName(listName, maxLength: 42)
             let isPlural = filmCount != 1
             Text("""
-                Clear all \(filmCount) film\(isPlural ? "s" : "") from "\(truncatedName)"? \
+                \(isPlural ? "All \(filmCount) films" : "The film") will be removed \
+                from "\(truncatedName)". \
                 \(isPlural ? "They" : "It") will remain in your library.
                 """)
         }
@@ -706,12 +707,12 @@ private struct RemoveFromListMessage: View {
         if let listName = listName {
             let truncatedName = truncateListName(listName, maxLength: 42)
             Text("""
-                Remove \(filmCount) film\(isPlural ? "s" : "") \
-                from "\(truncatedName)"? \(isPlural ? "They" : "It") \
+                \(filmCount) film\(isPlural ? "s" : "") will be removed \
+                from "\(truncatedName)". \(isPlural ? "They" : "It") \
                 will remain in your library.
                 """)
         } else {
-            Text("Remove \(filmCount) film\(isPlural ? "s" : "") from the list?")
+            Text("\(filmCount) film\(isPlural ? "s" : "") will be removed from the list. \(isPlural ? "They" : "It") will remain in your library.")
         }
     }
 }
@@ -722,8 +723,8 @@ private struct RemoveFromAllListsMessage: View {
     var body: some View {
         let isPlural = filmCount != 1
         Text("""
-            Remove \(filmCount) film\(isPlural ? "s" : "") \
-            from all lists? \(isPlural ? "They" : "It") will remain in your library.
+            \(filmCount) film\(isPlural ? "s" : "") will be removed \
+            from all lists. \(isPlural ? "They" : "It") will remain in your library.
             """)
     }
 }
@@ -734,8 +735,8 @@ private struct DeleteFromLibraryMessage: View {
     var body: some View {
         let isPlural = filmCount != 1
         Text("""
-            Are you sure you want to delete \(filmCount) film\(isPlural ? "s" : "") \
-            from your library? This action cannot be undone.
+            \(filmCount) film\(isPlural ? "s" : "") will be deleted \
+            from your library. This action cannot be undone.
             """)
     }
 }
@@ -746,7 +747,7 @@ private struct RemoveFromHallOfFameMessage: View {
     var body: some View {
         let isPlural = filmCount != 1
         Text("""
-            Remove \(filmCount) film\(isPlural ? "s" : "") from the Hall of Fame? \
+            \(filmCount) film\(isPlural ? "s" : "") will be removed from the Hall of Fame. \
             \(isPlural ? "They" : "It") will remain in your library.
             """)
     }
@@ -758,7 +759,7 @@ private struct RemoveFromFilmQueueMessage: View {
     var body: some View {
         let isPlural = filmCount != 1
         Text("""
-            Remove \(filmCount) film\(isPlural ? "s" : "") from the Film Queue? \
+            \(filmCount) film\(isPlural ? "s" : "") will be removed from the Queue. \
             \(isPlural ? "They" : "It") will remain in your library.
             """)
     }

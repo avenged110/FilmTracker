@@ -1,16 +1,17 @@
-// MARK: - SavedSearchRules.swift
+// MARK: - SSRules.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The rule model behind the saved-search builder sheet: a query as a list of rules, each a
-// field, an operator and that operator's values, under one "Match all / any" choice.
-//
-// Every rule is exactly one search token. A rule is built from a token by recognizing the
-// value forms the builder itself writes ("last 3 months", ">2010", "8+"); any other value
-// becomes a "matches" rule holding the value exactly as typed. So a query opened in the
-// builder and saved again without edits finds the same films, and nothing a user typed in
-// the search field is lost or reinterpreted.
-//
-// Pure Foundation, like 50.30, so it can be tested without the app.
+/// The rule model behind the saved-search builder sheet: a query as a list of rules, each a
+/// field, an operator and that operator's values, under one "Match all / any" choice.
+///
+/// Every rule is one search token, except the one that holds the search field's freeform
+/// text (QueryRule.isFieldText). A rule is built from a token by recognizing the value forms
+/// the builder itself writes ("last 3 months", ">2010", "8+"); any other value becomes a
+/// "matches" rule holding the value exactly as typed. So a query opened in the builder and
+/// saved again without edits finds the same films, and nothing a user typed in the search
+/// field is lost or reinterpreted.
+///
+/// Foundation only, apart from the app's genre list (FilterOption.genreNames).
 
 import Foundation
 
@@ -37,7 +38,7 @@ enum RuleMatchMode: String, CaseIterable, Hashable, Sendable {
     }
 }
 
-enum RuleConjunction: String, CaseIterable, Hashable, Sendable {
+enum RuleConjunction: Hashable, Sendable {
     case and, or
 }
 
@@ -46,28 +47,28 @@ enum RuleConjunction: String, CaseIterable, Hashable, Sendable {
 /// Every operator the builder offers, across all fields. Which ones a field offers, and in
 /// what order, is `RuleOperator.options(for:)`.
 enum RuleOperator: String, CaseIterable, Hashable, Sendable {
-    // Text
+    /// Text
     case contains, doesNotContain
-    // Genre: one of the app's fixed genres
+    /// Genre: one of the app's fixed genres
     case genreIs, genreIsNot
-    // Year
+    /// Year
     case yearIs, yearIsNot, yearAfter, yearBefore, yearBetween, yearNotBetween
-    // Duration
+    /// Duration
     case durationAtLeast, durationLonger, durationShorter, durationBetween
-    // Rating
+    /// Rating
     case ratingIs, ratingAtLeast, ratingAtMost, ratingBetween, ratingUnrated, ratingRated
-    // Dates
+    /// Dates
     case inTheLast, notInTheLast, moreThanAgo, aboutAgo, dateAfter, dateBefore, dateOn, dateInYear,
          noDate, hasDate
-    // List
+    /// List
     case inList, notInList
-    // Is
+    /// Is
     case flagIs, flagIsNot
-    // Release
+    /// Release
     case hasRelease, hasNoRelease
-    // Rotation threshold
+    /// Rotation threshold
     case rotationIs, rotationIsNot
-    // Any field: the value exactly as it would be typed after "#field ".
+    /// Any field: the value exactly as it would be typed after "#field ".
     case matches, doesNotMatch
 
     /// What the operator's values are edited with.
@@ -232,7 +233,7 @@ struct RuleDay: Hashable, Sendable {
 
 // MARK: - Rule
 
-/// One row of the builder: one token.
+/// One row of the builder: one token, or the search field's text (`isFieldText`).
 struct QueryRule: Identifiable, Hashable, Sendable {
     let id: UUID
     var field: SearchField
@@ -256,6 +257,13 @@ struct QueryRule: Identifiable, Hashable, Sendable {
     /// token. Kept rather than derived, so typing a value that happens to be one of the
     /// choices ("hdr" on the way to "hdr10") never closes the field mid-word.
     var otherChosen: Bool?
+    /// The search field's freeform text, which RuleSet(query:) shows as a Title "contains"
+    /// rule. Written back as the query's text, not as a token: the engine narrows the whole
+    /// token result by the text (SearchController.applyFilters), which a Title token under OR
+    /// would not — "/#year 2000 /#year 2001 star" is (2000 or 2001) and "star", where a token
+    /// would make it 2000 or 2001 or "star". So the rule always applies, whatever the match
+    /// mode. Changing the row's field or condition makes it an ordinary rule.
+    var isFieldText = false
 
     init(id: UUID = UUID(), field: SearchField, op: RuleOperator? = nil, conjunction: RuleConjunction = .and,
          text: String = "", a: Int? = nil, b: Int? = nil, unit: RuleTimeUnit = .months, day: RuleDay? = nil) {
@@ -307,7 +315,7 @@ struct QueryRule: Identifiable, Hashable, Sendable {
     /// A new rule for `field`, its first operator and default values, keeping the row's
     /// identity and conjunction. What choosing another field in a row's first menu does.
     func changingField(to field: SearchField) -> QueryRule {
-        // The condition and any menu value wait to be chosen for the new field.
+        /// The condition and any menu value wait to be chosen for the new field.
         var rule = QueryRule(id: id, field: field, conjunction: conjunction)
         rule.isOperatorChosen = false
         rule.isValueChosen = false
@@ -374,7 +382,7 @@ struct QueryRule: Identifiable, Hashable, Sendable {
         self.init(field: token.field, conjunction: token.isOr ? .or : .and)
         let v = token.value
         let inv = token.isInverted
-        // "matches" unless a structured form is recognized below.
+        /// "matches" unless a structured form is recognized below.
         op = inv ? .doesNotMatch : .matches
         text = v
 
@@ -384,7 +392,7 @@ struct QueryRule: Identifiable, Hashable, Sendable {
             op = inv ? .doesNotContain : .contains
 
         case .genre:
-            // One of the fixed genres, exactly as the menu writes it.
+            /// One of the fixed genres, exactly as the menu writes it.
             if RuleValues.genres.contains(v) { op = inv ? .genreIsNot : .genreIs }
 
         case .list:
@@ -397,7 +405,7 @@ struct QueryRule: Identifiable, Hashable, Sendable {
             op = inv ? .rotationIsNot : .rotationIs
 
         case .flags:
-            // One known term, exactly as the menu writes it.
+            /// One known term, exactly as the menu writes it.
             if FilmFlag.terms.contains(where: { $0.display == v }) {
                 op = inv ? .flagIsNot : .flagIs
             }
@@ -484,8 +492,8 @@ enum RuleValues {
         ("Other", ["imported", "remastered", "combo-pack", "standalone", "multi-pack"]),
     ].flatMap { group, words in words.map { ReleaseKeyword(keyword: $0, group: group) } }
 
-    /// The app's fixed genres: the FilmSheet's genre menu, less its empty "Select" entry.
-    static var genres: [String] { FSTabDetails.genreOptions.filter { !$0.isEmpty } }
+    /// The app's fixed genres, in the FilmSheet genre menu's order.
+    static var genres: [String] { FilterOption.genreNames }
 
     /// Rotation threshold values: the two override keywords, then the six real thresholds.
     static let rotationValues = ["default", "override", "12 months", "18 months", "24 months",
@@ -506,8 +514,8 @@ struct RuleSet: Hashable, Sendable {
 
     /// The rules for `query`. A multi-term Is pill that is a plain AND token is split into
     /// one rule per term — the same films, since every term must hold either way. The
-    /// freeform text becomes a Title "contains" rule ANDed with the rest, which is what the
-    /// engine does with it (the two match identically: SearchController.matchesTitle).
+    /// freeform text becomes a Title "contains" rule that stays the query's text
+    /// (QueryRule.isFieldText); it takes no part in choosing the match mode.
     init(query: SavedSearchQuery) {
         var rules: [QueryRule] = []
         for token in query.tokens {
@@ -519,9 +527,11 @@ struct RuleSet: Hashable, Sendable {
             }
         }
         if !SearchText.key(query.text).isEmpty {
-            rules.append(QueryRule(field: .title, op: .contains, conjunction: .and, text: query.text))
+            var rule = QueryRule(field: .title, op: .contains, conjunction: .and, text: query.text)
+            rule.isFieldText = true
+            rules.append(rule)
         }
-        let positive = rules.filter { !$0.op.isInverted }
+        let positive = rules.filter { !$0.op.isInverted && !$0.isFieldText }
         let mode: RuleMatchMode
         if positive.allSatisfy({ $0.conjunction == .and }) { mode = .all }
         else if positive.allSatisfy({ $0.conjunction == .or }) { mode = .any }
@@ -549,14 +559,16 @@ struct RuleSet: Hashable, Sendable {
         }
     }
 
-    /// The query the rules make. No freeform text: a Title rule is a token.
+    /// The query the rules make: a token per rule, and the field-text rule's text.
     var query: SavedSearchQuery {
         var tokens: [SearchToken] = []
+        var text = ""
         for rule in rules where rule.isChosen {
+            if rule.isFieldText { text = rule.value; continue }
             let token = rule.token(isOr: isOr(rule))
             if !tokens.contains(token) { tokens.append(token) }
         }
-        return SavedSearchQuery(tokens: tokens, text: "")
+        return SavedSearchQuery(tokens: tokens, text: text)
     }
 
     /// The first rule's problem, or nil when every rule is complete.

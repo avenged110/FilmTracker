@@ -1,8 +1,8 @@
 // MARK: - SavedSearchObj.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Defines the Core Data model for a saved search. The DataManager operations that read and
-// write it live in DataManager.swift, beside its private commit().
+/// Defines the Core Data model for a saved search. The DataManager operations that read and
+/// write it live in DataManager.swift, beside its private commit().
 
 import Foundation
 import CoreData
@@ -19,7 +19,7 @@ import CoreData
 @objc(SavedSearchObject)
 final class SavedSearchObject: LibraryObject {
 
-    var searchID: UUID { get { requiredUUID("searchID") } set { setValue(newValue, forKey: "searchID") } } // See requiredUUID.
+    var searchID: UUID { get { requiredUUID("searchID") } set { setValue(newValue, forKey: "searchID") } } /// See requiredUUID.
     @NSManaged var name: String
     @NSManaged var queryJSON: String
     @NSManaged var displayOrder: Int

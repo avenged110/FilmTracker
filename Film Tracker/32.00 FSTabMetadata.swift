@@ -1,7 +1,7 @@
 // MARK: - FSTabMetadata.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Handles the "Metadata" tab for FilmSheet.
+/// Handles the "Metadata" tab for FilmSheet.
 
 import SwiftUI
 
@@ -10,17 +10,17 @@ import SwiftUI
 final class FSTabMetadata {
     weak var owner: FilmSheet?
 
-    // Metadata Fields
+    /// Metadata Fields
     var sortName: String = "" { didSet { checkForChanges() } }
     var digitalSource: String = "" { didSet { checkForChanges() } }
     var digitalVersion: String = "" {
         didSet {
-            // A colorized copy is by definition a color copy, and a black-and-white one
-            // is by definition not — see the picker's own doc comment. Locking Color to
-            // the matching value the instant either is selected (rather than only at
-            // save) keeps the two fields from ever showing a contradictory pair on
-            // screen, and it reacts to every selection in real time, including one made
-            // programmatically (e.g. by an import).
+            /// A colorized copy is by definition a color copy, and a black-and-white one
+            /// is by definition not — see the picker's own doc comment. Locking Color to
+            /// the matching value the instant either is selected (rather than only at
+            /// save) keeps the two fields from ever showing a contradictory pair on
+            /// screen, and it reacts to every selection in real time, including one made
+            /// programmatically (e.g. by an import).
             if digitalVersion == ViewingVersion.colorized.rawValue, !color {
                 color = true
             } else if digitalVersion == ViewingVersion.blackAndWhite.rawValue, color {
@@ -33,9 +33,9 @@ final class FSTabMetadata {
     var subtitles: String = "" { didSet { checkForChanges() } }
     var aspectRatio: String = "" { didSet { checkForChanges() } }
     var frameRate: Double = 0.0 { didSet { checkForChanges() } }
-    // Defaults to true, as Film's own initializer and the metadata importer do: a film
-    // added by hand starts as a color film rather than a black-and-white one. Edit mode
-    // overwrites it with the stored value.
+    /// Defaults to true, as Film's own initializer and the metadata importer do: a film
+    /// added by hand starts as a color film rather than a black-and-white one. Edit mode
+    /// overwrites it with the stored value.
     var color: Bool = true { didSet { checkForChanges() } }
 
     /// True while "Colorized" or "Black-and-White" is the selected version, in which
@@ -61,17 +61,17 @@ final class FSTabMetadata {
     var comments: String = "" { didSet { checkForChanges() } }
     var tags: [String] = [] { didSet { checkForChanges() } }
 
-    // Baseline captured after the initial load in edit mode: the exact same
-    // `FilmMetadataFields` value that `collectFilmFields()` produces, so
-    // "has anything changed?" is a single `==` against what a save would write.
-    // There is deliberately no second, parallel snapshot type — one field list
-    // to maintain instead of two that could silently drift apart.
+    /// Baseline captured after the initial load in edit mode: the exact same
+    /// `FilmMetadataFields` value that `collectFilmFields()` produces, so
+    /// "has anything changed?" is a single `==` against what a save would write.
+    /// There is deliberately no second, parallel snapshot type — one field list
+    /// to maintain instead of two that could silently drift apart.
     private var original: FilmMetadataFields?
     
-    // Change tracking.
+    /// Change tracking.
     var hasChanges: Bool = false
     
-    // Flag to suppress change tracking during initial data load.
+    /// Flag to suppress change tracking during initial data load.
     private var isLoadingData: Bool = false
 
     /// Whether the iTunes Comments field is shown on this sheet.
@@ -103,22 +103,22 @@ final class FSTabMetadata {
     /// `false` in add mode, where there is nothing imported to display.
     private(set) var displaysComments: Bool = false
 
-    // Digital source options — the vocabulary itself lives in FilmDigitalSource, since
-    // the Reports tab charts the same tags in a different order and the metadata importer
-    // writes two of them.
+    /// Digital source options — the vocabulary itself lives in FilmDigitalSource, since
+    /// the Reports tab charts the same tags in a different order and the metadata importer
+    /// writes two of them.
     static let digitalSourceOptions = FilmDigitalSource.pickerOptions
 
-    // Subtitle options.
+    /// Subtitle options.
     static let subtitleOptions = FilmSubtitles.pickerOptions
 
-    // Aspect ratio options — shared with the release card's own aspect-ratio control,
-    // which offers the identical tag set for Release.releaseAspectRatio.
+    /// Aspect ratio options — shared with the release card's own aspect-ratio control,
+    /// which offers the identical tag set for Release.releaseAspectRatio.
     static let aspectRatioOptions = AspectRatioVocabulary.pickerOptions
 
-    // Frame rate options (fps).
-    // Stored as a typed pair so the Double tag and its display label are always
-    // in lockstep — no format-string derivation that could silently round values.
-    // 0.0 / "Select…" is the sentinel for "no value selected".
+    /// Frame rate options (fps).
+    /// Stored as a typed pair so the Double tag and its display label are always
+    /// in lockstep — no format-string derivation that could silently round values.
+    /// 0.0 / "Select…" is the sentinel for "no value selected".
     struct FrameRateOption: Identifiable {
         let value: Double
         let label: String
@@ -152,7 +152,7 @@ final class FSTabMetadata {
         return frameRateOptions.first { abs($0.value - value) < 0.01 }?.value ?? value
     }
 
-    // Computed property for digital source (combines base source with remastered flag).
+    /// Computed property for digital source (combines base source with remastered flag).
     var computedDigitalSource: String {
         FilmDigitalSource.compose(source: digitalSource, remastered: isRemastered)
     }
@@ -160,9 +160,9 @@ final class FSTabMetadata {
     // MARK: - Initialization
     init(owner: FilmSheet) {
         self.owner = owner
-        // Only preload if editing an existing film.
-        // In add mode, all fields use their declaration defaults
-        // and no load or captureOriginalValues call is needed.
+        /// Only preload if editing an existing film.
+        /// In add mode, all fields use their declaration defaults
+        /// and no load or captureOriginalValues call is needed.
         if owner.isEditMode {
             loadMetadata(for: owner.filmID)
             captureOriginalValues()
@@ -173,30 +173,30 @@ final class FSTabMetadata {
     private func loadMetadata(for id: UUID) {
         guard let owner = owner else { return }
 
-        // Set flag to suppress change tracking during load.
+        /// Set flag to suppress change tracking during load.
         isLoadingData = true
         defer { isLoadingData = false }
 
-        // Get film from DataCoordinator's memory store (instant)
+        /// Get film from DataCoordinator's memory store (instant)
         guard let film = owner.coordinator.getFilm(id) else {
             owner.log("ERROR: Film \(id) not found in memory store")
             return
         }
 
-        // Load all fields from the FilmSnapshot.
+        /// Load all fields from the FilmSnapshot.
         sortName = film.sortName
 
-        // Split the composite digitalSource field back into its source and remastered
-        // halves. Deliberately NOT trimmed — the stored value is shown in a picker whose
-        // tags are the stored strings, so trimming here would make an odd stored value
-        // silently unselectable rather than visible.
+        /// Split the composite digitalSource field back into its source and remastered
+        /// halves. Deliberately NOT trimmed — the stored value is shown in a picker whose
+        /// tags are the stored strings, so trimming here would make an odd stored value
+        /// silently unselectable rather than visible.
         (digitalSource, isRemastered) = FilmDigitalSource.decompose(film.digitalSource)
-        // color must be assigned before digitalVersion: if the stored data has
-        // "Colorized" without color, or "Black-and-White" with it (a contradictory
-        // pair from an older build or a hand-edited database), digitalVersion's
-        // didSet forces color to the matching value, and that must be the value
-        // which wins — assigning color afterward would silently restore the
-        // contradiction as the load-time baseline.
+        /// color must be assigned before digitalVersion: if the stored data has
+        /// "Colorized" without color, or "Black-and-White" with it (a contradictory
+        /// pair from an older build or a hand-edited database), digitalVersion's
+        /// didSet forces color to the matching value, and that must be the value
+        /// which wins — assigning color afterward would silently restore the
+        /// contradiction as the load-time baseline.
         color = film.color
         digitalVersion = film.digitalVersion
         subtitles = film.subtitles
@@ -216,53 +216,53 @@ final class FSTabMetadata {
         comments = film.comments
         tags = film.tags
 
-        // Decided here, once, from the value as it exists in the store — see the
-        // property's own note for why this is not re-derived later. Whitespace
-        // alone does not count as content: a field holding a stray newline is
-        // indistinguishable from an empty one on screen, so showing the box for
-        // it would present the user with the empty field this gate exists to
-        // remove.
+        /// Decided here, once, from the value as it exists in the store — see the
+        /// property's own note for why this is not re-derived later. Whitespace
+        /// alone does not count as content: a field holding a stray newline is
+        /// indistinguishable from an empty one on screen, so showing the box for
+        /// it would present the user with the empty field this gate exists to
+        /// remove.
         displaysComments = !film.comments.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
     
-    // Capture original state after loading.
+    /// Capture original state after loading.
     private func captureOriginalValues() {
         original = collectFilmFields()
     }
 
     // MARK: - Change Tracking
     private func checkForChanges() {
-        // Don't track changes during initial data load.
+        /// Don't track changes during initial data load.
         guard !isLoadingData else { return }
 
-        // In add mode there is no original snapshot and hasChanges is always false.
-        // Skip the assignment entirely when it would be a no-op to avoid firing
-        // an observation invalidation on every keystroke for no reason.
+        /// In add mode there is no original snapshot and hasChanges is always false.
+        /// Skip the assignment entirely when it would be a no-op to avoid firing
+        /// an observation invalidation on every keystroke for no reason.
         guard let owner = owner, owner.isEditMode, let orig = original else {
-            // Only write — and therefore only fire an observation invalidation —
-            // when the value actually needs to change (defensive; should always
-            // be false here).
+            /// Only write — and therefore only fire an observation invalidation —
+            /// when the value actually needs to change (defensive; should always
+            /// be false here).
             if hasChanges { hasChanges = false }
             return
         }
         
-        // One comparison against the baseline. `FilmMetadataFields` is what a save
-        // actually writes, so any difference here is a real, persistable edit and
-        // anything it collapses is, by construction, a no-op on disk.
-        //
-        // `isRemastered` is the case that matters: it is not a stored field on its
-        // own — `collectFilmFields()` persists `computedDigitalSource`, of which the
-        // flag is one input. Comparing the flag separately would report an unsaved change for a
-        // toggle made while no source is selected. In that state `computedDigitalSource` is
-        // unchanged and a save would write nothing, so the sheet would claim edits it had none
-        // of. Comparing the collected value keeps that correct without a special case.
+        /// One comparison against the baseline. `FilmMetadataFields` is what a save
+        /// actually writes, so any difference here is a real, persistable edit and
+        /// anything it collapses is, by construction, a no-op on disk.
+        ///
+        /// `isRemastered` is the case that matters: it is not a stored field on its
+        /// own — `collectFilmFields()` persists `computedDigitalSource`, of which the
+        /// flag is one input. Comparing the flag separately would report an unsaved change for a
+        /// toggle made while no source is selected. In that state `computedDigitalSource` is
+        /// unchanged and a save would write nothing, so the sheet would claim edits it had none
+        /// of. Comparing the collected value keeps that correct without a special case.
         let changed = collectFilmFields() != orig
 
-        // Only write hasChanges — and only call owner.notifyChanges() — when the
-        // aggregated result actually differs from the last known value. Skipping
-        // the no-op path keeps every keystroke in edit mode from waking FilmSheet
-        // once hasChanges has already latched to its steady-state value.
-        // Mirrors the identical pattern in FSTabReleases.checkForChanges().
+        /// Only write hasChanges — and only call owner.notifyChanges() — when the
+        /// aggregated result actually differs from the last known value. Skipping
+        /// the no-op path keeps every keystroke in edit mode from waking FilmSheet
+        /// once hasChanges has already latched to its steady-state value.
+        /// Mirrors the identical pattern in FSTabReleases.checkForChanges().
         if hasChanges != changed {
             hasChanges = changed
             owner.notifyChanges()
@@ -328,19 +328,19 @@ struct FSTabMetadataView: View {
 
     @Bindable var viewModel: FSTabMetadata
 
-    // No scroll proxy. Adding an entry does not need to pull an off-screen list into view: the
-    // "+" control is each list's own last row, which is inside the viewport when it is clicked,
-    // and `ListAddRowRevealer` covers the case where a commit pushes it down.
+    /// No scroll proxy. Adding an entry does not need to pull an off-screen list into view: the
+    /// "+" control is each list's own last row, which is inside the viewport when it is clicked,
+    /// and `ListAddRowRevealer` covers the case where a commit pushes it down.
 
-    // Static: resolved once at type load time; never re-evaluated per-instance
-    // or per-render. Pulling from Preferences statics is already free, but
-    // keeping them here as `static let` makes the zero-cost contract explicit and
-    // avoids repeated static property dispatch during layout passes.
+    /// Static: resolved once at type load time; never re-evaluated per-instance
+    /// or per-render. Pulling from Preferences statics is already free, but
+    /// keeping them here as `static let` makes the zero-cost contract explicit and
+    /// avoids repeated static property dispatch during layout passes.
     private static let labelWidth        = Preferences.filmSheetLabelWidth
     private static let pickerWidth       = Preferences.standardPickerWidth
 
-    // The menu pickers' rows, built once from the option tables in FSTabMetadata. The empty
-    // option is each menu's placeholder row.
+    /// The menu pickers' rows, built once from the option tables in FSTabMetadata. The empty
+    /// option is each menu's placeholder row.
     private static let digitalSourceItems: [SheetPopUpButton<String>.Item] =
         FSTabMetadata.digitalSourceOptions.map { .option(tag: $0, title: $0.isEmpty ? "Select..." : $0) }
     private static let subtitleItems: [SheetPopUpButton<String>.Item] =
@@ -366,19 +366,19 @@ struct FSTabMetadataView: View {
         }
     }
 
-    // Each list's label is drawn by `FilmSheetListRow`, which owns the label as well as the list.
-    // Reading each array's `count` here to build the labels would put all eleven arrays in this
-    // view's observation set, so committing one entry would invalidate the whole tab.
-    //
-    // The bound rows above the lists sit inside `ObservationBoundary` (30.20) for the same
-    // reason: a `$viewModel.field` binding created in this body subscribes it to `field`. The
-    // `filmsheet-perf` harness scenario measures this for a Sort Name keystroke and a Color toggle,
-    // each of which would otherwise re-run the whole tab.
+    /// Each list's label is drawn by `FilmSheetListRow`, which owns the label as well as the list.
+    /// Reading each array's `count` here to build the labels would put all eleven arrays in this
+    /// view's observation set, so committing one entry would invalidate the whole tab.
+    ///
+    /// The bound rows above the lists sit inside `ObservationBoundary` (30.20) for the same
+    /// reason: a `$viewModel.field` binding created in this body subscribes it to `field`. The
+    /// `filmsheet-perf` harness scenario measures this for a Sort Name keystroke and a Color toggle,
+    /// each of which would otherwise re-run the whole tab.
 
     // MARK: - Label helpers
-    // Encapsulates the fixed-width, left-aligned, single-line label pattern used by
-    // every HStack row. Returning `some View` from a @ViewBuilder avoids constructing
-    // the full modifier chain at every call site in body. Mirrors FSTabDetailsView.
+    /// Encapsulates the fixed-width, left-aligned, single-line label pattern used by
+    /// every HStack row. Returning `some View` from a @ViewBuilder avoids constructing
+    /// the full modifier chain at every call site in body. Mirrors FSTabDetailsView.
     @ViewBuilder
     private func label(_ text: String) -> some View {
         FilmSheetFieldLabel(text, width: Self.labelWidth)
@@ -386,64 +386,64 @@ struct FSTabMetadataView: View {
 
     var body: some View {
         let _ = FilmSheetBodyProbe.hit("metadata")
-        // Local shadows of the static layout constants — gives every downstream
-        // call site in this property unqualified access without explicit Self.
-        // qualification, at zero runtime cost (no allocation, no capture).
+        /// Local shadows of the static layout constants — gives every downstream
+        /// call site in this property unqualified access without explicit Self.
+        /// qualification, at zero runtime cost (no allocation, no capture).
         let pickerWidth = Self.pickerWidth
         let colSpacing: CGFloat = 16
         let rowSpacing: CGFloat = 10
 
-        // Both multiline fields are three lines tall. Resolved once here rather
-        // than at four separate call sites (two frames, two stand-in heights),
-        // which also guarantees a field and its deferred stand-in cannot be given
-        // different numbers. The measurement behind it is memoized per line count
-        // — see FixedHeightScrollingTextView.fixedHeight(lineCount:) — so this is
-        // a dictionary read after the first evaluation of any tab that uses it.
+        /// Both multiline fields are three lines tall. Resolved once here rather
+        /// than at four separate call sites (two frames, two stand-in heights),
+        /// which also guarantees a field and its deferred stand-in cannot be given
+        /// different numbers. The measurement behind it is memoized per line count
+        /// — see FixedHeightScrollingTextView.fixedHeight(lineCount:) — so this is
+        /// a dictionary read after the first evaluation of any tab that uses it.
         let textFieldHeight = FixedHeightScrollingTextView.fixedHeight(lineCount: 3)
 
         // MARK: Build waves
-        //
-        // Every scroll-view-backed field on this tab carries a `renderWave` /
-        // `wave`, and they are assigned in document order. Wave 0 is built with
-        // the tab's first frame; each subsequent wave lands one display frame
-        // later. See `DeferredFieldContent` (30.20 FSControlHelpers.swift) for why.
-        //
-        // Where the line is drawn, and why it is drawn conservatively: the sheet
-        // is 600pt square, leaving this tab a viewport on the order of 460pt. The
-        // fixed rows above the first list — Sort Name, a divider, and the four
-        // picker/stepper rows — take roughly 210pt of it, so the first list
-        // begins near y=210.
-        //
-        // The fold then MOVES WITH THE CONTENT, which is what decides the wave 0
-        // count. In the common case only Encoding Tools and Cast are on screen.
-        // But a list's height is `ListRowMetrics.listHeight(rowCount:)` over its
-        // entries plus the add row, so an empty list still collapses to a single
-        // row — and with every list above it empty, Executive Producers rises to
-        // roughly y=450 and its top edge enters the viewport. Wave 0 therefore
-        // covers the first FIVE lists: the count that is still correct in that
-        // worst case, so nothing the user can see is ever deferred, in any
-        // combination of contents.
-        //
-        // Screenwriters and everything below it cannot reach the viewport under
-        // any combination, since each of the five lists above contributes at
-        // least one row plus the list's own padding. Those seven fields are split
-        // across three later waves rather than deferred as one block, so the run
-        // loop gets a turn between groups and the main thread is never held for
-        // the whole remainder at once.
-        //
-        // The iTunes Comments row is conditional (see its own note below), so
-        // wave 3 holds either two fields or one. That does not disturb the
-        // reasoning above: a row can only ever be REMOVED from the tab, which
-        // moves the fields after it UP, and the only field after it is Tags —
-        // already the last row on the tab and hundreds of points below the fold
-        // with every list above it collapsed. Nothing can be promoted into view
-        // by its absence.
+        ///
+        /// Every scroll-view-backed field on this tab carries a `renderWave` /
+        /// `wave`, and they are assigned in document order. Wave 0 is built with
+        /// the tab's first frame; each subsequent wave lands one display frame
+        /// later. See `DeferredFieldContent` (30.20 FSControlHelpers.swift) for why.
+        ///
+        /// Where the line is drawn, and why it is drawn conservatively: the sheet
+        /// is 600pt square, leaving this tab a viewport on the order of 460pt. The
+        /// fixed rows above the first list — Sort Name, a divider, and the four
+        /// picker/stepper rows — take roughly 210pt of it, so the first list
+        /// begins near y=210.
+        ///
+        /// The fold then MOVES WITH THE CONTENT, which is what decides the wave 0
+        /// count. In the common case only Encoding Tools and Cast are on screen.
+        /// But a list's height is `ListRowMetrics.listHeight(rowCount:)` over its
+        /// entries plus the add row, so an empty list still collapses to a single
+        /// row — and with every list above it empty, Executive Producers rises to
+        /// roughly y=450 and its top edge enters the viewport. Wave 0 therefore
+        /// covers the first FIVE lists: the count that is still correct in that
+        /// worst case, so nothing the user can see is ever deferred, in any
+        /// combination of contents.
+        ///
+        /// Screenwriters and everything below it cannot reach the viewport under
+        /// any combination, since each of the five lists above contributes at
+        /// least one row plus the list's own padding. Those seven fields are split
+        /// across three later waves rather than deferred as one block, so the run
+        /// loop gets a turn between groups and the main thread is never held for
+        /// the whole remainder at once.
+        ///
+        /// The iTunes Comments row is conditional (see its own note below), so
+        /// wave 3 holds either two fields or one. That does not disturb the
+        /// reasoning above: a row can only ever be REMOVED from the tab, which
+        /// moves the fields after it UP, and the only field after it is Tags —
+        /// already the last row on the tab and hundreds of points below the fold
+        /// with every list above it collapsed. Nothing can be promoted into view
+        /// by its absence.
 
-        // VStack of HStack rows. Both column widths are fixed constants (labelWidth and
-        // .infinity), so Grid's column negotiation has no work to do, and VStack/HStack
-        // produces the same layout with one fewer layout container per row.
+        /// VStack of HStack rows. Both column widths are fixed constants (labelWidth and
+        /// .infinity), so Grid's column negotiation has no work to do, and VStack/HStack
+        /// produces the same layout with one fewer layout container per row.
         VStack(alignment: .leading, spacing: rowSpacing) {
-            // Sort Name
+            /// Sort Name
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Sort Name:")
@@ -455,43 +455,43 @@ struct FSTabMetadataView: View {
             Divider()
                 .padding(.vertical, 6)
 
-            // Digital Source
+            /// Digital Source
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Digital Source:")
                     HStack(spacing: 0) {
-                        // AppKit pop-ups, as every menu picker in the sheet is — see
-                        // SheetPopUpButton (30.20).
+                        /// AppKit pop-ups, as every menu picker in the sheet is — see
+                        /// SheetPopUpButton (30.20).
                         SheetMenuPicker(selection: $viewModel.digitalSource,
                                         items: Self.digitalSourceItems, width: pickerWidth)
                         Spacer().frame(width: 27)
-                        // AppKit checkboxes, so they are stops in the sheet's Tab traversal —
-                        // see SheetCheckbox (30.20).
+                        /// AppKit checkboxes, so they are stops in the sheet's Tab traversal —
+                        /// see SheetCheckbox (30.20).
                         SheetCheckbox(isOn: $viewModel.isRemastered)
                         Spacer().frame(width: Preferences.spacingAfterCheckbox)
                         Text("Remastered Version")
                     }
                 }
             }
-            // Version / Subtitles
+            /// Version / Subtitles
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Version / Subtitles:")
                     HStack(spacing: 8) {
-                        // Options come from ViewingVersion so this menu and the release card's
-                        // "Included Versions" menu cannot drift apart. See ViewingVersion.selectable.
-                        //
-                        // "Colorized" and "Black-and-White" are the two options this menu qualifies
-                        // against the Color checkbox below: a colorized copy is by definition a
-                        // color copy, and a black-and-white one is by definition not, so each is
-                        // disabled while the checkbox already contradicts it. Disabled rather than
-                        // hidden so the option stays visible and its precondition discoverable, and
-                        // an already-stored contradictory value keeps displaying rather than
-                        // vanishing from the menu. The release card has no Color flag to qualify
-                        // against, so the rule is local to this menu. Selecting either option itself
-                        // locks the Color checkbox to the matching value (see digitalVersion's
-                        // didSet) rather than leaving the pair inconsistent until the row above
-                        // re-evaluates on the next render.
+                        /// Options come from ViewingVersion so this menu and the release card's
+                        /// "Included Versions" menu cannot drift apart. See ViewingVersion.selectable.
+                        ///
+                        /// "Colorized" and "Black-and-White" are the two options this menu qualifies
+                        /// against the Color checkbox below: a colorized copy is by definition a
+                        /// color copy, and a black-and-white one is by definition not, so each is
+                        /// disabled while the checkbox already contradicts it. Disabled rather than
+                        /// hidden so the option stays visible and its precondition discoverable, and
+                        /// an already-stored contradictory value keeps displaying rather than
+                        /// vanishing from the menu. The release card has no Color flag to qualify
+                        /// against, so the rule is local to this menu. Selecting either option itself
+                        /// locks the Color checkbox to the matching value (see digitalVersion's
+                        /// didSet) rather than leaving the pair inconsistent until the row above
+                        /// re-evaluates on the next render.
                         SheetMenuPicker(selection: $viewModel.digitalVersion,
                                         items: Self.digitalVersionItems(colorAllowed: viewModel.color),
                                         width: pickerWidth)
@@ -501,7 +501,7 @@ struct FSTabMetadataView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            // Asp. Ratio / Frames
+            /// Asp. Ratio / Frames
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Asp. Ratio / Frames:")
@@ -514,16 +514,16 @@ struct FSTabMetadataView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            // HandBrake RF Value / Color
+            /// HandBrake RF Value / Color
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("HandBrake RF Value:")
                     HStack(spacing: 0) {
                         HBRFValueStepper(value: $viewModel.libraryHBRFValue)
                         Spacer().frame(width: Preferences.spacingBeforeCheckbox)
-                        // Locked (and disabled) to the matching value while "Colorized" or
-                        // "Black-and-White" is the selected version — see digitalVersion's
-                        // didSet and isColorLocked's doc comment.
+                        /// Locked (and disabled) to the matching value while "Colorized" or
+                        /// "Black-and-White" is the selected version — see digitalVersion's
+                        /// didSet and isColorLocked's doc comment.
                         SheetCheckbox(isOn: $viewModel.color)
                             .disabled(viewModel.isColorLocked)
                         Spacer().frame(width: Preferences.spacingAfterCheckbox)
@@ -531,7 +531,7 @@ struct FSTabMetadataView: View {
                     }
                 }
             }
-            // Encoding Tools — top-aligned
+            /// Encoding Tools — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.encodingTool,
                                    singularLabel: "Encoding Tool:",
@@ -544,7 +544,7 @@ struct FSTabMetadataView: View {
             Divider()
                 .padding(.vertical, 6)
 
-            // Cast — top-aligned
+            /// Cast — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.cast,
                                    singularLabel: "Cast:",
@@ -553,7 +553,7 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 0)
-            // Directors — top-aligned
+            /// Directors — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.directors,
                                    singularLabel: "Director:",
@@ -562,7 +562,7 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 0)
-            // Producers — top-aligned
+            /// Producers — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.producers,
                                    singularLabel: "Producer:",
@@ -571,7 +571,7 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 0)
-            // Executive Producers — top-aligned
+            /// Executive Producers — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.executiveProducers,
                                    singularLabel: "Executive Producer:",
@@ -580,7 +580,7 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 0)
-            // Screenwriters — top-aligned
+            /// Screenwriters — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.screenwriters,
                                    singularLabel: "Screenwriter:",
@@ -589,7 +589,7 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 1)
-            // Composers — top-aligned
+            /// Composers — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.composer,
                                    singularLabel: "Composer:",
@@ -598,7 +598,7 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 1)
-            // Studio — top-aligned
+            /// Studio — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.studio,
                                    singularLabel: "Studio:",
@@ -611,7 +611,7 @@ struct FSTabMetadataView: View {
             Divider()
                 .padding(.vertical, 6)
 
-            // Alternate Titles — top-aligned
+            /// Alternate Titles — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.alternateTitle,
                                    singularLabel: "Alternate Title:",
@@ -620,13 +620,13 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 2)
-            // Notes — top-aligned; label offset matches FixedHeightScrollingTextView inset.
-            //
-            // Deferred on the same terms as the lists above: this field is an
-            // NSTextView inside an NSScrollView, and it sits far below the fold on a
-            // 600pt sheet. `textFieldHeight` is the exact height the real
-            // control takes, so the stand-in reserves the same space and the swap
-            // moves nothing.
+            /// Notes — top-aligned; label offset matches FixedHeightScrollingTextView inset.
+            ///
+            /// Deferred on the same terms as the lists above: this field is an
+            /// NSTextView inside an NSScrollView, and it sits far below the fold on a
+            /// 600pt sheet. `textFieldHeight` is the exact height the real
+            /// control takes, so the stand-in reserves the same space and the swap
+            /// moves nothing.
             HStack(alignment: .top, spacing: colSpacing) {
                 label("Notes:")
                     .padding(.top, FixedHeightScrollingTextView.labelTopOffset)
@@ -635,19 +635,19 @@ struct FSTabMetadataView: View {
                         .frame(height: textFieldHeight)
                 }
             }
-            // iTunes Comments — top-aligned; label offset matches
-            // FixedHeightScrollingTextView inset.
-            //
-            // Shown only for a film that actually carries imported comments. The
-            // condition is `FSTabMetadata.displaysComments`, a flag fixed at load
-            // time rather than a live read of the string; see that property for
-            // why, including what a live condition would do to this body's
-            // observation set.
-            //
-            // Yielding no subview at all, rather than a hidden or zero-height
-            // one, is what makes the enclosing VStack skip the row's `rowSpacing`
-            // along with the row, so the Tags list closes up against Notes when the
-            // field is absent.
+            /// iTunes Comments — top-aligned; label offset matches
+            /// FixedHeightScrollingTextView inset.
+            ///
+            /// Shown only for a film that actually carries imported comments. The
+            /// condition is `FSTabMetadata.displaysComments`, a flag fixed at load
+            /// time rather than a live read of the string; see that property for
+            /// why, including what a live condition would do to this body's
+            /// observation set.
+            ///
+            /// Yielding no subview at all, rather than a hidden or zero-height
+            /// one, is what makes the enclosing VStack skip the row's `rowSpacing`
+            /// along with the row, so the Tags list closes up against Notes when the
+            /// field is absent.
             if viewModel.displaysComments {
                 HStack(alignment: .top, spacing: colSpacing) {
                     label("iTunes Comments:")
@@ -658,7 +658,7 @@ struct FSTabMetadataView: View {
                     }
                 }
             }
-            // Tags — top-aligned
+            /// Tags — top-aligned
             FilmSheetListRow(model: viewModel,
                                    keyPath: \.tags,
                                    singularLabel: "Tags:",

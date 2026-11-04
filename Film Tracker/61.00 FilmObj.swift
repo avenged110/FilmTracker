@@ -1,7 +1,7 @@
 // MARK: - FilmObj.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Defines the primary data model for a single film entry in the user's library.
+/// Defines the primary data model for a single film entry in the user's library.
 
 import Foundation
 import CoreData
@@ -173,12 +173,12 @@ enum FilmSubtitles {
 
 @objc(Film)
 final class Film: LibraryObject {
-    // Film.id is indexed (LibraryModel): it is the target of every predicate-based fetch
-    // in DataManager, both equality lookups and multi-ID IN queries, which the index turns
-    // from full-table scans into O(log n) lookups — most of all in batch operations.
+    /// Film.id is indexed (LibraryModel): it is the target of every predicate-based fetch
+    /// in DataManager, both equality lookups and multi-ID IN queries, which the index turns
+    /// from full-table scans into O(log n) lookups — most of all in batch operations.
 
-    // Primary stable id for exports and restores.
-    var id: UUID { get { requiredUUID("id") } set { setValue(newValue, forKey: "id") } } // See requiredUUID.
+    /// Primary stable id for exports and restores.
+    var id: UUID { get { requiredUUID("id") } set { setValue(newValue, forKey: "id") } } /// See requiredUUID.
 
     // MARK: - Details
     @NSManaged var posterUID: String
@@ -189,20 +189,20 @@ final class Film: LibraryObject {
     @NSManaged var duration: String
     @NSManaged var viewCount: Int
     @NSManaged var calendarTable: [String]
-    // Per-film flag governing whether this film should be automatically added to the
-    // Film Queue when it next comes up for rotation. nil (default) means the feature is
-    // disabled for this film; 0/1/2 means enabled, identifying the target section (Up
-    // Next / Soon / Later, matching FilmQueueSection.queueOrder) it should be added to.
-    // Set on a per-film basis via the FilmSheet Details tab's "Automatically add to…"
-    // checkbox row. Mirrors the nil-means-unset convention used by rotationThresholdOverride.
+    /// Per-film flag governing whether this film should be automatically added to the
+    /// Film Queue when it next comes up for rotation. nil (default) means the feature is
+    /// disabled for this film; 0/1/2 means enabled, identifying the target section (Up
+    /// Next / Soon / Later, matching FilmQueueSection.queueOrder) it should be added to.
+    /// Set on a per-film basis via the FilmSheet Details tab's "Automatically add to…"
+    /// checkbox row. Mirrors the nil-means-unset convention used by rotationThresholdOverride.
     var autoAddToQueueOnRotation: Int? {
         get { optionalInt("autoAddToQueueOnRotation") }
         set { setOptionalInt(newValue, "autoAddToQueueOnRotation") }
     }
 
     // MARK: - Rotation Threshold Override System
-    // Stores the user's per-film override value (nil means use global default).
-    // Only the override is stored in the database; the effective value is computed.
+    /// Stores the user's per-film override value (nil means use global default).
+    /// Only the override is stored in the database; the effective value is computed.
     var rotationThresholdOverride: Int? {
         get { optionalInt("rotationThresholdOverride") }
         set { setOptionalInt(newValue, "rotationThresholdOverride") }
@@ -215,9 +215,9 @@ final class Film: LibraryObject {
     @NSManaged var releases: Set<Release>
 
     // MARK: - Library Information
-    @NSManaged var digitalSource: String // Composite; see FilmDigitalSource.compose/decompose.
+    @NSManaged var digitalSource: String /// Composite; see FilmDigitalSource.compose/decompose.
     @NSManaged var digitalVersion: String
-    @NSManaged var subtitles: String // See FilmSubtitles.
+    @NSManaged var subtitles: String /// See FilmSubtitles.
     @NSManaged var notes: String
     @NSManaged var numberOfDiscs: String
     @NSManaged var aspectRatio: String
@@ -230,24 +230,24 @@ final class Film: LibraryObject {
     @NSManaged var externalIdentifiers: [String]
     @NSManaged var dateAdded: String
 
-    // Empty string means "never modified since it entered the library" and is a deliberate
-    // sentinel, not a missing value. Films created by MetaParser are stored with "" so the
-    // UI can show a blank field rather than a date identical to dateAdded, which would make
-    // the user compare two timestamps to answer "has this been touched since import?".
-    // MetadataCache.getFormattedDate maps "" to nil so display and sorting treat it as
-    // absent; DataCoordinator and MetaImporter write a real timestamp on first actual edit.
-    //
-    // CONSEQUENCE FOR THE SNAPSHOT CACHE — do not undo this without reading that code first.
-    // Because an insert can carry a lastModified that is lexicographically LOWER than every
-    // existing value, "newest lastModified in the library" cannot detect an insert. That
-    // rules out validating the snapshot cache with a cheap (count, max-timestamp)
-    // fingerprint: a balanced add-and-delete would leave both unchanged while the library's
-    // contents differ, silently accepting a stale cache. Measured during startup profiling;
-    // see DataManager.computeStoreFingerprint for the full reasoning and the alternatives
-    // that were ruled out.
+    /// Empty string means "never modified since it entered the library" and is a deliberate
+    /// sentinel, not a missing value. Films created by MetaParser are stored with "" so the
+    /// UI can show a blank field rather than a date identical to dateAdded, which would make
+    /// the user compare two timestamps to answer "has this been touched since import?".
+    /// MetadataCache.getFormattedDate maps "" to nil so display and sorting treat it as
+    /// absent; DataCoordinator and MetaImporter write a real timestamp on first actual edit.
+    ///
+    /// CONSEQUENCE FOR THE SNAPSHOT CACHE — do not undo this without reading that code first.
+    /// Because an insert can carry a lastModified that is lexicographically LOWER than every
+    /// existing value, "newest lastModified in the library" cannot detect an insert. That
+    /// rules out validating the snapshot cache with a cheap (count, max-timestamp)
+    /// fingerprint: a balanced add-and-delete would leave both unchanged while the library's
+    /// contents differ, silently accepting a stale cache. Measured during startup profiling;
+    /// see DataManager.computeStoreFingerprint for the full reasoning and the alternatives
+    /// that were ruled out.
     @NSManaged var lastModified: String
     @NSManaged var watched: Bool
-    @NSManaged var specialSorting: [String] // See FilmSpecialSorting.
+    @NSManaged var specialSorting: [String] /// See FilmSpecialSorting.
     @NSManaged var alternateTitle: [String]
     @NSManaged var hofPosition: Int
     @NSManaged var infoComplete: Bool
@@ -413,16 +413,16 @@ extension Film: ExportableModel {
     func extractExportValues() -> (properties: [String: Any], relationships: [String : [Any]]) {
         var props: [String: Any] = [:]
 
-        // Every stored scalar property: the id, then each FilmField under its own name.
+        /// Every stored scalar property: the id, then each FilmField under its own name.
         props["id"] = self.id
         for field in FilmField.allCases {
             props[field.rawValue] = field.value(of: self)
         }
 
-        // Don't export list membership IDs as a property (handled by ListMembership entities).
-        // Don't export release IDs as a property (handled by Release entities).
+        /// Don't export list membership IDs as a property (handled by ListMembership entities).
+        /// Don't export release IDs as a property (handled by Release entities).
 
-        // No relationship arrays - everything handled via join entities with IDs.
+        /// No relationship arrays - everything handled via join entities with IDs.
         let rels: [String: [Any]] = [:]
         return (properties: props, relationships: rels) }
 

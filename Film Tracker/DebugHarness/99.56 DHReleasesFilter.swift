@@ -1,26 +1,26 @@
 // MARK: - DHReleasesFilter.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only scenario for the right sidebar Releases tab's purchase filter animation
-// (24.20 RTabReleases.swift).
-//
-// `releases-filter` drives the REAL main window: it selects a film whose disc releases are
-// a mix of purchased and unpurchased, shows the Releases tab, and switches the filter
-// through the same @State the segmented picker writes. While each switch runs, the sidebar
-// scroll view's rectangle is filmed through the window server (the capture loop is
-// `film(windowID:rect:origin:duration:)` from 99.54), and a 2 ms main-thread sampler records
-// the AppKit geometry — the document view's height, the hosting view's frame and its
-// intrinsic height, and the clip view's offset — so a jump in the pixels can be matched
-// to the layer that moved.
-//
-// Each distinct frame is written as a PNG to `harness-reports/releases-filter/`, and the
-// picker's on-screen displacement is measured per frame by matching the first frame's
-// luminance profile of the picker's rows against every later frame. The picker must never
-// move, so any nonzero displacement is reported as a failure.
-//
-// `details-expand` films the Details tab's Viewing History table expanding and collapsing
-// (24.10 RTabDetails.swift) the same way, holding the Watch Details module above the table
-// still. Its frames go to `harness-reports/details-expand/`.
+/// DEBUG-only scenario for the right sidebar Releases tab's purchase filter animation
+/// (24.20 RTabReleases.swift).
+///
+/// `releases-filter` drives the REAL main window: it selects a film whose disc releases are
+/// a mix of purchased and unpurchased, shows the Releases tab, and switches the filter
+/// through the same @State the segmented picker writes. While each switch runs, the sidebar
+/// scroll view's rectangle is filmed through the window server (the capture loop is
+/// `film(windowID:rect:origin:duration:)` from 99.54), and a 2 ms main-thread sampler records
+/// the AppKit geometry — the document view's height, the hosting view's frame and its
+/// intrinsic height, and the clip view's offset — so a jump in the pixels can be matched
+/// to the layer that moved.
+///
+/// Each distinct frame is written as a PNG to `harness-reports/releases-filter/`, and the
+/// picker's on-screen displacement is measured per frame by matching the first frame's
+/// luminance profile of the picker's rows against every later frame. The picker must never
+/// move, so any nonzero displacement is reported as a failure.
+///
+/// `details-expand` films the Details tab's Viewing History table expanding and collapsing
+/// (24.10 RTabDetails.swift) the same way, holding the Watch Details module above the table
+/// still. Its frames go to `harness-reports/details-expand/`.
 
 #if DEBUG
 
@@ -89,8 +89,8 @@ extension DebugHarness {
         }
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
 
-        // A film with few disc releases, at least one purchased and one not — the case the
-        // filter visibly changes. Fewest first, so the whole stack fits the viewport.
+        /// A film with few disc releases, at least one purchased and one not — the case the
+        /// filter visibly changes. Fewest first, so the whole stack fits the viewport.
         func discReleases(_ film: FilmSnapshot) -> [ReleaseSnapshot] {
             film.releases.filter { ReleaseFormat(rawValue: $0.format) != nil }
         }
@@ -128,9 +128,9 @@ extension DebugHarness {
         let rect = captureRect(of: sv, in: window)
         let outDir = frameDirectory("releases-filter")
 
-        // Three configurations: cards alone; the summary table above them, collapsed (a
-        // fixed height); and the table auto-expanded, so its own height follows the filter
-        // too. Preferences are the sandbox's, restored afterward.
+        /// Three configurations: cards alone; the summary table above them, collapsed (a
+        /// fixed height); and the table auto-expanded, so its own height follows the filter
+        /// too. Preferences are the sandbox's, restored afterward.
         let store = Preferences.store
         let savedTable = store.object(forKey: Preferences.showReleasesSummaryTableKey)
         let savedExpand = store.object(forKey: Preferences.autoExpandRightSidebarTablesKey)
@@ -153,9 +153,9 @@ extension DebugHarness {
             }
         }
 
-        // Switches faster than the fade: cards leave and come back mid-fade, and a film change
-        // lands mid-fade. Once settled, every card shown is fully opaque, none is left fading,
-        // and the stack holds one card per group.
+        /// Switches faster than the fade: cards leave and come back mid-fade, and a film change
+        /// lands mid-fade. Once settled, every card shown is fully opaque, none is left fading,
+        /// and the stack holds one card per group.
         store.set(false, forKey: Preferences.showReleasesSummaryTableKey)
         let groupCount = releasesGroupedByHierarchy(discs).count
         let other = coordinator.films.first { f in f.id != subject.id
@@ -188,7 +188,7 @@ extension DebugHarness {
                 continue
             }
             let state = stack.debugState
-            // A film change returns the filter to All unless the preference keeps it.
+            /// A film change returns the filter to All unless the preference keeps it.
             let kept = burst.film && store.bool(forKey: Preferences.rememberRightSidebarReleasesFilterKey)
             let expected = kept ? releasesGroupedByHierarchy(discs.filter(\.purchased)).count : groupCount
             r.check("burst-\(burst.name)", state.shown == expected && state.leaving == 0 && state.minOpacity > 0.999
@@ -197,8 +197,8 @@ extension DebugHarness {
                     + "lowest opacity \(Fmt.fixed(Double(state.minOpacity), 3)), \(Fmt.int(state.drawnHidden)) undrawn cards on screen")
         }
 
-        // A row's text selected (the window's field editor showing it), then a new film: the
-        // recycled label must show the new film's text, not the field editor's old copy.
+        /// A row's text selected (the window's field editor showing it), then a new film: the
+        /// recycled label must show the new film's text, not the field editor's old copy.
         select("all")
         await settle(1200)
         func fields(_ root: NSView) -> [NSTextField] {
@@ -264,7 +264,7 @@ extension DebugHarness {
         let frames = await filmed
         sampler.invalidate()
 
-        // Geometry: report each distinct value change, so the log reads as a timeline.
+        /// Geometry: report each distinct value change, so the log reads as a timeline.
         var timeline: [String] = []
         var last: GeometrySample?
         for s in samples {
@@ -279,9 +279,9 @@ extension DebugHarness {
         var heights: [CGFloat] = []
         for s in samples where s.ms >= 0 && heights.last != s.documentHeight { heights.append(s.documentHeight) }
 
-        // Pixels: the tracked rows, frame by frame, against the SETTLED last frame — a
-        // control in them (the filter picker) may change its look with the action, so the
-        // first frame does not always match the later ones.
+        /// Pixels: the tracked rows, frame by frame, against the SETTLED last frame — a
+        /// control in them (the filter picker) may change its look with the action, so the
+        /// first frame does not always match the later ones.
         guard let settled = frames.last, let settledProfile = rowProfile(settled.image) else {
             r.check("\(label)/frames", false, "no frames captured")
             return heights
@@ -290,7 +290,7 @@ extension DebugHarness {
         var shifts: [String] = []
         var worst = 0
         for (n, frame) in frames.enumerated() {
-            // Frames from before the action still show the old state.
+            /// Frames from before the action still show the old state.
             if frame.milliseconds < 0 { continue }
             if let outDir {
                 writePNG(frame.image, to: outDir.appendingPathComponent(
@@ -361,7 +361,7 @@ extension DebugHarness {
         }
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
 
-        // Auto-expand would hold the tables open, leaving nothing to animate.
+        /// Auto-expand would hold the tables open, leaving nothing to animate.
         let defaults = Preferences.store
         let savedAutoExpand = defaults.object(forKey: Preferences.autoExpandRightSidebarTablesKey)
         defaults.set(false, forKey: Preferences.autoExpandRightSidebarTablesKey)
@@ -369,8 +369,8 @@ extension DebugHarness {
 
         appState.navigate(to: .libraryItem(.allFilms))
         await settle(1500)
-        // A viewing history long enough to overflow the collapsed six rows, but short
-        // enough that the expanded table and the module below it fit the viewport.
+        /// A viewing history long enough to overflow the collapsed six rows, but short
+        /// enough that the expanded table and the module below it fit the viewport.
         let candidates = coordinator.films.filter { (10...16).contains($0.calendarTable.count) }
         guard let subject = candidates.first ?? coordinator.films.max(by: { $0.calendarTable.count < $1.calendarTable.count }),
               subject.calendarTable.count > 6 else {
@@ -397,7 +397,7 @@ extension DebugHarness {
         let rect = captureRect(of: sv, in: window)
         let outDir = frameDirectory("details-expand")
 
-        // Rows 0–100: Watch Details, above the table.
+        /// Rows 0–100: Watch Details, above the table.
         for (index, expand) in [true, false, true].enumerated() {
             await settle(600)
             await recordStep(&r, label: "\(Fmt.int(index + 1))-\(expand ? "expand" : "collapse")",
@@ -405,10 +405,10 @@ extension DebugHarness {
                              trackedRows: 0..<100, trackedName: "above-table") { set("calendar", expand) }
         }
 
-        // A new selection while the table is expanded: RightSidebar resets the flag, which
-        // must reach the table unanimated and in the same pass as the new film — the
-        // document going straight to the new film's collapsed height, never through the
-        // new film with its table still expanded.
+        /// A new selection while the table is expanded: RightSidebar resets the flag, which
+        /// must reach the table unanimated and in the same pass as the new film — the
+        /// document going straight to the new film's collapsed height, never through the
+        /// new film with its table still expanded.
         let other = candidates.first(where: { $0.id != subject.id })
             ?? coordinator.films.first(where: { $0.id != subject.id && $0.calendarTable.count > 6 })
         if let other {
@@ -417,11 +417,11 @@ extension DebugHarness {
             let heights = await recordStep(&r, label: "4-new-film-while-expanded", window: window, scrollView: sv,
                                            rect: rect, outDir: outDir, trackedRows: 0..<0,
                                            trackedName: "none") { SelectionState.shared.selectImmediate(other.id) }
-            // `heights` starts with the height before the selection, so one change is two entries.
+            /// `heights` starts with the height before the selection, so one change is two entries.
             r.check("4-new-film-while-expanded/one-step", heights.count <= 2,
                     "\(other.name) (\(Fmt.int(other.calendarTable.count)) viewings); document heights after the "
                     + "selection: " + heights.map { Fmt.fixed($0, 1) }.joined(separator: " → "))
-            // Already collapsed: collapsing it again must not change the document's height.
+            /// Already collapsed: collapsing it again must not change the document's height.
             await settle(600)
             let settledHeight = sv.documentView?.frame.height ?? 0
             set("calendar", false)
@@ -477,7 +477,7 @@ extension DebugHarness {
             }
             guard count >= rows.count * 8 / 10 else { continue }
             let cost = total / Double(count)
-            // Ties go to the smaller displacement.
+            /// Ties go to the smaller displacement.
             if cost < best.cost - 0.01 || (abs(cost - best.cost) <= 0.01 && abs(s) < abs(best.shift)) {
                 best = (s, cost)
             }

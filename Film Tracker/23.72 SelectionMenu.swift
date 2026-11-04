@@ -1,20 +1,20 @@
 // MARK: - SelectionMenu.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The three selection-scoped submenus, "Add to Queue", "Add to List", and "Show in List", as
-// shared SwiftUI menu items. The MenuBar's Film menu and the gallery title bar's selection
-// button both build them from here.
-//
-// Only the items are shared. Each host keeps its own state, loading, and event subscriptions.
-// MenuBar's items are `Commands` views that AppKit instantiates lazily, when the menu first
-// opens, and they populate from `onAppear`. The toolbar button is always on screen, so its
-// menu would be presented before that lifecycle ran and appear empty. This file holds no
-// @State, subscribes to no events, and loads nothing; every value arrives as a parameter,
-// resolved by the host through SelectionMenuModel (23.80 GalleryMenu.swift).
-//
-// The gallery's contextual menu builds an NSMenu, so it cannot share this view code (see
-// GalleryContextMenu in 23.80 GalleryMenu.swift). SortMenuContent and FilterMenuContent
-// (23.71 SortFilterMenu.swift) follow the same pattern.
+/// The three selection-scoped submenus, "Add to Queue", "Add to List", and "Show in List", as
+/// shared SwiftUI menu items. The MenuBar's Film menu and the gallery title bar's selection
+/// button both build them from here.
+///
+/// Only the items are shared. Each host keeps its own state, loading, and event subscriptions.
+/// MenuBar's items are `Commands` views that AppKit instantiates lazily, when the menu first
+/// opens, and they populate from `onAppear`. The toolbar button is always on screen, so its
+/// menu would be presented before that lifecycle ran and appear empty. This file holds no
+/// @State, subscribes to no events, and loads nothing; every value arrives as a parameter,
+/// resolved by the host through SelectionMenuModel (23.80 GalleryMenu.swift).
+///
+/// The gallery's contextual menu builds an NSMenu, so it cannot share this view code (see
+/// GalleryContextMenu in 23.80 GalleryMenu.swift). SortMenuContent and FilterMenuContent
+/// (23.71 SortFilterMenu.swift) follow the same pattern.
 
 import SwiftUI
 
@@ -44,14 +44,14 @@ struct AddToQueueMenuBody: View {
     var upNextBlocked = false
 
     var body: some View {
-        // Sorted explicitly rather than trusting `allCases` to be in queue order, matching
-        // GalleryContextMenu.makeAddToQueueSubmenu. Sorting keeps them agreeing if a case is
-        // ever inserted out of order.
+        /// Sorted explicitly rather than trusting `allCases` to be in queue order, matching
+        /// GalleryContextMenu.makeAddToQueueSubmenu. Sorting keeps them agreeing if a case is
+        /// ever inserted out of order.
         ForEach(FilmQueueSection.allCases.sorted { $0.queueOrder < $1.queueOrder }) { section in
             Toggle(section.displayName, isOn: Binding(
                 get: { unanimousSection == section },
-                // The value SwiftUI computes is ignored. `toggle` re-derives the decision from
-                // live membership, so it cannot act on a stale `unanimousSection`.
+                /// The value SwiftUI computes is ignored. `toggle` re-derives the decision from
+                /// live membership, so it cannot act on a stale `unanimousSection`.
                 set: { _ in
                     FilmQueueAssignment.toggle(filmIDs, section: section, coordinator: coordinator)
                 }))
@@ -91,8 +91,8 @@ struct AddToListMenuBody: View {
 
     var body: some View {
         Button("Create New List from Selection…") {
-            // Defensive: both hosts gate this menu on a non-empty selection, so the UI cannot
-            // reach this. The guard keeps any future host from sending an empty payload.
+            /// Defensive: both hosts gate this menu on a non-empty selection, so the UI cannot
+            /// reach this. The guard keeps any future host from sending an empty payload.
             guard !filmIDs.isEmpty else { return }
             AppEventBus.shared.sendCommand(.showListCreationFromSelection(filmIDs: filmIDs))
         }
@@ -141,8 +141,8 @@ struct ShowInListMenuBody: View {
     @AppStorage(preference: Preferences.smartListsKey) private var smartListsEnabled: Bool
 
     var body: some View {
-        // Pinned to the top with a divider beneath, as "Create New List from Selection…"
-        // leads the "Add to List" submenu.
+        /// Pinned to the top with a divider beneath, as "Create New List from Selection…"
+        /// leads the "Add to List" submenu.
         if smartListsEnabled {
             Menu("Smart Lists") {
                 if containingSmartLists.isEmpty {
@@ -151,9 +151,9 @@ struct ShowInListMenuBody: View {
                 } else {
                     ForEach(containingSmartLists) { type in
                         Toggle(type.rawValue, isOn: Binding(
-                            // Checked against activeView, not selectedSidebarItem. Sub-variants
-                            // share their parent's sidebar row, so only activeView names the
-                            // exact smart list on screen.
+                            /// Checked against activeView, not selectedSidebarItem. Sub-variants
+                            /// share their parent's sidebar row, so only activeView names the
+                            /// exact smart list on screen.
                             get: { ViewStateManager.shared.activeView == .smartList(type) },
                             set: { if $0 {
                                 ShowInListNavigation.navigate(to: .smartList(type),
@@ -174,10 +174,10 @@ struct ShowInListMenuBody: View {
                 let listID = list.listID
                 Toggle(truncateListName(list.listName), isOn: Binding(
                     get: { appState.selectedSidebarItem == .list(listID) },
-                    // Navigation, selection preservation, and scroll-to-top placement live in
-                    // ShowInListNavigation (90.00 GlobalUtilities.swift), shared with the
-                    // contextual menu. Re-choosing the list already viewed is a no-op in
-                    // navigate, matching this `if $0` gate.
+                    /// Navigation, selection preservation, and scroll-to-top placement live in
+                    /// ShowInListNavigation (90.00 GlobalUtilities.swift), shared with the
+                    /// contextual menu. Re-choosing the list already viewed is a no-op in
+                    /// navigate, matching this `if $0` gate.
                     set: { if $0 {
                         ShowInListNavigation.navigate(to: .list(listID), preserving: filmID)
                     } }))

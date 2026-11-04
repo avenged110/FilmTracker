@@ -1,22 +1,22 @@
 // MARK: - GalleryItem.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// NSCollectionViewItem hosting a reused, pure-AppKit tile (GalleryTileContentView)
-// for smooth scrolling. It also draws its own selection ring and drop shadow.
+/// NSCollectionViewItem hosting a reused, pure-AppKit tile (GalleryTileContentView)
+/// for smooth scrolling. It also draws its own selection ring and drop shadow.
 
 import Cocoa
-// Imported only for RoundedRectangle and Path, which give the system's continuous
-// ("squircle") corner outline. SwiftUI is used purely as a geometry calculator, and
-// no view, hosting view, or layout pass is involved.
+/// Imported only for RoundedRectangle and Path, which give the system's continuous
+/// ("squircle") corner outline. SwiftUI is used purely as a geometry calculator, and
+/// no view, hosting view, or layout pass is involved.
 import SwiftUI
 
 final class GalleryItem: NSCollectionViewItem, Loggable {
     nonisolated static let logTag = "[GalleryItem]"
 
-    // Tile content view. Created once and reused.
+    /// Tile content view. Created once and reused.
     private var tileContentView: GalleryTileContentView?
 
-    // Current state, used to skip redundant updates.
+    /// Current state, used to skip redundant updates.
     private var currentFilmID: UUID?
     private var currentPosterUID: String?
     private var currentSubtitleText: String?
@@ -32,54 +32,54 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     private var posterLoadTask: Task<Void, Never>?
 
     // MARK: - Selection Ring (CAShapeLayer)
-    //
-    // The ring is a CAShapeLayer on view.layer with masksToBounds = false, so it can extend outside the cell
-    // frame.
-    //
-    // Coordinates: GalleryItem.view is unflipped, so its layer uses y-up coordinates, with the origin at the
-    // bottom-left. GalleryTileContentView is also unflipped and pinned edge to edge, so both views share one
-    // space. GalleryTileGeometry. posterRect(inCellBounds:) is the single source of the poster rect, and it
-    // needs no conversion.
-    //
-    // Poster position (y-up): the poster is inset by 2 pt (posterPadding) on each side, and its height is its
-    // width times 1.5.
-    //   posterTop    = cellHeight - 2
-    //   posterBottom = cellHeight - 2 - (cellWidth - 4) * 1.5
-    // cellHeight is view.bounds.height, and cellWidth is view.bounds.width. Each axis uses its own bounds, so
-    // both stay exact even though column widths can differ by up to 0.5 pt.
-    //
-    // Ring geometry:
-    //   gap = 1 pt, the clear space between the poster edge and the ring's inner edge
-    //   lineWidth = 5 pt (Preferences.selectionLineWidth), stroked centered on the path
-    //   ringOutset = gap + lineWidth / 2 = 3.5 pt, the distance from each poster edge to the ring path
-    //   Ring rect: x = 2 - 3.5 = -1.5; width = (cellWidth - 4) + 7; height = (cellWidth - 4) * 1.5 + 7
-    //   Corner radius = Preferences.cornerRadius + ringOutset = 12 + 3.5 = 15.5, which is concentric with the
-    //   poster corner
-    //
-    // These constants are static, so they are computed once and not per cell.
-    private static let ringLineWidth: CGFloat = Preferences.selectionLineWidth  // 5
-    // Shared with GalleryTileContentView's subtitle-clearance math (23.50 GalleryItemView.swift) via
-    // GalleryTileGeometry -- the single source of truth -- so the two can never drift.
+    ///
+    /// The ring is a CAShapeLayer on view.layer with masksToBounds = false, so it can extend outside the cell
+    /// frame.
+    ///
+    /// Coordinates: GalleryItem.view is unflipped, so its layer uses y-up coordinates, with the origin at the
+    /// bottom-left. GalleryTileContentView is also unflipped and pinned edge to edge, so both views share one
+    /// space. GalleryTileGeometry. posterRect(inCellBounds:) is the single source of the poster rect, and it
+    /// needs no conversion.
+    ///
+    /// Poster position (y-up): the poster is inset by 2 pt (posterPadding) on each side, and its height is its
+    /// width times 1.5.
+    ///   posterTop    = cellHeight - 2
+    ///   posterBottom = cellHeight - 2 - (cellWidth - 4) * 1.5
+    /// cellHeight is view.bounds.height, and cellWidth is view.bounds.width. Each axis uses its own bounds, so
+    /// both stay exact even though column widths can differ by up to 0.5 pt.
+    ///
+    /// Ring geometry:
+    ///   gap = 1 pt, the clear space between the poster edge and the ring's inner edge
+    ///   lineWidth = 5 pt (Preferences.selectionLineWidth), stroked centered on the path
+    ///   ringOutset = gap + lineWidth / 2 = 3.5 pt, the distance from each poster edge to the ring path
+    ///   Ring rect: x = 2 - 3.5 = -1.5; width = (cellWidth - 4) + 7; height = (cellWidth - 4) * 1.5 + 7
+    ///   Corner radius = Preferences.cornerRadius + ringOutset = 12 + 3.5 = 15.5, which is concentric with the
+    ///   poster corner
+    ///
+    /// These constants are static, so they are computed once and not per cell.
+    private static let ringLineWidth: CGFloat = Preferences.selectionLineWidth  /// 5
+    /// Shared with GalleryTileContentView's subtitle-clearance math (23.50 GalleryItemView.swift) via
+    /// GalleryTileGeometry -- the single source of truth -- so the two can never drift.
     private static let ringGap: CGFloat = GalleryTileGeometry.ringGap
-    // Distance from poster edge to ring path center = gap + lineWidth/2 = 3.5
+    /// Distance from poster edge to ring path center = gap + lineWidth/2 = 3.5
     private static let ringOutset: CGFloat = ringGap + ringLineWidth / 2
-    // Corner radius of the ring path, matching poster curvature at ringOutset distance.
-    private static let ringCornerRadius: CGFloat = Preferences.cornerRadius + ringOutset  // 15.5
+    /// Corner radius of the ring path, matching poster curvature at ringOutset distance.
+    private static let ringCornerRadius: CGFloat = Preferences.cornerRadius + ringOutset  /// 15.5
 
     private var ringLayer: CAShapeLayer?
 
     // MARK: - Poster Shadow (CALayer, shadowPath)
-    //
-    // The shadow uses an explicit shadowPath, so it is drawn from geometry alone and never samples layer
-    // content. Recomputing it on every layout is cheap, which matters because layout runs for every visible
-    // cell during a resize. The shadow layer is inserted first, so it paints behind the poster. The ring,
-    // added later, paints on top.
-    //
-    // The shadow strength is fixed, whether the cell shows a poster or a placeholder.
+    ///
+    /// The shadow uses an explicit shadowPath, so it is drawn from geometry alone and never samples layer
+    /// content. Recomputing it on every layout is cheap, which matters because layout runs for every visible
+    /// cell during a resize. The shadow layer is inserted first, so it paints behind the poster. The ring,
+    /// added later, paints on top.
+    ///
+    /// The shadow strength is fixed, whether the cell shows a poster or a placeholder.
     private var shadowLayer: CALayer?
     private static let tileShadowColor: CGColor = NSColor.black.cgColor
     private static let tileShadowRadius: CGFloat = 4
-    // The y offset is 2 pt down in SwiftUI. Because this view is unflipped, the layer offset is negative.
+    /// The y offset is 2 pt down in SwiftUI. Because this view is unflipped, the layer offset is negative.
     private static let tileShadowOffset = CGSize(width: 0, height: -2)
     private static let tileShadowOpacity: Float = 0.6
 
@@ -87,11 +87,11 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     override func loadView() {
         view = NSView()
         view.wantsLayer = true
-        // Lets the shadow and selection ring extend beyond the cell bounds.
+        /// Lets the shadow and selection ring extend beyond the cell bounds.
         view.layer?.masksToBounds = false
 
-        // Order matters: the shadow is painted first, then the tile content, then the ring, then the ring-top
-        // shadow.
+        /// Order matters: the shadow is painted first, then the tile content, then the ring, then the ring-top
+        /// shadow.
         createShadowLayerIfNeeded()
         createTileContentViewIfNeeded()
         createRingLayerIfNeeded()
@@ -103,7 +103,7 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
 
         cancelPosterLoad()
 
-        // Clears the tracking state so configure() starts clean.
+        /// Clears the tracking state so configure() starts clean.
         currentFilmID = nil
         currentPosterUID = nil
         currentSubtitleText = nil
@@ -111,17 +111,17 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     }
 
     // MARK: - Layout Recomputes the shadow, ring, and ring-shadow geometry on every layout, so they match the
-    // live frame. posterRect is resolved once and shared by all three, rather than each one recomputing it
-    // from view.bounds.
+    /// live frame. posterRect is resolved once and shared by all three, rather than each one recomputing it
+    /// from view.bounds.
     override func viewDidLayout() {
         super.viewDidLayout()
         syncLayerContentsScale()
         guard let posterRect = currentPosterRect() else { return }
         updateShadowPath(posterRect: posterRect)
-        // The ring and ring-top shadow are invisible for nearly every cell, since usually zero or one cell is
-        // selected. Building their paths for every cell on every layout would be wasted work, so this is
-        // deferred to the selected cells only. updateRingVisibility() rebuilds both when a cell becomes
-        // selected, so the result is the same as rebuilding every frame.
+        /// The ring and ring-top shadow are invisible for nearly every cell, since usually zero or one cell is
+        /// selected. Building their paths for every cell on every layout would be wasted work, so this is
+        /// deferred to the selected cells only. updateRingVisibility() rebuilds both when a cell becomes
+        /// selected, so the result is the same as rebuilding every frame.
         if currentIsSelected {
             updateRingPath(posterRect: posterRect)
             updateRingShadowGeometry(posterRect: posterRect)
@@ -129,7 +129,7 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     }
 
     // MARK: - Selection NSCollectionView's isSelected provides immediate visual feedback during user
-    // interaction.
+    /// interaction.
     override var isSelected: Bool {
         didSet {
             currentIsSelected = isSelected
@@ -160,9 +160,9 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
 
         if filmChanged || posterChanged || subtitleChanged { refreshTileContent() }
 
-        // Ring visibility must match what the cell last drew. Cells recycled onto or off a selected index
-        // path need it. Only a mismatch triggers a re-stroke, since re-stroking each visible cell on every
-        // film edit is wasted work.
+        /// Ring visibility must match what the cell last drew. Cells recycled onto or off a selected index
+        /// path need it. Only a mismatch triggers a re-stroke, since re-stroking each visible cell on every
+        /// film edit is wasted work.
         if ringShowsSelection != currentIsSelected { updateRingVisibility() }
     }
 
@@ -194,7 +194,7 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     private func refreshTileContent() {
         guard let tileContentView, let filmID = currentFilmID else { return }
 
-        // Any load still in flight belongs to a previous configuration, so it is canceled.
+        /// Any load still in flight belongs to a previous configuration, so it is canceled.
         cancelPosterLoad()
 
         guard let posterUID = currentPosterUID, !posterUID.isEmpty else {
@@ -202,14 +202,14 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
             return
         }
 
-        // Cache hit, which is the usual case because the background restore keeps the cache warm. No disk
-        // access.
+        /// Cache hit, which is the usual case because the background restore keeps the cache warm. No disk
+        /// access.
         if let image = PosterCache.shared.getImageSync(for: posterUID) {
             tileContentView.configure(image: image, filmID: filmID, subtitle: currentSubtitleText)
             return
         }
 
-        // Miss: the tile shows at once, without a poster, and is filled in later.
+        /// Miss: the tile shows at once, without a poster, and is filled in later.
         tileContentView.configure(image: nil, filmID: filmID, subtitle: currentSubtitleText)
         beginPosterLoad(posterUID: posterUID, filmID: filmID)
     }
@@ -221,8 +221,8 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
             let image = await PosterCache.shared.getImageAsync(for: posterUID)
             guard let self, !Task.isCancelled, let image else { return }
 
-            // Re-checks identity, since cancellation alone is not enough. A recycled cell could be
-            // reconfigured while the load is awaited, and it would then be filled with the old film's poster.
+            /// Re-checks identity, since cancellation alone is not enough. A recycled cell could be
+            /// reconfigured while the load is awaited, and it would then be filled with the old film's poster.
             guard self.currentFilmID == filmID,
                   self.currentPosterUID == posterUID,
                   let tileContentView = self.tileContentView else { return }
@@ -247,9 +247,9 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
         shadow.shadowRadius = Self.tileShadowRadius
         shadow.shadowOffset = Self.tileShadowOffset
         shadow.shadowOpacity = Self.tileShadowOpacity
-        // The shadow has no fill of its own. Only its shadowPath is visible.
+        /// The shadow has no fill of its own. Only its shadowPath is visible.
         shadow.backgroundColor = nil
-        // Disables implicit Core Animation so the shadow tracks the tile in step during resize, with no lag.
+        /// Disables implicit Core Animation so the shadow tracks the tile in step during resize, with no lag.
         shadow.actions = ["shadowPath": NSNull(), "shadowOpacity": NSNull(),
                            "bounds": NSNull(), "position": NSNull()]
         layer.addSublayer(shadow)
@@ -303,8 +303,8 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
         ring.fillColor = nil
         ring.lineWidth = Self.ringLineWidth
         ring.strokeColor = NSColor.clear.cgColor
-        // Disable implicit CA animations so the ring snaps on/off immediately and the path updates without
-        // morphing during window resize.
+        /// Disable implicit CA animations so the ring snaps on/off immediately and the path updates without
+        /// morphing during window resize.
         ring.actions = ["strokeColor": NSNull(), "path": NSNull()]
         layer.addSublayer(ring)
         ringLayer = ring
@@ -330,9 +330,9 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
         let o = Self.ringOutset
         let ringRect = posterRect.insetBy(dx: -o, dy: -o)
 
-        // RoundedRectangle keeps the origin of the rect it is given, so the path is already in layer
-        // coordinates. The shape is symmetric, so the y-up orientation does not matter. Both radii use
-        // ringCornerRadius, so all four corners match.
+        /// RoundedRectangle keeps the origin of the rect it is given, so the path is already in layer
+        /// coordinates. The shape is symmetric, so the y-up orientation does not matter. Both radii use
+        /// ringCornerRadius, so all four corners match.
         ring.path = RoundedRectangle(cornerRadius: Self.ringCornerRadius, style: .continuous)
             .path(in: ringRect)
             .cgPath
@@ -349,13 +349,13 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
         ring.strokeColor = currentIsSelected
             ? NSColor.controlAccentColor.cgColor
             : NSColor.clear.cgColor
-        // The ring-top shadow only shows alongside a visible ring. See ringShadowLayer below.
+        /// The ring-top shadow only shows alongside a visible ring. See ringShadowLayer below.
         ringShadowLayer?.shadowOpacity = currentIsSelected ? Self.tileShadowOpacity : 0
 
-        // Selection can turn on without a layout pass, such as a plain click. viewDidLayout only refreshes
-        // the ring while the cell is already selected, so the geometry is refreshed here. view.bounds is
-        // current at this point, and this runs only when the ring is drawn for a selection change, never per
-        // frame.
+        /// Selection can turn on without a layout pass, such as a plain click. viewDidLayout only refreshes
+        /// the ring while the cell is already selected, so the geometry is refreshed here. view.bounds is
+        /// current at this point, and this runs only when the ring is drawn for a selection change, never per
+        /// frame.
         if currentIsSelected, let posterRect = currentPosterRect() {
             updateRingPath(posterRect: posterRect)
             updateRingShadowGeometry(posterRect: posterRect)
@@ -368,10 +368,10 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     #endif
 
     // MARK: - Ring-Top Shadow A selected ring is meant to read with a shadowed inner edge. The cell shadow
-    // cannot do this, because a shadow above the ring would also darken the poster. So a second shadow, the
-    // same shape and offset as the cell shadow, sits above the ring and is masked to the ring's band. Only
-    // the ring is dimmed, and the poster is untouched. Its opacity follows the ring's visibility in
-    // updateRingVisibility().
+    /// cannot do this, because a shadow above the ring would also darken the poster. So a second shadow, the
+    /// same shape and offset as the cell shadow, sits above the ring and is masked to the ring's band. Only
+    /// the ring is dimmed, and the poster is untouched. Its opacity follows the ring's visibility in
+    /// updateRingVisibility().
     private var ringShadowLayer: CALayer?
     private var ringShadowMaskLayer: CAShapeLayer?
 
@@ -382,22 +382,22 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
         shadow.shadowColor = Self.tileShadowColor
         shadow.shadowRadius = Self.tileShadowRadius
         shadow.shadowOffset = Self.tileShadowOffset
-        shadow.shadowOpacity = 0 // hidden until a cell is selected -- see updateRingVisibility()
+        shadow.shadowOpacity = 0 /// hidden until a cell is selected -- see updateRingVisibility()
         shadow.backgroundColor = nil
         shadow.actions = ["shadowPath": NSNull(), "shadowOpacity": NSNull(),
                            "bounds": NSNull(), "position": NSNull()]
 
-        // A mask shows its host's content only where the mask is opaque. Stroking the mask with the ring's
-        // path and line width confines the shadow to the ring's band.
+        /// A mask shows its host's content only where the mask is opaque. Stroking the mask with the ring's
+        /// path and line width confines the shadow to the ring's band.
         let mask = CAShapeLayer()
         mask.fillColor = nil
-        mask.strokeColor = NSColor.white.cgColor // opacity-only; not a real display color
+        mask.strokeColor = NSColor.white.cgColor /// opacity-only; not a real display color
         mask.lineWidth = Self.ringLineWidth
         mask.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
         shadow.mask = mask
         ringShadowMaskLayer = mask
 
-        // Added last, after the ring, so it paints on top of both the ring and the poster.
+        /// Added last, after the ring, so it paints on top of both the ring and the poster.
         layer.addSublayer(shadow)
         ringShadowLayer = shadow
     }

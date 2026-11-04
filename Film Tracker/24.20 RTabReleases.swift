@@ -1,15 +1,15 @@
 // MARK: - RTabReleases.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The card-based Releases tab in RightSidebar (RightSidebarTab.releases). Its optional summary
-// table (ReleasesTable.swift) sits above the cards when the preference is on.
-//
-// Each disc release is a card on the `controlBackgroundColor` plate. A combo pack and its
-// auto-created Blu-ray children share one taller plate, separated by full-bleed dividers.
-//
-// The region lock, composed video line, and release grouping and ordering are defined once in
-// RSBHelpers' "Releases Tab: Shared Derivations" section, which this tab and the table both use.
-// Do not reimplement them here. This file owns only the card chrome and layout.
+/// The card-based Releases tab in RightSidebar (RightSidebarTab.releases). Its optional summary
+/// table (ReleasesTable.swift) sits above the cards when the preference is on.
+///
+/// Each disc release is a card on the `controlBackgroundColor` plate. A combo pack and its
+/// auto-created Blu-ray children share one taller plate, separated by full-bleed dividers.
+///
+/// The region lock, composed video line, and release grouping and ordering are defined once in
+/// RSBHelpers' "Releases Tab: Shared Derivations" section, which this tab and the table both use.
+/// Do not reimplement them here. This file owns only the card chrome and layout.
 
 import SwiftUI
 import AppKit
@@ -88,26 +88,26 @@ private struct RTabReleasesContent: View {
     }
 
     var body: some View {
-        // Resolved once and passed down; see `releaseCardGroups`.
+        /// Resolved once and passed down; see `releaseCardGroups`.
         let groups = releaseCardGroups
         let narrowedFilm = filteredFilm
 
         return RSBTopPinnedLayout {
-            // Spacing matches the horizontal and bottom insets, so the gaps between cards and to
-            // those edges are one measure. The top inset is tighter because the header sits just above.
+            /// Spacing matches the horizontal and bottom insets, so the gaps between cards and to
+            /// those edges are one measure. The top inset is tighter because the header sits just above.
             VStack(alignment: .leading, spacing: RSBCardChrome.sidebarInset) {
                 purchaseFilterPicker
-                // The card stack is one AppKit view (RSBCardStack). It stays mounted through an empty
-                // result, so a filter or film change re-points it rather than inserting it. SwiftUI
-                // re-measures the whole tab on each AppKit insertion.
+                /// The card stack is one AppKit view (RSBCardStack). It stays mounted through an empty
+                /// result, so a filter or film change re-points it rather than inserting it. SwiftUI
+                /// re-measures the whole tab on each AppKit insertion.
                 ZStack(alignment: .topLeading) {
                     if groups.isEmpty {
                         emptyState
                             .transition(OpacityTransition())
                     }
-                    // spacing: 0, since the summary block sets its own gaps. The outer stack's spacing is
-                    // wider than the Details module metrics this block should match. With the summary table
-                    // off, this is the card stack alone.
+                    /// spacing: 0, since the summary block sets its own gaps. The outer stack's spacing is
+                    /// wider than the Details module metrics this block should match. With the summary table
+                    /// off, this is the card stack alone.
                     VStack(alignment: .leading, spacing: 0) {
                         if !groups.isEmpty {
                             summaryBlock(narrowedFilm)
@@ -119,56 +119,56 @@ private struct RTabReleasesContent: View {
                 }
                 .frame(maxHeight: groups.isEmpty ? .infinity : nil, alignment: .top)
             }
-            // With nothing to list, the stack fills the viewport so the placeholder can center (see `emptyStackHeight`).
+            /// With nothing to list, the stack fills the viewport so the placeholder can center (see `emptyStackHeight`).
             .frame(height: groups.isEmpty ? emptyStackHeight : nil, alignment: .top)
-            // Scoped to the filter, so only a filter change animates. New films and edited releases swap
-            // in on the first frame. This re-enables animation past MainView's container-wide
-            // `animation = nil`, and works only because the filter's @State lives in the hosted tree (see `body`).
+            /// Scoped to the filter, so only a filter change animates. New films and edited releases swap
+            /// in on the first frame. This re-enables animation past MainView's container-wide
+            /// `animation = nil`, and works only because the filter's @State lives in the hosted tree (see `body`).
             .animation(.smooth(duration: 0.3), value: purchaseFilter)
             .padding(.horizontal, RSBCardChrome.sidebarInset)
             .padding(.top, 8)
             .padding(.bottom, RSBCardChrome.sidebarInset)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        // Local → RightSidebar, so the choice outlives this view.
+        /// Local → RightSidebar, so the choice outlives this view.
         .onChange(of: purchaseFilter) { _, value in
             if purchaseFilterBinding.wrappedValue != value { purchaseFilterBinding.wrappedValue = value }
         }
-        // RightSidebar → local, unanimated: its selection-change reset lands with the new
-        // film, which swaps in in one step.
+        /// RightSidebar → local, unanimated: its selection-change reset lands with the new
+        /// film, which swaps in in one step.
         .onChange(of: purchaseFilterBinding.wrappedValue) { _, value in
             if purchaseFilter != value { RSBHelpers.withoutAnimation { purchaseFilter = value } }
         }
         #if DEBUG
-        // The `releases-filter` harness scenario (99.56) switches the filter through this.
+        /// The `releases-filter` harness scenario (99.56) switches the filter through this.
         .onAppear {
             let filter = $purchaseFilter
             ReleasesFilterProbe.select = { filter.wrappedValue = RSBPurchaseFilter(rawValue: $0) ?? .all }
         }
         .onDisappear { ReleasesFilterProbe.select = nil }
         #endif
-        // No refresh handler. The groups are derived, and RightSidebar refreshes the environment
-        // snapshot on .updated and .releaseChanged before children observe them, so no AppEventBus
-        // subscription is needed.
+        /// No refresh handler. The groups are derived, and RightSidebar refreshes the environment
+        /// snapshot on .updated and .releaseChanged before children observe them, so no AppEventBus
+        /// subscription is needed.
     }
 
     /// The optional summary table and the "All Releases" title above the cards.
     @ViewBuilder
     private func summaryBlock(_ narrowedFilm: FilmSnapshot?) -> some View {
-        // Scrolls with the cards, as a sibling in the same VStack. Callers gate it on a non-empty
-        // group set, so the section's own placeholder cannot duplicate the tab's.
+        /// Scrolls with the cards, as a sibling in the same VStack. Callers gate it on a non-empty
+        /// group set, so the section's own placeholder cannot duplicate the tab's.
         if showReleasesSummaryTable {
             RSBReleasesSection(releasesExpanded: releasesSummaryExpanded,
                                mode: .releaseCard)
                 .environment(\.sidebarFilm, narrowedFilm)
-                // 12 = the Details stack's 4 pt spacing plus the 8 pt padding of RSBHelpers.sectionDivider.
-                // That helper assumes the Details stack's 4 pt spacing on each side, which this spacing-0 stack
-                // does not supply, so the gaps are written out here.
+                /// 12 = the Details stack's 4 pt spacing plus the 8 pt padding of RSBHelpers.sectionDivider.
+                /// That helper assumes the Details stack's 4 pt spacing on each side, which this spacing-0 stack
+                /// does not supply, so the gaps are written out here.
                 .padding(.bottom, 12)
             Divider()
             allReleasesHeader
                 .padding(.top, 12)
-                // Matches the gap the Details modules put between a title and its content (CalendarTable's spacing of 6).
+                /// Matches the gap the Details modules put between a title and its content (CalendarTable's spacing of 6).
                 .padding(.bottom, 6)
         }
     }
@@ -207,12 +207,12 @@ private struct RTabReleasesContent: View {
     }
 
     private var emptyState: some View {
-        // The filter can outlive a film change (rememberReleasesFilter). A film with no disc releases has a
-        // disabled picker with no selection, so it shows the unfiltered message rather than the narrower one.
+        /// The filter can outlive a film change (rememberReleasesFilter). A film with no disc releases has a
+        /// disabled picker with no selection, so it shows the unfiltered message rather than the narrower one.
         Text(hasDiscReleases ? purchaseFilter.emptyText : RSBPurchaseFilter.all.emptyText)
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
-            // Fills the space the stack leaves below the picker, centered in it.
+            /// Fills the space the stack leaves below the picker, centered in it.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .padding(.vertical, 12)
     }
@@ -277,12 +277,12 @@ private extension RSBReleaseCard {
 private struct RSBReleaseCard: Identifiable, Equatable {
     let id: UUID
 
-    // Header
-    let format: String            // Full format name, as shown on the FilmSheet badge
+    /// Header
+    let format: String            /// Full format name, as shown on the FilmSheet badge
     let studio: String
     let purchased: Bool
 
-    // Badge row
+    /// Badge row
     let regionIndicator: RSBRegionIndicator?
 
     /// The stored region lock spelled out, for the indicator's tooltip. Empty when none is
@@ -298,7 +298,7 @@ private struct RSBReleaseCard: Identifiable, Equatable {
     /// which is the assumed default and so goes unstated.
     let artworkNote: String
 
-    // Specification fields
+    /// Specification fields
     let releaseYear: String
     let originalReleaseYear: String
     /// The parsed release date, or nil when empty or unreadable (the year badge then shows the stored text).
@@ -310,7 +310,7 @@ private struct RSBReleaseCard: Identifiable, Equatable {
     /// Whether the release is a remaster. Shown only when true, since absence is the negative case.
     /// This replaces the table's Rem. column suppression, which existed only to avoid a column of red crosses.
     let remastered: Bool
-    let hdr: String               // Empty for Blu-ray/DVD (the table's "N/A")
+    let hdr: String               /// Empty for Blu-ray/DVD (the table's "N/A")
     let aspectRatio: String
 
     /// How many aspect ratios `aspectRatio` was joined from. Stored separately, because a ratio can
@@ -330,7 +330,7 @@ private struct RSBReleaseCard: Identifiable, Equatable {
     /// infer one disc's contents from the other's silence. See `showsIncludedVersions(in:)`.
     let showsIncludedVersions: Bool
 
-    // Acquisition (suppressed entirely for combo-pack children)
+    /// Acquisition (suppressed entirely for combo-pack children)
     /// Cost and amount spent as one phrase, such as "$29.99, $24.99 spent". Empty for an unpurchased
     /// release, and for a purchased one whose cost was never entered (see the "cost of exactly 0" note).
     let spendLine: String
@@ -366,24 +366,24 @@ private struct RSBReleaseCardGroup: Identifiable, Equatable {
 }
 
 // MARK: - Card Builder
-// Pure, nonisolated transform from snapshots to display models, with no view or environment
-// dependency. That lets `releaseCardGroups` call it directly.
+/// Pure, nonisolated transform from snapshots to display models, with no view or environment
+/// dependency. That lets `releaseCardGroups` call it directly.
 private enum RSBReleaseCardBuilder {
 
     /// Takes the film's release array, since the groups depend on nothing else about it (see `releaseCardGroups`).
     static func buildGroups(from releases: [ReleaseSnapshot]) -> [RSBReleaseCardGroup] {
-        // Same source as RSBReleasesSection: disc formats only. `ReleaseFormat` decides membership, so an
-        // unrecognized format string is excluded here as it is in the table. The old per-format accessors'
-        // ordering is not kept, since grouping re-sorts into a total order regardless of input order.
+        /// Same source as RSBReleasesSection: disc formats only. `ReleaseFormat` decides membership, so an
+        /// unrecognized format string is excluded here as it is in the table. The old per-format accessors'
+        /// ordering is not kept, since grouping re-sorts into a total order regardless of input order.
         let source = releases.filter { ReleaseFormat(rawValue: $0.format) != nil }
         guard !source.isEmpty else { return [] }
 
-        // Grouping and ordering come from `releasesGroupedByHierarchy`, shared with the summary table. Sharing it
-        // guarantees a table row and the card beneath it name the same release. See that function for its keys
-        // and why the ordering ends in a unique value. Every group is non-empty, so `[0]` is the primary release.
+        /// Grouping and ordering come from `releasesGroupedByHierarchy`, shared with the summary table. Sharing it
+        /// guarantees a table row and the card beneath it name the same release. See that function for its keys
+        /// and why the ordering ends in a unique value. Every group is non-empty, so `[0]` is the primary release.
         return releasesGroupedByHierarchy(source).map { members in
-            // Decided once for the whole group and handed to every member, so a
-            // combo pack's halves agree — see `showsIncludedVersions(in:)`.
+            /// Decided once for the whole group and handed to every member, so a
+            /// combo pack's halves agree — see `showsIncludedVersions(in:)`.
             let showsVersions = showsIncludedVersions(in: members)
             return RSBReleaseCardGroup(
                 id: members[0].id,
@@ -417,23 +417,23 @@ private enum RSBReleaseCardBuilder {
                               showsIncludedVersions: Bool) -> RSBReleaseCard {
         let is4K = release.format == ReleaseFormat.uhd4K.rawValue
 
-        // Region lock and the composed video line are both shared with the summary table
-        // above these cards — see RSBHelpers' shared-derivations section.
+        /// Region lock and the composed video line are both shared with the summary table
+        /// above these cards — see RSBHelpers' shared-derivations section.
         let regionLock = RSBRegionIndicator.displayValue(release.regionLock,
                                                          format: release.format)
         let video = releaseVideoDisplay(for: release)
 
-        // Disc count, phrased as a full noun phrase for its own line, with the
-        // recordable-media suffix. Pluralization is on the count itself, so a
-        // single-disc release reads "1 disc" rather than "1 discs".
+        /// Disc count, phrased as a full noun phrase for its own line, with the
+        /// recordable-media suffix. Pluralization is on the count itself, so a
+        /// single-disc release reads "1 disc" rather than "1 discs".
         let discNoun = release.numberOfDiscs == 1 ? "disc" : "discs"
         let discPhrase = "\(release.numberOfDiscs) \(discNoun)"
         let discs = ReleaseReplicationType.isRecordable(release.replicationType)
             ? "\(discPhrase) (BD-R)"
             : discPhrase
 
-        // Acquisition. Combo-pack children omit this block entirely (see isChild), so no
-        // placeholder strings are produced for them here.
+        /// Acquisition. Combo-pack children omit this block entirely (see isChild), so no
+        /// placeholder strings are produced for them here.
         let spendLine: String
         let purchaseLine: String
         let marketAvailability: String
@@ -441,32 +441,32 @@ private enum RSBReleaseCardBuilder {
         let isWishlisted: Bool
 
         if release.purchased {
-            // Currency figures are LOCKED, not merely defaulted, for a combo-pack release
-            // that is not the 4K master: the FilmSheet disables both fields and its
-            // independence cascade zeroes them, because the pack's cost is recorded once
-            // on the 4K parent. Reading them back out would report a confident
-            // "$0.00, $0.00 spent" for a release that in fact cost whatever the pack did.
-            //
-            // The predicate is the sheet's own (`ReleaseCard.pricingRow`), not `isChild`.
-            // Those coincide for an auto-created child, but a Blu-ray or DVD the user
-            // marks "Combo-pack" by hand has no parent wired to it — `handleComboPackChange`
-            // only runs for a 4K card — so it carries `parentReleaseID == nil` while its
-            // currency fields are locked and zeroed all the same. `isChild` is kept as a
-            // disjunct anyway so the invariant is stated rather than left incidental.
-            // The summary table already suppresses exactly this case, printing "–".
-            //
-            // Scope is the spend line alone: purchase date and condition are NOT locked
-            // for such a release, so `purchaseLine` below reports real values.
+            /// Currency figures are LOCKED, not merely defaulted, for a combo-pack release
+            /// that is not the 4K master: the FilmSheet disables both fields and its
+            /// independence cascade zeroes them, because the pack's cost is recorded once
+            /// on the 4K parent. Reading them back out would report a confident
+            /// "$0.00, $0.00 spent" for a release that in fact cost whatever the pack did.
+            ///
+            /// The predicate is the sheet's own (`ReleaseCard.pricingRow`), not `isChild`.
+            /// Those coincide for an auto-created child, but a Blu-ray or DVD the user
+            /// marks "Combo-pack" by hand has no parent wired to it — `handleComboPackChange`
+            /// only runs for a 4K card — so it carries `parentReleaseID == nil` while its
+            /// currency fields are locked and zeroed all the same. `isChild` is kept as a
+            /// disjunct anyway so the invariant is stated rather than left incidental.
+            /// The summary table already suppresses exactly this case, printing "–".
+            ///
+            /// Scope is the spend line alone: purchase date and condition are NOT locked
+            /// for such a release, so `purchaseLine` below reports real values.
             let currencyLocked = release.isChild
                 || (ReleaseIndependence.isComboPack(release.independence)
                     && release.format != ReleaseFormat.uhd4K.rawValue)
-            // A cost of exactly 0 means the field was never filled in — Core Data's
-            // Double default, not a user-entered "free" — so the whole line is
-            // suppressed rather than printing "$0.00, $0.00 spent", which reads as
-            // asserting a price rather than the absence of one. Amount spent alone
-            // being blank is a real, statable claim ("bought it but haven't logged
-            // what it cost"), so THAT half still prints "$0.00 spent" once a cost
-            // exists to pair it with.
+            /// A cost of exactly 0 means the field was never filled in — Core Data's
+            /// Double default, not a user-entered "free" — so the whole line is
+            /// suppressed rather than printing "$0.00, $0.00 spent", which reads as
+            /// asserting a price rather than the absence of one. Amount spent alone
+            /// being blank is a real, statable claim ("bought it but haven't logged
+            /// what it cost"), so THAT half still prints "$0.00 spent" once a cost
+            /// exists to pair it with.
             if currencyLocked || release.cost == 0 {
                 spendLine = ""
             } else {
@@ -475,9 +475,9 @@ private enum RSBReleaseCardBuilder {
                 spendLine = "\(cost), \(amountSpent) spent"
             }
 
-            // Condition reads mid-sentence here rather than as a standalone field, so it
-            // is lowercased; a date that was never entered drops the clause entirely
-            // rather than filling it with a placeholder.
+            /// Condition reads mid-sentence here rather than as a standalone field, so it
+            /// is lowercased; a date that was never entered drops the clause entirely
+            /// rather than filling it with a placeholder.
             let condition = release.condition.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let date = displayDate(release.purchaseDate)
             var line = "Purchased"
@@ -489,19 +489,19 @@ private enum RSBReleaseCardBuilder {
             lowestPriceLine = ""
             isWishlisted = false
         } else {
-            // Unpurchased releases report market availability in place of the whole
-            // purchase block, matching the table's reuse of its Purchase Date column.
+            /// Unpurchased releases report market availability in place of the whole
+            /// purchase block, matching the table's reuse of its Purchase Date column.
             spendLine = ""
             purchaseLine = ""
-            // The status and price elements joined as "Out-of-print (cheap)". See
-            // ReleaseMarketAvailability.
+            /// The status and price elements joined as "Out-of-print (cheap)". See
+            /// ReleaseMarketAvailability.
             marketAvailability = ReleaseMarketAvailability.displayText(release.marketAvailability)
 
-            // Price and date are independently optional, and each says something on its
-            // own: a price with no date is the best figure seen at some unrecorded point,
-            // while a date with no price records that the release was seen for sale at all
-            // without noting what it went for. Each case gets its own phrasing rather than
-            // a single template with a hole in it.
+            /// Price and date are independently optional, and each says something on its
+            /// own: a price with no date is the best figure seen at some unrecorded point,
+            /// while a date with no price records that the release was seen for sale at all
+            /// without noting what it went for. Each case gets its own phrasing rather than
+            /// a single template with a hole in it.
             let price = release.lowestPrice > 0
                 ? Fmt.dollars(release.lowestPrice)
                 : ""
@@ -514,12 +514,12 @@ private enum RSBReleaseCardBuilder {
             case (true, true):   lowestPriceLine = ""
             }
 
-            // Wishlist positions are 1-based; 0 means "not on the wishlist".
+            /// Wishlist positions are 1-based; 0 means "not on the wishlist".
             isWishlisted = release.wishlist >= 1
         }
 
-        // The year of the release date, whichever shape it is stored in. Trimmed, as
-        // ReleaseDateValue.yearText trims every value it passes through.
+        /// The year of the release date, whichever shape it is stored in. Trimmed, as
+        /// ReleaseDateValue.yearText trims every value it passes through.
         let releaseYear = ReleaseDateValue.yearText(of: release.releaseDate, format: release.format)
         let baseYear = release.baseReleaseYear.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -533,13 +533,13 @@ private enum RSBReleaseCardBuilder {
             hasSubtitles: release.hasSubtitles,
             artworkNote: artworkNote(for: release.hasArtwork),
             releaseYear: releaseYear,
-            // Suppressed when identical to the release year, where it would be noise.
+            /// Suppressed when identical to the release year, where it would be noise.
             originalReleaseYear: baseYear == releaseYear ? "" : baseYear,
             releaseDate: ReleaseDateValue(release.releaseDate, format: release.format),
             video: video,
             remastered: release.remastered,
-            // HDR is meaningful only for 4K UHD; the table's "N/A" for the other two
-            // formats carries no information on a card, so the field is simply omitted.
+            /// HDR is meaningful only for 4K UHD; the table's "N/A" for the other two
+            /// formats carries no information on a card, so the field is simply omitted.
             hdr: is4K ? hdrDisplay(for: release.hasHDR) : "",
             aspectRatio: release.releaseAspectRatio.joined(separator: ", "),
             aspectRatioCount: release.releaseAspectRatio.count,
@@ -574,15 +574,15 @@ private enum RSBReleaseCardBuilder {
     /// Unknown values fall through to the raw stored value.
     private static func artworkNote(for value: String) -> String {
         switch value {
-        // "Yes (Combo-pack)" is unstated too. It describes the pack, which the parent's line already covers.
+        /// "Yes (Combo-pack)" is unstated too. It describes the pack, which the parent's line already covers.
         case "", ReleaseArtwork.yes, ReleaseArtwork.yesComboPack: return ""
         case ReleaseArtwork.steelbook:  return "Steelbook"
         case ReleaseArtwork.yesIncorrectRelease: return "Release-mismatched artwork"
         case ReleaseArtwork.yesCustom:  return "Custom artwork"
         case ReleaseArtwork.yesMultiPack: return "Multi-pack artwork"
-        // "No (Combo-pack)" and "No (Multi-pack)" are not offered in the picker, but the table
-        // still recognizes them, so legacy or restored records may carry them. Phrasing them here
-        // keeps both views consistent.
+        /// "No (Combo-pack)" and "No (Multi-pack)" are not offered in the picker, but the table
+        /// still recognizes them, so legacy or restored records may carry them. Phrasing them here
+        /// keeps both views consistent.
         case _ where ReleaseArtwork.negativeTags.contains(value):
                                         return "Missing artwork"
         default:                        return value
@@ -591,8 +591,8 @@ private enum RSBReleaseCardBuilder {
 }
 
 // MARK: - Card Chrome
-// Fills, inks, and shadow values shared by the card body and its badges, kept together
-// so the header band, the format badge, and the year badge cannot drift apart.
+/// Fills, inks, and shadow values shared by the card body and its badges, kept together
+/// so the header band, the format badge, and the year badge cannot drift apart.
 enum RSBCardChrome {
 
     /// Format header tints — `ReleaseFormatPalette`'s, the same ones `ReleaseCardView` bands
@@ -682,8 +682,8 @@ fileprivate struct RSBReleaseCardBody {
     fileprivate var today: Date { CurrentDay.shared.today }
 
     // MARK: Header
-    // Format badge, studio, and purchase glyph share a full-bleed band. A parent's band is tinted, and the tint
-    // separates it from the details, so no divider is needed. A child's band shows the child wash, so the two halves read as one card.
+    /// Format badge, studio, and purchase glyph share a full-bleed band. A parent's band is tinted, and the tint
+    /// separates it from the details, so no divider is needed. A child's band shows the child wash, so the two halves read as one card.
 
     /// White on the dark band. Only parent halves read it, since a child names its parent instead of a studio.
     fileprivate var titleColor: Color {
@@ -706,9 +706,9 @@ fileprivate struct RSBReleaseCardBody {
         func glyphRow(_ leading: RSBRowItem, trailing: RSBRowItem? = nil, leadingContentHelp: String? = nil) {
             rows.append(RSBGlyphRowSpec(leading: leading, trailing: trailing, leadingContentHelp: leadingContentHelp))
         }
-        // Glyph-led lines share a leading column, so their text aligns. Some have a trailing item that
-        // appears only when it has content. The remaster flag goes in the video row's trailing slot, or the
-        // aspect-ratio row's if HDR is absent. If neither row can take it, it gets its own line (see `remasteredNeedsOwnRow`).
+        /// Glyph-led lines share a leading column, so their text aligns. Some have a trailing item that
+        /// appears only when it has content. The remaster flag goes in the video row's trailing slot, or the
+        /// aspect-ratio row's if HDR is absent. If neither row can take it, it gets its own line (see `remasteredNeedsOwnRow`).
         if showsVideoRow {
             glyphRow(RSBRowItem(symbol: "tv", text: model.video), trailing: videoRowTrailing)
         }
@@ -726,25 +726,25 @@ fileprivate struct RSBReleaseCardBody {
         if !model.audio.isEmpty {
             glyphRow(RSBRowItem(symbol: "speaker.wave.2.fill", text: model.audio))
         }
-        // The disc line is always shown, since `discs` carries at least "1 disc". Subtitles go in the trailing column, only when present.
+        /// The disc line is always shown, since `discs` carries at least "1 disc". Subtitles go in the trailing column, only when present.
         glyphRow(
             RSBRowItem(symbol: ContentGlyphs.disc, text: model.discs),
             trailing: model.hasSubtitles
                 ? RSBRowItem(symbol: "captions.bubble.fill", text: "Includes subtitles")
                 : nil)
-        // Children inherit the parent's artwork, so the child half does not repeat it.
+        /// Children inherit the parent's artwork, so the child half does not repeat it.
         if !isAttachedChild && !model.artworkNote.isEmpty {
             glyphRow(RSBRowItem(symbol: "text.book.closed.fill", text: model.artworkNote))
         }
-        // Hidden when the list is theatrical-only (see `RSBReleaseCard.showsIncludedVersions`). The emptiness test
-        // prevents a glyph beside nothing.
+        /// Hidden when the list is theatrical-only (see `RSBReleaseCard.showsIncludedVersions`). The emptiness test
+        /// prevents a glyph beside nothing.
         if model.showsIncludedVersions && !model.includedVersions.isEmpty {
             glyphRow(RSBRowItem(
                 symbol: "film.stack.fill", text: model.includedVersions,
                 help: "Versions included"))
         }
-        // The full release date, shown last before the acquisition block. A year-only value adds nothing beyond the year badge.
-        // Children omit it, since their date is the parent's, shown above.
+        /// The full release date, shown last before the acquisition block. A year-only value adds nothing beyond the year badge.
+        /// Children omit it, since their date is the parent's, shown above.
         if !isAttachedChild, let releaseDate = model.releaseDate, !releaseDate.isYearOnly {
             glyphRow(RSBRowItem(symbol: "calendar",
                                 text: RSBReleaseCard.releasePhrase(releaseDate, today: today),
@@ -767,7 +767,7 @@ fileprivate struct RSBReleaseCardBody {
         if !model.purchaseLine.isEmpty {
             glyphRow(RSBRowItem(symbol: "calendar.badge.clock", text: model.purchaseLine))
         }
-        // The wishlist flag sits beside market availability when present, otherwise it takes the leading column.
+        /// The wishlist flag sits beside market availability when present, otherwise it takes the leading column.
         if !model.marketAvailability.isEmpty {
             glyphRow(
                 RSBRowItem(
@@ -899,7 +899,7 @@ final class RSBGlyphRowListView: NSView {
             CardRowsProbe.rowsCreated += 1
             #endif
             let row = RSBGlyphRowView()
-            // Framed by layout(), not constraints. Constraints would add every row to Auto Layout, which the hosting view walks on each film change.
+            /// Framed by layout(), not constraints. Constraints would add every row to Auto Layout, which the hosting view walks on each film change.
             row.translatesAutoresizingMaskIntoConstraints = false
             rows.append(row)
             addSubview(row)
@@ -994,8 +994,8 @@ final class RSBGlyphRowView: NSView {
         let scale = unsafe window?.backingScaleFactor ?? 2
         let widths = columnWidths(bounds.width)
         let metrics = zip(columns, widths).map { $0.metrics(width: $1) }
-        // The pair shares a baseline: the lower of the two, as an HStack aligned on the first
-        // text baseline places it.
+        /// The pair shares a baseline: the lower of the two, as an HStack aligned on the first
+        /// text baseline places it.
         let baseline = metrics.map(\.baseline).max() ?? 0
         let windowHeight = unsafe window?.contentView?.bounds.height ?? 0
         let originY = windowHeight - convert(NSPoint.zero, to: nil).y
@@ -1037,7 +1037,7 @@ final class RSBGlyphColumn {
     }
 
     func install(in view: NSView) {
-        // Framed by RSBGlyphRowView.layout (see RSBGlyphRowListView.update).
+        /// Framed by RSBGlyphRowView.layout (see RSBGlyphRowListView.update).
         for v in [glyph, label, glyphHelp, textHelp] { v.translatesAutoresizingMaskIntoConstraints = false }
         label.textColor = .labelColor
         label.isSelectable = true
@@ -1077,9 +1077,9 @@ final class RSBGlyphColumn {
     private func textSize(width: CGFloat) -> CGSize {
         guard let cell = label.cell else { return .zero }
         if wraps {
-            // The cell keeps 2 pt of padding on each side inside its bounds (the label's frame
-            // is the text's width plus 4), so it wraps at the column's width plus that; at the
-            // column's own width it broke a line 4 pt early. The size returned is the text's.
+            /// The cell keeps 2 pt of padding on each side inside its bounds (the label's frame
+            /// is the text's width plus 4), so it wraps at the column's width plus that; at the
+            /// column's own width it broke a line 4 pt early. The size returned is the text's.
             let size = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: max(0, width) + 4, height: .greatestFiniteMagnitude))
             return CGSize(width: size.width - 4, height: size.height)
         }
@@ -1090,12 +1090,12 @@ final class RSBGlyphColumn {
     func metrics(width: CGFloat) -> Metrics {
         let textWidth = width - RSBGlyphRowView.glyphColumn - RSBGlyphRowView.glyphGap
         let size = textSize(width: textWidth)
-        // SwiftUI's unrounded measures. SwiftUI rounds the row's frame where it places it, and the row rounds its parts the same way (see RSBGlyphRowView.layout).
+        /// SwiftUI's unrounded measures. SwiftUI rounds the row's frame where it places it, and the row rounds its parts the same way (see RSBGlyphRowView.layout).
         let text = italic ? Self.italicLayout : Self.textLayout
         let lines = max(1, (size.height / label.intrinsicContentSize.height).rounded())
         let textHeight = text.height + (lines - 1) * text.lineHeight
         let glyphLayout = glyph.layout
-        // The taller glyph above the baseline sets the baseline (unless the glyph overhangs). The deeper one below sets the height.
+        /// The taller glyph above the baseline sets the baseline (unless the glyph overhangs). The deeper one below sets the height.
         let baseline = glyphOverhangs ? text.baseline : max(text.baseline, glyphLayout.baseline)
         let labelTop = baseline - text.baseline
         let glyphTop = baseline - glyph.heightAboveBaseline
@@ -1104,7 +1104,7 @@ final class RSBGlyphColumn {
     }
 
     func layout(x: CGFloat, width: CGFloat, baseline: CGFloat, rowHeight: CGFloat, scale: CGFloat, originY: CGFloat) {
-        // Rounded to the window's pixels. `originY` is the row's top in flipped window space, so each part lands where SwiftUI would put it.
+        /// Rounded to the window's pixels. `originY` is the row's top in flipped window space, so each part lands where SwiftUI would put it.
         func pixel(_ v: CGFloat) -> CGFloat { ((originY + v) * scale + 0.5).rounded(.down) / scale - originY }
         let m = metrics(width: width)
         let shift = baseline - m.baseline
@@ -1231,24 +1231,24 @@ struct SwiftUIVerticalMetrics {
 #endif
 
 // MARK: - Card Stack
-//
-// The whole card stack as one AppKit view. It draws each group's plate, outline, and shadow, and each
-// release's header band, badge row, dividers, and glyph rows (RSBGlyphRowListView), from RSBReleaseCardBody's values.
-// It replaced SwiftUI cards that drew the same result. The AppKit version updates faster, because SwiftUI
-// re-measures the whole tab each time it inserts a card, and most of a SwiftUI card's cost was selectable text.
-//
-// One acquisition per plate. A combo-pack parent and its children share it, giving a double-height card, or
-// a triple-height one for a "Combo-pack (dual BD)" pack. The parent opens with a format-tinted band. Each child
-// carries a faint wash and opens with a divider, since its meaning comes from the parent above. The edge follows
-// the FilmSheet reorderable lists: an outline that wraps the top and fades toward the bottom, with the lower edge
-// carried by a shadow (see RSBCardChrome).
-//
-// Matching SwiftUI takes a few rules, kept for later changes. Label frames are the text width + 4 at x − 2,
-// left-aligned and placed by hand, since a self-centering NSTextField starts the line between pixels. Text and
-// symbol heights come from SwiftUIVerticalMetrics at the display's scale. Child frames round to the window's
-// pixels (PixelSnap). A view's own shadow goes through NSView.shadow (`GlyphBadgeShadow.nsShadow()`), and a
-// sublayer's takes SwiftUI's radius. The purchase and region badges are UtilityKit's `GlyphBadgeView`, which keeps
-// the same rules.
+///
+/// The whole card stack as one AppKit view. It draws each group's plate, outline, and shadow, and each
+/// release's header band, badge row, dividers, and glyph rows (RSBGlyphRowListView), from RSBReleaseCardBody's values.
+/// It replaced SwiftUI cards that drew the same result. The AppKit version updates faster, because SwiftUI
+/// re-measures the whole tab each time it inserts a card, and most of a SwiftUI card's cost was selectable text.
+///
+/// One acquisition per plate. A combo-pack parent and its children share it, giving a double-height card, or
+/// a triple-height one for a "Combo-pack (dual BD)" pack. The parent opens with a format-tinted band. Each child
+/// carries a faint wash and opens with a divider, since its meaning comes from the parent above. The edge follows
+/// the FilmSheet reorderable lists: an outline that wraps the top and fades toward the bottom, with the lower edge
+/// carried by a shadow (see RSBCardChrome).
+///
+/// Matching SwiftUI takes a few rules, kept for later changes. Label frames are the text width + 4 at x − 2,
+/// left-aligned and placed by hand, since a self-centering NSTextField starts the line between pixels. Text and
+/// symbol heights come from SwiftUIVerticalMetrics at the display's scale. Child frames round to the window's
+/// pixels (PixelSnap). A view's own shadow goes through NSView.shadow (`GlyphBadgeShadow.nsShadow()`), and a
+/// sublayer's takes SwiftUI's radius. The purchase and region badges are UtilityKit's `GlyphBadgeView`, which keeps
+/// the same rules.
 fileprivate struct RSBCardStack: NSViewRepresentable {
     let groups: [RSBReleaseCardGroup]
     /// Passed so a day change updates the cards ("Releases on" becomes "Released on"). The stack also keys its no-change check on it.
@@ -1337,7 +1337,7 @@ final class RSBCardStackView: NSView {
             let gone = leaving
             leaving = []
             for entry in gone { retire(entry.view) }
-            // Re-point the cards in place, by position: a new film's groups are all new.
+            /// Re-point the cards in place, by position: a new film's groups are all new.
             var views = visible.map(\.view)
             while views.count > groups.count { retire(views.removeLast()) }
             while views.count < groups.count { views.append(takeView()) }
@@ -1349,8 +1349,8 @@ final class RSBCardStackView: NSView {
             needsLayout = true
             return
         }
-        // Matches SwiftUI's ForEach, by identity. A card that stays moves to its new place. A card that goes fades out where it was.
-        // A new card fades in where it lands. All of this runs on the filter's spring (`.smooth(duration: 0.3)`).
+        /// Matches SwiftUI's ForEach, by identity. A card that stays moves to its new place. A card that goes fades out where it was.
+        /// A new card fades in where it lands. All of this runs on the filter's spring (`.smooth(duration: 0.3)`).
         var byID = Dictionary(uniqueKeysWithValues: visible.map { ($0.id, $0.view) })
         var next: [(id: UUID, view: RSBCardGroupView, inserted: Bool)] = []
         for group in groups {
@@ -1358,7 +1358,7 @@ final class RSBCardStackView: NSView {
                 view.configure(group)
                 next.append((group.id, view, false))
             } else if let i = leaving.firstIndex(where: { $0.id == group.id }) {
-                // Coming back mid-fade: fade it in again from where it is.
+                /// Coming back mid-fade: fade it in again from where it is.
                 let view = leaving.remove(at: i).view
                 let opacity = view.layer?.presentation()?.opacity ?? 0
                 view.alphaValue = 1
@@ -1389,14 +1389,14 @@ final class RSBCardStackView: NSView {
         }
         for (id, view) in byID {
             leaving.append((id, view))
-            // From its current opacity: it may still be fading in.
+            /// From its current opacity: it may still be fading in.
             let opacity = view.layer?.presentation()?.opacity ?? 1
             view.alphaValue = 0
             let fade = spring("opacity", from: opacity, to: 0)
             CATransaction.begin()
-            // Only this fade's own finish retires the card: one replaced or removed early
-            // (the card came back, or the stack was re-pointed) also calls this.
-            // (The layer keeps a copy of the animation, so it is told apart by a token.)
+            /// Only this fade's own finish retires the card: one replaced or removed early
+            /// (the card came back, or the stack was re-pointed) also calls this.
+            /// (The layer keeps a copy of the animation, so it is told apart by a token.)
             fadeToken += 1
             let token = fadeToken
             fade.setValue(token, forKey: "token")
@@ -1502,7 +1502,7 @@ fileprivate final class RSBCardGroupView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = false
-        // The outline sits above the clipped content, so the bodies never paint over it.
+        /// The outline sits above the clipped content, so the bodies never paint over it.
         edge.borderLayer.zPosition = 10
         if let layer { edge.install(in: layer) }
         content.wantsLayer = true
@@ -1758,7 +1758,7 @@ fileprivate final class RSBCardBodyView: NSView {
         purchaseHelp.toolTip = model.purchased ? "Purchased" : "Not purchased"
         purchaseHelp.describeForAccessibility(child ? nil : purchaseHelp.toolTip)
 
-        // Badge row.
+        /// Badge row.
         let showsBadges = body.hasBadgeRow
         let today = body.today
         let upcoming = model.releaseDate?.isUpcoming(today: today) ?? false
@@ -1805,7 +1805,7 @@ fileprivate final class RSBCardBodyView: NSView {
         regionHelp.toolTip = model.regionLabel.isEmpty ? "No region lock recorded" : model.regionLabel
         regionHelp.describeForAccessibility(hasRegion ? regionHelp.toolTip : nil)
 
-        // Rows.
+        /// Rows.
         splitsAcquisition = !child && !body.acquisitionBlockIsEmpty
         mainRows.update(rows: splitsAcquisition ? body.mainRows : body.mainRows + body.notesRow)
         lowerRows.update(rows: splitsAcquisition ? body.acquisitionRows + body.notesRow : [])
@@ -1860,8 +1860,8 @@ fileprivate final class RSBCardBodyView: NSView {
         let snap = PixelSnap(self)
         let w = bounds.width
         let pad = RSBCardChrome.contentPadding
-        // Labels are left-aligned and placed here, centered ones included. A text field that centers its own text starts
-        // the line between pixels. SwiftUI rounds the text frame to the pixel, and this matches it.
+        /// Labels are left-aligned and placed here, centered ones included. A text field that centers its own text starts
+        /// the line between pixels. SwiftUI rounds the text frame to the pixel, and this matches it.
         func label(_ field: NSTextField, x: CGFloat, width: CGFloat, centerY: CGFloat, height: CGFloat, align: CGFloat = 0) {
             let natural = field.intrinsicContentSize.width
             let textWidth = min(natural, width)
@@ -1874,7 +1874,7 @@ fileprivate final class RSBCardBodyView: NSView {
             topDivider.frame = snap.rect(x: 0, y: 0, width: w, height: RSBCardMetrics.divider.height)
             y += RSBCardMetrics.divider.height
         }
-        // Header band.
+        /// Header band.
         let headerH = headerBlockHeight
         band.frame = snap.rect(x: 0, y: y, width: w, height: headerH)
         let mid = y + headerH / 2
@@ -1890,13 +1890,13 @@ fileprivate final class RSBCardBodyView: NSView {
             let glyphFrame = snap.rect(x: glyphX, y: mid - RSBCardChrome.trailingGlyphHeight / 2,
                                        width: RSBCardChrome.trailingGlyphWidth, height: RSBCardChrome.trailingGlyphHeight)
             purchaseHelp.frame = glyphFrame
-            // The checkmark centers on its circle, as the summary table's GlyphBadge does. The dashed circle sits on
-            // the slot. Both share a center but round from different origins.
+            /// The checkmark centers on its circle, as the summary table's GlyphBadge does. The dashed circle sits on
+            /// the slot. Both share a center but round from different origins.
             purchaseBadge.frame = snap.rect(x: glyphX + (RSBCardChrome.trailingGlyphWidth - 18) / 2, y: mid - 9, width: 18, height: 18)
             purchaseGlyph.frame = glyphFrame
         }
         y += headerH
-        // Details.
+        /// Details.
         if !body.isAttachedChild { y += RSBCardChrome.contentTopPadding }
         let inner = w - 2 * pad
         for (i, item) in items().enumerated() {
@@ -1908,8 +1908,8 @@ fileprivate final class RSBCardBodyView: NSView {
             case .rows(let list):
                 list.frame = snap.rect(x: pad, y: y, width: inner, height: h)
             case .badges:
-                // Two equal columns, unless a badge's minimum (the year's two 48 pt compartments, the pill's 116 pt)
-                // is wider than its half. Then it takes its minimum and the other column takes the rest, as at a legacy scroller's width.
+                /// Two equal columns, unless a badge's minimum (the year's two 48 pt compartments, the pill's 116 pt)
+                /// is wider than its half. Then it takes its minimum and the other column takes the rest, as at a legacy scroller's width.
                 let available = inner - 10
                 let yearMinimum: CGFloat = yearFill.isHidden ? 0 : 2 * 48 + 3
                 let pillMinimum: CGFloat = regionPill.isHidden ? 0 : 116

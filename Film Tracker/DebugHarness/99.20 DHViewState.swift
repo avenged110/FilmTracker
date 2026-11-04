@@ -1,16 +1,16 @@
 // MARK: - DHViewState.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Harness coverage for per-view ViewState persistence, including the section-dividers
-// setting, which is stored in each view's own ViewState.
-//
-// Everything here drives the REAL ViewStateManager against the REAL Preferences store
-// inside a debug sandbox — no reimplementation of the codec, no test double. The codec
-// itself (ViewState.decoded(from:) / ViewState.encodedSettings) is deliberately never
-// called directly: what matters is not that a pair of functions round-trip each
-// other, but that a choice made through the same method the menu calls survives being
-// written to disk and read back by the same method a view switch calls. Testing the
-// public path is the only way to catch a defect that lives in the wiring between them.
+/// Harness coverage for per-view ViewState persistence, including the section-dividers
+/// setting, which is stored in each view's own ViewState.
+///
+/// Everything here drives the REAL ViewStateManager against the REAL Preferences store
+/// inside a debug sandbox — no reimplementation of the codec, no test double. The codec
+/// itself (ViewState.decoded(from:) / ViewState.encodedSettings) is deliberately never
+/// called directly: what matters is not that a pair of functions round-trip each
+/// other, but that a choice made through the same method the menu calls survives being
+/// written to disk and read back by the same method a view switch calls. Testing the
+/// public path is the only way to catch a defect that lives in the wiring between them.
 
 #if DEBUG
 
@@ -100,12 +100,12 @@ extension DebugHarness {
         let manager = ViewStateManager.shared
         let rememberBefore = Preferences.rememberSortFilterSelections
         let statesBefore = Preferences.viewSortStates
-        // The Queue's active tab is part of what this scenario manipulates (it selects the
-        // storage slot .filmQueue resolves to), so it is restored alongside the
-        // preferences. Assigned directly rather than through selectFilter throughout:
-        // this scenario is asserting about storage and state resolution, and the public
-        // switch additionally clears the selection, banks scroll origins and schedules a
-        // deferred gallery reload — none of which this is testing.
+        /// The Queue's active tab is part of what this scenario manipulates (it selects the
+        /// storage slot .filmQueue resolves to), so it is restored alongside the
+        /// preferences. Assigned directly rather than through selectFilter throughout:
+        /// this scenario is asserting about storage and state resolution, and the public
+        /// switch additionally clears the selection, banks scroll origins and schedules a
+        /// deferred gallery reload — none of which this is testing.
         let queueFilterBefore = FilmQueueFilterState.shared.selectedFilter
         defer {
             Preferences.rememberSortFilterSelections = rememberBefore
@@ -116,32 +116,32 @@ extension DebugHarness {
 
         // MARK: Decoding
 
-        // Seed storage directly, then reach each view for the first time this run so the
-        // load path — not the in-memory cache — is what answers. Distinct views are used
-        // per case for exactly that reason: revisiting one would be served from the cache
-        // and would assert nothing about decoding.
+        /// Seed storage directly, then reach each view for the first time this run so the
+        /// load path — not the in-memory cache — is what answers. Distinct views are used
+        /// per case for exactly that reason: revisiting one would be served from the cache
+        /// and would assert nothing about decoding.
         Preferences.viewSortStates = [
-            // A five-element entry with dividers ON.
+            /// A five-element entry with dividers ON.
             "smartList.\(SmartListType.allCases[0].rawValue)":
                 ["title", "", "ascending", "", "dividers"],
-            // A five-element entry with dividers explicitly OFF.
+            /// A five-element entry with dividers explicitly OFF.
             "unwatched.\(UnwatchedCategory.unwatched.rawValue)":
                 ["year", "", "descending", "list", ""],
-            // A LEGACY four-element entry, the format without the dividers element. Must
-            // decode with dividers off and must not trap on the missing element. This is
-            // the case that governs stored state written before the element existed.
+            /// A LEGACY four-element entry, the format without the dividers element. Must
+            /// decode with dividers off and must not trap on the missing element. This is
+            /// the case that governs stored state written before the element existed.
             "unwatched.\(UnwatchedCategory.notRated.rawValue)":
                 ["title", "", "ascending", "list"],
-            // A THREE-element entry, the older format the codec still reads. Both trailing
-            // fields must fall back to their struct defaults. Filed
-            // under the Queue's "Up Next" tab, which owns its slot like any other view.
+            /// A THREE-element entry, the older format the codec still reads. Both trailing
+            /// fields must fall back to their struct defaults. Filed
+            /// under the Queue's "Up Next" tab, which owns its slot like any other view.
             "filmQueue.upNext": ["duration", "", "descending"],
-            // The Queue's "All" tab, seeded with dividers explicitly OFF. It must still
-            // resolve to ON: that tab's bands are structural and its pair is locked, so no
-            // stored value may present it as anything else.
+            /// The Queue's "All" tab, seeded with dividers explicitly OFF. It must still
+            /// resolve to ON: that tab's bands are structural and its pair is locked, so no
+            /// stored value may present it as anything else.
             "filmQueue": ["title", "", "ascending", "", ""],
-            // A malformed element [4]. Anything that is not exactly "dividers" means off;
-            // it must not trap, and it must not be read as truthy for being non-empty.
+            /// A malformed element [4]. Anything that is not exactly "dividers" means off;
+            /// it must not trap, and it must not be read as truthy for being non-empty.
             "allFilms": ["title", "", "ascending", "", "yes-please"],
         ]
 
@@ -189,7 +189,7 @@ extension DebugHarness {
         r.check("encode-token", allFilmsEncoded.count == 5 && allFilmsEncoded[4] == "dividers",
                 "element [4] is the dividers token")
 
-        // The idempotence guard: a redundant set must not churn storage or reload.
+        /// The idempotence guard: a redundant set must not churn storage or reload.
         let beforeNoop = Preferences.viewSortStates
         manager.updateShowSectionDividers(true)
         await awaitDebouncedSave()
@@ -198,8 +198,8 @@ extension DebugHarness {
 
         // MARK: Per-view isolation
 
-        // The purpose of the per-view setting: All Films is on from the mutation above, and a
-        // different view must be entirely unaffected by it — both in memory and on disk.
+        /// The purpose of the per-view setting: All Films is on from the mutation above, and a
+        /// different view must be entirely unaffected by it — both in memory and on disk.
         manager.switchToViewSync(.unwatched(.unwatched))
         r.check("isolation-other-view-unaffected", !manager.activeState.showSectionDividers,
                 "a second view kept its own off setting while All Films is on")
@@ -216,9 +216,9 @@ extension DebugHarness {
 
         // MARK: Film Queue per-tab ownership and the "All" tab's lock
 
-        // The Queue's four tabs share one ViewIdentifier and are told apart only by
-        // ViewStateKey's sub-tab, so these are the checks that prove the key — not the
-        // identifier — is what addresses storage.
+        /// The Queue's four tabs share one ViewIdentifier and are told apart only by
+        /// ViewStateKey's sub-tab, so these are the checks that prove the key — not the
+        /// identifier — is what addresses storage.
         FilmQueueFilterState.shared.selectedFilter = .all
         manager.switchToViewSync(.filmQueue)
         r.check("queue-all-locked-on", manager.activeState.showSectionDividers,
@@ -226,14 +226,14 @@ extension DebugHarness {
         r.check("queue-all-reports-locked", manager.sectionDividersLocked,
                 "and reports itself as locked, which is what disables the menu pair")
 
-        // The enforcement half of the lock: the mutator must refuse, so no code path can
-        // write a value the tab cannot honor even with the menu pair disabled.
+        /// The enforcement half of the lock: the mutator must refuse, so no code path can
+        /// write a value the tab cannot honor even with the menu pair disabled.
         manager.updateShowSectionDividers(false)
         r.check("queue-all-refuses-change", manager.activeState.showSectionDividers,
                 "updateShowSectionDividers(false) was refused on the locked tab")
 
-        // A section tab is free, defaults off like any other view, and is unaffected by
-        // the All tab's permanent ON.
+        /// A section tab is free, defaults off like any other view, and is unaffected by
+        /// the All tab's permanent ON.
         FilmQueueFilterState.shared.selectedFilter = .soon
         manager.switchToViewSync(.filmQueue)
         r.check("queue-section-not-locked", !manager.sectionDividersLocked,
@@ -250,8 +250,8 @@ extension DebugHarness {
                     && Preferences.viewSortStates["filmQueue.soon"]?[0] == SortOption.rating.rawValue,
                 "the Soon tab wrote its own key: \(Preferences.viewSortStates["filmQueue.soon"] ?? [])")
 
-        // The two remaining section tabs must be untouched by all of the above — the
-        // isolation the whole feature exists to provide.
+        /// The two remaining section tabs must be untouched by all of the above — the
+        /// isolation the whole feature exists to provide.
         FilmQueueFilterState.shared.selectedFilter = .later
         manager.switchToViewSync(.filmQueue)
         r.check("queue-sibling-unaffected",
@@ -264,7 +264,7 @@ extension DebugHarness {
         r.check("queue-upnext-retained", manager.activeState.sortOption == .duration,
                 "the Up Next tab still holds the state it decoded at the top of this run")
 
-        // And returning to All finds its own locked state, not the last section tab's.
+        /// And returning to All finds its own locked state, not the last section tab's.
         FilmQueueFilterState.shared.selectedFilter = .all
         manager.switchToViewSync(.filmQueue)
         r.check("queue-all-round-trip",
@@ -273,9 +273,9 @@ extension DebugHarness {
 
         // MARK: Remember-preference governance
 
-        // With the remember preference off, a divider choice must not reach storage — the
-        // same rule every sibling field obeys, and what makes "defaults to off on the next
-        // launch" true rather than merely intended.
+        /// With the remember preference off, a divider choice must not reach storage — the
+        /// same rule every sibling field obeys, and what makes "defaults to off on the next
+        /// launch" true rather than merely intended.
         Preferences.rememberSortFilterSelections = false
         manager.switchToViewSync(.smartList(SmartListType.allCases[0]))
         let storedBeforeUnremembered = Preferences.viewSortStates
@@ -289,13 +289,13 @@ extension DebugHarness {
 
         // MARK: Menu reachability
 
-        // The dividers pair lives inside the Sort menu, so the menu's own seal decides
-        // whether the control is reachable. A view whose Sort menu is fully disabled and
-        // which has no bands would offer no way to turn dividers back ON, which is the
-        // state in which the user most needs the control. The Recents tabs have that shape
-        // (fixed sort, so the menu is always "disabled", and no jump targets while dividers
-        // are off). `supportsSectionDividers` is the third clause that keeps the menu open,
-        // and it must be true for every gallery-backed view.
+        /// The dividers pair lives inside the Sort menu, so the menu's own seal decides
+        /// whether the control is reachable. A view whose Sort menu is fully disabled and
+        /// which has no bands would offer no way to turn dividers back ON, which is the
+        /// state in which the user most needs the control. The Recents tabs have that shape
+        /// (fixed sort, so the menu is always "disabled", and no jump targets while dividers
+        /// are off). `supportsSectionDividers` is the third clause that keeps the menu open,
+        /// and it must be true for every gallery-backed view.
         for (label, item) in [
             ("allFilms", SidebarItem.libraryItem(.allFilms)),
             ("unwatched", SidebarItem.libraryItem(.unwatched)),
@@ -309,8 +309,8 @@ extension DebugHarness {
                     "gallery-backed view keeps its Sort menu openable for the dividers pair")
         }
 
-        // The negative control. Without it every check above could pass on a capability
-        // that is simply hard-wired true, asserting nothing.
+        /// The negative control. Without it every check above could pass on a capability
+        /// that is simply hard-wired true, asserting nothing.
         for (label, item) in [
             ("reports", SidebarItem.libraryItem(.reports)),
             ("imports", SidebarItem.libraryItem(.imports)),
@@ -319,8 +319,8 @@ extension DebugHarness {
                     "a view that is not gallery-backed still seals its Sort menu as before")
         }
 
-        // And the clear that STabGeneral performs on disabling the preference must leave
-        // nothing behind for a later launch to read back.
+        /// And the clear that STabGeneral performs on disabling the preference must leave
+        /// nothing behind for a later launch to read back.
         Preferences.clearViewSortStates()
         r.check("cleared-storage-is-empty", Preferences.viewSortStates.isEmpty,
                 "clearViewSortStates left no entry any view could inherit dividers from")
@@ -331,11 +331,11 @@ extension DebugHarness {
 
 
 // MARK: - Source for Viewing Ladder
-//
-// Proves the three-tier studio spelling in the RightSidebar's "Source for Viewing" field
-// (ReleaseStudio: name / shorthand / abbreviated) and the ladder `fittingValueRow` is handed
-// for it. Pure functions — RSBHelpers.sourceDisplay and SidebarTextAbbreviation.sourceValueLadder
-// — driven through the same entry points WatchDetails uses.
+///
+/// Proves the three-tier studio spelling in the RightSidebar's "Source for Viewing" field
+/// (ReleaseStudio: name / shorthand / abbreviated) and the ladder `fittingValueRow` is handed
+/// for it. Pure functions — RSBHelpers.sourceDisplay and SidebarTextAbbreviation.sourceValueLadder
+/// — driven through the same entry points WatchDetails uses.
 extension DebugHarness {
 
     private static func sourceLadderScenario() -> HarnessScenarioResult {
@@ -346,17 +346,17 @@ extension DebugHarness {
                 "shorthand for Universal Studios is '\(ReleaseStudio.shorthand("Universal Studios"))'")
         r.check("abbreviated-tier", ReleaseStudio.abbreviated("Universal Studios") == "Uni",
                 "abbreviation for Universal Studios is '\(ReleaseStudio.abbreviated("Universal Studios"))'")
-        // A studio with a shorthand but no abbreviation abbreviates to its shorthand.
+        /// A studio with a shorthand but no abbreviation abbreviates to its shorthand.
         r.check("abbreviated-falls-back-to-shorthand",
                 ReleaseStudio.abbreviated("Sony Pictures") == ReleaseStudio.shorthand("Sony Pictures"),
                 "abbreviated('Sony Pictures') should equal its shorthand")
-        // A studio with neither yields its name at both tiers; so does free text.
+        /// A studio with neither yields its name at both tiers; so does free text.
         for name in ["Criterion", "Some Boutique Label"] {
             r.check("no-tier-is-identity-\(name)",
                     ReleaseStudio.shorthand(name) == name && ReleaseStudio.abbreviated(name) == name,
                     "'\(name)' was altered by a tier it has no spelling for")
         }
-        // Each entry's tiers never get longer as they descend.
+        /// Each entry's tiers never get longer as they descend.
         let monotone = ReleaseStudio.entries.allSatisfy { e in
             let sh = e.shorthand ?? e.name
             let ab = e.abbreviated ?? sh
@@ -365,9 +365,9 @@ extension DebugHarness {
         r.check("tiers-never-lengthen", monotone, "a shorthand or abbreviation is longer than the tier above it")
 
         // MARK: The field
-        // Two purchased Blu-rays from different studios force the studio prefix; the
-        // Universal one scores best by being remastered. The Australian origin forces the
-        // origin token, so every ladder step has something to do.
+        /// Two purchased Blu-rays from different studios force the studio prefix; the
+        /// Universal one scores best by being remastered. The Australian origin forces the
+        /// origin token, so every ladder step has something to do.
         let uni = ReleaseSnapshot(studio: "Universal Studios", releaseDate: "2015", purchased: true,
                                   format: ReleaseFormat.bluRay.rawValue, remastered: true,
                                   nationalOrigin: "Australia")
@@ -404,8 +404,8 @@ extension DebugHarness {
                 "ladder is longer than fittingValueRow can offer")
         r.check("ladder-is-distinct", Set(ladder).count == ladder.count && !ladder.contains(display.value),
                 "ladder repeats a step or the full value")
-        // Order: singles, then pairs, then all three — each step gives up no less than the
-        // one before it, so the row never has to choose a bigger retreat over a smaller one.
+        /// Order: singles, then pairs, then all three — each step gives up no less than the
+        /// one before it, so the row never has to choose a bigger retreat over a smaller one.
         func retreats(_ s: String) -> Int {
             (s.contains("rem.") ? 1 : 0) + (s.contains("AUS ") ? 1 : 0) + (s.contains("Uni ") ? 1 : 0)
         }
@@ -415,8 +415,8 @@ extension DebugHarness {
         r.check("ladder-studio-single-step", ladder.count > 2 && ladder[2] == display.studioAbbreviatedValue,
                 "third step should be the studio alone: \(ladder)")
 
-        // A single domestic release shows no prefix, so every alternate is nil and the
-        // ladder is only the "remastered" step (or empty without it).
+        /// A single domestic release shows no prefix, so every alternate is nil and the
+        /// ladder is only the "remastered" step (or empty without it).
         let plain = makeSnapshot(name: "Plain", releases: [
             ReleaseSnapshot(studio: "Universal Studios", purchased: true, format: ReleaseFormat.bluRay.rawValue)])
         let plainDisplay = RSBHelpers.sourceDisplay(for: plain)
@@ -428,8 +428,8 @@ extension DebugHarness {
                 SidebarTextAbbreviation.sourceValueLadder(full: plainDisplay.value, originAbbreviated: nil).isEmpty,
                 "a value with nothing to shorten offered a ladder")
 
-        // A studio with no abbreviation contributes no studio step: the studio alternate is
-        // nil and the ladder collapses to the origin/remastered combinations.
+        /// A studio with no abbreviation contributes no studio step: the studio alternate is
+        /// nil and the ladder collapses to the origin/remastered combinations.
         let sonyA = ReleaseSnapshot(studio: "Sony Pictures", releaseDate: "2015", purchased: true,
                                     format: ReleaseFormat.bluRay.rawValue)
         let sonyFilm = makeSnapshot(name: "Sony", releases: [sonyA, wb])
@@ -444,12 +444,12 @@ extension DebugHarness {
 
 
 // MARK: - Gallery Focus Handoff
-//
-// Proves GalleryFocusIntent end to end for both gallery styles: the REAL GallerySubview
-// (grid) and GalleryListView (list), hosted in an off-screen window, claim first responder
-// for their content view when — and only when — an intent addressed to their view is
-// pending at mount. The search-exit path in MainView is the only producer; what it produces
-// is exercised here exactly as the destination gallery consumes it.
+///
+/// Proves GalleryFocusIntent end to end for both gallery styles: the REAL GallerySubview
+/// (grid) and GalleryListView (list), hosted in an off-screen window, claim first responder
+/// for their content view when — and only when — an intent addressed to their view is
+/// pending at mount. The search-exit path in MainView is the only producer; what it produces
+/// is exercised here exactly as the destination gallery consumes it.
 extension DebugHarness {
 
     private struct GridHost: View {
@@ -489,8 +489,8 @@ extension DebugHarness {
         host.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        // viewWillDraw runs in the display pass, not layout; the claim itself is deferred
-        // one further turn from there.
+        /// viewWillDraw runs in the display pass, not layout; the claim itself is deferred
+        /// one further turn from there.
         window.displayIfNeeded()
         let deadline = Date().addingTimeInterval(2)
         var turns = 0
@@ -581,11 +581,11 @@ enum ViewSwitchProbe {
 
 // MARK: - View Switch Perf
 
-// `view-switch-perf` (opt-in, a measurement): sidebar navigation between gallery-backed views
-// in the REAL main window, on a library-sized corpus. Per switch it records the main-thread
-// busy stretches (same recorder as `reports-hitch`) and the probe event sequence: which
-// gallery style mounted, for which view, holding how many films, and how many loads and
-// reloads the switch cost. Launch with `open -g -n`.
+/// `view-switch-perf` (opt-in, a measurement): sidebar navigation between gallery-backed views
+/// in the REAL main window, on a library-sized corpus. Per switch it records the main-thread
+/// busy stretches (same recorder as `reports-hitch`) and the probe event sequence: which
+/// gallery style mounted, for which view, holding how many films, and how many loads and
+/// reloads the switch cost. Launch with `open -g -n`.
 extension DebugHarness {
     static func viewSwitchPerfScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "view-switch-perf")
@@ -600,7 +600,7 @@ extension DebugHarness {
 
         let manager = ViewStateManager.shared
         let smart: SidebarItem = .smartList(SmartListType.sidebarCases.first!)
-        // Put one destination in list style so grid⟷list crossings are measured too.
+        /// Put one destination in list style so grid⟷list crossings are measured too.
         appState.navigate(to: smart)
         await settle(800)
         let smartWasList = manager.activeState.isListView
@@ -638,7 +638,7 @@ extension DebugHarness {
             await measure("list→grid", to: .libraryItem(.allFilms))
         }
 
-        // In-place sub-tab switches: the gallery stays mounted and must reload exactly once.
+        /// In-place sub-tab switches: the gallery stays mounted and must reload exactly once.
         await measure("to-recents", to: .libraryItem(.recents))
         var previousWasEmpty = coordinator.films.isEmpty
         for c in RecentsCategory.allCases.reversed() {
@@ -648,8 +648,8 @@ extension DebugHarness {
             await settle(500)
             let reloads = ViewSwitchProbe.events.filter { $0.hasPrefix("grid.reload") || $0.hasPrefix("list.reload") }
             let makes = ViewSwitchProbe.events.filter { $0.contains(".make") }
-            // A category with no films shows a placeholder and unmounts the gallery, so
-            // the next non-empty one legitimately mounts a fresh one.
+            /// A category with no films shows a placeholder and unmounts the gallery, so
+            /// the next non-empty one legitimately mounts a fresh one.
             r.check("recents-subtab-single-reload \(c.rawValue)", reloads.count <= 1 && (makes.isEmpty || previousWasEmpty),
                     ViewSwitchProbe.events.joined(separator: " | "))
             let loadMs = ViewSwitchProbe.events.first { $0.hasPrefix("load ") }
@@ -658,7 +658,7 @@ extension DebugHarness {
             previousWasEmpty = coordinator.films.isEmpty
         }
 
-        // Scroll-origin round trip, long view → short view → back, with the preference on.
+        /// Scroll-origin round trip, long view → short view → back, with the preference on.
         let maintainBefore = Preferences.maintainScrollPositionOnViewSwitch
         Preferences.maintainScrollPositionOnViewSwitch = true
         defer { Preferences.maintainScrollPositionOnViewSwitch = maintainBefore }
@@ -685,8 +685,8 @@ extension DebugHarness {
             let after = galleryScrollView()?.documentVisibleRect.origin.y ?? -1
             r.check("origin-round-trip", abs(after - before) < 1, "before \(before) after \(after)")
 
-            // Through a search session: entry replaces the films under the still-mounted
-            // All Films grid, which must not bank a viewport clamped to the results.
+            /// Through a search session: entry replaces the films under the still-mounted
+            /// All Films grid, which must not bank a viewport clamped to the results.
             if let sv2 = galleryScrollView() {
                 sv2.contentView.scroll(to: NSPoint(x: 0, y: 6000))
                 sv2.reflectScrolledClipView(sv2.contentView)
@@ -723,18 +723,18 @@ extension DebugHarness {
 
 
 // MARK: - Gallery Integrity
-//
-// `gallery-integrity` (opt-in; seeds 60 films, so it is kept out of `all`): behaviors of
-// both gallery styles that no other scenario reaches, each driven through the REAL
-// GallerySubview / GalleryListView hosted in an off-screen window —
-//
-//   • Cmd+A delivered straight to the gallery honors ViewCapabilities.supportsMultiSelection
-//     (KeyboardManager passes the key through, and the menu item is disabled, in views that
-//     do not support it, so the gallery's own keyDown is the last line).
-//   • A dismantled gallery's selection-observation loop never acts again.
-//   • The grid tile's placeholder fill and the divider band's rule follow appearance changes.
-//   • Keyboard focus never seeds item 0 over a selection that landed in the same turn.
-//   • Cmd+L places the topmost selected film in the top row in BOTH styles.
+///
+/// `gallery-integrity` (opt-in; seeds 60 films, so it is kept out of `all`): behaviors of
+/// both gallery styles that no other scenario reaches, each driven through the REAL
+/// GallerySubview / GalleryListView hosted in an off-screen window —
+///
+///   • Cmd+A delivered straight to the gallery honors ViewCapabilities.supportsMultiSelection
+///     (KeyboardManager passes the key through, and the menu item is disabled, in views that
+///     do not support it, so the gallery's own keyDown is the last line).
+///   • A dismantled gallery's selection-observation loop never acts again.
+///   • The grid tile's placeholder fill and the divider band's rule follow appearance changes.
+///   • Keyboard focus never seeds item 0 over a selection that landed in the same turn.
+///   • Cmd+L places the topmost selected film in the top row in BOTH styles.
 extension DebugHarness {
 
     private struct IntegrityGridHost: View {
@@ -857,7 +857,7 @@ extension DebugHarness {
             if let cv = findView(GalleryCollectionView.self, in: host), let event = cmdAEvent(window) {
                 cv.keyDown(with: event)
                 await drainTurns(window)
-                // Every gallery view supports Select All; the grid's own Cmd+A must agree.
+                /// Every gallery view supports Select All; the grid's own Cmd+A must agree.
                 r.check("grid-cmd-a-subtab-view-selects-all",
                         selection.selectedFilmIDs.count == coordinator.films.count,
                         "model \(selection.selectedFilmIDs.count), grid \(cv.selectionIndexPaths.count) of \(cv.numberOfItems(inSection: 0))")
@@ -883,7 +883,7 @@ extension DebugHarness {
             r.check("cmd-a-view-unsupported", false, "no unsupported view had films")
         }
 
-        // Positive control: where Select All IS supported, the gallery's own Cmd+A still works.
+        /// Positive control: where Select All IS supported, the gallery's own Cmd+A still works.
         appState.navigate(to: .libraryItem(.allFilms))
         await settle()
         selection.selectImmediate(Set<UUID>())
@@ -917,7 +917,7 @@ extension DebugHarness {
                 r.check("focus-seed-keeps-same-turn-selection", selection.selectedFilmIDs == [target],
                         "model \(selection.selectedFilmIDs.map { $0 == target ? "target" : "other" })")
 
-                // Control: focus with no selection at all still seeds item 0.
+                /// Control: focus with no selection at all still seeds item 0.
                 window.makeFirstResponder(nil)
                 selection.selectImmediate(Set<UUID>())
                 await drainTurns(window, 2)
@@ -972,10 +972,10 @@ extension DebugHarness {
         }
 
         // MARK: A dismantled gallery's observation loop stays inert
-        // With the main window on Imports no gallery of its own is mounted, so the only
-        // thing that could prune a selection naming a film no gallery holds is the
-        // dismantled one. Its collection/table view is held alive on purpose: that is the
-        // condition under which a loop that outlived its dismantle would still act.
+        /// With the main window on Imports no gallery of its own is mounted, so the only
+        /// thing that could prune a selection naming a film no gallery holds is the
+        /// dismantled one. Its collection/table view is held alive on purpose: that is the
+        /// condition under which a loop that outlived its dismantle would still act.
         appState.navigate(to: .libraryItem(.imports))
         await settle()
         for style in ["grid", "list"] {
@@ -1038,12 +1038,12 @@ extension DebugHarness {
 
 // MARK: - First selection
 
-// `first-selection` (opt-in, a measurement; run it ALONE so nothing earlier warms the
-// sidebar): the first film selection of a session against later ones, in the real main
-// window. Each selection starts from an empty selection, as the first one after launch
-// does, and is read with the reports-hitch recorder: `first` is the busy stretch until the
-// frame carrying the sidebar content is committed. The launch-time SidebarPrewarm runs as
-// in production; FT_NO_SIDEBAR_PREWARM=1 turns it off to measure the cold path.
+/// `first-selection` (opt-in, a measurement; run it ALONE so nothing earlier warms the
+/// sidebar): the first film selection of a session against later ones, in the real main
+/// window. Each selection starts from an empty selection, as the first one after launch
+/// does, and is read with the reports-hitch recorder: `first` is the busy stretch until the
+/// frame carrying the sidebar content is committed. The launch-time SidebarPrewarm runs as
+/// in production; FT_NO_SIDEBAR_PREWARM=1 turns it off to measure the cold path.
 #if DEBUG
 extension DebugHarness {
     static func firstSelectionScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -1056,8 +1056,8 @@ extension DebugHarness {
         func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
         appState.navigate(to: .libraryItem(.allFilms))
         await settle(2000)
-        // A fresh sandbox is empty at launch, so the launch-time call found no film; make
-        // it here, where the library now looks as a real one does at launch.
+        /// A fresh sandbox is empty at launch, so the launch-time call found no film; make
+        /// it here, where the library now looks as a real one does at launch.
         SidebarPrewarm.runIfIdle(dataCoordinator: coordinator)
         await settle(1000)
         let films = coordinator.films
@@ -1066,8 +1066,8 @@ extension DebugHarness {
         let recorder = RunLoopBusyRecorder()
         recorder.start()
         defer { recorder.stop() }
-        // FT_FIRST_SELECTION_ARM=1 announces the pid and holds, so an external `sample`
-        // can be attached before the first selection.
+        /// FT_FIRST_SELECTION_ARM=1 announces the pid and holds, so an external `sample`
+        /// can be attached before the first selection.
         if ProcessInfo.processInfo.environment["FT_FIRST_SELECTION_ARM"] == "1" {
             FileHandle.standardError.write("FIRST-SELECTION-ARMED \(getpid())\n".data(using: .utf8)!)
             await settle(4000)
@@ -1076,7 +1076,7 @@ extension DebugHarness {
             selection.selectImmediate(nil as UUID?)
             await settle(700)
             recorder.reset()
-            // Main-thread CPU beside wall time: a gap between them is time spent blocked.
+            /// Main-thread CPU beside wall time: a gap between them is time spent blocked.
             let cpu0 = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)
             let t0 = CACurrentMediaTime() * 1000
             selection.selectImmediate(films[5 + i * 4].id)
@@ -1091,19 +1091,19 @@ extension DebugHarness {
 }
 
 // MARK: - Coast Stop
-//
-// `coast-stop` (opt-in; seeds 600 films and puts a window on screen for a few seconds, so
-// it is kept out of `all`): Cmd+L during a coasting scroll lands on the selection and the
-// content stays there, in both gallery styles — CoastingScrollStopper (23.20).
-//
-// A real trackpad coast cannot be synthesized: AppKit tracks it on a background thread fed
-// straight from the window server. AppKit's own automated live scroll (`_automateLiveScroll`)
-// is the stand-in. It runs on the same concurrent scrolling behavior, overruns a
-// programmatic jump exactly as a coast does (the control checks prove the scenario sees
-// the bug), and ends on `_stopGestureScrollTracking` with didEndLiveScroll arriving after
-// the call — the stopper's deferred path. The synchronous path and real flicks are not
-// covered here and are checked by hand. The window must be on screen: the automation is
-// driven by the display link.
+///
+/// `coast-stop` (opt-in; seeds 600 films and puts a window on screen for a few seconds, so
+/// it is kept out of `all`): Cmd+L during a coasting scroll lands on the selection and the
+/// content stays there, in both gallery styles — CoastingScrollStopper (23.20).
+///
+/// A real trackpad coast cannot be synthesized: AppKit tracks it on a background thread fed
+/// straight from the window server. AppKit's own automated live scroll (`_automateLiveScroll`)
+/// is the stand-in. It runs on the same concurrent scrolling behavior, overruns a
+/// programmatic jump exactly as a coast does (the control checks prove the scenario sees
+/// the bug), and ends on `_stopGestureScrollTracking` with didEndLiveScroll arriving after
+/// the call — the stopper's deferred path. The synchronous path and real flicks are not
+/// covered here and are checked by hand. The window must be on screen: the automation is
+/// driven by the display link.
 extension DebugHarness {
 
     /// Follows one scroll view's live-scroll notifications.
@@ -1193,13 +1193,13 @@ extension DebugHarness {
                 sv.contentView.setBoundsOrigin(.zero)
                 sv.reflectScrolledClipView(sv.contentView)
             }
-            // The coast is the precondition, not the subject: act as soon as it is visibly
-            // under way rather than after a fixed delay, which a short coast could outlast.
+            /// The coast is the precondition, not the subject: act as soon as it is visibly
+            /// under way rather than after a fixed delay, which a short coast could outlast.
             func awaitCoastUnderway() async {
                 for _ in 0..<15 where !(probe.isLive && y() > 40) { await wait(20) }
             }
 
-            // Control: without the stop, a programmatic jump during the coast does not stick.
+            /// Control: without the stop, a programmatic jump during the coast does not stick.
             scrollToTop()
             await drainTurns(window)
             _ = unsafe sv.perform(automateSelector)
@@ -1214,7 +1214,7 @@ extension DebugHarness {
             await wait(300)
             r.check("\(style)-control-coast-ended", !probe.isLive, "live \(probe.isLive)")
 
-            // Cmd+L during the coast.
+            /// Cmd+L during the coast.
             scrollToTop()
             selection.selectImmediate([coordinator.films[targetIndex].id])
             await drainTurns(window)
@@ -1239,8 +1239,8 @@ extension DebugHarness {
                 r.check("\(style)-cmd-l-on-target", false, "no geometry for film \(targetIndex)")
             }
 
-            // The viewport-jump tracer: silent for Cmd+L (an app move), and still flags a
-            // large move nobody claimed (positive control).
+            /// The viewport-jump tracer: silent for Cmd+L (an app move), and still flags a
+            /// large move nobody claimed (positive control).
             r.check("\(style)-tracer-quiet-for-cmd-l", ViewportJumpTracer.jumpsFlagged == flaggedBefore,
                     "flagged \(ViewportJumpTracer.jumpsFlagged - flaggedBefore)")
             if probe.isLive { stopAutomatedCoast(sv) }
@@ -1260,26 +1260,26 @@ extension DebugHarness {
 
 #if DEBUG
 // MARK: - Scroll Memory
-//
-// `scroll-memory` (opt-in, real main window, 1,400-film reportsCorpus): remembered scroll
-// position through real navigation, with maintainScrollPositionOnViewSwitch on. Covered
-// behaviors:
-//
-//   • T1 A Film Queue tab restore in LIST style applies that tab's own origin. The list
-//     must not apply the incoming tab's origin to the outgoing tab's rows. Galleries key
-//     their origin by the loaded filter.
-//   • T2 A Reports / Imports round trip after a wheel scroll to the top returns to the
-//     banked origin. The navigation banks the origin before the switch.
-//   • T3 A search exit with a preserved selection puts the film's row at the top, as far as
-//     the content allows, wherever it stood: at the bottom edge, mid-viewport, or near the end.
-//   • T6 A filter that empties the gallery, then cleared, restores the banked origin. The
-//     emptying pass banks it.
-//   • T7 An order-preserving Film Queue section move consumes its scroll intent in place.
-//   • T5 An empty Queue tab does not take the previous tab's position.
-//   • T10/T11 Restores are film-anchored. A narrower window (fewer columns) or a row of films
-//     inserted above while away still opens on the same top film.
-//   • T12 An anchor film that moves on its own does not drag the view after it.
-//   • T13 With maintainSelectionOnSearchExit off, a search exit preserves and scrolls nothing.
+///
+/// `scroll-memory` (opt-in, real main window, 1,400-film reportsCorpus): remembered scroll
+/// position through real navigation, with maintainScrollPositionOnViewSwitch on. Covered
+/// behaviors:
+///
+///   • T1 A Film Queue tab restore in LIST style applies that tab's own origin. The list
+///     must not apply the incoming tab's origin to the outgoing tab's rows. Galleries key
+///     their origin by the loaded filter.
+///   • T2 A Reports / Imports round trip after a wheel scroll to the top returns to the
+///     banked origin. The navigation banks the origin before the switch.
+///   • T3 A search exit with a preserved selection puts the film's row at the top, as far as
+///     the content allows, wherever it stood: at the bottom edge, mid-viewport, or near the end.
+///   • T6 A filter that empties the gallery, then cleared, restores the banked origin. The
+///     emptying pass banks it.
+///   • T7 An order-preserving Film Queue section move consumes its scroll intent in place.
+///   • T5 An empty Queue tab does not take the previous tab's position.
+///   • T10/T11 Restores are film-anchored. A narrower window (fewer columns) or a row of films
+///     inserted above while away still opens on the same top film.
+///   • T12 An anchor film that moves on its own does not drag the view after it.
+///   • T13 With maintainSelectionOnSearchExit off, a search exit preserves and scrolls nothing.
 extension DebugHarness {
     @MainActor
     private final class OriginTrail: NSObject {
@@ -1379,7 +1379,7 @@ extension DebugHarness {
                 return (coordinator.films[ip.item].id, ip.item)
             }
             if let tv = findView(DraggableListTableView.self, in: window?.contentView) {
-                let rows = tv.rows(in: tv.visibleRect)   // All Films, dividers off: row == film index
+                let rows = tv.rows(in: tv.visibleRect)   /// All Films, dividers off: row == film index
                 guard rows.length > 0, rows.location < coordinator.films.count else { return nil }
                 return (coordinator.films[rows.location].id, rows.location)
             }
@@ -1396,7 +1396,7 @@ extension DebugHarness {
                 .filter { $0 < coordinator.films.count }.map { coordinator.films[$0].id })
         }
 
-        // ---- P1 + T2: grid, wheel scroll to top, Reports round trip
+        /// ---- P1 + T2: grid, wheel scroll to top, Reports round trip
         appState.navigate(to: .libraryItem(.allFilms)); await settle(800)
         manager.updateListViewStyle(false); await settle(600)
         setY(6000); await settle(300)
@@ -1430,7 +1430,7 @@ extension DebugHarness {
             }
         }
 
-        // Same, but leaving via a sidebar switch (prepareScrollHandoff path) as a control.
+        /// Same, but leaving via a sidebar switch (prepareScrollHandoff path) as a control.
         setY(6000); await settle(200)
         appState.navigate(to: .libraryItem(.unwatched)); await settle(800)
         appState.navigate(to: .libraryItem(.allFilms)); await settle(1000)
@@ -1439,13 +1439,13 @@ extension DebugHarness {
         appState.navigate(to: .libraryItem(.allFilms)); await settle(1000)
         r.check("T2-control-sidebar-round-trip-keeps-top", y() < 1, "y \(y())")
 
-        // ---- T3: search exit with a preserved selection always puts the film's row at the
-        // top of the viewport — as far as the content allows — wherever the film stood in the
-        // view the user returns to: cut off at the bottom edge, fully visible mid-viewport, or
-        // near the end of the content. In a user list, in both styles.
+        /// ---- T3: search exit with a preserved selection always puts the film's row at the
+        /// top of the viewport — as far as the content allows — wherever the film stood in the
+        /// view the user returns to: cut off at the bottom edge, fully visible mid-viewport, or
+        /// near the end of the content. In a user list, in both styles.
         let probeListID = coordinator.createList(name: "Scroll Probe", displayOrder: 990)
         _ = coordinator.addFilmsToList(filmIDs: Set(coordinator.films.prefix(600).map(\.id)), listID: probeListID)
-        // The film's content frame and the viewport, for whichever style is mounted.
+        /// The film's content frame and the viewport, for whichever style is mounted.
         func frameAndViewport(_ id: UUID) -> (frame: CGRect, visible: CGRect, maxY: CGFloat, spacing: CGFloat)? {
             guard let index = coordinator.films.firstIndex(where: { $0.id == id }) else { return nil }
             if let cv = findView(GalleryCollectionView.self, in: window?.contentView),
@@ -1479,7 +1479,7 @@ extension DebugHarness {
                 SelectionState.shared.selectImmediate(Set<UUID>())
                 if placement == "near-end" { setY(1_000_000) } else { setY(4000) }
                 await settle(300)
-                // Bank this position, so the return restores it before placing the film.
+                /// Bank this position, so the return restores it before placing the film.
                 appState.navigate(to: .libraryItem(.unwatched)); await settle(800)
                 appState.navigate(to: .list(probeListID)); await settle(1000)
                 guard let probe = frameAndViewport(coordinator.films[0].id) else {
@@ -1509,10 +1509,10 @@ extension DebugHarness {
         manager.updateListViewStyle(false); await settle(600)
         appState.navigate(to: .libraryItem(.allFilms)); await settle(900)
 
-        // ---- T10–T13: film-anchored restores, and the search-exit preference gate.
+        /// ---- T10–T13: film-anchored restores, and the search-exit preference gate.
         manager.updateShowSectionDividers(false); await settle(400)
 
-        // T10: the column count changes while away (the window is narrowed).
+        /// T10: the column count changes while away (the window is narrowed).
         func columns() -> Int {
             (findView(GalleryCollectionView.self, in: window?.contentView)?.collectionViewLayout
                 as? SmoothResizingGridLayout)?.columnsPerRow ?? 0
@@ -1533,15 +1533,15 @@ extension DebugHarness {
             window.setFrame(frameBefore, display: true); await settle(600)
         } else { r.check("T10-top-film", false, "") }
 
-        // T11: films inserted above the viewport while away, both styles.
+        /// T11: films inserted above the viewport while away, both styles.
         var inserted = 0
         for listStyle in [false, true] {
             manager.updateListViewStyle(listStyle); await settle(800)
             setY(6000); await settle(300)
             guard let before = topFilm() else { r.check("T11-top-film", false, ""); continue }
             appState.navigate(to: .libraryItem(.unwatched)); await settle(800)
-            // The inserted titles sort ahead of every corpus title. The count is one full grid
-            // row, so a pixel restore would leave the top film a row down.
+            /// The inserted titles sort ahead of every corpus title. The count is one full grid
+            /// row, so a pixel restore would leave the top film a row down.
             let insertCount = listStyle ? 3 : max(1, columns())
             let names = (0..<insertCount).map { _ in inserted += 1; return "AAAA Inserted \(inserted)" }
             coordinator.importFilms(names.map { makeSnapshot(name: $0) })
@@ -1550,14 +1550,14 @@ extension DebugHarness {
             let after = topFilm()
             let above = coordinator.films.indices.filter { names.contains(coordinator.films[$0].name) }
                 .allSatisfy { $0 < (after?.index ?? 0) }
-            // Grid: the anchor film is back in the top row (it may sit further along the row).
+            /// Grid: the anchor film is back in the top row (it may sit further along the row).
             let kept = listStyle ? after?.id == before.id : topRowFilmIDs().contains(before.id)
             r.check("T11-\(listStyle ? "list" : "grid")-insertions-keep-top-film", above && kept,
                     "inserted \(insertCount) above \(above); top film index \(before.index) → \(after?.index ?? -1); anchor film in top row \(kept)")
         }
         manager.updateListViewStyle(false); await settle(800)
 
-        // T12: the anchor film itself moves far away (renamed to sort last) — stay in region.
+        /// T12: the anchor film itself moves far away (renamed to sort last) — stay in region.
         setY(6000); await settle(300)
         if let before = topFilm(), let film = coordinator.films.first(where: { $0.id == before.id }) {
             let yBefore = y()
@@ -1571,7 +1571,7 @@ extension DebugHarness {
                     "anchor moved \(before.index) → \(movedIndex); top index now \(after?.index ?? -1); y \(yBefore) → \(y())")
         } else { r.check("T12-top-film", false, "") }
 
-        // T13: with the preference off, a search exit preserves nothing and scrolls nowhere.
+        /// T13: with the preference off, a search exit preserves nothing and scrolls nowhere.
         Preferences.maintainSelectionOnSearchExit = false
         await bankDeep()
         if let pick = coordinator.films.dropFirst(20).first {
@@ -1589,8 +1589,8 @@ extension DebugHarness {
         }
         Preferences.maintainSelectionOnSearchExit = true
 
-        // ---- T6: same-view remount (filter empties the gallery, then cleared) after a
-        // non-gesture scroll to the top. Bank 6000 first via a sidebar round trip.
+        /// ---- T6: same-view remount (filter empties the gallery, then cleared) after a
+        /// non-gesture scroll to the top. Bank 6000 first via a sidebar round trip.
         setY(6000); await settle(300)
         appState.navigate(to: .libraryItem(.unwatched)); await settle(800)
         appState.navigate(to: .libraryItem(.allFilms)); await settle(1000)
@@ -1605,7 +1605,7 @@ extension DebugHarness {
         r.check("T6-filter-emptied", emptied, "films \(coordinator.films.count) filters \(manager.activeState.filterOptions)")
         manager.clearFilters(); await settle(1000)
         r.check("T6-filter-round-trip-keeps-top", y() < 1, "y \(y()) (6000 = stale bank restored on remount)")
-        // Same with the arrow keys as the scroll input.
+        /// Same with the arrow keys as the scroll input.
         await bankDeep()
         await keysToTop()
         let keyedTop = y()
@@ -1614,18 +1614,18 @@ extension DebugHarness {
         r.check("T6-keys-filter-round-trip-keeps-top", keyedTop < 1 && y() < 1,
                 "at top after keys \(keyedTop), after round trip \(y())")
 
-        // ---- T1: Film Queue tab restore, grid and list
-        // "Up Next" holds at most FilmQueue.upNextCapacity films, so it gets one fewer than
-        // that — leaving the vacancy T7's move into it needs — and "Soon" is the long,
-        // scrollable section T1 restores.
+        /// ---- T1: Film Queue tab restore, grid and list
+        /// "Up Next" holds at most FilmQueue.upNextCapacity films, so it gets one fewer than
+        /// that — leaving the vacancy T7's move into it needs — and "Soon" is the long,
+        /// scrollable section T1 restores.
         let all = coordinator.films.map(\.id)
         let upNextSeed = FilmQueue.upNextCapacity - 1
         seedFilmQueue(coordinator, upNext: all[0..<upNextSeed], soon: all[upNextSeed..<600])
         appState.navigate(to: .libraryItem(.filmQueue)); await settle(1000)
         let fq = FilmQueueFilterState.shared
 
-        // ---- T5: empty Queue tab. "Later" is empty; leaving "All" (at 4000) for it must not
-        // file All's position under Later's key.
+        /// ---- T5: empty Queue tab. "Later" is empty; leaving "All" (at 4000) for it must not
+        /// file All's position under Later's key.
         fq.selectFilter(.all); await settle(700)
         manager.updateListViewStyle(false); await settle(700)
         setY(4000); await settle(300)
@@ -1657,8 +1657,8 @@ extension DebugHarness {
             fq.selectFilter(.all); await settle(900)
             r.check("T1-\(style)-queue-tab-restore-back", abs(y() - allY) < 1, "all saved \(allY) restored \(y())")
         }
-        // ---- T7: a Film Queue section move that leaves the All tab's order unchanged must
-        // not leave its post-move scroll intent pending (grid style).
+        /// ---- T7: a Film Queue section move that leaves the All tab's order unchanged must
+        /// not leave its post-move scroll intent pending (grid style).
         for (label, moveFirstSoon) in [("first-soon-to-upnext", true), ("last-upnext-to-soon", false)] {
             fq.selectFilter(.soon); await settle(800)
             manager.updateListViewStyle(false); await settle(600)
@@ -1681,15 +1681,15 @@ extension DebugHarness {
             r.check("T7-\(label)-intent-consumed", !lingering,
                     "order unchanged \(sameOrder), intent still pending \(lingering)")
             fq.selectFilter(.soon); await settle(900)
-            // Restores are film-anchored: a film added or removed above Soon's top film moves
-            // that film by one place, and the restore follows it. The restore is intact when
-            // the saved top film is still in the top row.
+            /// Restores are film-anchored: a film added or removed above Soon's top film moves
+            /// that film by one place, and the restore follows it. The restore is intact when
+            /// the saved top film is still in the top row.
             let topRowIDs = topRowFilmIDs()
             r.check("T7-\(label)-soon-restore-intact",
                     y() > 0 && soonTop.map { topRowIDs.contains($0.id) } == true,
                     "soon saved \(soonSaved) opened at \(y()); saved top film in top row \(soonTop.map { topRowIDs.contains($0.id) } ?? false)")
             GalleryScrollIntent.shared.clear()
-            // Undo the move.
+            /// Undo the move.
             FilmQueueAssignment.toggle([mover], section: moveFirstSoon ? .soon : .upNext, coordinator: coordinator)
             await settle(600)
             GalleryScrollIntent.shared.clear()
@@ -1704,14 +1704,14 @@ extension DebugHarness {
 
 
 // MARK: - Queue Mixed Style
-//
-// `queue-mixed-style` (opt-in, real main window): a Film Queue tab switch between two tabs of
-// DIFFERENT grid/list styles. Samples every committed frame (a run-loop observer after Core
-// Animation's commit) for the mounted style and its film count. A committed frame must never
-// pair one tab's style with another tab's films. The incoming style must not be built around
-// the outgoing tab's films, and the outgoing style's last pass must not commit the incoming
-// films. GalleryView presents ViewStateManager.displayedGalleryState, and both styles skip a
-// Queue pass whose presented style is not theirs.
+///
+/// `queue-mixed-style` (opt-in, real main window): a Film Queue tab switch between two tabs of
+/// DIFFERENT grid/list styles. Samples every committed frame (a run-loop observer after Core
+/// Animation's commit) for the mounted style and its film count. A committed frame must never
+/// pair one tab's style with another tab's films. The incoming style must not be built around
+/// the outgoing tab's films, and the outgoing style's last pass must not commit the incoming
+/// films. GalleryView presents ViewStateManager.displayedGalleryState, and both styles skip a
+/// Queue pass whose presented style is not theirs.
 extension DebugHarness {
     static func queueMixedStyleScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "queue-mixed-style")
@@ -1722,7 +1722,7 @@ extension DebugHarness {
         let manager = ViewStateManager.shared
         appState.navigate(to: .libraryItem(.allFilms)); await settle(800)
         let all = coordinator.films.map(\.id)
-        // "Up Next" is capped at FilmQueue.upNextCapacity (8); "Soon" takes the rest.
+        /// "Up Next" is capped at FilmQueue.upNextCapacity (8); "Soon" takes the rest.
         let upNextSeed = FilmQueue.upNextCapacity
         seedFilmQueue(coordinator, upNext: all[0..<upNextSeed], soon: all[upNextSeed..<600], later: all[600..<900])
         appState.navigate(to: .libraryItem(.filmQueue)); await settle(1000)
@@ -1731,7 +1731,7 @@ extension DebugHarness {
         fq.selectFilter(.upNext); await settle(700); manager.updateListViewStyle(true); await settle(700)
         fq.selectFilter(.all); await settle(900)
 
-        // What each committed frame holds: mounted style and displayed film count.
+        /// What each committed frame holds: mounted style and displayed film count.
         var frames: [String] = []
         func snapshot() -> String {
             let grid = findView(GalleryCollectionView.self, in: window?.contentView)
@@ -1748,7 +1748,7 @@ extension DebugHarness {
         }
         for (label, target) in [("all-grid→upnext-list", FilmQueueFilter.upNext), ("upnext-list→all-grid", .all),
                                 ("all-grid→upnext-list#2", .upNext), ("upnext-list→all-grid#2", .all)] {
-            // start from the opposite tab
+            /// start from the opposite tab
             await settle(600)
             frames = [snapshot()]
             ViewSwitchProbe.isEnabled = true; ViewSwitchProbe.reset()
@@ -1758,19 +1758,19 @@ extension DebugHarness {
             CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes)
             let events = ViewSwitchProbe.events
             ViewSwitchProbe.isEnabled = false
-            // Every committed frame must pair a style with ITS tab's films, judged by what the
-            // view displays: All (grid) holds 900 films, Up Next (list) 8 rows. The outgoing
-            // tab may stay on screen in its own style while the deferred reload is pending;
-            // never both styles at once, never a style around the other tab's films.
+            /// Every committed frame must pair a style with ITS tab's films, judged by what the
+            /// view displays: All (grid) holds 900 films, Up Next (list) 8 rows. The outgoing
+            /// tab may stay on screen in its own style while the deferred reload is pending;
+            /// never both styles at once, never a style around the other tab's films.
             let targetStyle = target == .upNext ? "list" : "grid"
             let wrong = frames.filter { f in
                 f.contains("+") || f.hasPrefix("grid:\(upNextSeed)/") || f.hasPrefix("list:9")
             }
             r.check("\(label)-no-wrong-content-frame", wrong.isEmpty && frames.count >= 2,
                     "frames \(frames)")
-            // The incoming style is built once, around the incoming films, and that is the only
-            // reload. The outgoing style skips any pass SwiftUI still gives it, through its
-            // style guard, so it cannot reload with the incoming films or commit them.
+            /// The incoming style is built once, around the incoming films, and that is the only
+            /// reload. The outgoing style skips any pass SwiftUI still gives it, through its
+            /// style guard, so it cannot reload with the incoming films or commit them.
             let makes = events.filter { $0.contains(".make") }
             let reloads = events.filter { $0.contains(".reload") }
             let targetCount = coordinator.films.count
@@ -1786,14 +1786,14 @@ extension DebugHarness {
 }
 
 // MARK: - Up Next Slots
-//
-// `upnext-slots` (opt-in, real main window): the "Up Next" cap and its empty slots
-// (UpNextSlots.swift). The Queue's "All" tab draws one slot per vacancy after the "Up Next"
-// films, in both gallery styles, numbered from the first vacancy; a row of nothing but slots
-// is skipped by Up/Down; a full "Up Next" draws none; an empty one draws its own band and
-// all eight. Adds past the cap are refused with an alert. The slot sheet searches with its
-// own SearchController and leaves the gallery's search alone. Window snapshots go to the
-// sandbox's `upnext-slots/` folder for a visual check.
+///
+/// `upnext-slots` (opt-in, real main window): the "Up Next" cap and its empty slots
+/// (UpNextSlots.swift). The Queue's "All" tab draws one slot per vacancy after the "Up Next"
+/// films, in both gallery styles, numbered from the first vacancy; a row of nothing but slots
+/// is skipped by Up/Down; a full "Up Next" draws none; an empty one draws its own band and
+/// all eight. Adds past the cap are refused with an alert. The slot sheet searches with its
+/// own SearchController and leaves the gallery's search alone. Window snapshots go to the
+/// sandbox's `upnext-slots/` folder for a visual check.
 extension DebugHarness {
     static func upNextSlotsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "upnext-slots")
@@ -1829,7 +1829,7 @@ extension DebugHarness {
         FilmQueueFilterState.shared.selectFilter(.all); await settle(800)
         manager.updateListViewStyle(false); await settle(900)
 
-        // ---- Grid: three films, five slots numbered 4–8, laid out as the next cells.
+        /// ---- Grid: three films, five slots numbered 4–8, laid out as the next cells.
         guard let grid = allViews(window.contentView!).compactMap({ $0 as? GalleryCollectionView }).first,
               let layout = grid.collectionViewLayout as? SmoothResizingGridLayout else {
             r.check("grid", false, "no grid"); return r
@@ -1847,8 +1847,8 @@ extension DebugHarness {
         r.check("grid/soon-below-slots", slots.allSatisfy { $0.frame.maxY < firstSoon.minY },
                 "first Soon film at \(firstSoon.minY), last slot ends \(slots.map(\.frame.maxY).max() ?? 0)")
         r.check("grid/items-are-films-only", grid.numberOfItems(inSection: 0) == 33, "\(grid.numberOfItems(inSection: 0)) items")
-        // Up/Down skip a row of nothing but slots. With 3 films in a row of ≥ 6 columns the
-        // slots spill into a second, slot-only row (8 > columns); a narrower grid has none.
+        /// Up/Down skip a row of nothing but slots. With 3 films in a row of ≥ 6 columns the
+        /// slots spill into a second, slot-only row (8 > columns); a narrower grid has none.
         let slotOnlyRows = (0..<12).filter { layout.isSlotOnlyRow($0) }
         let expectSlotOnly = layout.columnsPerRow < 8 && (3 + 5) > layout.columnsPerRow
             && ((3 + 5 + layout.columnsPerRow - 1) / layout.columnsPerRow) > ((3 + layout.columnsPerRow - 1) / layout.columnsPerRow)
@@ -1856,10 +1856,10 @@ extension DebugHarness {
                 "slot-only rows \(slotOnlyRows), columns \(layout.columnsPerRow)")
         snapshot("grid-3-films")
 
-        // ---- List: the same slots as rows, after the "Up Next" films, before "Soon".
+        /// ---- List: the same slots as rows, after the "Up Next" films, before "Soon".
         manager.updateListViewStyle(true); await settle(1000)
         if let table = allViews(window.contentView!).compactMap({ $0 as? DraggableListTableView }).first {
-            // 3 bands + 33 films + 5 slots.
+            /// 3 bands + 33 films + 5 slots.
             r.check("list/row-count", table.numberOfRows == 41, "\(table.numberOfRows) rows")
             let cells = (0..<table.numberOfRows).compactMap { table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? UpNextSlotListCell }
             r.check("list/slot-rows", cells.map(\.slotNumber) == [4, 5, 6, 7, 8], "\(cells.map(\.slotNumber))")
@@ -1871,7 +1871,7 @@ extension DebugHarness {
         snapshot("list-3-films")
         manager.updateListViewStyle(false); await settle(900)
 
-        // ---- The cap: an add past eight is refused whole, with an alert.
+        /// ---- The cap: an add past eight is refused whole, with an alert.
         let five = Set(all[3..<8]), six = Set(all[3..<9])
         r.check("cap/overflow-math", FilmQueue.upNextOverflow(adding: five, coordinator: coordinator) == 0
                 && FilmQueue.upNextOverflow(adding: six, coordinator: coordinator) == 1, "")
@@ -1886,7 +1886,7 @@ extension DebugHarness {
         if alert != nil { snapshot("cap-alert", alert!) }
         ok?.performClick(nil); await settle(700)
 
-        // ---- Full: no slots. Empty: its own band and all eight.
+        /// ---- Full: no slots. Empty: its own band and all eight.
         FilmQueueAssignment.toggle(five, section: .upNext, coordinator: coordinator); await settle(1200)
         slots = slotViews()
         r.check("full/no-slots", FilmQueue.upNextFilmIDs(coordinator: coordinator).count == 8 && slots.isEmpty,
@@ -1899,7 +1899,7 @@ extension DebugHarness {
         snapshot("grid-empty-up-next")
         _ = coordinator.addFilmsToList(filmIDs: upNext, listID: upNextID); await settle(900)
 
-        // ---- The slot sheet: its own search, leaving the gallery's alone.
+        /// ---- The slot sheet: its own search, leaving the gallery's alone.
         AppEventBus.shared.sendCommand(.openUpNextSlot); await settle(1200)
         if let sheet = window.attachedSheet,
            let field = allViews(sheet.contentView!).compactMap({ $0 as? NSSearchField }).first {
@@ -1929,13 +1929,13 @@ extension DebugHarness {
 #endif
 
 // MARK: - Sidebar Tab Switch
-//
-// `sidebar-tab-switch` (opt-in, a measurement): what a RightSidebar tab change costs once
-// the selected film's neighbor tabs are resident — the common "select a film, then look at
-// its Releases" path. Each step reads AppKitScrollHandoffProbe (how many hosting views had
-// their rootView reassigned, each a full re-measure of that tab's tree) and the run-loop
-// busy time. Switches by button (instant) and by swipe (animated) are measured separately.
-// Uses the sandbox's own library when it has one, so a real-data copy gives real tab weight.
+///
+/// `sidebar-tab-switch` (opt-in, a measurement): what a RightSidebar tab change costs once
+/// the selected film's neighbor tabs are resident — the common "select a film, then look at
+/// its Releases" path. Each step reads AppKitScrollHandoffProbe (how many hosting views had
+/// their rootView reassigned, each a full re-measure of that tab's tree) and the run-loop
+/// busy time. Switches by button (instant) and by swipe (animated) are measured separately.
+/// Uses the sandbox's own library when it has one, so a real-data copy gives real tab weight.
 #if DEBUG
 extension DebugHarness {
     /// The RightSidebar's tab scroll views (AppKitScrollView's gated scroll views at exactly
@@ -1968,12 +1968,12 @@ extension DebugHarness {
         await settle(2000)
         let films = coordinator.films
         guard films.count > 10 else { r.check("films", false, "\(films.count)"); return r }
-        // The heaviest Releases tab available, so the measurement is not of an empty tree.
+        /// The heaviest Releases tab available, so the measurement is not of an empty tree.
         let film = films.max { $0.releases.count < $1.releases.count } ?? films[0]
         let manager = ViewStateManager.shared
         manager.setRightSidebarTab(.details)
         SelectionState.shared.selectImmediate(film.id)
-        // Past the 180 ms neighbor-arming quiet window, with margin.
+        /// Past the 180 ms neighbor-arming quiet window, with margin.
         await settle(1500)
 
         let recorder = RunLoopBusyRecorder()
@@ -1987,8 +1987,8 @@ extension DebugHarness {
             action()
             await settle(900)
             let reading = recorder.reading(from: t0, window: 900)
-            // Exactly one of the resident tab scroll views may take clicks at rest; the
-            // others sit off the plane and must be gated (hitTest returns nil).
+            /// Exactly one of the resident tab scroll views may take clicks at rest; the
+            /// others sit off the plane and must be gated (hitTest returns nil).
             let gates = sidebarTabHitTestGates()
             r.check("\(label)-hit-test", gates.total >= 2 && gates.open == 1,
                     "\(Fmt.int(gates.open)) of \(Fmt.int(gates.total)) tab scroll views hit-testable")
@@ -2011,16 +2011,16 @@ extension DebugHarness {
 #endif
 
 // MARK: - Right Sidebar Load
-//
-// `rsb-load` (opt-in, a measurement; not in any suite): what one film-to-film selection
-// costs the right sidebar on the main thread, split into the visible tab's build (the busy
-// stretches within 150 ms of the selection) and the neighbor-tab arming that follows the
-// 180 ms quiet window (every stretch after that). Run once per starting tab, since the
-// middle tab (Releases) arms two neighbors and the end tabs one. Films with notes are used
-// so Notes is never disabled. Launch flags for A/B runs: see RSBProfileFlags (24.00).
-//
-// FT_RSB_LOOP_SECONDS=<n> then re-selects films on the Releases tab for n seconds, after
-// writing "RSB-LOOP-ARMED <pid>" to stderr and holding 3 s, so `sample` can be attached.
+///
+/// `rsb-load` (opt-in, a measurement; not in any suite): what one film-to-film selection
+/// costs the right sidebar on the main thread, split into the visible tab's build (the busy
+/// stretches within 150 ms of the selection) and the neighbor-tab arming that follows the
+/// 180 ms quiet window (every stretch after that). Run once per starting tab, since the
+/// middle tab (Releases) arms two neighbors and the end tabs one. Films with notes are used
+/// so Notes is never disabled. Launch flags for A/B runs: see RSBProfileFlags (24.00).
+///
+/// FT_RSB_LOOP_SECONDS=<n> then re-selects films on the Releases tab for n seconds, after
+/// writing "RSB-LOOP-ARMED <pid>" to stderr and holding 3 s, so `sample` can be attached.
 #if DEBUG
 extension DebugHarness {
     static func rsbLoadScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -2040,7 +2040,7 @@ extension DebugHarness {
             r.check("films", false, "\(withNotes.count) films with notes")
             return r
         }
-        // Evenly spaced through the gallery order, so the set is not all one kind of film.
+        /// Evenly spaced through the gallery order, so the set is not all one kind of film.
         let count = min(17, withNotes.count)
         let films = (0..<count).map { withNotes[$0 * withNotes.count / count] }
         r.check("films", true, "\(Fmt.int(count)) of \(Fmt.int(withNotes.count)) films with notes; flags: "
@@ -2121,13 +2121,13 @@ extension DebugHarness {
 #endif
 
 // MARK: - Right Sidebar Modules
-//
-// `rsb-modules` (opt-in, a measurement): what each right sidebar module costs to re-point
-// at a new film, measured alone. Each module is hosted in its own NSHostingView in an
-// off-screen window, at the width the sidebar gives it, with the environment RightSidebar
-// injects; a film change is a rootView hand-off plus layoutSubtreeIfNeeded, and the cost is
-// main-thread CPU across that call and the two run-loop turns after it. The same films as
-// `rsb-load`. Whole tabs are measured too, scroll view included.
+///
+/// `rsb-modules` (opt-in, a measurement): what each right sidebar module costs to re-point
+/// at a new film, measured alone. Each module is hosted in its own NSHostingView in an
+/// off-screen window, at the width the sidebar gives it, with the environment RightSidebar
+/// injects; a film change is a rootView hand-off plus layoutSubtreeIfNeeded, and the cost is
+/// main-thread CPU across that call and the two run-loop turns after it. The same films as
+/// `rsb-load`. Whole tabs are measured too, scroll view included.
 #if DEBUG
 extension DebugHarness {
     static func rsbModulesScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -2195,8 +2195,8 @@ extension DebugHarness {
                             + "text entries \(Fmt.int(text))")
                 }
             }
-            // FT_RSB_MODULE_LOOP=<name> keeps re-pointing that one module for 12 s, after
-            // writing "RSB-LOOP-ARMED <pid>" to stderr and holding 3 s, for `sample`.
+            /// FT_RSB_MODULE_LOOP=<name> keeps re-pointing that one module for 12 s, after
+            /// writing "RSB-LOOP-ARMED <pid>" to stderr and holding 3 s, for `sample`.
             if ProcessInfo.processInfo.environment["FT_RSB_MODULE_LOOP"] == name {
                 FileHandle.standardError.write("RSB-LOOP-ARMED \(getpid())\n".data(using: .utf8)!)
                 try? await Task.sleep(for: .seconds(3))
@@ -2209,7 +2209,7 @@ extension DebugHarness {
                     i += 1
                 }
             }
-            // The first switches warm caches; report the rest.
+            /// The first switches warm caches; report the rest.
             let steady = Array(costs.dropFirst(2))
             r.metric("\(name)-median", median(steady), "ms")
             r.check(name, true, "median \(Fmt.fixed(median(steady), 2)) ms, max \(Fmt.fixed(steady.max() ?? 0, 2)) ms")
@@ -2235,10 +2235,10 @@ extension DebugHarness {
 #endif
 
 // MARK: - Release Card Cost
-//
-// `rsb-cards` (opt-in, a measurement): what one release card costs, measured as `rsb-modules`
-// measures the Releases tab, across three sets of real films — one single card, one two-disc
-// combo-pack card, and no card at all (the tab's own cost, to subtract).
+///
+/// `rsb-cards` (opt-in, a measurement): what one release card costs, measured as `rsb-modules`
+/// measures the Releases tab, across three sets of real films — one single card, one two-disc
+/// combo-pack card, and no card at all (the tab's own cost, to subtract).
 #if DEBUG
 extension DebugHarness {
     static func rsbCardsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -2279,16 +2279,16 @@ extension DebugHarness {
                     .environment(\.sidebarFilm, film)
                     .environment(coordinator))
             }
-            // Each set alternates with a film from `empty`, so every measured step builds its
-            // card from nothing, as a new selection does, rather than re-pointing a card.
+            /// Each set alternates with a film from `empty`, so every measured step builds its
+            /// card from nothing, as a new selection does, rather than re-pointing a card.
             let host = NSHostingView(rootView: root(empty[0]))
             host.frame = NSRect(x: 0, y: 0, width: 300, height: 700)
             container.addSubview(host)
             host.layoutSubtreeIfNeeded()
             await turn(); await turn()
             var costs: [Double] = []
-            // Per build: the rootView hand-off, the layout pass, the two turns after it, and
-            // what the AppKit rows did (CardRowsProbe).
+            /// Per build: the rootView hand-off, the layout pass, the two turns after it, and
+            /// what the AppKit rows did (CardRowsProbe).
             var handOff: [Double] = [], layout: [Double] = [], after: [Double] = []
             var ours: [Double] = [], created: [Double] = []
             for round in 0..<2 {
@@ -2327,7 +2327,7 @@ extension DebugHarness {
             r.check("\(name)-phases", true, "hand-off \(Fmt.fixed(median(handOff), 2)), layout \(Fmt.fixed(median(layout), 2)), "
                     + "after \(Fmt.fixed(median(after), 2)) ms; AppKit rows' own code \(Fmt.fixed(median(ours), 2)) ms, "
                     + "\(Fmt.fixed(median(created), 0)) rows made")
-            // FT_RSB_MODULE_LOOP=<name> repeats the set for 12 s, for `sample`.
+            /// FT_RSB_MODULE_LOOP=<name> repeats the set for 12 s, for `sample`.
             if ProcessInfo.processInfo.environment["FT_RSB_MODULE_LOOP"] == name {
                 FileHandle.standardError.write("RSB-LOOP-ARMED \(getpid())\n".data(using: .utf8)!)
                 try? await Task.sleep(for: .seconds(3))
@@ -2355,10 +2355,10 @@ extension DebugHarness {
 #endif
 
 // MARK: - Right Sidebar Row Variants
-//
-// `rsb-rows` (opt-in, a measurement): which part of a Metadata crew row costs what. The same
-// twelve-name list is built several ways and re-pointed across real films' casts, measured
-// as `rsb-modules` measures a module.
+///
+/// `rsb-rows` (opt-in, a measurement): which part of a Metadata crew row costs what. The same
+/// twelve-name list is built several ways and re-pointed across real films' casts, measured
+/// as `rsb-modules` measures a module.
 #if DEBUG
 extension DebugHarness {
     private struct RowVariantList: View {
@@ -2405,8 +2405,8 @@ extension DebugHarness {
         func cpuMS() -> Double { Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID)) / 1e6 }
         func median(_ v: [Double]) -> Double { v.isEmpty ? 0 : v.sorted()[v.count / 2] }
 
-        // `-FTRowsVarying`: each list takes a different length (4 to 20 names), as a real
-        // film's crew sections do, so rows are inserted and removed rather than only updated.
+        /// `-FTRowsVarying`: each list takes a different length (4 to 20 names), as a real
+        /// film's crew sections do, so rows are inserted and removed rather than only updated.
         let varying = ProcessInfo.processInfo.arguments.contains("-FTRowsVarying")
         let lengths = [12, 5, 18, 9, 20, 4, 14, 7, 16, 11, 19, 6, 13, 8, 17, 10, 15]
         let pool = coordinator.films.flatMap(\.cast)
@@ -2456,13 +2456,13 @@ extension DebugHarness {
 #endif
 
 // MARK: - Crew Row Parity
-//
-// `rsb-crew-parity` (opt-in; puts a window on screen): CrewRowList's AppKit rows against
-// SearchableItemRow, the SwiftUI rows they stand in for. Both are drawn in one window from
-// the same names, light and dark, captured through the window server at full resolution,
-// and compared pixel by pixel. The captures and a diff image (differing pixels in red) go
-// to `harness-reports/crew-parity/`. Also logs the view tree of the SwiftUI row, so the
-// AppKit row's controls can be matched to what SwiftUI actually builds.
+///
+/// `rsb-crew-parity` (opt-in; puts a window on screen): CrewRowList's AppKit rows against
+/// SearchableItemRow, the SwiftUI rows they stand in for. Both are drawn in one window from
+/// the same names, light and dark, captured through the window server at full resolution,
+/// and compared pixel by pixel. The captures and a diff image (differing pixels in red) go
+/// to `harness-reports/crew-parity/`. Also logs the view tree of the SwiftUI row, so the
+/// AppKit row's controls can be matched to what SwiftUI actually builds.
 #if DEBUG
 extension DebugHarness {
     private struct CrewParityContent: View {
@@ -2503,7 +2503,7 @@ extension DebugHarness {
         defer { window.orderOut(nil) }
         await settle(800)
 
-        // What SwiftUI builds for one row.
+        /// What SwiftUI builds for one row.
         var lines: [String] = []
         func walk(_ v: NSView, _ depth: Int) {
             var line = String(repeating: "  ", count: depth) + "\(type(of: v)) \(v.frame)"
@@ -2524,8 +2524,8 @@ extension DebugHarness {
             return r
         }
 
-        // Behavior: each row's button sends the token search for its own name, and its name
-        // is selectable, with the SwiftUI row's tooltip.
+        /// Behavior: each row's button sends the token search for its own name, and its name
+        /// is selectable, with the SwiftUI row's tooltip.
         var received: [String] = []
         let subscription = AppEventBus.shared.uiCommands.sink { command in
             if case .activateTokenSearch(let field, let value) = command { received.append("\(field.rawValue):\(value)") }
@@ -2545,7 +2545,7 @@ extension DebugHarness {
                 "\(labels.count) labels")
         r.check("tooltips", !buttons.isEmpty && buttons.allSatisfy { $0.toolTip == "Perform a token-based search for this name" },
                 "\(buttons.count) buttons")
-        let listFrame = list.convert(list.bounds, to: nil)   // window coordinates, bottom-left
+        let listFrame = list.convert(list.bounds, to: nil)   /// window coordinates, bottom-left
         r.check("heights", true, "AppKit list \(Fmt.fixed(listFrame.height, 2)) pt, row \(Fmt.fixed(CrewRowView.height, 2)) pt")
 
         let dir = DebugSandbox.rootURL?.appendingPathComponent("harness-reports/crew-parity", isDirectory: true)
@@ -2568,7 +2568,7 @@ extension DebugHarness {
             return buf
         }
 
-        // Every crew glyph, glyphs off, and the primary tint (the glyph-tint preference).
+        /// Every crew glyph, glyphs off, and the primary tint (the glyph-tint preference).
         let configs: [(String, String?, Color)] = [
             ("person", "person", .secondary), ("movieclapper", "movieclapper", .secondary),
             ("megaphone", "megaphone", .secondary), ("chair", "chair", .secondary),
@@ -2581,8 +2581,8 @@ extension DebugHarness {
             let mode = "\(configName)-\(appearanceName)"
             window.appearance = NSAppearance(named: appearance)
             await settle(600)
-            // The SwiftUI rows sit 24 pt above the AppKit list. A 4 pt margin around each
-            // capture catches the shadows.
+            /// The SwiftUI rows sit 24 pt above the AppKit list. A 4 pt margin around each
+            /// capture catches the shadows.
             let margin: CGFloat = 4
             let appkitRect = listFrame.insetBy(dx: -margin, dy: -margin)
             let swiftRect = appkitRect.offsetBy(dx: 0, dy: listFrame.height + 24)
@@ -2615,8 +2615,8 @@ extension DebugHarness {
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
             if let img = ctx.makeImage() { png(img, "\(mode)-diff.png") }
             r.metric("\(mode)-differing-pixels", Double(differing), "px")
-            // A glyph is rasterized by NSImageView and drawn as a vector path by SwiftUI, so
-            // its edge pixels may differ slightly; anything past 48/255 is a real difference.
+            /// A glyph is rasterized by NSImageView and drawn as a vector path by SwiftUI, so
+            /// its edge pixels may differ slightly; anything past 48/255 is a real difference.
             r.check("\(mode)-pixels", maxDelta <= 48,
                     "\(Fmt.int(differing)) of \(Fmt.int(a.width * a.height)) pixels differ by more than 8/255 (max \(Fmt.int(maxDelta)))")
         }
@@ -2627,11 +2627,11 @@ extension DebugHarness {
 #endif
 
 // MARK: - Frames Row Parity
-//
-// `rsb-frames-parity` (opt-in; on screen): FramesRowList beside a VStack of FrameEntryRow,
-// for plain frames, aligned time-code ranges (with a value that falls back to the plain run),
-// every mark and fade glyph, and a value long enough to truncate, light and dark. Captures go
-// to `harness-reports/frames-parity/`, and the SwiftUI rows' view tree is logged.
+///
+/// `rsb-frames-parity` (opt-in; on screen): FramesRowList beside a VStack of FrameEntryRow,
+/// for plain frames, aligned time-code ranges (with a value that falls back to the plain run),
+/// every mark and fade glyph, and a value long enough to truncate, light and dark. Captures go
+/// to `harness-reports/frames-parity/`, and the SwiftUI rows' view tree is logged.
 #if DEBUG
 extension DebugHarness {
     private struct FramesParityContent: View {
@@ -2714,7 +2714,7 @@ extension DebugHarness {
                 r.check("\(configName)-mounted", false, "no FramesRowListView")
                 continue
             }
-            // Behavior: the values are selectable and the index is not, as in FrameEntryRow.
+            /// Behavior: the values are selectable and the index is not, as in FrameEntryRow.
             var labels: [NSTextField] = []
             var stack: [NSView] = [list]
             while let v = stack.popLast() {
@@ -2765,7 +2765,7 @@ extension DebugHarness {
                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
                 if let img = ctx.makeImage() { png(img, "\(mode)-diff.png") }
                 r.metric("\(mode)-differing-pixels", Double(differing), "px")
-                // Glyph edges are vector in SwiftUI and raster here, as in rsb-crew-parity.
+                /// Glyph edges are vector in SwiftUI and raster here, as in rsb-crew-parity.
                 r.check("\(mode)-pixels", maxDelta <= 48,
                         "\(Fmt.int(differing)) of \(Fmt.int(a.width * a.height)) pixels differ by more than 8/255 (max \(Fmt.int(maxDelta)))")
             }
@@ -2776,12 +2776,12 @@ extension DebugHarness {
 #endif
 
 // MARK: - Metadata Screenshots
-//
-// `rsb-metadata-shot` (opt-in; drives the real main window): the Details tab of several real
-// films, scrolled to the bottom so the Metadata module is in view, captured through the
-// window server at full resolution into `harness-reports/metadata-shot/`, light and dark.
-// Run it twice, with and without `-FTRSBSwiftUICrewRows`, and compare the two directories:
-// the crew rows are the only thing the flag changes.
+///
+/// `rsb-metadata-shot` (opt-in; drives the real main window): the Details tab of several real
+/// films, scrolled to the bottom so the Metadata module is in view, captured through the
+/// window server at full resolution into `harness-reports/metadata-shot/`, light and dark.
+/// Run it twice, with and without `-FTRSBSwiftUICrewRows`, and compare the two directories:
+/// the crew rows are the only thing the flag changes.
 #if DEBUG
 extension DebugHarness {
     static func rsbMetadataShotScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -2796,7 +2796,7 @@ extension DebugHarness {
         if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
         appState.navigate(to: .libraryItem(.allFilms))
         await settle(1500)
-        // Films whose crew sections differ in length, spread through the gallery order.
+        /// Films whose crew sections differ in length, spread through the gallery order.
         let films = coordinator.films.filter { $0.cast.count >= 3 }
         guard films.count >= 4 else { r.check("films", false, "\(films.count)"); return r }
         let picks = [films[0], films[films.count / 3], films[2 * films.count / 3], films[films.count - 1]]
@@ -2806,7 +2806,7 @@ extension DebugHarness {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         ViewStateManager.shared.setRightSidebarTab(.details)
-        // App-wide: the main window is SwiftUI's scene window (see sidebarTabShots).
+        /// App-wide: the main window is SwiftUI's scene window (see sidebarTabShots).
         let saved = NSApp.appearance
         let store = Preferences.store
         let savedGlyphs = store.object(forKey: Preferences.showWatchDetailsAnnotationGlyphsKey)
@@ -2819,7 +2819,7 @@ extension DebugHarness {
         for (appearanceName, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             NSApp.appearance = NSAppearance(named: appearance)
             for (filmIndex, film) in picks.enumerated() {
-            // Three scroll positions from the bottom, which between them cover the crew block.
+            /// Three scroll positions from the bottom, which between them cover the crew block.
             for (offsetIndex, fromBottom) in [CGFloat(0), 500, 1000].enumerated() {
                 let mode = "\(glyphMode)-\(appearanceName)"
                 let i = filmIndex * 3 + offsetIndex
@@ -2868,7 +2868,7 @@ extension DebugHarness {
     static func rsbNotesShotScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         func frames(_ f: FilmSnapshot) -> Int { f.handbrakeFrames.count + f.correspondingTimecodes.count }
         let byFrames = coordinator.films.filter { frames($0) > 0 }.sorted { frames($0) > frames($1) }
-        // The longest tables, the longest with any mark or fade glyph, and a short one.
+        /// The longest tables, the longest with any mark or fade glyph, and a short one.
         var picks = Array(byFrames.prefix(2))
         if let glyphs = byFrames.first(where: { f in !picks.contains { $0.id == f.id }
             && (FramesEntryParser.containsLegendGlyphs(f.handbrakeFrames)
@@ -2925,9 +2925,9 @@ extension DebugHarness {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         ViewStateManager.shared.setRightSidebarTab(tab)
-        // App-wide, as a system appearance change reaches the app. The main window is SwiftUI's
-        // scene window, which ignores an appearance set on it, and the scene's content keeps
-        // the color scheme SwiftUI derived from the app.
+        /// App-wide, as a system appearance change reaches the app. The main window is SwiftUI's
+        /// scene window, which ignores an appearance set on it, and the scene's content keeps
+        /// the color scheme SwiftUI derived from the app.
         let saved = NSApp.appearance
         defer { NSApp.appearance = saved }
         /// The sidebar's visible tab: the scroll view in the window's right third that its own
@@ -2963,7 +2963,7 @@ extension DebugHarness {
                     await settle(400)
                     let onScreen = window.convertToScreen(sv.convert(sv.bounds, to: nil))
                     let h = NSScreen.screens.first?.frame.height ?? 0
-                    // The scroller's 20 pt strip is left out: it fades on its own clock.
+                    /// The scroller's 20 pt strip is left out: it fades on its own clock.
                     let rect = CGRect(x: onScreen.minX, y: h - onScreen.maxY, width: onScreen.width - 20, height: onScreen.height)
                     let name = "\(appearanceName)-\(filmIndex)-\(step).png"
                     guard let image = unsafe grab(rect, 1 << 3, UInt32(window.windowNumber), 1 << 0)?.takeRetainedValue(),
@@ -2991,13 +2991,13 @@ extension DebugHarness {
 #endif
 
 // MARK: - Gallery Edit Refresh
-//
-// `gallery-edit-refresh` (opt-in, a measurement plus correctness checks): what a same-order
-// film edit and a gallery view switch cost in each style, read from GalleryRefreshProbe and
-// the run-loop busy time. In the grid, with no section dividers, it counts the forced
-// divider-relabel layouts each update pays (or skips). In the list, it counts the rows
-// refreshed and the row hosting views actually re-rendered, and checks that an edited film's
-// row shows the new rating both in the viewport and in a row prepared just below it.
+///
+/// `gallery-edit-refresh` (opt-in, a measurement plus correctness checks): what a same-order
+/// film edit and a gallery view switch cost in each style, read from GalleryRefreshProbe and
+/// the run-loop busy time. In the grid, with no section dividers, it counts the forced
+/// divider-relabel layouts each update pays (or skips). In the list, it counts the rows
+/// refreshed and the row hosting views actually re-rendered, and checks that an edited film's
+/// row shows the new rating both in the viewport and in a row prepared just below it.
 #if DEBUG
 extension DebugHarness {
     static func galleryEditRefreshScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -3040,7 +3040,7 @@ extension DebugHarness {
             return edited.userRating
         }
 
-        // Grid: edits and view switches.
+        /// Grid: edits and view switches.
         for i in 0..<4 {
             resetProbes()
             let t0 = CACurrentMediaTime() * 1000
@@ -3062,7 +3062,7 @@ extension DebugHarness {
             }
         }
 
-        // List: edits of a visible row and of a prepared, off-screen row.
+        /// List: edits of a visible row and of a prepared, off-screen row.
         manager.updateListViewStyle(true)
         await settle(1500)
         let window = NSApp.windows.first { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) }
@@ -3093,7 +3093,7 @@ extension DebugHarness {
             }
         }
 
-        // Restore what this run changed.
+        /// Restore what this run changed.
         for film in originals.values { await coordinator.updateFilm(film) }
         manager.updateListViewStyle(saved.isListView)
         manager.updateShowSectionDividers(saved.showSectionDividers)
@@ -3107,15 +3107,15 @@ extension DebugHarness {
 
 
 // MARK: - Gallery Reload Economy
-//
-// `gallery-reload-economy` (opt-in, a measurement plus checks): how many film loads and gallery
-// update passes a film change costs while a gallery is on screen, read from ViewSwitchProbe.
-// One edit, a burst of per-film update events, an import and a deletion should each cost
-// exactly one load (and an edit or a burst at most one grid pass). A change to films the view
-// does not show should cost no gallery pass. An edit that takes a film out of the view should
-// take it out in that one load, and visiting an empty view should load it once. Also checks that grid selection rings stay
-// right through in-place reconfigures and cell recycling, and counts how often they are
-// re-stroked.
+///
+/// `gallery-reload-economy` (opt-in, a measurement plus checks): how many film loads and gallery
+/// update passes a film change costs while a gallery is on screen, read from ViewSwitchProbe.
+/// One edit, a burst of per-film update events, an import and a deletion should each cost
+/// exactly one load (and an edit or a burst at most one grid pass). A change to films the view
+/// does not show should cost no gallery pass. An edit that takes a film out of the view should
+/// take it out in that one load, and visiting an empty view should load it once. Also checks that grid selection rings stay
+/// right through in-place reconfigures and cell recycling, and counts how often they are
+/// re-stroked.
 #if DEBUG
 extension DebugHarness {
     static func galleryReloadEconomyScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -3151,15 +3151,15 @@ extension DebugHarness {
             return edited
         }
 
-        // One same-order edit.
+        /// One same-order edit.
         ViewSwitchProbe.reset()
         let edited = coordinator.films[12]
         await coordinator.updateFilm(rated(edited, edited.userRating == 7 ? 8 : 7))
         await settle(700)
         r.check("edit-one-load", count("load ") == 1 && count("grid.update") <= 1, summary())
 
-        // A burst of per-film update events in one turn — the shape a Hall of Fame reorder or
-        // a ratings-import rollback posts.
+        /// A burst of per-film update events in one turn — the shape a Hall of Fame reorder or
+        /// a ratings-import rollback posts.
         ViewSwitchProbe.reset()
         for film in coordinator.films[20..<40] {
             AppEventBus.shared.send(.film(.updated(filmID: film.id)))
@@ -3167,7 +3167,7 @@ extension DebugHarness {
         await settle(700)
         r.check("burst-one-load", count("load ") == 1 && count("grid.update") <= 1, summary())
 
-        // An edit that takes a film out of the view: rating a film in Unwatched ▸ Not Rated.
+        /// An edit that takes a film out of the view: rating a film in Unwatched ▸ Not Rated.
         appState.navigate(to: .libraryItem(.unwatched))
         await settle(900)
         UnwatchedState.shared.selectCategory(.notRated)
@@ -3186,7 +3186,7 @@ extension DebugHarness {
         UnwatchedState.shared.selectCategory(.unwatched)
         await settle(600)
 
-        // Import and delete with a gallery on screen.
+        /// Import and delete with a gallery on screen.
         appState.navigate(to: .libraryItem(.allFilms))
         await settle(900)
         let fresh = (0..<4).map { makeSnapshot(name: "Economy Probe \($0)") }
@@ -3202,7 +3202,7 @@ extension DebugHarness {
         r.check("delete-one-load", count("load ") == 1 && !coordinator.films.contains { freshIDs.contains($0.id) },
                 summary())
 
-        // Changes to films the view does not show cost no gallery pass.
+        /// Changes to films the view does not show cost no gallery pass.
         let listID = coordinator.createList(name: "Economy Probe List", displayOrder: 991)
         FilmManager.addFilmsToList(Set(coordinator.films[0..<3].map(\.id)), listID: listID, coordinator: coordinator)
         await settle(500)
@@ -3218,7 +3218,7 @@ extension DebugHarness {
         await settle(700)
         r.check("unrelated-delete-no-pass", count("grid.update") == 0, summary())
 
-        // Visiting an empty view loads it once, like any other.
+        /// Visiting an empty view loads it once, like any other.
         let emptyID = coordinator.createList(name: "Economy Empty List", displayOrder: 992)
         appState.navigate(to: .libraryItem(.allFilms))
         await settle(900)
@@ -3231,7 +3231,7 @@ extension DebugHarness {
         await settle(900)
         r.check("full-view-one-load", count("load ") == 1, summary())
 
-        // Selection rings through an in-place reconfigure and through cell recycling.
+        /// Selection rings through an in-place reconfigure and through cell recycling.
         let window = NSApp.windows.first { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) }
         if let cv = findView(GalleryCollectionView.self, in: window?.contentView),
            let scrollView = cv.enclosingScrollView {
@@ -3256,7 +3256,7 @@ extension DebugHarness {
             r.check("ring-after-in-place-edit", ring(5) == true && ringedCount() == 1,
                     "ringed \(Fmt.int(ringedCount())), ring re-strokes \(Fmt.int(GalleryRefreshProbe.ringRefreshes))")
 
-            // Recycle every visible cell: far down and back.
+            /// Recycle every visible cell: far down and back.
             scrollView.contentView.scroll(to: NSPoint(x: 0, y: max(0, cv.frame.height - scrollView.documentVisibleRect.height)))
             scrollView.reflectScrolledClipView(scrollView.contentView)
             await settle(500)
@@ -3274,7 +3274,7 @@ extension DebugHarness {
             r.check("ring-grid", false, "no grid collection view found")
         }
 
-        // Restore what this run changed.
+        /// Restore what this run changed.
         for film in originals.values { await coordinator.updateFilm(film) }
         _ = ListManager.deleteList(listID, coordinator: coordinator)
         _ = ListManager.deleteList(emptyID, coordinator: coordinator)
@@ -3290,13 +3290,13 @@ extension DebugHarness {
 
 
 // MARK: - Sidebar Glyph Shots
-//
-// `rsb-glyph-shot` (opt-in; on screen): the Details, Releases and Notes tabs of one film each,
-// every tab in a sidebar-sized window of its own, captured through the window server at the
-// display's scale into `harness-reports/glyph-shot/`, light and dark. The PNGs carry the
-// display's DPI, so they open at on-screen size. Details and Notes are scrolled to the
-// bottom, where the crew rows and frames tables are; annotation glyphs are on. The output
-// compares the sidebar's AppKit SF Symbol glyphs between two builds.
+///
+/// `rsb-glyph-shot` (opt-in; on screen): the Details, Releases and Notes tabs of one film each,
+/// every tab in a sidebar-sized window of its own, captured through the window server at the
+/// display's scale into `harness-reports/glyph-shot/`, light and dark. The PNGs carry the
+/// display's DPI, so they open at on-screen size. Details and Notes are scrolled to the
+/// bottom, where the crew rows and frames tables are; annotation glyphs are on. The output
+/// compares the sidebar's AppKit SF Symbol glyphs between two builds.
 #if DEBUG
 extension DebugHarness {
     static func rsbGlyphShotScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -3323,7 +3323,7 @@ extension DebugHarness {
             CGImageDestinationAddImage(dest, image, [kCGImagePropertyDPIWidth: dpi, kCGImagePropertyDPIHeight: dpi] as CFDictionary)
             CGImageDestinationFinalize(dest)
         }
-        // The crew glyphs follow the annotation-glyph preference.
+        /// The crew glyphs follow the annotation-glyph preference.
         let store = Preferences.store
         let savedGlyphs = store.object(forKey: Preferences.showWatchDetailsAnnotationGlyphsKey)
         store.set(true, forKey: Preferences.showWatchDetailsAnnotationGlyphsKey)

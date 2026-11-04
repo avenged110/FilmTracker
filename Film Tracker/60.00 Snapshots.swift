@@ -1,27 +1,27 @@
 // MARK: - Snapshots.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Canonical Sendable value-type DTOs (FilmSnapshot, ReleaseSnapshot, FilmChangeset,
-// SettingsSnapshot) used by MemoryStore and all read paths. model objects
-// are confined to DataManager and are never exposed beyond the persistence layer.
-// NOTE: FilmSnapshot, ReleaseSnapshot, and SettingsSnapshot must be kept in sync with
-// their corresponding model counterparts whenever properties are added or renamed.
+/// Canonical Sendable value-type DTOs (FilmSnapshot, ReleaseSnapshot, FilmChangeset,
+/// SettingsSnapshot) used by MemoryStore and all read paths. model objects
+/// are confined to DataManager and are never exposed beyond the persistence layer.
+/// NOTE: FilmSnapshot, ReleaseSnapshot, and SettingsSnapshot must be kept in sync with
+/// their corresponding model counterparts whenever properties are added or renamed.
 
 import Foundation
 
 // MARK: - FilmSnapshot
-// A Sendable struct that captures all Film properties — including its Release snapshots —
-// for safe use in MemoryStore and across actor boundaries.
-//
-// Properties are 'var' so that DataCoordinator can create mutated copies via simple
-// value-copy-and-assign without constructing an entirely new snapshot. Swift's value
-// semantics guarantee each copy is independent, preserving Sendable safety.
-//
-// The 'id' property is intentionally 'let' because a snapshot's identity never changes.
-//
-// KEY INVARIANT: 'releases' is always kept in sync with the persisted Release records.
-// DataCoordinator is responsible for rebuilding and re-storing the FilmSnapshot in
-// MemoryStore after any release mutation (create / update / delete) commits to viewContext.
+/// A Sendable struct that captures all Film properties — including its Release snapshots —
+/// for safe use in MemoryStore and across actor boundaries.
+///
+/// Properties are 'var' so that DataCoordinator can create mutated copies via simple
+/// value-copy-and-assign without constructing an entirely new snapshot. Swift's value
+/// semantics guarantee each copy is independent, preserving Sendable safety.
+///
+/// The 'id' property is intentionally 'let' because a snapshot's identity never changes.
+///
+/// KEY INVARIANT: 'releases' is always kept in sync with the persisted Release records.
+/// DataCoordinator is responsible for rebuilding and re-storing the FilmSnapshot in
+/// MemoryStore after any release mutation (create / update / delete) commits to viewContext.
 
 struct FilmSnapshot: Sendable, Codable, Equatable {
     // MARK: - Identity (immutable)
@@ -190,9 +190,9 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
         self.notesArray = film.notesArray
         self.handbrakeFrames = film.handbrakeFrames
         self.correspondingTimecodes = film.correspondingTimecodes
-        // Capture all Release relationships as value-type snapshots, with the parent→child
-        // side of the hierarchy rebuilt from the authoritative child→parent pointers.
-        // See ReleaseSnapshot.reconcilingHierarchy(_:).
+        /// Capture all Release relationships as value-type snapshots, with the parent→child
+        /// side of the hierarchy rebuilt from the authoritative child→parent pointers.
+        /// See ReleaseSnapshot.reconcilingHierarchy(_:).
         self.releases = ReleaseSnapshot.reconcilingHierarchy(Array(film.releases))
     }
 
@@ -393,11 +393,11 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     let sortOrder: Int
 
     // MARK: - Release Hierarchy
-    // Flat UUID references — avoids circular nesting while keeping the snapshot Sendable/Codable.
-    // parentReleaseID: nil when this release has no parent (it is top-level).
-    // childReleaseIDs: empty when this release has no children.
-    // These are read-only descriptors; hierarchy mutations are applied to the model layer
-    // exclusively through DataCoordinator and DataManager.
+    /// Flat UUID references — avoids circular nesting while keeping the snapshot Sendable/Codable.
+    /// parentReleaseID: nil when this release has no parent (it is top-level).
+    /// childReleaseIDs: empty when this release has no children.
+    /// These are read-only descriptors; hierarchy mutations are applied to the model layer
+    /// exclusively through DataCoordinator and DataManager.
     let parentReleaseID: UUID?
     /// `private(set) var` rather than `let` only so `withChildReleaseIDs(_:)` can
     /// copy-and-replace.
@@ -444,29 +444,29 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     var qualityScore: Int {
         var score = 0
 
-        // Remastered — highest-priority factor.
+        /// Remastered — highest-priority factor.
         if remastered { score += 500 }
 
-        // Lossless audio formats.
+        /// Lossless audio formats.
         if ReleaseAudioFormat.isLossless(audioFormat) { score += 200 }
 
-        // 5.1 channels are better than 2.0.
+        /// 5.1 channels are better than 2.0.
         if audioChannels.hasPrefix("5.1") { score += 100 }
 
-        // More than one included version.
+        /// More than one included version.
         if includedVersions.count > 1 { score += 50 }
 
-        // Has subtitles.
+        /// Has subtitles.
         if hasSubtitles { score += 25 }
 
-        // Video format: AVC > VC-1 > everything else.
+        /// Video format: AVC > VC-1 > everything else.
         switch videoFormat {
         case ReleaseVideoFormat.avc: score += 20
         case ReleaseVideoFormat.vc1: score += 10
         default:     break
         }
 
-        // Year as tiebreaker — each year of recency adds 1 point.
+        /// Year as tiebreaker — each year of recency adds 1 point.
         if let year = ReleaseDateValue.year(of: releaseDate, format: format) { score += year }
 
         return score
@@ -532,14 +532,14 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         guard raw.contains(where: { $0.parentReleaseID != nil })
                 || raw.contains(where: { !$0.childReleaseIDs.isEmpty }) else { return raw }
 
-        // Built by insertion rather than Dictionary(uniqueKeysWithValues:), which traps on
-        // a duplicate key — a corrupt store with two releases sharing an ID must degrade,
-        // not crash the snapshot path that every read in the app goes through.
+        /// Built by insertion rather than Dictionary(uniqueKeysWithValues:), which traps on
+        /// a duplicate key — a corrupt store with two releases sharing an ID must degrade,
+        /// not crash the snapshot path that every read in the app goes through.
         var byID = [UUID: ReleaseSnapshot](minimumCapacity: raw.count)
         for snapshot in raw { byID[snapshot.id] = snapshot }
 
-        // A pointer is honored only when the named parent is present in this film and is
-        // itself top-level. Evaluated against the raw set so ordering cannot matter.
+        /// A pointer is honored only when the named parent is present in this film and is
+        /// itself top-level. Evaluated against the raw set so ordering cannot matter.
         var childrenByParent: [UUID: [ReleaseSnapshot]] = [:]
         for snapshot in raw {
             guard let parentID = snapshot.parentReleaseID,
@@ -597,8 +597,8 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         self.masterType = release.masterType
         self.regionLock = release.regionLock
         self.regionLockBypass = release.regionLockBypass
-        // Migrated on the way in, so a store not yet rewritten by
-        // DataManager.migrateLegacyMarketAvailability never shows a legacy tag.
+        /// Migrated on the way in, so a store not yet rewritten by
+        /// DataManager.migrateLegacyMarketAvailability never shows a legacy tag.
         self.marketAvailability = ReleaseMarketAvailability.migrated(release.marketAvailability)
         self.numberOfCopies = release.numberOfCopies
         self.cost = release.cost
@@ -738,10 +738,10 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         release.notes = notes
         release.dateAdded = dateAdded
         release.sortOrder = sortOrder
-        // parentRelease and childReleases are NOT applied here — they are object-graph
-        // relationships that require live Release references. Hierarchy mutations are managed
-        // exclusively by DataCoordinator / DataManager using the parentReleaseID / childReleaseIDs
-        // UUID fields on this snapshot as lookup keys.
+        /// parentRelease and childReleases are NOT applied here — they are object-graph
+        /// relationships that require live Release references. Hierarchy mutations are managed
+        /// exclusively by DataCoordinator / DataManager using the parentReleaseID / childReleaseIDs
+        /// UUID fields on this snapshot as lookup keys.
     }
 
     // MARK: - Create New Release
@@ -1058,8 +1058,8 @@ enum FilmField: String, CaseIterable, Sendable {
     /// already resolved (see FilmSheet.confirm), and this treats them like any other.
     static func merge(sheet: FilmSnapshot, loaded: FilmSnapshot,
                       stored: FilmSnapshot, current: FilmSnapshot) -> MergeResult {
-        // One visitor for all fields, so the four inputs are copied into it once rather
-        // than once per field per comparison.
+        /// One visitor for all fields, so the four inputs are copied into it once rather
+        /// than once per field per comparison.
         var m = Merger(sheet: sheet, loaded: loaded, stored: stored, merged: current)
         for group in coupled where group.contains(where: { $0.differs(sheet, loaded) }) {
             m.editedTogether.formUnion(group)
@@ -1087,7 +1087,7 @@ enum FilmField: String, CaseIterable, Sendable {
 
     private struct Merger: Visitor {
         let sheet: FilmSnapshot, loaded: FilmSnapshot, stored: FilmSnapshot
-        var merged: FilmSnapshot            // starts as `current`
+        var merged: FilmSnapshot            /// starts as `current`
         var changed = Set<FilmField>()
         var editedTogether = Set<FilmField>()
         var field = FilmField.posterUID

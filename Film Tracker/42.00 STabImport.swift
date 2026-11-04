@@ -1,9 +1,9 @@
 // MARK: - STabImport.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// FilmTracker.app settings window: "Import" tab. Rows are SettingsKit's
-// SettingsDescribedToggle inside a SettingsPage, so they share the sibling
-// projects' grid.
+/// FilmTracker.app settings window: "Import" tab. Rows are SettingsKit's
+/// SettingsDescribedToggle inside a SettingsPage, so they share the sibling
+/// projects' grid.
 
 import SwiftUI
 
@@ -22,8 +22,8 @@ struct ImportSettingsView: View {
         private var allowUpdatesForDuplicateRatings: Bool
 
     var body: some View {
-        // SettingsPage with 16 pt padding, not the kit's default 18. With SettingsSheet's 10 pt that makes 26, the
-        // same inset the scrolling General and Advanced tabs use, so checkboxes line up across tabs.
+        /// SettingsPage with 16 pt padding, not the kit's default 18. With SettingsSheet's 10 pt that makes 26, the
+        /// same inset the scrolling General and Advanced tabs use, so checkboxes line up across tabs.
         SettingsPage(padding: 16) {
             Toggle(isOn: $importScanSubfolders) {
                 Text("Scan subfolders for items") }

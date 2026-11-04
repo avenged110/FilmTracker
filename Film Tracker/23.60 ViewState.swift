@@ -1,9 +1,9 @@
 // MARK: - ViewState.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Defines the core view-layer value types and enums: SortOption, SortDirection, FilterOption, ViewIdentifier,
-// ViewState, and the category enums (RecentsCategory, ImportsCategory, etc.) used to identify and
-// parameterize every navigable view in the app.
+/// Defines the core view-layer value types and enums: SortOption, SortDirection, FilterOption, ViewIdentifier,
+/// ViewState, and the category enums (RecentsCategory, ImportsCategory, etc.) used to identify and
+/// parameterize every navigable view in the app.
 
 import Foundation
 import CoreGraphics
@@ -12,21 +12,21 @@ import Combine
 // MARK: - Sort Options
 enum SortOption: String, CaseIterable, Codable, Sendable {
     case title
-    // Shown as "Release Date": ordered by the film's release year, then its full release date. The raw value
-    // stays "year" because it is what persisted view states store.
+    /// Shown as "Release Date": ordered by the film's release year, then its full release date. The raw value
+    /// stays "year" because it is what persisted view states store.
     case year
     case duration
     case dateAdded
     case dateModified
-    // Sorts by the most recent purchase date among the film's purchased releases — of the view's own format
-    // on the "Purchased 4K / Blu-ray / DVD" lists, of any format elsewhere (see
-    // ViewIdentifier.purchaseFormatScope). Always listed in the sort menu; disabled only where every film is
-    // unpurchased (see SortMenuInputs.disabledSortOptions).
+    /// Sorts by the most recent purchase date among the film's purchased releases — of the view's own format
+    /// on the "Purchased 4K / Blu-ray / DVD" lists, of any format elsewhere (see
+    /// ViewIdentifier.purchaseFormatScope). Always listed in the sort menu; disabled only where every film is
+    /// unpurchased (see SortMenuInputs.disabledSortOptions).
     case datePurchased
     case lastViewed
-    // Sorts by the number of recorded viewings (the length of a film's calendarTable) — the same figure the
-    // RightSidebar's "Watch Details" module reports as "Recorded View Count". Ascending places films with no
-    // recorded viewings first.
+    /// Sorts by the number of recorded viewings (the length of a film's calendarTable) — the same figure the
+    /// RightSidebar's "Watch Details" module reports as "Recorded View Count". Ascending places films with no
+    /// recorded viewings first.
     case viewCount
     case rating
 
@@ -62,23 +62,23 @@ enum SortDirection: String, CaseIterable, Codable, Sendable {
 enum FilterOption: String, CaseIterable, Hashable, Codable, Sendable {
     case none
 
-    // Watched filters (mutually exclusive)
+    /// Watched filters (mutually exclusive)
     case watched
     case unwatched
 
-    // Color filters (mutually exclusive)
+    /// Color filters (mutually exclusive)
     case color
     case blackAndWhite
 
-    // Purchase filters (mutually exclusive)
+    /// Purchase filters (mutually exclusive)
     case purchased
     case unpurchased
 
-    // Data completion filters (mutually exclusive)
+    /// Data completion filters (mutually exclusive)
     case completeData
     case incompleteData
 
-    // Genre filters (multi-selection allowed)
+    /// Genre filters (multi-selection allowed)
     case actionAndAdventure
     case comedy
     case drama
@@ -200,7 +200,7 @@ enum RecentsCategory: String, CaseIterable, Codable, Sendable {
     var sortOption: SortOption {
         switch self {
         case .recentlyViewed: return .lastViewed
-        case .recentlyRotated: return .dateAdded // Placeholder; see above
+        case .recentlyRotated: return .dateAdded /// Placeholder; see above
         case .recentlyAdded: return .dateAdded
         case .recentlyUpdated: return .dateModified
         case .recentlyPurchased: return .datePurchased
@@ -297,18 +297,18 @@ struct ViewState: Equatable, Sendable {
     /// "off everywhere until chosen here" is the only starting point that is true for every view. The choice
     /// persists only while Preferences.rememberSortFilterSelections is on.
     var showSectionDividers: Bool = false
-    // Equatable synthesized by the compiler: all stored properties are Equatable, so no custom ==
-    // implementation is needed.
+    /// Equatable synthesized by the compiler: all stored properties are Equatable, so no custom ==
+    /// implementation is needed.
 }
 
 // MARK: - View State Persistence Codec
-//
-// The on-disk form of a ViewState is a positional [String] array. It is stored under the view's
-// persistenceKey in Preferences.viewSortStates, and in ListObject.sortFilterOptions for user lists.
-//
-// The codec lives on the type, not in ViewStateManager, because DataCoordinator's startup pre-warm also reads
-// it. The pre-warm must sort All Films with the saved settings before the view asks for them, so the cache
-// hits. One codec keeps the two in agreement.
+///
+/// The on-disk form of a ViewState is a positional [String] array. It is stored under the view's
+/// persistenceKey in Preferences.viewSortStates, and in ListObject.sortFilterOptions for user lists.
+///
+/// The codec lives on the type, not in ViewStateManager, because DataCoordinator's startup pre-warm also reads
+/// it. The pre-warm must sort All Films with the saved settings before the view asks for them, so the cache
+/// hits. One codec keeps the two in agreement.
 extension ViewState {
     /// Decodes a stored settings array. Every element is optional and checked on its own. A short array, an
     /// unrecognized raw value, or an empty string leaves that field at its default, and the decode still
@@ -327,13 +327,13 @@ extension ViewState {
         if settings.count >= 3, let direction = SortDirection(rawValue: settings[2]) {
             state.sortDirection = direction
         }
-        // Element [3] is the list view style: "list" is true, and absent or empty is false. Older
-        // three-element arrays fall through here and get the grid.
+        /// Element [3] is the list view style: "list" is true, and absent or empty is false. Older
+        /// three-element arrays fall through here and get the grid.
         if settings.count >= 4 {
             state.isListView = settings[3] == "list"
         }
-        // Element [4] is the section dividers setting: "dividers" is true, and absent or empty is false.
-        // Shorter arrays take the default.
+        /// Element [4] is the section dividers setting: "dividers" is true, and absent or empty is false.
+        /// Shorter arrays take the default.
         if settings.count >= 5 {
             state.showSectionDividers = settings[4] == "dividers"
         }
@@ -366,8 +366,8 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     case search
     case savedSearch(UUID)
 
-    // There is no `listID` accessor. Consumers that need a list ID already match `case .list(let id)` in a
-    // switch, so an accessor would add nothing.
+    /// There is no `listID` accessor. Consumers that need a list ID already match `case .list(let id)` in a
+    /// switch, so an accessor would add nothing.
 
     var recentsCategory: RecentsCategory? {
         if case .recents(let category) = self { return category }
@@ -473,13 +473,13 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     }
 
     // MARK: - Canonical SidebarItem Translation
-    //
-    // Single authoritative conversion from a SidebarItem to the corresponding ViewIdentifier, including
-    // resolution of all sub-variant states (recents category, rotation variant, purchased/unpurchased format,
-    // sorting state).
-    //
-    // All callers — GalleryView, MainView, and any future additions — must use this method so that adding a
-    // new SidebarItem case or smart list variant only requires updating this one location.
+    ///
+    /// Single authoritative conversion from a SidebarItem to the corresponding ViewIdentifier, including
+    /// resolution of all sub-variant states (recents category, rotation variant, purchased/unpurchased format,
+    /// sorting state).
+    ///
+    /// All callers — GalleryView, MainView, and any future additions — must use this method so that adding a
+    /// new SidebarItem case or smart list variant only requires updating this one location.
     @MainActor
     static func from(_ item: SidebarItem) -> ViewIdentifier {
         switch item {
@@ -493,10 +493,10 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .list(let id):             return .list(id)
         case .savedSearch(let id):      return .savedSearch(id)
         case .smartList(let type):
-            // The sidebar row names the family; its state names the variant on screen. A type with no
-            // variants of its own is its own family, so this resolves to the type itself — which is what the
-            // five per-family branches this replaced did case by case, plus a `default` for the thirteen
-            // sub-variants that never appear as a SidebarItem in the first place.
+            /// The sidebar row names the family; its state names the variant on screen. A type with no
+            /// variants of its own is its own family, so this resolves to the type itself — which is what the
+            /// five per-family branches this replaced did case by case, plus a `default` for the thirteen
+            /// sub-variants that never appear as a SidebarItem in the first place.
             return .smartList(SmartListVariantState.shared(for: type).selected)
         }
     }
@@ -563,13 +563,13 @@ struct ViewStateKey: Hashable, Sendable {
 }
 
 // MARK: - View Capabilities
-//
-// Centralizes every question of the form "does this view support X". Before this, the answers were spread
-// across hand-synced switches in MainView, MenuBar, KeyboardManager, and GalleryView. Now one exhaustive
-// switch, below, defines them, and the consumers read the precomputed flags. Each flag asks a distinct
-// question. Several happen to agree today, but they stay separate so a future view can differ on one without
-// affecting the others. coincidence, and collapsing them would silently reintroduce the same
-// one-flag-serves-two-purposes coupling this type exists to avoid.
+///
+/// Centralizes every question of the form "does this view support X". Before this, the answers were spread
+/// across hand-synced switches in MainView, MenuBar, KeyboardManager, and GalleryView. Now one exhaustive
+/// switch, below, defines them, and the consumers read the precomputed flags. Each flag asks a distinct
+/// question. Several happen to agree today, but they stay separate so a future view can differ on one without
+/// affecting the others. coincidence, and collapsing them would silently reintroduce the same
+/// one-flag-serves-two-purposes coupling this type exists to avoid.
 struct ViewCapabilities: Sendable {
     /// Whether the RightSidebar and StatusBar chrome is shown beside this view's content. Reports hides it
     /// while its Data Visualizations tab is displayed, and Imports never shows it.
@@ -578,9 +578,9 @@ struct ViewCapabilities: Sendable {
     /// (MainView.handleSearchContentChange). It must be a gallery-backed view whose membership can be checked
     /// directly. Search, Reports, and Imports are excluded.
     var isValidSearchExitDestination: Bool = true
-    // There is no treatsEmptyAsValidState flag here. ViewIdentifier.treatsEmptyAsValidState answers that
-    // question, keyed off the view the pipeline reflects rather than the sidebar item. A copy here would be
-    // set but never read.
+    /// There is no treatsEmptyAsValidState flag here. ViewIdentifier.treatsEmptyAsValidState answers that
+    /// question, keyed off the view the pipeline reflects rather than the sidebar item. A copy here would be
+    /// set but never read.
     /// Whether the GalleryTitleBar trash menu shows Remove from List, alongside Remove from All Lists and
     /// Delete from Library. It is true for a user list or the Film Queue, where removing from this list is a
     /// distinct operation from removing from every list.
@@ -688,11 +688,11 @@ protocol SubcategoryViewState: AnyObject {
 }
 
 // MARK: - Gallery Scroll Position Handoff (Search Exit / Grid ⟷ List Toggle)
-//
-// Lets ViewStateManager ask the gallery style on screen which film is topmost in its viewport, so a style
-// toggle can hand that film to the new style and keep the relative scroll position. It is declared here so
-// this file stays AppKit-free. The two conforming coordinators, in GallerySubview and GalleryListView, live
-// beside their own NSView code.
+///
+/// Lets ViewStateManager ask the gallery style on screen which film is topmost in its viewport, so a style
+/// toggle can hand that film to the new style and keep the relative scroll position. It is declared here so
+/// this file stays AppKit-free. The two conforming coordinators, in GallerySubview and GalleryListView, live
+/// beside their own NSView code.
 
 /// A gallery style's coordinator conforms to this, so ViewStateManager can ask what is on top without
 /// importing AppKit.
@@ -982,8 +982,8 @@ final class ViewStateManager: Loggable {
     var selectedRightSidebarTab: RightSidebarTab = RightSidebarTab.details
 
     // MARK: - Private Storage
-    // Keyed by ViewStateKey rather than ViewIdentifier so the Film Queue's four segmented tabs each get their
-    // own slot — see ViewStateKey's doc comment.
+    /// Keyed by ViewStateKey rather than ViewIdentifier so the Film Queue's four segmented tabs each get their
+    /// own slot — see ViewStateKey's doc comment.
     private var viewStates: [ViewStateKey: ViewState] = [:]
     private weak var coordinator: DataCoordinator?
     /// One pending debounced save per storage slot, so a change in a second view (or Film
@@ -991,48 +991,48 @@ final class ViewStateManager: Loggable {
     @ObservationIgnored private var saveTasks: [ViewStateKey: Task<Void, Never>] = [:]
     private let saveDebounceMs: Int = 300
 
-    // Per-view saved scroll positions (see GalleryScrollPosition) for the maintainScrollPositionOnViewSwitch
-    // feature. Lives here (not in GallerySubview.Coordinator) so it survives the destruction and recreation
-    // of GalleryView instances that occurs on every view switch. Keyed by GalleryScrollKey rather than
-    // ViewIdentifier so the Film Queue's four segmented sections each get their own slot — see
-    // GalleryScrollKey's doc comment.
-    //
-    // Ignored by Observation, as is pendingOriginRestore below: no view renders from either, and every reader
-    // is a gallery coordinator that consults them imperatively. Tracked, they subscribed whichever
-    // updateNSView last read them (the list reads the pending restore on every pass), so each bank or retire
-    // scheduled another gallery update pass for nothing.
+    /// Per-view saved scroll positions (see GalleryScrollPosition) for the maintainScrollPositionOnViewSwitch
+    /// feature. Lives here (not in GallerySubview.Coordinator) so it survives the destruction and recreation
+    /// of GalleryView instances that occurs on every view switch. Keyed by GalleryScrollKey rather than
+    /// ViewIdentifier so the Film Queue's four segmented sections each get their own slot — see
+    /// GalleryScrollKey's doc comment.
+    ///
+    /// Ignored by Observation, as is pendingOriginRestore below: no view renders from either, and every reader
+    /// is a gallery coordinator that consults them imperatively. Tracked, they subscribed whichever
+    /// updateNSView last read them (the list reads the pending restore on every pass), so each bank or retire
+    /// scheduled another gallery update pass for nothing.
     @ObservationIgnored private var savedScrollOrigins: [GalleryScrollKey: GalleryScrollPosition] = [:]
 
-    // The origin restore armed by the most recent view/sub-tab switch, addressed to the destination's scroll
-    // key. See prepareScrollHandoff for why this exists rather than having the gallery layer infer the switch
-    // for itself. A named type rather than a tuple so it reads clearly at every use site and stays a plain
-    // stored property of this @Observable class.
+    /// The origin restore armed by the most recent view/sub-tab switch, addressed to the destination's scroll
+    /// key. See prepareScrollHandoff for why this exists rather than having the gallery layer infer the switch
+    /// for itself. A named type rather than a tuple so it reads clearly at every use site and stays a plain
+    /// stored property of this @Observable class.
     private struct PendingOriginRestore {
         let key: GalleryScrollKey
         let position: GalleryScrollPosition
     }
     @ObservationIgnored private var pendingOriginRestore: PendingOriginRestore?
 
-    // Whichever gallery style (grid or list) currently has its NSViewRepresentable mounted for the active
-    // view. Registered/unregistered by GallerySubview.Coordinator and GalleryListView's Coordinator as they
-    // mount/dismantle — see registerScrollPositionProvider
-    // / unregisterScrollPositionProvider below. Used solely by updateListViewStyle to capture
-    // a grid⟷list scroll-position handoff target; unrelated to savedScrollOrigins above.
+    /// Whichever gallery style (grid or list) currently has its NSViewRepresentable mounted for the active
+    /// view. Registered/unregistered by GallerySubview.Coordinator and GalleryListView's Coordinator as they
+    /// mount/dismantle — see registerScrollPositionProvider
+    /// / unregisterScrollPositionProvider below. Used solely by updateListViewStyle to capture
+    /// a grid⟷list scroll-position handoff target; unrelated to savedScrollOrigins above.
     private weak var scrollPositionProvider: (any GalleryScrollPositionProviding)?
 
     private var cancellables = Set<AnyCancellable>()
 
     private init() {
-        // Reclaim the two per-view dictionaries above (savedScrollOrigins, viewStates) for a deleted list's
-        // ViewIdentifier. Without this, AppEventBus.listDeleted had no subscriber anywhere in the app, so
-        // every list a user ever created and later deleted left a permanent, unreclaimed CGPoint/ViewState
-        // entry behind for the remainder of the app session — a small but genuine leak for anyone who creates
-        // and prunes lists over time. Both dictionaries are keyed by ViewIdentifier, and
-        // ViewIdentifier.list(_:) is the only case referencing a UUID that can actually be deleted
-        // (recents/reports/imports/smartList cases enumerate fixed, non-deletable categories), so this is a
-        // straightforward, safe removal — the active view is never left mid-display of a list that was just
-        // deleted, since ListManager.deleteList already switches away from it first when it was the one being
-        // viewed.
+        /// Reclaim the two per-view dictionaries above (savedScrollOrigins, viewStates) for a deleted list's
+        /// ViewIdentifier. Without this, AppEventBus.listDeleted had no subscriber anywhere in the app, so
+        /// every list a user ever created and later deleted left a permanent, unreclaimed CGPoint/ViewState
+        /// entry behind for the remainder of the app session — a small but genuine leak for anyone who creates
+        /// and prunes lists over time. Both dictionaries are keyed by ViewIdentifier, and
+        /// ViewIdentifier.list(_:) is the only case referencing a UUID that can actually be deleted
+        /// (recents/reports/imports/smartList cases enumerate fixed, non-deletable categories), so this is a
+        /// straightforward, safe removal — the active view is never left mid-display of a list that was just
+        /// deleted, since ListManager.deleteList already switches away from it first when it was the one being
+        /// viewed.
         AppEventBus.shared.listEvents
             .compactMap { event -> UUID? in
                 guard case .deleted(let listID) = event else { return nil }
@@ -1041,15 +1041,15 @@ final class ViewStateManager: Loggable {
             .sink { [weak self] listID in
                 guard let self else { return }
                 let viewID = ViewIdentifier.list(listID)
-                // savedScrollOrigins is keyed by GalleryScrollKey; a user list never has a sub-tab, so this
-                // removes the single entry that can exist for it while remaining correct if a future view
-                // gains sub-tabs.
+                /// savedScrollOrigins is keyed by GalleryScrollKey; a user list never has a sub-tab, so this
+                /// removes the single entry that can exist for it while remaining correct if a future view
+                /// gains sub-tabs.
                 self.savedScrollOrigins = self.savedScrollOrigins.filter { $0.key.viewID != viewID }
                 if self.pendingOriginRestore?.key.viewID == viewID {
                     self.pendingOriginRestore = nil
                 }
-                // viewStates is keyed by ViewStateKey; a user list never has a sub-tab, so this removes the
-                // single entry that can exist for it while remaining correct if a future view gains sub-tabs.
+                /// viewStates is keyed by ViewStateKey; a user list never has a sub-tab, so this removes the
+                /// single entry that can exist for it while remaining correct if a future view gains sub-tabs.
                 self.viewStates = self.viewStates.filter { $0.key.viewID != viewID }
             }
             .store(in: &cancellables)
@@ -1122,9 +1122,9 @@ final class ViewStateManager: Loggable {
         savedScrollOrigins[key] = position
     }
 
-    // There is deliberately no public read accessor for the origin bank. A restore is obtained only through
-    // pendingScrollOriginRestore(for:), so only an origin a switch has actually armed can be applied. A direct
-    // read would let callers apply a saved origin at any time, which is the misuse this section prevents.
+    /// There is deliberately no public read accessor for the origin bank. A restore is obtained only through
+    /// pendingScrollOriginRestore(for:), so only an origin a switch has actually armed can be applied. A direct
+    /// read would let callers apply a saved origin at any time, which is the misuse this section prevents.
 
     /// Discards the saved scroll origin for the given view. Private, and deliberately so: its one and only
     /// legitimate use is updateListViewStyle invalidating an origin measured in the outgoing style's geometry
@@ -1136,14 +1136,14 @@ final class ViewStateManager: Loggable {
     }
 
     // MARK: - Scroll-Position Handoff (View and Sub-Tab Switches)
-    //
-    // The gallery layer does not infer view switches from film-array heuristics. That inference worked for a
-    // fresh mount, but not for a sub-tab switch, where the same gallery is reused and the transition and the
-    // film reload may fall on different passes. These two methods record both facts where they are known.
-    // Every switch funnels through prepareScrollHandoff, which banks the outgoing position and arms the
-    // incoming one in one step. The gallery layer only asks whether a restore is addressed to what it
-    // displays, and reports back once it has applied one. A restore therefore survives any number of passes
-    // and is never applied twice.
+    ///
+    /// The gallery layer does not infer view switches from film-array heuristics. That inference worked for a
+    /// fresh mount, but not for a sub-tab switch, where the same gallery is reused and the transition and the
+    /// film reload may fall on different passes. These two methods record both facts where they are known.
+    /// Every switch funnels through prepareScrollHandoff, which banks the outgoing position and arms the
+    /// incoming one in one step. The gallery layer only asks whether a restore is addressed to what it
+    /// displays, and reports back once it has applied one. A restore therefore survives any number of passes
+    /// and is never applied twice.
 
     /// Banks the outgoing view's live scroll origin and arms the incoming view's saved origin for restore.
     /// Call immediately BEFORE the switch is enacted, while the outgoing gallery is still the registered
@@ -1154,18 +1154,18 @@ final class ViewStateManager: Loggable {
     ///     bank (no prior view).
     ///   - toKey: The key of the view/sub-tab being entered.
     func prepareScrollHandoff(fromKey: GalleryScrollKey?, toKey: GalleryScrollKey) {
-        // Bank the outgoing position, but only on the provider's own word that it is in fact displaying the
-        // view we think we are leaving. See currentScrollState's doc comment for the mount-ordering hazard
-        // this verification closes.
+        /// Bank the outgoing position, but only on the provider's own word that it is in fact displaying the
+        /// view we think we are leaving. See currentScrollState's doc comment for the mount-ordering hazard
+        /// this verification closes.
         if let fromKey, !fromKey.viewID.isSearch,
            let state = scrollPositionProvider?.currentScrollState(),
            state.key == fromKey {
             bankScrollOrigin(state.position, under: fromKey)
         }
 
-        // Arm the incoming restore. Reading the preference here rather than in the gallery layer makes this
-        // the single gate for the whole feature: when it is off, nothing is ever armed and every consumer is
-        // inert without needing its own check.
+        /// Arm the incoming restore. Reading the preference here rather than in the gallery layer makes this
+        /// the single gate for the whole feature: when it is off, nothing is ever armed and every consumer is
+        /// inert without needing its own check.
         guard !toKey.viewID.isSearch,
               Preferences.maintainScrollPositionOnViewSwitch,
               let position = savedScrollOrigins[toKey] else {
@@ -1173,9 +1173,9 @@ final class ViewStateManager: Loggable {
             return
         }
         pendingOriginRestore = PendingOriginRestore(key: toKey, position: position)
-        // Kept deliberately. This line pairs with the gallery's "armed" and "applied" logs to form a
-        // three-stage trace: banked, armed, and applied. Banked and armed without applied means the origin
-        // reached the scroll view but was never resolved.
+        /// Kept deliberately. This line pairs with the gallery's "armed" and "applied" logs to form a
+        /// three-stage trace: banked, armed, and applied. Banked and armed without applied means the origin
+        /// reached the scroll view but was never resolved.
         Self.log("Scroll handoff armed for \(toKey.viewID): \(position.origin)")
     }
 
@@ -1205,9 +1205,9 @@ final class ViewStateManager: Loggable {
     /// intervening reload that resets the viewport is simply re-armed on the next pass rather than silently
     /// losing the restore.
     func pendingScrollOriginRestore(for key: GalleryScrollKey) -> GalleryScrollPosition? {
-        // Re-checked here, not only at arming time. The gallery styles do not observe the preference
-        // themselves, so without this a restore armed before the user turned the preference off could still
-        // fire. This costs one UserDefaults read, and only on passes that reload.
+        /// Re-checked here, not only at arming time. The gallery styles do not observe the preference
+        /// themselves, so without this a restore armed before the user turned the preference off could still
+        /// fire. This costs one UserDefaults read, and only on passes that reload.
         guard Preferences.maintainScrollPositionOnViewSwitch else { return nil }
         guard let pending = pendingOriginRestore, pending.key == key else { return nil }
         return pending.position
@@ -1294,76 +1294,76 @@ final class ViewStateManager: Loggable {
         let isViewChange = activeView != viewID
         let oldActiveView = activeView
 
-        // Bank the outgoing view's scroll position and arm the incoming view's, before anything below can
-        // disturb either. This runs first specifically because it is the last moment at which the outgoing
-        // gallery is unambiguously the one on screen: the reload triggered further down replaces
-        // dataCoordinator.films, after which the still-mounted gallery's viewport no longer describes the
-        // view being left.
-        //
-        // This is the single arming point for every switch that reaches this method — sidebar navigation and
-        // every sub-tab picker alike, since Recents, Unwatched and the smart-list variants all route through
-        // SubcategoryNavigation.performSwitch to get here. (The Film Queue's segmented filter does not change
-        // the active view at all, so it arms its own handoff directly — see
-        // FilmQueueFilterState.selectFilter.)
+        /// Bank the outgoing view's scroll position and arm the incoming view's, before anything below can
+        /// disturb either. This runs first specifically because it is the last moment at which the outgoing
+        /// gallery is unambiguously the one on screen: the reload triggered further down replaces
+        /// dataCoordinator.films, after which the still-mounted gallery's viewport no longer describes the
+        /// view being left.
+        ///
+        /// This is the single arming point for every switch that reaches this method — sidebar navigation and
+        /// every sub-tab picker alike, since Recents, Unwatched and the smart-list variants all route through
+        /// SubcategoryNavigation.performSwitch to get here. (The Film Queue's segmented filter does not change
+        /// the active view at all, so it arms its own handoff directly — see
+        /// FilmQueueFilterState.selectFilter.)
         if isViewChange {
             prepareScrollHandoff(fromKey: .current(for: oldActiveView),
                                  toKey: .current(for: viewID))
         }
 
-        // Capture start time only for view changes; non-view-change refreshes are not timed.
+        /// Capture start time only for view changes; non-view-change refreshes are not timed.
         let viewSwitchStartTime: Date? = isViewChange ? Date() : nil
 
-        // Resolve the new state. Search view intentionally never reads from nor writes to the per-view state
-        // cache: each entry into search starts from defaults, and there is no value in caching a state that
-        // resets on every visit. All other views use the in-memory cache when available, falling back to
-        // storage or defaults.
+        /// Resolve the new state. Search view intentionally never reads from nor writes to the per-view state
+        /// cache: each entry into search starts from defaults, and there is no value in caching a state that
+        /// resets on every visit. All other views use the in-memory cache when available, falling back to
+        /// storage or defaults.
         let newState: ViewState
         let stateKey = ViewStateKey.current(for: viewID)
         if viewID.isSearch {
             var state = loadStateSync(for: stateKey)
 
-            // Seeds the grid or list style from the view being left, so search results open in the same style
-            // as the view the user returns to. It is a one-time seed. Search state is never cached, so the
-            // style can still be toggled within the session. viewStates[source] is read first, and
-            // loadStateSync is the fallback for a source not yet visited this session.
-            //
-            // A .search source is ignored and treated as no source. Its slot is always empty, so seeding from
-            // it would reset an in-session toggle. That happens when the RightSidebar's Search button is
-            // pressed while search is already showing.
+            /// Seeds the grid or list style from the view being left, so search results open in the same style
+            /// as the view the user returns to. It is a one-time seed. Search state is never cached, so the
+            /// style can still be toggled within the session. viewStates[source] is read first, and
+            /// loadStateSync is the fallback for a source not yet visited this session.
+            ///
+            /// A .search source is ignored and treated as no source. Its slot is always empty, so seeding from
+            /// it would reset an in-session toggle. That happens when the RightSidebar's Search button is
+            /// pressed while search is already showing.
             if let sourceViewID, !sourceViewID.isSearch {
                 let sourceKey = ViewStateKey.current(for: sourceViewID)
                 let sourceState = viewStates[sourceKey] ?? loadStateSync(for: sourceKey)
                 state.isListView = sourceState.isListView
             } else if activeView.isSearch {
-                // No explicit source was given, but a search session is already active — this is a redundant,
-                // re-entrant call (e.g. the embedded GalleryView's own onAppear-triggered
-                // switchToViewSync(.search), which always fires shortly after MainView's own seeding call
-                // above, once activeView is already .search). Preserve whatever style is currently live —
-                // either the seed the earlier call just set, or an in-session toggle the user already made —
-                // instead of silently reverting to the grid default that loadStateSync always returns for
-                // .search. Sort/filter/query below still resolve fresh every call, matching the existing
-                // "transient" contract for everything except style.
+                /// No explicit source was given, but a search session is already active — this is a redundant,
+                /// re-entrant call (e.g. the embedded GalleryView's own onAppear-triggered
+                /// switchToViewSync(.search), which always fires shortly after MainView's own seeding call
+                /// above, once activeView is already .search). Preserve whatever style is currently live —
+                /// either the seed the earlier call just set, or an in-session toggle the user already made —
+                /// instead of silently reverting to the grid default that loadStateSync always returns for
+                /// .search. Sort/filter/query below still resolve fresh every call, matching the existing
+                /// "transient" contract for everything except style.
                 state.isListView = activeState.isListView
             }
 
-            // Inject the current SearchController query directly at view-switch time.
-            //
-            // Race condition this fixes: SearchController.triggerSearch() calls updateSearchQuery() which
-            // guards `activeView.isSearch`. When the debounced Task fires before switchToViewSync has
-            // promoted activeView to .search (which happens ~50% of the time on a loaded system), the guard
-            // drops the query silently. The search view then appears but shows no results and never loads.
-            //
-            // By pulling the live query here — while we are already promoting activeView to .search — the
-            // initial state always carries the correct query regardless of whether the debounce Task fires
-            // before or after this call. The subsequent updateSearchQuery() call from the debounce Task
-            // becomes a harmless no-op (guarded by `activeState.searchQuery != query`).
+            /// Inject the current SearchController query directly at view-switch time.
+            ///
+            /// Race condition this fixes: SearchController.triggerSearch() calls updateSearchQuery() which
+            /// guards `activeView.isSearch`. When the debounced Task fires before switchToViewSync has
+            /// promoted activeView to .search (which happens ~50% of the time on a loaded system), the guard
+            /// drops the query silently. The search view then appears but shows no results and never loads.
+            ///
+            /// By pulling the live query here — while we are already promoting activeView to .search — the
+            /// initial state always carries the correct query regardless of whether the debounce Task fires
+            /// before or after this call. The subsequent updateSearchQuery() call from the debounce Task
+            /// becomes a harmless no-op (guarded by `activeState.searchQuery != query`).
             let pendingQuery = SearchController.shared.getCurrentQuery()
             if !pendingQuery.isEmpty {
                 state.searchQuery = pendingQuery
                 Self.log("Injected pending search query at view-switch time: \"\(pendingQuery)\"")
             }
             newState = state
-            // Do not cache: search state is always transient.
+            /// Do not cache: search state is always transient.
         } else if let cached = viewStates[stateKey] {
             newState = cached
         } else {
@@ -1371,15 +1371,15 @@ final class ViewStateManager: Loggable {
             viewStates[stateKey] = newState
         }
 
-        // Discard cached search state when leaving the search view, so a stale .search entry cannot be
-        // served on re-entry.
+        /// Discard cached search state when leaving the search view, so a stale .search entry cannot be
+        /// served on re-entry.
         if isViewChange && oldActiveView.isSearch {
             viewStates.removeValue(forKey: ViewStateKey(viewID: .search))
         }
 
         let stateChanged = activeState != newState
 
-        // Update active view and state.
+        /// Update active view and state.
         activeView = viewID
         activeState = newState
 
@@ -1390,29 +1390,29 @@ final class ViewStateManager: Loggable {
             Self.log("State change: sort=\(newState.sortOption), filters=\(newState.filterOptions.count), dir=\(newState.sortDirection)")
         }
 
-        // Reloads when the view changed, the state changed, or the view is in its initial state. The initial
-        // case covers startup, when nothing is loaded yet, and the view is already .allFilms, so neither flag
-        // is set. Without this, the spinner would never clear.
-        //
-        // Empty films alone do not qualify. An empty result is also a valid answer for a view, and re-entrant
-        // navigation calls would reload it again. So the films must also not have been loaded for this view.
-        //
-        // This check runs after activeView and activeState are updated above, since it reads the current
-        // view.
+        /// Reloads when the view changed, the state changed, or the view is in its initial state. The initial
+        /// case covers startup, when nothing is loaded yet, and the view is already .allFilms, so neither flag
+        /// is set. Without this, the spinner would never clear.
+        ///
+        /// Empty films alone do not qualify. An empty result is also a valid answer for a view, and re-entrant
+        /// navigation calls would reload it again. So the films must also not have been loaded for this view.
+        ///
+        /// This check runs after activeView and activeState are updated above, since it reads the current
+        /// view.
         let needsInitialLoad = coordinator.map { $0.films.isEmpty && $0.loadedViewID != viewID } ?? false
         if isViewChange || stateChanged || needsInitialLoad {
             triggerReloadSync()
         }
 
-        // Broadcasts on a state change as well as a view change. The MenuBar's Sort By, Filter, and View As
-        // List items each keep a local mirror of activeState. They refresh only from this event, from menu
-        // tracking, and from onAppear. Without this, a launch-time state change that is not a view change
-        // left the mirrors at their defaults. For View As List, the action negates the mirror, so the
-        // shortcut then requested the style already in effect and did nothing.
-        //
-        // stateChanged compares against the value before the assignment, so the event fires only when
-        // something actually differs. The View As List action now also reads the live value, so the two fixes
-        // are independent.
+        /// Broadcasts on a state change as well as a view change. The MenuBar's Sort By, Filter, and View As
+        /// List items each keep a local mirror of activeState. They refresh only from this event, from menu
+        /// tracking, and from onAppear. Without this, a launch-time state change that is not a view change
+        /// left the mirrors at their defaults. For View As List, the action negates the mirror, so the
+        /// shortcut then requested the style already in effect and did nothing.
+        ///
+        /// stateChanged compares against the value before the assignment, so the event fires only when
+        /// something actually differs. The View As List action now also reads the live value, so the two fixes
+        /// are independent.
         if isViewChange || stateChanged {
             AppEventBus.shared.viewStateChanged()
         }
@@ -1458,9 +1458,9 @@ final class ViewStateManager: Loggable {
     func prepareSubTabStateHandoff(fromKey: ViewStateKey, toKey: ViewStateKey) {
         guard fromKey != toKey else { return }
         guard fromKey.viewID == activeView else {
-            // The Queue is not the view on screen, so `activeState` describes something else entirely and
-            // must not be filed under a Queue tab. The incoming tab's state will be resolved by the
-            // switchToViewSync that navigates to the Queue.
+            /// The Queue is not the view on screen, so `activeState` describes something else entirely and
+            /// must not be filed under a Queue tab. The incoming tab's state will be resolved by the
+            /// switchToViewSync that navigates to the Queue.
             return
         }
 
@@ -1471,15 +1471,15 @@ final class ViewStateManager: Loggable {
 
         activeState = incoming
         Self.log("Sub-tab state handoff: \(fromKey.subTab ?? "—") → \(toKey.subTab ?? "—")")
-        // Broadcast for the same reason switchToViewSync does on a state change: the MenuBar's Sort By /
-        // Filter / View As List mirrors refresh only on this event. No reload is triggered here — the
-        // caller's own deferred forceReload covers it, and it must run after the filter itself has flipped.
-        //
-        // Unconditional rather than gated on `activeState != incoming`, unlike the equivalent broadcast in
-        // switchToViewSync: the MenuBar also mirrors whether the dividers pair is LOCKED, which is a property
-        // of the tab rather than of its state, and two tabs can hold identical states while differing on it
-        // (the "All" tab locked ON, a section tab the user has set to Show). Gating on the state alone would
-        // leave that mirror describing the tab just left.
+        /// Broadcast for the same reason switchToViewSync does on a state change: the MenuBar's Sort By /
+        /// Filter / View As List mirrors refresh only on this event. No reload is triggered here — the
+        /// caller's own deferred forceReload covers it, and it must run after the filter itself has flipped.
+        ///
+        /// Unconditional rather than gated on `activeState != incoming`, unlike the equivalent broadcast in
+        /// switchToViewSync: the MenuBar also mirrors whether the dividers pair is LOCKED, which is a property
+        /// of the tab rather than of its state, and two tabs can hold identical states while differing on it
+        /// (the "All" tab locked ON, a section tab the user has set to Show). Gating on the state alone would
+        /// leave that mirror describing the tab just left.
         AppEventBus.shared.viewStateChanged()
     }
 
@@ -1514,34 +1514,34 @@ final class ViewStateManager: Loggable {
         guard activeState.isListView != isListView else { return }
         Self.log("Updating list view style: \(activeState.isListView) → \(isListView)")
 
-        // Capture the film currently topmost in the outgoing style's viewport, addressed to the view being
-        // toggled, so the newly-mounted style can restore the same relative scroll position. This MUST run
-        // before flipping isListView below — scrollPositionProvider still points at the outgoing style at
-        // this instant, since SwiftUI hasn't re-rendered yet. A nil result (no provider registered, no films
-        // laid out, or a zero-height viewport) simply means no restoration target is set; the new style then
-        // mounts at its default scroll origin, exactly as it always has.
+        /// Capture the film currently topmost in the outgoing style's viewport, addressed to the view being
+        /// toggled, so the newly-mounted style can restore the same relative scroll position. This MUST run
+        /// before flipping isListView below — scrollPositionProvider still points at the outgoing style at
+        /// this instant, since SwiftUI hasn't re-rendered yet. A nil result (no provider registered, no films
+        /// laid out, or a zero-height viewport) simply means no restoration target is set; the new style then
+        /// mounts at its default scroll origin, exactly as it always has.
         if let topFilmID = scrollPositionProvider?.topmostVisibleFilmID() {
             GalleryScrollIntent.shared.set(filmID: topFilmID, targetViewID: activeView)
         }
 
-        // A saved origin was measured in the outgoing style's geometry. A variable-height grid and a
-        // fixed-height table give different y values for the same place. Both styles share one key per view,
-        // so a style toggle is the one transition that can leave a mismatched origin. The film-based handoff
-        // is the correct cross-style mechanism. Where it cannot run, the new style opens at the top.
-        //
-        // The outgoing style's dismantle may save again under this key. That save is harmless, because it
-        // saves only a non-zero origin, which implies a laid-out viewport where the handoff intent is armed
-        // and takes precedence.
+        /// A saved origin was measured in the outgoing style's geometry. A variable-height grid and a
+        /// fixed-height table give different y values for the same place. Both styles share one key per view,
+        /// so a style toggle is the one transition that can leave a mismatched origin. The film-based handoff
+        /// is the correct cross-style mechanism. Where it cannot run, the new style opens at the top.
+        ///
+        /// The outgoing style's dismantle may save again under this key. That save is harmless, because it
+        /// saves only a non-zero origin, which implies a laid-out viewport where the handoff intent is armed
+        /// and takes precedence.
         clearSavedScrollOrigin(for: activeView)
 
-        // For the same reason, retires any restore that a just-completed switch armed for this view. Its
-        // origin was measured in the outgoing style's geometry, so it must not resolve against the incoming
-        // one.
+        /// For the same reason, retires any restore that a just-completed switch armed for this view. Its
+        /// origin was measured in the outgoing style's geometry, so it must not resolve against the incoming
+        /// one.
         cancelPendingScrollOriginRestore()
 
         activeState.isListView = isListView
-        // No reload needed — the list view reads the same dataCoordinator.films array that the grid already
-        // uses. The view switch is driven by the @Observable property change alone.
+        /// No reload needed — the list view reads the same dataCoordinator.films array that the grid already
+        /// uses. The view switch is driven by the @Observable property change alone.
         commitActiveStateChange(reload: false)
     }
 
@@ -1602,9 +1602,9 @@ final class ViewStateManager: Loggable {
     /// itself triggers, and the Sort menu's "Jump to Section" submenu is rebuilt from the same value the next
     /// time it opens.
     func updateShowSectionDividers(_ showDividers: Bool) {
-        // Refused outright on a tab whose dividers are locked. The menu already disables the pair there, so
-        // this is unreachable through the UI; it is the enforcement half of the rule regardless, so no future
-        // caller can write a value the view cannot honor.
+        /// Refused outright on a tab whose dividers are locked. The menu already disables the pair there, so
+        /// this is unreachable through the UI; it is the enforcement half of the rule regardless, so no future
+        /// caller can write a value the view cannot honor.
         guard !sectionDividersLocked else {
             Self.log("Ignoring section-dividers change — locked for \(activeView.description)")
             return
@@ -1617,8 +1617,8 @@ final class ViewStateManager: Loggable {
     }
 
     func updateSearchQuery(_ query: String) {
-        // Only update search query if we're in the search view. This prevents unnecessary reloads and
-        // placeholder flashing when switching away from search.
+        /// Only update search query if we're in the search view. This prevents unnecessary reloads and
+        /// placeholder flashing when switching away from search.
         guard activeView.isSearch else {
             Self.log("Ignoring search query update - not in search view (current: \(activeView))")
             return
@@ -1640,30 +1640,30 @@ final class ViewStateManager: Loggable {
         guard !activeState.searchQuery.isEmpty else { return }
 
         if activeView.isSearch {
-            // Reset the search view to defaults so the next search starts fresh — but deliberately carry the
-            // grid/list style across, rather than taking ViewState()'s grid default for it.
-            //
-            // Style is the one field of a search session's state that is not transient by contract.
-            // switchToViewSync seeds it from the view being left, precisely so results appear in the same
-            // style as the destination the user returns to on exit, and preserves it across a re-entrant
-            // switch so an in-session toggle survives. Resetting it here contradicted both: clearing the
-            // query from the No Results placeholder while in list style flipped the gallery to grid for the
-            // frames between this call and the search-exit navigation that follows. Sort, filters, dividers
-            // and the query itself are genuinely transient and are still reset.
+            /// Reset the search view to defaults so the next search starts fresh — but deliberately carry the
+            /// grid/list style across, rather than taking ViewState()'s grid default for it.
+            ///
+            /// Style is the one field of a search session's state that is not transient by contract.
+            /// switchToViewSync seeds it from the view being left, precisely so results appear in the same
+            /// style as the destination the user returns to on exit, and preserves it across a re-entrant
+            /// switch so an in-session toggle survives. Resetting it here contradicted both: clearing the
+            /// query from the No Results placeholder while in list style flipped the gallery to grid for the
+            /// frames between this call and the search-exit navigation that follows. Sort, filters, dividers
+            /// and the query itself are genuinely transient and are still reset.
             let preservedStyle = activeState.isListView
             activeState = ViewState()
             activeState.isListView = preservedStyle
             Self.log("Search cleared - reset search view to defaults (style preserved: isListView=\(preservedStyle))")
         } else {
-            // For other views, just clear the search query.
+            /// For other views, just clear the search query.
             activeState.searchQuery = ""
         }
 
-        // Routed through the shared tail rather than a bare triggerReloadSync(), so this broadcasts
-        // viewStateChanged() like every other mutator. Without it the MenuBar's Sort By / Filter / View As
-        // List mirrors — which refresh only on that event, on NSMenu.didBeginTracking, and on their own
-        // onAppear — kept describing the state this method had just discarded. See the broadcast rationale in
-        // switchToViewSync.
+        /// Routed through the shared tail rather than a bare triggerReloadSync(), so this broadcasts
+        /// viewStateChanged() like every other mutator. Without it the MenuBar's Sort By / Filter / View As
+        /// List mirrors — which refresh only on that event, on NSMenu.didBeginTracking, and on their own
+        /// onAppear — kept describing the state this method had just discarded. See the broadcast rationale in
+        /// switchToViewSync.
         commitActiveStateChange()
     }
 
@@ -1678,8 +1678,8 @@ final class ViewStateManager: Loggable {
         let hadQuery = !activeState.searchQuery.isEmpty
         guard hadFilters || hadQuery else { return }
 
-        // A query clear on the search view resets that view wholesale (style excepted), so it already
-        // subsumes the filter clear; delegate to keep that rule in one place.
+        /// A query clear on the search view resets that view wholesale (style excepted), so it already
+        /// subsumes the filter clear; delegate to keep that rule in one place.
         guard !(hadQuery && activeView.isSearch) else {
             clearSearch()
             return
@@ -1712,14 +1712,14 @@ final class ViewStateManager: Loggable {
         triggerReloadSync()
     }
 
-    // Returns an encoded snapshot of all currently-loaded view sort/filter states in the same
-    // [String:[String]] format written to Preferences.viewSortStates. Only views that have been visited (and
-    // thus loaded into the in-memory cache) during the current session are included. User-created list states
-    // are excluded intentionally — they are persisted independently in the database and are unaffected by
-    // rememberSortFilterSelections.
-    //
-    // Called by STabGeneral when the rememberSortFilterSelections preference is re-enabled so that the
-    // current runtime selections survive the next restart.
+    /// Returns an encoded snapshot of all currently-loaded view sort/filter states in the same
+    /// [String:[String]] format written to Preferences.viewSortStates. Only views that have been visited (and
+    /// thus loaded into the in-memory cache) during the current session are included. User-created list states
+    /// are excluded intentionally — they are persisted independently in the database and are unaffected by
+    /// rememberSortFilterSelections.
+    ///
+    /// Called by STabGeneral when the rememberSortFilterSelections preference is re-enabled so that the
+    /// current runtime selections survive the next restart.
     func snapshotAllViewSortStates() -> [String: [String]] {
         var result = [String: [String]]()
         for (stateKey, state) in viewStates {
@@ -1748,18 +1748,18 @@ final class ViewStateManager: Loggable {
             }
 
         case .recents(let category):
-            // Recents views have fixed sorting (per-category sortOption, always descending). However, filter
-            // selections and the list view style ARE user-configurable and must survive re-launches. Load
-            // persisted options for this category from the consolidated view-sort-states dictionary, but
-            // always enforce the fixed sort option and direction so stored data can never overwrite them.
+            /// Recents views have fixed sorting (per-category sortOption, always descending). However, filter
+            /// selections and the list view style ARE user-configurable and must survive re-launches. Load
+            /// persisted options for this category from the consolidated view-sort-states dictionary, but
+            /// always enforce the fixed sort option and direction so stored data can never overwrite them.
             var state = ViewState()
             state.sortOption = category.sortOption
-            state.sortDirection = .descending // Most recent first
+            state.sortDirection = .descending /// Most recent first
             if let key = stateKey.persistenceKey, let stored = Preferences.viewSortStates[key] {
-                // The decode populates all fields; we take filterOptions, isListView and showSectionDividers,
-                // then immediately overwrite sort/direction to enforce the fixed values. The dividers flag
-                // belongs with the user-configurable three: a Recents view's sort is fixed, but the bands
-                // that sort produces are still the user's to show or hide.
+                /// The decode populates all fields; we take filterOptions, isListView and showSectionDividers,
+                /// then immediately overwrite sort/direction to enforce the fixed values. The dividers flag
+                /// belongs with the user-configurable three: a Recents view's sort is fixed, but the bands
+                /// that sort produces are still the user's to show or hide.
                 let parsed = ViewState.decoded(from: stored)
                 state.filterOptions = parsed.filterOptions
                 state.isListView = parsed.isListView
@@ -1768,10 +1768,10 @@ final class ViewStateManager: Loggable {
             return state
 
         case .smartList(.upcomingReleases):
-            // Fixed like Recents: ordered by each film's soonest upcoming release, which no SortOption
-            // expresses, so `.title` is stored as a placeholder (the order ties fall back to) and the Sort
-            // menu checks nothing (see SortMenuInputs.displayedSortOption). Ascending, soonest first. The
-            // other fields are the user's and persist as they do for any smart list.
+            /// Fixed like Recents: ordered by each film's soonest upcoming release, which no SortOption
+            /// expresses, so `.title` is stored as a placeholder (the order ties fall back to) and the Sort
+            /// menu checks nothing (see SortMenuInputs.displayedSortOption). Ascending, soonest first. The
+            /// other fields are the user's and persist as they do for any smart list.
             var state = ViewState()
             if let key = stateKey.persistenceKey, let stored = Preferences.viewSortStates[key] {
                 state = ViewState.decoded(from: stored)
@@ -1781,18 +1781,18 @@ final class ViewStateManager: Loggable {
             return state
 
         case .reports, .imports, .search:
-            // These views don't use persisted ViewState: Reports and Imports are not gallery-backed and
-            // manage their own data independently, and Search is always transient (in-session changes are
-            // allowed but never persisted).
+            /// These views don't use persisted ViewState: Reports and Imports are not gallery-backed and
+            /// manage their own data independently, and Search is always transient (in-session changes are
+            /// allowed but never persisted).
             return ViewState()
 
         case .allFilms, .unwatched, .smartList, .filmQueue, .savedSearch:
-            // Persisted per-view (allFilms), per-tab (unwatched, filmQueue), or per-type (smartList) in the
-            // consolidated view-sort-states dictionary, via the shared ViewStateKey.persistenceKey.
-            // Membership for unwatched/smartList is always computed at runtime, and the Film Queue's section
-            // membership is resolved at runtime too — neither is affected by this stored sort/filter state.
-            // (The Queue's segmented section filter, by contrast, is exactly what selects which of its four
-            // slots is being read here.)
+            /// Persisted per-view (allFilms), per-tab (unwatched, filmQueue), or per-type (smartList) in the
+            /// consolidated view-sort-states dictionary, via the shared ViewStateKey.persistenceKey.
+            /// Membership for unwatched/smartList is always computed at runtime, and the Film Queue's section
+            /// membership is resolved at runtime too — neither is affected by this stored sort/filter state.
+            /// (The Queue's segmented section filter, by contrast, is exactly what selects which of its four
+            /// slots is being read here.)
             guard let key = stateKey.persistenceKey,
                   let stored = Preferences.viewSortStates[key] else {
                 return Self.applyingDividerLock(ViewState(), for: stateKey)
@@ -1802,12 +1802,12 @@ final class ViewStateManager: Loggable {
     }
 
     private func saveStateDebounced() {
-        // Capture the storage key and state at the moment the debounce is requested, not when the async block
-        // eventually fires. Without this capture, a view switch that occurs within the debounce window would
-        // cause saveStateImmediately() to read the NEW view's activeView/activeState and persist it under the
-        // PREVIOUS view's storage key — silently corrupting both views' saved state. Capturing a ViewStateKey
-        // rather than a ViewIdentifier extends that protection to a Film Queue TAB switch, which changes the
-        // storage slot without changing the view.
+        /// Capture the storage key and state at the moment the debounce is requested, not when the async block
+        /// eventually fires. Without this capture, a view switch that occurs within the debounce window would
+        /// cause saveStateImmediately() to read the NEW view's activeView/activeState and persist it under the
+        /// PREVIOUS view's storage key — silently corrupting both views' saved state. Capturing a ViewStateKey
+        /// rather than a ViewIdentifier extends that protection to a Film Queue TAB switch, which changes the
+        /// storage slot without changing the view.
         let capturedKey = ViewStateKey.current(for: activeView)
         let capturedState = activeState
         saveTasks[capturedKey]?.cancel()
@@ -1825,8 +1825,8 @@ final class ViewStateManager: Loggable {
 
         switch view {
         case .list(let listID):
-            // User-created list state is always persisted to the database regardless of
-            // rememberSortFilterSelections; it is governed independently by the list object.
+            /// User-created list state is always persisted to the database regardless of
+            /// rememberSortFilterSelections; it is governed independently by the list object.
             guard let coordinator = coordinator else {
                 Self.log("WARNING: No coordinator, cannot save list settings")
                 return
@@ -1840,20 +1840,20 @@ final class ViewStateManager: Loggable {
             Self.log("Saved list \(listID.uuidString.prefix(8)) state: \(settings)")
 
         case .reports, .imports:
-            // Reports and Imports are not gallery-backed and manage their own data / ordering; there is no
-            // per-view sort/filter state to persist here.
+            /// Reports and Imports are not gallery-backed and manage their own data / ordering; there is no
+            /// per-view sort/filter state to persist here.
             break
 
         case .search:
-            // Search state is always transient and is never persisted.
+            /// Search state is always transient and is never persisted.
             Self.log("Skipping save for search view (transient state)")
 
         case .allFilms, .unwatched, .recents, .smartList, .filmQueue, .savedSearch:
-            // All five view kinds persist to the consolidated view-sort-states dictionary via the shared
-            // persistenceKey, governed uniformly by rememberSortFilterSelections. (Recents only has filter
-            // options and list-view style genuinely at stake — sort/direction are fixed by category and are
-            // simply ignored on read-back — but the full encoded settings array is still stored so the
-            // on-disk format stays consistent across every governed view kind.)
+            /// All five view kinds persist to the consolidated view-sort-states dictionary via the shared
+            /// persistenceKey, governed uniformly by rememberSortFilterSelections. (Recents only has filter
+            /// options and list-view style genuinely at stake — sort/direction are fixed by category and are
+            /// simply ignored on read-back — but the full encoded settings array is still stored so the
+            /// on-disk format stays consistent across every governed view kind.)
             guard let key = stateKey.persistenceKey else {
                 Self.log("WARNING: Expected a persistence key for \(view), found none")
                 return
@@ -1876,20 +1876,20 @@ final class ViewStateManager: Loggable {
         Self.log("Saved \(logLabel) state: \(settings)")
     }
 
-    // Reload trigger. Delegates the full load to DataCoordinator.loadFilms, which resolves every per-view
-    // membership input itself — recents ordering from MetadataCache (via RecentsCategory.orderedFilmIDs),
-    // smart-list membership from the SmartLists manager, and the Film Queue's single-section display filter
-    // from FilmQueueFilterState — so this layer only supplies the view identity and the user's sort/filter
-    // state.
+    /// Reload trigger. Delegates the full load to DataCoordinator.loadFilms, which resolves every per-view
+    /// membership input itself — recents ordering from MetadataCache (via RecentsCategory.orderedFilmIDs),
+    /// smart-list membership from the SmartLists manager, and the Film Queue's single-section display filter
+    /// from FilmQueueFilterState — so this layer only supplies the view identity and the user's sort/filter
+    /// state.
     private func triggerReloadSync() {
         guard let coordinator = coordinator else {
             Self.log("WARNING: No coordinator, cannot trigger reload")
             return
         }
 
-        // Imports and Reports views manage their own data independently of the film-loading pipeline. Calling
-        // loadFilms for these views is a no-op that unnecessarily clobbers coordinator.films/filmCount and
-        // produces a misleading "Loaded 0 films" log entry.
+        /// Imports and Reports views manage their own data independently of the film-loading pipeline. Calling
+        /// loadFilms for these views is a no-op that unnecessarily clobbers coordinator.films/filmCount and
+        /// produces a misleading "Loaded 0 films" log entry.
         if case .imports = activeView { return }
         if case .reports = activeView { return }
 

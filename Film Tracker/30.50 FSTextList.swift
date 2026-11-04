@@ -1,34 +1,34 @@
 // MARK: - FSTextList.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The reorderable long-text list used by the FilmSheet Notes tab's Warnings and
-// Notes fields.
-//
-// **Why this is a third list component rather than a mode on either existing one**
-//
-// This sits between the sheet's two other reorderable lists:
-//
-//   • `ReorderableStringList` (30.30 FSStringList.swift) edits in place through a
-//     one-line `NSTextField` — right for a cast name or tag, wrong for a warning
-//     or note that routinely runs to a paragraph and needs to be seen in full
-//     while editing.
-//   • `ReorderableFramesList` (30.40 FSFramesList.swift) edits through a popover
-//     (the right affordance for a large text block), but its rows are four-field
-//     comma-packed records with a three-toggle/three-picker popover, and it
-//     numbers rows because a frame list is cited by position.
-//
-// Folding this into either as a flag would mean that type carrying two disjoint
-// row models and editors, gated throughout — the arrangement the header of
-// `FSFramesList.swift` gives as the reason the two components stay separate. So the
-// shape is borrowed and the specifics aren't: this is `ReorderableFramesList`'s
-// structure with the record model, metadata block, and index column removed, and
-// a seven-line `FixedHeightScrollingTextView` in place of the popover's field.
-//
-// Everything the three genuinely share is already factored out and used unchanged
-// here: `ListCircleButton`/`ListCircleButtonStyle`, `ListImportPopover`,
-// `ListRowMetrics`, `ScrollActivityObserver`, and the shared
-// field edge (`listContainerChrome`). Nothing about the chrome is restated, so these
-// tables stay visually indistinguishable from the other two on the same sheet.
+/// The reorderable long-text list used by the FilmSheet Notes tab's Warnings and
+/// Notes fields.
+///
+/// **Why this is a third list component rather than a mode on either existing one**
+///
+/// This sits between the sheet's two other reorderable lists:
+///
+///   • `ReorderableStringList` (30.30 FSStringList.swift) edits in place through a
+///     one-line `NSTextField` — right for a cast name or tag, wrong for a warning
+///     or note that routinely runs to a paragraph and needs to be seen in full
+///     while editing.
+///   • `ReorderableFramesList` (30.40 FSFramesList.swift) edits through a popover
+///     (the right affordance for a large text block), but its rows are four-field
+///     comma-packed records with a three-toggle/three-picker popover, and it
+///     numbers rows because a frame list is cited by position.
+///
+/// Folding this into either as a flag would mean that type carrying two disjoint
+/// row models and editors, gated throughout — the arrangement the header of
+/// `FSFramesList.swift` gives as the reason the two components stay separate. So the
+/// shape is borrowed and the specifics aren't: this is `ReorderableFramesList`'s
+/// structure with the record model, metadata block, and index column removed, and
+/// a seven-line `FixedHeightScrollingTextView` in place of the popover's field.
+///
+/// Everything the three genuinely share is already factored out and used unchanged
+/// here: `ListCircleButton`/`ListCircleButtonStyle`, `ListImportPopover`,
+/// `ListRowMetrics`, `ScrollActivityObserver`, and the shared
+/// field edge (`listContainerChrome`). Nothing about the chrome is restated, so these
+/// tables stay visually indistinguishable from the other two on the same sheet.
 
 import SwiftUI
 import Combine
@@ -88,26 +88,26 @@ struct ReorderableTextList: View {
     @State private var dismissRowPopovers = PassthroughSubject<Void, Never>()
 
     // MARK: Import Popover State
-    //
-    // The presentation flag, so a scroll can close the popover, and the replace
-    // mode, which `commitImport` reads. Mirrors both other list components.
+    ///
+    /// The presentation flag, so a scroll can close the popover, and the replace
+    /// mode, which `commitImport` reads. Mirrors both other list components.
 
     @State private var showImportPopover = false
     @State private var importReplaces = false
 
     // MARK: Add Popover State
-    //
-    // Presentation only. The drafted text lives inside `TextEntryPopover`, in
-    // that view's own `@State`, and arrives here as an argument to `onConfirm`.
-    //
-    // Deliberately not a `@Binding` down into the popover, which is the
-    // arrangement `ListImportPopover` documents as unreliable: a popover's
-    // content is hosted in its own window with its own update graph, so a write
-    // that invalidates the *presenter* is no guarantee that the presented
-    // content is re-evaluated in step. Anything computed from the draft — here,
-    // the confirm button's enablement — has to be computed where the draft is
-    // written, or it goes stale. Keeping the draft inside the popover is what
-    // makes that true by construction.
+    ///
+    /// Presentation only. The drafted text lives inside `TextEntryPopover`, in
+    /// that view's own `@State`, and arrives here as an argument to `onConfirm`.
+    ///
+    /// Deliberately not a `@Binding` down into the popover, which is the
+    /// arrangement `ListImportPopover` documents as unreliable: a popover's
+    /// content is hosted in its own window with its own update graph, so a write
+    /// that invalidates the *presenter* is no guarantee that the presented
+    /// content is re-evaluated in step. Anything computed from the draft — here,
+    /// the confirm button's enablement — has to be computed where the draft is
+    /// written, or it goes stale. Keeping the draft inside the popover is what
+    /// makes that true by construction.
 
     @State private var showAddPopover = false
 
@@ -138,40 +138,40 @@ struct ReorderableTextList: View {
 
     var body: some View {
         List {
-            // Index identity, deliberately, and for the same reason the string
-            // list gives: `id: \.self` on the strings would collapse two
-            // identical entries onto one identity, which breaks both reordering
-            // and row-level state. Two identical notes are entirely plausible.
+            /// Index identity, deliberately, and for the same reason the string
+            /// list gives: `id: \.self` on the strings would collapse two
+            /// identical entries onto one identity, which breaks both reordering
+            /// and row-level state. Two identical notes are entirely plausible.
             ForEach(items.indices, id: \.self) { index in
                 TextListRow(
-                    // A value, not `$items[index]`. The row never writes its entry
-                    // itself — an Update is handed back through `onUpdate` — so a
-                    // positional binding bought nothing but a subscript that traps if
-                    // it is read after the array has shrunk past it.
+                    /// A value, not `$items[index]`. The row never writes its entry
+                    /// itself — an Update is handed back through `onUpdate` — so a
+                    /// positional binding bought nothing but a subscript that traps if
+                    /// it is read after the array has shrunk past it.
                     item: items[index],
                     itemLabel: itemLabel,
                     dismissRowPopovers: dismissRowPopovers,
-                    // The array lives here, so the duplicate comparison, the
-                    // position verification, and the write do too — the same
-                    // division `ReorderableFramesList` makes with its `onUpdate`.
-                    // Handing down a closure rather than the array is deliberate:
-                    // `items` as a row input would invalidate every row on any edit.
+                    /// The array lives here, so the duplicate comparison, the
+                    /// position verification, and the write do too — the same
+                    /// division `ReorderableFramesList` makes with its `onUpdate`.
+                    /// Handing down a closure rather than the array is deliberate:
+                    /// `items` as a row input would invalidate every row on any edit.
                     onUpdate: { expected, text in
-                        // Verified before the duplicate check as well as at the
-                        // write: a row that has moved since its popover opened
-                        // would be compared with a stale index excluded, and its
-                        // prompt's "Add Anyway" would then be silently dropped.
+                        /// Verified before the duplicate check as well as at the
+                        /// write: a row that has moved since its popover opened
+                        /// would be compared with a stale index excluded, and its
+                        /// prompt's "Add Anyway" would then be silently dropped.
                         guard items.indices.contains(index), items[index] == expected else { return }
                         confirmingDuplicate(text, excluding: index, prompt: ListDuplicatePrompt {
                             applyUpdate(at: index, expecting: expected, to: text)
                         })
                     },
-                    // The row hands back the value it was showing at the moment
-                    // Delete was clicked, not just its position. The delete is
-                    // deferred past the popover's close animation, and the sheet
-                    // stays interactive across that interval, so an index alone
-                    // is not enough to identify what the user asked to remove.
-                    // See `deleteEntry(at:expecting:)`.
+                    /// The row hands back the value it was showing at the moment
+                    /// Delete was clicked, not just its position. The delete is
+                    /// deferred past the popover's close animation, and the sheet
+                    /// stays interactive across that interval, so an index alone
+                    /// is not enough to identify what the user asked to remove.
+                    /// See `deleteEntry(at:expecting:)`.
                     onDelete: { expected in
                         deleteEntry(at: index, expecting: expected)
                     }
@@ -179,62 +179,62 @@ struct ReorderableTextList: View {
                 .listRowInsets(ListRowMetrics.rowInsets)
             }
             .onMove { source, destination in
-                // Editors must close before the move, on the same terms as the
-                // string list's `endEditing()`: a popover is anchored to a row
-                // at a position, and the move redefines what occupies it. A
-                // surviving editor would commit its draft into whichever entry
-                // had arrived there — and this popover's draft is seeded once,
-                // on appear, so it would still be holding the old row's text.
-                //
-                // In practice a transient `NSPopover` is dismissed by the drag's
-                // own mouseDown before this runs, so this is the belt to that
-                // brace — and the `expecting` checks on both the update and the
-                // delete are what make a late commit safe rather than merely
-                // unlikely.
+                /// Editors must close before the move, on the same terms as the
+                /// string list's `endEditing()`: a popover is anchored to a row
+                /// at a position, and the move redefines what occupies it. A
+                /// surviving editor would commit its draft into whichever entry
+                /// had arrived there — and this popover's draft is seeded once,
+                /// on appear, so it would still be holding the old row's text.
+                ///
+                /// In practice a transient `NSPopover` is dismissed by the drag's
+                /// own mouseDown before this runs, so this is the belt to that
+                /// brace — and the `expecting` checks on both the update and the
+                /// delete are what make a late commit safe rather than merely
+                /// unlikely.
                 closeAllEditors()
                 items.move(fromOffsets: source, toOffset: destination)
             }
 
-            // The add row, outside the `ForEach` and therefore outside `.onMove`
-            // — it is not an entry, so it must be neither draggable nor a valid
-            // drop destination. `.onMove` bounds both the source and the
-            // destination to its own `ForEach`'s range, so keeping this a
-            // sibling gives that for free.
-            //
-            // Inlined rather than extracted, as on the frames list: it is a
-            // label and two buttons, and it anchors the add popover, whose state
-            // is `@State` on this view.
+            /// The add row, outside the `ForEach` and therefore outside `.onMove`
+            /// — it is not an entry, so it must be neither draggable nor a valid
+            /// drop destination. `.onMove` bounds both the source and the
+            /// destination to its own `ForEach`'s range, so keeping this a
+            /// sibling gives that for free.
+            ///
+            /// Inlined rather than extracted, as on the frames list: it is a
+            /// label and two buttons, and it anchors the add popover, whose state
+            /// is `@State` on this view.
             addRow
-                // Brings this row back into the viewport after a commit pushes
-                // it down. A background contributes no layout and consumes no
-                // events, so the row is unaffected.
+                /// Brings this row back into the viewport after a commit pushes
+                /// it down. A background contributes no layout and consumes no
+                /// events, so the row is unaffected.
                 .background(ListAddRowRevealer(token: addRevealToken))
                 .listRowInsets(ListRowMetrics.rowInsets)
         }
-        // List style, sizing, clip, border, and shadow — one modifier, shared with the
-        // string and frames lists so all three tables are drawn identically and
-        // in the same order. The order is load-bearing; the full account is on
-        // `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
+        /// List style, sizing, clip, border, and shadow — one modifier, shared with the
+        /// string and frames lists so all three tables are drawn identically and
+        /// in the same order. The order is load-bearing; the full account is on
+        /// `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
-        // Scroll detection in AppKit rather than SwiftUI. An `NSPopover` is
-        // pinned to the screen rectangle its anchor occupied when presented, so
-        // scrolling the sheet would leave it floating over unrelated content.
-        // `ScrollActivityObserver` watches the enclosing clip view's bounds —
-        // the notification AppKit already posts for its own use — rather than a
-        // `GeometryReader`, which would put SwiftUI layout on the live-scroll
-        // path that `AppKitScrollView`'s live-scroll suppression exists to keep
-        // it off.
-        //
-        // The same close a reorder performs. Shared rather than restated, so a
-        // popover added to this table later cannot be handled on one path and
-        // forgotten on the other.
+        /// Scroll detection in AppKit rather than SwiftUI. An `NSPopover` is
+        /// pinned to the screen rectangle its anchor occupied when presented, so
+        /// scrolling the sheet would leave it floating over unrelated content.
+        /// `ScrollActivityObserver` watches the enclosing clip view's bounds —
+        /// the notification AppKit already posts for its own use — rather than a
+        /// `GeometryReader`, which would put SwiftUI layout on the live-scroll
+        /// path that `AppKitScrollView`'s live-scroll suppression exists to keep
+        /// it off.
+        ///
+        /// The same close a reorder performs. Shared rather than restated, so a
+        /// popover added to this table later cannot be handled on one path and
+        /// forgotten on the other.
         .background(
             ScrollActivityObserver {
                 closeAllEditors()
             }
         )
-        // Raised by `commitAdd` and by a row's Update when the finished value
-        // already exists verbatim.
+        /// Raised by `commitAdd` and by a row's Update when the finished value
+        /// already exists verbatim.
         .listDuplicateAlert($duplicatePrompt)
     }
 
@@ -247,33 +247,33 @@ struct ReorderableTextList: View {
     /// a paragraph, and a row is not.
     private var addRow: some View {
         HStack(spacing: 8) {
-            // At the cap the invitation is replaced by the reason there is
-            // none: the "+" beside it can only gray out and darken, which says
-            // "not now" without saying why. Scaled rather than truncated,
-            // because a sentence cut off mid-word explains nothing.
+            /// At the cap the invitation is replaced by the reason there is
+            /// none: the "+" beside it can only gray out and darken, which says
+            /// "not now" without saying why. Scaled rather than truncated,
+            /// because a sentence cut off mid-word explains nothing.
             Text(canAdd ? "Add new…" : ListAddRowCopy.atCapacity)
                 .font(.system(size: 12))
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
                 .foregroundStyle(.tertiary)
-                // Matches the inset applied to a real row's text, so the
-                // placeholder's first glyph sits in the same column as every
-                // entry above it.
+                /// Matches the inset applied to a real row's text, so the
+                /// placeholder's first glyph sits in the same column as every
+                /// entry above it.
                 .padding(.leading, ListRowMetrics.fieldTextInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Bulk import, in the slot immediately left of the "+" — the same
-            // slot it occupies on both other tables, and the same shared control
-            // they present it with. The account of why it is permanently gray
-            // and deliberately NOT gated on `canAdd` lives on
-            // `ListBulkImportButton` (30.20 FSControlHelpers.swift).
+            /// Bulk import, in the slot immediately left of the "+" — the same
+            /// slot it occupies on both other tables, and the same shared control
+            /// they present it with. The account of why it is permanently gray
+            /// and deliberately NOT gated on `canAdd` lives on
+            /// `ListBulkImportButton` (30.20 FSControlHelpers.swift).
             ListBulkImportButton(
                 isPresented: $showImportPopover,
                 help: "Add multiple \(itemLabel.lowercased())s from a comma- or line-separated list",
                 onOpen: {
-                    // Replace mode is the only mode that can do anything at the
-                    // cap, so the popover opens in it and locks it; see
-                    // `ListImportPopover.isAtCapacity`.
+                    /// Replace mode is the only mode that can do anything at the
+                    /// cap, so the popover opens in it and locks it; see
+                    /// `ListImportPopover.isAtCapacity`.
                     importReplaces = !canAdd
                 },
                 popoverContent: { importPopoverContent }
@@ -283,13 +283,13 @@ struct ReorderableTextList: View {
                 systemImage: "plus",
                 fill: Preferences.green,
                 diameter: ListRowMetrics.circleDiameter,
-                // "plus" is optically heavier than "info" at the same nominal
-                // size, so it is set fractionally smaller. Matches both other
-                // add rows.
+                /// "plus" is optically heavier than "info" at the same nominal
+                /// size, so it is set fractionally smaller. Matches both other
+                /// add rows.
                 glyphSize: ListRowMetrics.plusGlyphSize,
                 isActive: showAddPopover,
-                // Disabled at the entry cap; the factory substitutes its own gray
-                // fill in that state, which is why no fill is chosen for it here.
+                /// Disabled at the entry cap; the factory substitutes its own gray
+                /// fill in that state, which is why no fill is chosen for it here.
                 isEnabled: canAdd,
                 help: "Add \(itemLabel.lowercased())",
                 glyphOffset: ListCircleButtonStyle.plusGlyphOffset,
@@ -311,15 +311,15 @@ struct ReorderableTextList: View {
             initialText: "",
             confirmTitle: "Add",
             onConfirm: { text in
-                // Dismiss BEFORE committing. The commit may raise the duplicate
-                // confirmation, and an alert presented while this popover is
-                // still up would be competing with it for the window's
-                // presentation. The write is performed by the table, not by the
-                // popover, so it is unaffected by the dismissal.
-                //
-                // Held until the close animation has finished, additionally,
-                // because the appended row grows the table under a popover that
-                // is still tracking its anchor — see `ListPopoverDismissal`.
+                /// Dismiss BEFORE committing. The commit may raise the duplicate
+                /// confirmation, and an alert presented while this popover is
+                /// still up would be competing with it for the window's
+                /// presentation. The write is performed by the table, not by the
+                /// popover, so it is unaffected by the dismissal.
+                ///
+                /// Held until the close animation has finished, additionally,
+                /// because the appended row grows the table under a popover that
+                /// is still tracking its anchor — see `ListPopoverDismissal`.
                 showAddPopover = false
                 ListPopoverDismissal.afterClose { commitAdd(text) }
             },
@@ -338,16 +338,16 @@ struct ReorderableTextList: View {
         ListImportPopover(
             itemLabel: itemLabel,
             maxItems: Self.maxItems,
-            // One count, from which the popover derives both the append-mode
-            // headroom and the two locked states of its Replace toggle. The popover
-            // therefore has one description of the array, not several that must agree.
+            /// One count, from which the popover derives both the append-mode
+            /// headroom and the two locked states of its Replace toggle. The popover
+            /// therefore has one description of the array, not several that must agree.
             currentCount: items.count,
             replaces: $importReplaces,
             placeholder: "Entry 1, Entry 2, Entry 3",
             onImport: { parsed in
-                // Dismiss, then commit once the popover has finished closing.
-                // An import changes the row count, which moves this popover's own
-                // anchor — see `ListPopoverDismissal`.
+                /// Dismiss, then commit once the popover has finished closing.
+                /// An import changes the row count, which moves this popover's own
+                /// anchor — see `ListPopoverDismissal`.
                 showImportPopover = false
                 ListPopoverDismissal.afterClose { commitImport(parsed) }
             },
@@ -369,9 +369,9 @@ struct ReorderableTextList: View {
         guard items.count < Self.maxItems else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        // An exact duplicate is confirmed rather than refused — see
-        // `ListDuplicateCheck`. The append is deferred whole, so the confirmed
-        // path and the immediate one are the same code.
+        /// An exact duplicate is confirmed rather than refused — see
+        /// `ListDuplicateCheck`. The append is deferred whole, so the confirmed
+        /// path and the immediate one are the same code.
         confirmingDuplicate(text, prompt: ListDuplicatePrompt { appendCommitted(text) })
     }
 
@@ -383,8 +383,8 @@ struct ReorderableTextList: View {
     private func appendCommitted(_ text: String) {
         guard items.count < Self.maxItems else { return }
         items.append(text)
-        // Only on a write that actually grew the table, so a rejected draft
-        // leaves the viewport alone.
+        /// Only on a write that actually grew the table, so a rejected draft
+        /// leaves the viewport alone.
         addRevealToken &+= 1
     }
 
@@ -420,31 +420,31 @@ struct ReorderableTextList: View {
                                                       replacing: importReplaces,
                                                       cap: Self.maxItems)
         else { return }
-        // Close any open editor, matching the `endEditing()`
-        // `ReorderableStringList.commitImport` performs at this same point, and
-        // ordered after the resolve for the reason stated there: a rejected batch
-        // must not close a field the user is still working in.
-        //
-        // The gap this closes is real but narrow. The commit is dispatched
-        // through `ListPopoverDismissal.afterClose`, and the sheet stays fully
-        // interactive across that interval — so a row's edit popover can be
-        // opened between the Import click and this running. A Replace-mode import
-        // then redefines or removes the row that popover is anchored to, leaving
-        // an editor floating over a row that no longer holds what it was opened
-        // on. The `expecting` check in `applyUpdate` already makes a late write
-        // from such an editor a no-op rather than data loss; this closes the
-        // visual half the check cannot reach. The editor is drafted, so closing
-        // it discards nothing that was committed.
+        /// Close any open editor, matching the `endEditing()`
+        /// `ReorderableStringList.commitImport` performs at this same point, and
+        /// ordered after the resolve for the reason stated there: a rejected batch
+        /// must not close a field the user is still working in.
+        ///
+        /// The gap this closes is real but narrow. The commit is dispatched
+        /// through `ListPopoverDismissal.afterClose`, and the sheet stays fully
+        /// interactive across that interval — so a row's edit popover can be
+        /// opened between the Import click and this running. A Replace-mode import
+        /// then redefines or removes the row that popover is anchored to, leaving
+        /// an editor floating over a row that no longer holds what it was opened
+        /// on. The `expecting` check in `applyUpdate` already makes a late write
+        /// from such an editor a no-op rather than data loss; this closes the
+        /// visual half the check cannot reach. The editor is drafted, so closing
+        /// it discards nothing that was committed.
         closeAllEditors()
-        // Measured before the write, so the comparison is against the array the
-        // import is replacing rather than the one it produced.
+        /// Measured before the write, so the comparison is against the array the
+        /// import is replacing rather than the one it produced.
         let grew = updated.count > items.count
         items = updated
-        // The add row moves down by one row per entry gained, so a bulk import
-        // can push it well below the fold — further than a single commit ever
-        // does, which is the case this reveal was built for. Only on growth: a
-        // Replace-mode import that shrinks the table moves the add row UP, and
-        // scrolling to it then would drag the viewport for no reason.
+        /// The add row moves down by one row per entry gained, so a bulk import
+        /// can push it well below the fold — further than a single commit ever
+        /// does, which is the case this reveal was built for. Only on growth: a
+        /// Replace-mode import that shrinks the table moves the add row UP, and
+        /// scrolling to it then would drag the viewport for no reason.
         if grew { addRevealToken &+= 1 }
     }
 
@@ -617,34 +617,34 @@ fileprivate struct TextEntryPopover: View {
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            // The reason this component exists. A seven-line scrolling text view
-            // shows a paragraph-length entry whole, and accepts line breaks
-            // within it, neither of which the one-line field it replaces could do.
-            //
-            // Return confirms and Option-Return enters a line break, via the
-            // `FieldSubmitAction` installed below — so the keyboard reaches the
-            // Update button here the same way it does on a one-line field, while
-            // multi-line entry stays available. When the confirm button is
-            // disabled (an empty or unchanged draft) Return is still consumed and
-            // simply does nothing, matching the button beside it.
-            //
-            // No placeholder: the title already states what the editor is for,
-            // and sample text inside a free-form prose field reads as content.
+            /// The reason this component exists. A seven-line scrolling text view
+            /// shows a paragraph-length entry whole, and accepts line breaks
+            /// within it, neither of which the one-line field it replaces could do.
+            ///
+            /// Return confirms and Option-Return enters a line break, via the
+            /// `FieldSubmitAction` installed below — so the keyboard reaches the
+            /// Update button here the same way it does on a one-line field, while
+            /// multi-line entry stays available. When the confirm button is
+            /// disabled (an empty or unchanged draft) Return is still consumed and
+            /// simply does nothing, matching the button beside it.
+            ///
+            /// No placeholder: the title already states what the editor is for,
+            /// and sample text inside a free-form prose field reads as content.
             FixedHeightScrollingTextView(text: $draft, placeholder: "")
                 .frame(height: FixedHeightScrollingTextView.fixedHeight(lineCount: Self.visibleLines))
 
             Divider()
 
-            // Cancel leads, per the platform convention for a dismissive action;
-            // the confirming action holds the trailing edge.
+            /// Cancel leads, per the platform convention for a dismissive action;
+            /// the confirming action holds the trailing edge.
             HStack(spacing: 8) {
                 Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
 
                 if let onDelete {
-                    // Shared with the frames list's and `ViewingDatesTable`'s
-                    // Delete buttons; the full account of the treatment is on
-                    // `PopoverDeleteButton` (30.20 FSControlHelpers.swift).
+                    /// Shared with the frames list's and `ViewingDatesTable`'s
+                    /// Delete buttons; the full account of the treatment is on
+                    /// `PopoverDeleteButton` (30.20 FSControlHelpers.swift).
                     PopoverDeleteButton(action: onDelete, bindsOptionDelete: true)
                 }
 
@@ -658,22 +658,22 @@ fileprivate struct TextEntryPopover: View {
         .frame(width: Self.width)
         .padding(Self.padding)
         .fieldSubmitAction(submitAction)
-        // Re-seeds the draft each time the popover appears.
-        //
-        // The `State(initialValue:)` in `init` covers the first presentation;
-        // this covers every subsequent one, because SwiftUI may reuse the node
-        // it built for the previous presentation rather than constructing a
-        // fresh view — in which case the initializer's value is ignored and a
-        // stale draft would survive into the next edit. Guarded so a re-appear
-        // that already agrees writes nothing.
+        /// Re-seeds the draft each time the popover appears.
+        ///
+        /// The `State(initialValue:)` in `init` covers the first presentation;
+        /// this covers every subsequent one, because SwiftUI may reuse the node
+        /// it built for the previous presentation rather than constructing a
+        /// fresh view — in which case the initializer's value is ignored and a
+        /// stale draft would survive into the next edit. Guarded so a re-appear
+        /// that already agrees writes nothing.
         .onAppear {
             if draft != initialText { draft = initialText }
-            // Installed in `onAppear`, not in `body` — see `FieldSubmitAction.setHandler`.
-            // The closure captures this view value, and `@State` reads route through
-            // SwiftUI's storage rather than a captured copy, so `draft` and
-            // `isConfirmEnabled` are evaluated at the moment Return is pressed. That is
-            // what keeps this handler in exact agreement with the Update button beside it,
-            // which reads the same two properties.
+            /// Installed in `onAppear`, not in `body` — see `FieldSubmitAction.setHandler`.
+            /// The closure captures this view value, and `@State` reads route through
+            /// SwiftUI's storage rather than a captured copy, so `draft` and
+            /// `isConfirmEnabled` are evaluated at the moment Return is pressed. That is
+            /// what keeps this handler in exact agreement with the Update button beside it,
+            /// which reads the same two properties.
             submitAction.setHandler {
                 guard isConfirmEnabled else { return false }
                 onConfirm(draft)
@@ -681,9 +681,9 @@ fileprivate struct TextEntryPopover: View {
             }
         }
         .onDisappear {
-            // A dismissed popover's handler must not survive into the next presentation:
-            // SwiftUI may reuse this node, and a stale closure could confirm against a
-            // previous row's callback.
+            /// A dismissed popover's handler must not survive into the next presentation:
+            /// SwiftUI may reuse this node, and a stale closure could confirm against a
+            /// previous row's callback.
             submitAction.setHandler(nil)
         }
     }
@@ -790,22 +790,22 @@ private struct TextListRow: View {
                 .font(.system(size: 12))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                // Matches the inset the add row's placeholder carries, and the
-                // one `.squareBorder` applies to its own text on the string
-                // list's rows, so all three tables' entries start in the same
-                // column.
+                /// Matches the inset the add row's placeholder carries, and the
+                /// one `.squareBorder` applies to its own text on the string
+                /// list's rows, so all three tables' entries start in the same
+                /// column.
                 .padding(.leading, ListRowMetrics.fieldTextInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Edit. Built from the shared factory rather than drawn inline, so it
-            // is the same control as the frames list's per-row "info" and the
-            // string list's pencil: same diameter, same glyph weight, same
-            // shadow, same press response. `info` rather than `info.circle`
-            // because the factory already supplies the circle.
-            //
-            // `isActive` holds the accent fill for as long as the popover is
-            // open. `showPopover` is this row's own state, so no other row's
-            // button lights up.
+            /// Edit. Built from the shared factory rather than drawn inline, so it
+            /// is the same control as the frames list's per-row "info" and the
+            /// string list's pencil: same diameter, same glyph weight, same
+            /// shadow, same press response. `info` rather than `info.circle`
+            /// because the factory already supplies the circle.
+            ///
+            /// `isActive` holds the accent fill for as long as the popover is
+            /// open. `showPopover` is this row's own state, so no other row's
+            /// button lights up.
             ListCircleButton(
                 systemImage: "info",
                 fill: Color.gray.opacity(0.5),
@@ -813,47 +813,47 @@ private struct TextListRow: View {
                 glyphSize: ListRowMetrics.circleGlyphSize,
                 isActive: showPopover,
                 help: showPopover ? "Finish editing" : "Edit this entry",
-                // `info` is the one glyph in the family that is not symmetric in
-                // its own box; the correction lives with the family's other
-                // per-symbol corrections rather than as a literal here.
+                /// `info` is the one glyph in the family that is not symmetric in
+                /// its own box; the correction lives with the family's other
+                /// per-symbol corrections rather than as a literal here.
                 glyphOffset: ListCircleButtonStyle.infoGlyphOffset,
                 action: { showPopover.toggle() }
             )
             .popover(isPresented: $showPopover, arrowEdge: .trailing) {
                 TextEntryPopover(
                     title: "Edit \(itemLabel)",
-                    // The editor opens on the stored value, not on the folded
-                    // one-line form the row draws: `displayText` is a rendering,
-                    // and editing it would silently discard the entry's line
-                    // breaks the first time anyone opened this popover.
+                    /// The editor opens on the stored value, not on the folded
+                    /// one-line form the row draws: `displayText` is a rendering,
+                    /// and editing it would silently discard the entry's line
+                    /// breaks the first time anyone opened this popover.
                     initialText: item,
                     confirmTitle: "Update",
                     onConfirm: { text in
-                        // Dismiss BEFORE committing, on the same terms as Delete
-                        // below: the commit may raise the table's duplicate
-                        // confirmation, and an alert presented while this popover
-                        // is still up would compete with it. The write is the
-                        // table's, which outlives the popover.
-                        // `commitUpdate` reads the draft and current entry
-                        // synchronously and defers only the table hand-off until
-                        // the popover finishes closing; see its own note.
+                        /// Dismiss BEFORE committing, on the same terms as Delete
+                        /// below: the commit may raise the table's duplicate
+                        /// confirmation, and an alert presented while this popover
+                        /// is still up would compete with it. The write is the
+                        /// table's, which outlives the popover.
+                        /// `commitUpdate` reads the draft and current entry
+                        /// synchronously and defers only the table hand-off until
+                        /// the popover finishes closing; see its own note.
                         showPopover = false
                         commitUpdate(text)
                     },
                     onCancel: { showPopover = false },
-                    // Dismiss BEFORE mutating. The delete removes this row, which
-                    // tears down the view the popover is anchored to; ordering it
-                    // this way leaves AppKit nothing to dismiss a popover from.
-                    // The frames list's Delete does the same. Held until the
-                    // close animation has finished for the same reason an add is:
-                    // removing a row moves every anchor below it, including this
-                    // one — see `ListPopoverDismissal`.
+                    /// Dismiss BEFORE mutating. The delete removes this row, which
+                    /// tears down the view the popover is anchored to; ordering it
+                    /// this way leaves AppKit nothing to dismiss a popover from.
+                    /// The frames list's Delete does the same. Held until the
+                    /// close animation has finished for the same reason an add is:
+                    /// removing a row moves every anchor below it, including this
+                    /// one — see `ListPopoverDismissal`.
                     onDelete: {
-                        // Captured here, at the click, and handed to the table,
-                        // which verifies it against the position before removing:
-                        // the delete runs after the close animation, and "what is
-                        // at this position now" is precisely the question the
-                        // verification exists to stop it depending on.
+                        /// Captured here, at the click, and handed to the table,
+                        /// which verifies it against the position before removing:
+                        /// the delete runs after the close animation, and "what is
+                        /// at this position now" is precisely the question the
+                        /// verification exists to stop it depending on.
                         let removing = item
                         showPopover = false
                         ListPopoverDismissal.afterClose { onDelete(removing) }
@@ -890,15 +890,15 @@ private struct TextListRow: View {
     private func commitUpdate(_ draft: String) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        // Guarded so an Update that changed only surrounding whitespace writes
-        // nothing: the array is observed, and a no-op write would still fire an
-        // invalidation and a change-tracking pass on the owning tab.
+        /// Guarded so an Update that changed only surrounding whitespace writes
+        /// nothing: the array is observed, and a no-op write would still fire an
+        /// invalidation and a change-tracking pass on the owning tab.
         guard text != item else { return }
-        // The value this edit began against, captured now, for the table's
-        // position check.
+        /// The value this edit began against, captured now, for the table's
+        /// position check.
         let expected = item
-        // Captured out of `self` so the deferred call carries only the callback
-        // it needs rather than the whole row view.
+        /// Captured out of `self` so the deferred call carries only the callback
+        /// it needs rather than the whole row view.
         let update = onUpdate
         ListPopoverDismissal.afterClose { update(expected, text) }
     }

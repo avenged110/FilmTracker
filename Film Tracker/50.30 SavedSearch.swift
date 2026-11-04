@@ -1,11 +1,11 @@
 // MARK: - SavedSearch.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// A search the user has named and kept: its value type, the form it is stored in, the
-// rules its name must meet, and the #list references between saved searches.
-//
-// Pure Foundation — no SwiftUI, Core Data or app singletons — so it compiles alongside
-// 50.10 SearchToken.swift alone and can be tested without the app.
+/// A search the user has named and kept: its value type, the form it is stored in, the
+/// rules its name must meet, and the #list references between saved searches.
+///
+/// Pure Foundation — no SwiftUI, Core Data or app singletons — so it compiles alongside
+/// 50.10 SearchToken.swift alone and can be tested without the app.
 
 import Foundation
 
@@ -157,7 +157,7 @@ enum SavedSearchCodec {
                         if let token = try? items.decode(StoredToken.self) {
                             tokens.append(token)
                         } else {
-                            // Not an object: skipped past, so the next element is read.
+                            /// Not an object: skipped past, so the next element is read.
                             _ = try? items.decode(SkippedValue.self)
                             unreadable.append(.unreadable)
                         }
@@ -186,7 +186,7 @@ enum SavedSearchCodec {
                             tokens: query.tokens.map(StoredToken.init))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        // Encoding plain strings and booleans cannot fail.
+        /// Encoding plain strings and booleans cannot fail.
         guard let data = try? encoder.encode(stored) else { return "{}" }
         return String(decoding: data, as: UTF8.self)
     }
@@ -207,8 +207,8 @@ enum SavedSearchCodec {
         var dropped: [StoredToken] = stored.unreadable
         for item in stored.tokens {
             if let token = item.token {
-                // A repeated pill cannot be typed (SearchController.addToken refuses it),
-                // so one is dropped rather than shown twice.
+                /// A repeated pill cannot be typed (SearchController.addToken refuses it),
+                /// so one is dropped rather than shown twice.
                 if !tokens.contains(token) { tokens.append(token) }
             } else {
                 dropped.append(item)
@@ -232,7 +232,7 @@ enum SearchListMatcher {
         let q = SearchText.key(value)
         let exact = keys.indices.filter { keys[$0] == q }
         if !exact.isEmpty { return exact }
-        // fuzzyMatchCore's rule: an empty query is contained in everything.
+        /// fuzzyMatchCore's rule: an empty query is contained in everything.
         return keys.indices.filter { q.isEmpty || keys[$0].contains(q) }
     }
 }
@@ -263,15 +263,13 @@ enum SavedSearchName {
         }
     }
 
-    /// A name already in use, by whom.
+    /// A name already in use, by what kind of list: its key, which is all a check compares.
     struct Claim: Equatable, Sendable {
         let key: String
-        let name: String
         let kind: ClaimKind
 
         init(name: String, kind: ClaimKind) {
             self.key = SearchText.key(name)
-            self.name = name
             self.kind = kind
         }
     }
@@ -397,9 +395,9 @@ enum SavedSearchReferences {
         var edges: [UUID: Set<UUID>] = [:]
         for search in all { edges[search.id] = references(of: search.query, names: names) }
 
-        // Depth-first from the candidate, looking for a way back to it. Only a cycle
-        // through the candidate is reported: one elsewhere already existed before this
-        // save (the store's guard handles it) and is not this save's to refuse.
+        /// Depth-first from the candidate, looking for a way back to it. Only a cycle
+        /// through the candidate is reported: one elsewhere already existed before this
+        /// save (the store's guard handles it) and is not this save's to refuse.
         var visited: Set<UUID> = []
         func walk(_ id: UUID, path: [UUID]) -> [UUID]? {
             for next in (edges[id] ?? []).sorted(by: { $0.uuidString < $1.uuidString }) {

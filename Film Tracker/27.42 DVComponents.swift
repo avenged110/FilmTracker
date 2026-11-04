@@ -1,8 +1,8 @@
 // MARK: - DVComponents.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Shared Data Visualizations pieces that are not drawing code: the style constants, the stat tile delta, the line chart geometry
-// (drawn by DVK.lineChart, 27.44), and the popover a Needs Attention row opens. The canvas (27.44 and 27.45) draws the page on screen and in the PDF.
+/// Shared Data Visualizations pieces that are not drawing code: the style constants, the stat tile delta, the line chart geometry
+/// (drawn by DVK.lineChart, 27.44), and the popover a Needs Attention row opens. The canvas (27.44 and 27.45) draws the page on screen and in the PDF.
 
 import SwiftUI
 
@@ -97,7 +97,7 @@ struct DVAttentionPopover: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Fixed header: the list-creation button. It pre-fills the list name with this row's label.
+            /// Fixed header: the list-creation button. It pre-fills the list name with this row's label.
             Button("Create New List With These Items") {
                 AppEventBus.shared.sendCommand(
                     .showListCreationFromSelection(filmIDs: Set(items.map(\.filmID)), prefillName: label))
@@ -114,9 +114,9 @@ struct DVAttentionPopover: View {
             Divider()
                 .padding(.horizontal, Self.headerHorizontalPadding)
 
-            // Scrollable list of the films `count` was drawn from. It uses a plain VStack, not LazyVStack. A lazy stack estimates its height
-            // and corrects it during scrolling, which makes the scrollbar jump. Each row is one fixed-size Text, so laying out even a list of
-            // several hundred films up front is cheap, and it gives the ScrollView an exact height from the first frame.
+            /// Scrollable list of the films `count` was drawn from. It uses a plain VStack, not LazyVStack. A lazy stack estimates its height
+            /// and corrects it during scrolling, which makes the scrollbar jump. Each row is one fixed-size Text, so laying out even a list of
+            /// several hundred films up front is cheap, and it gives the ScrollView an exact height from the first frame.
             if items.isEmpty {
                 Text("No Items")
                     .font(.caption)
@@ -126,7 +126,7 @@ struct DVAttentionPopover: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(sortedItems.enumerated()), id: \.offset) { _, item in
-                            // Name, then the release year (tertiary), then "(purchased)" (secondary) where the list mixes purchased and unpurchased releases.
+                            /// Name, then the release year (tertiary), then "(purchased)" (secondary) where the list mixes purchased and unpurchased releases.
                             (Text(item.name)
                              + Text(item.year.map { " (\(String($0)))" } ?? "").foregroundStyle(.tertiary)
                              + Text(item.purchased ? " (purchased)" : "").foregroundStyle(.secondary))

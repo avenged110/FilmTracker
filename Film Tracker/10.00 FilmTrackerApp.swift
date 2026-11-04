@@ -1,7 +1,8 @@
 // MARK: - FilmTrackerApp.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Application entry point: opens the Core Data library, sets up logging and the single-instance lock, and handles launch and shutdown.
+/// Application entry point: Opens the Core Data library, sets up logging and the
+/// single-instance lock, and handles launch and shutdown.
 
 import SwiftUI
 import CoreData
@@ -14,28 +15,25 @@ struct FilmTrackerApp: App, Loggable {
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @State private var appState: AppState
-    // The shared SelectionState singleton, injected into the environment below so all
-    // @Environment(SelectionState.self) consumers observe the same instance that
-    // singleton-side consumers (e.g. SubcategoryNavigation) access directly.
+    /// The shared SelectionState singleton, injected into the environment below so all @Environment(SelectionState.self)
+    /// consumers observe the same instance that singleton-side consumers (e.g. SubcategoryNavigation) access directly.
     @State private var selectionState = SelectionState.shared
     @State private var dataCoordinator: DataCoordinator
 
     private let persistentContainer: NSPersistentContainer
 
-    // True when createModelContainer() fell back to an in-memory store. initializeApp() then
-    // shows "Library Unavailable", whose only ways forward are Quit, Restore from Backup and
-    // Create New Library.
-    //
-    // 'let' because it is fixed at init. SwiftUI may recreate App structs, and a mutable stored
-    // property on one has no guaranteed persistence across recreations.
+    /// True when createModelContainer() fell back to an in-memory store. initializeApp() then shows "Library Unavailable",
+    /// whose only ways forward are Quit, Restore from Backup and Create New Library.
+    ///
+    /// 'let' because it is fixed at init. SwiftUI may recreate App structs, and a mutable stored property on one has no
+    /// guaranteed persistence across recreations.
     private let persistentContainerFailed: Bool
 
     init() {
-        // Nothing may log before bootstrapLogging() below. An earlier line would go through the
-        // logger's fallback configuration, into a bundle-named file under Library/Logs, rather than
-        // FilmTracker.log in the data folder.
+        /// Nothing may log before bootstrapLogging() below. An earlier line would go through the logger's fallback
+        /// configuration, into a bundle-named file under Library/Logs, rather than FilmTracker.log in the data folder.
         #if DEBUG
-        // FT_LAUNCH_PAUSE=<seconds>: hold here so a profiler can attach before launch work.
+        /// FT_LAUNCH_PAUSE=<seconds>: hold here so a profiler can attach before launch work.
         if let pause = ProcessInfo.processInfo.environment["FT_LAUNCH_PAUSE"], let seconds = UInt32(pause) {
             sleep(seconds)
         }
@@ -43,12 +41,12 @@ struct FilmTrackerApp: App, Loggable {
         Self.bootstrapLogging()
         LaunchTimeline.mark("appInit")
 
-        // Before the store is opened: refuse to be the second process on this data
-        // folder. Does not return if another instance already holds it.
+        /// Before the store is opened: refuse to be the second process on this data folder. Does not return if another
+        /// instance already holds it.
         Self.acquireInstanceLockOrExit()
 
-        // A restore (or Create New Library) committed last session is swapped in now, while
-        // nothing has the store open. See PendingRestore.
+        /// A restore (or Create New Library) committed last session is swapped in now, while nothing has the store open.
+        /// See PendingRestore.
         Self.applyPendingRestore()
 
         let result = Self.createModelContainer()
@@ -68,8 +66,8 @@ struct FilmTrackerApp: App, Loggable {
         AppDelegate.appState = state
         AppDelegate.persistentContainerFailed = result.failed
 
-        // The snapshot and metadata cache reads need only the store, so they start here and
-        // overlap the window setup AppKit does before initializeApp() runs.
+        /// The snapshot and metadata cache reads need only the store, so they start here and overlap the window setup
+        /// AppKit does before initializeApp() runs.
         coordinator.beginEarlyCacheLoads()
 
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -78,10 +76,9 @@ struct FilmTrackerApp: App, Loggable {
     }
 
     var body: some Scene {
-        // A stable scene id keeps the window's size and position: without one, SwiftUI keys the
-        // saved frame by the root view's type name, and private types in that name print an
-        // address that changes every launch. The frame was saved under a name the next launch
-        // never looked up.
+        /// A stable scene id keeps the window's size and position: without one, SwiftUI keys the saved frame by the root
+        /// view's type name, and private types in that name print an address that changes every launch. The frame was
+        /// saved under a name the next launch never looked up.
         WindowGroup(id: "main") {
             ZStack {
                 LaunchWindowHold()
@@ -194,14 +191,14 @@ struct FilmTrackerApp: App, Loggable {
         case .nothingPending:
             break
         case .swapped:
-            // Belt and braces: the restore already deleted these, and the session that
-            // staged it suspended their writes before relaunching.
+            /// Belt-and-suspenders: the restore already deleted these, and the session that
+            /// staged it suspended their writes before relaunching.
             MemoryStoreCache.shared.invalidateOnDisk()
             log("Launched into a restored library")
         case .failed(let reason):
             log("ERROR: Pending restore was not applied: \(reason)")
             #if DEBUG
-            // No one is at the keyboard for a harness run; the log line above is the report.
+            /// No one is at the keyboard for a harness run; the log line above is the report.
             if DebugHarness.isRequested { return }
             #endif
             let alert = NSAlert()
@@ -215,10 +212,10 @@ struct FilmTrackerApp: App, Loggable {
 
     // MARK: - Persistent Container Setup
     private static func createModelContainer() -> (container: NSPersistentContainer, failed: Bool) {
-        // Debug sandbox: LibraryStore.storeURL resolves to the sandbox's own store file, which is
-        // not derived from Preferences' folder accessors. DebugSandbox.storeURL is always nil outside
-        // DEBUG (its name is hard-wired to nil there), so a Release build always opens the store in
-        // Application Support.
+        /// Debug sandbox: LibraryStore.storeURL resolves to the sandbox's own store file, which is
+        /// not derived from Preferences' folder accessors. DebugSandbox.storeURL is always nil outside
+        /// DEBUG (its name is hard-wired to nil there), so a Release build always opens the store in
+        /// Application Support.
         let storeURL = LibraryStore.storeURL
         if DebugSandbox.storeURL != nil, let storeURL {
             log("Debug sandbox: opening Core Data store at \(storeURL.path(percentEncoded: false))")
@@ -238,66 +235,66 @@ struct FilmTrackerApp: App, Loggable {
     }
 
     // MARK: - Initialization
-    // STARTUP: overlapped initialization with a render yield, in four steps.
-    // 1. Cache disk I/O runs on background threads (Task.detached inside the load methods).
-    // 2. On the fast path (a MemoryStoreCache hit), MainActor does no store work: the snapshot
-    //    cache's fingerprint is computed in DataManager's background context, and the payload is
-    //    read and decoded off the main actor. The slow path (first launch, or a changed library)
-    //    fetches the store on a background context too (MemoryStore.loadFromDatabase).
-    // 3. Cache validation is incremental, O(delta) rather than O(N).
-    // 4. SmartLists are calculated once, deferred to background after the UI is ready.
+    /// STARTUP: overlapped initialization with a render yield, in four steps.
+    /// 1. Cache disk I/O runs on background threads (Task.detached inside the load methods).
+    /// 2. On the fast path (a MemoryStoreCache hit), MainActor does no store work: the snapshot
+    ///    cache's fingerprint is computed in DataManager's background context, and the payload is
+    ///    read and decoded off the main actor. The slow path (first launch, or a changed library)
+    ///    fetches the store on a background context too (MemoryStore.loadFromDatabase).
+    /// 3. Cache validation is incremental, O(delta) rather than O(N).
+    /// 4. SmartLists are calculated once, deferred to background after the UI is ready.
     @MainActor
     private func initializeApp() async {
-        // Claim the initialization slot before this method first suspends. A second .task arriving
-        // during that suspension would otherwise re-run every deferred post-init step (smart lists,
-        // the poster restore, startDeferredMaintenance).
-        //
-        // beginInitialization() checks and assigns with no suspension point between, so MainActor
-        // isolation alone serializes callers.
+        /// Claim the initialization slot before this method first suspends. A second .task arriving
+        /// during that suspension would otherwise re-run every deferred post-init step (smart lists,
+        /// the poster restore, startDeferredMaintenance).
+        ///
+        /// beginInitialization() checks and assigns with no suspension point between, so MainActor
+        /// isolation alone serializes callers.
         guard dataCoordinator.beginInitialization() else { return }
         LaunchTimeline.mark("initStart")
 
         log("Starting application initialization...")
         let startTime = Date()
 
-        // Time from the earliest delegate callback to this .task: process spin-up, container
-        // creation and the first window build. Cache work cannot reduce it, so it is the baseline
-        // for the phase timings below.
+        /// Time from the earliest delegate callback to this .task: process spin-up, container
+        /// creation and the first window build. Cache work cannot reduce it, so it is the baseline
+        /// for the phase timings below.
         let initStart = ContinuousClock.now
         let preInitElapsed = AppDelegate.launchReferenceInstant.map { initStart - $0 }
 
-        // Capture dataCoordinator locally to avoid capturing 'self' (non-Sendable
-        // FilmTrackerApp struct) in the async let bindings below.
+        /// Capture dataCoordinator locally to avoid capturing 'self' (non-Sendable
+        /// FilmTrackerApp struct) in the async let bindings below.
         let coordinator = dataCoordinator
 
-        // Start all three operations concurrently. MetadataCache.load() and PosterCache.loadMetadata()
-        // do their disk I/O on background threads via Task.detached and suspend on MainActor while
-        // they wait, which frees MainActor for the store fetch in loadDatabasePhase().
+        /// Start all three operations concurrently. MetadataCache.load() and PosterCache.loadMetadata()
+        /// do their disk I/O on background threads via Task.detached and suspend on MainActor while
+        /// they wait, which frees MainActor for the store fetch in loadDatabasePhase().
         log("Starting parallel initialization: cache I/O + database fetch...")
         async let metadataCacheLoad: Void = MetadataCache.shared.load()
         async let posterMetadataLoad: Void = PosterCache.shared.loadMetadata()
         async let databaseLoad: Void = coordinator.loadDatabasePhase()
 
-        // Wait for all three. The order of the awaits does not matter; the child tasks already run.
-        //
-        // Phase 2 needs only MetadataCache and MemoryStore, so posterMetadataLoad could move after
-        // finalizeInitialization(). Moving it gains nothing: this load is a small JSON read
-        // that finishes well before Phase 1's decode, and the move
-        // would open a launch state (isInitialized true, PosterCache.isReady false) the app
-        // otherwise never produces.
+        /// Wait for all three. The order of the awaits does not matter; the child tasks already run.
+        ///
+        /// Phase 2 needs only MetadataCache and MemoryStore, so posterMetadataLoad could move after
+        /// finalizeInitialization(). Moving it gains nothing: this load is a small JSON read
+        /// that finishes well before Phase 1's decode, and the move
+        /// would open a launch state (isInitialized true, PosterCache.isReady false) the app
+        /// otherwise never produces.
         await metadataCacheLoad
         await posterMetadataLoad
         await databaseLoad
 
-        // Elapsed for the concurrent group: the slowest of the three, not their sum. Comparing it
-        // with each job's own total identifies the long pole.
+        /// Elapsed for the concurrent group: the slowest of the three, not their sum. Comparing it
+        /// with each job's own total identifies the long pole.
         let parallelPhaseElapsed = ContinuousClock.now - initStart
         LaunchTimeline.mark("parallelDone")
 
-        // Phase 2: Validate cache integrity and finalize.
-        // Requires both MetadataCache and MemoryStore to be loaded.
-        // Uses incremental update (only processes delta) instead of full rebuild.
-        // After this returns, isInitialized is true and the UI can render.
+        /// Phase 2: Validate cache integrity and finalize.
+        /// Requires both MetadataCache and MemoryStore to be loaded.
+        /// Uses incremental update (only processes delta) instead of full rebuild.
+        /// After this returns, isInitialized is true and the UI can render.
         log("Finalizing initialization...")
         let finalizeStart = ContinuousClock.now
         await coordinator.finalizeInitialization()
@@ -308,22 +305,22 @@ struct FilmTrackerApp: App, Loggable {
         let duration = Date().timeIntervalSince(startTime)
         log("Application initialization complete in \(Fmt.fixed(duration, 2))s — UI ready")
 
-        // The top-level summary. `parallelPhase` and `finalize` together are the window the
-        // indeterminate progress indicator is on screen; `preInit` is everything before it
-        // that is out of our hands. If parallelPhase dominates, the snapshot cache is the
-        // target; if preInit dominates, there is very little left worth optimizing here.
+        /// The top-level summary. `parallelPhase` and `finalize` together are the window the
+        /// indeterminate progress indicator is on screen; `preInit` is everything before it
+        /// that is out of our hands. If parallelPhase dominates, the snapshot cache is the
+        /// target; if preInit dominates, there is very little left worth optimizing here.
         log("STARTUP BREAKDOWN (total) — "
             + "preInit: \(preInitElapsed?.formattedMilliseconds ?? "n/a") | "
             + "parallelPhase: \(parallelPhaseElapsed.formattedMilliseconds) | "
             + "finalize: \(finalizeElapsed.formattedMilliseconds) | "
             + "indicatorWindow: \((parallelPhaseElapsed + finalizeElapsed).formattedMilliseconds)")
 
-        // Debug harness hand-off, after finalizeInitialization() and before every deferred step. A
-        // headless run wants a fully loaded store and no competing poster warming or maintenance.
-        //
-        // It runs ahead of the persistentContainerFailed and isLibraryStateUnreliable guards below,
-        // which return after posting an alert that a command-line run would never dismiss. The
-        // harness gets both flags and reports them as a failed precondition with a non-zero exit.
+        /// Debug harness hand-off, after finalizeInitialization() and before every deferred step. A
+        /// headless run wants a fully loaded store and no competing poster warming or maintenance.
+        ///
+        /// It runs ahead of the persistentContainerFailed and isLibraryStateUnreliable guards below,
+        /// which return after posting an alert that a command-line run would never dismiss. The
+        /// harness gets both flags and reports them as a failed precondition with a non-zero exit.
         #if DEBUG
         if DebugHarness.isRequested {
             await DebugHarness.runAndExit(
@@ -336,85 +333,85 @@ struct FilmTrackerApp: App, Loggable {
         DebugFocusProbe.shared.installIfNeeded()
         #endif
 
-        // Yield so SwiftUI can render the full UI, including the sidebar's user lists, before the
-        // deferred work below takes MainActor time. calculateAllLists()'s O(N × predicates) compute
-        // always runs on a background thread via Task.detached; only its setup stays on MainActor.
+        /// Yield so SwiftUI can render the full UI, including the sidebar's user lists, before the
+        /// deferred work below takes MainActor time. calculateAllLists()'s O(N × predicates) compute
+        /// always runs on a background thread via Task.detached; only its setup stays on MainActor.
         await Task.yield()
 
-        // The UI is rendered, so start the deferred smart-list calculation. Its counts appear shortly
-        // after the sidebar, once the background compute completes.
+        /// The UI is rendered, so start the deferred smart-list calculation. Its counts appear shortly
+        /// after the sidebar, once the background compute completes.
         coordinator.deferredSmartListsCalculation()
 
-        // Release-day notifications reconcile the pending schedule with the loaded library. Like
-        // the smart lists, this is off the launch path; its work is a few system calls.
+        /// Release-day notifications reconcile the pending schedule with the loaded library. Like
+        /// the smart lists, this is off the launch path; its work is a few system calls.
         coordinator.startReleaseNotifications()
 
-        // Warm the Data Visualizations tab's mount cache off the main thread, a little
-        // after the launch work above so it does not compete with it (see
-        // ReportsState.prefetchVisualizations).
+        /// Warm the Data Visualizations tab's mount cache off the main thread, a little
+        /// after the launch work above so it does not compete with it (see
+        /// ReportsState.prefetchVisualizations).
         Task(priority: .utility) { @MainActor [coordinator] in
             try? await Task.sleep(for: .seconds(2))
             ReportsState.shared.prefetchVisualizations(films: coordinator.getAllFilms())
         }
 
-        // Load AppKit's data-detector scanner in the background now, so the first text
-        // field to give up focus does not wait for it on the main thread (see
-        // TextCheckingPrewarm).
+        /// Load AppKit's data-detector scanner in the background now, so the first text
+        /// field to give up focus does not wait for it on the main thread (see
+        /// TextCheckingPrewarm).
         TextCheckingPrewarm.run()
 
-        // An unavailable store is reported now that AlertHostView is live. Nothing else runs: the
-        // alert's Quit, Restore from Backup and Create New Library are the only ways forward.
+        /// An unavailable store is reported now that AlertHostView is live. Nothing else runs: the
+        /// alert's Quit, Restore from Backup and Create New Library are the only ways forward.
         if persistentContainerFailed {
             AppEventBus.shared.sendAlert(.showDatabaseError)
             return
         }
 
-        // The store opened, but the Phase 1 fetch threw: the library renders empty while the data is
-        // intact on disk. Everything below would act on that empty picture, most dangerously the
-        // poster pruner (Step 4), which given an empty valid-UID set would delete every poster file.
-        // Stop here and tell the user why the library looks empty. Derived-cache persistence was
-        // already suspended when the fetch threw, so the on-disk caches are safe.
+        /// The store opened, but the Phase 1 fetch threw: the library renders empty while the data is
+        /// intact on disk. Everything below would act on that empty picture, most dangerously the
+        /// poster pruner (Step 4), which given an empty valid-UID set would delete every poster file.
+        /// Stop here and tell the user why the library looks empty. Derived-cache persistence was
+        /// already suspended when the fetch threw, so the on-disk caches are safe.
         if coordinator.isLibraryStateUnreliable {
             Self.log("ERROR: Library state is unreliable — skipping poster restoration and deferred maintenance for this session")
             AppEventBus.shared.sendAlert(.showLibraryReadFailure)
             return
         }
 
-        // Build the sidebar once, invisibly, while the user is still taking in the gallery,
-        // so the first film selection is as quick as every later one (see SidebarPrewarm).
+        /// Build the sidebar once, invisibly, while the user is still taking in the gallery,
+        /// so the first film selection is as quick as every later one (see SidebarPrewarm).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [coordinator] in
             SidebarPrewarm.runIfIdle(dataCoordinator: coordinator)
         }
 
-        // Step 3: restore cached posters, then complete the cache, off the main thread. Images also
-        // load on demand as the user scrolls.
+        /// Step 3: restore cached posters, then complete the cache, off the main thread. Images also
+        /// load on demand as the user scrolls.
         Task(priority: .utility) { [coordinator] in
             let cacheStartTime = Date()
 
-            // First, restore previously cached images from disk
+            /// First, restore previously cached images from disk
             await PosterCache.shared.restoreCacheFromMetadata()
             let restoreDuration = Date().timeIntervalSince(cacheStartTime)
             Self.log("Background poster cache restored in \(Fmt.fixed(restoreDuration, 2))s")
 
-            // Then complete the cache with any uncached posters, so it builds without user scrolling.
+            /// Then complete the cache with any uncached posters, so it builds without user scrolling.
             let completionStartTime = Date()
             let allPosterUIDs = coordinator.getAllPosterUIDs()
             await PosterCache.shared.completeCache(withAllPosterUIDs: allPosterUIDs)
             let completionDuration = Date().timeIntervalSince(completionStartTime)
             Self.log("Background cache completion finished in \(Fmt.fixed(completionDuration, 2))s")
 
-            // The whole library is now resident and decoded, since every load goes through
-            // PosterCache.loadDecodedImage. Disarm the warming-only scroll prefetch (see
-            // PosterCache.isPopulating); the next bounds change in a gallery removes its observer.
+            /// The whole library is now resident and decoded, since every load goes through
+            /// PosterCache.loadDecodedImage. Disarm the warming-only scroll prefetch (see
+            /// PosterCache.isPopulating); the next bounds change in a gallery removes its observer.
             PosterCache.shared.markPopulationComplete()
         }
 
-        // Step 4: post-startup maintenance (orphaned poster files and orphaned membership records),
-        // detached from the startup chain. It starts after isInitialized is true, so MemoryStore is
-        // fully loaded before it reads.
-        //
-        // The task handle is stored on AppState so AppDelegate can cancel it at shutdown,
-        // preventing the poster pruner from running file-system deletions mid-process-exit.
+        /// Step 4: post-startup maintenance (orphaned poster files and orphaned membership records),
+        /// detached from the startup chain. It starts after isInitialized is true, so MemoryStore is
+        /// fully loaded before it reads.
+        ///
+        /// The task handle is stored on AppState so AppDelegate can cancel it at shutdown,
+        /// preventing the poster pruner from running file-system deletions mid-process-exit.
         appState.startDeferredMaintenance(coordinator: coordinator)
     }
 }
@@ -433,8 +430,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
     private var isShuttingDown = false
     static weak var dataCoordinator: DataCoordinator?
     static weak var appState: AppState?
-    // Mirrors FilmTrackerApp.persistentContainerFailed, set in init before any delegate callback.
-    // scheduleBackgroundExportIfNeeded() reads it synchronously.
+    /// Mirrors FilmTrackerApp.persistentContainerFailed, set in init before any delegate callback.
+    /// scheduleBackgroundExportIfNeeded() reads it synchronously.
     static var persistentContainerFailed: Bool = false
 
     /// When the app first gets control, so the startup breakdown can show how long AppKit and
@@ -444,7 +441,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
     static var launchReferenceInstant: ContinuousClock.Instant?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // First statement in the earliest delegate callback — see launchReferenceInstant.
+        /// First statement in the earliest delegate callback — see launchReferenceInstant.
         Self.launchReferenceInstant = ContinuousClock.now
         LaunchTimeline.mark("willFinishLaunching")
         NotificationCenter.default.addObserver(forName: NSApplication.didFinishLaunchingNotification,
@@ -463,9 +460,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         }
 
         LaunchTimeline.mark("willFinishWorkStart")
-        // These keys go to `.standard`, not Preferences, because AppKit reads them from the app's
-        // standard domain. They are skipped in a debug sandbox run, which then writes nothing outside
-        // its container. The cost is two menu items reappearing in a debug instance.
+        /// These keys go to `.standard`, not Preferences, because AppKit reads them from the app's
+        /// standard domain. They are skipped in a debug sandbox run, which then writes nothing outside
+        /// its container. The cost is two menu items reappearing in a debug instance.
         var suppressesInputMenuItems = true
         #if DEBUG
         suppressesInputMenuItems = !DebugSandbox.isActive
@@ -475,8 +472,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
             UserDefaults.standard.set(true, forKey: "NSDisabledCharacterPaletteMenuItem")
         }
 
-        // Registers defaults and creates the required folders synchronously, so paths such as
-        // Preferences.dataFolderURL are valid before initializeApp().
+        /// Registers defaults and creates the required folders synchronously, so paths such as
+        /// Preferences.dataFolderURL are valid before initializeApp().
         #if DEBUG
         Self.log("Debug sandbox: \(DebugSandbox.summary)")
         #endif
@@ -484,13 +481,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         Preferences.ensureDefaultsRegistered()
         ensureRequiredDirectoriesExist()
 
-        // EventKit's first-use cost, off the main thread while the library loads, rather
-        // than inside the session's first film selection (see EventKitManager.prewarm).
+        /// EventKit's first-use cost, off the main thread while the library loads, rather
+        /// than inside the session's first film selection (see EventKitManager.prewarm).
         EventKitManager.prewarm()
 
-        // Fire-and-forget background export. The task handle is stored so
-        // applicationShouldTerminate can cancel it (and the inner exportSleepTask)
-        // before the export begins if the user quits during the wait window.
+        /// Fire-and-forget background export. The task handle is stored so
+        /// applicationShouldTerminate can cancel it (and the inner exportSleepTask)
+        /// before the export begins if the user quits during the wait window.
         startupTask = Task(priority: .background) { await self.scheduleBackgroundExportIfNeeded() }
         LaunchTimeline.mark("willFinishWorkEnd")
     }
@@ -500,30 +497,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
     }
 
     // MARK: - Single Instance Window Reactivation
-    // AppKit calls this when LSMultipleInstancesProhibited (Info.plist) is set and the user launches
-    // a second instance, by double-clicking the bundle, the Dock icon, or an .ftbackup file. Launch
-    // Services redirects the attempt to the running process, which gets this callback instead.
-    //
-    // Returning false says we handled the reopen ourselves and suppresses AppKit's default window
-    // creation. Without explicit handling, AppKit may not raise the window if it is occluded or
-    // another application has focus.
+    /// AppKit calls this when LSMultipleInstancesProhibited (Info.plist) is set and the user launches
+    /// a second instance, by double-clicking the bundle, the Dock icon, or an .ftbackup file. Launch
+    /// Services redirects the attempt to the running process, which gets this callback instead.
+    ///
+    /// Returning false says we handled the reopen ourselves and suppresses AppKit's default window
+    /// creation. Without explicit handling, AppKit may not raise the window if it is occluded or
+    /// another application has focus.
     func applicationShouldHandleReopen(
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
         if flag {
-            // At least one window is already visible — bring the first (main) window
-            // to the front in case another application currently has focus.
+            /// At least one window is already visible — bring the first (main) window
+            /// to the front in case another application currently has focus.
             sender.windows.first?.makeKeyAndOrderFront(nil)
         } else {
-            // All windows are closed or minimized. Raise each one, so the Dock click does not leave an
-            // empty screen.
+            /// All windows are closed or minimized. Raise each one, so the Dock click does not leave an
+            /// empty screen.
             for window in sender.windows {
                 window.makeKeyAndOrderFront(nil)
             }
-            // No window at all. After an interrupted session (a debugger stop, a crash), launch-time
-            // state restoration can leave the WindowGroup window never created. Returning true hands the
-            // reopen to SwiftUI, which creates it. Returning false, as above, would leave the click doing nothing.
+            /// No window at all. After an interrupted session (a debugger stop, a crash), launch-time
+            /// state restoration can leave the WindowGroup window never created. Returning true hands the
+            /// reopen to SwiftUI, which creates it. Returning false, as above, would leave the click doing nothing.
             if sender.windows.isEmpty { return true }
         }
         return false
@@ -535,13 +532,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         Self.log("Shutdown requested - initiating immediate UI closure")
         isShuttingDown = true
 
-        // Preferences.overrideDateClamp is a session-only "at your own risk" override (see Preferences.swift).
-        // It always resets on quit, so it never survives into the next launch.
+        /// Preferences.overrideDateClamp is a session-only "at your own risk" override (see Preferences.swift).
+        /// It always resets on quit, so it never survives into the next launch.
         Preferences.overrideDateClamp = false
 
-        // The "known up for rotation" baseline is written on a debounce, so a recent transition may
-        // still be pending. Force it out here. This is called synchronously, before the async drain
-        // below, which need not finish before the process exits.
+        /// The "known up for rotation" baseline is written on a debounce, so a recent transition may
+        /// still be pending. Force it out here. This is called synchronously, before the async drain
+        /// below, which need not finish before the process exits.
         Self.dataCoordinator?.flushSmartListState()
 
         for window in NSApp.windows { window.orderOut(nil) }
@@ -551,28 +548,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         Self.appState?.cancelDeferredMaintenance()
 
         Task { @MainActor in
-            // Force out any settings write still in SettingsManager's debounce window. This runs before
-            // prepareForShutdown(), which makes trackOperation drop new work. The settings write is not
-            // routed through trackOperation, but this keeps it ahead of the shutdown signal. Without the
-            // flush, a preference changed just before quitting left SettingsObject stale, and a backup
-            // taken afterward restored the old value. This is the settings counterpart to flushSmartListState() above.
+            /// Force out any settings write still in SettingsManager's debounce window. This runs before
+            /// prepareForShutdown(), which makes trackOperation drop new work. The settings write is not
+            /// routed through trackOperation, but this keeps it ahead of the shutdown signal. Without the
+            /// flush, a preference changed just before quitting left SettingsObject stale, and a backup
+            /// taken afterward restored the old value. This is the settings counterpart to flushSmartListState() above.
             await Self.dataCoordinator?.flushPendingSettingsSync()
 
-            // Signal the coordinator now, so no new mutation is enqueued during the drain wait.
-            // prepareForShutdown() sets isShuttingDown on DataCoordinator, after which trackOperation()
-            // drops (and logs) new work.
+            /// Signal the coordinator now, so no new mutation is enqueued during the drain wait.
+            /// prepareForShutdown() sets isShuttingDown on DataCoordinator, after which trackOperation()
+            /// drops (and logs) new work.
             Self.dataCoordinator?.prepareForShutdown()
 
-            // If background persistence operations are in-flight, poll until they
-            // complete before allowing the process to exit. A hard 10-second timeout
-            // prevents an infinite hang if something goes wrong.
-            //
-            // pendingOperationCount can stay above zero briefly after prepareForShutdown(): canceled reorder
-            // debounce tasks still run their defers, which decrement it. The max(0,…) clamp in trackOperation's
-            // defer prevents underflow.
+            /// If background persistence operations are in-flight, poll until they
+            /// complete before allowing the process to exit. A hard 10-second timeout
+            /// prevents an infinite hang if something goes wrong.
+            ///
+            /// pendingOperationCount can stay above zero briefly after prepareForShutdown(): canceled reorder
+            /// debounce tasks still run their defers, which decrement it. The max(0,…) clamp in trackOperation's
+            /// defer prevents underflow.
             if Self.dataCoordinator?.hasPendingOperations == true {
                 Self.log("Pending operations detected - waiting for DataManager to drain")
-                // Poll at 50 ms intervals; 200 iterations × 50 ms = 10 s hard ceiling.
+                /// Poll at 50 ms intervals; 200 iterations × 50 ms = 10 s hard ceiling.
                 let maxIterations = 200
                 var iterations = 0
                 while Self.dataCoordinator?.hasPendingOperations == true {
@@ -586,14 +583,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
                 Self.log("DataManager drained - proceeding with shutdown")
             }
             await self.performGracefulShutdown()
-            // Awaited, unlike the fire-and-forget `Self.log` used elsewhere, so the line is enqueued before
-            // the shutdownLoggingAwaiting() call below flushes the buffer.
+            /// Awaited, unlike the fire-and-forget `Self.log` used elsewhere, so the line is enqueued before
+            /// the shutdownLoggingAwaiting() call below flushes the buffer.
             await Self.logAwaiting("Shutdown complete")
 
-            // Flush buffered log lines to disk before replying to AppKit. The periodic flush runs every 10
-            // seconds and its detached writes are dropped at exit, so without this final flush the last
-            // window of activity would never be persisted. shutdownLoggingAwaiting() drains the call
-            // sites' ordered pipe first, then writes the remaining buffer inline.
+            /// Flush buffered log lines to disk before replying to AppKit. The periodic flush runs every 10
+            /// seconds and its detached writes are dropped at exit, so without this final flush the last
+            /// window of activity would never be persisted. shutdownLoggingAwaiting() drains the call
+            /// sites' ordered pipe first, then writes the remaining buffer inline.
             await Logger.shutdownLoggingAwaiting()
 
             NSApp.reply(toApplicationShouldTerminate: true)
@@ -610,9 +607,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
     private func performGracefulShutdown() async {
         Self.log("Performing graceful shutdown")
 
-        // Save all caches concurrently. DataCoordinator.saveImmediately() cancels MemoryStore's pending
-        // throttled save before flushing, so that save cannot wake after the shutdown write and overwrite
-        // it with a stale payload. PosterCache.saveMetadata() is independent and runs alongside.
+        /// Save all caches concurrently. DataCoordinator.saveImmediately() cancels MemoryStore's pending
+        /// throttled save before flushing, so that save cannot wake after the shutdown write and overwrite
+        /// it with a stale payload. PosterCache.saveMetadata() is independent and runs alongside.
         Self.log("Saving caches (concurrent)...")
         let saveStart = ContinuousClock.now
         async let coordinatorSave: Void = Self.dataCoordinator?.saveImmediately() ?? ()
@@ -636,10 +633,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
 
         guard url.isExistingDirectory else { return }
 
-        // A backup double-clicked in Finder while Film Tracker is closed arrives during
-        // launch, before the window (and AlertHostView, which listens for this) exists;
-        // the event bus does not hold events for late subscribers, so it was dropped.
-        // Wait for initialization to finish — the window is up by then — for at most 30 s.
+        /// A backup double-clicked in Finder while Film Tracker is closed arrives during
+        /// launch, before the window (and AlertHostView, which listens for this) exists;
+        /// the event bus does not hold events for late subscribers, so it was dropped.
+        /// Wait for initialization to finish — the window is up by then — for at most 30 s.
         var waited = 0
         while Self.dataCoordinator?.isInitialized != true, waited < 300 {
             try? await Task.sleep(for: .milliseconds(100))
@@ -650,10 +647,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
     }
 
     // MARK: - Directory Setup
-    // Ensures all directories that FilmTracker owns and writes to exist at startup.
-    // Any path occupied by a blocking file (which FilmTracker itself would never create)
-    // is removed before the directory is created. Called synchronously in
-    // applicationWillFinishLaunching so paths are valid before initializeApp() runs.
+    /// Ensures all directories that FilmTracker owns and writes to exist at startup.
+    /// Any path occupied by a blocking file (which FilmTracker itself would never create)
+    /// is removed before the directory is created. Called synchronously in
+    /// applicationWillFinishLaunching so paths are valid before initializeApp() runs.
     private func ensureRequiredDirectoriesExist() {
         Self.log("Verifying application folder structure…")
         let fm = FileManager.default
@@ -673,8 +670,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
                 continue
             }
 
-            // A file is blocking the expected directory location. Since FilmTracker
-            // never creates files at these paths, remove it before proceeding.
+            /// A file is blocking the expected directory location. Since FilmTracker
+            /// never creates files at these paths, remove it before proceeding.
             if exists && !isDir {
                 do {
                     try fm.removeItem(at: path)
@@ -693,27 +690,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
             }
         }
 
-        // No export is running this early, so anything still staged was stranded by a
-        // crash or force quit mid-export. See ExportStaging.
+        /// No export is running this early, so anything still staged was stranded by a
+        /// crash or force quit mid-export. See ExportStaging.
         ExportStaging.purgeLeftovers()
 
         Self.log("Folder structure verification complete.")
     }
 
     // MARK: - Background Export
-    // ARCHITECTURE: the background export starts on MainActor. DBExporter is @MainActor and splits its work:
-    //   Phase 1 (data collection via DBReader) — MainActor, fast in-memory reads
-    //   Phase 1.5 (poster pruning) — background thread, file I/O
-    //   Phase 2 (XML packaging) — background thread
-    //   Phase 3 (file copy to destination) — background thread
-    //
-    // The posterUIDs for pruning come from MemoryStore (via DataCoordinator), not a database fetch, so no
-    // NSManagedObjectContext crosses into background tasks.
+    /// ARCHITECTURE: the background export starts on MainActor. DBExporter is @MainActor and splits its work:
+    ///   Phase 1 (data collection via DBReader) — MainActor, fast in-memory reads
+    ///   Phase 1.5 (poster pruning) — background thread, file I/O
+    ///   Phase 2 (XML packaging) — background thread
+    ///   Phase 3 (file copy to destination) — background thread
+    ///
+    /// The posterUIDs for pruning come from MemoryStore (via DataCoordinator), not a database fetch, so no
+    /// NSManagedObjectContext crosses into background tasks.
     private func scheduleBackgroundExportIfNeeded() async {
-        // A sandbox run's automatic backup would only ever package synthetic data into
-        // the sandbox's own Backups folder — harmless, but it is pure noise in a harness
-        // run and its 30-second timer would otherwise still be live when the harness
-        // calls exit(). Skipped outright.
+        /// A sandbox run's automatic backup would only ever package synthetic data into
+        /// the sandbox's own Backups folder — harmless, but it is pure noise in a harness
+        /// run and its 30-second timer would otherwise still be live when the harness
+        /// calls exit(). Skipped outright.
         #if DEBUG
         if DebugSandbox.isActive {
             Self.log("Background export skipped: debug sandbox active")
@@ -726,16 +723,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
             Self.log("Background export skipped: no backup folder configured")
             return
         }
-        // Database-error state: the store failed to open, and the app runs on an empty in-memory fallback.
-        // A backup taken now would hold that fallback, not the user's data. persistentContainerFailed is
-        // set in FilmTrackerApp.init(), before any delegate callback, so this check is reliable.
+        /// Database-error state: the store failed to open, and the app runs on an empty in-memory fallback.
+        /// A backup taken now would hold that fallback, not the user's data. persistentContainerFailed is
+        /// set in FilmTrackerApp.init(), before any delegate callback, so this check is reliable.
         guard !Self.persistentContainerFailed else {
             Self.log("Background export skipped: persistent container unavailable (database error state)")
             return
         }
         
-        // Wait 30 seconds after launch, so the user can settle in before background work starts. The sleep
-        // task is tracked so applicationShouldTerminate can cancel it, and no export starts after quit.
+        /// Wait 30 seconds after launch, so the user can settle in before background work starts. The sleep
+        /// task is tracked so applicationShouldTerminate can cancel it, and no export starts after quit.
         exportSleepTask = Task(priority: .background) {
             try? await Task.sleep(for: .seconds(30))
         }
@@ -744,22 +741,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         
         guard !isShuttingDown else { return }
 
-        // The 30-second sleep can end before initialization finishes (a very large library on a slow disk).
-        // The export reads the store and getAllPosterUIDs(), which need MemoryStore fully loaded, so check again.
+        /// The 30-second sleep can end before initialization finishes (a very large library on a slow disk).
+        /// The export reads the store and getAllPosterUIDs(), which need MemoryStore fully loaded, so check again.
         guard coordinator.isInitialized else {
             Self.log("Background export skipped: coordinator not yet initialized")
             return
         }
 
-        // An empty auto-backup does harm: it becomes the newest, and retainRecentBackups below deletes a real
-        // one to make room. That is the case for a fresh store before its first restore, or a library that failed to load.
+        /// An empty auto-backup does harm: it becomes the newest, and retainRecentBackups below deletes a real
+        /// one to make room. That is the case for a fresh store before its first restore, or a library that failed to load.
         guard !coordinator.getAllFilms().isEmpty else {
             Self.log("Background export skipped: the library is empty")
             return
         }
 
-        // Explicit, rather than relying on the empty-library check above: an unreliable
-        // session (fallback store or failed load) must never write a backup or prune posters.
+        /// Explicit, rather than relying on the empty-library check above: an unreliable
+        /// session (fallback store or failed load) must never write a backup or prune posters.
         guard !coordinator.isLibraryStateUnreliable else {
             Self.log("Background export skipped: library state is unreliable this session")
             return
@@ -771,20 +768,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
             do {
                 let filename = BackupFilename.make(auto: true)
 
-                // Same reason as the Export tab: the exporter reads the store, so
-                // commit anything still sitting in a debounce window first.
+                /// Same reason as the Export tab: the exporter reads the store, so
+                /// commit anything still sitting in a debounce window first.
                 await coordinator.commitPendingWritesForExport()
 
-                // Collect posterUIDs from MemoryStore on MainActor BEFORE creating the
-                // exporter. This is a near-instant in-memory read that provides the data
-                // PosterPruner needs without any NSManagedObjectContext involvement.
+                /// Collect posterUIDs from MemoryStore on MainActor BEFORE creating the
+                /// exporter. This is a near-instant in-memory read that provides the data
+                /// PosterPruner needs without any NSManagedObjectContext involvement.
                 let posterUIDsTakenAt = Date()
                 let posterUIDs: Set<String> = await MainActor.run {
                     Set(coordinator.getAllPosterUIDs())
                 }
                 
-                // DBExporter is @MainActor, so these calls hop to MainActor automatically. It creates a fresh
-                // NSManagedObjectContext per export, so the backup reflects the persisted state.
+                /// DBExporter is @MainActor, so these calls hop to MainActor automatically. It creates a fresh
+                /// NSManagedObjectContext per export, so the backup reflects the persisted state.
                 let exporter = DBExporter(persistentContainer: coordinator.persistentContainer)
                 let result = try await exporter.createCompleteBackup(
                     filename: filename,
@@ -797,7 +794,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
                 
                 Self.log("Background export completed: \(result.packageURL.lastPathComponent)")
                 
-                // Clean up old backups, keeping only the 3 most recent
+                /// Clean up old backups, keeping only the 3 most recent
                 await Self.retainRecentBackups(in: backupFolder, limit: 3)
                 
             } catch is CancellationError {
@@ -808,9 +805,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
         }
     }
     
-    // Internal, so the `backup-auto` harness scenario exercises this code.
-    //
-    // `nonisolated`: the listing and the deletions (whole backup packages, posters included) run off the main actor.
+    /// Internal, so the `backup-auto` harness scenario exercises this code.
+    ///
+    /// `nonisolated`: the listing and the deletions (whole backup packages, posters included) run off the main actor.
     nonisolated static func retainRecentBackups(in folder: URL, limit: Int) async {
         let fm = FileManager.default
         
@@ -821,27 +818,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, Loggable {
                 options: [.skipsHiddenFiles]
             )
             
-            // Filter for auto-backup files.
+            /// Filter for auto-backup files.
             let autoBackups = contents.filter { url in
                 BackupFilename.isBackup(url) &&
                 url.lastPathComponent.contains("-Auto-")
             }
             
-            // Pre-fetch creation dates once into a dictionary to avoid repeated
-            // file-system calls inside the sort comparator (which is O(N log N)).
+            /// Pre-fetch creation dates once into a dictionary to avoid repeated
+            /// file-system calls inside the sort comparator (which is O(N log N)).
             var creationDates: [URL: Date] = [:]
             for url in autoBackups {
                 creationDates[url] = (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate
             }
 
-            // Sort by creation date (newest first) using the pre-fetched dictionary.
+            /// Sort by creation date (newest first) using the pre-fetched dictionary.
             let sorted = autoBackups.sorted { url1, url2 in
                 let date1 = creationDates[url1] ?? Date.distantPast
                 let date2 = creationDates[url2] ?? Date.distantPast
                 return date1 > date2
             }
             
-            // Remove backups beyond the limit.
+            /// Remove backups beyond the limit.
             if sorted.count > limit {
                 let toRemove = sorted.dropFirst(limit)
                 for url in toRemove {
@@ -882,18 +879,18 @@ final class AppState: Loggable {
 
     let persistentContainer: NSPersistentContainer
     
-    // The active sidebar item. Read-only from outside: every change goes through navigate(to:), which
-    // clears the selection in the same synchronous turn as the flip (see that method's doc comment).
+    /// The active sidebar item. Read-only from outside: every change goes through navigate(to:), which
+    /// clears the selection in the same synchronous turn as the flip (see that method's doc comment).
     private(set) var selectedSidebarItem: SidebarItem = .libraryItem(.allFilms)
 
     // MARK: - Selection-Preservation Tokens
-    //
-    // Two one-shot tokens can suppress navigate(to:)'s selection clear for a single transition. They are
-    // @ObservationIgnored: nothing renders from them, and publishing them would invalidate every AppState
-    // observer on each arm and consume.
-    //
-    // The next navigate(to:) that actually changes the item consumes both, so an abandoned transition
-    // cannot leak a token into a later one. A no-op navigation consumes neither.
+    ///
+    /// Two one-shot tokens can suppress navigate(to:)'s selection clear for a single transition. They are
+    /// @ObservationIgnored: nothing renders from them, and publishing them would invalidate every AppState
+    /// observer on each arm and consume.
+    ///
+    /// The next navigate(to:) that actually changes the item consumes both, so an abandoned transition
+    /// cannot leak a token into a later one. A no-op navigation consumes neither.
 
     /// Path A — token search activation. Armed by MainView immediately before navigating
     /// INTO the search view via a sidebar "Search" button, where the selected film is
@@ -940,8 +937,8 @@ final class AppState: Loggable {
         guard newItem != selectedSidebarItem else { return }
         let oldItem = selectedSidebarItem
 
-        // Consume every one-shot token up front, before any branch is chosen, so none can
-        // survive this transition.
+        /// Consume every one-shot token up front, before any branch is chosen, so none can
+        /// survive this transition.
         let showInListFilmID = ShowInListNavigation.consumePreservedFilmID()
         let searchExitFilmID = searchExitPreservedFilmID
         searchExitPreservedFilmID = nil
@@ -968,22 +965,22 @@ final class AppState: Loggable {
         }
 
         if !shouldSuppressClear {
-            // Clear, then flip. clearImmediate() writes SelectionState, a different object from the one driving
-            // this navigation. Every caller reaches navigate(to:) from an action or onChange handler, never from
-            // a body evaluation, so the write cannot land inside a view update.
+            /// Clear, then flip. clearImmediate() writes SelectionState, a different object from the one driving
+            /// this navigation. Every caller reaches navigate(to:) from an action or onChange handler, never from
+            /// a body evaluation, so the write cannot land inside a view update.
             selectionState.clearImmediate()
-            // clearFocusRings() still posts, one run loop later, to reset the galleries' keyboard cursor and
-            // anchor, which the selection clear does not cover. The focus ring itself is already gone.
+            /// clearFocusRings() still posts, one run loop later, to reset the galleries' keyboard cursor and
+            /// anchor, which the selection clear does not cover. The focus ring itself is already gone.
             AppEventBus.shared.clearFocusRings()
         }
 
-        // Bank the outgoing gallery's scroll position while it is still on screen. See
-        // ViewStateManager.bankDisplayedScrollPosition.
+        /// Bank the outgoing gallery's scroll position while it is still on screen. See
+        /// ViewStateManager.bankDisplayedScrollPosition.
         ViewStateManager.shared.bankDisplayedScrollPosition()
 
-        // Switch, then flip, for each destination that MainContentSwitcher renders with a fresh GalleryView, so
-        // its first pass already holds the destination's films and style (see GalleryView.preSwitchBeforeSidebarFlip).
-        // Search, Reports and Imports keep their own paths. Before initialization, GalleryView's handleReadyState does the first load.
+        /// Switch, then flip, for each destination that MainContentSwitcher renders with a fresh GalleryView, so
+        /// its first pass already holds the destination's films and style (see GalleryView.preSwitchBeforeSidebarFlip).
+        /// Search, Reports and Imports keep their own paths. Before initialization, GalleryView's handleReadyState does the first load.
         if dataCoordinator?.isInitialized == true {
             switch newItem {
             case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
@@ -1000,33 +997,33 @@ final class AppState: Loggable {
     private weak var dataCoordinator: DataCoordinator?
     let sheetCoordinator = SheetCoordinator()
     
-    // Set by SheetHostView when a sheet begins presenting, and cleared only when NSWindow.didEndSheetNotification
-    // fires, after the dismiss animation. sheetCoordinator.activeSheet clears when the animation starts, while the
-    // sheet is still on screen. AlertHostView reads this flag so it never presents an alert over a sheet.
+    /// Set by SheetHostView when a sheet begins presenting, and cleared only when NSWindow.didEndSheetNotification
+    /// fires, after the dismiss animation. sheetCoordinator.activeSheet clears when the animation starts, while the
+    /// sheet is still on screen. AlertHostView reads this flag so it never presents an alert over a sheet.
     var isSheetPresented: Bool = false
 
-    // Set to true by AlertHostView while either database-error alert is visible.
-    // MenuBar reads this to lock all menu items — preventing the user from triggering
-    // background actions while the forced-recovery flow is in progress.
+    /// Set to true by AlertHostView while either database-error alert is visible.
+    /// MenuBar reads this to lock all menu items — preventing the user from triggering
+    /// background actions while the forced-recovery flow is in progress.
     var isDatabaseErrorAlertActive: Bool = false
 
-    // Set to true by AlertHostView while ANY of its alerts is visible. An alert is a
-    // window sheet, and a sheet does not stop main-menu key equivalents: without this,
-    // Cmd+Delete, Cmd+E and the rest stayed live under an open confirmation. MenuBar
-    // folds it into isSheetActive.
+    /// Set to true by AlertHostView while ANY of its alerts is visible. An alert is a
+    /// window sheet, and a sheet does not stop main-menu key equivalents: without this,
+    /// Cmd+Delete, Cmd+E and the rest stayed live under an open confirmation. MenuBar
+    /// folds it into isSheetActive.
     var isHostAlertActive: Bool = false
 
-    // Set to true by SettingsSheet.onAppear when the sheet opens in locked-to-restore
-    // mode (database-error recovery flow), and cleared on onDisappear. Exposed here so
-    // MenuBar can detect the restricted state and route "Quit Film Tracker" through the
-    // dismiss-then-terminate sequence instead of calling NSApp.terminate(nil) directly.
+    /// Set to true by SettingsSheet.onAppear when the sheet opens in locked-to-restore
+    /// mode (database-error recovery flow), and cleared on onDisappear. Exposed here so
+    /// MenuBar can detect the restricted state and route "Quit Film Tracker" through the
+    /// dismiss-then-terminate sequence instead of calling NSApp.terminate(nil) directly.
     var isLockedToRestoreTab: Bool = false
 
-    // Set to true by either the Cmd+Q key monitor intercept inside SettingsSheet or by
-    // the MenuBar "Quit Film Tracker" handler when the sheet is locked to the Restore tab.
-    // SettingsSheet.onDisappear observes this flag and calls NSApp.terminate(nil) once
-    // the sheet has fully left the view hierarchy — at which point AppKit will no longer
-    // block the termination request because no sheet is attached to the main window.
+    /// Set to true by either the Cmd+Q key monitor intercept inside SettingsSheet or by
+    /// the MenuBar "Quit Film Tracker" handler when the sheet is locked to the Restore tab.
+    /// SettingsSheet.onDisappear observes this flag and calls NSApp.terminate(nil) once
+    /// the sheet has fully left the view hierarchy — at which point AppKit will no longer
+    /// block the termination request because no sheet is attached to the main window.
     var pendingTerminationAfterSheetDismiss: Bool = false
 
     private let appVersionBuild: String = {
@@ -1042,8 +1039,8 @@ final class AppState: Loggable {
     }
 
     // MARK: - Deferred Maintenance
-    // PosterPruner gets posterUIDs from MemoryStore (via DataCoordinator) as a Sendable Set<String>. It never
-    // touches NSManagedObjectContext or the database, so it can run on a background thread.
+    /// PosterPruner gets posterUIDs from MemoryStore (via DataCoordinator) as a Sendable Set<String>. It never
+    /// touches NSManagedObjectContext or the database, so it can run on a background thread.
 
     /// Handle kept so AppDelegate can cancel in-flight maintenance on shutdown,
     /// preventing the poster pruner from running file-system deletions mid-exit.
@@ -1072,32 +1069,32 @@ final class AppState: Loggable {
     private nonisolated func performDeferredMaintenance(coordinator: DataCoordinator) async {
         guard !Task.isCancelled else { return }
 
-        // Collect posterUIDs from MemoryStore on MainActor (near-instant in-memory read).
+        /// Collect posterUIDs from MemoryStore on MainActor (near-instant in-memory read).
         let snapshotTakenAt = Date()
         let posterUIDs = await MainActor.run { Set(coordinator.getAllPosterUIDs()) }
 
         guard !Task.isCancelled else { return }
 
-        // PosterPruner is synchronous file I/O over a Sendable Set<String>. This function is nonisolated, so it runs directly on the detached task.
+        /// PosterPruner is synchronous file I/O over a Sendable Set<String>. This function is nonisolated, so it runs directly on the detached task.
         PosterPruner.pruneOrphanedPosters(validPosterUIDs: posterUIDs,
                                           snapshotTakenAt: snapshotTakenAt)
 
         guard !Task.isCancelled else { return }
 
-        // Orphaned and duplicate membership cleanup runs entirely in DataManager's
-        // background actor.
+        /// Orphaned and duplicate membership cleanup runs entirely in DataManager's
+        /// background actor.
         await coordinator.cleanupOrphanedAndDuplicateMemberships()
     }
 }
 
 // MARK: - Launch Timeline
 
-// Marks along the launch path, each stamped in milliseconds since the kernel started the
-// process, so the stretch before `initializeApp()` (dyld, the App struct's init and its
-// NSPersistentContainer, the first window) can be taken apart instead of read as one `preInit`
-// number. Every launch, Debug or Release, logs the timeline once its first gallery frame is
-// committed (when logging is on); the DEBUG `launch-timeline` scenario reports it as metrics.
-// Each mark is one clock read and an array append, so it costs nothing worth gating.
+/// Marks along the launch path, each stamped in milliseconds since the kernel started the
+/// process, so the stretch before `initializeApp()` (dyld, the App struct's init and its
+/// NSPersistentContainer, the first window) can be taken apart instead of read as one `preInit`
+/// number. Every launch, Debug or Release, logs the timeline once its first gallery frame is
+/// committed (when logging is on); the DEBUG `launch-timeline` scenario reports it as metrics.
+/// Each mark is one clock read and an array append, so it costs nothing worth gating.
 @MainActor
 enum LaunchTimeline: Loggable {
     nonisolated static let logTag = "[LaunchTimeline]"
@@ -1172,8 +1169,8 @@ enum LaunchTimeline: Loggable {
         if LaunchReveal.shared.didHoldWindow, milliseconds(for: "windowShown") == nil { return }
         didLog = true
         log("LAUNCH TIMELINE (ms since process start) — \(summary)")
-        // Written a little later, so the record also covers the turns right after the
-        // window appears (the deferred menu refresh among them).
+        /// Written a little later, so the record also covers the turns right after the
+        /// window appears (the deferred menu refresh among them).
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             MainActor.assumeIsolated {
                 recordClosed = true
@@ -1184,9 +1181,9 @@ enum LaunchTimeline: Loggable {
 
     private static var recordClosed = false
 
-    // Main run loop busy stretches until the timeline is logged: each runs from waking (or
-    // process start) to the next sleep, after Core Animation's commit, so a stretch is all
-    // the main thread did in that turn.
+    /// Main run loop busy stretches until the timeline is logged: each runs from waking (or
+    /// process start) to the next sleep, after Core Animation's commit, so a stretch is all
+    /// the main thread did in that turn.
     private static var busy: [(start: Double, end: Double)] = []
     private static var busyStart: Double? = 0
 
@@ -1258,14 +1255,14 @@ enum LaunchExperiment {
             try? handle.close()
         }
         if exitsAfterRecord {
-            // FT_LAUNCH_EXIT of 1 or less exits after 0.8 s. A larger value quits normally after that many
-            // seconds, which saves the window restoration state.
+            /// FT_LAUNCH_EXIT of 1 or less exits after 0.8 s. A larger value quits normally after that many
+            /// seconds, which saves the window restoration state.
             let seconds = Double(exitValue ?? "1") ?? 1
             if seconds <= 1 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { exit(0) }
             } else {
-                // From a run-loop timer, not a main-queue block: shutdown awaits main-actor
-                // work, which a main-queue block calling terminate would keep from running.
+                /// From a run-loop timer, not a main-queue block: shutdown awaits main-actor
+                /// work, which a main-queue block calling terminate would keep from running.
                 Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { _ in
                     MainActor.assumeIsolated { NSApp.terminate(nil) }
                 }
@@ -1389,7 +1386,7 @@ enum MenuDumpProbe {
         }
         RunLoop.main.add(timer, forMode: .common)
         menu.popUp(positioning: nil, at: NSPoint(x: 200, y: 600), in: nil)
-        // A timer that never fired must not fire inside the next menu's tracking.
+        /// A timer that never fired must not fire inside the next menu's tracking.
         timer.invalidate()
         openedMenu = nil
         return openedText
@@ -1445,8 +1442,8 @@ enum ToolbarDumpProbe {
         guard let outPath else { return }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(4))
-            // The window's frame view, which holds the title bar and the content view: their
-            // common ancestor, found without `superview` (an `unowned(unsafe)` property).
+            /// The window's frame view, which holds the title bar and the content view: their
+            /// common ancestor, found without `superview` (an `unowned(unsafe)` property).
             guard let window = NSApp.windows.first(where: { $0.toolbar != nil }),
                   let closeButton = window.standardWindowButton(.closeButton),
                   let frameView = window.contentView?.ancestorShared(with: closeButton) else { exit(1) }
@@ -1473,13 +1470,13 @@ enum ToolbarDumpProbe {
             walk(frameView, depth: 0)
             try? lines.joined(separator: "\n").write(toFile: outPath, atomically: true, encoding: .utf8)
 
-            // FT_TOOLBAR_HEIGHT=<points> renders more of the window than the title bar.
+            /// FT_TOOLBAR_HEIGHT=<points> renders more of the window than the title bar.
             let height = ProcessInfo.processInfo.environment["FT_TOOLBAR_HEIGHT"].flatMap(Double.init)
                 .map { CGFloat($0) } ?? 60
             let scale = window.backingScaleFactor
-            // The bitmap comes from AppKit (at the window's backing scale) rather than a
-            // CGContext over a raw buffer, whose initializer takes an unsafe pointer. Its size is
-            // set to its pixel size so the context's units are pixels, as a CGContext's were.
+            /// The bitmap comes from AppKit (at the window's backing scale) rather than a
+            /// CGContext over a raw buffer, whose initializer takes an unsafe pointer. Its size is
+            /// set to its pixel size so the context's units are pixels, as a CGContext's were.
             let strip = NSRect(x: 0, y: frameView.bounds.height - height, width: frameView.bounds.width, height: height)
             if let layer = frameView.layer, let rep = frameView.bitmapImageRepForCachingDisplay(in: strip) {
                 rep.size = NSSize(width: rep.pixelsWide, height: rep.pixelsHigh)

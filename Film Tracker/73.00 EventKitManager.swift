@@ -1,8 +1,8 @@
 // MARK: - EventKitManager.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Centralized EventKit management with proper authorization and caching.
-// Notifies UI components when authorization changes.
+/// Centralized EventKit management with proper authorization and caching.
+/// Notifies UI components when authorization changes.
 
 import AppKit
 import os
@@ -48,11 +48,11 @@ final class EventKitManager: Loggable {
         }
         eventStore = ready?.store ?? EKEventStore()
         log("Initialized\(ready != nil ? " (prewarmed)" : "")")
-        // Start observing authorization changes from system
+        /// Start observing authorization changes from system
         startObservingAuthorizationChanges(knownStatus: ready?.status)
-        // Start observing calendar-set changes from the system
+        /// Start observing calendar-set changes from the system
         startObservingStoreChanges()
-        // Re-read the status whenever the app comes back to the front
+        /// Re-read the status whenever the app comes back to the front
         startObservingActivation()
     }
     
@@ -92,14 +92,14 @@ final class EventKitManager: Loggable {
     /// status cannot change without a new explicit request, so starting a polling loop on
     /// every launch for those users is pure overhead — this guard eliminates that waste.
     private func startObservingAuthorizationChanges(knownStatus: EKAuthorizationStatus? = nil) {
-        // Cancel any existing polling task before potentially starting a new one.
+        /// Cancel any existing polling task before potentially starting a new one.
         authPollingTask?.cancel()
 
-        // Read the current status once. If it is already stable (anything other than
-        // .notDetermined), there is nothing to poll for: the user has either granted or
-        // denied access, and only a new requestAccessIfNeeded() call can change that.
-        // restartAuthorizationPolling() is called from requestAccessIfNeeded() to cover
-        // the post-request window, so those users are never left unmonitored.
+        /// Read the current status once. If it is already stable (anything other than
+        /// .notDetermined), there is nothing to poll for: the user has either granted or
+        /// denied access, and only a new requestAccessIfNeeded() call can change that.
+        /// restartAuthorizationPolling() is called from requestAccessIfNeeded() to cover
+        /// the post-request window, so those users are never left unmonitored.
         let currentStatus = knownStatus ?? EKEventStore.authorizationStatus(for: .event)
         cachedAuthStatus = currentStatus
         log("Initial authorization status: \(currentStatus.rawValue)")
@@ -109,34 +109,34 @@ final class EventKitManager: Loggable {
             return
         }
 
-        // Status is .notDetermined: the user has never been asked. Start polling so that
-        // if another part of the system (or a concurrent app launch) triggers a grant,
-        // we detect it promptly.
+        /// Status is .notDetermined: the user has never been asked. Start polling so that
+        /// if another part of the system (or a concurrent app launch) triggers a grant,
+        /// we detect it promptly.
         authPollingTask = Task { @MainActor in
             var consecutiveUnchangedChecks = 0
-            let maxBackoffChecks = 10 // After 10 unchanged checks, stop polling
+            let maxBackoffChecks = 10 /// After 10 unchanged checks, stop polling
 
             while !Task.isCancelled {
-                // Check current status
+                /// Check current status
                 let polledStatus = EKEventStore.authorizationStatus(for: .event)
 
-                // If status changed, notify and reset backoff
+                /// If status changed, notify and reset backoff
                 if let cached = cachedAuthStatus, cached != polledStatus {
                     log("Authorization status changed: \(cached.rawValue) → \(polledStatus.rawValue)")
                     handleAuthorizationStatusChange(from: cached, to: polledStatus)
                     consecutiveUnchangedChecks = 0
                 }
 
-                // Determine next check interval based on backoff
+                /// Determine next check interval based on backoff
                 let checkInterval: TimeInterval
                 if consecutiveUnchangedChecks < 5 {
-                    // First 5 checks: every 0.5 seconds (catches TCC approval quickly)
+                    /// First 5 checks: every 0.5 seconds (catches TCC approval quickly)
                     checkInterval = 0.5
                 } else if consecutiveUnchangedChecks < maxBackoffChecks {
-                    // Next 5 checks: every 2 seconds
+                    /// Next 5 checks: every 2 seconds
                     checkInterval = 2.0
                 } else {
-                    // After 10 unchanged checks, stop polling until next request
+                    /// After 10 unchanged checks, stop polling until next request
                     break
                 }
 
@@ -199,18 +199,18 @@ final class EventKitManager: Loggable {
     private func handleAuthorizationStatusChange(from oldStatus: EKAuthorizationStatus, to newStatus: EKAuthorizationStatus) {
         cachedAuthStatus = newStatus
         
-        // If we gained write access, refresh calendars immediately
+        /// If we gained write access, refresh calendars immediately
         let hadWriteAccess = (oldStatus == .fullAccess || oldStatus == .writeOnly)
         let hasWriteAccess = (newStatus == .fullAccess || newStatus == .writeOnly)
         
         if !hadWriteAccess && hasWriteAccess {
             log("Gained write access - refreshing calendars")
-            // forceReload bypasses and overwrites the cache outright, so no separate
-            // invalidation is needed ahead of it.
+            /// forceReload bypasses and overwrites the cache outright, so no separate
+            /// invalidation is needed ahead of it.
             _ = getWritableCalendars(forceReload: true)
         }
         
-        // Notify UI components that authorization changed
+        /// Notify UI components that authorization changed
         AppEventBus.shared.calendarAuthorizationChanged()
         log("Notified UI of authorization change")
     }
@@ -246,13 +246,13 @@ final class EventKitManager: Loggable {
     /// Restarts polling to detect when TCC grants permission.
     /// - Returns: Whether write access was granted.
     func requestAccessIfNeeded() async -> Bool {
-        // Calendar access is the one capability in this app that reaches outside its own
-        // container entirely — a granted authorization writes to the user's real calendar
-        // database, which no sandbox path redirect can contain. A debug instance therefore
-        // never asks for it. This is belt-and-braces: sandbox preferences come from a
-        // fresh suite where `iCalIntegration` is false by default, so nothing should call
-        // this in the first place; the guard makes that a property of the code rather than
-        // of the default value.
+        /// Calendar access is the one capability in this app that reaches outside its own
+        /// container entirely — a granted authorization writes to the user's real calendar
+        /// database, which no sandbox path redirect can contain. A debug instance therefore
+        /// never asks for it. This is belt-and-suspenders: sandbox preferences come from a
+        /// fresh suite where `iCalIntegration` is false by default, so nothing should call
+        /// this in the first place; the guard makes that a property of the code rather than
+        /// of the default value.
         #if DEBUG
         if DebugSandbox.isActive {
             log("Calendar authorization request suppressed: debug sandbox active")
@@ -262,25 +262,25 @@ final class EventKitManager: Loggable {
 
         let currentStatus = authorizationStatus
         
-        // Already have write access.
+        /// Already have write access.
         if currentStatus == .fullAccess || currentStatus == .writeOnly {
             log("Already authorized (status: \(currentStatus.rawValue))")
             return true
         }
         
-        // Need to request authorization.
+        /// Need to request authorization.
         log("Requesting calendar authorization...")
         
-        // Restart polling BEFORE request to catch quick grants
+        /// Restart polling BEFORE request to catch quick grants
         restartAuthorizationPolling()
         
         do {
             let granted = try await eventStore.requestFullAccessToEvents()
             
-            // Force refresh status immediately after request completes
+            /// Force refresh status immediately after request completes
             let newStatus = EKEventStore.authorizationStatus(for: .event)
             
-            // If cached status differs, handle the change
+            /// If cached status differs, handle the change
             if let cached = cachedAuthStatus, cached != newStatus {
                 handleAuthorizationStatusChange(from: cached, to: newStatus)
             } else {
@@ -289,17 +289,17 @@ final class EventKitManager: Loggable {
             
             log("Authorization result: \(granted), status: \(newStatus.rawValue)")
             
-            // If granted, invalidate calendar cache to load fresh data.
+            /// If granted, invalidate calendar cache to load fresh data.
             if granted {
-                // See handleAuthorizationStatusChange: forceReload already replaces the
-                // cache, so a preceding invalidateCalendarCache() would be a no-op.
+                /// See handleAuthorizationStatusChange: forceReload already replaces the
+                /// cache, so a preceding invalidateCalendarCache() would be a no-op.
                 _ = getWritableCalendars(forceReload: true)
             }
             
             return granted
         } catch {
             log("Authorization request failed: \(error)")
-            // Still restart polling in case of async grant
+            /// Still restart polling in case of async grant
             return false
         }
     }
@@ -322,27 +322,27 @@ final class EventKitManager: Loggable {
         let hasAccess = (liveStatus == .fullAccess || liveStatus == .writeOnly)
         
         if hasAccess {
-            // Access is already visible — update the cache and notify the UI
-            // if the cached value was stale.
+            /// Access is already visible — update the cache and notify the UI
+            /// if the cached value was stale.
             if let cached = cachedAuthStatus, cached != liveStatus {
                 handleAuthorizationStatusChange(from: cached, to: liveStatus)
             } else {
                 cachedAuthStatus = liveStatus
-                // Even if cached already matched, broadcast so any UI that missed
-                // the original notification can re-evaluate.
+                /// Even if cached already matched, broadcast so any UI that missed
+                /// the original notification can re-evaluate.
                 AppEventBus.shared.calendarAuthorizationChanged()
             }
         } else if liveStatus == .notDetermined {
-            // TCC may not have committed the grant yet. Fire a real async request
-            // on the singleton store so we properly await the TCC result.
-            // requestAccessIfNeeded() is a no-op if already authorized, so this
-            // is safe to call speculatively.
+            /// TCC may not have committed the grant yet. Fire a real async request
+            /// on the singleton store so we properly await the TCC result.
+            /// requestAccessIfNeeded() is a no-op if already authorized, so this
+            /// is safe to call speculatively.
             Task { @MainActor in
                 log("Status still notDetermined on recheck — awaiting TCC via requestAccessIfNeeded")
                 _ = await requestAccessIfNeeded()
             }
         }
-        // For .denied / .restricted there is nothing to poll for; leave as-is.
+        /// For .denied / .restricted there is nothing to poll for; leave as-is.
     }
     
     // MARK: - Calendar Operations
@@ -351,13 +351,13 @@ final class EventKitManager: Loggable {
     /// - Parameter forceReload: If true, bypasses cache and loads fresh data.
     /// - Returns: Array of writable calendars, or empty array if unauthorized.
     func getWritableCalendars(forceReload: Bool = false) -> [EKCalendar] {
-        // Check authorization first.
+        /// Check authorization first.
         guard hasWriteAccess else {
             log("No write access, returning empty calendar list")
             return []
         }
         
-        // Use cache if valid and not forcing reload.
+        /// Use cache if valid and not forcing reload.
         if !forceReload,
            let cached = cachedCalendars,
            let lastLoad = lastCalendarLoadTime,
@@ -366,13 +366,13 @@ final class EventKitManager: Loggable {
             return cached
         }
         
-        // Load fresh calendars.
+        /// Load fresh calendars.
         log("Loading calendars from EventKit...")
         let calendars = eventStore.calendars(for: .event)
             .filter { $0.allowsContentModifications }
             .sorted { $0.title.englishCaseInsensitiveCompare($1.title) == .orderedAscending }
         
-        // Update cache.
+        /// Update cache.
         cachedCalendars = calendars
         lastCalendarLoadTime = Date()
         
@@ -405,11 +405,11 @@ final class EventKitManager: Loggable {
         endDate: Date,
         calendar: EKCalendar
     ) -> Bool {
-        // See requestAccessIfNeeded(): the user's calendar is outside every container
-        // boundary this app can redirect, so a sandbox instance never writes to it.
-        // Guarded independently of the authorization request because authorization may
-        // already have been granted to the production instance under the same bundle
-        // identifier — in which case `hasWriteAccess` below would be true here too.
+        /// See requestAccessIfNeeded(): the user's calendar is outside every container
+        /// boundary this app can redirect, so a sandbox instance never writes to it.
+        /// Guarded independently of the authorization request because authorization may
+        /// already have been granted to the production instance under the same bundle
+        /// identifier — in which case `hasWriteAccess` below would be true here too.
         #if DEBUG
         if DebugSandbox.isActive {
             log("Event creation suppressed: debug sandbox active")
@@ -427,10 +427,10 @@ final class EventKitManager: Loggable {
         event.startDate = startDate
         event.endDate = endDate
         event.calendar = calendar
-        // Explicitly clear any alarms before saving. EventKit may inherit a default
-        // URL-based alarm from the calendar configuration; sandboxed apps are not
-        // entitled to set alarm URLs and the attempt produces:
-        // "Attempted to set URL on an alarm in a process that is not allowed. Ignoring."
+        /// Explicitly clear any alarms before saving. EventKit may inherit a default
+        /// URL-based alarm from the calendar configuration; sandboxed apps are not
+        /// entitled to set alarm URLs and the attempt produces:
+        /// "Attempted to set URL on an alarm in a process that is not allowed. Ignoring."
         event.alarms = nil
         
         do {
@@ -444,10 +444,10 @@ final class EventKitManager: Loggable {
     }
     
     // MARK: - Cleanup
-    //
-    // No deinit. This type is only ever reachable through `static let shared`, so it is
-    // never deallocated while the process runs — a deinit canceling authPollingTask or
-    // removing storeChangeObserver could not execute, and implying otherwise invites the
-    // assumption that instances are disposable. Both the polling task and the notification
-    // observation are torn down by process exit.
+    ///
+    /// No deinit. This type is only ever reachable through `static let shared`, so it is
+    /// never deallocated while the process runs — a deinit canceling authPollingTask or
+    /// removing storeChangeObserver could not execute, and implying otherwise invites the
+    /// assumption that instances are disposable. Both the polling task and the notification
+    /// observation are torn down by process exit.
 }

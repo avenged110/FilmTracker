@@ -1,40 +1,40 @@
 // MARK: - DetailsView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// SwiftUI view layer for the "Details" tab of FilmSheet — layout, controls,
-// and private helper views.
+/// SwiftUI view layer for the "Details" tab of FilmSheet — layout, controls,
+/// and private helper views.
 
 import SwiftUI
 
 // MARK: - Developer Override Flag
-// `Preferences.overrideAutoExpandingTablePref` controls whether the
-// `Preferences.autoExpandRightSidebarTables` preference is enforced for the Past Viewing
-// Dates table in `FSTabDetailsView` (its `ViewingDatesRow`). The switch lives in
-// Preferences.swift with the app's other testing switches; this is the file that reads it.
-//
-// - `false` (default): The preference governs whether the table auto-expands when the
-//   view loads. `ViewingDatesTable` expands automatically when it is enabled.
-//
-// - `true`: The preference is bypassed for this table. `ViewingDatesRow` passes
-//   `disableAutoExpand`, so `ViewingDatesTable` uses its live, initially collapsed state
-//   and loads collapsed regardless of the preference value. The user can still expand the
-//   table manually after load.
+/// `Preferences.overrideAutoExpandingTablePref` controls whether the
+/// `Preferences.autoExpandRightSidebarTables` preference is enforced for the Past Viewing
+/// Dates table in `FSTabDetailsView` (its `ViewingDatesRow`). The switch lives in
+/// Preferences.swift with the app's other testing switches; this is the file that reads it.
+///
+/// - `false` (default): The preference governs whether the table auto-expands when the
+///   view loads. `ViewingDatesTable` expands automatically when it is enabled.
+///
+/// - `true`: The preference is bypassed for this table. `ViewingDatesRow` passes
+///   `disableAutoExpand`, so `ViewingDatesTable` uses its live, initially collapsed state
+///   and loads collapsed regardless of the preference value. The user can still expand the
+///   table manually after load.
 
 
 // MARK: - FSTabDetailsView
-//
+///
 // MARK: Observation boundaries
-//
-// This body reads almost nothing of the view model itself. Every bound row is built inside
-// an `ObservationBoundary` (30.20) or a named row view below. A `$viewModel.field` binding
-// created here would subscribe this body to `field`, so @Observable would re-run it, and
-// with it every row's construction, on each change to any bound field. The `filmsheet-perf`
-// harness scenario measures this: a Name keystroke, a Release Date step, and an Edited toggle
-// each re-evaluate only the row that shows the field.
-//
-// What the body still reads: `upNextWasFullAtOpen` (fixed for the sheet's life), the
-// `manualExtQuery` preference, and `Preferences.showInfoComplete` — the three conditions that
-// decide which rows exist at all.
+///
+/// This body reads almost nothing of the view model itself. Every bound row is built inside
+/// an `ObservationBoundary` (30.20) or a named row view below. A `$viewModel.field` binding
+/// created here would subscribe this body to `field`, so @Observable would re-run it, and
+/// with it every row's construction, on each change to any bound field. The `filmsheet-perf`
+/// harness scenario measures this: a Name keystroke, a Release Date step, and an Edited toggle
+/// each re-evaluate only the row that shows the field.
+///
+/// What the body still reads: `upNextWasFullAtOpen` (fixed for the sheet's life), the
+/// `manualExtQuery` preference, and `Preferences.showInfoComplete` — the three conditions that
+/// decide which rows exist at all.
 struct FSTabDetailsView: View {
     @Bindable var viewModel: FSTabDetails
     @AppStorage(preference: Preferences.manualExtQueryKey) private var manualExtQuery: Bool
@@ -45,31 +45,31 @@ struct FSTabDetailsView: View {
     /// the implementation). Handed on to the Viewing Events row, the only consumer.
     var scrollProxy: FilmSheetScrollProxy?
 
-    // Layout constants are static: they are process-wide constants drawn from
-    // Preferences and never differ between instances. Keeping them static removes
-    // them from per-instance allocation and eliminates implicit self captures in
-    // every closure inside body that references them. Internal to the file so
-    // the named rows below share them.
+    /// Layout constants are static: they are process-wide constants drawn from
+    /// Preferences and never differ between instances. Keeping them static removes
+    /// them from per-instance allocation and eliminates implicit self captures in
+    /// every closure inside body that references them. Internal to the file so
+    /// the named rows below share them.
     fileprivate static let pickerWidth          = Preferences.standardPickerWidth
     fileprivate static let labelWidth           = Preferences.filmSheetLabelWidth
     fileprivate static let colSpacing: CGFloat  = 16
     fileprivate static let rowSpacing: CGFloat  = 10
-    // Vertical offset that lines a top-leading label up with the first line of
-    // the content beside it.
+    /// Vertical offset that lines a top-leading label up with the first line of
+    /// the content beside it.
     fileprivate static let topAlignmentOffset: CGFloat = 2
 
-    // The menu pickers' rows, built once from the option tables in FSTabDetails. The empty
-    // option is each menu's placeholder row.
+    /// The menu pickers' rows, built once from the option tables in FSTabDetails. The empty
+    /// option is each menu's placeholder row.
     private static let genreItems: [SheetPopUpButton<String>.Item] =
         FSTabDetails.genreOptions.map { .option(tag: $0, title: $0.isEmpty ? "Select Genre…" : $0) }
     private static let ratingItems: [SheetPopUpButton<String>.Item] =
         FSTabDetails.ratingOptions.map { .option(tag: $0, title: $0.isEmpty ? "Select MPAA Rating…" : $0) }
 
     // MARK: - Auto-Add to Queue on Rotation
-    // Binding for the row's checkbox. Checking it enables the feature and defaults the
-    // Picker to "Up Next" (0) if no section is selected; unchecking it clears
-    // the value back to nil, which means the feature is disabled for this film.
-    // Read only from inside the auto-add row's ObservationBoundary.
+    /// Binding for the row's checkbox. Checking it enables the feature and defaults the
+    /// Picker to "Up Next" (0) if no section is selected; unchecking it clears
+    /// the value back to nil, which means the feature is disabled for this film.
+    /// Read only from inside the auto-add row's ObservationBoundary.
     private var autoAddToQueueEnabledBinding: Binding<Bool> {
         Binding(
             get: { viewModel.autoAddToQueueOnRotation != nil },
@@ -79,9 +79,9 @@ struct FSTabDetailsView: View {
         )
     }
 
-    // Binding for the row's Picker. Only meaningful while the checkbox above is checked;
-    // defaults to 0 ("Up Next") when the backing value is nil so the Picker always has a
-    // valid selection even while its control is disabled.
+    /// Binding for the row's Picker. Only meaningful while the checkbox above is checked;
+    /// defaults to 0 ("Up Next") when the backing value is nil so the Picker always has a
+    /// valid selection even while its control is disabled.
     private var autoAddToQueueSectionBinding: Binding<Int> {
         Binding(
             get: { viewModel.autoAddToQueueOnRotation ?? 0 },
@@ -90,9 +90,9 @@ struct FSTabDetailsView: View {
     }
 
     // MARK: - Label helpers
-    // Encapsulates the four-modifier label-column pattern used by every HStack row.
-    // Returning `some View` from a @ViewBuilder avoids constructing the
-    // full modifier chain at every call site in body. Mirrors FSTabMetadataView.
+    /// Encapsulates the four-modifier label-column pattern used by every HStack row.
+    /// Returning `some View` from a @ViewBuilder avoids constructing the
+    /// full modifier chain at every call site in body. Mirrors FSTabMetadataView.
     @ViewBuilder
     fileprivate static func label(_ text: String) -> some View {
         FilmSheetFieldLabel(text, width: labelWidth)
@@ -105,50 +105,50 @@ struct FSTabDetailsView: View {
 
     var body: some View {
         let _ = FilmSheetBodyProbe.hit("details")
-        // Local shadows of the static layout constants — gives every downstream
-        // call site in this property unqualified access without explicit Self.
-        // qualification, at zero runtime cost (no allocation, no capture).
+        /// Local shadows of the static layout constants — gives every downstream
+        /// call site in this property unqualified access without explicit Self.
+        /// qualification, at zero runtime cost (no allocation, no capture).
         let pickerWidth           = Self.pickerWidth
         let colSpacing            = Self.colSpacing
         let rowSpacing            = Self.rowSpacing
 
-        // Height of the Synopsis field, resolved once so the control and its
-        // deferred stand-in below cannot be given different numbers. The
-        // measurement behind it is memoized per line count — see
-        // FixedHeightScrollingTextView.fixedHeight(lineCount:).
+        /// Height of the Synopsis field, resolved once so the control and its
+        /// deferred stand-in below cannot be given different numbers. The
+        /// measurement behind it is memoized per line count — see
+        /// FixedHeightScrollingTextView.fixedHeight(lineCount:).
         let synopsisHeight = FixedHeightScrollingTextView.fixedHeight(lineCount: 5)
 
         // MARK: Build waves
-        //
-        // Same scheme as the Metadata and Notes tabs, but with far less to apply
-        // it to: this tab's only AppKit scroll-view stacks are `ViewingDatesTable`
-        // and the Synopsis text view, and everything else is an ordinary control.
-        // See `DeferredFieldContent` (30.20 FSControlHelpers.swift).
-        //
-        // `ViewingDatesTable` is NOT deferred, for two independent reasons. It
-        // begins around y=334 against a viewport of roughly 460pt, so it is
-        // always partly on screen; and it is the row that publishes the
-        // `viewingDatesAnchorID` offset that `.openViewingDatesAddPopover`
-        // scrolls to, which a stand-in could not measure.
-        //
-        // The Synopsis is deferred. Counting the fixed rows above it — Name,
-        // Release Date, User Rating, Genre/Rating, a divider, Queue Membership,
-        // the auto-add block, a divider, Duration — puts the viewing-dates table
-        // at about y=334, and that table's own collapsed floor is 167pt (a header
-        // plus 6.5 rows; expanding it only makes this larger). With the List
-        // Membership row after it, the Synopsis cannot begin higher than about
-        // y=547, comfortably clear of the fold in every configuration.
-        //
-        // Nothing below the Synopsis is deferred: the remaining rows are toggles,
-        // menus, and short fields, none of which carries a scroll view, and
-        // several of which are sized by wrapped description text rather than by a
-        // constant this could reserve without risking a layout shift.
+        ///
+        /// Same scheme as the Metadata and Notes tabs, but with far less to apply
+        /// it to: this tab's only AppKit scroll-view stacks are `ViewingDatesTable`
+        /// and the Synopsis text view, and everything else is an ordinary control.
+        /// See `DeferredFieldContent` (30.20 FSControlHelpers.swift).
+        ///
+        /// `ViewingDatesTable` is NOT deferred, for two independent reasons. It
+        /// begins around y=334 against a viewport of roughly 460pt, so it is
+        /// always partly on screen; and it is the row that publishes the
+        /// `viewingDatesAnchorID` offset that `.openViewingDatesAddPopover`
+        /// scrolls to, which a stand-in could not measure.
+        ///
+        /// The Synopsis is deferred. Counting the fixed rows above it — Name,
+        /// Release Date, User Rating, Genre/Rating, a divider, Queue Membership,
+        /// the auto-add block, a divider, Duration — puts the viewing-dates table
+        /// at about y=334, and that table's own collapsed floor is 167pt (a header
+        /// plus 6.5 rows; expanding it only makes this larger). With the List
+        /// Membership row after it, the Synopsis cannot begin higher than about
+        /// y=547, comfortably clear of the fold in every configuration.
+        ///
+        /// Nothing below the Synopsis is deferred: the remaining rows are toggles,
+        /// menus, and short fields, none of which carries a scroll view, and
+        /// several of which are sized by wrapped description text rather than by a
+        /// constant this could reserve without risking a layout shift.
 
-        // VStack of HStack rows. Both column widths are fixed constants (labelWidth and
-        // .infinity), so Grid's column negotiation has no work to do, and VStack/HStack
-        // produces the same layout with one fewer layout container per row.
+        /// VStack of HStack rows. Both column widths are fixed constants (labelWidth and
+        /// .infinity), so Grid's column negotiation has no work to do, and VStack/HStack
+        /// produces the same layout with one fewer layout container per row.
         VStack(alignment: .leading, spacing: rowSpacing) {
-            // Name
+            /// Name
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Name:")
@@ -159,7 +159,7 @@ struct FSTabDetailsView: View {
                     }
                 }
             }
-            // Release Date
+            /// Release Date
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Release Date:")
@@ -168,20 +168,20 @@ struct FSTabDetailsView: View {
                     }
                 }
             }
-            // User Rating
+            /// User Rating
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("User Rating:")
                     RatingStepper(value: $viewModel.userRating, in: 0...10)
                 }
             }
-            // Genre / Rating
+            /// Genre / Rating
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Genre / Rating:")
                     HStack(spacing: 8) {
-                        // AppKit pop-ups, as every menu picker in the sheet is — see
-                        // SheetPopUpButton (30.20).
+                        /// AppKit pop-ups, as every menu picker in the sheet is — see
+                        /// SheetPopUpButton (30.20).
                         SheetMenuPicker(selection: $viewModel.genre,
                                         items: Self.genreItems, width: pickerWidth)
                         SheetMenuPicker(selection: $viewModel.rating,
@@ -194,9 +194,9 @@ struct FSTabDetailsView: View {
             Divider()
                 .padding(.vertical, 6)
 
-            // Film Queue — a segmented picker placing the film in one of the three
-            // internal queue sections, or "None" (not queued). Committed on save, mirroring
-            // how List Membership below is reconciled when the sheet is saved.
+            /// Film Queue — a segmented picker placing the film in one of the three
+            /// internal queue sections, or "None" (not queued). Committed on save, mirroring
+            /// how List Membership below is reconciled when the sheet is saved.
             FilmQueueRow(viewModel: viewModel)
             if viewModel.upNextWasFullAtOpen {
                 HStack(alignment: .top, spacing: colSpacing) {
@@ -207,12 +207,12 @@ struct FSTabDetailsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                // 4 pt under the picker, as the tab's other descriptions sit under their
-                // controls, rather than a full row gap.
+                /// 4 pt under the picker, as the tab's other descriptions sit under their
+                /// controls, rather than a full row gap.
                 .padding(.top, -(rowSpacing - 4))
             }
-            // Auto-Add to Queue on Rotation — the shared row (30.25); its description sits
-            // under the checkbox, styled as the Special Sorting and External IDs descriptions.
+            /// Auto-Add to Queue on Rotation — the shared row (30.25); its description sits
+            /// under the checkbox, styled as the Special Sorting and External IDs descriptions.
             ObservationBoundary {
                 AutoAddToQueueRow(
                     isEnabled: autoAddToQueueEnabledBinding,
@@ -225,10 +225,10 @@ struct FSTabDetailsView: View {
             Divider()
                 .padding(.vertical, 6)
 
-            // Duration — label and content change based on the "Edited" checkbox state.
-            // When edited == false: single DurationStepper for the canonical duration.
-            // When edited == true: both pickers are shown separated by "/" and the row
-            // title widens to "Duration / Edited:" to describe both columns.
+            /// Duration — label and content change based on the "Edited" checkbox state.
+            /// When edited == false: single DurationStepper for the canonical duration.
+            /// When edited == true: both pickers are shown separated by "/" and the row
+            /// title widens to "Duration / Edited:" to describe both columns.
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label(viewModel.edited ? "Duration / Edited:" : "Duration:")
@@ -258,9 +258,9 @@ struct FSTabDetailsView: View {
                     }
                 }
             }
-            // Viewing Events — top-aligned; reports its y-offset for programmatic scrolling.
+            /// Viewing Events — top-aligned; reports its y-offset for programmatic scrolling.
             ViewingDatesRow(viewModel: viewModel, scrollProxy: scrollProxy)
-            // List Membership
+            /// List Membership
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("List Membership:")
@@ -271,11 +271,11 @@ struct FSTabDetailsView: View {
                     .frame(width: pickerWidth)
                 }
             }
-            // Synopsis — top-aligned; label offset matches FixedHeightScrollingTextView inset.
-            // Fixed 5-line height, scrolls on overflow: .frame(height:) drives the
-            // NSTextView height from the SwiftUI side rather than the view reporting an
-            // intrinsic size of its own. The binding is created inside DeferredFieldContent's
-            // body, which is already an observation boundary.
+            /// Synopsis — top-aligned; label offset matches FixedHeightScrollingTextView inset.
+            /// Fixed 5-line height, scrolls on overflow: .frame(height:) drives the
+            /// NSTextView height from the SwiftUI side rather than the view reporting an
+            /// intrinsic size of its own. The binding is created inside DeferredFieldContent's
+            /// body, which is already an observation boundary.
             HStack(alignment: .top, spacing: colSpacing) {
                 label("Synopsis:")
                     .padding(.top, FixedHeightScrollingTextView.labelTopOffset)
@@ -291,31 +291,31 @@ struct FSTabDetailsView: View {
             Divider()
                 .padding(.vertical, 6)
 
-            // Watched
+            /// Watched
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Watched:")
-                    // AppKit checkboxes rather than SwiftUI Toggles, here and below, so they are
-                    // stops in the sheet's Tab traversal — see SheetCheckbox (30.20).
+                    /// AppKit checkboxes rather than SwiftUI Toggles, here and below, so they are
+                    /// stops in the sheet's Tab traversal — see SheetCheckbox (30.20).
                     SheetCheckbox(isOn: $viewModel.watched)
                 }
             }
-            // Edited
+            /// Edited
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
                     label("Edited:")
                     SheetCheckbox(isOn: $viewModel.edited)
                 }
             }
-            // Hall of Fame
+            /// Hall of Fame
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {
-                    // The lockout applies only to films that were not Hall of Fame members when
-                    // the sheet opened. A film that was already a member can always be toggled:
-                    // unchecking it reduces the list by one on commit, and re-checking restores the
-                    // original state. Locking the checkbox as soon as an existing member is
-                    // unchecked, before any commit, would be wrong, because hallOfFameIsFull
-                    // reflects the live count, which an uncommitted uncheck has not changed.
+                    /// The lockout applies only to films that were not Hall of Fame members when
+                    /// the sheet opened. A film that was already a member can always be toggled:
+                    /// unchecking it reduces the list by one on commit, and re-checking restores the
+                    /// original state. Locking the checkbox as soon as an existing member is
+                    /// unchecked, before any commit, would be wrong, because hallOfFameIsFull
+                    /// reflects the live count, which an uncommitted uncheck has not changed.
                     let hofDisabled = viewModel.hallOfFameIsFull
                         && !viewModel.inHallOfFame
                         && !viewModel.wasOriginallyInHallOfFame
@@ -332,7 +332,7 @@ struct FSTabDetailsView: View {
                         }
                 }
             }
-            // Complete Data (conditional)
+            /// Complete Data (conditional)
             if Preferences.showInfoComplete {
                 ObservationBoundary {
                     HStack(alignment: .center, spacing: colSpacing) {
@@ -341,9 +341,9 @@ struct FSTabDetailsView: View {
                     }
                 }
             }
-            // Special Sorting — top-aligned (content includes a multi-line description Text)
+            /// Special Sorting — top-aligned (content includes a multi-line description Text)
             SpecialSortingRow(viewModel: viewModel)
-            // Rotation Threshold
+            /// Rotation Threshold
             ObservationBoundary {
                 let isBlacklisted = viewModel.specialSorting.contains(FilmSpecialSorting.blacklisted)
                 HStack(alignment: .center, spacing: colSpacing) {
@@ -353,7 +353,7 @@ struct FSTabDetailsView: View {
                         .disabled(isBlacklisted)
                 }
             }
-            // External IDs (conditional)
+            /// External IDs (conditional)
             if manualExtQuery {
                 ObservationBoundary {
                     HStack(alignment: .top, spacing: colSpacing) {
@@ -361,8 +361,8 @@ struct FSTabDetailsView: View {
                             .padding(.top, 3)
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 8) {
-                                // The view model guarantees exactly two slots (IMDb at [0], Blu-ray
-                                // at [1]) — see loadExistingDetails — so no count guard is needed.
+                                /// The view model guarantees exactly two slots (IMDb at [0], Blu-ray
+                                /// at [1]) — see loadExistingDetails — so no count guard is needed.
                                 ExternalIDField(
                                     text: $viewModel.externalIdentifiers[0],
                                     site: .imdb
@@ -407,31 +407,31 @@ private struct FilmQueueRow: View {
     @Bindable var viewModel: FSTabDetails
     @AppStorage(preference: Preferences.confirmFilmQueueAddKey) private var confirmFilmQueueAdd: Bool
 
-    // Backing state for the Film Queue confirmation alert. When the user selects a
-    // non-"None" segment while the film carries a special sorting parameter (and the
-    // confirmFilmQueueAdd preference is enabled), the selection is held here pending
-    // confirmation rather than being applied to viewModel.selectedFilmQueueSection
-    // immediately — see filmQueueSectionBinding below.
+    /// Backing state for the Film Queue confirmation alert. When the user selects a
+    /// non-"None" segment while the film carries a special sorting parameter (and the
+    /// confirmFilmQueueAdd preference is enabled), the selection is held here pending
+    /// confirmation rather than being applied to viewModel.selectedFilmQueueSection
+    /// immediately — see filmQueueSectionBinding below.
     @State private var showFilmQueueConfirmAlert = false
     @State private var pendingFilmQueueSection: FilmQueueSection?
     @State private var showUpNextFullAlert = false
 
     // MARK: - Film Queue Confirmation
-    // Intercepts assignment to viewModel.selectedFilmQueueSection so that moving a film
-    // INTO the queue (selecting "Up Next", "Soon", or "Later") while it carries a
-    // special sorting parameter can be gated behind a confirmation alert. Moving OUT
-    // of the queue (selecting "None") is never gated — only additions are confirmed.
-    // The get always reflects the view model's committed value, so the segmented
-    // Picker's highlighted segment does not visually change until the user confirms
-    // (or is left unchanged entirely if they cancel).
+    /// Intercepts assignment to viewModel.selectedFilmQueueSection so that moving a film
+    /// INTO the queue (selecting "Up Next", "Soon", or "Later") while it carries a
+    /// special sorting parameter can be gated behind a confirmation alert. Moving OUT
+    /// of the queue (selecting "None") is never gated — only additions are confirmed.
+    /// The get always reflects the view model's committed value, so the segmented
+    /// Picker's highlighted segment does not visually change until the user confirms
+    /// (or is left unchanged entirely if they cancel).
     private var filmQueueSectionBinding: Binding<FilmQueueSection?> {
         Binding(
             get: { viewModel.selectedFilmQueueSection },
             set: { newValue in
-                // "Up Next" holds at most eight films. Fallback only: a full "Up Next"
-                // disables its segment before the sheet renders (upNextWasFullAtOpen), so
-                // this alert should never be seen. Kept as a safety net. Deferred for the
-                // same reason as the confirmation below.
+                /// "Up Next" holds at most eight films. Fallback only: a full "Up Next"
+                /// disables its segment before the sheet renders (upNextWasFullAtOpen), so
+                /// this alert should never be seen. Kept as a safety net. Deferred for the
+                /// same reason as the confirmation below.
                 if newValue == .upNext, viewModel.upNextIsFull {
                     DispatchQueue.main.async { showUpNextFullAlert = true }
                     return
@@ -439,21 +439,21 @@ private struct FilmQueueRow: View {
                 if newValue != nil,
                    !viewModel.specialSorting.isEmpty,
                    confirmFilmQueueAdd {
-                    // Deferred via DispatchQueue.main.async: this setter executes inside
-                    // the segmented control's action dispatch (AppKit's mouse-tracking
-                    // context for the click on the segment). Flipping the presentation
-                    // boolean synchronously here opens SwiftUI's alert transaction while
-                    // that event handling is still on the stack, and Core Animation is
-                    // denied the appear animation — the alert pops on screen fully
-                    // formed. Main-queue blocks are drained only in common run-loop
-                    // modes, so this block structurally cannot run until the control's
-                    // event handling has fully unwound; the alert then presents on a
-                    // clean main-thread turn. (Same mechanism as the LeftSidebar drop
-                    // target's deferred confirmFilmQueueAddOnDrop event, and the same
-                    // main.async-over-Task rationale documented in SelectionState:
-                    // run-loop ordering plus QoS inheritance from the AppKit event.)
-                    // Both state writes are grouped in the block so the pending value
-                    // and the presentation flip land in the same SwiftUI update.
+                    /// Deferred via DispatchQueue.main.async: this setter executes inside
+                    /// the segmented control's action dispatch (AppKit's mouse-tracking
+                    /// context for the click on the segment). Flipping the presentation
+                    /// boolean synchronously here opens SwiftUI's alert transaction while
+                    /// that event handling is still on the stack, and Core Animation is
+                    /// denied the appear animation — the alert pops on screen fully
+                    /// formed. Main-queue blocks are drained only in common run-loop
+                    /// modes, so this block structurally cannot run until the control's
+                    /// event handling has fully unwound; the alert then presents on a
+                    /// clean main-thread turn. (Same mechanism as the LeftSidebar drop
+                    /// target's deferred confirmFilmQueueAddOnDrop event, and the same
+                    /// main.async-over-Task rationale documented in SelectionState:
+                    /// run-loop ordering plus QoS inheritance from the AppKit event.)
+                    /// Both state writes are grouped in the block so the pending value
+                    /// and the presentation flip land in the same SwiftUI update.
                     DispatchQueue.main.async {
                         pendingFilmQueueSection = newValue
                         showFilmQueueConfirmAlert = true
@@ -472,7 +472,7 @@ private struct FilmQueueRow: View {
                             upNextDisabled: viewModel.upNextWasFullAtOpen)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .alert("Add to Queue", isPresented: $showFilmQueueConfirmAlert) {
+        .alert("Add to Queue?", isPresented: $showFilmQueueConfirmAlert) {
             Button("Cancel", role: .cancel) {
                 pendingFilmQueueSection = nil
             }
@@ -503,33 +503,33 @@ private struct ViewingDatesRow: View {
 
     @State private var isViewingDatesExpanded = false
 
-    // Lifted popover trigger for the ViewingDatesTable "+" button.
-    // Bumped by the onReceive handler for .openViewingDatesAddPopover; never reset — see
-    // ViewingDatesTable.externalAddTrigger for why this is a monotonic token rather than a
-    // flag the table had to lower from inside its own .onChange.
+    /// Lifted popover trigger for the ViewingDatesTable "+" button.
+    /// Bumped by the onReceive handler for .openViewingDatesAddPopover; never reset — see
+    /// ViewingDatesTable.externalAddTrigger for why this is a monotonic token rather than a
+    /// flag the table had to lower from inside its own .onChange.
     @State private var triggerViewingDatesAddPopover: Int = 0
 
-    // Anchor ID used for programmatic scroll targeting via FilmSheetScrollProxy.
-    // Reported upward through ScrollAnchorPreferenceKey and resolved to a y-offset
-    // by the Coordinator in FilmSheetScrollView.
+    /// Anchor ID used for programmatic scroll targeting via FilmSheetScrollProxy.
+    /// Reported upward through ScrollAnchorPreferenceKey and resolved to a y-offset
+    /// by the Coordinator in FilmSheetScrollView.
     private static let viewingDatesAnchorID = "viewingDatesSection"
 
-    // Measured y-offset of the Viewing Events row within the "filmSheetScrollContent"
-    // coordinate space, published upward through ScrollAnchorPreferenceKey.
-    //
-    // Measured with `onGeometryChange(for:of:action:)` (macOS 15). It computes only the
-    // reduced value and writes state only when that value changes, and it adds no layout
-    // node, so it does not compete with the sheet's presentation animation. This is the same
-    // substitution as `HelpPopoverButton` (90.00 GlobalUtilities.swift). It is the counterpart
-    // to `ScrollActivityObserver` in `ViewingDatesTable` and the reorderable lists: those only
-    // need to know that a scroll happened, while this needs the position itself.
-    //
-    // `nil` until the first measurement lands — the row publishes no entry at all
-    // rather than a placeholder zero, since a wrong anchor would scroll the clip
-    // view to the top. In practice the action fires with the initial geometry as
-    // the view first appears, well before the only consumer (the
-    // .openViewingDatesAddPopover shortcut, reachable only once the sheet is
-    // visible) can reach it.
+    /// Measured y-offset of the Viewing Events row within the "filmSheetScrollContent"
+    /// coordinate space, published upward through ScrollAnchorPreferenceKey.
+    ///
+    /// Measured with `onGeometryChange(for:of:action:)` (macOS 15). It computes only the
+    /// reduced value and writes state only when that value changes, and it adds no layout
+    /// node, so it does not compete with the sheet's presentation animation. This is the same
+    /// substitution as `HelpPopoverButton` (90.00 GlobalUtilities.swift). It is the counterpart
+    /// to `ScrollActivityObserver` in `ViewingDatesTable` and the reorderable lists: those only
+    /// need to know that a scroll happened, while this needs the position itself.
+    ///
+    /// `nil` until the first measurement lands — the row publishes no entry at all
+    /// rather than a placeholder zero, since a wrong anchor would scroll the clip
+    /// view to the top. In practice the action fires with the initial geometry as
+    /// the view first appears, well before the only consumer (the
+    /// .openViewingDatesAddPopover shortcut, reachable only once the sheet is
+    /// visible) can reach it.
     @State private var anchorOffset: CGFloat?
 
     /// The payload published through `ScrollAnchorPreferenceKey`. Written out as an
@@ -543,10 +543,10 @@ private struct ViewingDatesRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: FSTabDetailsView.colSpacing) {
-            // Variant with the top-alignment padding for rows that pair with
-            // ViewingDatesTable. Uses .padding(.top:) rather than .offset(y:) — .offset
-            // bypasses layout entirely and is semantically incorrect here; .padding participates
-            // in layout and produces the same visual result without the misuse.
+            /// Variant with the top-alignment padding for rows that pair with
+            /// ViewingDatesTable. Uses .padding(.top:) rather than .offset(y:) — .offset
+            /// bypasses layout entirely and is semantically incorrect here; .padding participates
+            /// in layout and produces the same visual result without the misuse.
             FSTabDetailsView.label("Viewing Events:")
                 .padding(.top, FSTabDetailsView.topAlignmentOffset)
             ViewingDatesTable(
@@ -557,24 +557,24 @@ private struct ViewingDatesRow: View {
                 disableAutoExpand: Preferences.overrideAutoExpandingTablePref
             )
         }
-        // Report this row's y-offset to FilmSheetScrollProxy via ScrollAnchorPreferenceKey.
-        // Reads the row's frame relative to the "filmSheetScrollContent" coordinate space,
-        // which is established by FilmSheetTabContent on the outermost content wrapper —
-        // outside the .padding(Preferences.sheetContentMargin) — so the measured y-offset is a true document-relative
-        // value aligned with what NSScrollView.contentView.scroll(to:) expects.
-        //
-        // The transform closure captures nothing — the coordinate-space name is a
-        // literal — so it satisfies strict concurrency regardless of how the SDK
-        // annotates it. The action runs on the main actor with the rest of the view.
+        /// Report this row's y-offset to FilmSheetScrollProxy via ScrollAnchorPreferenceKey.
+        /// Reads the row's frame relative to the "filmSheetScrollContent" coordinate space,
+        /// which is established by FilmSheetTabContent on the outermost content wrapper —
+        /// outside the .padding(Preferences.sheetContentMargin) — so the measured y-offset is a true document-relative
+        /// value aligned with what NSScrollView.contentView.scroll(to:) expects.
+        ///
+        /// The transform closure captures nothing — the coordinate-space name is a
+        /// literal — so it satisfies strict concurrency regardless of how the SDK
+        /// annotates it. The action runs on the main actor with the rest of the view.
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.frame(in: .named("filmSheetScrollContent")).minY
         } action: { newOffset in
             anchorOffset = newOffset
         }
-        // Published separately from the measurement so the preference value is a
-        // plain function of state: `.preference` performs no measurement of its own
-        // and adds no layout node, and an unmeasured row contributes an empty
-        // dictionary, which ScrollAnchorPreferenceKey's merge reduces away.
+        /// Published separately from the measurement so the preference value is a
+        /// plain function of state: `.preference` performs no measurement of its own
+        /// and adds no layout node, and an unmeasured row contributes an empty
+        /// dictionary, which ScrollAnchorPreferenceKey's merge reduces away.
         .preference(
             key: ScrollAnchorPreferenceKey.self,
             value: anchorPreference
@@ -582,10 +582,10 @@ private struct ViewingDatesRow: View {
         .padding(.bottom, 4)
         .onReceive(AppEventBus.shared.uiCommands) { command in
             guard case .openViewingDatesAddPopover = command else { return }
-            // Scroll the NSScrollView to the viewing-dates anchor so the "+" button
-            // is visible, then open the add popover. The Task hop defers the trigger
-            // so the scroll settles first — matching the pattern used throughout the
-            // codebase for deferred @MainActor state mutations.
+            /// Scroll the NSScrollView to the viewing-dates anchor so the "+" button
+            /// is visible, then open the add popover. The Task hop defers the trigger
+            /// so the scroll settles first — matching the pattern used throughout the
+            /// codebase for deferred @MainActor state mutations.
             scrollProxy?.scroll(to: Self.viewingDatesAnchorID)
             Task { @MainActor in
                 triggerViewingDatesAddPopover &+= 1
@@ -601,16 +601,16 @@ private struct ViewingDatesRow: View {
 private struct SpecialSortingRow: View {
     @Bindable var viewModel: FSTabDetails
 
-    // The rotation threshold override as it stood immediately before the user
-    // blacklisted the film, so un-blacklisting can hand it back rather than resetting the
-    // field to "Use Default". See the onChange below for the full rationale. Two
-    // properties rather than an `Int??`: the stashed value is itself legitimately nil
-    // (meaning "Use Default"), so "nothing stashed" needs its own flag and cannot be
-    // expressed by the value alone.
-    //
-    // @State survives for the life of the sheet: FilmSheetTabContent builds each tab once
-    // and keeps it mounted (hidden) rather than destroying it, so switching tabs and
-    // coming back does not drop the stash.
+    /// The rotation threshold override as it stood immediately before the user
+    /// blacklisted the film, so un-blacklisting can hand it back rather than resetting the
+    /// field to "Use Default". See the onChange below for the full rationale. Two
+    /// properties rather than an `Int??`: the stashed value is itself legitimately nil
+    /// (meaning "Use Default"), so "nothing stashed" needs its own flag and cannot be
+    /// expressed by the value alone.
+    ///
+    /// @State survives for the life of the sheet: FilmSheetTabContent builds each tab once
+    /// and keeps it mounted (hidden) rather than destroying it, so switching tabs and
+    /// coming back does not drop the stash.
     @State private var thresholdBeforeBlacklist: Int?
     @State private var hasStashedThreshold = false
 
@@ -621,24 +621,24 @@ private struct SpecialSortingRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 SpecialSortingMenu(selectedTags: $viewModel.specialSorting)
                     .frame(width: FSTabDetailsView.pickerWidth, alignment: .leading)
-                    // Blacklisting forces the rotation threshold to 60 and disables
-                    // the picker; un-blacklisting hands the field back.
-                    //
-                    // The value handed back is the one held before blacklisting, not nil ("Use
-                    // Default"). Resetting to nil would discard an override the user set, on a control
-                    // they cannot reach while it is disabled, so a Blacklisted toggle on and straight
-                    // back off would not be a round trip.
-                    //
-                    // The pre-blacklist value is stashed instead and restored on the
-                    // way out. The picker is `.disabled` for the whole blacklisted
-                    // interval (see the Rotation Threshold row), so the stashed
-                    // value cannot go stale — there is no way to edit the field while
-                    // it is held.
-                    //
-                    // A film that arrives ALREADY blacklisted has nothing stashed,
-                    // since no transition occurred in this session; un-blacklisting it
-                    // falls back to nil. Only in-session transitions
-                    // are reversible, which is the scope the stash can honestly cover.
+                    /// Blacklisting forces the rotation threshold to 60 and disables
+                    /// the picker; un-blacklisting hands the field back.
+                    ///
+                    /// The value handed back is the one held before blacklisting, not nil ("Use
+                    /// Default"). Resetting to nil would discard an override the user set, on a control
+                    /// they cannot reach while it is disabled, so a Blacklisted toggle on and straight
+                    /// back off would not be a round trip.
+                    ///
+                    /// The pre-blacklist value is stashed instead and restored on the
+                    /// way out. The picker is `.disabled` for the whole blacklisted
+                    /// interval (see the Rotation Threshold row), so the stashed
+                    /// value cannot go stale — there is no way to edit the field while
+                    /// it is held.
+                    ///
+                    /// A film that arrives ALREADY blacklisted has nothing stashed,
+                    /// since no transition occurred in this session; un-blacklisting it
+                    /// falls back to nil. Only in-session transitions
+                    /// are reversible, which is the scope the stash can honestly cover.
                     .onChange(of: viewModel.specialSorting) { oldValue, newValue in
                         let isBlacklisted = newValue.contains(FilmSpecialSorting.blacklisted)
                         let wasBlacklisted = oldValue.contains(FilmSpecialSorting.blacklisted)

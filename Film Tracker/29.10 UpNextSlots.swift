@@ -1,21 +1,21 @@
 // MARK: - UpNextSlots.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The "Up Next" Queue's empty slots. "Up Next" holds at most FilmQueue.upNextCapacity
-// films; on the Film Queue's "All" tab, every vacancy is drawn after the "Up Next" films as
-// a dashed placeholder the size of a gallery cell (grid) or row (list). Slots are
-// interchangeable: "Up Next" is ordered by the gallery's sort, so a film added from any
-// slot simply takes its sorted place and the placeholders fill from the top down. A slot is not a
-// film: it lives outside the gallery's film index space, so selection, marquee, drag and
-// keyboard navigation never see it. Clicking one opens the slot sheet to search for a film;
-// dropping films from the Queue's other sections on one moves them into "Up Next".
-//
-// Hooks elsewhere:
-//   • SmoothResizingGridLayout.slotRun (23.10) lays the grid's slots out; GallerySubview
-//     (23.20) feeds it from `UpNextSlots.plan` and registers UpNextSlotDecorationView.
-//   • GalleryListView (23.30) emits `.slot` rows from the same plan.
-//   • SheetHostView (10.10) presents UpNextSlotSheet for UICommand.openUpNextSlot.
-//   • UpNextResultsTable (23.30) is the sheet's result list: the list gallery's own table.
+/// The "Up Next" Queue's empty slots. "Up Next" holds at most FilmQueue.upNextCapacity
+/// films; on the Film Queue's "All" tab, every vacancy is drawn after the "Up Next" films as
+/// a dashed placeholder the size of a gallery cell (grid) or row (list). Slots are
+/// interchangeable: "Up Next" is ordered by the gallery's sort, so a film added from any
+/// slot simply takes its sorted place and the placeholders fill from the top down. A slot is not a
+/// film: it lives outside the gallery's film index space, so selection, marquee, drag and
+/// keyboard navigation never see it. Clicking one opens the slot sheet to search for a film;
+/// dropping films from the Queue's other sections on one moves them into "Up Next".
+///
+/// Hooks elsewhere:
+///   • SmoothResizingGridLayout.slotRun (23.10) lays the grid's slots out; GallerySubview
+///     (23.20) feeds it from `UpNextSlots.plan` and registers UpNextSlotDecorationView.
+///   • GalleryListView (23.30) emits `.slot` rows from the same plan.
+///   • SheetHostView (10.10) presents UpNextSlotSheet for UICommand.openUpNextSlot.
+///   • UpNextResultsTable (23.30) is the sheet's result list: the list gallery's own table.
 
 import AppKit
 import SwiftUI
@@ -94,7 +94,7 @@ enum UpNextSlots: Loggable {
               let coordinator = AppDelegate.dataCoordinator else { return false }
         let listID = FilmQueueSection.upNext.listID
         let newcomers = filmIDs.subtracting(FilmQueue.upNextFilmIDs(coordinator: coordinator))
-        guard !newcomers.isEmpty else { return false }   // already in "Up Next"
+        guard !newcomers.isEmpty else { return false }   /// already in "Up Next"
         if FilmQueue.refuseUpNextAddIfFull(newcomers, coordinator: coordinator,
                                            afterDragSession: true) {
             log("Refused drop of \(newcomers.count) film(s) on a slot — not enough room")
@@ -146,7 +146,7 @@ class UpNextSlotView: NSView {
         setAccessibilityLabel("Empty \"Up Next\" slot")
     }
 
-    // Geometry, supplied by subclasses.
+    /// Geometry, supplied by subclasses.
     func outlineRect() -> CGRect { bounds.insetBy(dx: 1, dy: 1) }
     func outlineCornerRadius() -> CGFloat { 6 }
     func glyphRect(in outline: CGRect) -> CGRect {
@@ -183,7 +183,7 @@ class UpNextSlotView: NSView {
     }
 
     private func refreshColors() {
-        // effectiveAppearance resolves the dynamic colors for the CGColor snapshots below.
+        /// effectiveAppearance resolves the dynamic colors for the CGColor snapshots below.
         effectiveAppearance.performAsCurrentDrawingAppearance {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -254,7 +254,7 @@ class UpNextSlotView: NSView {
     override func mouseUp(with event: NSEvent) {
         let inside = outlineRect().contains(convert(event.locationInWindow, from: nil))
         isPressed = false
-        // Re-checked: the slot can be filled between the press and the release.
+        /// Re-checked: the slot can be filled between the press and the release.
         guard inside, isLive else { return }
         UpNextSlots.open()
     }
@@ -284,7 +284,7 @@ class UpNextSlotView: NSView {
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        // As the sidebar's drop targets do: the preview leaves with the highlight.
+        /// As the sidebar's drop targets do: the preview leaves with the highlight.
         NotificationCenter.default.post(name: .dismissDragPreviewImmediately, object: nil)
     }
 }
@@ -296,8 +296,8 @@ let upNextSlotDecorationKind = "UpNextSlotDecoration"
 /// Decoration attributes carrying the slot's number, so a renumbered slot is re-applied
 /// even when its frame did not move (the reason SectionDividerLayoutAttributes exists).
 final class UpNextSlotLayoutAttributes: NSCollectionViewLayoutAttributes {
-    // Held behind a Mutex rather than as nonisolated(unsafe) vars; see
-    // SectionDividerLayoutAttributes for why the overrides below need nonisolated access.
+    /// Held behind a Mutex rather than as nonisolated(unsafe) vars; see
+    /// SectionDividerLayoutAttributes for why the overrides below need nonisolated access.
     private struct Fields { var slotNumber = 0; var hasSubtitles = false }
     private nonisolated let fields = Mutex(Fields())
 
@@ -351,8 +351,8 @@ final class UpNextSlotDecorationView: UpNextSlotView, NSCollectionViewElement {
               let attrs = collectionView.collectionViewLayout?.layoutAttributesForDecorationView(
                   ofKind: upNextSlotDecorationKind, at: IndexPath(item: slotNumber, section: 0))
         else { return false }
-        // The center rather than an exact frame, so a slot mid-way through an animated
-        // relayout still counts while it is heading for its own cell.
+        /// The center rather than an exact frame, so a slot mid-way through an animated
+        /// relayout still counts while it is heading for its own cell.
         return attrs.frame.contains(NSPoint(x: frame.midX, y: frame.midY))
     }
 
@@ -393,13 +393,13 @@ final class UpNextSlotListCell: UpNextSlotView {
 
     private static let text = "Empty slot"
 
-    // As wide as a film row's alternating stripe. In the `.inset` table the stripe runs from
-    // 10 pt in at each edge of the row, while the cell sits 16 pt in (measured on a stock
-    // NSTableView), so the stripe extends 6 pt beyond the cell on each side.
+    /// As wide as a film row's alternating stripe. In the `.inset` table the stripe runs from
+    /// 10 pt in at each edge of the row, while the cell sits 16 pt in (measured on a stock
+    /// NSTableView), so the stripe extends 6 pt beyond the cell on each side.
     override func outlineRect() -> CGRect { bounds.insetBy(dx: -Self.stripeOverhang, dy: 3) }
     private static let stripeOverhang: CGFloat = 6
 
-    // Centered where GalleryListRow's 24 × 36 poster sits (8 pt leading inset).
+    /// Centered where GalleryListRow's 24 × 36 poster sits (8 pt leading inset).
     override func glyphRect(in outline: CGRect) -> CGRect {
         let side: CGFloat = 20
         return CGRect(x: GalleryListRow.contentInset + 12 - side / 2,
@@ -409,7 +409,7 @@ final class UpNextSlotListCell: UpNextSlotView {
     override func layout() {
         super.layout()
         let height = label.intrinsicContentSize.height
-        // 10 pt after the poster column, as GalleryListRow's HStack spacing puts the title.
+        /// 10 pt after the poster column, as GalleryListRow's HStack spacing puts the title.
         let x = GalleryListRow.contentInset + 24 + 10
         label.frame = CGRect(x: x, y: (bounds.height - height) / 2,
                              width: max(0, bounds.width - x - 8), height: height)
@@ -482,8 +482,8 @@ struct UpNextSlotSheet: View {
                         .padding(4)
                         .font(.system(size: 12))
                 }
-                // The default action, as the FilmSheet's: highlighted and bound to Return,
-                // but only while a result is selected.
+                /// The default action, as the FilmSheet's: highlighted and bound to Return,
+                /// but only while a result is selected.
                 .keyboardShortcut(.defaultAction)
                 .focusable(false)
                 .disabled(model.selectedFilmID == nil)
@@ -494,7 +494,7 @@ struct UpNextSlotSheet: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(width: Preferences.sheetSize, height: Preferences.sheetSize)
         .onAppear { model.load(coordinator: dataCoordinator) }
-        .alert("Add to Queue", isPresented: Binding(
+        .alert("Add to Queue?", isPresented: Binding(
             get: { pendingConfirmation != nil },
             set: { if !$0 { pendingConfirmation = nil } })) {
             Button("Cancel", role: .cancel) { pendingConfirmation = nil }
@@ -530,7 +530,7 @@ struct UpNextSlotSheet: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .fieldEdgeChrome(fill: Color(nsColor: NSColor.alternatingContentBackgroundColors[0]), clipsContent: true, insetsInterior: true)
-        // The search field's inset, so the box lines up with it.
+        /// The search field's inset, so the box lines up with it.
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
@@ -552,7 +552,7 @@ struct UpNextSlotSheet: View {
     /// The sheet's add: the same capacity and special-sorting gates as every other path
     /// into "Up Next", with their alerts shown on the sheet itself.
     private func add(_ filmID: UUID) {
-        // Deferred off the click or key event, as DetailsView defers its Queue alerts.
+        /// Deferred off the click or key event, as DetailsView defers its Queue alerts.
         DispatchQueue.main.async {
             if FilmQueue.upNextOverflow(adding: [filmID], coordinator: dataCoordinator) > 0 {
                 showUpNextFullAlert = true
@@ -659,7 +659,7 @@ private struct UpNextSlotSearchField: NSViewRepresentable {
         field.sendsSearchStringImmediately = true
         field.delegate = context.coordinator
         field.focusRingType = .default
-        // First responder once the sheet is up, so typing starts searching at once.
+        /// First responder once the sheet is up, so typing starts searching at once.
         DispatchQueue.main.async { unsafe field.window?.makeFirstResponder(field) }
         return field
     }

@@ -1,8 +1,8 @@
 // MARK: - Header.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// RightSidebar's modular "Details" tab, module 01 (fixed position).
-// Displays the selected film's thumbnail, rating, year of release, genre, and title.
+/// RightSidebar's modular "Details" tab, module 01 (fixed position).
+/// Displays the selected film's thumbnail, rating, year of release, genre, and title.
 
 import SwiftUI
 
@@ -12,7 +12,7 @@ struct Header: View {
     @Environment(\.sidebarFilm) private var film: FilmSnapshot?
     @Environment(DataCoordinator.self) private var dataCoordinator
 
-    // Convenience accessors for UI.
+    /// Convenience accessors for UI.
     private var filmName: String { return film?.name ?? "Untitled Film" }
     private var filmRating: Int { return film?.userRating ?? 0 }
     private var filmYear: String {
@@ -22,7 +22,7 @@ struct Header: View {
         let value = film?.genre.trimmingCharacters(in: .whitespacesAndNewlines)
         return (value?.isEmpty == false) ? value! : "No Genre Provided" }
 
-    // Trimmed MPAA rating — empty string when absent or whitespace-only.
+    /// Trimmed MPAA rating — empty string when absent or whitespace-only.
     private var mpaaRating: String {
         let value = film?.rating.trimmingCharacters(in: .whitespacesAndNewlines)
         return (value?.isEmpty == false) ? value! : ""
@@ -64,62 +64,62 @@ struct Header: View {
         }
     }
 
-    // ── Layout tuning constants ─────────────────────────────────────────────
-    // Poster image height. Width is derived automatically at the 2:3 aspect
-    // ratio, so adjusting this single value scales the image proportionally.
-    // The details column (rating, year/MPAA, genre) is pinned to the same
-    // height and compresses or expands with it.
+    /// ── Layout tuning constants ─────────────────────────────────────────────
+    /// Poster image height. Width is derived automatically at the 2:3 aspect
+    /// ratio, so adjusting this single value scales the image proportionally.
+    /// The details column (rating, year/MPAA, genre) is pinned to the same
+    /// height and compresses or expands with it.
     private let posterHeight = CGFloat(82)
     private var posterWidth: CGFloat { (posterHeight * 2.0) / 3.0 }
 
-    // Horizontal gap between the poster's trailing edge and the details column.
+    /// Horizontal gap between the poster's trailing edge and the details column.
     private let posterToDetailsSpacing = CGFloat(16)
 
-    // Vertical inset applied to the top and bottom of the details column.
-    // Compresses the three detail rows (rating, year/MPAA, genre) symmetrically
-    // toward the center without affecting any outer layout dimensions.
+    /// Vertical inset applied to the top and bottom of the details column.
+    /// Compresses the three detail rows (rating, year/MPAA, genre) symmetrically
+    /// toward the center without affecting any outer layout dimensions.
     private let detailsVerticalInset = CGFloat(2)
 
-    // Fixed width for the release-year badge's text, applied before its padding and background. It keeps the
-    // badge's total width constant across films, so a varying year does not nudge the MPAA badge beside it.
-    // Sized for four characters at size 14.
+    /// Fixed width for the release-year badge's text, applied before its padding and background. It keeps the
+    /// badge's total width constant across films, so a varying year does not nudge the MPAA badge beside it.
+    /// Sized for four characters at size 14.
     private let releaseYearBadgeTextWidth = CGFloat(36)
 
-    // Vertical gap between the poster row and the title. The outer VStack's fixed 8 pt vertical padding is
-    // structural and not tuned here.
+    /// Vertical gap between the poster row and the title. The outer VStack's fixed 8 pt vertical padding is
+    /// structural and not tuned here.
     private let posterToTitleSpacing = CGFloat(12)
-    // ────────────────────────────────────────────────────────────────────────
+    /// ────────────────────────────────────────────────────────────────────────
 
-    // Fixed appearance constants (not layout-tuning knobs).
+    /// Fixed appearance constants (not layout-tuning knobs).
     private let buttonWidth  = CGFloat(38)
-    private let cornerRadius = CGFloat(6) // Looks better being less than Preferences.cornerRadius
+    private let cornerRadius = CGFloat(6) /// Looks better being less than Preferences.cornerRadius
 
     // MARK: - Body
     var body: some View {
         VStack(alignment: .leading, spacing: posterToTitleSpacing) {
 
-            // ── Poster + details row, with Edit button overlaid ──────────
-            // The HStack contains the poster (col 1) and an equidistant
-            // details VStack (col 2). The ZStack wrapper floats the Edit
-            // button in the top-trailing corner, fully outside the HStack's
-            // layout negotiation so it can never compress col 2.
+            /// ── Poster + details row, with Edit button overlaid ──────────
+            /// The HStack contains the poster (col 1) and an equidistant
+            /// details VStack (col 2). The ZStack wrapper floats the Edit
+            /// button in the top-trailing corner, fully outside the HStack's
+            /// layout negotiation so it can never compress col 2.
             ZStack(alignment: .topTrailing) {
 
-                // ── Poster + details ─────────────────────────────────────
-                // .frame(maxWidth:.infinity) ensures the HStack fills the full
-                // available width rather than sizing to content within the ZStack.
+                /// ── Poster + details ─────────────────────────────────────
+                /// .frame(maxWidth:.infinity) ensures the HStack fills the full
+                /// available width rather than sizing to content within the ZStack.
                 HStack(alignment: .top, spacing: 0) {
 
-                    // Col 1: poster thumbnail. The shadow bleeds outside the layout frame, which is exactly
-                    // posterWidth by posterHeight. The details column aligns to its top and bottom edges with no offsets.
+                    /// Col 1: poster thumbnail. The shadow bleeds outside the layout frame, which is exactly
+                    /// posterWidth by posterHeight. The details column aligns to its top and bottom edges with no offsets.
                     posterThumbnail
                         .frame(width: posterWidth, height: posterHeight)
                         .padding(.trailing, posterToDetailsSpacing)
 
-                    // Col 2: details VStack. Pinned to posterHeight, so the two Spacers spread the three items across
-                    // the poster's height. The top item aligns with the poster's top edge and the bottom item with its
-                    // bottom edge. The genre badge uses .fixedSize(horizontal: true) so it can overflow rightward under
-                    // the Edit button without truncating.
+                    /// Col 2: details VStack. Pinned to posterHeight, so the two Spacers spread the three items across
+                    /// the poster's height. The top item aligns with the poster's top edge and the bottom item with its
+                    /// bottom edge. The genre badge uses .fixedSize(horizontal: true) so it can overflow rightward under
+                    /// the Edit button without truncating.
                     VStack(alignment: .leading, spacing: 0) {
                         ratingDisplayLabel
                         Spacer()
@@ -138,31 +138,31 @@ struct Header: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                // ── Edit button — top-trailing of the ZStack ─────────────
-                // Lives outside the HStack so it participates in no width
-                // negotiation with col 2. The inner Text frame drives the
-                // button chrome to buttonWidth via .controlSize(.large).
+                /// ── Edit button — top-trailing of the ZStack ─────────────
+                /// Lives outside the HStack so it participates in no width
+                /// negotiation with col 2. The inner Text frame drives the
+                /// button chrome to buttonWidth via .controlSize(.large).
                 Button(action: editFilm) {
                     Text("Edit")
                         .frame(width: buttonWidth)
                 }
                 .controlSize(.large)
             }
-            .padding(.top, 1) // End ZStack
+            .padding(.top, 1) /// End ZStack
 
-            // ── Film title ───────────────────────────────────────────────
-            // The title wraps to at most two lines. With `Preferences.reserveTwoLineSidebarTitle` on, the header
-            // keeps the same height for every film, so content below stays put. With it off, the second line is
-            // claimed only when a title wraps.
-            //
-            // The reserved case uses a hidden two-line sizer with the real title overlaid bottom-leading.
-            // `.lineLimit(2, reservesSpace:)` would put a one-line title on the first line and leave a blank line
-            // below. The title should sit on the second line, next to the divider. The sizer carries the title's
-            // font and weight, so the reserved height always matches two lines of this text.
+            /// ── Film title ───────────────────────────────────────────────
+            /// The title wraps to at most two lines. With `Preferences.reserveTwoLineSidebarTitle` on, the header
+            /// keeps the same height for every film, so content below stays put. With it off, the second line is
+            /// claimed only when a title wraps.
+            ///
+            /// The reserved case uses a hidden two-line sizer with the real title overlaid bottom-leading.
+            /// `.lineLimit(2, reservesSpace:)` would put a one-line title on the first line and leave a blank line
+            /// below. The title should sit on the second line, next to the divider. The sizer carries the title's
+            /// font and weight, so the reserved height always matches two lines of this text.
             if Preferences.reserveTwoLineSidebarTitle {
-                // The sizer owns the layout. `.hidden()` keeps it measured but invisible, and `reservesSpace` makes a
-                // single space two lines tall. The overlay takes the sizer's frame, so a wrapped title fills it and a
-                // one-line title settles at the bottom.
+                /// The sizer owns the layout. `.hidden()` keeps it measured but invisible, and `reservesSpace` makes a
+                /// single space two lines tall. The overlay takes the sizer's frame, so a wrapped title fills it and a
+                /// one-line title settles at the bottom.
                 Text(verbatim: " ")
                     .font(.title2)
                     .fontWeight(.semibold)
@@ -181,7 +181,7 @@ struct Header: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-        } // End outer VStack
+        } /// End outer VStack
         .padding(.vertical, 8)
     }
 
@@ -195,9 +195,9 @@ struct Header: View {
     }
 
     // MARK: - Rating Display Label
-    // The rated state (a monochrome "star.fill" with a numeral) is the master footprint. The unrated state (a
-    // two-tone "star.slash.fill" with no numeral) matches it exactly in glyph frame, numeral width, and height.
-    // Changing a rating to or from zero then shifts nothing in the row.
+    /// The rated state (a monochrome "star.fill" with a numeral) is the master footprint. The unrated state (a
+    /// two-tone "star.slash.fill" with no numeral) matches it exactly in glyph frame, numeral width, and height.
+    /// Changing a rating to or from zero then shifts nothing in the row.
     private let ratingGlyphSize = CGFloat(16)
     private let ratingNumeralWidth = CGFloat(22)
     private let ratingLabelHeight = CGFloat(20)
@@ -262,28 +262,28 @@ struct Header: View {
     }
 
     private var posterThumbnail: some View {
-        // The shadow is applied to the shape itself, so it bleeds outside the layout frame, which stays exactly
-        // posterWidth by posterHeight. The details column aligns to it with no offsets.
-        // `.continuous` on both this base shape and the image clip below: every poster site
-        // in the app (gallery grid and list, this Header, the FilmSheet Poster tab) uses the
-        // continuous ("squircle") corner curve, and the sheen overlay's corner fall-off
-        // (PosterEdgeSheen.Profile.header) is rendered for that same curve.
+        /// The shadow is applied to the shape itself, so it bleeds outside the layout frame, which stays exactly
+        /// posterWidth by posterHeight. The details column aligns to it with no offsets.
+        /// `.continuous` on both this base shape and the image clip below: every poster site
+        /// in the app (gallery grid and list, this Header, the FilmSheet Poster tab) uses the
+        /// continuous ("squircle") corner curve, and the sheen overlay's corner fall-off
+        /// (PosterEdgeSheen.Profile.header) is rendered for that same curve.
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
             .fill(Color.secondary.opacity(0.2))
             .overlay(posterImageView)
             .shadow(color: Color.black.opacity(0.5), radius: 4, x: 0, y: 2)
-            // Load when the poster UID changes. onChange fires only on an actual change.
+            /// Load when the poster UID changes. onChange fires only on an actual change.
             .onChange(of: film?.posterUID) { _, newUID in
                 ensurePosterLoaded(newUID)
             }
             .onAppear {
-                // A cache hit needs nothing here (the body already read it). A miss is loaded on
-                // first appearance, which onChange does not cover.
+                /// A cache hit needs nothing here (the body already read it). A miss is loaded on
+                /// first appearance, which onChange does not cover.
                 ensurePosterLoaded(film?.posterUID)
             }
             .onDisappear {
-                // Cancel any in-flight load on dismount. Replacement is handled by the cancel() at the top of
-                // ensurePosterLoaded; this covers teardown.
+                /// Cancel any in-flight load on dismount. Replacement is handled by the cancel() at the top of
+                /// ensurePosterLoaded; this covers teardown.
                 loadBox.task?.cancel()
                 loadBox.task = nil
             }
@@ -294,18 +294,18 @@ struct Header: View {
     @MainActor
     private func ensurePosterLoaded(_ posterUID: String?) {
 
-        // Supersede any load in flight. A stale result that still publishes is filtered by the UID test in
-        // `displayedImage`, so it is never shown.
+        /// Supersede any load in flight. A stale result that still publishes is filtered by the UID test in
+        /// `displayedImage`, so it is never shown.
         loadBox.task?.cancel()
         loadBox.task = nil
 
         guard let uid = posterUID, !uid.isEmpty else { return }
 
-        // Already cached: the body reads it directly.
+        /// Already cached: the body reads it directly.
         guard PosterCache.shared.getImageSync(for: uid) == nil else { return }
 
-        // Cache miss. PosterCache.getImageAsync handles disk loading and caching. A nil result means the file is not
-        // on disk, so there is no manual fallback.
+        /// Cache miss. PosterCache.getImageAsync handles disk loading and caching. A nil result means the file is not
+        /// on disk, so there is no manual fallback.
         loadBox.task = Task { @MainActor in
             let image = await PosterCache.shared.getImageAsync(for: uid)
             guard !Task.isCancelled else { return }
@@ -315,27 +315,27 @@ struct Header: View {
         }
     }
 
-    // The overlay is always exactly posterWidth × posterHeight, the frame applied to posterThumbnail in `body`
-    // (an .overlay takes its base view's resolved frame). The constants are used directly, with no GeometryReader
-    // and its extra layout pass.
+    /// The overlay is always exactly posterWidth × posterHeight, the frame applied to posterThumbnail in `body`
+    /// (an .overlay takes its base view's resolved frame). The constants are used directly, with no GeometryReader
+    /// and its extra layout pass.
     private var posterImageView: some View {
-        // Resolved once per render: `displayedImage` is derived, so each access is a fresh cache lookup.
+        /// Resolved once per render: `displayedImage` is derived, so each access is a fresh cache lookup.
         let image = displayedImage
 
         return ZStack {
-            // Placeholder matching the main gallery version.
+            /// Placeholder matching the main gallery version.
             if image == nil {
                 placeholderContent(size: CGSize(width: posterWidth, height: posterHeight))
             }
 
-            // Current image - displayed immediately when available.
+            /// Current image - displayed immediately when available.
             if let image {
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFill()
-                    // Pins the layout size to the poster box so the sheen overlay (and the
-                    // clip) trace the visible rect rather than the fill-scaled image's
-                    // overflowing bounds. Soft edge band: see PosterEdgeSheen in 23.50 GalleryItemView.swift.
+                    /// Pins the layout size to the poster box so the sheen overlay (and the
+                    /// clip) trace the visible rect rather than the fill-scaled image's
+                    /// overflowing bounds. Soft edge band: see PosterEdgeSheen in 23.50 GalleryItemView.swift.
                     .frame(width: posterWidth, height: posterHeight)
                     .overlay { PosterEdgeSheen.overlay(profile: .header) }
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -344,7 +344,7 @@ struct Header: View {
         .frame(width: posterWidth, height: posterHeight, alignment: .center)
     }
     
-    // Placeholder, split out to reduce body complexity.
+    /// Placeholder, split out to reduce body complexity.
     @ViewBuilder
     private func placeholderContent(size: CGSize) -> some View {
         ZStack {
@@ -358,14 +358,14 @@ struct Header: View {
                 .foregroundStyle(.secondary)
                 .opacity(0.4)
             
-            // Last 10 characters (see UUID.placeholderIDSuffix). Evaluated only here, so a film with artwork never
-            // builds the string.
+            /// Last 10 characters (see UUID.placeholderIDSuffix). Evaluated only here, so a film with artwork never
+            /// builds the string.
             Text(filmID.placeholderIDSuffix)
                 .font(.system(
                     size: min(size.width, size.height) * 0.12))
                 .foregroundStyle(.secondary)
                 .opacity(0.6)
-                // Sized to its own text, not the poster box, so a narrow frame cannot clip it.
+                /// Sized to its own text, not the poster box, so a narrow frame cannot clip it.
                 .lineLimit(1)
                 .fixedSize()
         }
@@ -375,11 +375,11 @@ struct Header: View {
     // MARK: - Button Actions
     @MainActor
     private func editFilm() {
-        // Routed through SheetHostView, like the menu's Edit command, rather than a sheet
-        // presented here: a sheet of its own bypassed the sheet coordinator, so the menu
-        // bar stayed enabled beneath it and its shortcuts (Add Film, Settings, and so on)
-        // could try to present a second sheet, and alerts did not know a sheet was up.
-        // The sidebar shows the single selected film, which is the film .editFilm opens.
+        /// Routed through SheetHostView, like the menu's Edit command, rather than a sheet
+        /// presented here: a sheet of its own bypassed the sheet coordinator, so the menu
+        /// bar stayed enabled beneath it and its shortcuts (Add Film, Settings, and so on)
+        /// could try to present a second sheet, and alerts did not know a sheet was up.
+        /// The sidebar shows the single selected film, which is the film .editFilm opens.
         AppEventBus.shared.sendCommand(.editFilm)
     }
 }

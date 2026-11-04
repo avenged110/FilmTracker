@@ -1,7 +1,7 @@
 // MARK: - GlobalUtilities.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Global utility functions for use throughout FilmTracker.
+/// Global utility functions for use throughout FilmTracker.
 
 import SwiftUI
 import AppKit
@@ -114,21 +114,21 @@ enum AspectRatioVocabulary {
 /// Stored as a two-character code appended to viewing dates (e.g., "2026.01.24.TH").
 /// When no version is specified, the date is stored without a code (e.g., "2026.01.24").
 enum ViewingVersion: String, CaseIterable, Hashable {
-    case none = ""          // No value / not specified (empty string)
-    case theatrical = "TH"  // Theatrical
-    case extended = "EX"    // Extended
-    case directorsCut = "DC" // Director's Cut
-    case specialEdition = "SE" // Special Edition
-    case alternateEnding = "AE" // Alternate Ending
-    case unrated = "UR"     // Unrated
-    case televisionEdit = "TV" // Television Cut
-    case workprint = "WP"   // Workprint
-    case international = "IN" // International Cut
-    case finalCut = "FC"    // "The Final Cut" (with quotes in display)
-    case customEdit = "CE"  // Custom Edit
-    case colorized = "CO"   // Colorized
-    case blackAndWhite = "BW" // Black-and-white
-    case other = "OT"       // Other
+    case none = ""          /// No value / not specified (empty string)
+    case theatrical = "TH"  /// Theatrical
+    case extended = "EX"    /// Extended
+    case directorsCut = "DC" /// Director's Cut
+    case specialEdition = "SE" /// Special Edition
+    case alternateEnding = "AE" /// Alternate Ending
+    case unrated = "UR"     /// Unrated
+    case televisionEdit = "TV" /// Television Cut
+    case workprint = "WP"   /// Workprint
+    case international = "IN" /// International Cut
+    case finalCut = "FC"    /// "The Final Cut" (with quotes in display)
+    case customEdit = "CE"  /// Custom Edit
+    case colorized = "CO"   /// Colorized
+    case blackAndWhite = "BW" /// Black-and-white
+    case other = "OT"       /// Other
     
     /// User-facing display name for the version.
     /// Returns empty string for .none; Pickers should handle displaying "Select…" themselves.
@@ -164,30 +164,30 @@ enum ViewingVersion: String, CaseIterable, Hashable {
 }
 
 // MARK: - Current Year
-//
-// The single, cheap source for "what year is it", behind a short-lived cache.
-//
+///
+/// The single, cheap source for "what year is it", behind a short-lived cache.
+///
 // MARK: Why a cache at all
-//
-// `Calendar.current.component(.year, from: Date())` is not a field read — it resolves the
-// user's current calendar and performs a full date decomposition. Two types (FSTabReleases
-// and CustomDateStepper) read it on genuinely hot paths: the release card's purchase-year range is read per row
-// evaluation and again inside every ordering-rule enforcement pass, and CustomDateStepper's
-// `@State private var year` default expression is evaluated on EVERY construction of that
-// view — SwiftUI re-runs a View's init on each parent body pass, and Swift evaluates a
-// stored property's default expression even in an initializer that immediately overwrites
-// it (verified, and true at -O). Three CustomDateSteppers are constructed per release card.
-//
+///
+/// `Calendar.current.component(.year, from: Date())` is not a field read — it resolves the
+/// user's current calendar and performs a full date decomposition. Two types (FSTabReleases
+/// and CustomDateStepper) read it on genuinely hot paths: the release card's purchase-year range is read per row
+/// evaluation and again inside every ordering-rule enforcement pass, and CustomDateStepper's
+/// `@State private var year` default expression is evaluated on EVERY construction of that
+/// view — SwiftUI re-runs a View's init on each parent body pass, and Swift evaluates a
+/// stored property's default expression even in an initializer that immediately overwrites
+/// it (verified, and true at -O). Three CustomDateSteppers are constructed per release card.
+///
 // MARK: Why a time window rather than a launch-time constant
-//
-// The year is derived rather than stored, so an app session left running across midnight on
-// December 31 does not keep reporting last year. The value may be at most `maxAge` old, so
-// the boundary is crossed within a minute of the actual rollover. Nothing in this app
-// distinguishes those two, and every consumer (year ranges, new-release defaults) is a
-// bound or a seed, not a timestamp.
-//
-// A negative age is treated as stale, so a clock moved backwards re-derives rather than
-// serving a value from a future that no longer applies.
+///
+/// The year is derived rather than stored, so an app session left running across midnight on
+/// December 31 does not keep reporting last year. The value may be at most `maxAge` old, so
+/// the boundary is crossed within a minute of the actual rollover. Nothing in this app
+/// distinguishes those two, and every consumer (year ranges, new-release defaults) is a
+/// bound or a seed, not a timestamp.
+///
+/// A negative age is treated as stale, so a clock moved backwards re-derives rather than
+/// serving a value from a future that no longer applies.
 @MainActor
 enum CurrentYear {
     /// How long a derived year may be reused before it is re-derived.
@@ -201,8 +201,8 @@ enum CurrentYear {
             let age = now.timeIntervalSince(cached.derivedAt)
             if age >= 0 && age < maxAge { return cached.year }
         }
-        // The pinned Gregorian calendar, not Calendar.current: every consumer bounds or seeds
-        // a stored Gregorian year (see CustomDateStepper.calendar).
+        /// The pinned Gregorian calendar, not Calendar.current: every consumer bounds or seeds
+        /// a stored Gregorian year (see CustomDateStepper.calendar).
         let year = StorageDateFormatters.calendar.component(.year, from: now)
         cached = (year, now)
         return year
@@ -210,24 +210,24 @@ enum CurrentYear {
 }
 
 // MARK: - Current Day
-//
-// The current calendar day as an observable value, for content that has to change when the
-// day does — the release card's "Upcoming" badge and Unreleased availability, the sidebar's
-// "Released on" / "Releases on" wording, and the new-release notification schedule.
-//
-// A view reading `today` re-renders on the day change and at no other time, so content that
-// depends on the date stays current in a session left running for days without anything
-// polling the clock. The value is the start of the day in the pinned Gregorian calendar the
-// stored dates are written in (StorageDateFormatters.calendar).
-//
+///
+/// The current calendar day as an observable value, for content that has to change when the
+/// day does — the release card's "Upcoming" badge and Unreleased availability, the sidebar's
+/// "Released on" / "Releases on" wording, and the new-release notification schedule.
+///
+/// A view reading `today` re-renders on the day change and at no other time, so content that
+/// depends on the date stays current in a session left running for days without anything
+/// polling the clock. The value is the start of the day in the pinned Gregorian calendar the
+/// stored dates are written in (StorageDateFormatters.calendar).
+///
 // MARK: Why four signals
-//
-// `NSCalendarDayChanged` is the system's own day-change notice, and is also posted when the
-// clock or time zone moves the day. The midnight task is the same check on this app's own
-// timer, as SmartLists keeps one, in case a notice is missed. A Mac asleep at midnight wakes
-// with the timer already overdue and the notice possibly not yet posted, so a wake re-checks
-// too. Every signal runs the same idempotent `refresh()`, which publishes only an actual
-// change, so a duplicate costs one date comparison.
+///
+/// `NSCalendarDayChanged` is the system's own day-change notice, and is also posted when the
+/// clock or time zone moves the day. The midnight task is the same check on this app's own
+/// timer, as SmartLists keeps one, in case a notice is missed. A Mac asleep at midnight wakes
+/// with the timer already overdue and the notice possibly not yet posted, so a wake re-checks
+/// too. Every signal runs the same idempotent `refresh()`, which publishes only an actual
+/// change, so a duplicate costs one date comparison.
 @MainActor
 @Observable
 final class CurrentDay {
@@ -423,16 +423,16 @@ func canonicalStoredDay(_ text: Substring, separator: Character,
     let day = digits[6] * 10 + digits[7]
     guard year >= 1000, (1...12).contains(month), day >= 1, day <= gregorianDaysInMonth(month, year: year) else { return nil }
     guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else { return nil }
-    // The calendar resolves a missing or skipped midnight by rolling forward; the
-    // formatters do not. Wall-clock seconds since the epoch — offset arithmetic, no
-    // calendar computation — say whether `date` really is 00:00 of the day asked for.
+    /// The calendar resolves a missing or skipped midnight by rolling forward; the
+    /// formatters do not. Wall-clock seconds since the epoch — offset arithmetic, no
+    /// calendar computation — say whether `date` really is 00:00 of the day asked for.
     let zone = calendar.timeZone
     func wallSeconds(_ t: Date) -> Int { Int(t.timeIntervalSince1970.rounded()) + zone.secondsFromGMT(for: t) }
     let midnight = wallSeconds(date)
     guard midnight == daysSinceEpoch(year: year, month: month, day: day) * 86_400 else { return nil }
-    // A repeated midnight (the clocks fall back to 00:00): the formatters take the
-    // later of the two instants, the calendar the earlier. One hour is every real DST
-    // step but Lord Howe Island's, which is half an hour.
+    /// A repeated midnight (the clocks fall back to 00:00): the formatters take the
+    /// later of the two instants, the calendar the earlier. One hour is every real DST
+    /// step but Lord Howe Island's, which is half an hour.
     for step in [3_600.0, 1_800.0] {
         let later = date.addingTimeInterval(step)
         if wallSeconds(later) == midnight { return later }
@@ -493,13 +493,13 @@ func gregorianDaysInMonth(_ month: Int, year: Int) -> Int {
 private let dotDateFormatter = StorageDateFormatters.dot
 private let dashDateFormatter = StorageDateFormatters.dash
 
-// ISO8601 parse strategy for full timestamp strings (e.g., "2026-01-24T10:30:00Z").
-// Date.ISO8601FormatStyle is a value type and fully Sendable — no nonisolated(unsafe)
-// annotation is needed, unlike the legacy ISO8601DateFormatter class it replaces.
+/// ISO8601 parse strategy for full timestamp strings (e.g., "2026-01-24T10:30:00Z").
+/// Date.ISO8601FormatStyle is a value type and fully Sendable — no nonisolated(unsafe)
+/// annotation is needed, unlike the legacy ISO8601DateFormatter class it replaces.
 private let iso8601ParseStrategy = Date.ISO8601FormatStyle()
 
-// Additional timestamp formatters for non-standard timestamp strings.
-// Covers formats that Date.ISO8601FormatStyle doesn't handle (e.g., missing 'Z' timezone).
+/// Additional timestamp formatters for non-standard timestamp strings.
+/// Covers formats that Date.ISO8601FormatStyle doesn't handle (e.g., missing 'Z' timezone).
 private let timestampDateFormatters: [DateFormatter] = {
     let formats = [
         "yyyy-MM-dd'T'HH:mm:ssZ",
@@ -517,18 +517,18 @@ private let timestampDateFormatters: [DateFormatter] = {
     }
 }()
 
-// Output format style for date display (e.g., "November 4, 2025").
-// Date.FormatStyle is a value type and fully Sendable, backed by the same ICU infrastructure
-// as DateFormatter. Locale is pinned to en_US for consistent English output regardless of
-// the system language setting, and the calendar to Gregorian, which the locale alone does
-// not do (see AppCalendar).
+/// Output format style for date display (e.g., "November 4, 2025").
+/// Date.FormatStyle is a value type and fully Sendable, backed by the same ICU infrastructure
+/// as DateFormatter. Locale is pinned to en_US for consistent English output regardless of
+/// the system language setting, and the calendar to Gregorian, which the locale alone does
+/// not do (see AppCalendar).
 private let displayDateStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: AppCalendar.gregorian)
     .month(.wide)
     .day(.defaultDigits)
     .year(.defaultDigits)
 
-// Output format style for month+year display (e.g., "November 2026"), used by monthYearLabel(for:).
-// Same Sendability and performance advantages as displayDateStyle above.
+/// Output format style for month+year display (e.g., "November 2026"), used by monthYearLabel(for:).
+/// Same Sendability and performance advantages as displayDateStyle above.
 private let monthYearStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: AppCalendar.gregorian)
     .month(.wide)
     .year(.defaultDigits)
@@ -548,7 +548,7 @@ private func stripTrailingDots(_ string: String) -> String {
             break
         }
     }
-    // If every character was a dot, end == startIndex; return empty string.
+    /// If every character was a dot, end == startIndex; return empty string.
     return String(string[..<end])
 }
 
@@ -561,12 +561,12 @@ func extractDatePortion(from dateString: String?) -> String? {
     guard let dateString = dateString else { return nil }
     let cleaned = stripTrailingDots(dateString)
     let components = cleaned.split(separator: ".")
-    // If we have exactly 4 components and the last one is 2 characters (version code),
-    // return the first 3 components joined.
+    /// If we have exactly 4 components and the last one is 2 characters (version code),
+    /// return the first 3 components joined.
     if components.count == 4 && components[3].count == 2 {
         return components[0...2].joined(separator: ".")
     }
-    // Otherwise return as-is (already just a date or invalid format).
+    /// Otherwise return as-is (already just a date or invalid format).
     return cleaned
 }
 
@@ -578,7 +578,7 @@ func extractVersionCode(from dateString: String?) -> ViewingVersion {
     guard let dateString = dateString else { return .none }
     let cleaned = stripTrailingDots(dateString)
     let components = cleaned.split(separator: ".")
-    // If we have exactly 4 components and the last one is 2 characters, parse the code.
+    /// If we have exactly 4 components and the last one is 2 characters, parse the code.
     if components.count == 4 && components[3].count == 2 {
         return ViewingVersion(rawValue: String(components[3]).uppercased()) ?? .none
     }
@@ -602,11 +602,11 @@ func extractVersionCode(from dateString: String?) -> ViewingVersion {
 func parseDate(from dateString: String?) -> Date? {
     guard let dateString = dateString, !dateString.isEmpty else { return nil }
     
-    // Extract just the date portion (strips version codes and trailing dots)
+    /// Extract just the date portion (strips version codes and trailing dots)
     let datePortion = extractDatePortion(from: dateString) ?? dateString
 
-    // The stored shapes, read directly (see canonicalStoredDay, canonicalStoredTimestamp). Anything declined
-    // here goes through the formatters below exactly as it always did.
+    /// The stored shapes, read directly (see canonicalStoredDay, canonicalStoredTimestamp). Anything declined
+    /// here goes through the formatters below exactly as it always did.
     if let date = canonicalStoredDay(datePortion[...], separator: ".")
         ?? canonicalStoredDay(datePortion[...], separator: "-")
         ?? canonicalStoredTimestamp(datePortion[...]) {
@@ -619,22 +619,22 @@ func parseDate(from dateString: String?) -> Date? {
 /// front of it, and still runs for every string the fast path declines. Internal (not
 /// private) so the `date-semantics` harness scenario can hold the fast path to it.
 func parseDateWithFormatters(datePortion: String, dateString: String) -> Date? {
-    // Try "yyyy.MM.dd" format first (primary format)
+    /// Try "yyyy.MM.dd" format first (primary format)
     if let date = dotDateFormatter.date(from: datePortion) {
         return date
     }
     
-    // Try "yyyy-MM-dd" format
+    /// Try "yyyy-MM-dd" format
     if let date = dashDateFormatter.date(from: datePortion) {
         return date
     }
     
-    // Try ISO8601 for full timestamp strings (e.g., "2026-01-24T10:30:00Z")
+    /// Try ISO8601 for full timestamp strings (e.g., "2026-01-24T10:30:00Z")
     if let date = try? iso8601ParseStrategy.parse(dateString) {
         return date
     }
     
-    // Try additional timestamp and date formats
+    /// Try additional timestamp and date formats
     for formatter in timestampDateFormatters {
         if let date = formatter.date(from: dateString) {
             return date
@@ -675,14 +675,14 @@ func timeAgo(from dateString: String?) -> String {
     let calendar = AppCalendar.current
     let now = Date()
     
-    // Calculate day difference first for recent dates
+    /// Calculate day difference first for recent dates
     let dayComponents = calendar.dateComponents([.day], from: date, to: now)
     guard let dayDiff = dayComponents.day else { return "Unknown" }
     
-    // Guard against future dates — dayDiff is negative when date is ahead of now
+    /// Guard against future dates — dayDiff is negative when date is ahead of now
     if dayDiff < 0 { return "In the future" }
     
-    // Handle granular recent cases
+    /// Handle granular recent cases
     switch dayDiff {
     case 0:
         return "Today"
@@ -700,7 +700,7 @@ func timeAgo(from dateString: String?) -> String {
         break
     }
     
-    // For dates 30+ days ago, use month/year formatting
+    /// For dates 30+ days ago, use month/year formatting
     let components = calendar.dateComponents([.year, .month], from: date, to: now)
     guard let years = components.year, let months = components.month else {
         return "Unknown"
@@ -722,7 +722,7 @@ func timeAgo(from dateString: String?) -> String {
 func formatDateWithTimeAgo(_ dateString: String?) -> String {
     let formattedDate = formatDateString(dateString)
     
-    // Only append timeAgo if we have a valid date
+    /// Only append timeAgo if we have a valid date
     if formattedDate != "Unknown date" {
         let timeAgoText = timeAgo(from: dateString)
         return "\(formattedDate) (\(timeAgoText))"
@@ -732,19 +732,19 @@ func formatDateWithTimeAgo(_ dateString: String?) -> String {
 }
 
 // MARK: - Rotation Eligibility Dates
-//
-// Rotation is a MONTH-GRANULAR concept in this app: the user reads it as "this
-// film comes up in September 2026," never "on September 6th." `rotationEligibilityDate`
-// below is the single definition of that idea, and every rotation-derived value in
-// the app is computed from its result — the "Next Up for Rotation" label in
-// `WatchDetails`, that field's countdown and "Ready for viewing" switch, all four
-// of `SmartLists`' rotation/one-year checkers, and the cached rotation date behind
-// `MetadataCache`'s "Recently Come Up for Rotation" list and its subtitles.
-//
-// Every consumer must apply the same rule. If the label rounded up while another consumer
-// measured against the raw anniversary, a value could read "September 2026 (0 days away)"
-// on August 5th. A film could also sit in the "Up for Rotation" smart list and be
-// auto-enqueued into Up Next while the sidebar showed it three weeks away.
+///
+/// Rotation is a MONTH-GRANULAR concept in this app: the user reads it as "this
+/// film comes up in September 2026," never "on September 6th." `rotationEligibilityDate`
+/// below is the single definition of that idea, and every rotation-derived value in
+/// the app is computed from its result — the "Next Up for Rotation" label in
+/// `WatchDetails`, that field's countdown and "Ready for viewing" switch, all four
+/// of `SmartLists`' rotation/one-year checkers, and the cached rotation date behind
+/// `MetadataCache`'s "Recently Come Up for Rotation" list and its subtitles.
+///
+/// Every consumer must apply the same rule. If the label rounded up while another consumer
+/// measured against the raw anniversary, a value could read "September 2026 (0 days away)"
+/// on August 5th. A film could also sit in the "Up for Rotation" smart list and be
+/// auto-enqueued into Up Next while the sidebar showed it three weeks away.
 
 /// The date on which a film becomes up for rotation: its viewing anniversary,
 /// rounded up to midnight on the 1st of the following month.
@@ -775,21 +775,21 @@ func rotationEligibilityDate(from lastWatchedDate: Date, months: Int, calendar: 
         byAdding: .month, value: months, to: lastWatchedDate
     ) else { return nil }
 
-    // Normalized to a day boundary first, so that an anniversary carrying a time
-    // component on the 1st (e.g. 2026-09-01 14:00) is recognized as already being
-    // on the boundary rather than being pushed a full month forward. Parsed
-    // `lastWatched` dates are already midnight, but this function does not
-    // require its caller to guarantee that.
+    /// Normalized to a day boundary first, so that an anniversary carrying a time
+    /// component on the 1st (e.g. 2026-09-01 14:00) is recognized as already being
+    /// on the boundary rather than being pushed a full month forward. Parsed
+    /// `lastWatched` dates are already midnight, but this function does not
+    /// require its caller to guarantee that.
     let dayStart = calendar.startOfDay(for: anniversary)
 
     guard let monthStart = calendar.dateInterval(of: .month, for: dayStart)?.start else {
         return nil
     }
 
-    // The anniversary IS the 1st — the film's whole eligibility month is still
-    // ahead of it, so there is nothing to round up to. Advancing here would cost
-    // the user an entire month for the one calendar day per month that happens to
-    // land exactly on the boundary.
+    /// The anniversary IS the 1st — the film's whole eligibility month is still
+    /// ahead of it, so there is nothing to round up to. Advancing here would cost
+    /// the user an entire month for the one calendar day per month that happens to
+    /// land exactly on the boundary.
     if monthStart == dayStart { return dayStart }
 
     return calendar.date(byAdding: .month, value: 1, to: monthStart)
@@ -841,61 +841,61 @@ func monthYearLabel(for date: Date) -> String {
 func timeDistanceFromNow(to futureDate: Date) -> String {
     let calendar = AppCalendar.current
 
-    // Both endpoints are normalized to the start of their calendar day before
-    // anything is measured, and every tier below is computed from these two
-    // values rather than from the raw `Date()`.
-    //
-    // The target is a parsed date, always midnight; "now" is whatever time of day it
-    // is. `Calendar.dateComponents` truncates toward zero, so from 2026-08-05 at 2:00 PM
-    // to 2026-08-06 at midnight it returns 0 whole days. Without normalization, the
-    // final day of every waiting period would read "0 days away" for a date a full day
-    // ahead. The same truncation would shave up to a day off the week and month tiers.
-    //
-    // Comparing whole days is also the right unit for this field on its own
-    // terms: the value it describes is a calendar date with no time component,
-    // and the user reads it as "how many more days until this comes up".
+    /// Both endpoints are normalized to the start of their calendar day before
+    /// anything is measured, and every tier below is computed from these two
+    /// values rather than from the raw `Date()`.
+    ///
+    /// The target is a parsed date, always midnight; "now" is whatever time of day it
+    /// is. `Calendar.dateComponents` truncates toward zero, so from 2026-08-05 at 2:00 PM
+    /// to 2026-08-06 at midnight it returns 0 whole days. Without normalization, the
+    /// final day of every waiting period would read "0 days away" for a date a full day
+    /// ahead. The same truncation would shave up to a day off the week and month tiers.
+    ///
+    /// Comparing whole days is also the right unit for this field on its own
+    /// terms: the value it describes is a calendar date with no time component,
+    /// and the user reads it as "how many more days until this comes up".
     let now = calendar.startOfDay(for: Date())
     let target = calendar.startOfDay(for: futureDate)
 
-    // Compute the total elapsed days from today to the future date. With both
-    // endpoints on day boundaries this is an exact whole-day count.
+    /// Compute the total elapsed days from today to the future date. With both
+    /// endpoints on day boundaries this is an exact whole-day count.
     let dayComponents = calendar.dateComponents([.day], from: now, to: target)
     guard let dayDiff = dayComponents.day else { return "Unknown" }
 
-    // Guard against non-future dates. Reached only if a caller passes today or
-    // earlier; `WatchDetails` never does, because a rotation date at or before
-    // the current moment is answered with "Ready for viewing" before this
-    // function is consulted. "Today" rather than "0 days away" so that a caller
-    // which does reach this guard reads a statement of fact, not an arithmetic result.
+    /// Guard against non-future dates. Reached only if a caller passes today or
+    /// earlier; `WatchDetails` never does, because a rotation date at or before
+    /// the current moment is answered with "Ready for viewing" before this
+    /// function is consulted. "Today" rather than "0 days away" so that a caller
+    /// which does reach this guard reads a statement of fact, not an arithmetic result.
     if dayDiff <= 0 { return "Today" }
 
-    // ── Tier 1: Days (< 7) — exact, no rounding. ─────────────────────────────
+    /// ── Tier 1: Days (< 7) — exact, no rounding. ─────────────────────────────
     if dayDiff < 7 {
         return "\(dayDiff) day" + (dayDiff == 1 ? "" : "s") + " away"
     }
 
-    // ── Tier 2: Weeks (7–27) — round-half-up at 3.5 days (ceiling → 4). ─────
-    // (dayDiff + 3) / 7 is standard round-half-up integer division for unit 7.
-    // The branch ends at 27 (< 28) so the maximum output is 4 weeks, which is
-    // exactly one calendar month and cleanly abuts the months tier.
+    /// ── Tier 2: Weeks (7–27) — round-half-up at 3.5 days (ceiling → 4). ─────
+    /// (dayDiff + 3) / 7 is standard round-half-up integer division for unit 7.
+    /// The branch ends at 27 (< 28) so the maximum output is 4 weeks, which is
+    /// exactly one calendar month and cleanly abuts the months tier.
     if dayDiff < 28 {
         let weeks = (dayDiff + 3) / 7
         return "\(weeks) week" + (weeks == 1 ? "" : "s") + " away"
     }
 
-    // ── Tier 3: Months (≥ 28) — real calendar year/month decomposition, ─────
-    // rounded half-up against the true length of the trailing partial month.
-    // Measured between the same two day-normalized endpoints as the tiers above,
-    // so a single set of values drives all three and they cannot disagree about
-    // where a tier boundary falls.
+    /// ── Tier 3: Months (≥ 28) — real calendar year/month decomposition, ─────
+    /// rounded half-up against the true length of the trailing partial month.
+    /// Measured between the same two day-normalized endpoints as the tiers above,
+    /// so a single set of values drives all three and they cannot disagree about
+    /// where a tier boundary falls.
     let monthComponents = calendar.dateComponents([.year, .month, .day], from: now, to: target)
     guard var years = monthComponents.year,
           var months = monthComponents.month,
           let trailingDays = monthComponents.day else { return "Unknown" }
 
-    // Anchor the start of the trailing partial month (i.e. "now" advanced by
-    // the whole years/months already counted) so the remainder is measured
-    // against that specific month's real length, not an assumed constant.
+    /// Anchor the start of the trailing partial month (i.e. "now" advanced by
+    /// the whole years/months already counted) so the remainder is measured
+    /// against that specific month's real length, not an assumed constant.
     if let partialMonthStart = calendar.date(
         byAdding: DateComponents(year: years, month: months), to: now),
        let daysInPartialMonth = calendar.range(of: .day, in: .month, for: partialMonthStart)?.count,
@@ -911,8 +911,8 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
     if years  > 0 { parts.append("\(years) year"  + (years  == 1 ? "" : "s")) }
     if months > 0 { parts.append("\(months) month" + (months == 1 ? "" : "s")) }
 
-    // dayDiff >= 28 should always yield at least one whole month once rounded;
-    // this fallback only guards a theoretical Calendar edge case.
+    /// dayDiff >= 28 should always yield at least one whole month once rounded;
+    /// this fallback only guards a theoretical Calendar edge case.
     if parts.isEmpty { return "1 month away" }
 
     return parts.joined(separator: " ") + " away"
@@ -935,26 +935,26 @@ func addToListPlaceholderTitle(hasAnyLists: Bool) -> String {
 }
 
 // MARK: - List Name Truncation
-// Maximum length for list names displayed in menus.
+/// Maximum length for list names displayed in menus.
 private let menuTitleMaxLength = 62
-// Returns a version of the string truncated to 'maxLength' characters,
-// appending an ellipsis if truncation was necessary. Ensures the ellipsis
-// never follows a space character and trailing spaces are skipped.
-// - Parameters:
-//   - listName: The list name to truncate.
-//   - maxLength: The maximum allowed length (default: 62 characters).
-// - Returns: The truncated string with an ellipsis if necessary, or the
-//            original string if it fits.
+/// Returns a version of the string truncated to 'maxLength' characters,
+/// appending an ellipsis if truncation was necessary. Ensures the ellipsis
+/// never follows a space character and trailing spaces are skipped.
+/// - Parameters:
+///   - listName: The list name to truncate.
+///   - maxLength: The maximum allowed length (default: 62 characters).
+/// - Returns: The truncated string with an ellipsis if necessary, or the
+///            original string if it fits.
 func truncateListName(_ listName: String, maxLength: Int = menuTitleMaxLength) -> String {
-    // Only truncate when the *original* string exceeds the maximum length.
+    /// Only truncate when the *original* string exceeds the maximum length.
     guard listName.count > maxLength else { return listName }
 
-    let maxChars = max(1, maxLength - 1) // leave room for the ellipsis
+    let maxChars = max(1, maxLength - 1) /// leave room for the ellipsis
 
-    // Initial cut point
+    /// Initial cut point
     var endIndex = listName.index(listName.startIndex, offsetBy: maxChars)
 
-    // Walk backwards skipping spaces so we never end with " …"
+    /// Walk backwards skipping spaces so we never end with " …"
     while endIndex > listName.startIndex {
         let prevIndex = listName.index(before: endIndex)
         let char = listName[prevIndex]
@@ -962,8 +962,8 @@ func truncateListName(_ listName: String, maxLength: Int = menuTitleMaxLength) -
         if char == " " { endIndex = prevIndex
         } else { break } }
 
-    // If this was somehow walked all the way back (e.g. all spaces),
-    // fall back to the naive cut at maxChars.
+    /// If this was somehow walked all the way back (e.g. all spaces),
+    /// fall back to the naive cut at maxChars.
     if endIndex <= listName.startIndex {
         endIndex = listName.index(listName.startIndex, offsetBy: maxChars) }
 
@@ -1086,11 +1086,11 @@ struct GenericTitleBar<LeadingContent: View, TrailingButtons: View>: View {
     let glyph: String
     let leadingContent: LeadingContent
     let trailingButtons: TrailingButtons
-    // Creates a generic title bar with custom glyph and button configuration.
-    // - Parameters:
-    //   - glyph: SF Symbol name for the left-aligned icon
-    //   - leadingContent: Optional content to display after the glyph (e.g., category picker)
-    //   - trailingButtons: Right-aligned button section
+    /// Creates a generic title bar with custom glyph and button configuration.
+    /// - Parameters:
+    ///   - glyph: SF Symbol name for the left-aligned icon
+    ///   - leadingContent: Optional content to display after the glyph (e.g., category picker)
+    ///   - trailingButtons: Right-aligned button section
     init(
         glyph: String,
         @ViewBuilder leadingContent: () -> LeadingContent,
@@ -1102,23 +1102,23 @@ struct GenericTitleBar<LeadingContent: View, TrailingButtons: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                // Left-aligned glyph.
+                /// Left-aligned glyph.
                 Image(systemName: glyph)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: 20, alignment: .center)
                     .padding(.leading, 18)
-                // Optional leading content (e.g., Picker menu).
+                /// Optional leading content (e.g., Picker menu).
                 leadingContent
                 Spacer()
-                // Right-aligned button section.
+                /// Right-aligned button section.
                 trailingButtons }
             .padding(.vertical, 1)
             .frame(minHeight: 30, maxHeight: 30)
             .background(Color(NSColor.controlBackgroundColor))
             .overlay(Divider(), alignment: .bottom) }
-        // Disable animations on the entire VStack so window chrome does not
-        // animate when the sidebar opens or closes.
+        /// Disable animations on the entire VStack so window chrome does not
+        /// animate when the sidebar opens or closes.
         .transaction { transaction in
             transaction.animation = nil
             transaction.disablesAnimations = true } }
@@ -1175,26 +1175,26 @@ struct HelpPopoverButton: View {
                     .padding(12)
                     .frame(width: 260)
             }
-            // Position-change dismissal: close an open popover whenever the button's
-            // vertical position in global coordinates changes, i.e. the user scrolled
-            // the enclosing container or the button's host view moved vertically.
-            //
-            // Uses the macOS 15 onGeometryChange(for:of:action:) modifier. A background
-            // GeometryReader would add a layout-participating node to every
-            // HelpPopoverButton, including one per release card in the FilmSheet Releases
-            // carousel, during the sheet's peak initial layout pass. The same substitution
-            // is used by ScrollActivityObserver (30.20 FSControlHelpers.swift) and by
-            // FSTabDetailsView's scroll anchor. A GeometryReader's content also re-runs on
-            // every geometry change, including per-frame horizontal offsets during the
-            // carousel's spring slide, where minY never changes. onGeometryChange computes
-            // only minY and fires the action solely when it changes.
-            //
-            // Any vertical movement (scrolling, card fly-up) closes an open popover. The
-            // action also fires once with the initial value on mount; the isShowingPopover
-            // guard makes that a no-op, since @State isShowingPopover starts false for a
-            // new view identity. The transform closure captures nothing, satisfying
-            // strict-concurrency requirements regardless of the closure's Sendable
-            // annotation in the SDK.
+            /// Position-change dismissal: close an open popover whenever the button's
+            /// vertical position in global coordinates changes, i.e. the user scrolled
+            /// the enclosing container or the button's host view moved vertically.
+            ///
+            /// Uses the macOS 15 onGeometryChange(for:of:action:) modifier. A background
+            /// GeometryReader would add a layout-participating node to every
+            /// HelpPopoverButton, including one per release card in the FilmSheet Releases
+            /// carousel, during the sheet's peak initial layout pass. The same substitution
+            /// is used by ScrollActivityObserver (30.20 FSControlHelpers.swift) and by
+            /// FSTabDetailsView's scroll anchor. A GeometryReader's content also re-runs on
+            /// every geometry change, including per-frame horizontal offsets during the
+            /// carousel's spring slide, where minY never changes. onGeometryChange computes
+            /// only minY and fires the action solely when it changes.
+            ///
+            /// Any vertical movement (scrolling, card fly-up) closes an open popover. The
+            /// action also fires once with the initial value on mount; the isShowingPopover
+            /// guard makes that a no-op, since @State isShowingPopover starts false for a
+            /// new view identity. The transform closure captures nothing, satisfying
+            /// strict-concurrency requirements regardless of the closure's Sendable
+            /// annotation in the SDK.
             .onGeometryChange(for: CGFloat.self) { proxy in
                 proxy.frame(in: .global).minY
             } action: { _ in
@@ -1209,12 +1209,12 @@ struct HelpPopoverButton: View {
                     cancelAutoDismiss()
                 }
             }
-            // Dismiss the popover whenever the caller-supplied dismiss token changes.
-            // The guard on dismissToken != nil ensures this handler is a no-op for
-            // every call site that omits the parameter (the default nil never changes,
-            // so onChange never fires). Using AnyHashable lets callers pass any
-            // Hashable value — Int carousel indices, UUIDs, enum cases — without
-            // requiring a generic parameter on the struct.
+            /// Dismiss the popover whenever the caller-supplied dismiss token changes.
+            /// The guard on dismissToken != nil ensures this handler is a no-op for
+            /// every call site that omits the parameter (the default nil never changes,
+            /// so onChange never fires). Using AnyHashable lets callers pass any
+            /// Hashable value — Int carousel indices, UUIDs, enum cases — without
+            /// requiring a generic parameter on the struct.
             .onChange(of: dismissToken) { _, _ in
                 if isShowingPopover {
                     isShowingPopover = false
@@ -1229,7 +1229,7 @@ struct HelpPopoverButton: View {
                 try await Task.sleep(for: .seconds(autoDismissDuration))
                 isShowingPopover = false
             } catch {
-                // Task was canceled because the user dismissed manually; nothing to do.
+                /// Task was canceled because the user dismissed manually; nothing to do.
             }
         }
     }
@@ -1304,8 +1304,8 @@ nonisolated enum ExportStaging: Loggable {
         guard let root = rootURL else { throw CocoaError(.fileNoSuchFile) }
         let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        // Staged exports are transient and can be gigabytes with posters, so they are kept out of
-        // Time Machine backups.
+        /// Staged exports are transient and can be gigabytes with posters, so they are kept out of
+        /// Time Machine backups.
         var rootForValues = root
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -1344,21 +1344,21 @@ nonisolated enum ExportStaging: Loggable {
         func numbered(_ n: Int) -> String {
             n == 0 ? name : (ext.isEmpty ? "\(stem) \(n)" : "\(stem) \(n).\(ext)") }
 
-        // The common case: one exclusive rename, which either lands the whole item or
-        // changes nothing at all.
+        /// The common case: one exclusive rename, which either lands the whole item or
+        /// changes nothing at all.
         if let delivered = try claimName(for: item, in: folder, numbered: numbered) {
             return delivered }
 
-        // The rename cannot cross to the destination — another volume, or a sandbox that
-        // refuses it. Copy to a private, hidden, UUID-named path in the destination first,
-        // then claim the real name with the same exclusive rename, now on one volume. The
-        // destination never holds a partial item under a name the user would open.
+        /// The rename cannot cross to the destination — another volume, or a sandbox that
+        /// refuses it. Copy to a private, hidden, UUID-named path in the destination first,
+        /// then claim the real name with the same exclusive rename, now on one volume. The
+        /// destination never holds a partial item under a name the user would open.
         let fm = FileManager.default
         let partial = folder.appendingPathComponent(".\(name).\(UUID().uuidString).partial")
         do {
             try fm.copyItem(at: item, to: partial)
         } catch {
-            // Only ever this export's own UUID-named path.
+            /// Only ever this export's own UUID-named path.
             if (error as? CocoaError)?.code != .fileWriteFileExists { try? fm.removeItem(at: partial) }
             throw error }
         do {
@@ -1379,15 +1379,15 @@ nonisolated enum ExportStaging: Loggable {
         for n in 0...9_999 {
             let target = folder.appendingPathComponent(numbered(n))
             let to = target.path(percentEncoded: false)
-            // RENAME_EXCL makes "is the name free" and "take it" one step in the kernel:
-            // it fails with EEXIST rather than replace anything — a file, a package, an
-            // empty folder or a symbolic link.
+            /// RENAME_EXCL makes "is the name free" and "take it" one step in the kernel:
+            /// it fails with EEXIST rather than replace anything — a file, a package, an
+            /// empty folder or a symbolic link.
             if unsafe renamex_np(from, to, UInt32(RENAME_EXCL)) == 0 { return claimed(target, n) }
             var code = errno
             if code == ENOTSUP || code == EINVAL {
-                // A file system that cannot honor RENAME_EXCL. Check, then rename: the one
-                // shape with a window, and only on such volumes. lstat, so a dangling
-                // symbolic link still counts as taken.
+                /// A file system that cannot honor RENAME_EXCL. Check, then rename: the one
+                /// shape with a window, and only on such volumes. lstat, so a dangling
+                /// symbolic link still counts as taken.
                 var info = stat()
                 if unsafe lstat(to, &info) == 0 { continue }
                 if unsafe rename(from, to) == 0 { return claimed(target, n) }
@@ -1409,44 +1409,44 @@ nonisolated enum ExportStaging: Loggable {
 }
 
 // MARK: - StandardPlaceholder
-// Reusable placeholder component with consistent spacing and positioning.
-// Usage (Only the glyph is required):
-// Full placeholder with optional action button
-// StandardPlaceholder(
-//     glyph: "magnifyingglass",
-//     title: "No Results",
-//     message: "Try adjusting your search query.",
-//     actionTitle: "Clear Query",
-//     action: { clearSearch() } )
+/// Reusable placeholder component with consistent spacing and positioning.
+/// Usage (Only the glyph is required):
+/// Full placeholder with optional action button
+/// StandardPlaceholder(
+///     glyph: "magnifyingglass",
+///     title: "No Results",
+///     message: "Try adjusting your search query.",
+///     actionTitle: "Clear Query",
+///     action: { clearSearch() } )
 struct StandardPlaceholder: View {
     // MARK: - Properties
-    // SF Symbol name for the glyph.
+    /// SF Symbol name for the glyph.
     let glyph: String
-    // Optional title text displayed below the glyph.
+    /// Optional title text displayed below the glyph.
     let title: String?
-    // Optional message text displayed below the title.
+    /// Optional message text displayed below the title.
     let message: String?
-    // Optional action button title.
+    /// Optional action button title.
     let actionTitle: String?
-    // Optional action button handler.
+    /// Optional action button handler.
     let action: (() -> Void)?
 
     // MARK: - Layout Constants
-    // Fixed height for glyph container to prevent shifting with different glyph sizes.
+    /// Fixed height for glyph container to prevent shifting with different glyph sizes.
     private let glyphContainerHeight: CGFloat = 100
-    // Glyph size.
+    /// Glyph size.
     private let glyphSize: CGFloat = 64
-    // Spacing between glyph and title.
+    /// Spacing between glyph and title.
     private let glyphToTitleSpacing: CGFloat = 16
-    // Spacing between title and message.
+    /// Spacing between title and message.
     private let titleToMessageSpacing: CGFloat = 8
-    // Spacing between message and action button.
+    /// Spacing between message and action button.
     private let messageToActionSpacing: CGFloat = 16
-    // Maximum width for message text.
+    /// Maximum width for message text.
     private let messageMaxWidth: CGFloat = 320
 
     // MARK: - Initializers
-    // Creates a placeholder with all optional elements.
+    /// Creates a placeholder with all optional elements.
     init(
         glyph: String,
         title: String? = nil,
@@ -1460,15 +1460,15 @@ struct StandardPlaceholder: View {
         self.action = action }
 
     // MARK: - Body
-    // Every placeholder sits at one fixed position, whatever it holds. What is centered
-    // is not the content but a hidden strut behind it: the layout of a placeholder with
-    // a title and a ONE-line message. Content and strut share a top edge, and the frame
-    // centers the STRUT's center (the `anchor` guide) rather than the content's, so the
-    // glyph, the title, and the message's first line land on the same points in every
-    // placeholder; a message that wraps to more lines, and the action button, only
-    // extend downward. Centering the content itself would move all of it up by half of
-    // every extra line. Both stay inside the ZStack's bounds, so the button hit-tests
-    // normally.
+    /// Every placeholder sits at one fixed position, whatever it holds. What is centered
+    /// is not the content but a hidden strut behind it: the layout of a placeholder with
+    /// a title and a ONE-line message. Content and strut share a top edge, and the frame
+    /// centers the STRUT's center (the `anchor` guide) rather than the content's, so the
+    /// glyph, the title, and the message's first line land on the same points in every
+    /// placeholder; a message that wraps to more lines, and the action button, only
+    /// extend downward. Centering the content itself would move all of it up by half of
+    /// every extra line. Both stay inside the ZStack's bounds, so the button hit-tests
+    /// normally.
     var body: some View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
@@ -1492,28 +1492,28 @@ struct StandardPlaceholder: View {
 
     private var content: some View {
         VStack(spacing: 0) {
-            // Fixed-height container for glyph ensures consistent positioning.
+            /// Fixed-height container for glyph ensures consistent positioning.
             VStack {
                 Image(systemName: glyph)
                     .font(.system(size: glyphSize))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.tertiary) }
             .frame(height: glyphContainerHeight)
-            // Title (if present).
+            /// Title (if present).
             if let title = title {
                 titleText(title)
                     .padding(.top, glyphToTitleSpacing) }
-            // Message (if present).
+            /// Message (if present).
             if let message = message {
                 messageText(message)
                     .padding(.top, title != nil ? titleToMessageSpacing : glyphToTitleSpacing) }
-            // Action button (if present).
+            /// Action button (if present).
             if let actionTitle = actionTitle, let action = action {
                 Button(actionTitle, action: action)
                     .buttonStyle(.borderedProminent)
                     .padding(.top, messageToActionSpacing) } } }
 
-    // The strut and the content share these, so the strut's lines are exactly as tall.
+    /// The strut and the content share these, so the strut's lines are exactly as tall.
     private func titleText(_ text: String) -> some View {
         Text(text)
             .font(.title2)
@@ -1529,22 +1529,22 @@ struct StandardPlaceholder: View {
 }
 
 // MARK: - WindowAccessor
-// Helper NSViewRepresentable to capture the hosting NSWindow from SwiftUI views.
-// Usage:
-//   @State private var hostingWindow: NSWindow?
-//
-//   var body: some View {
-//       MyView()
-//           .background(WindowAccessor(window: $hostingWindow))
-//   }
+/// Helper NSViewRepresentable to capture the hosting NSWindow from SwiftUI views.
+/// Usage:
+///   @State private var hostingWindow: NSWindow?
+///
+///   var body: some View {
+///       MyView()
+///           .background(WindowAccessor(window: $hostingWindow))
+///   }
 struct WindowAccessor: NSViewRepresentable {
     @Binding var window: NSWindow?
     
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        // Defer the binding write one run-loop turn so the NSView is fully inserted
-        // into the window hierarchy before we read view.window. Using Task @MainActor
-        // keeps this on the main actor and avoids mixing GCD and Swift concurrency.
+        /// Defer the binding write one run-loop turn so the NSView is fully inserted
+        /// into the window hierarchy before we read view.window. Using Task @MainActor
+        /// keeps this on the main actor and avoids mixing GCD and Swift concurrency.
         Task { @MainActor in
             self.window = unsafe view.window
         }
@@ -1552,9 +1552,9 @@ struct WindowAccessor: NSViewRepresentable {
     }
     
     func updateNSView(_ nsView: NSView, context: Context) {
-        // Only update the binding when the window reference actually changes.
-        // updateNSView is called on every SwiftUI render pass; unconditionally
-        // writing the binding triggers unnecessary objectWillChange notifications.
+        /// Only update the binding when the window reference actually changes.
+        /// updateNSView is called on every SwiftUI render pass; unconditionally
+        /// writing the binding triggers unnecessary objectWillChange notifications.
         let current = unsafe nsView.window
         if current !== self.window {
             Task { @MainActor in
@@ -1587,9 +1587,9 @@ extension CGPath {
 }
 
 // MARK: - Array Chunking
-// Unified chunked(into:) extension used by DataManager, PosterCache, and DBReader
-// for batch processing of large collections. Internal access allows all files in the
-// module to use it without isolation concerns (Array is a value type).
+/// Unified chunked(into:) extension used by DataManager, PosterCache, and DBReader
+/// for batch processing of large collections. Internal access allows all files in the
+/// module to use it without isolation concerns (Array is a value type).
 extension Array {
     func chunked(into size: Int) -> [[Element]] {
         guard size > 0 else { return [] }
@@ -1600,9 +1600,9 @@ extension Array {
 }
 
 // MARK: - UUID Placeholder Label
-// Single source of truth for the short identifier printed over a film's placeholder
-// poster art — the gallery tile (GalleryItemView) and the RightSidebar Header both
-// render it, and both must produce the identical string for the same film.
+/// Single source of truth for the short identifier printed over a film's placeholder
+/// poster art — the gallery tile (GalleryItemView) and the RightSidebar Header both
+/// render it, and both must produce the identical string for the same film.
 extension UUID {
     /// The last 10 characters of this UUID's canonical string form, uppercase.
     ///
@@ -1619,17 +1619,17 @@ extension UUID {
     /// because the gallery calls this per tile during scrolling and reconfiguration.
     var placeholderIDSuffix: String {
         let b = self.uuid
-        // ASCII digit for one hex nibble: '0'...'9' = 48...57, 'A'...'F' = 65...70.
+        /// ASCII digit for one hex nibble: '0'...'9' = 48...57, 'A'...'F' = 65...70.
         func hex(_ nibble: UInt8) -> UInt8 { nibble < 10 ? 48 + nibble : 55 + nibble }
-        // Writes the 10 ASCII bytes straight into the String's own storage: one
-        // allocation total, no intermediate array, and the result is all-ASCII so it
-        // stays in the small (inline) UTF-8 representation — 10 bytes fits comfortably
-        // inside String's 15-byte small-string capacity, so in practice this heap-
-        // allocates nothing at all.
+        /// Writes the 10 ASCII bytes straight into the String's own storage: one
+        /// allocation total, no intermediate array, and the result is all-ASCII so it
+        /// stays in the small (inline) UTF-8 representation — 10 bytes fits comfortably
+        /// inside String's 15-byte small-string capacity, so in practice this heap-
+        /// allocates nothing at all.
         return unsafe String(unsafeUninitializedCapacity: 10) { buffer in
-            // Unrolled deliberately: five fixed tuple members cannot be iterated without
-            // first materializing them into a collection, which is the one allocation
-            // this whole spelling exists to avoid.
+            /// Unrolled deliberately: five fixed tuple members cannot be iterated without
+            /// first materializing them into a collection, which is the one allocation
+            /// this whole spelling exists to avoid.
             func write(_ byte: UInt8, at i: Int) {
                 unsafe buffer[i] = hex(byte >> 4)
                 unsafe buffer[i + 1] = hex(byte & 0x0F)
@@ -1869,49 +1869,49 @@ enum ShowInListNavigation: Loggable {
             targetViewID = .list(listID)
             sidebarItem  = .list(listID)
         case .smartList(let type):
-            // The exact variant is the view; its parent is the row that highlights.
+            /// The exact variant is the view; its parent is the row that highlights.
             targetViewID = .smartList(type)
             sidebarItem  = .smartList(type.sidebarParent)
         }
 
-        // Already showing exactly this view — nothing to navigate to, and nothing to
-        // preserve or scroll. Clearing any stale token here keeps this early return from
-        // leaving one armed for some later, unrelated view change.
+        /// Already showing exactly this view — nothing to navigate to, and nothing to
+        /// preserve or scroll. Clearing any stale token here keeps this early return from
+        /// leaving one armed for some later, unrelated view change.
         if appState.selectedSidebarItem == sidebarItem,
            ViewStateManager.shared.activeView == targetViewID {
             preservedFilmID = nil
             return
         }
 
-        // Step 1 — resolve the sub-variant picker to the destination. syncAll hands the
-        // type to every family; only the one that owns it changes. Mirrors the identical
-        // call in GalleryView.handleSidebarChange.
+        /// Step 1 — resolve the sub-variant picker to the destination. syncAll hands the
+        /// type to every family; only the one that owns it changes. Mirrors the identical
+        /// call in GalleryView.handleSidebarChange.
         if case .smartList(let type) = destination {
             SmartListVariantState.syncAll(to: type)
         }
 
-        // A sub-variant switch within the smart list already on screen changes the view
-        // without changing the sidebar row. That distinction drives three decisions below:
-        // no selection clear will fire (so no token is needed), no fresh gallery will
-        // mount (so the scroll intent must be consumable on the reuse path), and the
-        // sidebar assignment itself must be skipped.
+        /// A sub-variant switch within the smart list already on screen changes the view
+        /// without changing the sidebar row. That distinction drives three decisions below:
+        /// no selection clear will fire (so no token is needed), no fresh gallery will
+        /// mount (so the scroll intent must be consumable on the reuse path), and the
+        /// sidebar assignment itself must be skipped.
         let isSidebarChange = appState.selectedSidebarItem != sidebarItem
 
-        // Step 2 — pre-load the destination's films. Any intent left over from an earlier,
-        // abandoned transition is discarded first so it cannot outrank this one.
+        /// Step 2 — pre-load the destination's films. Any intent left over from an earlier,
+        /// abandoned transition is discarded first so it cannot outrank this one.
         GalleryScrollIntent.shared.clear()
         preservedFilmID = nil
         ViewStateManager.shared.switchToViewSync(targetViewID)
 
-        // Step 3 — preserve and arm the scroll, but only if the film genuinely survives
-        // into the destination's loaded set (see the pre-load rationale above). When it
-        // does not, the standard clear-on-view-change behavior applies unchanged.
+        /// Step 3 — preserve and arm the scroll, but only if the film genuinely survives
+        /// into the destination's loaded set (see the pre-load rationale above). When it
+        /// does not, the standard clear-on-view-change behavior applies unchanged.
         if coordinator.films.contains(where: { $0.id == filmID }) {
             if isSidebarChange {
                 preservedFilmID = filmID
             }
-            // Placed in the top row, not merely made visible — the whole point of the
-            // feature — and, unlike the search-exit handoff, never gated by a preference.
+            /// Placed in the top row, not merely made visible — the whole point of the
+            /// feature — and, unlike the search-exit handoff, never gated by a preference.
             GalleryScrollIntent.shared.set(filmID: filmID,
                                            targetViewID: targetViewID,
                                            consumableOnReuse: !isSidebarChange)
@@ -1920,7 +1920,7 @@ enum ShowInListNavigation: Loggable {
             Self.log("NOTE: film \(filmID) is not present in \(targetViewID) after load — navigating without preservation")
         }
 
-        // Step 4 — flip the sidebar last.
+        /// Step 4 — flip the sidebar last.
         if isSidebarChange {
             appState.navigate(to: sidebarItem)
         }
@@ -1928,17 +1928,17 @@ enum ShowInListNavigation: Loggable {
 }
 
 // MARK: - Diagnostic Timing
-//
-// Formatting helpers for the startup-breakdown logging in MemoryStoreCache, DataManager,
-// PosterCache, DataCoordinator, and FilmTrackerApp. These exist so those measurements can
-// be expressed with `ContinuousClock` rather than `Date()`.
-//
-// `ContinuousClock` is the correct tool for measuring elapsed time: it is monotonic, so it
-// cannot be perturbed by a system clock adjustment. That is not a hypothetical concern for
-// startup measurements specifically — a network time sync landing during launch is exactly
-// the kind of event that can make a wall-clock delta negative or wildly wrong, and the
-// numbers being collected here are single-digit-to-hundreds of milliseconds, well inside
-// the range such a correction would corrupt.
+///
+/// Formatting helpers for the startup-breakdown logging in MemoryStoreCache, DataManager,
+/// PosterCache, DataCoordinator, and FilmTrackerApp. These exist so those measurements can
+/// be expressed with `ContinuousClock` rather than `Date()`.
+///
+/// `ContinuousClock` is the correct tool for measuring elapsed time: it is monotonic, so it
+/// cannot be perturbed by a system clock adjustment. That is not a hypothetical concern for
+/// startup measurements specifically — a network time sync landing during launch is exactly
+/// the kind of event that can make a wall-clock delta negative or wildly wrong, and the
+/// numbers being collected here are single-digit-to-hundreds of milliseconds, well inside
+/// the range such a correction would corrupt.
 extension Duration {
     /// This duration expressed as a floating-point count of milliseconds.
     ///
@@ -1957,10 +1957,10 @@ extension Duration {
 }
 
 // MARK: - Alert Error Detail
-// Surfacing raw error text in the failure alerts that would otherwise send the user to
-// a log they almost certainly do not have. Debug logging is off by default and is only
-// ever turned on deliberately, so "check the log" is, in practice, advice to consult a
-// file that was never written. The detail therefore travels in the alert payload itself.
+/// Surfacing raw error text in the failure alerts that would otherwise send the user to
+/// a log they almost certainly do not have. Debug logging is off by default and is only
+/// ever turned on deliberately, so "check the log" is, in practice, advice to consult a
+/// file that was never written. The detail therefore travels in the alert payload itself.
 enum AlertErrorDetail {
     /// Longest detail string an alert will show. Long enough for the message and the
     /// leading type information that identifies the fault; short enough that a verbose

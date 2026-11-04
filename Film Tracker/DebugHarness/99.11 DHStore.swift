@@ -1,47 +1,47 @@
 // MARK: - DHStore.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only harness scenarios for the MemoryStore / DataCoordinator layer — the app's
-// in-memory source of truth and the optimistic-update coordinator built on top of it.
-//
-// WHY THESE ARE STRUCTURAL RATHER THAN EXAMPLE-BASED
-//
-// The sort scenarios in DebugHarness could state an expected order literally, because a
-// sort has one output. This layer does not: its correctness is a set of RELATIONSHIPS that
-// must hold after any sequence of mutations, and the failures that actually occur here are
-// not "the wrong answer" but "an answer that was right some mutations ago". So the checks
-// are invariants and differentials:
-//
-//   • Invariants (`storeInvariants`) — the reverse membership index agrees with the list
-//     memberships it indexes; no list references a film the store does not hold; the Hall
-//     of Fame's derived order agrees with the stored positions and is dense 1..N. These are
-//     asserted after EVERY mutation in a sequence, not once at the end, so a failure names
-//     the operation that broke it rather than the operation that happened to be last.
-//
-//   • Differential (`differentialChecks`) — after a sequence of mutations, the store's
-//     answers are compared against those of a FRESH store built from its own final films
-//     and lists. The two must agree for every (view, sort, direction, filters) combination.
-//     A fresh store has no view cache, so any disagreement is by construction a cache entry
-//     that a mutation should have invalidated and did not. This property is the one a poisoned
-//     empty view cached during startup would fail, and no example-based check would catch it.
-//
-// WHY MOST SCENARIOS USE AN ISOLATED STORE
-//
-// `MemoryStore.isolatedForTesting` gives each scenario a store that is a pure function of
-// its own corpus — the same reasoning MetadataCache's isolated instance is built on. The
-// exception is `store-coordinator`, which is testing DataCoordinator's own wiring (Film
-// Queue exclusivity enforcement, published-state upkeep, list-cache synchronization) and
-// therefore has to run against the real coordinator.
-//
-// SHARED METADATACACHE, AND WHY THAT IS ACCEPTABLE HERE
-//
-// MemoryStore names `MetadataCache.shared` directly, so an isolated store still sorts
-// through the shared cache. Each scenario therefore registers its corpus there and removes
-// it again on the way out. This is contained rather than ideal: the process is a sandbox
-// instance with an empty library that exits seconds later, and every file the cache could
-// write is inside the sandbox container. It is called out here so the coupling is a known
-// limitation rather than a surprise — if MemoryStore ever takes an injected cache, these
-// scenarios should stop touching the shared one.
+/// DEBUG-only harness scenarios for the MemoryStore / DataCoordinator layer — the app's
+/// in-memory source of truth and the optimistic-update coordinator built on top of it.
+///
+/// WHY THESE ARE STRUCTURAL RATHER THAN EXAMPLE-BASED
+///
+/// The sort scenarios in DebugHarness could state an expected order literally, because a
+/// sort has one output. This layer does not: its correctness is a set of RELATIONSHIPS that
+/// must hold after any sequence of mutations, and the failures that actually occur here are
+/// not "the wrong answer" but "an answer that was right some mutations ago". So the checks
+/// are invariants and differentials:
+///
+///   • Invariants (`storeInvariants`) — the reverse membership index agrees with the list
+///     memberships it indexes; no list references a film the store does not hold; the Hall
+///     of Fame's derived order agrees with the stored positions and is dense 1..N. These are
+///     asserted after EVERY mutation in a sequence, not once at the end, so a failure names
+///     the operation that broke it rather than the operation that happened to be last.
+///
+///   • Differential (`differentialChecks`) — after a sequence of mutations, the store's
+///     answers are compared against those of a FRESH store built from its own final films
+///     and lists. The two must agree for every (view, sort, direction, filters) combination.
+///     A fresh store has no view cache, so any disagreement is by construction a cache entry
+///     that a mutation should have invalidated and did not. This property is the one a poisoned
+///     empty view cached during startup would fail, and no example-based check would catch it.
+///
+/// WHY MOST SCENARIOS USE AN ISOLATED STORE
+///
+/// `MemoryStore.isolatedForTesting` gives each scenario a store that is a pure function of
+/// its own corpus — the same reasoning MetadataCache's isolated instance is built on. The
+/// exception is `store-coordinator`, which is testing DataCoordinator's own wiring (Film
+/// Queue exclusivity enforcement, published-state upkeep, list-cache synchronization) and
+/// therefore has to run against the real coordinator.
+///
+/// SHARED METADATACACHE, AND WHY THAT IS ACCEPTABLE HERE
+///
+/// MemoryStore names `MetadataCache.shared` directly, so an isolated store still sorts
+/// through the shared cache. Each scenario therefore registers its corpus there and removes
+/// it again on the way out. This is contained rather than ideal: the process is a sandbox
+/// instance with an empty library that exits seconds later, and every file the cache could
+/// write is inside the sandbox container. It is called out here so the coupling is a known
+/// limitation rather than a surprise — if MemoryStore ever takes an injected cache, these
+/// scenarios should stop touching the shared one.
 
 #if DEBUG
 
@@ -90,10 +90,10 @@ extension DebugHarness {
         let lists = store.allListsForTesting
         let reverse = store.filmToListsForTesting
 
-        // 1. Forward → reverse. Every membership recorded on a list must be recorded on the
-        //    film. A gap here makes getListIDs(forFilm:) — which drives the sidebar's
-        //    membership table, the Film Queue section resolution, and updateFilm's cache
-        //    invalidation — silently under-report.
+        /// 1. Forward → reverse. Every membership recorded on a list must be recorded on the
+        ///    film. A gap here makes getListIDs(forFilm:) — which drives the sidebar's
+        ///    membership table, the Film Queue section resolution, and updateFilm's cache
+        ///    invalidation — silently under-report.
         var forwardMissing: [String] = []
         for list in lists {
             for filmID in list.filmIDs where !(reverse[filmID]?.contains(list.listID) ?? false) {
@@ -104,9 +104,9 @@ extension DebugHarness {
                                    passed: forwardMissing.isEmpty,
                                    detail: forwardMissing.prefix(3).joined(separator: "; ")))
 
-        // 2. Reverse → forward. A reverse entry with no corresponding membership is the more
-        //    dangerous direction: it survives list deletion and keeps a film "in" a list that
-        //    no longer contains it.
+        /// 2. Reverse → forward. A reverse entry with no corresponding membership is the more
+        ///    dangerous direction: it survives list deletion and keeps a film "in" a list that
+        ///    no longer contains it.
         var reverseStale: [String] = []
         let listsByID = Dictionary(uniqueKeysWithValues: lists.map { ($0.listID, $0) })
         for (filmID, listIDs) in reverse {
@@ -124,9 +124,9 @@ extension DebugHarness {
                                    passed: reverseStale.isEmpty,
                                    detail: reverseStale.prefix(3).joined(separator: "; ")))
 
-        // 3. No phantom memberships. A list holding an ID for a film the store no longer has
-        //    inflates getFilmCount(viewID:) — which counts raw filmIDs — without producing a
-        //    visible row, so the count and the grid disagree until the next full reload.
+        /// 3. No phantom memberships. A list holding an ID for a film the store no longer has
+        ///    inflates getFilmCount(viewID:) — which counts raw filmIDs — without producing a
+        ///    visible row, so the count and the grid disagree until the next full reload.
         var phantoms: [String] = []
         for list in lists {
             for filmID in list.filmIDs where films[filmID] == nil {
@@ -137,15 +137,15 @@ extension DebugHarness {
                                    passed: phantoms.isEmpty,
                                    detail: phantoms.prefix(3).joined(separator: "; ")))
 
-        // 4. Reverse index holds no entry for a film that has been deleted.
+        /// 4. Reverse index holds no entry for a film that has been deleted.
         let orphanedReverse = reverse.keys.filter { films[$0] == nil }
         checks.append(HarnessCheck(name: "\(label)/no-orphaned-reverse-entries",
                                    passed: orphanedReverse.isEmpty,
                                    detail: "\(orphanedReverse.count) orphan(s)"))
 
-        // 5. Hall of Fame: the derived ordered list must name exactly the ranked films, in
-        //    stored-position order, with positions forming an unbroken 1..N sequence. Every
-        //    consumer of hallOfFameIsFull and getNextHallOfFamePosition depends on this.
+        /// 5. Hall of Fame: the derived ordered list must name exactly the ranked films, in
+        ///    stored-position order, with positions forming an unbroken 1..N sequence. Every
+        ///    consumer of hallOfFameIsFull and getNextHallOfFamePosition depends on this.
         let ranked = films.values.filter { $0.hofPosition > 0 }
         let ordered = store.hallOfFameFilms
         checks.append(HarnessCheck(
@@ -159,9 +159,9 @@ extension DebugHarness {
                                    passed: dense,
                                    detail: positions.isEmpty ? "empty" : "\(positions.prefix(12))…"))
 
-        // 6. Film Queue mutual exclusivity — a film in two sections would appear once in the
-        //    grid (the grouping dedupes) but be counted once per section by any caller that
-        //    sums section membership, and would flip section on any change to the queue.
+        /// 6. Film Queue mutual exclusivity — a film in two sections would appear once in the
+        ///    grid (the grouping dedupes) but be counted once per section by any caller that
+        ///    sums section membership, and would flip section on any change to the queue.
         if expectQueueExclusivity {
             let multi = films.keys.filter {
                 (reverse[$0] ?? []).intersection(FilmQueue.allListIDs).count > 1
@@ -219,10 +219,10 @@ extension DebugHarness {
                                 + "\(direction.rawValue)/\(filters.count)f: "
                                 + "\(cached.count) vs \(reference.count)")
                         } else if zip(cached, reference).contains(where: { $0.0.name != $0.1.name }) {
-                            // Same ordering of IDs but different snapshot content: the cached
-                            // array holds pre-mutation VALUES. MemoryStore caches
-                            // [FilmSnapshot], not [UUID], so a missed invalidation can leave
-                            // the right films in the right order carrying stale fields.
+                            /// Same ordering of IDs but different snapshot content: the cached
+                            /// array holds pre-mutation VALUES. MemoryStore caches
+                            /// [FilmSnapshot], not [UUID], so a missed invalidation can leave
+                            /// the right films in the right order carrying stale fields.
                             mismatches.append("\(viewID.description)/\(option.rawValue): stale snapshot values")
                         }
                     }
@@ -258,9 +258,9 @@ extension DebugHarness {
                                     displayOrder: index, sortFilterOptions: [], filmIDs: members))
         }
 
-        // Queue membership is built exclusively — one section per film — because that is the
-        // invariant every add path enforces, and seeding a violation would make the baseline
-        // check fail for a reason the corpus, not the code, is responsible for.
+        /// Queue membership is built exclusively — one section per film — because that is the
+        /// invariant every add path enforces, and seeding a violation would make the baseline
+        /// check fail for a reason the corpus, not the code, is responsible for.
         var claimed = Set<UUID>()
         for section in FilmQueueSection.allCases {
             var members = Set<UUID>()
@@ -301,10 +301,10 @@ extension DebugHarness {
         r.checks.append(contentsOf: storeInvariants(store, "baseline"))
         r.checks.append(contentsOf: differentialChecks(store, "baseline"))
 
-        // --- Readiness gate ------------------------------------------------------------
-        // A store that has not finished Phase 2 must answer empty AND must not cache that
-        // answer. Caching it was a session-long corruption: nothing invalidates a view cache
-        // on initialization, so the poisoned entry outlived the condition that created it.
+        /// --- Readiness gate ------------------------------------------------------------
+        /// A store that has not finished Phase 2 must answer empty AND must not cache that
+        /// answer. Caching it was a session-long corruption: nothing invalidates a view cache
+        /// on initialization, so the poisoned entry outlived the condition that created it.
         let cold = MemoryStore()
         let coldResult = cold.getFilms(viewID: .allFilms, sortOption: .title,
                                        direction: .ascending, filterOptions: [])
@@ -312,27 +312,27 @@ extension DebugHarness {
         r.check("uninitialized-does-not-cache", cold.cachedViewCountForTesting == 0,
                 "\(cold.cachedViewCountForTesting) cache entries written before readiness")
 
-        // --- Warm the cache, then mutate -------------------------------------------------
-        // Every combination is requested first so that each subsequent mutation is being
-        // checked against a fully populated cache. A missed invalidation is invisible against
-        // a cold cache, which is exactly why the mutation tests below are ordered this way.
+        /// --- Warm the cache, then mutate -------------------------------------------------
+        /// Every combination is requested first so that each subsequent mutation is being
+        /// checked against a fully populated cache. A missed invalidation is invisible against
+        /// a cold cache, which is exactly why the mutation tests below are ordered this way.
         _ = differentialChecks(store, "warm-up")
         let warmEntries = store.cachedViewCountForTesting
         r.metric("view-cache-entries-after-full-matrix", Double(warmEntries), "count")
 
-        // The cache has no eviction policy: an entry is created per distinct (view, sort,
-        // direction, filters) request and removed only by a mutation that invalidates it. It
-        // holds [FilmSnapshot] — VALUES, not IDs — so each entry costs one inline copy of the
-        // struct per film on top of the shared String/Array storage. Recorded as numbers
-        // rather than asserted: the ceiling depends on how many combinations a session
-        // actually visits, which is a usage question, not a correctness one. The figures are
-        // here so the cost is visible if a library or a session ever makes it matter.
+        /// The cache has no eviction policy: an entry is created per distinct (view, sort,
+        /// direction, filters) request and removed only by a mutation that invalidates it. It
+        /// holds [FilmSnapshot] — VALUES, not IDs — so each entry costs one inline copy of the
+        /// struct per film on top of the shared String/Array storage. Recorded as numbers
+        /// rather than asserted: the ceiling depends on how many combinations a session
+        /// actually visits, which is a usage question, not a correctness one. The figures are
+        /// here so the cost is visible if a library or a session ever makes it matter.
         r.metric("film-snapshot-inline-size", Double(MemoryLayout<FilmSnapshot>.stride), "bytes")
         r.metric("view-cache-inline-bytes-after-full-matrix",
                  Double(warmEntries * store.totalFilmCount * MemoryLayout<FilmSnapshot>.stride),
                  "bytes")
 
-        // 1. Scalar edit to a sort key. Must reorder every whole-library view.
+        /// 1. Scalar edit to a sort key. Must reorder every whole-library view.
         if var film = store.getAllFilmsMap().values.first(where: { $0.userRating < 5 }) {
             film.userRating = 5
             film.name = "ZZZ Renamed Specimen"
@@ -349,7 +349,7 @@ extension DebugHarness {
             r.check("update-specimen-available", false, "no film with rating < 5 in corpus")
         }
 
-        // 2. List membership add/remove, including a stale ID.
+        /// 2. List membership add/remove, including a stale ID.
         let listID = userListIDs[0]
         let candidates = Array(store.getAllFilmsMap().keys.prefix(20))
         store.addFilmsToList(filmIDs: Set(candidates), listID: listID)
@@ -364,8 +364,8 @@ extension DebugHarness {
                     && store.getList(listID)?.filmIDs.count == beforePhantom,
                 "a stale ID from a deferred add never enters a list")
 
-        // A phantom mixed in with real IDs must not take the valid ones down with it — the
-        // guard filters rather than aborts, and this is the case that separates the two.
+        /// A phantom mixed in with real IDs must not take the valid ones down with it — the
+        /// guard filters rather than aborts, and this is the case that separates the two.
         let mixed = Set(store.getAllFilmsMap().keys.prefix(3)).union([UUID()])
         store.addFilmsToList(filmIDs: mixed, listID: userListIDs[1])
         let addedReal = mixed.filter { store.getAllFilmsMap()[$0] != nil }
@@ -377,16 +377,16 @@ extension DebugHarness {
         r.checks.append(contentsOf: storeInvariants(store, "after-list-remove"))
         r.checks.append(contentsOf: differentialChecks(store, "after-list-remove"))
 
-        // 3. List rename must be visible through getAllLists immediately — the sorted-lists
-        //    cache holds value-type copies, so a missed invalidation leaves the sidebar
-        //    showing the old name until the next unrelated mutation.
+        /// 3. List rename must be visible through getAllLists immediately — the sorted-lists
+        ///    cache holds value-type copies, so a missed invalidation leaves the sidebar
+        ///    showing the old name until the next unrelated mutation.
         store.updateList(listID: listID, name: "Renamed List", displayOrder: nil,
                          sortFilterOptions: nil)
         r.check("list-rename-visible",
                 store.getAllLists().first(where: { $0.listID == listID })?.listName == "Renamed List",
                 "getAllLists reflects the rename without an intervening mutation")
 
-        // 4. Film deletion — the operation that touches the most derived state at once.
+        /// 4. Film deletion — the operation that touches the most derived state at once.
         let doomed = Set(store.getAllFilmsMap().keys.prefix(25))
         let countBefore = store.totalFilmCount
         store.deleteFilms(ids: doomed)
@@ -399,7 +399,7 @@ extension DebugHarness {
                                filterOptions: []).allSatisfy { !doomed.contains($0.id) },
                 "no deleted film survives in a cached view")
 
-        // 5. Deleting a film a second time, and deleting an unknown ID, must both be inert.
+        /// 5. Deleting a film a second time, and deleting an unknown ID, must both be inert.
         let stableCount = store.totalFilmCount
         store.deleteFilms(ids: doomed)
         store.deleteFilms(ids: [UUID()])
@@ -407,8 +407,8 @@ extension DebugHarness {
                 "\(stableCount) → \(store.totalFilmCount)")
         r.checks.append(contentsOf: storeInvariants(store, "after-redundant-delete"))
 
-        // 6. Updating a film the store does not hold must not create it. `updateFilm` is
-        //    reached from rollback paths where the film may have been deleted in between.
+        /// 6. Updating a film the store does not hold must not create it. `updateFilm` is
+        ///    reached from rollback paths where the film may have been deleted in between.
         let ghost = makeSnapshot(name: "Ghost")
         let preGhost = store.totalFilmCount
         store.updateFilm(ghost)
@@ -416,16 +416,16 @@ extension DebugHarness {
                 store.totalFilmCount == preGhost && store.getFilm(ghost.id) == nil,
                 "\(preGhost) → \(store.totalFilmCount)")
 
-        // 7. List deletion must leave no reverse-index residue.
+        /// 7. List deletion must leave no reverse-index residue.
         store.deleteList(listID: userListIDs[2])
         r.check("deleted-list-unreachable", store.getList(userListIDs[2]) == nil, "")
         r.checks.append(contentsOf: storeInvariants(store, "after-list-delete"))
         r.checks.append(contentsOf: differentialChecks(store, "after-list-delete"))
 
-        // 8. Restoring a deleted list — the rollback path — must rebuild the reverse index.
-        //    Restored with its ORIGINAL membership, which by now includes films that have
-        //    since been deleted: that is exactly the state a rollback arriving after an
-        //    unrelated deletion produces, and the invariants must survive it.
+        /// 8. Restoring a deleted list — the rollback path — must rebuild the reverse index.
+        ///    Restored with its ORIGINAL membership, which by now includes films that have
+        ///    since been deleted: that is exactly the state a rollback arriving after an
+        ///    unrelated deletion produces, and the invariants must survive it.
         if let original = lists.first(where: { $0.listID == userListIDs[2] }) {
             store.restoreList(original)
             let restoredPhantoms = (store.getList(userListIDs[2])?.filmIDs ?? [])
@@ -438,9 +438,9 @@ extension DebugHarness {
             r.checks.append(contentsOf: storeInvariants(store, "after-list-restore"))
         }
 
-        // 9. restoreFilm — the update-rollback path. It replaces a whole snapshot, hofPosition
-        //    included, so it must reconcile the derived Hall of Fame list rather than assume
-        //    no caller ever rolls a rank back through it.
+        /// 9. restoreFilm — the update-rollback path. It replaces a whole snapshot, hofPosition
+        ///    included, so it must reconcile the derived Hall of Fame list rather than assume
+        ///    no caller ever rolls a rank back through it.
         if var ranked = store.getAllFilmsMap().values.first(where: { $0.hofPosition == 0 }) {
             let id = ranked.id
             _ = store.addToHallOfFame(id)
@@ -454,12 +454,12 @@ extension DebugHarness {
             r.checks.append(contentsOf: storeInvariants(store, "after-restore-film"))
         }
 
-        // 10. Pre-warm agreement. finalizeInitialization pre-sorts the first view off
-        //     MainActor and writes it straight into the view cache, then publishes it as
-        //     `films` without going through performLoad. If that entry disagreed with what
-        //     the same request computes normally, the first frame would show one ordering and
-        //     the first navigation another — and because the entry is cached, the wrong one
-        //     would persist. The key it writes must also be the key the next request builds.
+        /// 10. Pre-warm agreement. finalizeInitialization pre-sorts the first view off
+        ///     MainActor and writes it straight into the view cache, then publishes it as
+        ///     `films` without going through performLoad. If that entry disagreed with what
+        ///     the same request computes normally, the first frame would show one ordering and
+        ///     the first navigation another — and because the entry is cached, the wrong one
+        ///     would persist. The key it writes must also be the key the next request builds.
         let prewarmStore = MemoryStore.isolatedForTesting(
             films: Array(store.getAllFilmsMap().values), lists: store.allListsForTesting)
         let prewarmed = await prewarmStore.prewarmInitialView(
@@ -502,7 +502,7 @@ extension DebugHarness {
         let store = MemoryStore.isolatedForTesting(films: corpus, lists: [])
         let ids = corpus.map(\.id)
 
-        // --- Add ------------------------------------------------------------------------
+        /// --- Add ------------------------------------------------------------------------
         var assigned: [Int] = []
         for id in ids.prefix(12) {
             if let position = store.addToHallOfFame(id) { assigned.append(position) }
@@ -511,17 +511,17 @@ extension DebugHarness {
         r.check("add-order-preserved", Array(store.hallOfFameFilms) == Array(ids.prefix(12)), "")
         r.checks.append(contentsOf: storeInvariants(store, "hof-after-add"))
 
-        // Re-adding a ranked film must be refused: it would occupy a second slot while
-        // keeping the first, gapping the sequence and making the next add collide.
+        /// Re-adding a ranked film must be refused: it would occupy a second slot while
+        /// keeping the first, gapping the sequence and making the next add collide.
         let readd = store.addToHallOfFame(ids[0])
         r.check("re-add-refused", readd == nil, "returned \(String(describing: readd))")
         r.check("re-add-changed-nothing", store.hallOfFameFilms.count == 12,
                 "\(store.hallOfFameFilms.count) members")
 
-        // An unknown film cannot be ranked.
+        /// An unknown film cannot be ranked.
         r.check("add-unknown-film-refused", store.addToHallOfFame(UUID()) == nil, "")
 
-        // --- Batch remove from the middle -----------------------------------------------
+        /// --- Batch remove from the middle -----------------------------------------------
         let removed: Set<UUID> = [ids[2], ids[5], ids[6]]
         let shifted = store.removeFromHallOfFame(removed)
         r.check("remove-reports-shifted-survivors", shifted != nil,
@@ -531,22 +531,22 @@ extension DebugHarness {
                 "survivors keep their relative ranking after compaction")
         r.checks.append(contentsOf: storeInvariants(store, "hof-after-remove"))
 
-        // Removing films that hold no position must report "nothing written" rather than an
-        // empty shift list — the caller uses that distinction to decide whether to persist.
+        /// Removing films that hold no position must report "nothing written" rather than an
+        /// empty shift list — the caller uses that distinction to decide whether to persist.
         r.check("remove-of-unranked-returns-nil",
                 store.removeFromHallOfFame(Set(ids.suffix(3))) == nil, "")
 
-        // Removing the LAST member shifts nobody; the empty array must not be confused with
-        // nil, or a real removal would skip its own persistence.
+        /// Removing the LAST member shifts nobody; the empty array must not be confused with
+        /// nil, or a real removal would skip its own persistence.
         if let last = store.hallOfFameFilms.last {
             let tailShift = store.removeFromHallOfFame(last)
             r.check("remove-last-returns-empty-not-nil", tailShift?.isEmpty == true,
                     "returned \(String(describing: tailShift?.count))")
         }
 
-        // --- Reorder, with a hostile request ---------------------------------------------
-        // Duplicates, an unknown UUID, and an unranked film are all things a stale or buggy
-        // caller can hand this method. None may promote, drop, or duplicate a member.
+        /// --- Reorder, with a hostile request ---------------------------------------------
+        /// Duplicates, an unknown UUID, and an unranked film are all things a stale or buggy
+        /// caller can hand this method. None may promote, drop, or duplicate a member.
         let ranked = store.hallOfFameFilms
         let hostile = [ranked[3], ranked[0], ranked[0], UUID(), ids[250], ranked[1]]
         let applied = store.reorderHallOfFame(hostile)
@@ -555,12 +555,12 @@ extension DebugHarness {
                 "membership unchanged: \(applied.count) vs \(ranked.count)")
         r.check("reorder-collapses-duplicates",
                 Set(applied).count == applied.count, "no film appears twice")
-        // The requested films keep their requested RELATIVE order. Their absolute positions
-        // are not asserted, and deliberately so: a partial request renumbers only the films
-        // it names, so an omitted member retains a position that can now collide with a
-        // newly-assigned one, and compaction resolves that collision by UUID. That is the
-        // documented self-healing behavior — a stale caller loses its interleaving, not its
-        // members — and every real caller passes the complete order.
+        /// The requested films keep their requested RELATIVE order. Their absolute positions
+        /// are not asserted, and deliberately so: a partial request renumbers only the films
+        /// it names, so an omitted member retains a position that can now collide with a
+        /// newly-assigned one, and compaction resolves that collision by UUID. That is the
+        /// documented self-healing behavior — a stale caller loses its interleaving, not its
+        /// members — and every real caller passes the complete order.
         let requestedInOrder = [ranked[3], ranked[0], ranked[1]]
         let appliedIndices = requestedInOrder.compactMap { applied.firstIndex(of: $0) }
         r.check("reorder-honors-requested-relative-order",
@@ -575,19 +575,19 @@ extension DebugHarness {
                 "a ranked film absent from the request is placed by its retained position, not dropped")
         r.checks.append(contentsOf: storeInvariants(store, "hof-after-reorder"))
 
-        // Determinism: the same hostile request applied to the same state must produce the
-        // same order every time. Compaction breaks position collisions by UUID precisely so
-        // that it does — a rule that fell back on an unstable sort would reshuffle rows for
-        // no visible reason between two identical operations.
+        /// Determinism: the same hostile request applied to the same state must produce the
+        /// same order every time. Compaction breaks position collisions by UUID precisely so
+        /// that it does — a rule that fell back on an unstable sort would reshuffle rows for
+        /// no visible reason between two identical operations.
         let repeated = store.reorderHallOfFame(hostile)
         r.check("reorder-is-deterministic", repeated == applied,
                 "identical request over identical state yields an identical ranking")
 
-        // An empty reorder is a no-op that must return the current order, not clear it.
+        /// An empty reorder is a no-op that must return the current order, not clear it.
         r.check("empty-reorder-is-noop",
                 store.reorderHallOfFame([]) == store.hallOfFameFilms, "")
 
-        // --- Deleting a ranked film -------------------------------------------------------
+        /// --- Deleting a ranked film -------------------------------------------------------
         let victim = store.hallOfFameFilms[2]
         let preDelete = store.hallOfFameFilms
         let compacted = store.deleteFilms(ids: [victim])
@@ -598,7 +598,7 @@ extension DebugHarness {
                 "\(compacted.count) survivor position(s) reported for persistence")
         r.checks.append(contentsOf: storeInvariants(store, "hof-after-delete"))
 
-        // --- Restore (the deletion-rollback path) -----------------------------------------
+        /// --- Restore (the deletion-rollback path) -----------------------------------------
         var restore: [UUID: Int] = [:]
         for (index, id) in preDelete.enumerated() { restore[id] = index + 1 }
         store.addFilm(corpus.first { $0.id == victim }!)
@@ -607,9 +607,9 @@ extension DebugHarness {
                 "the pre-deletion ranking is recoverable exactly")
         r.checks.append(contentsOf: storeInvariants(store, "hof-after-restore"))
 
-        // --- Capacity ----------------------------------------------------------------------
-        // The 200-member cap and the density rule interact: a deletion that left the count
-        // inflated would disable the FilmSheet's toggle permanently.
+        /// --- Capacity ----------------------------------------------------------------------
+        /// The 200-member cap and the density rule interact: a deletion that left the count
+        /// inflated would disable the FilmSheet's toggle permanently.
         let fresh = MemoryStore.isolatedForTesting(films: corpus, lists: [])
         for id in ids.prefix(200) { _ = fresh.addToHallOfFame(id) }
         r.check("full-at-200", fresh.hallOfFameIsFull, "\(fresh.hallOfFameFilms.count) members")
@@ -639,8 +639,8 @@ extension DebugHarness {
         defer { cleanup() }
         let store = MemoryStore.isolatedForTesting(films: corpus, lists: lists)
 
-        // Grouping: every queued film appears exactly once, sections appear in queue order,
-        // and each section's interior is sorted by the requested key.
+        /// Grouping: every queued film appears exactly once, sections appear in queue order,
+        /// and each section's interior is sorted by the requested key.
         for option in sortMatrix {
             for direction in SortDirection.allCases {
                 let grouped = store.filmQueueSectionGroupedIDs(sortOption: option, direction: direction)
@@ -650,7 +650,7 @@ extension DebugHarness {
                         Set(grouped) == union && grouped.count == union.count,
                         "\(grouped.count) grouped, \(union.count) in union, \(Set(grouped).count) unique")
 
-                // Section order: the sequence of section indices must be non-decreasing.
+                /// Section order: the sequence of section indices must be non-decreasing.
                 let sections = grouped.map { id -> Int in
                     let internalIDs = (store.filmToListsForTesting[id] ?? []).intersection(FilmQueue.allListIDs)
                     return internalIDs.compactMap { FilmQueueSection(listID: $0)?.queueOrder }.min() ?? 99
@@ -659,8 +659,8 @@ extension DebugHarness {
                         zip(sections, sections.dropFirst()).allSatisfy { $0 <= $1 },
                         "section indices must never go backwards")
 
-                // Interior ordering: each section, taken alone, must equal the flat sort of
-                // its own members. A grouping that merely concatenated sets would fail here.
+                /// Interior ordering: each section, taken alone, must equal the flat sort of
+                /// its own members. A grouping that merely concatenated sets would fail here.
                 var index = 0
                 var interiorOK = true
                 for section in FilmQueueSection.allCases.sorted(by: { $0.queueOrder < $1.queueOrder }) {
@@ -680,17 +680,17 @@ extension DebugHarness {
             }
         }
 
-        // Count agreement: the Film Queue's reported count must equal the number of rows the
-        // grouped view actually produces.
+        /// Count agreement: the Film Queue's reported count must equal the number of rows the
+        /// grouped view actually produces.
         r.check("queue-count-matches-grouping",
                 store.filmQueueFilmIDs().count
                     == store.filmQueueSectionGroupedIDs(sortOption: .title, direction: .ascending).count,
                 "count \(store.filmQueueFilmIDs().count)")
 
-        // --- Corruption recovery -----------------------------------------------------------
-        // A restore from a pre-exclusivity backup can place one film in two sections. Both
-        // resolvers must agree on a single canonical section, and the film must still render
-        // exactly once. This is the case the two implementations are documented to survive.
+        /// --- Corruption recovery -----------------------------------------------------------
+        /// A restore from a pre-exclusivity backup can place one film in two sections. Both
+        /// resolvers must agree on a single canonical section, and the film must still render
+        /// exactly once. This is the case the two implementations are documented to survive.
         guard let dual = store.getList(FilmQueueSection.later.listID)?.filmIDs.first else {
             r.check("corruption-specimen-available", false, "no film in the Later section")
             return r
@@ -707,8 +707,8 @@ extension DebugHarness {
                 store.filmQueueFilmIDs().count == groupedCorrupt.count,
                 "count \(store.filmQueueFilmIDs().count) vs \(groupedCorrupt.count) rows")
 
-        // The canonical section is the lowest queueOrder among the film's memberships. This
-        // is the rule DataCoordinator.filmQueueSection(forFilm:) implements independently.
+        /// The canonical section is the lowest queueOrder among the film's memberships. This
+        /// is the rule DataCoordinator.filmQueueSection(forFilm:) implements independently.
         let canonical = (store.filmToListsForTesting[dual] ?? [])
             .intersection(FilmQueue.allListIDs)
             .compactMap { FilmQueueSection(listID: $0) }
@@ -716,7 +716,7 @@ extension DebugHarness {
         r.check("canonical-section-is-lowest-order", canonical == .upNext,
                 "resolved to \(canonical?.displayName ?? "nil")")
 
-        // Removing the queue's own list must not strand the reverse index.
+        /// Removing the queue's own list must not strand the reverse index.
         store.removeFilmsFromList(filmIDs: [dual], listID: FilmQueueSection.upNext.listID)
         r.checks.append(contentsOf: storeInvariants(store, "queue-after-heal"))
         r.check("heal-restores-single-section",
@@ -746,8 +746,8 @@ extension DebugHarness {
         r.check("library-state-reliable", !coordinator.isLibraryStateUnreliable,
                 "a scenario run against an unreliable store would prove nothing")
 
-        // The three internal Film Queue lists must exist by the time initialization finishes:
-        // the FilmSheet's picker writes to them directly and has no create path of its own.
+        /// The three internal Film Queue lists must exist by the time initialization finishes:
+        /// the FilmSheet's picker writes to them directly and has no create path of its own.
         for section in FilmQueueSection.allCases {
             r.check("queue-list-bootstrapped:\(section.rawValue)",
                     coordinator.getList(section.listID) != nil, "")
@@ -756,7 +756,7 @@ extension DebugHarness {
                 coordinator.getAllLists().allSatisfy { !FilmQueue.isInternalList($0.listID) },
                 "\(coordinator.getAllLists().count) user list(s) visible")
 
-        // --- Corpus ------------------------------------------------------------------------
+        /// --- Corpus ------------------------------------------------------------------------
         let corpus = standardCorpus(count: 40, seed: 0xC007_D1AA)
         let corpusIDs = Set(corpus.map(\.id))
         for film in corpus { store.addFilm(film) }
@@ -765,18 +765,18 @@ extension DebugHarness {
                 store.totalFilmCount == baselineFilms + corpus.count,
                 "\(baselineFilms) + \(corpus.count) = \(store.totalFilmCount)")
 
-        // --- Film Queue exclusivity, through the coordinator ---------------------------------
-        // The synchronous drag-and-drop entry point, which must never let a dropped film
-        // occupy two sections at once.
+        /// --- Film Queue exclusivity, through the coordinator ---------------------------------
+        /// The synchronous drag-and-drop entry point, which must never let a dropped film
+        /// occupy two sections at once.
         let subject = corpus[0].id
         _ = coordinator.addFilmsToList(filmIDs: [subject], listID: FilmQueueSection.later.listID)
         r.check("queue-add-lands-in-requested-section",
                 coordinator.filmQueueSection(forFilm: subject) == .later,
                 "resolved to \(coordinator.filmQueueSection(forFilm: subject)?.displayName ?? "nil")")
 
-        // "Up Next" refuses adds past FilmQueue.upNextCapacity, which is correct but is not
-        // what this check tests. On a library whose Up Next is already full (a real-library
-        // copy), park one of its films in "Soon" for the move and put it back afterward.
+        /// "Up Next" refuses adds past FilmQueue.upNextCapacity, which is correct but is not
+        /// what this check tests. On a library whose Up Next is already full (a real-library
+        /// copy), park one of its films in "Soon" for the move and put it back afterward.
         let upNextID = FilmQueueSection.upNext.listID
         let parked = (coordinator.getList(upNextID)?.filmIDs.count ?? 0) >= FilmQueue.upNextCapacity
             ? coordinator.getList(upNextID)?.filmIDs.first : nil
@@ -792,8 +792,8 @@ extension DebugHarness {
                 "the film moved to the newly requested section"
                     + (parked != nil ? " (Up Next was full; one film parked in Soon for the move)" : ""))
 
-        // Both resolvers must agree — MemoryStore's grouping and the coordinator's per-film
-        // section, which the gallery uses to place its divider bands.
+        /// Both resolvers must agree — MemoryStore's grouping and the coordinator's per-film
+        /// section, which the gallery uses to place its divider bands.
         let grouped = store.filmQueueSectionGroupedIDs(sortOption: .title, direction: .ascending)
         let disagreements = grouped.filter { id in
             let fromStore = (store.filmToListsForTesting[id] ?? [])
@@ -805,9 +805,9 @@ extension DebugHarness {
         r.check("section-resolvers-agree", disagreements.isEmpty,
                 "\(disagreements.count) of \(grouped.count) films resolve differently in the two implementations")
 
-        // --- Sidebar list cache -------------------------------------------------------------
-        // cachedLists carries the film counts the sidebar renders and the context menu gates
-        // on; it is rebuilt by hand at every mutation site rather than derived on read.
+        /// --- Sidebar list cache -------------------------------------------------------------
+        /// cachedLists carries the film counts the sidebar renders and the context menu gates
+        /// on; it is rebuilt by hand at every mutation site rather than derived on read.
         let cachedCounts = Dictionary(uniqueKeysWithValues:
             coordinator.cachedLists.map { ($0.listID, $0.filmCount) })
         let liveCounts = Dictionary(uniqueKeysWithValues:
@@ -815,7 +815,7 @@ extension DebugHarness {
         r.check("cached-list-counts-match-store", cachedCounts == liveCounts,
                 "cached \(cachedCounts.count) list(s), live \(liveCounts.count)")
 
-        // --- Deletion, through the coordinator ------------------------------------------------
+        /// --- Deletion, through the coordinator ------------------------------------------------
         await coordinator.deleteFilms(withIDs: corpusIDs)
         if let parked {
             _ = coordinator.addFilmsToList(filmIDs: [parked], listID: upNextID)
@@ -839,21 +839,21 @@ extension DebugHarness {
         r.check("cached-list-counts-match-after-delete", cachedAfter == liveAfter,
                 "a deletion that empties a list must not leave a stale sidebar count")
 
-        // --- Settings debounce flush ------------------------------------------------------
-        // SettingsManager writes on a five-second debounce. The quit path calls
-        // flushPendingSettingsSync() to force a pending write out, because a preference
-        // changed inside that window otherwise never reached SettingsObject — leaving the
-        // next export/backup carrying the stale value and a restore from it silently
-        // reverting the setting. Asserted here end to end: change a preference, flush well
-        // inside the debounce window, and read the row back out of the database.
-        //
-        // Must be a member of Preferences.rotationThresholdOptions; the setter silently
-        // clamps anything else to 12.
+        /// --- Settings debounce flush ------------------------------------------------------
+        /// SettingsManager writes on a five-second debounce. The quit path calls
+        /// flushPendingSettingsSync() to force a pending write out, because a preference
+        /// changed inside that window otherwise never reached SettingsObject — leaving the
+        /// next export/backup carrying the stale value and a restore from it silently
+        /// reverting the setting. Asserted here end to end: change a preference, flush well
+        /// inside the debounce window, and read the row back out of the database.
+        ///
+        /// Must be a member of Preferences.rotationThresholdOptions; the setter silently
+        /// clamps anything else to 12.
         let originalThreshold = Preferences.defaultRotationThreshold
         let probeThreshold = (originalThreshold == 36) ? 60 : 36
 
-        // A film with no override follows the default, so its cached rotation date must
-        // follow a change to it — the same preferencesChanged event drives the refresh.
+        /// A film with no override follows the default, so its cached rotation date must
+        /// follow a change to it — the same preferencesChanged event drives the refresh.
         let rotationProbe = makeSnapshot(name: "Rotation Probe", lastWatched: "2020.03.15")
         store.addFilm(rotationProbe)
         func cachedRotationMatches(_ months: Int) -> (Bool, String) {
@@ -863,10 +863,10 @@ extension DebugHarness {
             return (expected != nil && cached == expected,
                     "cached \(String(describing: cached)), expected \(String(describing: expected)) for \(months) months")
         }
-        // The refresh is reached through a Task hop, a Combine sink and a debounce, so it may
-        // not have started when the scenario first asks — and on a large library it takes
-        // longer still. Poll for the expected value rather than sleep a fixed time, failing only
-        // if it never arrives.
+        /// The refresh is reached through a Task hop, a Combine sink and a debounce, so it may
+        /// not have started when the scenario first asks — and on a large library it takes
+        /// longer still. Poll for the expected value rather than sleep a fixed time, failing only
+        /// if it never arrives.
         func awaitRotation(_ months: Int) async -> (Bool, String) {
             let deadline = ContinuousClock.now + .seconds(5)
             var result = cachedRotationMatches(months)
@@ -891,8 +891,8 @@ extension DebugHarness {
                 "database holds \(String(describing: flushed?.defaultRotationThreshold)), "
                     + "expected \(probeThreshold) — a pending debounced write was lost")
 
-        // Restore the session value, and flush that too so nothing is left pending for a
-        // later scenario to trip over.
+        /// Restore the session value, and flush that too so nothing is left pending for a
+        /// later scenario to trip over.
         Preferences.defaultRotationThreshold = originalThreshold
         let reverted = await awaitRotation(originalThreshold)
         r.check("rotation-cache-follows-default:reverted", reverted.0, reverted.1)
@@ -904,8 +904,8 @@ extension DebugHarness {
                 "database holds \(String(describing: restored?.defaultRotationThreshold)), "
                     + "expected \(originalThreshold)")
 
-        // A flush with nothing pending must be a no-op rather than a redundant write —
-        // this is the fingerprint dirty-check in syncToDatabase.
+        /// A flush with nothing pending must be a no-op rather than a redundant write —
+        /// this is the fingerprint dirty-check in syncToDatabase.
         await coordinator.flushPendingSettingsSync()
         let idle = storedSettings(coordinator)
         r.check("settings-flush-idle-is-stable",
@@ -993,9 +993,9 @@ extension DebugHarness {
             return try? JSONDecoder().decode(T.self, from: data)
         }
 
-        // The key list comes from the Mirror, not the encoded dictionary: the synthesized
-        // encoder omits a nil optional (`encodeIfPresent`), and the Mirror lists every
-        // stored property, nil or not. Stored properties are exactly the Codable keys.
+        /// The key list comes from the Mirror, not the encoded dictionary: the synthesized
+        /// encoder omits a nil optional (`encodeIfPresent`), and the Mirror lists every
+        /// stored property, nil or not. Stored properties are exactly the Codable keys.
         let keys = Mirror(reflecting: base).children.compactMap(\.label)
         guard var dict = object(base) else {
             r.check("\(label)-encodes", false, "default \(label) snapshot did not encode")
@@ -1012,18 +1012,18 @@ extension DebugHarness {
                 candidates.append(true)
             }
             candidates += [
-                41 + index,                                   // Int, Double, Date
-                "value-\(key)",                               // String
-                UUID().uuidString,                            // UUID
-                ["first-\(key)", "second-\(key)"],             // [String]
-                [UUID().uuidString],                          // [UUID]
+                41 + index,                                   /// Int, Double, Date
+                "value-\(key)",                               /// String
+                UUID().uuidString,                            /// UUID
+                ["first-\(key)", "second-\(key)"],             /// [String]
+                [UUID().uuidString],                          /// [UUID]
             ]
             var chosen = false
             for candidate in candidates {
                 var trial = dict
                 trial[key] = candidate
                 guard decode(trial) != nil else { continue }
-                // Must differ from the default, or the round trip proves nothing.
+                /// Must differ from the default, or the round trip proves nothing.
                 if let current, (current as AnyObject).isEqual(candidate) { continue }
                 dict = trial
                 chosen = true
@@ -1056,12 +1056,12 @@ extension DebugHarness {
 
 // MARK: - Fingerprint film layer
 
-// `store-fingerprint`: the snapshot-cache fingerprint's film layer must answer on an empty
-// store, count the films seeded, and change after each kind of edit the fingerprint exists
-// to see (rank swap included) and after a delete. A release inserted with an existing ID must
-// merge into that row (the uniqueness constraint). It must also answer for an in-memory
-// container, and a NULL lastModified (never written by the app) must change the digest, so
-// the fingerprint fails safe. Runs on its own store file, so the coordinator's library is untouched.
+/// `store-fingerprint`: the snapshot-cache fingerprint's film layer must answer on an empty
+/// store, count the films seeded, and change after each kind of edit the fingerprint exists
+/// to see (rank swap included) and after a delete. A release inserted with an existing ID must
+/// merge into that row (the uniqueness constraint). It must also answer for an in-memory
+/// container, and a NULL lastModified (never written by the app) must change the digest, so
+/// the fingerprint fails safe. Runs on its own store file, so the coordinator's library is untouched.
 extension DebugHarness {
     static func fingerprintFilmLayerScenario() async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "store-fingerprint")
@@ -1108,9 +1108,9 @@ extension DebugHarness {
         let seeded = await agree("seeded")
         r.check("seeded-count", seeded?.filmCount == 200, "\(seeded?.filmCount ?? -1)")
 
-        // Every field the digest covers, including the values most likely to trip a direct
-        // decode: the empty "never modified" sentinel, a non-ASCII string, negative and
-        // 64-bit extreme integers, and both lastModified spellings the writers use.
+        /// Every field the digest covers, including the values most likely to trip a direct
+        /// decode: the empty "never modified" sentinel, a non-ASCII string, negative and
+        /// 64-bit extreme integers, and both lastModified spellings the writers use.
         let films = (try? context.fetch(Film.request(sortedBy: [NSSortDescriptor(key: "name", ascending: true)]))) ?? []
         guard films.count >= 10 else {
             r.check("fetch-films", false, "\(films.count)")
@@ -1130,7 +1130,7 @@ extension DebugHarness {
         let edited = await agree("edited")
         r.check("edits-change-digest", edited != nil && edited != seeded)
 
-        // The reorder a sum-based digest would miss: two ranks exchanged.
+        /// The reorder a sum-based digest would miss: two ranks exchanged.
         (films[0].hofPosition, films[1].hofPosition) = (films[1].hofPosition, films[0].hofPosition)
         guard save("swap") else { return r }
         let swapped = await agree("rank-swap")
@@ -1141,7 +1141,7 @@ extension DebugHarness {
         let deleted = await agree("deleted")
         r.check("deleted-count", deleted?.filmCount == 199, "\(deleted?.filmCount ?? -1)")
 
-        // Release.id uniqueness. The corpus carries no Release rows, so a few are attached here.
+        /// Release.id uniqueness. The corpus carries no Release rows, so a few are attached here.
         for film in films[3..<10] {
             context.insert(Release(format: "Blu-ray", independence: "Standalone", film: film))
         }
@@ -1150,8 +1150,8 @@ extension DebugHarness {
         r.check("corpus-has-releases", !releases.isEmpty, "\(releases.count)")
         if let existing = releases.first {
             let before = releases.count
-            // Release.id is a uniqueness constraint, so a second release with an existing ID
-            // cannot be stored separately: the save merges it into the existing row.
+            /// Release.id is a uniqueness constraint, so a second release with an existing ID
+            /// cannot be stored separately: the save merges it into the existing row.
             context.insert(Release(id: existing.id, independence: "Standalone"))
             if save("duplicate") {
                 let after = (try? container.makeMainContext().count(for: Release.request())) ?? -1
@@ -1159,8 +1159,8 @@ extension DebugHarness {
             }
         }
 
-        // Repeated commits through DataManager: the store must stay intact and the film
-        // layer must still answer afterwards.
+        /// Repeated commits through DataManager: the store must stay intact and the film
+        /// layer must still answer afterwards.
         var stressSnapshots = films[20..<60].map { FilmSnapshot(from: $0) }
         for round in 0..<25 {
             for i in stressSnapshots.indices { stressSnapshots[i].userRating = round % 11 }
@@ -1184,8 +1184,8 @@ extension DebugHarness {
         let afterStress = await agree("after-stress")
         r.check("stress-fetch-works", ((try? container.makeMainContext().count(for: Film.request())) ?? -1) == 199)
 
-        // The container must report the file this scenario opened; and production's store must resolve to Application Support
-        // under LibraryStore's name, which the launch opens and the restore swap targets.
+        /// The container must report the file this scenario opened; and production's store must resolve to Application Support
+        /// under LibraryStore's name, which the launch opens and the restore swap targets.
         r.check("store-url-resolves", container.storeURL?.standardizedFileURL == url.standardizedFileURL,
                 "\(container.storeURL?.path(percentEncoded: false) ?? "nil") vs \(url.path(percentEncoded: false))")
         let production = DebugSandbox.productionApplicationSupportURL?.appendingPathComponent(LibraryStore.storeFileName)
@@ -1198,10 +1198,10 @@ extension DebugHarness {
             r.check("in-memory-answers", digest?.filmCount == 0, "\(digest.map { "\($0.filmCount)" } ?? "nil")")
         }
 
-        // A NULL lastModified, which the app never writes: a dictionary fetch leaves that row
-        // out, so the digest must differ from the one before — the fingerprint mismatches and
-        // the slow path runs, failing safe. Written with raw SQL, last, because it leaves this
-        // throwaway store in a state the app does not produce.
+        /// A NULL lastModified, which the app never writes: a dictionary fetch leaves that row
+        /// out, so the digest must differ from the one before — the fingerprint mismatches and
+        /// the slow path runs, failing safe. Written with raw SQL, last, because it leaves this
+        /// throwaway store in a state the app does not produce.
         var db: OpaquePointer?
         if unsafe sqlite3_open_v2(url.path(percentEncoded: false), &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
             let rc = unsafe sqlite3_exec(db, "UPDATE ZFILM SET ZLASTMODIFIED = NULL WHERE Z_PK = (SELECT MIN(Z_PK) FROM ZFILM)", nil, nil, nil)
@@ -1217,12 +1217,12 @@ extension DebugHarness {
 
 // MARK: - DataManager thread
 
-// `datamanager-thread`: drives the everyday write paths through the coordinator's public API —
-// FilmSheet saves, direct film updates, a Hall of Fame add, a batch list add and remove, and a
-// delete — and reads DataManagerThreadProbe to see which thread each DataManager method ran on
-// and what it cost there. `writes-off-main` fails if any probed write ran on the main thread.
-// On a seeded copy of a real library the metrics are the realistic costs; on an empty sandbox
-// a corpus is imported first.
+/// `datamanager-thread`: drives the everyday write paths through the coordinator's public API —
+/// FilmSheet saves, direct film updates, a Hall of Fame add, a batch list add and remove, and a
+/// delete — and reads DataManagerThreadProbe to see which thread each DataManager method ran on
+/// and what it cost there. `writes-off-main` fails if any probed write ran on the main thread.
+/// On a seeded copy of a real library the metrics are the realistic costs; on an empty sandbox
+/// a corpus is imported first.
 extension DebugHarness {
     static func dataManagerThreadScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "datamanager-thread")
@@ -1249,7 +1249,7 @@ extension DebugHarness {
         DataManagerThreadProbe.isEnabled = true
         defer { DataManagerThreadProbe.isEnabled = false }
 
-        // FilmSheet saves (applyFilmChangeset), one at a time as a user would make them.
+        /// FilmSheet saves (applyFilmChangeset), one at a time as a user would make them.
         for film in films[0..<6] {
             var edited = film
             edited.notes = film.notes + " (thread probe)"
@@ -1261,7 +1261,7 @@ extension DebugHarness {
             r.check("changeset-drained", await drain())
         }
 
-        // Single-film updates (updateFilm) and a Hall of Fame add.
+        /// Single-film updates (updateFilm) and a Hall of Fame add.
         for film in films[6..<10] {
             var edited = film
             edited.notes = film.notes + " (update probe)"
@@ -1273,7 +1273,7 @@ extension DebugHarness {
             r.check("hof-drained", await drain())
         }
 
-        // Batch list add and remove, 60 films into a fresh list.
+        /// Batch list add and remove, 60 films into a fresh list.
         let listID = coordinator.createList(name: "Thread Probe", displayOrder: 999)
         let members = Set(films[20..<80].map(\.id))
         coordinator.addFilmsToList(filmIDs: members, listID: listID)
@@ -1281,14 +1281,14 @@ extension DebugHarness {
         coordinator.removeFilmsFromList(filmIDs: members, listID: listID)
         r.check("list-remove-drained", await drain())
 
-        // Delete.
+        /// Delete.
         await coordinator.deleteFilms(withIDs: Set(films[90..<93].map(\.id)))
         r.check("delete-drained", await drain())
 
-        // Deferred launch maintenance's membership cleanup, reached as AppState reaches it:
-        // from a detached task, through the coordinator. An orphan is planted first so the
-        // pass has something to delete: a canceled pass must leave it (shutdown cancels
-        // maintenance), and an uncanceled one must remove it.
+        /// Deferred launch maintenance's membership cleanup, reached as AppState reaches it:
+        /// from a detached task, through the coordinator. An orphan is planted first so the
+        /// pass has something to delete: a canceled pass must leave it (shutdown cancels
+        /// maintenance), and an uncanceled one must remove it.
         let container = coordinator.persistentContainer
         func orphanCount() -> Int {
             (try? container.makeMainContext().count(for: ListMembership.request(NSPredicate(format: "film == nil")))) ?? -1
@@ -1310,13 +1310,13 @@ extension DebugHarness {
         await Task.detached { await coordinator.cleanupOrphanedAndDuplicateMemberships() }.value
         r.check("cleanup-removes-orphan", orphanCount() == 0, "\(orphanCount()) left")
 
-        // Mutual exclusion: prove calls arriving from several threads at once never overlap
-        // on DataManager's context executor.
+        /// Mutual exclusion: prove calls arriving from several threads at once never overlap
+        /// on DataManager's context executor.
         let manager = DataManager(persistentContainer: coordinator.persistentContainer)
         let detached = (0..<6).map { _ in
             Task.detached { await manager.exclusionProbeForTesting(milliseconds: 30) }
         }
-        // Enqueued from the main thread while the detached calls are in flight.
+        /// Enqueued from the main thread while the detached calls are in flight.
         var intervals = [await manager.exclusionProbeForTesting(milliseconds: 30)]
         for task in detached { intervals.append(await task.value) }
         intervals.sort { $0.start < $1.start }
@@ -1352,28 +1352,28 @@ extension DebugHarness {
 
 // MARK: - Settings Sync Order
 
-// `settings-sync-order`: two settings syncs that overlap. The write runs on DataManager, so
-// a sync suspends mid-write; a debug delay holds the first one open while the second starts.
-//   - newest-wins: the second sync's values must be the ones on disk, not the first's.
-//   - change-during-write: a change made while a sync is writing must stay pending, so the
-//     quit flush (which skips when nothing is pending) still writes it.
+/// `settings-sync-order`: two settings syncs that overlap. The write runs on DataManager, so
+/// a sync suspends mid-write; a debug delay holds the first one open while the second starts.
+///   - newest-wins: the second sync's values must be the ones on disk, not the first's.
+///   - change-during-write: a change made while a sync is writing must stay pending, so the
+///     quit flush (which skips when nothing is pending) still writes it.
 extension DebugHarness {
     fileprivate static func settingsSyncOrderScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "settings-sync-order")
         let original = Preferences.fuzzyImportMatching
         func set(_ value: Bool) async {
             Preferences.fuzzyImportMatching = value
-            // The setter posts preferencesChanged from a Task; let it arm the debounce.
+            /// The setter posts preferencesChanged from a Task; let it arm the debounce.
             for _ in 0..<3 { await Task.yield() }
         }
         defer { DataCoordinator.debugSettingsSaveDelays = [] }
 
-        // A known starting row.
+        /// A known starting row.
         await coordinator.commitPendingWritesForExport()
         r.check("baseline", storedSettings(coordinator)?.fuzzyImportMatching == original,
                 "stored \(String(describing: storedSettings(coordinator)?.fuzzyImportMatching)), expected \(original)")
 
-        // newest-wins: sync 1 snapshots !original and is held 400 ms; sync 2 starts 50 ms in.
+        /// newest-wins: sync 1 snapshots !original and is held 400 ms; sync 2 starts 50 ms in.
         DataCoordinator.debugSettingsSaveDelays = [.milliseconds(400)]
         await set(!original)
         let first = Task { @MainActor in await coordinator.commitPendingWritesForExport() }
@@ -1385,17 +1385,17 @@ extension DebugHarness {
         r.check("newest-wins", newest == original,
                 "stored \(String(describing: newest)), expected \(original): the older sync's snapshot landed last")
 
-        // Back to a known row, whatever newest-wins left: the cached last-synced snapshot
-        // must match `original` too, or the next sync's write of !original could be skipped
-        // as unchanged and never overlap anything.
+        /// Back to a known row, whatever newest-wins left: the cached last-synced snapshot
+        /// must match `original` too, or the next sync's write of !original could be skipped
+        /// as unchanged and never overlap anything.
         DataCoordinator.debugSettingsSaveDelays = []
         await set(original)
         await coordinator.commitPendingWritesForExport()
         r.check("baseline-2", storedSettings(coordinator)?.fuzzyImportMatching == original,
                 "stored \(String(describing: storedSettings(coordinator)?.fuzzyImportMatching)), expected \(original)")
 
-        // change-during-write: the flush writes !original, held 400 ms; the change back to
-        // original arrives mid-write; a second flush must still see it pending.
+        /// change-during-write: the flush writes !original, held 400 ms; the change back to
+        /// original arrives mid-write; a second flush must still see it pending.
         DataCoordinator.debugSettingsSaveDelays = [.milliseconds(400)]
         await set(!original)
         let flush = Task { @MainActor in await coordinator.flushPendingSettingsSync() }
@@ -1407,7 +1407,7 @@ extension DebugHarness {
         r.check("change-during-write-stays-pending", flushed == original,
                 "stored \(String(describing: flushed)), expected \(original): the change made mid-write was dropped")
 
-        // Nothing left pending or delayed for a later scenario.
+        /// Nothing left pending or delayed for a later scenario.
         DataCoordinator.debugSettingsSaveDelays = []
         await set(original)
         await coordinator.flushPendingSettingsSync()
@@ -1417,13 +1417,13 @@ extension DebugHarness {
 
 // MARK: - Delete All, Queued
 
-// `imports-delete-all-queued`: Delete All waits its turn in trackOperation, so it runs after
-// the click. A held queue stands in for whatever is ahead of it. Of one type's sessions:
-//   - an interrupted import's (unfinished, older than the click) is deleted,
-//   - a completed one is deleted,
-//   - the running import's (unfinished, older than the click) is kept,
-//   - one created after the click, by an import begun while the delete waited, is kept.
-// The other type's sessions are untouched.
+/// `imports-delete-all-queued`: Delete All waits its turn in trackOperation, so it runs after
+/// the click. A held queue stands in for whatever is ahead of it. Of one type's sessions:
+///   - an interrupted import's (unfinished, older than the click) is deleted,
+///   - a completed one is deleted,
+///   - the running import's (unfinished, older than the click) is kept,
+///   - one created after the click, by an import begun while the delete waited, is kept.
+/// The other type's sessions are untouched.
 extension DebugHarness {
     fileprivate static func importsDeleteAllQueuedScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "imports-delete-all-queued")
@@ -1446,12 +1446,12 @@ extension DebugHarness {
         try? context.commit()
         let ids = (interrupted: interrupted.id, completed: completed.id, running: running.id, other: otherType.id)
 
-        // The running import, then the click, while the queue is held.
+        /// The running import, then the click, while the queue is held.
         progress.isImporting = true
         progress.currentSessionID = ids.running
         coordinator.debugHoldQueue(for: .milliseconds(400))
         coordinator.deleteAllImportSessions(ofType: metadata)
-        // An import begun after the click, while the delete waits.
+        /// An import begun after the click, while the delete waits.
         try? await Task.sleep(for: .milliseconds(20))
         let later = session(metadata, completed: false, at: Date())
         try? context.commit()

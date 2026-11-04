@@ -1,10 +1,10 @@
-// MARK: - SavedSearchSheet.swift
+// MARK: - SSSheet.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The saved-search builder: a 600×600 sheet (the FilmSheet / Settings size) where a search
-// is named and built from rules — field, operator, value — under "Match all / any", with
-// the films it finds listed live below, in the list gallery's own table. Laid out as the
-// "Up Next" slot sheet is: title strip, content bands, Cancel / primary gutter.
+/// The saved-search builder: a 600×600 sheet (the FilmSheet / Settings size) where a search
+/// is named and built from rules — field, operator, value — under "Match all / any", with
+/// the films it finds listed live below, in the list gallery's own table. Laid out as the
+/// "Up Next" slot sheet is: title strip, content bands, Cancel / primary gutter.
 
 import SwiftUI
 import AppKit
@@ -61,8 +61,8 @@ struct SavedSearchSheet: View, Loggable {
     }
 
     var body: some View {
-        // Once per pass: it builds the #list catalog and walks the references, and both
-        // the note and Save read it.
+        /// Once per pass: it builds the #list catalog and walks the references, and both
+        /// the note and Save read it.
         let problem = saveProblem
         VStack(spacing: 0) {
             Text(title)
@@ -100,8 +100,8 @@ struct SavedSearchSheet: View, Loggable {
                 }
 
                 if showsDroppedRulesNotice {
-                    // Styled as Save beside it; the glyph is ImportsView's failed-import
-                    // notice: a white mark in a red triangle.
+                    /// Styled as Save beside it; the glyph is ImportsView's failed-import
+                    /// notice: a white mark in a red triangle.
                     Button {
                         droppedRulesAlertWindow = NSApp.keyWindow.map(ObjectIdentifier.init)
                         showingDroppedRulesAlert = true
@@ -132,8 +132,8 @@ struct SavedSearchSheet: View, Loggable {
         .onAppear(perform: prepare)
         .alert("Unrecognized Rules Removed", isPresented: $showingDroppedRulesAlert) {
             Button("OK") {
-                // A backstop only: should AppKit not report the alert's end (below), the
-                // button still leaves, a little after the alert has.
+                /// A backstop only: should AppKit not report the alert's end (below), the
+                /// button still leaves, a little after the alert has.
                 Task {
                     try? await Task.sleep(for: .seconds(1))
                     hideDroppedRulesNotice()
@@ -142,8 +142,8 @@ struct SavedSearchSheet: View, Loggable {
         } message: {
             Text("This saved search contains rules, most likely from a backup made by a newer version of Film Tracker, that this version doesn\u{2019}t recognize, so they have been removed. Review its rules and save it to use it again.")
         }
-        // The alert is a sheet on this sheet's window; its end, posted once the closing
-        // animation is over, is the button's cue to leave.
+        /// The alert is a sheet on this sheet's window; its end, posted once the closing
+        /// animation is over, is the button's cue to leave.
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEndSheetNotification)) { note in
             guard let window = note.object as? NSWindow,
                   droppedRulesAlertWindow == ObjectIdentifier(window), !showingDroppedRulesAlert else { return }
@@ -165,10 +165,10 @@ struct SavedSearchSheet: View, Loggable {
                 TextField("Saved Search Name", text: Binding(
                     get: { name },
                     set: { newName in
-                        // Only a real change counts: a write-back of the same text when
-                        // the field ends editing must not stop the name following the
-                        // rules. A name cleared to nothing follows them again from the
-                        // next rule change.
+                        /// Only a real change counts: a write-back of the same text when
+                        /// the field ends editing must not stop the name following the
+                        /// rules. A name cleared to nothing follows them again from the
+                        /// next rule change.
                         guard newName != name else { return }
                         name = newName
                         nameEdited = !newName.trimmingCharacters(in: .whitespaces).isEmpty
@@ -185,15 +185,15 @@ struct SavedSearchSheet: View, Loggable {
                                 items: RuleMatchMode.allCases.map { .option(tag: $0, title: $0.label) },
                                 width: 220)
                 Spacer()
-                // The one add control, above the table's trailing edge, in the list
-                // utilities' style (ReorderableStringList's "+"): rows carry only "−".
+                /// The one add control, above the table's trailing edge, in the list
+                /// utilities' style (ReorderableStringList's "+"): rows carry only "−".
                 ListCircleButton(
                     systemImage: "plus",
                     fill: Preferences.green,
                     diameter: ListRowMetrics.circleDiameter,
                     glyphSize: ListRowMetrics.plusGlyphSize,
-                    // Not until the last rule is complete: a new row is no use beside an
-                    // unfinished one.
+                    /// Not until the last rule is complete: a new row is no use beside an
+                    /// unfinished one.
                     isEnabled: rules.rules.last.map { $0.problem == nil } ?? true,
                     help: "Add a rule",
                     glyphOffset: ListCircleButtonStyle.plusGlyphOffset,
@@ -223,7 +223,7 @@ struct SavedSearchSheet: View, Loggable {
                 }
                 .padding(8)
             }
-            // A rule added below the fold is brought into view: "+" must show its result.
+            /// A rule added below the fold is brought into view: "+" must show its result.
             .onChange(of: rules.rules.count) { oldCount, newCount in
                 guard newCount > oldCount, let last = rules.rules.last?.id else { return }
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
@@ -251,21 +251,21 @@ struct SavedSearchSheet: View, Loggable {
             .padding(.horizontal, 16)
             .padding(.top, 10)
 
-            // One box whatever it holds, so the table and its placeholders occupy the same
-            // filled shape.
+            /// One box whatever it holds, so the table and its placeholders occupy the same
+            /// filled shape.
             Group {
                 if rules.query.isEmpty || rules.problem != nil {
                     placeholder("Configure rules above to see the live results here.")
                 } else if resultsReady && results.isEmpty {
                     placeholder("No results.")
                 } else {
-                    // Read-only: nothing acts on a result here.
+                    /// Read-only: nothing acts on a result here.
                     UpNextResultsTable(films: results)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .fieldEdgeChrome(fill: Color(nsColor: NSColor.alternatingContentBackgroundColors[0]), clipsContent: true, insetsInterior: true)
-            // The rules table's inset, so the two boxes line up.
+            /// The rules table's inset, so the two boxes line up.
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
@@ -286,9 +286,9 @@ struct SavedSearchSheet: View, Loggable {
         let query = rules.query
         guard !query.isEmpty, rules.problem == nil else {
             results = []
-            // Not ready: the placeholder covers this state, and leaving it (deleting the
-            // incomplete rule, say) must wait for real results rather than flash
-            // "No results." for the preview delay.
+            /// Not ready: the placeholder covers this state, and leaving it (deleting the
+            /// incomplete rule, say) must wait for real results rather than flash
+            /// "No results." for the preview delay.
             resultsReady = false
             return
         }
@@ -316,7 +316,7 @@ struct SavedSearchSheet: View, Loggable {
 
     private var cycleProblem: String? {
         let query = rules.query
-        // A cycle through this search leaves it by one of its own #list tokens.
+        /// A cycle through this search leaves it by one of its own #list tokens.
         guard query.tokens.contains(where: { $0.field == .list }) else { return nil }
         let candidate = SavedSearch(id: candidateID, name: trimmedName, query: query, displayOrder: 0)
         guard let cycle = SavedSearchReferences.cycle(saving: candidate, among: store.searches,
@@ -350,10 +350,19 @@ struct SavedSearchSheet: View, Loggable {
     /// easy to miss. Here rather than under the rules, so the builder never changes height.
     private func gutterNote(_ saveProblem: String?) -> (String, Color)? {
         if let saveProblem { return saveProblem.isEmpty ? nil : (saveProblem, .secondary) }
-        if rules.mode != .all, rules.rules.contains(where: { $0.op.isInverted }) {
+        guard rules.mode != .all else { return nil }
+        let excludes = rules.rules.contains { $0.op.isInverted }
+        let fieldText = rules.rules.contains(where: \.isFieldText)
+        switch (excludes, fieldText) {
+        case (true, true):
+            return ("Rules that exclude films, and the search field\u{2019}s title text, always apply.", .secondary)
+        case (true, false):
             return ("Rules that exclude films (\u{201C}does not contain\u{201D}, \u{201C}is not\u{201D}\u{2026}) always apply.", .secondary)
+        case (false, true):
+            return ("The title text from the search field always applies.", .secondary)
+        case (false, false):
+            return nil
         }
-        return nil
     }
 
     // MARK: Actions
@@ -384,12 +393,11 @@ struct SavedSearchSheet: View, Loggable {
         switch mode {
         case .create(let query):
             rules = RuleSet(query: query)
-            if rules.rules.isEmpty { rules.rules = [.blank()] }
             name = suggestedName
         case .edit(let id), .editFromField(let id, _):
             guard let search = store.search(id) else { return sheetCoordinator.dismissSheet() }
             candidateID = id
-            // From the field, its rules; either way compared with what is saved.
+            /// From the field, its rules; either way compared with what is saved.
             if case .editFromField(_, let query) = mode {
                 rules = RuleSet(query: query)
             } else {
@@ -405,10 +413,10 @@ struct SavedSearchSheet: View, Loggable {
             rules = RuleSet(query: search.query)
             name = SavedSearchName.duplicate(of: search.name, claims: coordinator.savedSearchNameClaims(excluding: nil))
             nameEdited = true
-            // A copy of a search missing rules would be missing them too, unflagged.
+            /// A copy of a search missing rules would be missing them too, unflagged.
             showsDroppedRulesNotice = store.needsReview(id)
         }
-        // A search left with no rules (every stored one unreadable) starts as a new one does.
+        /// A search left with no rules (every stored one unreadable) starts as a new one does.
         if rules.rules.isEmpty { rules.rules = [.blank()] }
         listChoices = ListChoiceGroup.groups(coordinator.searchListCatalog(),
                                              excluding: store.search(candidateID)?.name)
@@ -428,15 +436,15 @@ struct SavedSearchSheet: View, Loggable {
 
     private func removeRule(_ id: UUID) {
         guard rules.rules.count > 1 else { return }
-        // First, so a field still being edited in the row commits while its row exists:
-        // after the removal its binding would address the next row, or none.
+        /// First, so a field still being edited in the row commits while its row exists:
+        /// after the removal its binding would address the next row, or none.
         RuleRow.endEditing()
         rules.rules.removeAll { $0.id == id }
     }
 
     private func save() {
-        // Commits a field still being edited (and clamps a typed year) before the rules
-        // are read: the button's click, or Return, would otherwise come first.
+        /// Commits a field still being edited (and clamps a typed year) before the rules
+        /// are read: the button's click, or Return, would otherwise come first.
         RuleRow.endEditing()
         guard saveProblem == nil, !isUnchanged else { return }
         let query = rules.query
@@ -450,8 +458,8 @@ struct SavedSearchSheet: View, Loggable {
             store.update(id, name: trimmedName, query: query)
         case .editFromField(let id, _):
             store.update(id, name: trimmedName, query: query)
-            // To the saved search's view, now showing the change — not back to wherever
-            // "Open in Search Field" was chosen from.
+            /// To the saved search's view, now showing the change — not back to wherever
+            /// "Open in Search Field" was chosen from.
             if showOwnViewFromSearch(id) { return }
             SearchController.shared.clearSearch()
         }
@@ -525,14 +533,16 @@ private struct RuleRow: View {
     var body: some View {
         HStack(spacing: 6) {
             if showsConjunction {
+                /// A rule that excludes films excludes them whatever it is joined by
+                /// (SearchController.applyTokens), and the field's text narrows everything
+                /// the other rules find, so for either the and/or would change nothing.
+                let excludes = rule.isOperatorChosen && rule.op.isInverted
                 SheetMenuPicker(selection: $rule.conjunction,
                                 items: [.option(tag: .and, title: "and"), .option(tag: .or, title: "or")],
                                 width: 58)
-                    // A rule that excludes films excludes them whatever it is joined by
-                    // (SearchController.applyTokens), so its and/or would change nothing.
-                    .disabled(rule.isOperatorChosen && rule.op.isInverted)
-                    .help(rule.isOperatorChosen && rule.op.isInverted
-                          ? "A rule that excludes films always applies."
+                    .disabled(excludes || rule.isFieldText)
+                    .help(rule.isFieldText ? "Text from the search field always applies."
+                          : excludes ? "A rule that excludes films always applies."
                           : "And: must also match. Or: matching this rule is enough.")
             }
 
@@ -545,14 +555,14 @@ private struct RuleRow: View {
                     rule.isFieldChosen = true
                 }), items: Self.fieldItems, width: 140)
 
-            // Waits for a field; its choices depend on it.
+            /// Waits for a field; its choices depend on it.
             SheetMenuPicker(selection: Binding(
                 get: { rule.isFieldChosen && rule.isOperatorChosen ? rule.op : nil },
                 set: { if let op = $0 { Self.endEditing(); switchOperator(to: op) } }),
                             items: operatorItems, width: 150)
                 .disabled(!rule.isFieldChosen)
 
-            // Nothing to edit until the condition is chosen.
+            /// Nothing to edit until the condition is chosen.
             Group {
                 if rule.isFieldChosen && rule.isOperatorChosen { valueEditor } else { Color.clear }
             }
@@ -608,14 +618,16 @@ private struct RuleRow: View {
         rule.isOperatorChosen = true
         guard op != previous.op || !previous.isOperatorChosen else { return }
         rule.op = op
-        // A year and an amount share the numbers but not their meaning: "in the last 1
-        // month" must not become the year 1, nor this year an amount of 2026 months.
+        /// Another condition is a rule of the user's own, no longer the field's text.
+        rule.isFieldText = false
+        /// A year and an amount share the numbers but not their meaning: "in the last 1
+        /// month" must not become the year 1, nor this year an amount of 2026 months.
         if (op.editor == .year) != (previous.op.editor == .year) {
             (rule.a, rule.b) = QueryRule.defaultNumbers(for: rule.field, op: op)
         }
         guard previous.isOperatorChosen else { return }
         if op.editor == .raw, previous.op.editor != .raw { rule.text = previous.value }
-        // A menu value chosen for one kind of menu means nothing in another.
+        /// A menu value chosen for one kind of menu means nothing in another.
         if op.editor != previous.op.editor, op.editor.isMenu {
             rule.isValueChosen = false
             rule.otherChosen = nil
@@ -782,19 +794,19 @@ private struct NumberEntry: View {
     var body: some View {
         DigitTextField(text: $text, maxLength: 4, placeholder: "",
                        onEndEditing: { committed, _ in settle(committed) }, fontSize: 12)
-            // Spans the row, as every other value editor does; a range's two share it.
+            /// Spans the row, as every other value editor does; a range's two share it.
             .frame(maxWidth: .infinity)
             .centeredWithPopUps()
             .onChange(of: text) { _, typed in
-                // A year passes through numbers outside its range on the way ("2", "20"…);
-                // only one inside it is taken while typing, and the end of the edit
-                // clamps whatever is left.
+                /// A year passes through numbers outside its range on the way ("2", "20"…);
+                /// only one inside it is taken while typing, and the end of the edit
+                /// clamps whatever is left.
                 guard let typedValue = Int(typed), range?.contains(typedValue) ?? true,
                       typedValue != value else { return }
                 value = typedValue
             }
             .onChange(of: value) { _, newValue in
-                // Set from outside: another operator's starting numbers.
+                /// Set from outside: another operator's starting numbers.
                 if Int(text) != newValue { text = String(newValue) }
             }
     }

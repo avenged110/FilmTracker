@@ -1,10 +1,10 @@
 // MARK: - FSSharedFields.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Field controls shared by the FilmSheet's Details tab and the MultiFilmSheet: the Queue Membership
-// picker, the automatic-queueing row, the List Membership and Special Sorting menus, and the Rotation
-// Threshold picker. Each can also show a blank "Select…" state, which only the MultiFilmSheet uses.
-// Also holds the mixed-state checkbox that the MultiFilmSheet's flags use.
+/// Field controls shared by the FilmSheet's Details tab and the MultiFilmSheet: the Queue Membership
+/// picker, the automatic-queueing row, the List Membership and Special Sorting menus, and the Rotation
+/// Threshold picker. Each can also show a blank "Select…" state, which only the MultiFilmSheet uses.
+/// Also holds the mixed-state checkbox that the MultiFilmSheet's flags use.
 
 import SwiftUI
 
@@ -80,10 +80,10 @@ struct AutoAddToQueueRow: View {
         HStack(alignment: .top, spacing: columnSpacing) {
             FilmSheetFieldLabel("", width: labelWidth)
                 .padding(.top, 2)
-            // A checkbox beside its label rather than a Toggle wrapping it, so the box is a
-            // stop in the sheet's Tab traversal (SheetCheckbox, 30.20). The two text runs
-            // still toggle it on click, as a Toggle's label would. The checkbox is centered
-            // on the "Add to … Queue" line through the rotationLine guide.
+            /// A checkbox beside its label rather than a Toggle wrapping it, so the box is a
+            /// stop in the sheet's Tab traversal (SheetCheckbox, 30.20). The two text runs
+            /// still toggle it on click, as a Toggle's label would. The checkbox is centered
+            /// on the "Add to … Queue" line through the rotationLine guide.
             HStack(alignment: .rotationLine, spacing: 4) {
                 Group {
                     if let onCheckboxClick {
@@ -97,8 +97,8 @@ struct AutoAddToQueueRow: View {
                     HStack(spacing: 4) {
                         Text("Add to")
                             .onTapGesture { toggle() }
-                        // While unset the menu shows the hidden "Select…" row, and choosing a
-                        // section still writes it (a constant binding would drop the choice).
+                        /// While unset the menu shows the hidden "Select…" row, and choosing a
+                        /// section still writes it (a constant binding would drop the choice).
                         SheetMenuPicker(selection: Binding(
                                             get: { isUnset ? Self.unsetTag : section },
                                             set: { if $0 != Self.unsetTag { section = $0 } }),
@@ -110,8 +110,8 @@ struct AutoAddToQueueRow: View {
                     }
                     .alignmentGuide(.rotationLine) { $0[VerticalAlignment.center] }
                     .padding(.top, 4)
-                    // Omits the 2-point vertical padding reduction that other checkbox and
-                    // Picker rows use, which would make the margins here unnaturally thin.
+                    /// Omits the 2-point vertical padding reduction that other checkbox and
+                    /// Picker rows use, which would make the margins here unnaturally thin.
                     Text(description)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -227,10 +227,10 @@ struct ListMembershipMenu: View {
                let list = availableLists.first(where: { $0.listID == listID }) {
                 return truncateListName(list.listName)
             }
-            // The selected list was deleted while the sheet was open. Show a count
-            // instead of "None" so the user knows a membership is still pending
-            // (it will be removed from selectedListIDs by the .deleted event handler,
-            // but there is a brief window between the deletion and the UI refresh).
+            /// The selected list was deleted while the sheet was open. Show a count
+            /// instead of "None" so the user knows a membership is still pending
+            /// (it will be removed from selectedListIDs by the .deleted event handler,
+            /// but there is a brief window between the deletion and the UI refresh).
             return "1 selected"
         } else {
             return "Multiple"
@@ -303,11 +303,11 @@ struct SpecialSortingMenu: View {
     }
 
     private func toggleExclusive(_ option: String, isOn: Bool) {
-        // Mutate a local copy and commit it in one write. Calling .remove()/.insert() directly on
-        // `selectedTags` (a @Binding) would go through its get-mutate-set cycle on each call: up to
-        // three writes to viewModel.specialSorting per tap, each firing checkForChanges() and
-        // onChange(of:) with transient intermediate states. GalleryFilterMenu builds a local Set and
-        // commits once for the same reason.
+        /// Mutate a local copy and commit it in one write. Calling .remove()/.insert() directly on
+        /// `selectedTags` (a @Binding) would go through its get-mutate-set cycle on each call: up to
+        /// three writes to viewModel.specialSorting per tap, each firing checkForChanges() and
+        /// onChange(of:) with transient intermediate states. GalleryFilterMenu builds a local Set and
+        /// commits once for the same reason.
         var updated = selectedTags
         if isOn {
             for sibling in FilmSpecialSorting.exclusiveOptions where sibling != option {

@@ -1,18 +1,18 @@
 // MARK: - DVCanvasPage.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Data Visualizations page: its eight sections built from DVCanvasKit nodes (27.44) —
-// every card, figure and string, once — and drawn two ways: on the tab by one page view
-// into cached Core Animation strips inside a plain NSScrollView, with the page's few controls
-// as real AppKit subviews; and into the library PDF as vector blocks (DVPrintLayout).
-//
-// Why not hosted SwiftUI: an NSHostingView of ~1,000 leaves re-resolves every Text and re-renders
-// every drawing group whenever the window's key state flips, which every sheet, popover, and window
-// switch causes. Inside AppKit's sheet animation that stepped from the main thread and stuttered
-// (`sheet-hitch` in 99.50). Drawn here, nothing on the page redraws on a key change, and a scroll
-// step only moves drawn strips. `dataviz-render`
-// (99.40) renders the page; `dataviz-canvas` (99.40) measures it; `dataviz-window` (99.50) captures the
-// real window.
+/// The Data Visualizations page: its eight sections built from DVCanvasKit nodes (27.44) —
+/// every card, figure and string, once — and drawn two ways: on the tab by one page view
+/// into cached Core Animation strips inside a plain NSScrollView, with the page's few controls
+/// as real AppKit subviews; and into the library PDF as vector blocks (DVPrintLayout).
+///
+/// Why not hosted SwiftUI: an NSHostingView of ~1,000 leaves re-resolves every Text and re-renders
+/// every drawing group whenever the window's key state flips, which every sheet, popover, and window
+/// switch causes. Inside AppKit's sheet animation that stepped from the main thread and stuttered
+/// (`sheet-hitch` in 99.50). Drawn here, nothing on the page redraws on a key change, and a scroll
+/// step only moves drawn strips. `dataviz-render`
+/// (99.40) renders the page; `dataviz-canvas` (99.40) measures it; `dataviz-window` (99.50) captures the
+/// real window.
 
 import AppKit
 import SwiftUI
@@ -211,10 +211,10 @@ final class DVCanvasPageView: NSView {
             tile.needsDisplayOnBoundsChange = false
             tile.contentsScale = scale
             tile.anchorPoint = .zero
-            // Recorded on the main thread, rasterized by Core Animation off it: half the
-            // cost of a resize step.
+            /// Recorded on the main thread, rasterized by Core Animation off it: half the
+            /// cost of a resize step.
             tile.drawsAsynchronously = true
-            // Below the controls' layers.
+            /// Below the controls' layers.
             host.insertSublayer(tile, at: 0)
             tiles.append(tile)
             staleTiles.insert(tiles.count - 1)
@@ -238,8 +238,8 @@ final class DVCanvasPageView: NSView {
     func refreshVisibleTiles() {
         let viewport = visibleRect
         guard !viewport.isEmpty else { return }
-        // Nearest strips keep their bitmaps up to the budget (always those within two
-        // screens); the farthest give theirs back and are drawn again on approach.
+        /// Nearest strips keep their bitmaps up to the budget (always those within two
+        /// screens); the farthest give theirs back and are drawn again on approach.
         let keep = keptTiles(viewport)
         for (i, tile) in tiles.enumerated() where tile.contents != nil && !keep.contains(i) {
             tile.contents = nil
@@ -303,8 +303,8 @@ final class DVCanvasPageView: NSView {
         prefetchTimer = nil
         let viewport = visibleRect
         guard let window = unsafe window, !viewport.isEmpty, !staleTiles.isEmpty else { return }
-        // Not under a sheet (its animation owns the frames) or mid-resize (every step makes
-        // strips stale again); the sheet's close or the drag's end reschedules.
+        /// Not under a sheet (its animation owns the frames) or mid-resize (every step makes
+        /// strips stale again); the sheet's close or the drag's end reschedules.
         guard window.attachedSheet == nil, !inLiveResize else { return }
         #if DEBUG
         guard !Self.debugLiveResize, !Self.debugNoPrefetch else { return }
@@ -340,9 +340,9 @@ final class DVCanvasPageView: NSView {
         refreshVisibleTiles()
     }
 
-    // Both observers are target/selector registrations: NotificationCenter drops them when
-    // the page deallocates, so no tokens (and no deinit) are needed. Each is re-pointed at
-    // its new object on every move. Both notifications are posted on the main thread.
+    /// Both observers are target/selector registrations: NotificationCenter drops them when
+    /// the page deallocates, so no tokens (and no deinit) are needed. Each is re-pointed at
+    /// its new object on every move. Both notifications are posted on the main thread.
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -350,7 +350,7 @@ final class DVCanvasPageView: NSView {
         prefetchTimer?.invalidate()
         prefetchTimer = nil
         guard let window = unsafe window else { return }
-        // A prefetch that waited out a sheet resumes when it closes.
+        /// A prefetch that waited out a sheet resumes when it closes.
         NotificationCenter.default.addObserver(
             self, selector: #selector(windowDidEndSheet(_:)),
             name: NSWindow.didEndSheetNotification, object: window)
@@ -372,8 +372,8 @@ final class DVCanvasPageView: NSView {
 
     @objc private func clipBoundsDidChange(_ notification: Notification) {
         guard let clip = notification.object as? NSClipView else { return }
-        // A scroll moves the popover's anchor out from under it; close it as every
-        // other popover in the app does on scroll. A resize keeps the origin.
+        /// A scroll moves the popover's anchor out from under it; close it as every
+        /// other popover in the app does on scroll. A resize keeps the origin.
         let origin = clip.bounds.origin
         if origin != lastClipOrigin {
             lastClipOrigin = origin
@@ -563,7 +563,7 @@ final class DVCanvasPageView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        // Innermost region wins: rows inside cards were appended after their card.
+        /// Innermost region wins: rows inside cards were appended after their card.
         guard let spot = hotspots.last(where: { !$0.isHover && $0.rect.contains(p) }) else { return super.mouseDown(with: event) }
         switch spot.action {
         case .perform(let action): action()
@@ -642,10 +642,10 @@ final class DVCanvasPageView: NSView {
         let size = hoverTipLabel.intrinsicContentSize
         let textHeight = ceil(size.height)
         let w = ceil(size.width) + 12, h = textHeight + 4
-        // Above the mark, kept inside the region horizontally.
+        /// Above the mark, kept inside the region horizontally.
         let x = min(max(spot.rect.minX, anchor.midX - w / 2), spot.rect.maxX - w)
         hoverTip.frame = CGRect(x: x, y: anchor.minY - h - 4, width: w, height: h)
-        // The line centered in the plate, on the pixel grid.
+        /// The line centered in the plate, on the pixel grid.
         let scale = unsafe window?.backingScaleFactor ?? 2
         hoverTipLabel.frame = CGRect(x: 0, y: ((h - textHeight) / 2 * scale).rounded() / scale,
                                      width: w, height: textHeight)
@@ -669,24 +669,24 @@ final class DVCanvasPageView: NSView {
         pop.contentViewController = NSHostingController(rootView: DVAttentionPopover(label: list.label, items: list.items) { [weak pop] in
             pop?.performClose(nil)
         })
-        // Its real size before it is shown: the hosting controller starts at a default size,
-        // and when the content then settled the window shrank away from the arrow's side,
-        // leaving the arrow 20 pt short of what it points at.
+        /// Its real size before it is shown: the hosting controller starts at a default size,
+        /// and when the content then settled the window shrank away from the arrow's side,
+        /// leaving the arrow 20 pt short of what it points at.
         pop.contentSize = DVAttentionPopover.size
         pop.show(relativeTo: rect, of: self, preferredEdge: .minX)
         popover = pop
     }
 }
 
-// `@preconcurrency`: CALayerDelegate is a nonisolated protocol, but strips draw synchronously
-// in the main thread's Core Animation commit. The conformance lets `draw` be main-actor
-// isolated, with the same runtime main-thread check `MainActor.assumeIsolated` made.
+/// `@preconcurrency`: CALayerDelegate is a nonisolated protocol, but strips draw synchronously
+/// in the main thread's Core Animation commit. The conformance lets `draw` be main-actor
+/// isolated, with the same runtime main-thread check `MainActor.assumeIsolated` made.
 extension DVCanvasPageView: @preconcurrency CALayerDelegate {
     /// A strip's drawing: the page's content under it, in the page's appearance.
     func draw(_ layer: CALayer, in ctx: CGContext) {
         let frame = layer.frame
-        // The page's layer is geometry-flipped (a flipped view), so a strip's context is
-        // already y-down; only the strip's offset in the page is applied.
+        /// The page's layer is geometry-flipped (a flipped view), so a strip's context is
+        /// already y-down; only the strip's offset in the page is applied.
         if !layer.contentsAreFlipped() {
             ctx.translateBy(x: 0, y: frame.height)
             ctx.scaleBy(x: 1, y: -1)
@@ -752,13 +752,13 @@ final class DVCanvasScrollNSView: NSScrollView {
     func sizePage() {
         let width = contentView.bounds.width
         let oldWidth = page.frame.width
-        // The old rects first (cached from the previous step, so no relayout at the old width).
+        /// The old rects first (cached from the previous step, so no relayout at the old width).
         let oldRects = oldWidth > 0 && oldWidth != width ? page.anchorRects(width: oldWidth) : []
         let height = page.fittingHeight(width: width)
         guard page.frame.size != CGSize(width: width, height: height) || pendingAnchor != nil else { return }
         var shift: CGFloat = 0
         let viewTop = contentView.bounds.minY
-        // The first item in reading order still showing at the top (or the next one below a gap).
+        /// The first item in reading order still showing at the top (or the next one below a gap).
         if viewTop > 0, let i = oldRects.firstIndex(where: { $0.maxY > viewTop }) {
             let newRects = page.anchorRects(width: width)
             if newRects.count == oldRects.count {
@@ -1058,7 +1058,7 @@ enum DVCanvasSections {
                          action: m.navigation.hallOfFame),
         ])
 
-        // Ownership
+        /// Ownership
         let rows = stats.formatBreakdown
         let segments = [
             DVKSegment(label: "Purchased on 4K UHD", count: rows.first?.count ?? 0, color: .systemIndigo),
@@ -1084,7 +1084,7 @@ enum DVCanvasSections {
                                  subtitle: "Rows are mutually exclusive and sum to \(films(stats.totalFilms)).",
                                  [DVK.stackedBar(segments, height: 24), ownershipRows])
 
-        // Catalog Health
+        /// Catalog Health
         let healthSubtitle = insights.emptiestField.map { e -> String in
             e.blank > 0 ? "Emptiest metadata field: \(e.name) (\(DVFormat.count(e.blank)) blank)" : "Every metadata field is filled on every film"
         } ?? "Every metadata field is filled on every film"
@@ -1103,7 +1103,7 @@ enum DVCanvasSections {
         ]
         let catalog = DVK.card(title: "Catalog Health", subtitle: healthSubtitle, [DVVStack(spacing: 6, healthRows)])
 
-        // Ratings
+        /// Ratings
         let rated = stats.totalFilms - stats.notYetRatedFilms
         let bars = stats.ratingsBreakdown.map { item in
             DVKBar(label: "\(item.rating)", value: Double(item.count),
@@ -1120,7 +1120,7 @@ enum DVCanvasSections {
             ratings,
         ])
 
-        // Collection Growth
+        /// Collection Growth
         let legend = DVK.legend(DVGrowthCard.legend.map { DVKSegment(label: $0.label, count: 0, color: $0.color) }, showCounts: false)
         let growthCards = switchable(b, key: "growth", default: DVGrowthCard.defaultScope, titles: DVGrowthCard.scopes) { scope, control in
             let growth = DVGrowthCard.growth(insights.growth, scope: scope)
@@ -1130,15 +1130,15 @@ enum DVCanvasSections {
                                             : DVK.lineChart(DVGrowthCard.spec(growth), height: DVGrowthCard.chartHeight)])
         }
 
-        // Needs Attention
+        /// Needs Attention
         let attention = attentionRows(m)
         let attentionCard = DVK.card(title: "Needs Attention", [
             attention.isEmpty
                 ? DVK.footnote(DVAttentionRows.emptyText)
                 : DVVStack(spacing: 4, attention.map { DVK.attentionListRow(label: $0.label, count: $0.count, tint: $0.tint, popoverID: $0.id) }),
         ])
-        // In print All Time spans the page on its own row and Past 5 Years sits beside
-        // Needs Attention.
+        /// In print All Time spans the page on its own row and Past 5 Years sits beside
+        /// Needs Attention.
         let growthRows: [any DVNode] = b.isPrint
             ? [growthCards[0], DVFlow(minColumnWidth: DVStyle.minWideCardWidth, weights: [2, 1], [growthCards[1], attentionCard])]
             : [DVFlow(minColumnWidth: DVStyle.minWideCardWidth, weights: [2, 1], [growthCards[0], attentionCard])]
@@ -1177,7 +1177,7 @@ enum DVCanvasSections {
     static func viewing(_ m: DVCanvasModel, _ b: DVBuild) -> Section {
         let insights = m.insights
         let title = "Viewing History"
-        // In print the span is stated in words where the Stepper and its pop-ups sit.
+        /// In print the span is stated in words where the Stepper and its pop-ups sit.
         let detail = b.isPrint ? "Viewing figures are for the span named below; the rest of the report is not scoped."
                                : "The Stepper scopes select data in this section only."
         guard let p = m.period, insights.totalViewings > 0 else {
@@ -1187,7 +1187,7 @@ enum DVCanvasSections {
         let compare = m.compare.wrappedValue
         let span = compare ? "\(p.spanLabel) vs. \(p.comparisonLabel)." : "\(p.spanLabel)."
 
-        // Tiles.
+        /// Tiles.
         let tiles = DVFlow(minColumnWidth: DVStyle.minTileWidth, spacing: DVStyle.tileGap, maxColumns: 6, [
             DVK.statTile(title: "Viewings", value: DVFormat.count(p.viewings), color: .systemPurple,
                          delta: compare ? DVDelta(current: p.viewings, prior: p.priorViewings) : nil,
@@ -1206,8 +1206,8 @@ enum DVCanvasSections {
                          delta: compare ? DVDelta.decimal(current: p.averageRating, prior: p.priorAverageRating) : nil),
         ])
 
-        // Month chart: each bar banded by chroma, release decade or genre (the menu; print
-        // shows all three, each captioned), the band legend where a subtitle would be.
+        /// Month chart: each bar banded by chroma, release decade or genre (the menu; print
+        /// shows all three, each captioned), the band legend where a subtitle would be.
         let months = AppCalendar.current.shortMonthSymbols
         let monthCards = switchable(b, key: "monthBands", default: 0, titles: ["Chroma", "Release Decade", "Genre"],
                                     popUpWidth: 120) { mode, control in
@@ -1225,15 +1225,15 @@ enum DVCanvasSections {
             let bandLegend = DVK.legend(band.keys.indices.map { i in
                 DVKSegment(label: band.keys[i].label, count: 0, color: band.paints[i].color, fillOpacity: band.paints[i].opacity)
             }, showCounts: false)
-            // Bottom-aligned: the row is as tall as Most Rewatched, and the chart's month labels
-            // sit on the card's bottom padding rather than the extra height sitting under them.
+            /// Bottom-aligned: the row is as tall as Most Rewatched, and the chart's month labels
+            /// sit on the card's bottom padding rather than the extra height sitting under them.
             return DVK.card(title: "Viewings by Month", trailingNode: legend, subtitleNode: bandLegend, bottomAligned: true,
                             [DVK.monthColorBars(monthBars, paints: band.paints, priorPaints: band.priorPaints, height: 180, spacing: 10)])
         }
 
-        // Most Rewatched. On screen all-time by default: the current span is unlikely to
-        // hold a second viewing of anything, while all-time reliably has content. The list's
-        // height is fixed (ten rows' worth) so switching scope never resizes the row.
+        /// Most Rewatched. On screen all-time by default: the current span is unlikely to
+        /// hold a second viewing of anything, while all-time reliably has content. The list's
+        /// height is fixed (ten rows' worth) so switching scope never resizes the row.
         let rewatched = switchable(b, key: "rewatched", default: 1, titles: ["This Year", "All Time"]) { scope, trailing in
             let rows = scope == 0 ? p.mostRewatched : insights.mostRewatchedAllTime
             let list: any DVNode = rows.isEmpty
@@ -1245,7 +1245,7 @@ enum DVCanvasSections {
                             [DVFrame(child: list, height: DVStyle.mostRewatchedListHeight, vAlign: .top)])
         }
 
-        // Detail cards.
+        /// Detail cards.
         let bands = insights.rewatchesByRatingBand
         var rewatchesFootnote = "Average viewings per film by your rating."
         if bands.count == 5 {
@@ -1278,8 +1278,8 @@ enum DVCanvasSections {
 
         switch b {
         case .screen(let view):
-            // Wider than the standard wide-card minimum: the Most Rewatched card's scope
-            // switch needs more than a third of 360 pt beside its title.
+            /// Wider than the standard wide-card minimum: the Most Rewatched card's scope
+            /// switch needs more than a third of 360 pt beside its title.
             return Section(title: title, detail: detail, rows: [
                 viewingControls(m, view: view, span: span), tiles,
                 DVFlow(minColumnWidth: 420, weights: [2, 1], [monthCards[0]] + rewatched),
@@ -1287,8 +1287,8 @@ enum DVCanvasSections {
                 habitsRow,
             ])
         case .print:
-            // Both Most Rewatched scopes print beside the Chroma month chart; the Release
-            // Decade and Genre charts share the row below.
+            /// Both Most Rewatched scopes print beside the Chroma month chart; the Release
+            /// Decade and Genre charts share the row below.
             return Section(title: title, detail: detail, rows: [
                 DVVStack(spacing: DVStyle.gap, [DVText(span, .system(12, .medium), .secondary, lineLimit: nil), tiles]),
                 DVFlow(minColumnWidth: 280, weights: [2, 1, 1], [monthCards[0]] + rewatched),
@@ -1363,14 +1363,14 @@ enum DVCanvasSections {
         }
         let current = mode == 1 ? p.byMonthDecade : p.byMonthGenre
         let prior = mode == 1 ? p.priorByMonthDecade : p.priorByMonthGenre
-        // Only categories with a viewing in a year on the chart; the comparison year's
-        // only when it is shown.
+        /// Only categories with a viewing in a year on the chart; the comparison year's
+        /// only when it is shown.
         var present = Set(current.flatMap { $0.filter { $0.value > 0 }.keys })
         if compare { present.formUnion(prior.flatMap { $0.filter { $0.value > 0 }.keys }) }
         let keys: [(key: String, label: String)]
         let colors: [NSColor]
         if mode == 1 {
-            // Newest decade on top; one ramp from violet (oldest) to orange (newest).
+            /// Newest decade on top; one ramp from violet (oldest) to orange (newest).
             let decades = present.filter { $0 != "Unknown" }.sorted(by: >)
             keys = decades.map { ($0, $0) } + (present.contains("Unknown") ? [("Unknown", "Unknown")] : [])
             let ramp: [NSColor] = [.systemPurple, .systemIndigo, .systemBlue, .systemTeal, .systemGreen, .systemYellow, .systemOrange]
@@ -1390,7 +1390,7 @@ enum DVCanvasSections {
             }
             let known = Set(genres.map(\.0))
             let shown = genres.filter { present.contains($0.0) }
-            // Any other stored value (and a blank genre) is banded together as "No genre".
+            /// Any other stored value (and a blank genre) is banded together as "No genre".
             let other = present.contains { !known.contains($0) }
             keys = shown.map { ($0.0, $0.1) } + (other ? [("", "No genre")] : [])
             colors = shown.map(\.2) + (other ? [.systemGray] : [])
@@ -1452,13 +1452,13 @@ enum DVCanvasSections {
                 DVK.attentionRowCompact(label: "On schedule", count: insights.onSchedule, tint: .systemGreen),
             ]),
         ])
-        // Six films (best rated, then most viewed, then most purchased releases), and in a
-        // seventh row a View All button opening the whole list when there are more. The
-        // rows open up to fill the card's height (DVSpread) but never set it: seven compact
-        // rows at their tightest are no taller than the six standard rows they replaced.
+        /// Six films (best rated, then most viewed, then most purchased releases), and in a
+        /// seventh row a View All button opening the whole list when there are more. The
+        /// rows open up to fill the card's height (DVSpread) but never set it: seven compact
+        /// rows at their tightest are no taller than the six standard rows they replaced.
         let pool = insights.comingUpNextMonthItems.count
-        // Every film due, best ranked first; DVFitRows shows as many as the card's height
-        // holds, the View All button after them when some are left out.
+        /// Every film due, best ranked first; DVFitRows shows as many as the card's height
+        /// holds, the View All button after them when some are left out.
         let upcomingRows: [any DVNode] = insights.comingUp.map { DVK.rankRow(name: $0.name, value: "", compact: true, year: $0.year) }
         var viewAll: (any DVNode)?
         if case .screen(let view) = b {
@@ -1467,7 +1467,7 @@ enum DVCanvasSections {
                 (c.control as? NSButton)?.bezelStyle = .push
                 return c
             }
-            // The bezel, not the frame: a push button's frame reaches past its visible edge.
+            /// The bezel, not the frame: a push button's frame reaches past its visible edge.
             button.onAction = { [weak view] sender in view?.showAttentionPopover(comingUpPopoverID, from: sender.alignmentRect(forFrame: sender.frame)) }
             viewAll = DVFrame(child: DVControlNode(control: button), maxInfinity: true, hAlign: .center)
         }
@@ -1493,7 +1493,7 @@ enum DVCanvasSections {
                 DVK.factRow(label: "Unwatched", value: DVFormat.count(insights.neverViewed), popoverID: neverViewedPopoverID),
             ]),
         ])
-        // "24 months" reads "2 years", as the threshold does everywhere else it is shown.
+        /// "24 months" reads "2 years", as the threshold does everywhere else it is shown.
         let years = Double(Preferences.defaultRotationThreshold) / 12
         let threshold = years == 1 ? "1 year" : (years.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(years)) years" : "\(years) years")
         return Section(title: "Rotation", detail: "\(films(insights.rotationEligible)) eligible; default threshold: \(threshold).", rows: [
@@ -1535,7 +1535,7 @@ enum DVCanvasSections {
                            rows: [DVK.card([DVK.footnote("No purchased releases yet. Mark a release as purchased to see spending and format statistics.")])])
         }
 
-        // Tiles.
+        /// Tiles.
         let condition = DVDecorated(child: DVVStack(spacing: 5, [
             DVText("Condition", .system(11), .secondary),
             DVK.stackedBar([DVKSegment(label: "New", count: stats.newReleases, color: .systemGreen),
@@ -1560,8 +1560,8 @@ enum DVCanvasSections {
                          popoverID: recordablePopoverID),
         ])
 
-        // Formats table.
-        // The release cards' format tints: near-black 4K, navy Blu-ray, gray DVD.
+        /// Formats table.
+        /// The release cards' format tints: near-black 4K, navy Blu-ray, gray DVD.
         let colors: [NSColor] = [ReleaseFormatPalette.tint4K, ReleaseFormatPalette.tintBluRay,
                                  ReleaseFormatPalette.tintDVD]
         let labels = [ReleaseFormat.uhd4K.rawValue, "\(ReleaseFormat.bluRay.rawValue) only", "\(ReleaseFormat.dvd.rawValue) only"]
@@ -1598,12 +1598,12 @@ enum DVCanvasSections {
         formatRows.append(DVBox(height: 1) { g, r in g.fill(g.snap(r), DVK.separator) })
         formatRows.append(formatRow(nil, "All", stats.filmsOnDisc, 100, stats.averageCost,
                                     insights.medianCost.map(DVFormat.money) ?? "—", stats.unpurchasedOnDisc))
-        // The rows open up to fill the card's height (DVSpread) but never set it.
+        /// The rows open up to fill the card's height (DVSpread) but never set it.
         let formats = DVK.card(title: "Formats", trailing: "Per-film",
                                subtitle: "\(DVFormat.count(insights.unpurchasedOutOfPrint)) of the unpurchased films are out-of-print.",
                                [DVSpread(minSpacing: 2, formatRows)])
 
-        // 4K UHD and HDR: every 4K release, or the purchased ones.
+        /// 4K UHD and HDR: every 4K release, or the purchased ones.
         let f = stats.fourKStats
         let fourK = switchable(b, key: "fourK") { scope, trailing in
             let allTab = scope == 0
@@ -1634,7 +1634,7 @@ enum DVCanvasSections {
             ])
         }
 
-        // Purchases by year.
+        /// Purchases by year.
         let allRows = stats.purchaseYearTable.sorted { $0.year < $1.year }
         let unconditioned = allRows.reduce(0) { $0 + max($1.count - $1.newCount - $1.usedCount, 0) }
         var legend = [DVKSegment(label: "New", count: stats.newReleases, color: .systemGreen),
@@ -1642,7 +1642,7 @@ enum DVCanvasSections {
         if unconditioned > 0 {
             legend.append(DVKSegment(label: "No condition recorded", count: unconditioned, color: .secondaryLabelColor, fillOpacity: 0.3))
         }
-        // Past 10 Years: this calendar year and the nine before it.
+        /// Past 10 Years: this calendar year and the nine before it.
         let firstRecentYear = AppCalendar.current.component(.year, from: Date()) - 9
         let yearCharts = switchable(b, key: "purchaseYears", default: 0, titles: ["All Time", "Past 10 Years"]) { scope, control in
             let rows = scope == 0 ? allRows : allRows.filter { (Int($0.year) ?? 0) >= firstRecentYear }
@@ -1667,13 +1667,13 @@ enum DVCanvasSections {
                                  valueColor: insights.boughtAtLowest > 0 ? .systemGreen : .labelColor))
         let yearFacts = DVK.card(title: "Purchase Facts", trailing: "All time", [DVVStack(spacing: 4, facts)])
 
-        // Spending Trends.
+        /// Spending Trends.
         let highlights = DVSpendingTrends.highlights(stats: stats, insights: insights)
         let trends = DVK.card(title: "Spending Trends", [
             highlights.isEmpty ? DVK.footnote(DVSpendingTrends.emptyText) : DVVStack(spacing: 8, highlights.map(DVK.highlightRow)),
         ])
 
-        // Summary row.
+        /// Summary row.
         let toViewing = DVK.card(title: "Purchase → Next Viewing", trailingNode: insights.purchaseToFirstViewingMedianDays.map { d in
                                      DVFirstFit(texts: ["Median: \(d) days", "Median: \(d) d"].map { DVText($0, .system(10), .secondary) }) },
                                  subtitle: "Releases must have a recorded purchase date to be counted here.", bottomAligned: true, [
@@ -1683,8 +1683,8 @@ enum DVCanvasSections {
             }, height: 96),
         ])
         var value: [any DVNode] = [DVK.factRow(label: "Cost per viewing since purchase", value: insights.costPerViewing.map(DVFormat.money) ?? "—")]
-        // Film names go on an indented sub-row so a long title can never squeeze the figure
-        // beside it; the release year follows the name, as in Most Rewatched.
+        /// Film names go on an indented sub-row so a long title can never squeeze the figure
+        /// beside it; the release year follows the name, as in Most Rewatched.
         if let best = insights.bestValue {
             value.append(DVK.factRow(label: "Best value (lowest cost per viewing)", value: DVFormat.money(best.perViewing)))
             value.append(DVK.factRow(label: best.name, year: best.year, value: "", valueColor: .secondaryLabelColor, indented: true))
@@ -1701,7 +1701,7 @@ enum DVCanvasSections {
         let valueCard = DVK.card(title: "Value Realized",
                                  subtitle: "Viewings counted from each release's most recent purchase date forward.",
                                  [DVVStack(spacing: 4, value)])
-        // Opens the Release Wishlist report, where the ranked list is.
+        /// Opens the Release Wishlist report, where the ranked list is.
         let wishlist = DVK.card(title: "Wishlist", action: m.navigation.releaseWishlist, [
             DVVStack(spacing: 4, [
                 DVK.factRow(label: "Items", value: DVFormat.count(insights.wishlistItems)),
@@ -1717,13 +1717,13 @@ enum DVCanvasSections {
 
         return Section(title: title, detail: detail, rows: [
             tiles,
-            // The Formats table carries five fixed numeric columns, so it needs more room
-            // than a standard wide card before it can share a row. In print both 4K scopes
-            // sit beside it, the table weighted to the width its columns need.
+            /// The Formats table carries five fixed numeric columns, so it needs more room
+            /// than a standard wide card before it can share a row. In print both 4K scopes
+            /// sit beside it, the table weighted to the width its columns need.
             b.isPrint ? DVFlow(minColumnWidth: 280, weights: [1.5, 1, 1], [formats] + fourK)
                       : DVFlow(minColumnWidth: 480, [formats] + fourK),
         ] + (b.isPrint
-            // In print All Time spans the page and Past 10 Years sits beside the facts.
+            /// In print All Time spans the page and Past 10 Years sits beside the facts.
             ? [yearCharts[0], DVFlow(minColumnWidth: 300, weights: [1.8, 1], [yearCharts[1], yearFacts])]
             : [DVFlow(minColumnWidth: 300, weights: [1.8, 1], [yearCharts[0], yearFacts])]) + [
             trends,
@@ -1756,7 +1756,7 @@ enum DVCanvasSections {
                 g.fill(otherRect, DVPaint(color: .secondaryLabelColor, opacity: 0.3))
                 g.fill(usedRect, DVPaint(color: .systemOrange, opacity: DVStyle.fillOpacity))
                 if newRect.height > 0 { g.fillPath(DVShapes.topRounded(newRect, 3), DVPaint(color: .systemGreen, opacity: DVStyle.fillOpacity)) }
-                // Each band's own count inside it, as the Viewings by Month bars do.
+                /// Each band's own count inside it, as the Viewings by Month bars do.
                 for (band, n) in [(newRect, row.newCount), (usedRect, row.usedCount), (otherRect, other)] where n > 0 && band.height >= 14 {
                     let line = DVLine.plain(DVFormat.count(n), .mono(8))
                     let w = min(band.width, line.width(scale: g.scale))
@@ -1824,7 +1824,7 @@ enum DVCanvasSections {
                 DVK.legend(lockSegments),
             ])
         }
-        // In print each scope pair takes its own row.
+        /// In print each scope pair takes its own row.
         let rows: [[any DVNode]] = b.isPrint ? [[duplicates] + studios, [emptyCell] + regions] : [[duplicates] + studios + regions]
         return Section(title: "Collection Structure",
                        rows: rows.map { DVFlow(minColumnWidth: DVStyle.minTextCardWidth, maxColumns: 3, $0) })
@@ -1848,8 +1848,8 @@ enum DVCanvasSections {
                 }, height: 150, spacing: 6),
         ])
         var lines: [String] = []
-        // The title is cut here, in the string, rather than by the subtitle's line limit: the
-        // subtitle is one text over two lines, so a limit would cap the lines, not this one.
+        /// The title is cut here, in the string, rather than by the subtitle's line limit: the
+        /// subtitle is one text over two lines, so a limit would cap the lines, not this one.
         if let l = insights.longestFilm {
             let name = l.name.count > 40 ? String(l.name.prefix(40)) + "…" : l.name
             lines.append("Longest film: \(name) (\(DVFormat.hoursMinutes(l.minutes)))")
@@ -1985,8 +1985,8 @@ enum DVCanvasSections {
 
     /// Purchases and Spending: films rated 8+ with a 4K release entered but not bought.
     static func fourKUpgradesCard(_ h: DVHabits, _ b: DVBuild) -> any DVNode {
-        // Every film as a row; DVFitRows shows as many as the card's height holds, the View
-        // All button after them when some are left out.
+        /// Every film as a row; DVFitRows shows as many as the card's height holds, the View
+        /// All button after them when some are left out.
         let rows: [any DVNode] = h.fourKUpgrades.map {
             DVK.rankRow(name: $0.film.name, value: "\($0.rating)", compact: true, year: $0.film.year)
         }
@@ -2042,8 +2042,8 @@ enum DVCanvasSections {
         func twoLine(_ a: String, _ b: String) -> any DVNode {
             DVVStack(spacing: 0, align: .trailing, [DVText(a, .system(10), .secondary), DVText(b, .system(10), .secondary)])
         }
-        // The role pop-up takes the "Name" header's place, which it describes better; in
-        // print, where every role gets its own card, the role's name sits there instead.
+        /// The role pop-up takes the "Name" header's place, which it describes better; in
+        /// print, where every role gets its own card, the role's name sits there instead.
         let peopleCards = switchable(b, key: "role", titles: ["Directors", "Cast", "Composers", "Screenwriters"], popUpWidth: 130,
                                      caption: { DVText($0, .system(13, .semibold), .primary) }) { role, picker in
             let people: [DVRank] = [insights.directors, insights.cast, insights.composers, insights.screenwriters][role]
@@ -2085,8 +2085,8 @@ enum DVCanvasSections {
         if insights.contentRatings.isEmpty {
             tags.append(DVK.footnote("No content ratings recorded"))
         } else {
-            // By rating, not by row: only ratings in use are listed, so a row's position
-            // says nothing about which rating it is (with no G film, PG is the first row).
+            /// By rating, not by row: only ratings in use are listed, so a row's position
+            /// says nothing about which rating it is (with no G film, PG is the first row).
             func tint(_ rating: String) -> (NSColor, CGFloat) {
                 switch rating {
                 case "G": return (.systemGreen, DVStyle.fillOpacity)
@@ -2115,7 +2115,7 @@ enum DVCanvasSections {
             }))
         }
         let ratingsCard = DVK.card(title: "MPAA Ratings and Tags", tags)
-        // In print the four role cards take a row of their own.
+        /// In print the four role cards take a row of their own.
         return Section(title: "People and Genres", rows: b.isPrint
             ? [DVFlow(minColumnWidth: 280, maxColumns: 4, peopleCards),
                DVFlow(minColumnWidth: DVStyle.minTextCardWidth, maxColumns: 2, [genres, ratingsCard])]
@@ -2167,9 +2167,9 @@ enum DVCanvasSections {
             DVVStack(spacing: 2, sourceSegments.map { swatchRow($0, .system(11), count: $0.count, percent: DVFormat.percent($0.count, of: total), vertical: 3) }),
         ])
 
-        // The Audio card in either scope, or (`widest`) with every codec's legend entry at
-        // its longest — the larger scope's total, at 100% — the most lines its legend can
-        // wrap to at a width.
+        /// The Audio card in either scope, or (`widest`) with every codec's legend entry at
+        /// its longest — the larger scope's total, at 100% — the most lines its legend can
+        /// wrap to at a width.
         func audioCard(allAudio: Bool, widest: Bool = false, trailing: (any DVNode)?) -> any DVNode {
             let channelRows = allAudio ? stats.audioChannelDistributionAll : stats.audioChannelDistribution
             let channelDenominator = allAudio ? stats.audioChannelDenominatorAll : stats.audioChannelDenominator
@@ -2227,10 +2227,10 @@ enum DVCanvasSections {
             return DVK.card(title: "Subtitles and Encoding", trailingNode: trailing, disc)
         }
 
-        // The three cards are one height at every width, whatever the scopes and wherever
-        // the row wraps: the tallest of the Audio card with its legend at its longest, each
-        // card in each scope, and Digital Sources, all with the title row the scope switch
-        // gives them.
+        /// The three cards are one height at every width, whatever the scopes and wherever
+        /// the row wraps: the tallest of the Audio card with its legend at its longest, each
+        /// card in each scope, and Digital Sources, all with the title row the scope switch
+        /// gives them.
         let measureTrailing: any DVNode = {
             if case .screen(let view) = b { return DVControlNode(control: view.scope("audio", default: 0, titles: allOrPurchased).1) }
             return scopeCaption("Purchased Only")
@@ -2251,7 +2251,7 @@ enum DVCanvasSections {
             DVMinHeight(child: discsCard(all: scope == 0, trailing: trailing), minHeight: rowHeight)
         }
 
-        // In print each scope pair takes its own row.
+        /// In print each scope pair takes its own row.
         let rows: [[any DVNode]] = b.isPrint ? [[sourcesCard] + audio, [emptyCell] + discs] : [[sourcesCard] + audio + discs]
         return Section(title: "Audio, Sources, and Technical",
                        rows: rows.map { DVFlow(minColumnWidth: DVStyle.minTextCardWidth, maxColumns: 3, $0) })

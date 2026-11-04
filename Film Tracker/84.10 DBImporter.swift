@@ -1,7 +1,7 @@
 // MARK: - DBImporter.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Parses FilmTracker XML backup files and validates their structure.
+/// Parses FilmTracker XML backup files and validates their structure.
 
 import Foundation
 
@@ -45,19 +45,19 @@ public final class DBImporter {
     
     /// Parse and validate an XML backup file
     public func parseBackupFile(at url: URL) async throws -> ParsedBackup {
-        // Verify file exists
+        /// Verify file exists
         guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
             throw DBImporterError.fileNotFound(url)
         }
 
-        // Enforce a size cap before loading to prevent OOM from a crafted file.
+        /// Enforce a size cap before loading to prevent OOM from a crafted file.
         if let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
            fileSize > Self.maxXMLFileSizeBytes {
             throw DBImporterError.corrupted(
                 "Backup XML exceeds maximum allowed size (\(fileSize / (1024 * 1024)) MiB > 512 MiB)")
         }
         
-        // Read file data
+        /// Read file data
         let data: Data
         do {
             data = try Data(contentsOf: url)
@@ -65,7 +65,7 @@ public final class DBImporter {
             throw DBImporterError.invalidXML("Could not read file: \(error.localizedDescription)")
         }
         
-        // Parse XML
+        /// Parse XML
         let parser = BackupXMLParser()
         do {
             return try parser.parse(data: data)
@@ -82,17 +82,17 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     nonisolated static let logTag = "[DBImporter]"
 
     // MARK: - Parser Safety Limits
-    // These caps prevent a crafted XML file from causing unbounded memory
-    // allocation or pathological parse times. The limits are set well above
-    // any realistic backup size.
-    //
-    // maxObjectCount:      100 000 objects — generous ceiling for any real library.
-    // maxElementDepth:     50 — the valid schema is 5 levels deep; 50 is a wide margin.
-    // maxTextNodeBytes:    4 MiB per text node — notes fields are the largest payload.
-    // maxRelationshipRefs: 10 000 refs per relationship — a list with 10 000 members.
+    /// These caps prevent a crafted XML file from causing unbounded memory
+    /// allocation or pathological parse times. The limits are set well above
+    /// any realistic backup size.
+    ///
+    /// maxObjectCount:      100 000 objects — generous ceiling for any real library.
+    /// maxElementDepth:     50 — the valid schema is 5 levels deep; 50 is a wide margin.
+    /// maxTextNodeBytes:    4 MiB per text node — notes fields are the largest payload.
+    /// maxRelationshipRefs: 10 000 refs per relationship — a list with 10 000 members.
     private static let maxObjectCount      = 100_000
     private static let maxElementDepth    = 50
-    private static let maxTextNodeBytes   = 4 * 1024 * 1024  // 4 MiB
+    private static let maxTextNodeBytes   = 4 * 1024 * 1024  /// 4 MiB
     private static let maxRelationshipRefs = 10_000
 
     private var parsedBackup: ParsedBackup?
@@ -100,16 +100,16 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     private var currentAttributes: [String: String] = [:]
     private var currentText: String = ""
     
-    // Root attributes
+    /// Root attributes
     private var format: String?
     private var version: Int?
     private var created: String?
     private var appVersion: String?
     
-    // Manifest
+    /// Manifest
     private var manifest: [String: Int] = [:]
     
-    // Objects
+    /// Objects
     private var objects: [ParsedObject] = []
     private var currentObjectID: String?
     private var currentObjectEntity: String?
@@ -121,12 +121,12 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     
     private var elementStack: [String] = []
     private var error: (any Error)?
-    // Tracks whether the current property value was supplied via a CDATA section.
-    // CDATA content must not be trimmed because leading/trailing whitespace is significant.
+    /// Tracks whether the current property value was supplied via a CDATA section.
+    /// CDATA content must not be trimmed because leading/trailing whitespace is significant.
     private var currentPropertyHasCDATA: Bool = false
-    // The value of the Property element's `type` attribute, when the writer supplied one.
-    // Only "string" is currently emitted (see ExportedObject.propertyTypes). Backups written
-    // before the attribute existed omit it, and those values take the inference path below.
+    /// The value of the Property element's `type` attribute, when the writer supplied one.
+    /// Only "string" is currently emitted (see ExportedObject.propertyTypes). Backups written
+    /// before the attribute existed omit it, and those values take the inference path below.
     private var currentPropertyDeclaredType: String?
     
     func parse(data: Data) throws -> ParsedBackup {
@@ -152,9 +152,9 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     func parser(_ parser: XMLParser, didStartElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?,
                 attributes attributeDict: [String: String] = [:]) {
-        // Enforce maximum nesting depth before pushing to the element stack.
-        // A valid backup is at most 5 levels deep; exceeding the limit indicates
-        // a malformed or malicious file.
+        /// Enforce maximum nesting depth before pushing to the element stack.
+        /// A valid backup is at most 5 levels deep; exceeding the limit indicates
+        /// a malformed or malicious file.
         guard elementStack.count < Self.maxElementDepth else {
             if error == nil {
                 error = DBImporterError.corrupted(
@@ -186,7 +186,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
             }
             
         case "Object":
-            // Enforce object count limit before starting to build a new object.
+            /// Enforce object count limit before starting to build a new object.
             guard objects.count < Self.maxObjectCount else {
                 if error == nil {
                     error = DBImporterError.corrupted(
@@ -210,7 +210,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
             currentRelationshipRefs = []
             
         case "Ref":
-            // Enforce per-relationship reference count limit.
+            /// Enforce per-relationship reference count limit.
             guard currentRelationshipRefs.count < Self.maxRelationshipRefs else {
                 if error == nil {
                     error = DBImporterError.corrupted(
@@ -229,8 +229,8 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     }
     
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        // Guard against unbounded text accumulation from a crafted node.
-        // The UTF-8 byte count is a conservative proxy for the node's size.
+        /// Guard against unbounded text accumulation from a crafted node.
+        /// The UTF-8 byte count is a conservative proxy for the node's size.
         let incoming = string.utf8.count
         let existing  = currentText.utf8.count
         guard existing + incoming <= Self.maxTextNodeBytes else {
@@ -245,7 +245,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     }
     
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
-        // Same size guard applied to CDATA sections.
+        /// Same size guard applied to CDATA sections.
         let incoming = CDATABlock.count
         let existing  = currentText.utf8.count
         guard existing + incoming <= Self.maxTextNodeBytes else {
@@ -265,21 +265,21 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     func parser(_ parser: XMLParser, didEndElement elementName: String,
                 namespaceURI: String?, qualifiedName qName: String?) {
         if !elementStack.isEmpty { elementStack.removeLast() }
-        // Trim whitespace for regular text nodes only. CDATA content is never trimmed
-        // because leading/trailing whitespace in notes, descriptions, etc. is intentional.
+        /// Trim whitespace for regular text nodes only. CDATA content is never trimmed
+        /// because leading/trailing whitespace in notes, descriptions, etc. is intentional.
         let trimmed = currentPropertyHasCDATA ? currentText : currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         
         switch elementName {
         case "Property":
             if let propName = currentPropertyName {
                 if currentPropertyDeclaredType == "string" {
-                    // The writer stated that this field is a String in the model, so there is
-                    // nothing to infer. Taking the text verbatim is what preserves values
-                    // whose content merely LOOKS like another type — "007", "2.00", "true",
-                    // "[\"a\",\"b\"]" — each of which the inference below would convert to a
-                    // different type, and which the restore would then either reformat or,
-                    // for the boolean and array shapes, fail to convert back at all and
-                    // replace with an empty string.
+                    /// The writer stated that this field is a String in the model, so there is
+                    /// nothing to infer. Taking the text verbatim is what preserves values
+                    /// whose content merely LOOKS like another type — "007", "2.00", "true",
+                    /// "[\"a\",\"b\"]" — each of which the inference below would convert to a
+                    /// different type, and which the restore would then either reformat or,
+                    /// for the boolean and array shapes, fail to convert back at all and
+                    /// replace with an empty string.
                     currentProperties[propName] = trimmed
                 } else {
                     currentProperties[propName] = parsePropertyValue(trimmed)
@@ -311,7 +311,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
             currentObjectEntity = nil
             
         case "FilmTrackerBackup":
-            // Validate required fields
+            /// Validate required fields
             guard let fmt = format else {
                 error = DBImporterError.missingRequiredElement("format attribute")
                 parser.abortParsing()
@@ -328,14 +328,14 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
                 return
             }
             
-            // Validate format
+            /// Validate format
             if fmt != "FilmTrackerXML" {
                 error = DBImporterError.unsupportedFormat(fmt)
                 parser.abortParsing()
                 return
             }
             
-            // Validate version
+            /// Validate version
             if ver > 1 {
                 error = DBImporterError.unsupportedVersion(ver)
                 parser.abortParsing()
@@ -367,59 +367,59 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     // MARK: - Property Value Parsing
     
     private func parsePropertyValue(_ string: String) -> Any {
-        // Handle empty/null
+        /// Handle empty/null
         if string.isEmpty {
             return NSNull()
         }
         
-        // Handle booleans
+        /// Handle booleans
         if string == "true" { return true }
         if string == "false" { return false }
 
-        // Handle JSON arrays (must be valid JSON array syntax, not just any string with brackets)
-        // Real JSON arrays of strings either:
-        // 1. Are empty: []
-        // 2. Contain quotes: ["item1", "item2"]
-        // This prevents plain strings like "[REC]" from being incorrectly parsed as arrays.
+        /// Handle JSON arrays (must be valid JSON array syntax, not just any string with brackets)
+        /// Real JSON arrays of strings either:
+        /// 1. Are empty: []
+        /// 2. Contain quotes: ["item1", "item2"]
+        /// This prevents plain strings like "[REC]" from being incorrectly parsed as arrays.
         let looksLikeArray = string.hasPrefix("[") && string.hasSuffix("]")
         let isEmptyArray = string == "[]"
         let hasQuotes = string.contains("\"")
         
         if looksLikeArray && (isEmptyArray || hasQuotes) {
-            // Decode the text EXACTLY as XMLParser handed it over.
-            //
-            // XMLParser has already resolved every entity reference in the document, so the
-            // string reaching this point is the writer's JSON verbatim. Unescaping it again
-            // would rewrite any array element whose own content contains an entity-shaped
-            // literal: "Tom &amp; Jerry" would come back as "Tom & Jerry", and "He said
-            // &quot;hi&quot;" would produce quotes that break the JSON, so the whole field
-            // would restore empty.
-            //
-            // The unescaped form is kept only as a FALLBACK, tried after the verbatim decode
-            // fails. That preserves any hypothetical backup whose arrays really were written
-            // double-escaped, while making a correctly written one round-trip exactly.
+            /// Decode the text EXACTLY as XMLParser handed it over.
+            ///
+            /// XMLParser has already resolved every entity reference in the document, so the
+            /// string reaching this point is the writer's JSON verbatim. Unescaping it again
+            /// would rewrite any array element whose own content contains an entity-shaped
+            /// literal: "Tom &amp; Jerry" would come back as "Tom & Jerry", and "He said
+            /// &quot;hi&quot;" would produce quotes that break the JSON, so the whole field
+            /// would restore empty.
+            ///
+            /// The unescaped form is kept only as a FALLBACK, tried after the verbatim decode
+            /// fails. That preserves any hypothetical backup whose arrays really were written
+            /// double-escaped, while making a correctly written one round-trip exactly.
             let decodeArray: (String) -> [String]? = { candidate in
                 guard let data = candidate.data(using: .utf8) else { return nil }
                 if let arr = try? JSONDecoder().decode([String].self, from: data) {
                     return arr
                 }
-                // FALLBACK ONLY — never attempted before the verbatim decode above.
-                //
-                // Handles backslash-escaped apostrophes from upstream metadata: patterns
-                // like D\'Onofrio are invalid JSON (JSON has no \' escape sequence).
-                //
-                // It runs SECOND for the same reason the xmlUnescape fallback below does.
-                // Applied first, it would corrupt the healthy case to rescue the broken one:
-                // JSONEncoder writes a literal backslash as `\\`, so
-                // an element genuinely containing a backslash before an apostrophe produces
-                // the valid JSON `["D\\'Onofrio"]`, which CONTAINS the two-character
-                // sequence `\'`. The cleanup matched inside that `\\'`, rewrote it to `\'`,
-                // and turned valid JSON invalid — the decode then failed and the WHOLE field
-                // was restored empty, losing an entire cast list to one apostrophe.
-                //
-                // Ordering it second costs the legacy case nothing: genuinely malformed
-                // `D\'Onofrio` text fails the verbatim decode and reaches this line exactly
-                // as before. Correctly written JSON now never reaches it at all.
+                /// FALLBACK ONLY — never attempted before the verbatim decode above.
+                ///
+                /// Handles backslash-escaped apostrophes from upstream metadata: patterns
+                /// like D\'Onofrio are invalid JSON (JSON has no \' escape sequence).
+                ///
+                /// It runs SECOND for the same reason the xmlUnescape fallback below does.
+                /// Applied first, it would corrupt the healthy case to rescue the broken one:
+                /// JSONEncoder writes a literal backslash as `\\`, so
+                /// an element genuinely containing a backslash before an apostrophe produces
+                /// the valid JSON `["D\\'Onofrio"]`, which CONTAINS the two-character
+                /// sequence `\'`. The cleanup matched inside that `\\'`, rewrote it to `\'`,
+                /// and turned valid JSON invalid — the decode then failed and the WHOLE field
+                /// was restored empty, losing an entire cast list to one apostrophe.
+                ///
+                /// Ordering it second costs the legacy case nothing: genuinely malformed
+                /// `D\'Onofrio` text fails the verbatim decode and reaches this line exactly
+                /// as before. Correctly written JSON now never reaches it at all.
                 guard candidate.contains("\\'") else { return nil }
                 let cleaned = candidate.replacingOccurrences(of: "\\'", with: "'")
                 guard let cleanedData = cleaned.data(using: .utf8) else { return nil }
@@ -434,17 +434,17 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
                 Self.log("NOTE: Array decoded only after XML unescaping — backup appears to be double-escaped: \(string.prefix(100))")
                 return arr
             }
-            // If JSON decode fails, return NSNull (which SafeValueParser.parseStringArray
-            // maps to an empty array) rather than the raw string. Returning the raw string
-            // is worse: parseStringArray would wrap it as a single-element array containing
-            // the corrupt literal (e.g. the description-form string "[\"\\u{01}\"]"),
-            // inserting garbage into the restored database. Silently restoring as empty is
-            // preferable to persisting corrupt data; the warning still surfaces in the log.
+            /// If JSON decode fails, return NSNull (which SafeValueParser.parseStringArray
+            /// maps to an empty array) rather than the raw string. Returning the raw string
+            /// is worse: parseStringArray would wrap it as a single-element array containing
+            /// the corrupt literal (e.g. the description-form string "[\"\\u{01}\"]"),
+            /// inserting garbage into the restored database. Silently restoring as empty is
+            /// preferable to persisting corrupt data; the warning still surfaces in the log.
             Self.log("WARNING: Failed to decode array from: \(string.prefix(100)). Restoring as empty array.")
             return NSNull()
         }
         
-        // Handle numbers (before UUID check to avoid false positives)
+        /// Handle numbers (before UUID check to avoid false positives)
         if let int64 = Int64(string) {
             return int64
         }
@@ -452,36 +452,36 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
             return double
         }
         
-        // Handle UUID strings - validate format to ensure they're proper UUIDs
-        // UUID format: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with 4 hyphens)
+        /// Handle UUID strings - validate format to ensure they're proper UUIDs
+        /// UUID format: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with 4 hyphens)
         if string.count == 36 && string.filter({ $0 == "-" }).count == 4 {
-            // This looks like a UUID, validate and normalize it
+            /// This looks like a UUID, validate and normalize it
             if let uuid = UUID(uuidString: string) {
-                // Return the normalized UUID string (uppercase with proper format)
+                /// Return the normalized UUID string (uppercase with proper format)
                 return uuid.uuidString
             }
-            // If it looks like a UUID but can't be parsed, return as-is (will fail later with better error)
+            /// If it looks like a UUID but can't be parsed, return as-is (will fail later with better error)
             return string
         }
         
-        // Legacy `<Array>` element format, which older writers produced
+        /// Legacy `<Array>` element format, which older writers produced
         if string.hasPrefix("<Array>") && string.hasSuffix("</Array>") {
             return parseArrayValue(string)
         }
         
-        // Default to string
+        /// Default to string
         return string
     }
     
     private func parseArrayValue(_ string: String) -> [String] {
-        // Legacy array format cap: a defense-in-depth ceiling on the number of items.
+        /// Legacy array format cap: a defense-in-depth ceiling on the number of items.
         let maxItems = 10_000
         var result: [String] = []
         let content = string
             .replacingOccurrences(of: "<Array>", with: "")
             .replacingOccurrences(of: "</Array>", with: "")
         
-        // Simple regex-free parsing (scans for <Item> ... </Item> pairs)
+        /// Simple regex-free parsing (scans for <Item> ... </Item> pairs)
         var current = content
         while let startRange = current.range(of: "<Item>"),
               let endRange = current.range(of: "</Item>") {
@@ -512,6 +512,6 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     }
 }
 
-// DBImporter has no stored mutable state, so Sendable (not @unchecked) is correct.
-// ParsedObject and ParsedBackup conformances are declared inline above.
+/// DBImporter has no stored mutable state, so Sendable (not @unchecked) is correct.
+/// ParsedObject and ParsedBackup conformances are declared inline above.
 extension DBImporter: Sendable {}

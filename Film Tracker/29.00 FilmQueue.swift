@@ -1,16 +1,16 @@
 // MARK: - FilmQueue.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Defines the "Film Queue" — three internal, application-owned lists ("Up Next",
-// "Soon", "Later") that occupy a middle ground between user-generated lists and smart
-// lists. A film's membership is set manually (via the FilmSheet Details tab), but the
-// three lists themselves are created inherently at startup, can never be deleted, and
-// are hidden from every user-facing list surface (the sidebar "Lists" section, the
-// "Add to List" menus, the List Membership picker, and the Right Sidebar membership
-// table). Internally each section is a normal ListObject / ListMembership pair, so the
-// entire feature is automatically covered by the MemoryStore ↔ DataManager persistence
-// pipeline, the snapshot-cache fingerprint, and the XML export / restore pipeline
-// without any special-case handling in those subsystems.
+/// Defines the "Film Queue" — three internal, application-owned lists ("Up Next",
+/// "Soon", "Later") that occupy a middle ground between user-generated lists and smart
+/// lists. A film's membership is set manually (via the FilmSheet Details tab), but the
+/// three lists themselves are created inherently at startup, can never be deleted, and
+/// are hidden from every user-facing list surface (the sidebar "Lists" section, the
+/// "Add to List" menus, the List Membership picker, and the Right Sidebar membership
+/// table). Internally each section is a normal ListObject / ListMembership pair, so the
+/// entire feature is automatically covered by the MemoryStore ↔ DataManager persistence
+/// pipeline, the snapshot-cache fingerprint, and the XML export / restore pipeline
+/// without any special-case handling in those subsystems.
 
 import Foundation
 import Observation
@@ -56,9 +56,9 @@ enum FilmQueueSection: String, CaseIterable, Identifiable, Hashable, Sendable {
         }
     }
 
-    // Force-unwraps of fixed, valid UUID string literals. If a literal were ever mistyped
-    // the app would trap immediately at first access during development — a loud, obvious
-    // failure rather than a silent data-integrity problem.
+    /// Force-unwraps of fixed, valid UUID string literals. If a literal were ever mistyped
+    /// the app would trap immediately at first access during development — a loud, obvious
+    /// failure rather than a silent data-integrity problem.
     private static let upNextID = UUID(uuidString: "F1E2D3C4-B5A6-4788-9900-000000000001")!
     private static let soonID   = UUID(uuidString: "F1E2D3C4-B5A6-4788-9900-000000000002")!
     private static let laterID  = UUID(uuidString: "F1E2D3C4-B5A6-4788-9900-000000000003")!
@@ -134,18 +134,15 @@ enum FilmQueue {
         let activeTags = FilmSpecialSorting.canonicalOrder.filter { tags.contains($0) }
         let isPlural = activeTags.count != 1
         let quoted = activeTags.map { "\"\($0)\"" }.joined(separator: ", ")
-        return "Are you sure you want to add this film to the Queue? "
-            + "It is flagged with the special sorting parameter\(isPlural ? "s" : "") \(quoted)."
+        return "This film is flagged with the special sorting parameter\(isPlural ? "s" : "") \(quoted)."
     }
 
     /// The confirmation message for adding `adding` films, `flagged` of them carrying
     /// special-sorting tags. Shared by AlertHostView's multi-film drop/menu alert and the
     /// MultiFilmSheet's Queue Membership picker.
     static func addConfirmationMessage(adding: Int, flagged: Int) -> String {
-        let isPluralTotal = adding != 1
         let isPluralFlagged = flagged != 1
-        return "Add \(adding) film\(isPluralTotal ? "s" : "") to the Queue? " +
-            "\(flagged) of \(isPluralTotal ? "them" : "it") " +
+        return "\(flagged) of the \(adding) films selected " +
             "\(isPluralFlagged ? "are" : "is") flagged with a special sorting parameter."
     }
 }
@@ -195,6 +192,22 @@ extension FilmQueue {
     }
 
     static let upNextFullTitle = "\"Up Next\" Queue Full"
+
+    /// Title of the question alert that offers "Soon" in place of a full "Up Next".
+    static let upNextFullDropOfferTitle = "Add to \"Soon\" Queue?"
+
+    /// The message for `upNextFullDropOfferTitle`: why "Up Next" can't take the drop, and what
+    /// will happen to the films that would not fit if the user agrees.
+    @MainActor
+    static func upNextFullDropOfferMessage(_ filmIDs: Set<UUID>, coordinator: DataCoordinator) -> String {
+        let adding = filmIDs.subtracting(upNextFilmIDs(coordinator: coordinator)).count
+        let vacancies = upNextVacancies(coordinator: coordinator)
+        let isPlural = adding != 1
+        let reason = vacancies == 0
+            ? "Your \"Up Next\" Queue already contains the maximum of eight films."
+            : "Your \"Up Next\" Queue can hold a maximum of eight films and only has room for \(vacancies) more."
+        return reason + " \(adding) film\(isPlural ? "s" : "") will be added to the \"Soon\" Queue instead."
+    }
 
     /// The refusal message for adding `adding` new films when `vacancies` slots are open.
     static func upNextFullMessage(adding: Int, vacancies: Int) -> String {
@@ -287,9 +300,9 @@ enum FilmQueueAssignment: Loggable {
         guard !filmIDs.isEmpty else { return }
 
         deferPastMenuDismissal {
-            // Re-checked here rather than at call time: the menu may have been built
-            // against membership that has since changed (a FilmSheet save, a drag onto
-            // the sidebar's Queue row, the midnight auto-enqueue).
+            /// Re-checked here rather than at call time: the menu may have been built
+            /// against membership that has since changed (a FilmSheet save, a drag onto
+            /// the sidebar's Queue row, the midnight auto-enqueue).
             if Self.allFilmsAreInSection(filmIDs, section: section, coordinator: coordinator) {
                 Self.log("Removing \(filmIDs.count) film(s) from Queue section '\(section.displayName)'")
                 Task {
@@ -298,15 +311,15 @@ enum FilmQueueAssignment: Loggable {
                 return
             }
 
-            // "Up Next" is capped at eight; an add that would not fit is refused whole.
+            /// "Up Next" is capped at eight; an add that would not fit is refused whole.
             if section == .upNext,
                FilmQueue.refuseUpNextAddIfFull(filmIDs, coordinator: coordinator) {
                 Self.log("Refused add of \(filmIDs.count) film(s) to 'Up Next' — not enough room")
                 return
             }
 
-            // Special-sorting confirmation gate, matching the LeftSidebar drop and the
-            // FilmSheet picker. Only the add branch is gated — removing is never confirmed.
+            /// Special-sorting confirmation gate, matching the LeftSidebar drop and the
+            /// FilmSheet picker. Only the add branch is gated — removing is never confirmed.
             if FilmQueue.addNeedsConfirmation(filmIDs, coordinator: coordinator) {
                 Self.log("Deferring add of \(filmIDs.count) film(s) to Queue section '\(section.displayName)' pending special-sorting confirmation")
                 AppEventBus.shared.sendAlert(.confirmFilmQueueAddFromMenu(filmIDs: filmIDs,
@@ -343,12 +356,12 @@ enum FilmQueueAssignment: Loggable {
     /// the moved films are contiguous within their new section, so placing the first at the
     /// top brings as many of the others into view as will fit.
     static func armPostMoveScroll(_ filmIDs: Set<UUID>, coordinator: DataCoordinator) {
-        // Only the Film Queue's own gallery can be showing the move. Any other view either
-        // does not contain these films or does not order them by queue section, and an
-        // intent addressed elsewhere would sit unconsumed until an unrelated visit.
+        /// Only the Film Queue's own gallery can be showing the move. Any other view either
+        /// does not contain these films or does not order them by queue section, and an
+        /// intent addressed elsewhere would sit unconsumed until an unrelated visit.
         guard case .filmQueue = ViewStateManager.shared.activeView else { return }
-        // Nothing to place when the queue is filtered to a single section and the films
-        // just left it — they are no longer part of the displayed set at all.
+        /// Nothing to place when the queue is filtered to a single section and the films
+        /// just left it — they are no longer part of the displayed set at all.
         guard let target = coordinator.films.first(where: { filmIDs.contains($0.id) }) else { return }
 
         GalleryScrollIntent.shared.set(filmID: target.id,
@@ -423,39 +436,39 @@ final class FilmQueueFilterState {
     func selectFilter(_ filter: FilmQueueFilter) {
         guard selectedFilter != filter else { return }
 
-        // Clear the current selection exactly as SubcategoryNavigation.performSwitch does
-        // for every other sub-tab transition (Recents categories, rotation/alternate
-        // variants, Filtered Library sorting variants). The Film Queue's three sections
-        // deliberately share a single ViewIdentifier, so performSwitch itself is never
-        // invoked here and MainView.handleViewChange never fires either — without this
-        // explicit clear, a selected film would silently survive into an unrelated Queue
-        // section whenever the same film ID happens to also appear there.
+        /// Clear the current selection exactly as SubcategoryNavigation.performSwitch does
+        /// for every other sub-tab transition (Recents categories, rotation/alternate
+        /// variants, Filtered Library sorting variants). The Film Queue's three sections
+        /// deliberately share a single ViewIdentifier, so performSwitch itself is never
+        /// invoked here and MainView.handleViewChange never fires either — without this
+        /// explicit clear, a selected film would silently survive into an unrelated Queue
+        /// section whenever the same film ID happens to also appear there.
         SelectionState.shared.clearImmediate()
 
-        // Bank this section's scroll position and arm the incoming section's, exactly as
-        // ViewStateManager.switchToViewSync does for every other sub-tab. The Queue needs
-        // its own call because its sections deliberately share a single ViewIdentifier —
-        // switchToViewSync is never invoked for this transition — and the keys are built
-        // explicitly rather than through GalleryScrollKey.current(for:) because this must
-        // run BEFORE selectedFilter flips below, while `selectedFilter` still names the
-        // outgoing section.
+        /// Bank this section's scroll position and arm the incoming section's, exactly as
+        /// ViewStateManager.switchToViewSync does for every other sub-tab. The Queue needs
+        /// its own call because its sections deliberately share a single ViewIdentifier —
+        /// switchToViewSync is never invoked for this transition — and the keys are built
+        /// explicitly rather than through GalleryScrollKey.current(for:) because this must
+        /// run BEFORE selectedFilter flips below, while `selectedFilter` still names the
+        /// outgoing section.
         ViewStateManager.shared.prepareScrollHandoff(
             fromKey: GalleryScrollKey(viewID: .filmQueue, subTab: selectedFilter.rawValue),
             toKey: GalleryScrollKey(viewID: .filmQueue, subTab: filter.rawValue))
 
-        // Bank this tab's sort/filter/style/dividers state and promote the incoming tab's,
-        // for exactly the same reason and with exactly the same timing constraint as the
-        // scroll handoff above: the Queue's four tabs each own their view preferences, and
-        // switchToViewSync — which performs this promotion for every other sub-tab in the
-        // app — is never invoked for a transition that does not change the ViewIdentifier.
-        // Also runs BEFORE selectedFilter flips, while the outgoing tab is still current.
+        /// Bank this tab's sort/filter/style/dividers state and promote the incoming tab's,
+        /// for exactly the same reason and with exactly the same timing constraint as the
+        /// scroll handoff above: the Queue's four tabs each own their view preferences, and
+        /// switchToViewSync — which performs this promotion for every other sub-tab in the
+        /// app — is never invoked for a transition that does not change the ViewIdentifier.
+        /// Also runs BEFORE selectedFilter flips, while the outgoing tab is still current.
         ViewStateManager.shared.prepareSubTabStateHandoff(
             fromKey: ViewStateKey(viewID: .filmQueue, subTab: selectedFilter.persistenceToken),
             toKey: ViewStateKey(viewID: .filmQueue, subTab: filter.persistenceToken))
 
-        // selectedFilter updates synchronously so the segmented control reflects the
-        // new choice immediately; the reload is deferred past the control's selection
-        // animation (see deferPastMenuDismissal for the full timing rationale).
+        /// selectedFilter updates synchronously so the segmented control reflects the
+        /// new choice immediately; the reload is deferred past the control's selection
+        /// animation (see deferPastMenuDismissal for the full timing rationale).
         selectedFilter = filter
         deferPastMenuDismissal {
             ViewStateManager.shared.forceReload()

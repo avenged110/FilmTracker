@@ -1,36 +1,36 @@
 // MARK: - ATVQIntegration.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Dispatches the "Up Next" Queue to ATVQ, the companion tvOS app, and to the ATVQ Deployer's
-// relay. Everything ATVQ-related in Film Tracker lives here; the rest of the app only
-// mounts ATVQDispatchButton (GalleryTitleBar), ATVQTestRelayButton (STabAdvanced), and
-// stores the `Preferences.atvq` switch that gates all of it.
-//
-// Wire protocol (shared with ATVQ's QueuePayload.swift and the Deployer's Relay.swift):
-//   Bonjour `_atvq._tcp` (ATVQ itself) and `_atvqrelay._tcp` (the Deployer's relay, which
-//   holds the newest queue and hands it to ATVQ when the Apple TV wakes). Both are servers;
-//   Film Tracker is only ever a client, so it needs no incoming-connection entitlement.
-//   request:  4-byte big-endian length, then JSON {version, dispatchedAt, films[…]}
-//   response: 4-byte big-endian length, then JSON {ok, error?}
-// A dispatch goes to the relay and to ATVQ itself at the same time, and succeeds as soon as
-// either accepts it. The relay always gets a copy: ATVQ polls it for as long as it's on
-// screen, so whatever the relay holds reaches the Apple TV within seconds of ATVQ being
-// open, and an ATVQ that answers directly just shows it sooner. ATVQ keeps whichever copy
-// is newest by `dispatchedAt`, so a queue arriving twice is harmless.
-//
-// Local Network privacy (TCC): macOS asks the first time the app browses the local
-// network. Nothing here browses until the preference is on AND the user has dispatched
-// once, so turning the preference on never prompts by itself. After that first request,
-// a pair of Bonjour browsers stays up while the preference is on: they keep the endpoints
-// current and are how the permission is observed, since macOS offers no API to read it.
-// A browser can report `.ready` while macOS still refuses every connection, and a Bonjour
-// connection that is refused never says so (it just stays in `.preparing`), so access is
-// settled by localNetworkDenied(), which asks for a path to the router directly. That check
-// and the relay test only ever run because the user acted: a dispatch, or Settings' "Test
-// Relay Connection" (including the relay browser becoming ready while one of those runs).
-// Nothing probes at launch or in the background. The browsers
-// are rebuilt whenever Film Tracker becomes active (the user returning from System
-// Settings), so a change made there is picked up at once.
+/// Dispatches the "Up Next" Queue to ATVQ, the companion tvOS app, and to the ATVQ Deployer's
+/// relay. Everything ATVQ-related in Film Tracker lives here; the rest of the app only
+/// mounts ATVQDispatchButton (GalleryTitleBar), ATVQTestRelayButton (STabAdvanced), and
+/// stores the `Preferences.atvq` switch that gates all of it.
+///
+/// Wire protocol (shared with ATVQ's QueuePayload.swift and the Deployer's Relay.swift):
+///   Bonjour `_atvq._tcp` (ATVQ itself) and `_atvqrelay._tcp` (the Deployer's relay, which
+///   holds the newest queue and hands it to ATVQ when the Apple TV wakes). Both are servers;
+///   Film Tracker is only ever a client, so it needs no incoming-connection entitlement.
+///   request:  4-byte big-endian length, then JSON {version, dispatchedAt, films[…]}
+///   response: 4-byte big-endian length, then JSON {ok, error?}
+/// A dispatch goes to the relay and to ATVQ itself at the same time, and succeeds as soon as
+/// either accepts it. The relay always gets a copy: ATVQ polls it for as long as it's on
+/// screen, so whatever the relay holds reaches the Apple TV within seconds of ATVQ being
+/// open, and an ATVQ that answers directly just shows it sooner. ATVQ keeps whichever copy
+/// is newest by `dispatchedAt`, so a queue arriving twice is harmless.
+///
+/// Local Network privacy (TCC): macOS asks the first time the app browses the local
+/// network. Nothing here browses until the preference is on AND the user has dispatched
+/// once, so turning the preference on never prompts by itself. After that first request,
+/// a pair of Bonjour browsers stays up while the preference is on: they keep the endpoints
+/// current and are how the permission is observed, since macOS offers no API to read it.
+/// A browser can report `.ready` while macOS still refuses every connection, and a Bonjour
+/// connection that is refused never says so (it just stays in `.preparing`), so access is
+/// settled by localNetworkDenied(), which asks for a path to the router directly. That check
+/// and the relay test only ever run because the user acted: a dispatch, or Settings' "Test
+/// Relay Connection" (including the relay browser becoming ready while one of those runs).
+/// Nothing probes at launch or in the background. The browsers
+/// are rebuilt whenever Film Tracker becomes active (the user returning from System
+/// Settings), so a change made there is picked up at once.
 
 import AppKit
 import Network
@@ -54,17 +54,17 @@ private struct ATVQFilm: Encodable {
     let year: String
     let genre: String
     let rating: String
-    let duration: String          // "2 hr 16 min"
-    let runtimeMinutes: Int?      // drives ATVQ's "will end around …"
-    let source: String            // the sidebar's "Source for Viewing" value
-    let lastWatched: String       // the sidebar's "Last Watched" value; empty if never
+    let duration: String          /// "2 hr 16 min"
+    let runtimeMinutes: Int?      /// drives ATVQ's "will end around …"
+    let source: String            /// the sidebar's "Source for Viewing" value
+    let lastWatched: String       /// the sidebar's "Last Watched" value; empty if never
     let synopsis: String
     let directors: [String]
     let screenwriters: [String]
     let cast: [String]
     let producers: [String]
     let composers: [String]
-    var poster: Data?             // JPEG, base64 in JSON
+    var poster: Data?             /// JPEG, base64 in JSON
 }
 
 private struct ATVQReply: Decodable {
@@ -151,8 +151,8 @@ final class ATVQClient: Loggable {
 
     private init() {
         access = hasRequested ? .pending : .notDetermined
-        // The preference is the master switch: follow it wherever it is changed (Settings,
-        // a restore).
+        /// The preference is the master switch: follow it wherever it is changed (Settings,
+        /// a restore).
         preferenceObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification, object: Preferences.store, queue: .main) { _ in
             MainActor.assumeIsolated { ATVQClient.shared.syncWithPreference() }
@@ -214,14 +214,14 @@ final class ATVQClient: Loggable {
         guard browsers[type] != nil else { return }
         switch state {
         case .ready:
-            // Browsing works even while connections are refused, so a ready browser only
-            // prompts the real check — and only while a dispatch or relay test is running,
-            // since the first of either waits here for the Local Network prompt's answer.
-            // With neither running, the check is left to the next one.
+            /// Browsing works even while connections are refused, so a ready browser only
+            /// prompts the real check — and only while a dispatch or relay test is running,
+            /// since the first of either waits here for the Local Network prompt's answer.
+            /// With neither running, the check is left to the next one.
             if type == Self.relayType, isDispatching || isTestingRelay { refreshAccess() }
         case .waiting(let error) where Self.isPolicyDenied(error):
-            // While the prompt is still up the browser reports a refusal too; the answer is
-            // only final once the prompt has had time to be answered.
+            /// While the prompt is still up the browser reports a refusal too; the answer is
+            /// only final once the prompt has had time to be answered.
             if let requestedAt, Date().timeIntervalSince(requestedAt) < 60 {
                 setAccess(.pending)
             } else {
@@ -294,10 +294,10 @@ final class ATVQClient: Loggable {
         }
         if browsers.isEmpty { startBrowsing() }
 
-        // Only a dispatch that just asked for access waits — for the prompt to be answered
-        // (60 s, the window in browser(_:changedTo:)). Otherwise the connections themselves
-        // are the test: a browser's report is only a hint, and a momentary refusal from one
-        // must not stop a dispatch before anything is even tried.
+        /// Only a dispatch that just asked for access waits — for the prompt to be answered
+        /// (60 s, the window in browser(_:changedTo:)). Otherwise the connections themselves
+        /// are the test: a browser's report is only a hint, and a momentary refusal from one
+        /// must not stop a dispatch before anything is even tried.
         if requestedAt != nil {
             let deadline = Date().addingTimeInterval(60)
             while access == .pending, Date() < deadline {
@@ -308,9 +308,9 @@ final class ATVQClient: Loggable {
             if access == .denied { return .denied }
         }
 
-        // Discovery usually answers within a second of the browsers (re)starting — they're
-        // rebuilt whenever Film Tracker becomes active. A relay seen before is tried by name
-        // regardless, so a slow browser never decides the outcome.
+        /// Discovery usually answers within a second of the browsers (re)starting — they're
+        /// rebuilt whenever Film Tracker becomes active. A relay seen before is tried by name
+        /// regardless, so a slow browser never decides the outcome.
         let started = Date()
         while Date().timeIntervalSince(started) < 3 {
             let relayFound = !endpoints(for: Self.relayType).isEmpty
@@ -340,7 +340,7 @@ final class ATVQClient: Loggable {
         let result = await Self.deliver(body, to: targets)
         if let accepted = result.accepted {
             log("Dispatch accepted by \(accepted)")
-            // A delivery proves access, whatever a browser last reported.
+            /// A delivery proves access, whatever a browser last reported.
             setAccess(.granted)
             return nil
         }
@@ -350,8 +350,8 @@ final class ATVQClient: Loggable {
             setAccess(.denied)
             return .denied
         }
-        // Nobody answered at all: check whether macOS is refusing local network access,
-        // which it never reports on a Bonjour connection (see localNetworkDenied()).
+        /// Nobody answered at all: check whether macOS is refusing local network access,
+        /// which it never reports on a Bonjour connection (see localNetworkDenied()).
         if result.attempts.allSatisfy({ $0.reply == nil }), await Self.localNetworkDenied() {
             log("Dispatch: macOS reports Local Network access denied")
             setAccess(.denied)
@@ -463,7 +463,7 @@ final class ATVQClient: Loggable {
             access = .pending
         }
         if browsers.isEmpty { startBrowsing() }
-        // As in dispatch(): only a test that just asked for access waits on the prompt.
+        /// As in dispatch(): only a test that just asked for access waits on the prompt.
         if requestedAt != nil {
             let deadline = Date().addingTimeInterval(60)
             while access == .pending, Date() < deadline {
@@ -483,7 +483,7 @@ final class ATVQClient: Loggable {
         let received = await withTaskGroup(of: Bool.self) { group in
             for endpoint in relays {
                 group.addTask {
-                    // Any framed reply proves receipt (see above).
+                    /// Any framed reply proves receipt (see above).
                     let attempt = await Self.send(ping, to: endpoint, label: "the relay", timeout: 6)
                     return attempt.reply != nil
                 }
@@ -570,7 +570,7 @@ final class ATVQClient: Loggable {
                 return film
             }
             let encoder = JSONEncoder()
-            // Fractional seconds: ATVQ orders dispatches by this, and two can share a second.
+            /// Fractional seconds: ATVQ orders dispatches by this, and two can share a second.
             encoder.dateEncodingStrategy = .custom { date, encoder in
                 var container = encoder.singleValueContainer()
                 try container.encode(date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
@@ -627,8 +627,8 @@ final class ATVQClient: Loggable {
             collector.arm(continuation)
             for target in targets {
                 Task.detached(priority: .userInitiated) {
-                    // The relay is on a wired, always-on Mac and answers on receipt; ATVQ may be
-                    // waking or busy decoding, so it gets a little longer.
+                    /// The relay is on a wired, always-on Mac and answers on receipt; ATVQ may be
+                    /// waking or busy decoding, so it gets a little longer.
                     let attempt = await send(body, to: target.endpoint, label: target.label,
                                              timeout: target.isRelay ? 20 : 10)
                     collector.add(attempt)
@@ -686,9 +686,9 @@ final class ATVQClient: Loggable {
     /// One framed request and its framed reply.
     private nonisolated static func send(_ body: Data, to endpoint: NWEndpoint, label: String,
                                          timeout: TimeInterval) async -> Attempt {
-        // IPv4 only: a Bonjour peer also resolves to an IPv6 link-local address, which firewalls
-        // (e.g. Little Snitch's "Local Network") commonly drop silently; a stalled IPv6 attempt
-        // then decides whether a dispatch goes through. Everything here is on one LAN, so IPv4 always works.
+        /// IPv4 only: a Bonjour peer also resolves to an IPv6 link-local address, which firewalls
+        /// (e.g. Little Snitch's "Local Network") commonly drop silently; a stalled IPv6 attempt
+        /// then decides whether a dispatch goes through. Everything here is on one LAN, so IPv4 always works.
         let parameters = NWParameters.tcp
         (parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options)?.version = .v4
         let connection = NWConnection(to: endpoint, using: parameters)
@@ -698,7 +698,7 @@ final class ATVQClient: Loggable {
 
         let finisher = Finisher()
         let (outcome, lastWaiting) = await withTaskCancellationHandler { await withCheckedContinuation { continuation in
-            // Every path below finishes through here exactly once.
+            /// Every path below finishes through here exactly once.
             finisher.arm { outcome, lastWaiting in
                 connection.stateUpdateHandler = nil
                 connection.cancel()
@@ -708,8 +708,8 @@ final class ATVQClient: Loggable {
                 switch state {
                 case .failed(let error): finisher.finish(.failed(error))
                 case .waiting(let error) where isPolicyDenied(error): finisher.finish(.failed(error))
-                // Not fatal by itself (Network.framework keeps retrying), but it's the best
-                // explanation if the attempt then times out.
+                /// Not fatal by itself (Network.framework keeps retrying), but it's the best
+                /// explanation if the attempt then times out.
                 case .waiting(let error): finisher.note(error)
                 default: break
                 }
@@ -767,7 +767,7 @@ final class ATVQClient: Loggable {
         private let state = Mutex(State())
 
         func arm(_ completion: @escaping Completion) {
-            // The completion runs after the lock is released, never inside it.
+            /// The completion runs after the lock is released, never inside it.
             let ready: (SendOutcome, NWError?)? = state.withLock { state in
                 if let outcome = state.outcome, !state.done {
                     state.done = true
@@ -826,9 +826,9 @@ private struct ATVQDispatchButtonContent: View {
         Button(action: click) {
             Image(systemName: glyph)
                 .contentTransition(.symbolEffect(.replace))
-                // GalleryView strips every animation from the title bar's transactions
-                // (withAnimation included), which left the replace with nothing to run on.
-                // Put one back for glyph changes only, beneath that strip.
+                /// GalleryView strips every animation from the title bar's transactions
+                /// (withAnimation included), which left the replace with nothing to run on.
+                /// Put one back for glyph changes only, beneath that strip.
                 .transaction(value: glyph) { transaction in
                     guard glyphAnimates else { return }
                     transaction.disablesAnimations = false
@@ -836,16 +836,16 @@ private struct ATVQDispatchButtonContent: View {
                 }
                 .font(.system(size: 14))
                 .frame(width: 18)
-                // appletv.fill's visual center sits above its layout center.
+                /// appletv.fill's visual center sits above its layout center.
                 .offset(y: 1)
         }
-        // Sized like the view-style toggle beside it; see the sizing note at the top of
-        // GalleryTitleBar.buttonSection.
+        /// Sized like the view-style toggle beside it; see the sizing note at the top of
+        /// GalleryTitleBar.buttonSection.
         .frame(maxWidth: Preferences.buttonWidth)
         .fixedSize()
         .frame(width: Preferences.buttonSpacing)
-        // Off only while a dispatch runs. Never off for a reported refusal: the browsers'
-        // report is only a hint, and the dispatch itself is what finds out (and explains it).
+        /// Off only while a dispatch runs. Never off for a reported refusal: the browsers'
+        /// report is only a hint, and the dispatch itself is what finds out (and explains it).
         .disabled(client.isDispatching)
         .help(help)
         .onAppear { client.syncWithPreference() }
@@ -899,7 +899,7 @@ private struct ATVQDispatchButtonContent: View {
 
     private func click() {
         if case .failed(let failure) = phase {
-            // Back to rest without an animation, so it can't contend with the alert's.
+            /// Back to rest without an animation, so it can't contend with the alert's.
             glyphAnimates = false
             phase = .idle
             AppEventBus.shared.sendAlert(.showNotice(title: "Couldn't Dispatch to ATVQ",
@@ -931,13 +931,13 @@ struct ATVQTestRelayButton: View {
     @AppStorage(preference: Preferences.atvqKey) private var atvq: Bool
 
     var body: some View {
-        // `atvq &&` short-circuits: no client while off.
+        /// `atvq &&` short-circuits: no client while off.
         let testing = atvq && ATVQClient.shared.isTestingRelay
         HStack(spacing: 8) {
             Button("Test Relay Connection") { ATVQClient.shared.runRelayTest() }
                 .disabled(!atvq || testing)
                 .help("Sends a test dispatch to the ATVQ Deployer's relay and reports whether it was received")
-            // Always laid out, so the button never shifts as the spinner comes and goes.
+            /// Always laid out, so the button never shifts as the spinner comes and goes.
             ProgressView()
                 .controlSize(.small)
                 .opacity(testing ? 1 : 0)
@@ -1021,8 +1021,8 @@ extension ATVQClient {
         var results: [(String, Bool, String)] = [("browse", !found.isEmpty, "\(box.notes) found=\(found)")]
         let denied = await localNetworkDenied()
         results.append(("local network allowed", !denied, denied ? "macOS reports localNetworkDenied" : "allowed"))
-        // The production path, end to end, with a ping body (the relay acknowledges it and
-        // stores nothing).
+        /// The production path, end to end, with a ping body (the relay acknowledges it and
+        /// stores nothing).
         let targets = found.map { Target(endpoint: $0, label: "relay \($0)", isRelay: true) }
         if !targets.isEmpty {
             let started = Date()
@@ -1032,8 +1032,8 @@ extension ATVQClient {
                                 + outcome.attempts.map { "\($0.label): \($0.summary)" }.joined(separator: " | ")))
             let single = await send(Data(#"{"ping":true}"#.utf8), to: found[0], label: "relay", timeout: 8)
             results.append(("send() ping", single.reply != nil, single.summary))
-            // Full-size, but without `dispatchedAt`: the relay reads all of it, then answers
-            // "Not a queue payload" and stores nothing.
+            /// Full-size, but without `dispatchedAt`: the relay reads all of it, then answers
+            /// "Not a queue payload" and stores nothing.
             for kilobytes in [64, 512, 2048] {
                 let padding = String(repeating: "A", count: kilobytes * 1024)
                 let big = Data(#"{"films":[],"padding":"\#(padding)"}"#.utf8)

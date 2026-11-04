@@ -1,27 +1,27 @@
 // MARK: - DHDataViz.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Harness scenarios for the redesigned Data Visualizations tab.
-//
-//   dataviz-insights — LibraryInsights and ViewingPeriodStatistics against a hand-built
-//                      fixture with known answers (a fixed `today`, so rotation, year-to-
-//                      date and purchase→viewing arithmetic are reproducible), then
-//                      structural invariants over a large seeded corpus.
-//   dataviz-render   — draws the canvas page off-screen at the minimum content width, a
-//                      mid width and past the 1500pt cap, in both appearances, writes
-//                      each as a PNG under the sandbox root, checks each fits its width
-//                      and repeats exactly, and that print blocks match screen sections.
-//   dataviz-tab      — mounts the real DataVisualizationsView against the coordinator:
-//                      the synchronous first visit, a film-event burst driving one
-//                      background recalculation that lands in the page and the cache, a
-//                      remount seeded from the cache and reconciled in the background,
-//                      and an unmount with a pass still in flight.
-//   dataviz-pdf      — the Visualizations and Insights sheet of the library PDF: the two
-//                      tables, then every print block of the page, drawn as vector
-//                      content (no bitmap anywhere in the file) with every scope and
-//                      role printed; writes dataviz-sheet.pdf under the sandbox root.
-//   dataviz-perf     — measurements (not in `all`): the recalculation pipeline on a
-//                      library-sized corpus.
+/// Harness scenarios for the redesigned Data Visualizations tab.
+///
+///   dataviz-insights — LibraryInsights and ViewingPeriodStatistics against a hand-built
+///                      fixture with known answers (a fixed `today`, so rotation, year-to-
+///                      date and purchase→viewing arithmetic are reproducible), then
+///                      structural invariants over a large seeded corpus.
+///   dataviz-render   — draws the canvas page off-screen at the minimum content width, a
+///                      mid width and past the 1500pt cap, in both appearances, writes
+///                      each as a PNG under the sandbox root, checks each fits its width
+///                      and repeats exactly, and that print blocks match screen sections.
+///   dataviz-tab      — mounts the real DataVisualizationsView against the coordinator:
+///                      the synchronous first visit, a film-event burst driving one
+///                      background recalculation that lands in the page and the cache, a
+///                      remount seeded from the cache and reconciled in the background,
+///                      and an unmount with a pass still in flight.
+///   dataviz-pdf      — the Visualizations and Insights sheet of the library PDF: the two
+///                      tables, then every print block of the page, drawn as vector
+///                      content (no bitmap anywhere in the file) with every scope and
+///                      role printed; writes dataviz-sheet.pdf under the sandbox root.
+///   dataviz-perf     — measurements (not in `all`): the recalculation pipeline on a
+///                      library-sized corpus.
 
 #if DEBUG
 import SwiftUI
@@ -97,31 +97,31 @@ extension DebugHarness {
     /// Every film here exists to pin one figure. Names say which.
     static func fixtureFilms() -> [FilmSnapshot] {
         [
-            // Rotation: last watched 2025.01.15, 12-month threshold → due 2026-02-01, which
-            // is more than six months before 2026-09-21. Two prior viewings a year apart.
+            /// Rotation: last watched 2025.01.15, 12-month threshold → due 2026-02-01, which
+            /// is more than six months before 2026-09-21. Two prior viewings a year apart.
             film("Overdue Six", viewings: ["2024.01.10", "2025.01.15"], directors: ["A. Director"],
                  releases: [release(.bluRay, cost: 20, date: "2024.02.01", lowest: 15, studio: "Criterion", origin: "United States", region: ReleaseRegionRules.regionA)]),
-            // Due 2026-10-01: within 30 days.
+            /// Due 2026-10-01: within 30 days.
             film("Due Thirty", viewings: ["2025.09.25"], source: FilmDigitalSource.download4K,
                  directors: ["A. Director"], tags: ["Halloween"],
                  releases: [release(.uhd4K, cost: 30, date: "2025.09.20", hdr: ReleaseHDR.dolbyVision, master: ReleaseMasterType.nativeFourK, video: ReleaseVideoFormat.hevc, studio: "Criterion", origin: "United States")]),
-            // Due 2026-11-01: within 90 days but not 30.
+            /// Due 2026-11-01: within 90 days but not 30.
             film("Due Ninety", viewings: ["2025.10.10.DC"], source: FilmDigitalSource.dvd, directors: ["B. Director"],
                  releases: [release(.bluRay, cost: 25, date: "2025.11.01", lowest: 25, studio: "Arrow Video", origin: "United Kingdom", region: ReleaseRegionRules.regionB)]),
-            // Due 2027-07-01: on schedule. Rated 10; viewed twice in 2026 (first time in 2026).
+            /// Due 2027-07-01: on schedule. Rated 10; viewed twice in 2026 (first time in 2026).
             film("On Schedule", rating: 10, viewings: ["2026.03.03", "2026.06.01"], source: FilmDigitalSource.download1080p,
                  directors: ["B. Director"], hof: 1,
                  releases: [release(.dvd, cost: 8, date: "2026.02.15", condition: ReleaseCondition.used, studio: "Warner Bros.", origin: "United States", region: "Region 1"),
                             release(.uhd4K, purchased: false, cost: 35, availability: [ReleaseMarketAvailability.outOfPrint, ReleaseMarketAvailability.cheap], wishlist: 1)]),
-            // Special sorting excludes it from rotation entirely, though it has a date.
+            /// Special sorting excludes it from rotation entirely, though it has a date.
             film("Held", viewings: ["2020.05.05"], special: [FilmSpecialSorting.temporarilyOnHold], genre: "Drama"),
-            // Never viewed, no releases: digital only, unwatched backlog.
+            /// Never viewed, no releases: digital only, unwatched backlog.
             film("Never Viewed", rating: 0, minutes: 90, genre: "Comedy", contentRating: "PG"),
-            // Purchased 2026-03-01 and never watched since (last viewing 2025).
+            /// Purchased 2026-03-01 and never watched since (last viewing 2025).
             film("Shelf Of Shame", viewings: ["2025.04.04"], genre: "Horror",
                  releases: [release(.bluRay, cost: 40, spent: 40, date: "2026.03.01", audio: ReleaseAudioFormat.dolbyDigital, studio: "Shout Factory", origin: "United States")],
                  edited: true, editedMinutes: 100, rf: 20),
-            // Unpurchased and out of print.
+            /// Unpurchased and out of print.
             film("Unobtainable", rating: 0, viewings: [], genre: "Sci-Fi",
                  releases: [release(.bluRay, purchased: false, cost: 60, availability: [ReleaseMarketAvailability.outOfPrint, ReleaseMarketAvailability.exorbitant], wishlist: 2)]),
         ]
@@ -138,8 +138,8 @@ extension DebugHarness {
         let stats = LibraryStatistics(films: films)
 
         // MARK: Needs Attention item lists (LibraryStatistics side)
-        // Same equivalence property as the insights.*Items checks below: each Needs
-        // Attention popover's item list must be exactly as large as the count on its card.
+        /// Same equivalence property as the insights.*Items checks below: each Needs
+        /// Attention popover's item list must be exactly as large as the count on its card.
         r.check("not-yet-rated-items-match-count", stats.notYetRatedFilmsItems.count == stats.notYetRatedFilms,
                 "\(stats.notYetRatedFilmsItems.count) items, expected \(stats.notYetRatedFilms)")
         r.check("missing-artwork-items-match-count", stats.missingArtworkItems.count == stats.missingArtwork,
@@ -168,10 +168,10 @@ extension DebugHarness {
                 insights.rotationEligible == 5, "\(insights.rotationEligible), expected 5")
         r.check("rotation-overdue", insights.overdue == 2 && insights.overdueOverSixMonths == 1,
                 "overdue \(insights.overdue) (expected 2: Overdue Six, Shelf Of Shame) · >6mo \(insights.overdueOverSixMonths) (expected 1)")
-        // Needs Attention popovers show `insights.overdueItems` etc. for `insights.overdue`
-        // etc.; these checks are the equivalence proof that each item list names exactly
-        // the films its sibling count was drawn from — same size, same names, same order
-        // as the fixture comments the count checks above already pin.
+        /// Needs Attention popovers show `insights.overdueItems` etc. for `insights.overdue`
+        /// etc.; these checks are the equivalence proof that each item list names exactly
+        /// the films its sibling count was drawn from — same size, same names, same order
+        /// as the fixture comments the count checks above already pin.
         r.check("rotation-overdue-items", Set(insights.overdueItems.map(\.name)) == ["Overdue Six", "Shelf Of Shame"],
                 "\(insights.overdueItems.map(\.name))")
         r.check("rotation-due-30", insights.dueWithin30Days == 1, "\(insights.dueWithin30Days), expected 1 (Due Thirty)")
@@ -180,8 +180,8 @@ extension DebugHarness {
         r.check("rotation-buckets-partition-eligible",
                 insights.overdue + insights.dueWithin30Days + insights.dueWithin90Days + insights.onSchedule == insights.rotationEligible,
                 "buckets do not sum to eligible")
-        // Next calendar month (October 2026) only: Due Thirty (due 2026-10-01). Due Ninety
-        // (2026-11-01) is two months out.
+        /// Next calendar month (October 2026) only: Due Thirty (due 2026-10-01). Due Ninety
+        /// (2026-11-01) is two months out.
         r.check("rotation-coming-up-next-month",
                 insights.comingUp.map(\.name) == ["Due Thirty"] && insights.comingUpNextMonthItems.map(\.name) == ["Due Thirty"],
                 "\(insights.comingUp.map(\.name)) / \(insights.comingUpNextMonthItems.map(\.name))")
@@ -193,8 +193,8 @@ extension DebugHarness {
             .sorted(by: DVUpcomingRotation.ranksBefore).map(\.name)
         r.check("rotation-coming-up-ranking", ranked == ["E", "D", "C", "A", "B"], "\(ranked)")
         r.check("rotation-never-viewed", insights.neverViewed == 2, "\(insights.neverViewed), expected 2")
-        // Two eligible films have two viewings: Overdue Six (371 days ≈ 12.2 months) and
-        // On Schedule (90 days ≈ 3.0 months); the median of two values is their mean.
+        /// Two eligible films have two viewings: Overdue Six (371 days ≈ 12.2 months) and
+        /// On Schedule (90 days ≈ 3.0 months); the median of two values is their mean.
         r.check("rotation-median-gap",
                 insights.medianGapMonths.map { abs($0 - 7.57) < 0.1 } ?? false,
                 "\(String(describing: insights.medianGapMonths)), expected ≈ 7.57")
@@ -205,8 +205,8 @@ extension DebugHarness {
         r.check("unpurchased-oop", insights.unpurchasedOutOfPrint == 1, "\(insights.unpurchasedOutOfPrint), expected 1 (Unobtainable; On Schedule owns a DVD)")
         r.check("unpurchased-oop-items", insights.unpurchasedOutOfPrintItems.map(\.name) == ["Unobtainable"],
                 "\(insights.unpurchasedOutOfPrintItems.map(\.name))")
-        // Due Ninety's only viewing (2025.10.10) precedes its 2025-11-01 purchase, so it
-        // counts alongside Shelf Of Shame.
+        /// Due Ninety's only viewing (2025.10.10) precedes its 2025-11-01 purchase, so it
+        /// counts alongside Shelf Of Shame.
         r.check("never-watched-since-purchase", insights.purchasedNeverWatchedSince == 2,
                 "\(insights.purchasedNeverWatchedSince), expected 2 (Due Ninety, Shelf Of Shame)")
         r.check("never-watched-since-purchase-items",
@@ -214,7 +214,7 @@ extension DebugHarness {
                 "\(insights.purchasedNeverWatchedSinceItems.map(\.name))")
         r.check("spent-never-watched", insights.spentNeverWatchedSincePurchase == 65,
                 "\(insights.spentNeverWatchedSincePurchase), expected 65")
-        // Value Realized names carry the film's release year (every fixture film is 1988).
+        /// Value Realized names carry the film's release year (every fixture film is 1988).
         r.check("value-realized-years", insights.mostExpensiveUnwatchedSincePurchase?.year == 1988 && insights.bestValue?.year == 1988,
                 "\(String(describing: insights.mostExpensiveUnwatchedSincePurchase)) / \(String(describing: insights.bestValue))")
         r.check("priciest-never-watched", insights.mostExpensiveUnwatchedSincePurchase?.name == "Shelf Of Shame",
@@ -234,18 +234,18 @@ extension DebugHarness {
         r.check("median-cost", insights.medianCost == 25, "\(String(describing: insights.medianCost)), expected 25")
         r.check("paid-above-lowest", insights.paidAboveLowest.count == 1 && insights.paidAboveLowest.over == 5 && insights.boughtAtLowest == 1,
                 "\(insights.paidAboveLowest) / at lowest \(insights.boughtAtLowest)")
-        // <30 d: Due Thirty (5 days), On Schedule (16 days). 181–365: Overdue Six (349 days).
-        // never: Due Ninety, Shelf Of Shame.
+        /// <30 d: Due Thirty (5 days), On Schedule (16 days). 181–365: Overdue Six (349 days).
+        /// never: Due Ninety, Shelf Of Shame.
         r.check("purchase-to-viewing-buckets",
                 insights.purchaseToFirstViewing.map(\.count) == [2, 0, 0, 1, 0, 2]
                     && insights.purchaseToFirstViewing.map(\.label) == ["<30 d", "30–90", "91–180", "181–365", "366+", "Never"],
                 "\(insights.purchaseToFirstViewing.map { "\($0.label)=\($0.count)" }), expected [2, 0, 0, 1, 0, 2]")
         r.check("wishlist", insights.wishlistItems == 2 && insights.wishlistEstimatedCost == 95 && insights.wishlistOutOfPrintOrImport == 2,
                 "\(insights.wishlistItems) / \(insights.wishlistEstimatedCost) / \(insights.wishlistOutOfPrintOrImport)")
-        // A combo pack is one acquisition: its child mirrors the parent's wishlist slot,
-        // price and purchase date (FSTabReleases.syncComboChild), and must not count again —
-        // the Wishlist card must agree with the Release Wishlist report, which lists
-        // top-level releases only, and Purchases by Month with Purchase Facts.
+        /// A combo pack is one acquisition: its child mirrors the parent's wishlist slot,
+        /// price and purchase date (FSTabReleases.syncComboChild), and must not count again —
+        /// the Wishlist card must agree with the Release Wishlist report, which lists
+        /// top-level releases only, and Purchases by Month with Purchase Facts.
         func combo(purchased: Bool, wishlist: Int) -> [ReleaseSnapshot] {
             let parentID = UUID()
             let shared = (cost: 40.0, date: purchased ? "2025.05.10" : "")
@@ -265,9 +265,9 @@ extension DebugHarness {
                 "wishlist \(comboInsights.wishlistItems) / \(comboInsights.wishlistEstimatedCost) / \(comboInsights.wishlistByFormat); "
                 + "dated \(ch.datedPurchases), May \(ch.purchasesByMonth[4])")
         // MARK: Collection Growth
-        // Every fixture film was added 2020-01-01 (makeSnapshot's default); the five dated
-        // purchases fall in 2024-02, 2025-09, 2025-11, 2026-02 and 2026-03. The span runs
-        // from 2020-01 through 2026-09: 81 months.
+        /// Every fixture film was added 2020-01-01 (makeSnapshot's default); the five dated
+        /// purchases fall in 2024-02, 2025-09, 2025-11, 2026-02 and 2026-03. The span runs
+        /// from 2020-01 through 2026-09: 81 months.
         let g = insights.growth
         r.check("growth-span", g.firstMonth == 2020 * 12 && g.films.count == 81 && g.purchases.count == 81,
                 "first \(g.firstMonth / 12)-\(g.firstMonth % 12 + 1), \(g.films.count) months")
@@ -277,7 +277,7 @@ extension DebugHarness {
         r.check("growth-undated", g.undatedFilms == 0 && g.undatedPurchases == 0, "\(g.undatedFilms) / \(g.undatedPurchases)")
         r.check("growth-year-marks", g.yearMarks.map(\.year) == Array(2020...2026) && g.yearMarks.map(\.index) == [0, 12, 24, 36, 48, 60, 72],
                 "\(g.yearMarks.map { "\($0.year)@\($0.index)" })")
-        // Past 5 Years: 2021-09 through 2026-09, totals carried over from before the cut.
+        /// Past 5 Years: 2021-09 through 2026-09, totals carried over from before the cut.
         let recent = g.lastYears(5)
         r.check("growth-past-5-years", recent.firstMonth == 2021 * 12 + 8 && recent.films.count == 61
                     && recent.purchases == Array(g.purchases.suffix(61)) && g.lastYears(10) == g,
@@ -285,9 +285,9 @@ extension DebugHarness {
         let clamped = DVGrowth(filmMonths: [10, 30], purchaseMonths: [12], currentMonth: 20, undatedFilms: 1, undatedPurchases: 2)
         r.check("growth-future-months-count-now", clamped.films == [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2] && clamped.purchases.last == 1,
                 "\(clamped.films) / \(clamped.purchases)")
-        // The Date Added fast path must name the month the full parser does, at every hour
-        // of every day of two years (the month edges are where a UTC timestamp's own date
-        // and the local one part).
+        /// The Date Added fast path must name the month the full parser does, at every hour
+        /// of every day of two years (the month edges are where a UTC timestamp's own date
+        /// and the local one part).
         var addedDisagreements: [String] = []
         let start = calendar.date(from: DateComponents(year: 2024, month: 1, day: 1))!
         for hour in stride(from: 0, to: 2 * 366 * 24, by: 1) {
@@ -304,8 +304,8 @@ extension DebugHarness {
         r.check("growth-added-month-matches-parser", addedDisagreements.isEmpty, addedDisagreements.isEmpty ? "\(2 * 366 * 24) hours + 6 spellings" : "\(addedDisagreements)")
 
         // MARK: Spending Trends
-        // 2024: Overdue Six $20. 2025: Due Thirty $30 (Sep 20, by this date) + Due Ninety
-        // $25 (Nov 1, after it). 2026: On Schedule $8 + Shelf Of Shame $40.
+        /// 2024: Overdue Six $20. 2025: Due Thirty $30 (Sep 20, by this date) + Due Ninety
+        /// $25 (Nov 1, after it). 2026: On Schedule $8 + Shelf Of Shame $40.
         let sy = insights.spendingYears
         r.check("spending-years", sy.map(\.year) == [2024, 2025, 2026] && sy.map(\.spent) == [20, 55, 48]
                     && sy.map(\.purchases) == [1, 2, 2], "\(sy.map { "\($0.year) \($0.purchases) \($0.spent)" })")
@@ -313,13 +313,13 @@ extension DebugHarness {
                 "\(sy.map(\.spentByThisDate)) / \(sy.map(\.purchasesByThisDate))")
         r.check("spending-average-cost", sy.map(\.averageCost) == [20, 27.5, 24], "\(sy.map(\.averageCost))")
         r.check("spending-year-elapsed", abs(insights.yearElapsedFraction - 264.0 / 365) < 1e-9, "\(insights.yearElapsedFraction)")
-        // On Schedule owns a DVD and has an unbought $35 4K entered (the fixture's release
-        // snapshots are dated now); the three Blu-ray-only films have no 4K entered.
+        /// On Schedule owns a DVD and has an unbought $35 4K entered (the fixture's release
+        /// snapshots are dated now); the three Blu-ray-only films have no 4K entered.
         r.check("owned-below-4k", insights.ownedBelowFourK == 4 && insights.ownedBelowFourKWithFourKEntered == 1
                     && insights.newFourKForOwnedBelowFourK == 1 && insights.newFourKForOwnedBelowFourKCost == 35,
                 "\(insights.ownedBelowFourK) / \(insights.ownedBelowFourKWithFourKEntered) / \(insights.newFourKForOwnedBelowFourK) / \(insights.newFourKForOwnedBelowFourKCost)")
-        // Projection: 2025 (weight 3) spent $25 after Sep 21 of $55, 2024 (weight 2) $0 of
-        // $20 → rest $15; by this date (3·30 + 2·20) / 5 = $26, so pace 48 / 26; 48 + 15·48/26 ≈ $75.69.
+        /// Projection: 2025 (weight 3) spent $25 after Sep 21 of $55, 2024 (weight 2) $0 of
+        /// $20 → rest $15; by this date (3·30 + 2·20) / 5 = $26, so pace 48 / 26; 48 + 15·48/26 ≈ $75.69.
         let projected = DVSpendingTrends.projectedYearEnd(sy[2], Array(sy.prefix(2)), yearElapsed: insights.yearElapsedFraction)
         r.check("spending-projection-history", abs((projected ?? 0) - (48 + 15 * 48.0 / 26)) < 1e-9, "\(String(describing: projected))")
         var lone = DVSpendingYear(year: 2026); lone.spentByThisDate = 30; lone.purchases = 1
@@ -330,51 +330,51 @@ extension DebugHarness {
         r.check("spending-projection-pace-clamped", DVSpendingTrends.projectedYearEnd(lone, [slow], yearElapsed: 0.5) == 30 + 100 * 2,
                 "\(String(describing: DVSpendingTrends.projectedYearEnd(lone, [slow], yearElapsed: 0.5))), expected 230 (pace 3× clamped to 2×)")
         // MARK: Collector habits (every fixture film is from 1988; rating 8 unless noted)
-        // Viewings: 2020 Held; 2024 Overdue Six; 2025 Overdue Six again + Due Thirty, Due Ninety,
-        // Shelf Of Shame firsts; 2026 On Schedule twice. Busiest year 4, so every year (≥ 1) is tracked;
-        // 2021–2023 have none and still appear, at zero.
+        /// Viewings: 2020 Held; 2024 Overdue Six; 2025 Overdue Six again + Due Thirty, Due Ninety,
+        /// Shelf Of Shame firsts; 2026 On Schedule twice. Busiest year 4, so every year (≥ 1) is tracked;
+        /// 2021–2023 have none and still appear, at zero.
         let h = insights.habits
         r.check("habits-viewing-years",
                 h.trackedFrom == 2020 && !h.hasSparseEarlierYears
                     && h.viewingYears.map { [$0.year, $0.firstTime, $0.rewatches] } == [[2020, 1, 0], [2021, 0, 0], [2022, 0, 0], [2023, 0, 0], [2024, 1, 0], [2025, 3, 1], [2026, 1, 1]],
                 "\(h.viewingYears.map { "\($0.year) \($0.firstTime)/\($0.rewatches)" })")
-        // Ages 32, 36, 37×4, 38×2: all in 31–50; median 37.
+        /// Ages 32, 36, 37×4, 38×2: all in 31–50; median 37.
         r.check("habits-viewing-age", h.viewingAgeBuckets.map(\.count) == [0, 0, 0, 0, 0, 8, 0] && h.medianViewingAge == 37,
                 "\(h.viewingAgeBuckets.map(\.count)) median \(String(describing: h.medianViewingAge))")
-        // Purchases: Feb (Overdue Six $20, On Schedule $8), Mar ($40), Sep ($30), Nov ($25).
+        /// Purchases: Feb (Overdue Six $20, On Schedule $8), Mar ($40), Sep ($30), Nov ($25).
         r.check("habits-purchases-by-month", h.purchasesByMonth == [0, 2, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0] && h.datedPurchases == 5,
                 "\(h.purchasesByMonth)")
         r.check("habits-busiest-month-sentence",
                 h.busiestMonthSentence == "February accounts for 40% of dated purchases, averaging \(DVFormat.money(14)) a release against \(DVFormat.money(95.0 / 3)) the rest of the year.",
                 h.busiestMonthSentence ?? "nil")
-        // Rated 8 and owned: Overdue Six, Due Thirty (4K), Due Ninety, Shelf Of Shame → $28.75, 25% on 4K.
-        // Rated 10: On Schedule, a $8 DVD, no 4K owned.
+        /// Rated 8 and owned: Overdue Six, Due Thirty (4K), Due Ninety, Shelf Of Shame → $28.75, 25% on 4K.
+        /// Rated 10: On Schedule, a $8 DVD, no 4K owned.
         r.check("habits-price-by-rating",
                 h.averagePaidByRating[7] == 28.75 && h.fourKShareByRating[7] == 25 && h.averagePaidByRating[9] == 8
                     && h.fourKShareByRating[9] == 0 && h.averagePaidByRating[0] == nil && h.filmsByRating[7] == 4,
                 "\(h.averagePaidByRating) / \(h.fourKShareByRating)")
         r.check("habits-rating-band", h.ratingBand(9...10).averagePaid == 8 && h.ratingBand(9...10).fourKPercent == 0
                     && h.ratingBand(1...5).averagePaid == nil, "")
-        // On Schedule (10) has an unbought 4K and owns none.
+        /// On Schedule (10) has an unbought 4K and owns none.
         r.check("habits-4k-upgrades", h.fourKUpgrades.map { "\($0.film.name) \($0.rating)" } == ["On Schedule 10"],
                 "\(h.fourKUpgrades.map { "\($0.film.name) \($0.rating)" })")
-        // All eight films are from the 1980s; five own a purchased release.
+        /// All eight films are from the 1980s; five own a purchased release.
         r.check("habits-ownership-by-decade", h.ownershipByDecade.map { "\($0.decade) \($0.films)/\($0.owned)" } == ["1980s 8/5"],
                 "\(h.ownershipByDecade.map { "\($0.decade) \($0.films)/\($0.owned)" })")
-        // DVFitRows: 20 rows 10 tall and a 20-tall View All, 4 apart. Its own height is 7 items,
-        // 6 rows + the button (6·10 + 20 + 6·4 = 104); 200 holds 12 rows + the button (14·12 + 20 = 188);
-        // 300 holds all 20 without it (20·10 + 19·4 = 276).
+        /// DVFitRows: 20 rows 10 tall and a 20-tall View All, 4 apart. Its own height is 7 items,
+        /// 6 rows + the button (6·10 + 20 + 6·4 = 104); 200 holds 12 rows + the button (14·12 + 20 = 188);
+        /// 300 holds all 20 without it (20·10 + 19·4 = 276).
         let fit = DVFitRows(rows: (0..<20).map { _ in DVBox(height: 10) { _, _ in } }, more: DVBox(height: 20) { _, _ in })
         r.check("fit-rows-count", fit.height(200) == 104 && fit.fittingCount(CGRect(x: 0, y: 0, width: 200, height: 200)) == 12
                     && fit.fittingCount(CGRect(x: 0, y: 0, width: 200, height: 300)) == 20,
                 "\(fit.height(200)) / \(fit.fittingCount(CGRect(x: 0, y: 0, width: 200, height: 200))) / \(fit.fittingCount(CGRect(x: 0, y: 0, width: 200, height: 300)))")
-        // Decades ranked by average rating: the fixture's six rated films are all 1988 (50 / 6).
+        /// Decades ranked by average rating: the fixture's six rated films are all 1988 (50 / 6).
         let fixtureDecades = insights.decadesByRating
         r.check("decade-rating-fixture", fixtureDecades.count == 1 && fixtureDecades[0].label == "1980s"
                     && fixtureDecades[0].rated == 6 && abs(fixtureDecades[0].average - 50.0 / 6.0) < 1e-9,
                 "\(fixtureDecades)")
-        // 1950s 9,9,8 (8.67); 1970s 10,8,8 (8.67, ties go to the earlier decade); 1990s 6,6,6 (6.0);
-        // 2000s 10,10 (too few); 2010s unrated films don't count; unknown-year film is ignored.
+        /// 1950s 9,9,8 (8.67); 1970s 10,8,8 (8.67, ties go to the earlier decade); 1990s 6,6,6 (6.0);
+        /// 2000s 10,10 (too few); 2010s unrated films don't count; unknown-year film is ignored.
         let rankFilms = [film("a", year: "1951", rating: 9), film("b", year: "1959", rating: 9), film("c", year: "1955", rating: 8),
                          film("d", year: "1971", rating: 10), film("e", year: "1979", rating: 8), film("f", year: "1975", rating: 8),
                          film("g", year: "1990", rating: 6), film("h", year: "1991", rating: 6), film("i", year: "1999", rating: 6),
@@ -396,7 +396,7 @@ extension DebugHarness {
             r.check("trends-average-price",
                     trends[1].headline == "Your average purchase price so far in 2026 is $24.00, down 13% from $27.50 in 2025.",
                     trends[1].headline)
-            // 2025 ($55) beat the current 2026 ($48): a past year, so "was".
+            /// 2025 ($55) beat the current 2026 ($48): a past year, so "was".
             r.check("trends-biggest-year-tense", trends[2].detail.contains("Your biggest spending year was 2025 with a total of $55."),
                     trends[2].detail)
             r.check("trends-long-term", trends[2].headline == "Across 3 years of dated purchases you've spent $123 on 5 releases.",
@@ -409,7 +409,7 @@ extension DebugHarness {
             r.check("trends-upgrades", trends[3].headline == "1 film you own on Blu-ray or DVD gained a 4K release in the last 90 days.",
                     trends[3].headline)
         }
-        // A run: three rising years read as one.
+        /// A run: three rising years read as one.
         let rising = LibraryInsights(films: ["2023.03.03", "2024.03.03", "2025.03.03"].enumerated().map { i, date in
             film("Rising \(i)", releases: [release(.bluRay, cost: Double(10 + 5 * i), date: date)])
         }, today: fixtureToday, calendar: calendar)
@@ -428,15 +428,15 @@ extension DebugHarness {
                 "\(insights.blurayRegionLocks.map { "\($0.label)=\($0.count)" })")
 
         // MARK: Digital sources
-        // Every recorded source is on the Digital Sources card — the "4K download" tier
-        // (Due Thirty) included — so its "no source recorded" subtitle is exact.
+        /// Every recorded source is on the Digital Sources card — the "4K download" tier
+        /// (Due Thirty) included — so its "no source recorded" subtitle is exact.
         let sourceRows = stats.sourceDistribution.filter { $0.0 != "---" }
         r.check("sources-include-4k-download", sourceRows.contains { $0.0 == FilmDigitalSource.download4K && $0.1 == 1 },
                 "\(sourceRows)")
         r.check("sources-cover-every-recorded-source",
                 sourceRows.reduce(0) { $0 + $1.1 } == films.filter { !$0.digitalSource.isEmpty }.count,
                 "\(sourceRows.reduce(0) { $0 + $1.1 }) listed, \(films.filter { !$0.digitalSource.isEmpty }.count) recorded")
-        // A remastered download is its tier, for the rip backlog, and still listed.
+        /// A remastered download is its tier, for the rip backlog, and still listed.
         let remasteredDownload = FilmDigitalSource.compose(source: FilmDigitalSource.download4K, remastered: true)
         let remasteredFilms = [film("Remastered Download", source: remasteredDownload, releases: [release(.uhd4K, cost: 30)])]
         let remasteredInsights = LibraryInsights(films: remasteredFilms, today: fixtureToday, calendar: calendar)
@@ -452,10 +452,10 @@ extension DebugHarness {
                 "\(insights.genres.map { "\($0.name)=\($0.value)" })")
         r.check("content-ratings-ordered", insights.contentRatings.map(\.label) == ["PG", "R"],
                 "\(insights.contentRatings.map(\.label))")
-        // The Audio card's codec bands replaced the old binary Lossless/Lossy split;
-        // the same five purchased discs carrying an audio-format tag should land
-        // somewhere across the eight bands, and "All" (every release, not just
-        // purchased) can only be at least as large a population.
+        /// The Audio card's codec bands replaced the old binary Lossless/Lossy split;
+        /// the same five purchased discs carrying an audio-format tag should land
+        /// somewhere across the eight bands, and "All" (every release, not just
+        /// purchased) can only be at least as large a population.
         r.check("audio-codecs-purchased-total", stats.audioCodecs.reduce(0) { $0 + $1.count } == 5,
                 "\(stats.audioCodecs.map { "\($0.label)=\($0.count)" })")
         r.check("audio-codecs-all-covers-purchased",
@@ -489,8 +489,8 @@ extension DebugHarness {
         r.check("period-version-code", full2025.versionsWatched.contains { $0.label == ViewingVersion.directorsCut.displayName && $0.count == 1 },
                 "\(full2025.versionsWatched.map { "\($0.label)=\($0.count)" })")
         r.check("period-timed-viewings", p.timedViewings == p.viewings, "\(p.timedViewings) of \(p.viewings)")
-        // The span's average runtime divides by the viewings that HAVE a runtime: two of
-        // a 110-minute film and one of a film with none average 110, not 73.
+        /// The span's average runtime divides by the viewings that HAVE a runtime: two of
+        /// a 110-minute film and one of a film with none average 110, not 73.
         let untimed = [film("Timed", viewings: ["2026.03.03", "2026.06.01"]),
                        film("Untimed", minutes: 0, viewings: ["2026.04.01"])].map { DVFilmViewings($0, calendar: calendar) }
         let untimedPeriod = ViewingPeriodStatistics(viewings: untimed, year: 2026, yearToDate: true, today: fixtureToday, calendar: calendar)
@@ -498,8 +498,8 @@ extension DebugHarness {
                 untimedPeriod.viewings == 3 && untimedPeriod.timedViewings == 2 && untimedPeriod.hoursWatchedMinutes == 220,
                 "\(untimedPeriod.viewings) viewings, \(untimedPeriod.timedViewings) timed, \(untimedPeriod.hoursWatchedMinutes) min")
 
-        // On Feb 29 the year-to-date comparison span of a common year ends Feb 28 — not
-        // Mar 1, where `date(from:)` rolls an unclamped Feb 29 over to.
+        /// On Feb 29 the year-to-date comparison span of a common year ends Feb 28 — not
+        /// Mar 1, where `date(from:)` rolls an unclamped Feb 29 over to.
         var leapParts = DateComponents(); leapParts.year = 2028; leapParts.month = 2; leapParts.day = 29
         let leapDay = calendar.date(from: leapParts)!
         let leapRecords = [film("Leap", viewings: ["2027.02.28", "2027.03.01", "2028.02.29"])].map { DVFilmViewings($0, calendar: calendar) }
@@ -509,9 +509,9 @@ extension DebugHarness {
                 "\(leap.viewings) / prior \(leap.priorViewings), expected 1 / 1 (2027.03.01 is past the span)")
 
         // MARK: The tab's own entry parser ≡ the formatter chain
-        // `DVFilmViewings.parse` reads canonical entries directly (skipping `startOfDay`),
-        // so it is held to the formatter chain that `parseDate` uses — the app-wide
-        // fast path has its own exhaustive proof in the `date-semantics` scenario.
+        /// `DVFilmViewings.parse` reads canonical entries directly (skipping `startOfDay`),
+        /// so it is held to the formatter chain that `parseDate` uses — the app-wide
+        /// fast path has its own exhaustive proof in the `date-semantics` scenario.
         var parseAgreements = 0, parseDisagreements: [String] = []
         for year in stride(from: 1888, through: 2100, by: 3) {
             for month in 0...13 {
@@ -522,7 +522,7 @@ extension DebugHarness {
                     if expected == fast { parseAgreements += 1 } else if parseDisagreements.count < 5 {
                         parseDisagreements.append("\(dot): formatters \(String(describing: expected)) fast \(String(describing: fast))")
                     }
-                    // Purchase dates: the stored dot form and the legacy dash form alike.
+                    /// Purchase dates: the stored dot form and the legacy dash form alike.
                     let dash = "\(Fmt.padded(year, 4))-\(Fmt.padded(month, 2))-\(Fmt.padded(day, 2))"
                     for purchase in [dot, dash] {
                         let expectedPurchase = parseDateWithFormatters(datePortion: purchase, dateString: purchase)
@@ -537,12 +537,12 @@ extension DebugHarness {
         }
         r.check("entry-parse-agrees-with-formatters", parseDisagreements.isEmpty,
                 "\(parseAgreements) agreements; first disagreements: \(parseDisagreements)")
-        // Version codes and malformed spellings: the entry parser must either agree with
-        // the formatter chain or decline to it, never answer differently.
+        /// Version codes and malformed spellings: the entry parser must either agree with
+        /// the formatter chain or decline to it, never answer differently.
         let odd = ["2024.01.10.DC", "2024.01.10.th", "2024.01.10.", "2024.01.10..", "2024.1.10", "2024.01.1", "2024-01-10",
                    "2024.01.10.DCX", "2024/01/10", " 2024.01.10", "2024.01.10 ", "", "abcd.ef.gh", "2024.01.10.D", "9999.12.31",
                    "0999.01.01", "2024.02.29", "2023.02.29", "2024-02-30", "1888.01.01.TH", "2026-09-21T10:30:00Z",
-                   // Thirteen bytes that are not a date plus a two-character code.
+                   /// Thirteen bytes that are not a date plus a two-character code.
                    "2024.01.10.É", "2024.01.10..A", "2024.01.10.A.", "2024.01.10.-A", "2024.01.10.zz", "2024.01.10.T.",
                    "2024.01.1０.TH", "２024.01.10", "2024.01.10.dc", "2024.01.10.99"]
         var oddDisagreements: [String] = []
@@ -568,7 +568,7 @@ extension DebugHarness {
         r.check("reuse-reparses-when-history-changes", reparsed.dates.count == reusedFrom.dates.count + 1, "\(reparsed.dates.count)")
         let other = DVFilmViewings(films[1], calendar: calendar, reusing: reusedFrom)
         r.check("reuse-ignores-another-film", other.dates == DVFilmViewings(films[1], calendar: calendar).dates, "")
-        // A dataset built from a previous dataset's records must equal one built cold.
+        /// A dataset built from a previous dataset's records must equal one built cold.
         let cold = DVDataset(films: films, previousRecords: [], showInfoComplete: true, today: fixtureToday, calendar: calendar)
         let warm = DVDataset(films: films, previousRecords: cold.viewingRecords, showInfoComplete: true, today: fixtureToday, calendar: calendar)
         r.check("dataset-warm-equals-cold",
@@ -637,9 +637,9 @@ extension DebugHarness {
             r.check("sheet-is-stack", false, "the sheet is missing or not a stack")
             return r
         }
-        // Overview 4 (one row per growth scope), Viewing 5 (Release Decade and Genre month charts, then the
-        // all-time habits row), Rotation 1, Purchases 7 (likewise per year-chart scope, then the habits row),
-        // Collection 2, Decades 3 (the release-year chart first), People 2, Technical 2.
+        /// Overview 4 (one row per growth scope), Viewing 5 (Release Decade and Genre month charts, then the
+        /// all-time habits row), Rotation 1, Purchases 7 (likewise per year-chart scope, then the habits row),
+        /// Collection 2, Decades 3 (the release-year chart first), People 2, Technical 2.
         r.check("block-count", stack.blocks.count == 26, "\(stack.blocks.count) blocks")
         r.check("blocks-laid-out-at-print-width",
                 stack.blocks.allSatisfy { abs($0.size.width - DVPrintLayout.width) < 0.5 && $0.size.height > 40 },
@@ -665,8 +665,8 @@ extension DebugHarness {
         }
         r.check("page-count", document.pageCount == pages && pages >= 3, "\(document.pageCount) pages, builder said \(pages)")
 
-        // Text, not pixels: the cards' own words are selectable in the file, including
-        // the captions printed in place of the controls.
+        /// Text, not pixels: the cards' own words are selectable in the file, including
+        /// the captions printed in place of the controls.
         let text = (0..<document.pageCount).compactMap { document.page(at: $0)?.string }.joined(separator: "\n")
         let expected = ["Library Overview", "Past 5 Years", "Needs Attention",
                         "Collection Growth", "Spending Trends",
@@ -681,9 +681,9 @@ extension DebugHarness {
             .filter { text.contains($0) }
         r.check("old-tiles-retired", retired.isEmpty, retired.isEmpty ? "none printed" : "still printed: \(retired)")
 
-        // Vector throughout: no image XObject on any page, at any depth, beyond the brand
-        // mark every page carries — symbols included, which drawn as images would embed
-        // one each (see DVSymbol's vector path).
+        /// Vector throughout: no image XObject on any page, at any depth, beyond the brand
+        /// mark every page carries — symbols included, which drawn as images would embed
+        /// one each (see DVSymbol's vector path).
         var extraImages: [Int] = []
         if let cg = CGPDFDocument(url as CFURL), cg.numberOfPages > 0 {
             for index in 1...cg.numberOfPages {
@@ -753,8 +753,8 @@ extension DebugHarness {
         r.check("tab-seeded", seeded >= 168, "\(seeded) films")
 
         // MARK: A pass whose inputs match the dataset on screen computes nothing; a
-        // change to any one input (a film, the Info Complete setting, the default
-        // rotation threshold) computes again.
+        /// change to any one input (a film, the Info Complete setting, the default
+        /// rotation threshold) computes again.
         do {
             let films = coordinator.getAllFilms()
             let current = DVDataset(films: films, previousRecords: [], showInfoComplete: true)
@@ -792,7 +792,7 @@ extension DebugHarness {
             host.frame = NSRect(x: 0, y: 0, width: 1148, height: 700)
             window.contentView = host
             host.layoutSubtreeIfNeeded()
-            // Wait for the page to stop growing rather than a fixed number of turns.
+            /// Wait for the page to stop growing rather than a fixed number of turns.
             var height = documentHeight(host), steady = 0
             for _ in 0..<80 where steady < 6 {
                 await oneTurn(); host.layoutSubtreeIfNeeded()
@@ -813,17 +813,17 @@ extension DebugHarness {
 
         // MARK: First visit: synchronous, so the page is there on the first layout.
         let wasCached = ReportsState.shared.cachedVisualizations != nil
-        // Implicitly unwrapped so it can be released: a hosting view taken out of the window
-        // but still referenced keeps its tab alive, subscribed to film events and applying
-        // passes, which the app's own view switch never does.
+        /// Implicitly unwrapped so it can be released: a hosting view taken out of the window
+        /// but still referenced keeps its tab alive, subscribed to film events and applying
+        /// passes, which the app's own view switch never does.
         var host: NSHostingView<TabHost>! = await mount()
         r.check("tab-first-visit-renders", documentHeight(host) > 2000, "document height \(documentHeight(host))")
         r.check("tab-first-visit-populates-cache",
                 await waitForCache(seeded), "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)) (was cached before mount: \(wasCached))")
 
         // MARK: The page's AppKit-backed controls write through to the tab's state: the
-        // Compare checkbox turns the comparison off (so its year pop-up disables) and on
-        // again, and a scope control's new segment survives the update its write causes.
+        /// Compare checkbox turns the comparison off (so its year pop-up disables) and on
+        /// again, and a scope control's new segment survives the update its write causes.
         do {
             func controls<T: NSControl>(_ type: T.Type) -> [T] {
                 var found: [T] = [], stack: [NSView] = [host]
@@ -864,7 +864,7 @@ extension DebugHarness {
         }
 
         // MARK: An update that changes nothing the page shows rebuilds nothing: the
-        // representable is handed the same revision (see DVCanvasModel.revision).
+        /// representable is handed the same revision (see DVCanvasModel.revision).
         do {
             DVCanvasPageView.rebuilds = 0
             host.rootView = TabHost(coordinator: coordinator, appState: appState)
@@ -875,8 +875,8 @@ extension DebugHarness {
 
         // MARK: A Needs Attention card opens its popover.
         if let page = findScrollView(host)?.documentView as? DVCanvasPageView {
-            // A popover shows only from a window that is ordered in: far off every screen,
-            // never key, so no focus is taken.
+            /// A popover shows only from a window that is ordered in: far off every screen,
+            /// never key, so no focus is taken.
             window.setFrameOrigin(NSPoint(x: -20000, y: -20000))
             window.orderFrontRegardless()
             await oneTurn()
@@ -894,12 +894,12 @@ extension DebugHarness {
         for _ in 0..<6 { host.layoutSubtreeIfNeeded(); await oneTurn() }
         r.check("tab-event-burst-recalculates-in-background", landed,
                 "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 5)")
-        // The five films' new counts, tags and Coming Up candidate touch several sections;
-        // SwiftUI re-evaluates only the ones whose inputs it cannot prove unchanged. No page
-        // height delta is asserted: several cards have a fixed or capped height (the Most
-        // Rewatched card, the two-line stat-tile footnotes), so a burst that only adds rows
-        // within those bounds can leave document height unchanged while the content changed.
-        // `tab-cached-count-matches-library` below verifies the content directly.
+        /// The five films' new counts, tags and Coming Up candidate touch several sections;
+        /// SwiftUI re-evaluates only the ones whose inputs it cannot prove unchanged. No page
+        /// height delta is asserted: several cards have a fixed or capped height (the Most
+        /// Rewatched card, the two-line stat-tile footnotes), so a burst that only adds rows
+        /// within those bounds can leave document height unchanged while the content changed.
+        /// `tab-cached-count-matches-library` below verifies the content directly.
         r.check("tab-event-burst-rerenders-page", DVCanvasPageView.rebuilds >= 1,
                 "\(DVCanvasPageView.rebuilds) page rebuilds after the pass; height \(heightBefore) → \(documentHeight(host))")
         r.check("tab-event-burst-page-intact", documentHeight(host) > 2000, "document height \(documentHeight(host))")
@@ -912,7 +912,7 @@ extension DebugHarness {
         host = nil
         await oneTurn()
         coordinator.importFilms(moreFilms(1, "WhileAway"))
-        // The view is gone, so the event it just missed leaves the cache one film behind.
+        /// The view is gone, so the event it just missed leaves the cache one film behind.
         r.check("tab-unmounted-view-ignores-events", ReportsState.shared.cachedVisualizations?.stats.totalFilms == seeded + 5,
                 "\(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms))")
         DVCanvasPageView.rebuilds = 0
@@ -924,13 +924,13 @@ extension DebugHarness {
                 "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 6)")
         for _ in 0..<6 { host.layoutSubtreeIfNeeded(); await oneTurn() }
         r.check("tab-remount-page-intact", documentHeight(host) > 2000, "document height \(documentHeight(host))")
-        // The cache seed, then the reconcile's result: the library moved while away.
+        /// The cache seed, then the reconcile's result: the library moved while away.
         r.check("tab-changed-remount-applies-twice", DataVisualizationsView.applications == 2,
                 "\(DataVisualizationsView.applications) applications")
 
         // MARK: Unmount with a pass in flight: the cache still lands; nothing else does.
         coordinator.importFilms(moreFilms(1, "InFlight"))
-        await oneTurn()   // the coalescing hop: the pass is now running
+        await oneTurn()   /// the coalescing hop: the pass is now running
         window.contentView = nil
         r.check("tab-inflight-result-refreshes-cache", await waitForCache(seeded + 7),
                 "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 7)")
@@ -938,7 +938,7 @@ extension DebugHarness {
         r.check("tab-inflight-no-trap", true, "")
 
         // MARK: Remount with nothing changed since the cache was filled: the cache is
-        // applied, the reconcile finds equal inputs, and nothing is applied after it.
+        /// applied, the reconcile finds equal inputs, and nothing is applied after it.
         host = nil
         await oneTurn()
         DataVisualizationsView.applications = 0
@@ -952,7 +952,7 @@ extension DebugHarness {
         await oneTurn()
 
         // MARK: The launch prefetch fills an empty cache off the main thread, and never
-        // replaces one a visit has already filled.
+        /// replaces one a visit has already filled.
         do {
             ReportsState.shared.debugResetVisualizations()
             ReportsState.shared.prefetchVisualizations(films: coordinator.getAllFilms())
@@ -965,7 +965,7 @@ extension DebugHarness {
         }
 
         // MARK: A width change keeps the section at the top of the viewport where it was
-        // on screen, whatever the sections above it did (every step of a drag does this).
+        /// on screen, whatever the sections above it did (every step of a drag does this).
         do {
             DataVisualizationsView.applications = 0
             host = await mount()
@@ -1030,7 +1030,7 @@ extension DebugHarness {
         r.metric("perf-corpus-viewings", Double(films.reduce(0) { $0 + $1.calendarTable.count }), "viewings")
 
         func timed(_ name: String, runs: Int = 5, _ body: () -> Void) {
-            body() // warm
+            body() /// warm
             var best = Double.infinity
             for _ in 0..<runs {
                 let start = ContinuousClock.now
@@ -1049,19 +1049,19 @@ extension DebugHarness {
         timed("perf-viewing-period") {
             _ = ViewingPeriodStatistics(viewings: records, year: 1991, yearToDate: false, today: fixtureToday, calendar: calendar)
         }
-        // The two passes the tab actually runs: the synchronous first visit (no records to
-        // reuse) and every pass after it (the previous records on hand).
+        /// The two passes the tab actually runs: the synchronous first visit (no records to
+        /// reuse) and every pass after it (the previous records on hand).
         timed("perf-recalculation-first-visit", runs: 3) {
             _ = DVDataset(films: films, previousRecords: [], showInfoComplete: true, today: fixtureToday, calendar: calendar)
         }
         timed("perf-recalculation-steady-state", runs: 3) {
             _ = DVDataset(films: films, previousRecords: records, showInfoComplete: true, today: fixtureToday, calendar: calendar)
         }
-        // Main-thread cost of a background pass: gathering the inputs and applying the
-        // result, with the computation itself awaited off the main actor.
+        /// Main-thread cost of a background pass: gathering the inputs and applying the
+        /// result, with the computation itself awaited off the main actor.
         do {
-            // A previous pass over all but one film: every record but one is reused, and
-            // the inputs differ, so the pass really computes.
+            /// A previous pass over all but one film: every record but one is reused, and
+            /// the inputs differ, so the pass really computes.
             let previous = DVDataset(films: Array(films.dropLast()), previousRecords: records, showInfoComplete: true)
             var ts = timespec(); unsafe clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts)
             let before = Double(ts.tv_sec) * 1000 + Double(ts.tv_nsec) / 1_000_000
@@ -1072,7 +1072,7 @@ extension DebugHarness {
             r.check("perf-background-pass-computes", dataset?.stats.totalFilms == films.count, "")
         }
 
-        // The page's own costs (mount, resize, scroll, a year step) are `dataviz-canvas`'s.
+        /// The page's own costs (mount, resize, scroll, a year step) are `dataviz-canvas`'s.
         return r
     }
 
@@ -1085,17 +1085,17 @@ extension DebugHarness {
 
 // MARK: - Scenario: Canvas page
 
-// `dataviz-render` (in `all`): the tab's page (27.44/27.45) rendered at 1148 pt (light and
-// dark), 820 (light) and 1808 (dark), written to the sandbox root as
-// canvas-<width>-<appearance>.png for inspection; each render must fit its width and repeat
-// pixel for pixel. It also holds the print form to the screen form: a section with no
-// controls prints exactly as tall as it draws on screen, less the band's 24 pt top spacing,
-// because both come from the same builders.
-// `dataviz-canvas` (opt-in, a measurement): the same, then the page's cost on the
-// 1,400-film corpus — mount, teardown, a scroll sweep, a live-resize sweep, a year step — as
-// main-thread CPU with layout, display and the Core Animation commit included, against an
-// empty scroll view for the floor. `-FTDebugCanvasResizeLoop <kind>` loops resizes for
-// `sample`. Off screen (windows far outside every display, never key): takes no focus.
+/// `dataviz-render` (in `all`): the tab's page (27.44/27.45) rendered at 1148 pt (light and
+/// dark), 820 (light) and 1808 (dark), written to the sandbox root as
+/// canvas-<width>-<appearance>.png for inspection; each render must fit its width and repeat
+/// pixel for pixel. It also holds the print form to the screen form: a section with no
+/// controls prints exactly as tall as it draws on screen, less the band's 24 pt top spacing,
+/// because both come from the same builders.
+/// `dataviz-canvas` (opt-in, a measurement): the same, then the page's cost on the
+/// 1,400-film corpus — mount, teardown, a scroll sweep, a live-resize sweep, a year step — as
+/// main-thread CPU with layout, display and the Core Animation commit included, against an
+/// empty scroll view for the floor. `-FTDebugCanvasResizeLoop <kind>` loops resizes for
+/// `sample`. Off screen (windows far outside every display, never key): takes no focus.
 extension DebugHarness {
 
     private struct CanvasHarnessSUIHost: View {
@@ -1126,8 +1126,8 @@ extension DebugHarness {
                               selectedYear: .constant(2026), yearToDate: .constant(true), compare: .constant(true), compareYear: .constant(2025))
             }
             let base = fixtureFilms() + standardCorpus(count: 160, seed: 0xB00C)
-            // Eight more films due 2026-10-01 (viewed September 2025, 12-month threshold):
-            // all ranked; the card shows what fits, and the list must not make the Rotation row any taller.
+            /// Eight more films due 2026-10-01 (viewed September 2025, 12-month threshold):
+            /// all ranked; the card shows what fits, and the list must not make the Rotation row any taller.
             let extra = (1...8).map { film("October \($0)", rating: $0, viewings: ["2025.09.0\($0)"]) }
             let crowded = model(base + extra)
             r.check("coming-up-ranks-every-film", crowded.insights.comingUp.count == crowded.insights.comingUpNextMonthItems.count
@@ -1140,16 +1140,16 @@ extension DebugHarness {
                 let a = DVCanvasSections.rotation(sparse, .screen(pageView)).rows[0].height(w), b = DVCanvasSections.rotation(crowded, .screen(pageView)).rows[0].height(w)
                 r.check("coming-up-view-all-keeps-row-height-\(Int(w))", a == b, "\(a) → \(b)")
             }
-            // The Digital Sources, Audio and Subtitles and Encoding cards: one height in both
-            // scopes at every width, however the row wraps (print builds every scope).
+            /// The Digital Sources, Audio and Subtitles and Encoding cards: one height in both
+            /// scopes at every width, however the row wraps (print builds every scope).
             let print = DVCanvasSections.technical(crowded, .print).rows.compactMap { $0 as? DVFlow }.flatMap(\.children)
             var unequal: [String] = []
             for w: CGFloat in stride(from: 220, through: 520, by: 20) {
                 let hs = Set(print.map { $0.height(w) }.filter { $0 > 0 })
                 if hs.count != 1 { unequal.append("\(Int(w)): \(hs.sorted())") }
             }
-            // Scroll restore: a banked anchor lands in the first sizing with real geometry,
-            // before anything is drawn, at the same section and offset — and reads back.
+            /// Scroll restore: a banked anchor lands in the first sizing with real geometry,
+            /// before anything is drawn, at the same section and offset — and reads back.
             let scroll = DVCanvasScrollNSView(frame: .zero)
             scroll.pendingAnchor = DVScrollAnchor(section: 3, offset: 40)
             scroll.page.model = crowded
@@ -1184,8 +1184,8 @@ extension DebugHarness {
                 let h = canvas.fittingHeight(width: w)
                 let label = "\(width)-\(name == .aqua ? "light" : "dark")"
                 r.metric("render-\(label)-height", Double(h), "pt")
-                // The canvas draws into plain CALayers, which cacheDisplay does not capture:
-                // render its drawing directly, over the window background, with its controls.
+                /// The canvas draws into plain CALayers, which cacheDisplay does not capture:
+                /// render its drawing directly, over the window background, with its controls.
                 func render() -> NSBitmapImageRep? {
                     canvas.frame = NSRect(x: 0, y: 0, width: w, height: h)
                     canvas.layoutSubtreeIfNeeded()
@@ -1221,8 +1221,8 @@ extension DebugHarness {
                 if let root { try? a.write(to: root.appendingPathComponent("canvas-\(label).png")) }
             }
 
-            // A card with an action (the Wishlist card on the tab) is one clickable region, its
-            // title row ending in a chevron; drawn as linked-card.png for inspection.
+            /// A card with an action (the Wishlist card on the tab) is one clickable region, its
+            /// title row ending in a chevron; drawn as linked-card.png for inspection.
             let linked = DVK.card(title: "Wishlist", action: {}, [DVK.factRow(label: "Items", value: "2")])
             var spots: [DVHotspot] = []
             let cardRect = CGRect(x: 0, y: 0, width: 320, height: linked.height(320))
@@ -1244,9 +1244,9 @@ extension DebugHarness {
                 }
             }
 
-            // Print and screen share their builders: Rotation and Release Decades carry no
-            // control, so each prints as one block exactly as tall as its screen section at
-            // the print width, less the 24 pt the band keeps above a section that follows another.
+            /// Print and screen share their builders: Rotation and Release Decades carry no
+            /// control, so each prints as one block exactly as tall as its screen section at
+            /// the print width, less the 24 pt the band keeps above a section that follows another.
             let screen = DVCanvasPageView(frame: .zero)
             screen.model = model
             let screenHeights = screen.debugSectionHeights(width: DVPrintLayout.width + 48)
@@ -1256,7 +1256,7 @@ extension DebugHarness {
                 guard let index = printSections.firstIndex(where: { $0.title == title }), screenHeights.indices.contains(index) else {
                     r.check("print-matches-screen-\(key)", false, "no section"); continue
                 }
-                // A section of several rows prints one block per row, the stack's gap between them.
+                /// A section of several rows prints one block per row, the stack's gap between them.
                 let start = printSections.prefix(index).reduce(0) { $0 + $1.rows.count }
                 let rows = printSections[index].rows.count
                 let printed = blocks[start..<(start + rows)].reduce(0) { $0 + $1.height(DVPrintLayout.width) } + DVStyle.gap * CGFloat(rows - 1)
@@ -1297,10 +1297,10 @@ extension DebugHarness {
         }
 
         for (kind, make) in [("canvas", { (p: ViewingPeriodStatistics) in canvasRoot(p) }),
-                             // The floor: an empty scroll view, for what AppKit itself costs.
+                             /// The floor: an empty scroll view, for what AppKit itself costs.
                              ("empty", { (_: ViewingPeriodStatistics) in AnyView(CanvasHarnessSUIHost(page: AnyView(Color.clear.frame(height: 2072)))) })] {
-            // A titled window far off every screen: drawn and committed like a real one,
-            // never visible, never key.
+            /// A titled window far off every screen: drawn and committed like a real one,
+            /// never visible, never key.
             let window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 1148, height: 700),
                                   styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -1316,7 +1316,7 @@ extension DebugHarness {
             await settle()
             let baseFootprint = footprintMB()
 
-            // Mount / teardown, five times each.
+            /// Mount / teardown, five times each.
             var mounts: [Double] = [], teardowns: [Double] = []
             var host: NSHostingView<AnyView>!
             for i in 0..<5 {
@@ -1342,7 +1342,7 @@ extension DebugHarness {
             guard let scrollView = findScrollView(host) else { r.check("\(kind)-scroll-view", false, ""); continue }
             r.metric("\(kind)-document-height", Double(scrollView.documentView?.frame.height ?? 0), "pt")
 
-            // Scroll: 150 steps of 12 pt, each laid out, drawn and committed.
+            /// Scroll: 150 steps of 12 pt, each laid out, drawn and committed.
             DVCanvasPageView.drawCalls = 0; DVCanvasPageView.drawnArea = 0; DVCanvasPageView.drawMs = 0
             var scrolls: [Double] = []
             for step in 1...150 {
@@ -1364,9 +1364,9 @@ extension DebugHarness {
                 r.metric("canvas-scroll-drawn-area-per-step", Double(DVCanvasPageView.drawnArea / 150), "pt²")
                 r.metric("canvas-scroll-draw-ms-per-step", DVCanvasPageView.drawMs / 150, "ms")
             }
-            // Full sweep down and back up at 40 pt a frame (a brisk flick): the worst
-            // step, which a median hides, and the worst single strip draw — after the page
-            // has sat at rest long enough for the idle prefetch to finish.
+            /// Full sweep down and back up at 40 pt a frame (a brisk flick): the worst
+            /// step, which a median hides, and the worst single strip draw — after the page
+            /// has sat at rest long enough for the idle prefetch to finish.
             DVCanvasPageView.prefetches = 0
             let restEnd = CACurrentMediaTime() + 1.5
             while CACurrentMediaTime() < restEnd { await oneTurn() }
@@ -1401,7 +1401,7 @@ extension DebugHarness {
                 }
             }
 
-            // `-FTDebugCanvasResizeLoop <kind>`: resize sweeps for 15 s, for `sample`.
+            /// `-FTDebugCanvasResizeLoop <kind>`: resize sweeps for 15 s, for `sample`.
             if UserDefaults.standard.string(forKey: "FTDebugCanvasResizeLoop") == kind {
                 DVCanvasPageView.debugLiveResize = true
                 print("RESIZE-LOOP START"); unsafe fflush(stdout)
@@ -1418,7 +1418,7 @@ extension DebugHarness {
                 print("RESIZE-LOOP END"); unsafe fflush(stdout)
                 DVCanvasPageView.debugLiveResize = false
             }
-            // Live resize: 2 pt steps from 1148 to 900 and back, the page mid-scroll.
+            /// Live resize: 2 pt steps from 1148 to 900 and back, the page mid-scroll.
             DVCanvasPageView.debugLiveResize = true
             await settle()
             DVCanvasPageView.drawMs = 0; DVCanvasPageView.layoutMs = 0
@@ -1442,7 +1442,7 @@ extension DebugHarness {
                 r.metric("canvas-resize-layout-ms-per-step", DVCanvasPageView.layoutMs / Double(sweep.count), "ms")
             }
 
-            // Year step: the period section rebuilt for another year, four times.
+            /// Year step: the period section rebuilt for another year, four times.
             var steps: [Double] = []
             for y in [1992, 1993, 1994, 1995] {
                 let p = period(y)

@@ -1,7 +1,7 @@
 // MARK: - DBPackager.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Streaming writer that packages DBReader output as an XML backup file.
+/// Streaming writer that packages DBReader output as an XML backup file.
 
 import Foundation
 
@@ -11,23 +11,23 @@ public enum DBPackagerError: Error {
 }
 
 public final class DBPackager: Loggable {
-    // Public for the same reason as DBExporter.logTag — see the note there.
+    /// Public for the same reason as DBExporter.logTag — see the note there.
     nonisolated public static let logTag = "[DBPackager]"
 
-    // The packager holds no formatter or encoder: DBReader serializes dates and arrays
-    // before they reach this file (see encodeXmlPropertyValue), so the packager only
-    // writes text it has been handed.
+    /// The packager holds no formatter or encoder: DBReader serializes dates and arrays
+    /// before they reach this file (see encodeXmlPropertyValue), so the packager only
+    /// writes text it has been handed.
 
     public init() {}
 
-    // Determine the backup folder to use.
+    /// Determine the backup folder to use.
     public func backupsFolder() throws -> URL {
         let fm = FileManager.default
-        // Retrieve user-configured backup folder from Preferences
+        /// Retrieve user-configured backup folder from Preferences
         guard let folder = Preferences.backupFolderURL else {
             Self.log("WARNING: No backup folder configured in Preferences")
             throw DBPackagerError.cannotCreateDirectory(URL(fileURLWithPath: "")) }
-        // Verify it exists or can be created
+        /// Verify it exists or can be created
         do {
             try fm.createDirectory(
                 at: folder, withIntermediateDirectories: true, attributes: nil)
@@ -36,14 +36,14 @@ public final class DBPackager: Loggable {
             throw DBPackagerError.cannotCreateDirectory(folder) }
         return folder }
 
-    // Stream the ExportPackage into a file in the chosen backup folder.
-    // - Returns: URL to the final file inside the chosen folder (atomic move from temp file).
+    /// Stream the ExportPackage into a file in the chosen backup folder.
+    /// - Returns: URL to the final file inside the chosen folder (atomic move from temp file).
     public func package(exportPackage: ExportPackage, filename: String, folderURL: URL? = nil,
         isBackgroundExport: Bool = false,
         progress: ((Double) -> Void)? = nil) async throws -> URL {
         try Task.checkCancellation()
 
-        // Use provided folder, otherwise Preferences.backupFolderURL (validated).
+        /// Use provided folder, otherwise Preferences.backupFolderURL (validated).
         let folder = try folderURL ?? backupsFolder()
         let fm = FileManager.default
 
@@ -53,10 +53,10 @@ public final class DBPackager: Loggable {
         let tempURL = folder.appendingPathComponent(tempFilename)
         let finalURL = folder.appendingPathComponent(filename)
 
-        // Create empty temporary file.
+        /// Create empty temporary file.
         fm.createFile(atPath: tempURL.path(percentEncoded: false), contents: nil, attributes: nil)
 
-        // Open the file for writing.
+        /// Open the file for writing.
         let fileHandle: FileHandle
         do {
             fileHandle = try FileHandle(forWritingTo: tempURL)
@@ -71,11 +71,11 @@ public final class DBPackager: Loggable {
             guard let data = s.data(using: .utf8) else { return }
             try fileHandle.write(contentsOf: data) }
 
-        // Shared cleanup used by every error path below. Closes the file handle and
-        // removes the temp file, then rethrows — CancellationError is passed through
-        // unwrapped so callers can distinguish cancellation (`catch is CancellationError`)
-        // from genuine write failure. Any other error is wrapped as
-        // DBPackagerError.writeFailed.
+        /// Shared cleanup used by every error path below. Closes the file handle and
+        /// removes the temp file, then rethrows — CancellationError is passed through
+        /// unwrapped so callers can distinguish cancellation (`catch is CancellationError`)
+        /// from genuine write failure. Any other error is wrapped as
+        /// DBPackagerError.writeFailed.
         func cleanupAndRethrow(_ error: any Error) throws -> Never {
             try? fileHandle.close()
             try? fm.removeItem(at: tempURL)
@@ -90,7 +90,7 @@ public final class DBPackager: Loggable {
         let manifestWeight = 0.05
         let objectsWeight = 1.0 - manifestWeight
 
-        // Header + root start.
+        /// Header + root start.
         do {
             let header = """
             <?xml version="1.0" encoding="utf-8"?>
@@ -111,7 +111,7 @@ public final class DBPackager: Loggable {
         } catch {
             try cleanupAndRethrow(error) }
 
-        // Manifest.
+        /// Manifest.
         do {
             try write("  <Manifest>\n")
             for (entity, count) in exportPackage.manifest.sorted(by: { $0.key < $1.key }) {
@@ -121,7 +121,7 @@ public final class DBPackager: Loggable {
         } catch {
             try cleanupAndRethrow(error) }
 
-        // Objects.
+        /// Objects.
         do {
             try write("  <Objects>\n")
         } catch {
@@ -129,7 +129,7 @@ public final class DBPackager: Loggable {
 
         let totalObjects = exportPackage.objects.count
 
-        // For background exports, yield periodically during write operations
+        /// For background exports, yield periodically during write operations
         let yieldInterval = isBackgroundExport ? 25 : 100
         
         for (index, obj) in exportPackage.objects.enumerated() {
@@ -139,10 +139,10 @@ public final class DBPackager: Loggable {
                 try write("      <Properties>\n")
                 for (k, anyCod) in obj.properties.sorted(by: { $0.key < $1.key }) {
                     let valStr = encodeXmlPropertyValue(anyCod, declaredType: obj.propertyTypes[k])
-                    // The declared-type attribute, written only where DBReader recorded one
-                    // (String-typed values). Readers that predate it ignore it; readers that
-                    // honor it skip the type inference that would otherwise misread a
-                    // string whose content looks numeric, boolean, or array-shaped.
+                    /// The declared-type attribute, written only where DBReader recorded one
+                    /// (String-typed values). Readers that predate it ignore it; readers that
+                    /// honor it skip the type inference that would otherwise misread a
+                    /// string whose content looks numeric, boolean, or array-shaped.
                     let typeAttr = obj.propertyTypes[k].map { " type=\"\(xmlEscape($0))\"" } ?? ""
                     try write("        <Property name=\"\(xmlEscape(k))\"\(typeAttr)>\(valStr)</Property>\n") }
                 try write("      </Properties>\n")
@@ -161,13 +161,13 @@ public final class DBPackager: Loggable {
             let totalProgress = manifestWeight + objectsProgress
             progress?(totalProgress)
             
-            // Yield periodically for background exports
+            /// Yield periodically for background exports
             if isBackgroundExport && (index + 1) % yieldInterval == 0 {
-                try? await Task.sleep(for: .milliseconds(1)) // 1ms yield
+                try? await Task.sleep(for: .milliseconds(1)) /// 1ms yield
             }
         }
 
-        // Close the file and move it atomically.
+        /// Close the file and move it atomically.
         do {
             try write("  </Objects>\n")
             try write("</FilmTrackerBackup>\n")
@@ -192,15 +192,15 @@ public final class DBPackager: Loggable {
         out = out.replacingOccurrences(of: "'", with: "&apos;")
         return out }
 
-    // Wraps a string in a CDATA section, guaranteeing the result is valid XML:
-    //   • Illegal XML 1.0 scalars are stripped first. A raw CDATA section cannot
-    //     legally contain them, so a string holding both a control character and an
-    //     XML special character would otherwise produce an unparseable file.
-    //   • Any embedded "]]>" sequence is split across two CDATA sections. Without this
-    //     an embedded "]]>" (which can occur in free-text fields such as notes, or in
-    //     a JSON-encoded array element) would terminate the CDATA section early and
-    //     corrupt the entire backup. On read, XMLParser concatenates the two adjacent
-    //     CDATA blocks back into the original "]]>" so the round-trip is exact.
+    /// Wraps a string in a CDATA section, guaranteeing the result is valid XML:
+    ///   • Illegal XML 1.0 scalars are stripped first. A raw CDATA section cannot
+    ///     legally contain them, so a string holding both a control character and an
+    ///     XML special character would otherwise produce an unparseable file.
+    ///   • Any embedded "]]>" sequence is split across two CDATA sections. Without this
+    ///     an embedded "]]>" (which can occur in free-text fields such as notes, or in
+    ///     a JSON-encoded array element) would terminate the CDATA section early and
+    ///     corrupt the entire backup. On read, XMLParser concatenates the two adjacent
+    ///     CDATA blocks back into the original "]]>" so the round-trip is exact.
     fileprivate func wrapInCDATA(_ s: String) -> String {
         let safe = s.strippingIllegalXMLScalars
             .replacingOccurrences(of: "]]>", with: "]]]]><![CDATA[>")
@@ -215,74 +215,74 @@ public final class DBPackager: Loggable {
                                             declaredType: String? = nil) -> String {
         let val = anyCodable.value
         
-        // Handle NSNull first
+        /// Handle NSNull first
         if val is NSNull {
             return ""
         }
         
-        // NOTE ON THE TYPES THIS FUNCTION HANDLES
-        //
-        // `DBReader.exportAll` is the ONLY producer of the AnyCodable values that reach
-        // here — ExportPackage is never decoded from anywhere, so nothing else can inject a
-        // value — and it normalizes as it builds `propsEncoded`. By the time a value
-        // arrives it is one of exactly five things: NSNull, String, Bool, Int64 or Double.
-        //
-        // The UUID, [String] and Date types are normalized upstream, so they never reach
-        // this function as their own types:
-        //   • UUID     → the reader writes `uuid.uuidString` and records NO declared type, so
-        //                the String branch below still canonicalizes it.
-        //   • [String] → the reader strips XML-illegal scalars and then JSON-encodes.
-        //   • Date     → the reader formats with the shared ISO8601 formatter, configured
-        //                identically to this file's.
-        // The final `String(describing:)` fallback is the backstop for a value shape the
-        // reader might add later.
+        /// NOTE ON THE TYPES THIS FUNCTION HANDLES
+        ///
+        /// `DBReader.exportAll` is the ONLY producer of the AnyCodable values that reach
+        /// here — ExportPackage is never decoded from anywhere, so nothing else can inject a
+        /// value — and it normalizes as it builds `propsEncoded`. By the time a value
+        /// arrives it is one of exactly five things: NSNull, String, Bool, Int64 or Double.
+        ///
+        /// The UUID, [String] and Date types are normalized upstream, so they never reach
+        /// this function as their own types:
+        ///   • UUID     → the reader writes `uuid.uuidString` and records NO declared type, so
+        ///                the String branch below still canonicalizes it.
+        ///   • [String] → the reader strips XML-illegal scalars and then JSON-encodes.
+        ///   • Date     → the reader formats with the shared ISO8601 formatter, configured
+        ///                identically to this file's.
+        /// The final `String(describing:)` fallback is the backstop for a value shape the
+        /// reader might add later.
 
-        // Handle strings
+        /// Handle strings
         if let s = val as? String {
-            // Strings are written verbatim. No backslash repair happens here: a declared
-            // String may legitimately contain a backslash before an apostrophe (a Windows
-            // path), and a [String] value arrives as JSONEncoder output, where `\\` is a
-            // valid escape that a rewrite would corrupt. The `\'` repair for legacy arrays
-            // belongs to the read side, in DBImporter's `decodeArray`.
+            /// Strings are written verbatim. No backslash repair happens here: a declared
+            /// String may legitimately contain a backslash before an apostrophe (a Windows
+            /// path), and a [String] value arrives as JSONEncoder output, where `\\` is a
+            /// valid escape that a rewrite would corrupt. The `\'` repair for legacy arrays
+            /// belongs to the read side, in DBImporter's `decodeArray`.
             let cleanString = s
 
-            // Check if it's a UUID string - if so, validate and normalize it.
-            //
-            // Skipped for a value the model declares as a String. The normalization exists for
-            // genuine UUID PROPERTIES (id, filmID, listID, parentReleaseID), which DBReader
-            // converts to strings before they arrive here and which must be canonically
-            // formatted so the restore's lookups match. Applying it to a text field instead
-            // rewrites the user's data: any String field holding a UUID-shaped value came back
-            // upper-cased. That is visible corruption in a free-text field, and `posterUID` is
-            // a String field whose value names a file on disk — upper-casing it there breaks
-            // the link between a film and its poster image.
+            /// Check if it's a UUID string - if so, validate and normalize it.
+            ///
+            /// Skipped for a value the model declares as a String. The normalization exists for
+            /// genuine UUID PROPERTIES (id, filmID, listID, parentReleaseID), which DBReader
+            /// converts to strings before they arrive here and which must be canonically
+            /// formatted so the restore's lookups match. Applying it to a text field instead
+            /// rewrites the user's data: any String field holding a UUID-shaped value came back
+            /// upper-cased. That is visible corruption in a free-text field, and `posterUID` is
+            /// a String field whose value names a file on disk — upper-casing it there breaks
+            /// the link between a film and its poster image.
             if declaredType != "string", isUUIDString(cleanString) {
-                // Validate and normalize UUID format
+                /// Validate and normalize UUID format
                 if let uuid = UUID(uuidString: cleanString) {
                     return xmlEscape(uuid.uuidString)
                 }
-                // If invalid UUID format, still write it but it will fail on import
+                /// If invalid UUID format, still write it but it will fail on import
                 return xmlEscape(cleanString)
             }
             
-            // Use CDATA for strings containing XML special characters, and for strings whose
-            // leading or trailing whitespace is significant.
-            //
-            // The whitespace case is not cosmetic: the reader trims every non-CDATA property
-            // value (it cannot distinguish a value's own padding from XML formatting), so
-            // "  padded  " came back as "padded" and a description ending in a space lost it.
-            // CDATA is the signal the reader already honors for exactly this — it is the one
-            // branch that is never trimmed — so routing padded strings through it fixes the
-            // loss with no format change and no effect on any other reader.
-            //
-            // A JSON-encoded array can never take this branch: JSONEncoder output begins with
-            // "[" and ends with "]", so array values keep being written as escaped text and
-            // keep being reconstructed as arrays.
+            /// Use CDATA for strings containing XML special characters, and for strings whose
+            /// leading or trailing whitespace is significant.
+            ///
+            /// The whitespace case is not cosmetic: the reader trims every non-CDATA property
+            /// value (it cannot distinguish a value's own padding from XML formatting), so
+            /// "  padded  " came back as "padded" and a description ending in a space lost it.
+            /// CDATA is the signal the reader already honors for exactly this — it is the one
+            /// branch that is never trimmed — so routing padded strings through it fixes the
+            /// loss with no format change and no effect on any other reader.
+            ///
+            /// A JSON-encoded array can never take this branch: JSONEncoder output begins with
+            /// "[" and ends with "]", so array values keep being written as escaped text and
+            /// keep being reconstructed as arrays.
             let hasSignificantWhitespace =
                 cleanString != cleanString.trimmingCharacters(in: .whitespacesAndNewlines)
-            // A carriage return goes through CDATA too: in plain text the parser normalizes
-            // "\r\n" and a lone "\r" to "\n" (XML end-of-line handling), so notes pasted
-            // with Windows line endings lost them, while CDATA hands "\r" back intact.
+            /// A carriage return goes through CDATA too: in plain text the parser normalizes
+            /// "\r\n" and a lone "\r" to "\n" (XML end-of-line handling), so notes pasted
+            /// with Windows line endings lost them, while CDATA hands "\r" back intact.
             if cleanString.contains("<") || cleanString.contains("&") || cleanString.contains(">")
                 || cleanString.contains("\r") || hasSignificantWhitespace {
                 return wrapInCDATA(cleanString)
@@ -291,12 +291,12 @@ public final class DBPackager: Loggable {
             }
         }
         
-        // Handle booleans
+        /// Handle booleans
         if let b = val as? Bool {
             return b ? "true" : "false"
         }
         
-        // Handle numbers
+        /// Handle numbers
         if let n = val as? Int64 {
             return String(n)
         }
@@ -307,12 +307,12 @@ public final class DBPackager: Loggable {
             return String(n)
         }
         
-        // Fallback for any other type
+        /// Fallback for any other type
         return xmlEscape(String(describing: val))
     }
 
     private func isUUIDString(_ s: String) -> Bool {
-        // UUID format: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with 4 hyphens)
+        /// UUID format: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX (36 characters with 4 hyphens)
         return s.count == 36 && s.filter({ $0 == "-" }).count == 4
     }
 }

@@ -1,31 +1,31 @@
 // MARK: - DHImportsRemoval.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only scenario for the Imports view's card-removal animation (28_00, with the
-// scroll view's shrink hold in 92_00).
-//
-// `imports-removal` drives the REAL main window: it seeds the sandbox store with bogus
-// metadata ImportSessions, navigates to Imports, and clears cards through the same call the
-// context menu's "Clear This Item" makes. While each removal runs, a background thread films
-// the scroll view's rectangle through the window server — the pixels the person actually
-// sees, Core Animation's included — about once every two milliseconds, far faster than the
-// display refreshes; identical frames are then collapsed.
-//
-// Each distinct frame is read two ways:
-//   • A luminance profile down the card column (one value per pixel row, averaged across
-//     the cards' width). The cards above the removed one, and those below it, each move as
-//     a rigid block, so matching the first frame's profile of each block against every later
-//     frame gives that block's on-screen displacement over time. A displacement that leaps
-//     further in one display frame than the spring can travel is a jump; one that reverses
-//     is a judder; one that never passes through intermediate values is a snap.
-//   • The card color down one pixel column inside the cards' left padding, where no text
-//     is drawn: in the rows of the removed card that are still on screen and not yet
-//     covered by the card sliding up over it, that gives its visible opacity frame by frame.
-//
-// A removal while scrolled to the bottom of a list taller than the window is the case this
-// guards. If the document shrinks in one step, NSClipView clamps the offset in the same frame,
-// every card leaps down a full card height, and the bottom card's fade happens below the
-// viewport.
+/// DEBUG-only scenario for the Imports view's card-removal animation (28_00, with the
+/// scroll view's shrink hold in 92_00).
+///
+/// `imports-removal` drives the REAL main window: it seeds the sandbox store with bogus
+/// metadata ImportSessions, navigates to Imports, and clears cards through the same call the
+/// context menu's "Clear This Item" makes. While each removal runs, a background thread films
+/// the scroll view's rectangle through the window server — the pixels the person actually
+/// sees, Core Animation's included — about once every two milliseconds, far faster than the
+/// display refreshes; identical frames are then collapsed.
+///
+/// Each distinct frame is read two ways:
+///   • A luminance profile down the card column (one value per pixel row, averaged across
+///     the cards' width). The cards above the removed one, and those below it, each move as
+///     a rigid block, so matching the first frame's profile of each block against every later
+///     frame gives that block's on-screen displacement over time. A displacement that leaps
+///     further in one display frame than the spring can travel is a jump; one that reverses
+///     is a judder; one that never passes through intermediate values is a snap.
+///   • The card color down one pixel column inside the cards' left padding, where no text
+///     is drawn: in the rows of the removed card that are still on screen and not yet
+///     covered by the card sliding up over it, that gives its visible opacity frame by frame.
+///
+/// A removal while scrolled to the bottom of a list taller than the window is the case this
+/// guards. If the document shrinks in one step, NSClipView clamps the offset in the same frame,
+/// every card leaps down a full card height, and the bottom card's fade happens below the
+/// viewport.
 
 #if DEBUG
 
@@ -89,8 +89,8 @@ extension DebugHarness {
                     let gap = DebugHarness.signedMilliseconds(from: lastCapture)
                     longestGap = max(longestGap, gap)
                     lastCapture = ContinuousClock.now
-                    // Including-window (1 << 3); bounds ignore framing (1 << 0), nominal
-                    // resolution (1 << 4) — one pixel per point.
+                    /// Including-window (1 << 3); bounds ignore framing (1 << 0), nominal
+                    /// resolution (1 << 4) — one pixel per point.
                     guard let image = unsafe capture(rect, 1 << 3, windowID, (1 << 0) | (1 << 4))?.takeRetainedValue()
                     else { continue }
                     let bytes = image.dataProvider?.data as Data?
@@ -222,8 +222,8 @@ extension DebugHarness {
                 total += abs(target[y + s] - source[y])
                 count += 1
             }
-            // Most of the block must still be compared: a sliver of flat page or card
-            // padding matches anywhere, which is how a degenerate shift wins.
+            /// Most of the block must still be compared: a sliver of flat page or card
+            /// padding matches anywhere, which is how a degenerate shift wins.
             return count >= max(40, rows.count * 6 / 10) ? total / Double(count) : nil
         }
         func search(_ range: ClosedRange<Int>) -> (Int, Double)? {
@@ -234,8 +234,8 @@ extension DebugHarness {
             }
             return best
         }
-        // The block normally moves a few pixels a frame, so the local answer stands unless
-        // it is poor AND a shift elsewhere is decisively better — a real leap, not noise.
+        /// The block normally moves a few pixels a frame, so the local answer stands unless
+        /// it is poor AND a shift elsewhere is decisively better — a real leap, not noise.
         let local = search((around - radius)...(around + radius))
         if let local, local.1 < 2.0 { return local }
         guard let full = search(-fullRadius...fullRadius) else { return local }
@@ -266,9 +266,9 @@ extension DebugHarness {
             r.check("main-window", false, "no main window")
             return r
         }
-        // With the session locked (or the display asleep behind the lock), no window can
-        // become key and the window server composites nothing new: every capture would be
-        // the same stale frame. Say so once instead of failing every case.
+        /// With the session locked (or the display asleep behind the lock), no window can
+        /// become key and the window server composites nothing new: every capture would be
+        /// the same stale frame. Say so once instead of failing every case.
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         guard (session?["CGSSessionScreenIsLocked"] as? Bool) != true else {
             r.skip("screen-unlocked", "the screen is locked; re-run while someone is at the Mac")
@@ -280,8 +280,8 @@ extension DebugHarness {
         }
         let context = coordinator.persistentContainer.viewContext
         let savedFrame = window.frame
-        // As tall as the screen allows, up to 1100 pt: a frame the window server would
-        // shrink to fit is one it keeps re-placing, and steadyWindow would fight it.
+        /// As tall as the screen allows, up to 1100 pt: a frame the window server would
+        /// shrink to fit is one it keeps re-placing, and steadyWindow would fight it.
         let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
         let frame = NSRect(x: visible.minX + 80, y: visible.minY,
                            width: min(1200, visible.width - 80), height: min(1100, visible.height))
@@ -379,7 +379,7 @@ extension DebugHarness {
             }
             _ = await steadyWindow()
             scroll(sv, to: c.scroll)
-            await settle(450)   // let the overlay scroller fade after the programmatic scroll
+            await settle(450)   /// let the overlay scroller fade after the programmatic scroll
             let frameBefore = window.frame
             let docBefore = document.frame.height
             let originBefore = sv.contentView.bounds.origin.y
@@ -388,8 +388,8 @@ extension DebugHarness {
             let screenHeight = NSScreen.screens.first?.frame.height ?? 0
             let rect = CGRect(x: onScreen.minX, y: screenHeight - onScreen.maxY,
                               width: onScreen.width, height: onScreen.height)
-            // The window server may not have the freshly mounted list yet: wait until a capture
-            // shows card pixels down the card column.
+            /// The window server may not have the freshly mounted list yet: wait until a capture
+            /// shows card pixels down the card column.
             var drawn = false
             for _ in 0..<30 where !drawn {
                 if let capture = unsafe windowImageFunction,
@@ -403,8 +403,8 @@ extension DebugHarness {
             r.check("\(label)/drawn", drawn, "cards visible to the window server before the removal")
 
             let origin = ContinuousClock.now + .milliseconds(80)
-            // Main-thread heartbeat across the capture: a stall here is a hitch the person
-            // would see, whatever the frames say about the animation.
+            /// Main-thread heartbeat across the capture: a stall here is a hitch the person
+            /// would see, whatever the frames say about the animation.
             let beats = MainHeartbeat()
             beats.start()
             defer { beats.stop() }
@@ -428,12 +428,12 @@ extension DebugHarness {
             r.metric("\(label)/longest-main-thread-gap", beats.longestGap, "ms")
             r.check("\(label)/main-thread-responsive", beats.longestGap < 100,
                     "longest gap between 4 ms heartbeats: \(Fmt.fixed(beats.longestGap, 1)) ms at \(Fmt.fixed(beats.gapAt, 0)) ms")
-            // A window that moved under the capture rectangle invalidates every frame.
+            /// A window that moved under the capture rectangle invalidates every frame.
             r.check("\(label)/window-still", window.frame == frameBefore,
                     "\(frameBefore) → \(window.frame)")
             await settle(200)
 
-            // The store and the scroll view after everything settled.
+            /// The store and the scroll view after everything settled.
             let storedAfter = storedIDs()
             r.check("\(label)/deleted", storedAfter == storedBefore.subtracting(removed),
                     "store \(storedBefore.count) → \(storedAfter.count)")
@@ -457,7 +457,7 @@ extension DebugHarness {
         func analyze(_ frames: [RemovalFrame], case c: RemovalCase, label: String,
                      docBefore: CGFloat, docAfter: CGFloat?, travel: CGFloat) {
             r.metric("\(label)/distinct-frames", Double(frames.count), "frames")
-            // `-FTDebugImportsDumpFrames YES` writes every distinct frame, named by time.
+            /// `-FTDebugImportsDumpFrames YES` writes every distinct frame, named by time.
             if UserDefaults.standard.bool(forKey: "FTDebugImportsDumpFrames"), let dir = DebugSandbox.rootURL {
                 let folder = dir.appendingPathComponent("frames-\(label)")
                 try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -476,7 +476,7 @@ extension DebugHarness {
             let column = cardLeft + 12, gutter = cardLeft / 3
             let xs = Array(stride(from: cardLeft + 16, to: cardLeft + cardWidth - 16, by: 3))
 
-            // Card color: the median of the column wherever it differs from the gutter.
+            /// Card color: the median of the column wherever it differs from the gutter.
             let differing = (0..<height).compactMap { y -> Double? in
                 let v = base.luminance(column, y)
                 return abs(v - base.luminance(gutter, y)) > 3 ? v : nil
@@ -488,8 +488,8 @@ extension DebugHarness {
             let card = differing[differing.count / 2]
             let runs0 = cardRuns(cardness(base, column: column, gutter: gutter, card: card))
 
-            // Which run is the (first) removed card: counted from the top when scrolled to
-            // the top, from the bottom otherwise (the last card is then the last run).
+            /// Which run is the (first) removed card: counted from the top when scrolled to
+            /// the top, from the bottom otherwise (the last card is then the last run).
             let firstIndex = c.removals[0].index
             let lowestIndex = c.removals.map(\.index).min() ?? firstIndex
             let runOf: (Int) -> Int?
@@ -515,7 +515,7 @@ extension DebugHarness {
             let removedRuns = c.removals.compactMap { runOf($0.index) }
             let pitch = removedRuns.reduce(0) { $0 + pitch(ofRun: $1) }
 
-            // The document shrank by exactly the removed cards: the hold was released.
+            /// The document shrank by exactly the removed cards: the hold was released.
             if let docAfter {
                 let shrink = docBefore - docAfter
                 r.check("\(label)/document-shrank-by-cards", abs(shrink - CGFloat(pitch)) <= 2,
@@ -525,10 +525,10 @@ extension DebugHarness {
             let profiles = frames.compactMap { Pixels($0.image) }
             let profile0 = profile(base, xs: xs)
             let above = 0..<max(0, runs0[topRun].lowerBound - 8)
-            // Starts at the next card's own top edge: the gap above it lies over the fading
-            // card as soon as the card below begins to slide.
+            /// Starts at the next card's own top edge: the gap above it lies over the fading
+            /// card as soon as the card below begins to slide.
             let below = (hasNext ? runs0[removedRun + 1].lowerBound + 2 : removed.upperBound + 8)..<height
-            // Below the lowest removed card there is either another card or only empty page.
+            /// Below the lowest removed card there is either another card or only empty page.
             let tracksBelow = hasNext
             let expectedAbove = Int(travel.rounded())
             let expectedBelow = Int(travel.rounded()) - pitch
@@ -562,7 +562,7 @@ extension DebugHarness {
                 var worstLeap = 0.0, leapDetail = "none"
                 var reversal = 0
                 for (a, b) in zip(points, points.dropFirst()) {
-                    // Spring peak speed here is ~1.3 px/ms; one display frame is 16.7 ms.
+                    /// Spring peak speed here is ~1.3 px/ms; one display frame is 16.7 ms.
                     let allowed = 2.2 * max(b.0 - a.0, 16.7) + 3
                     let step = Double(abs(b.1 - a.1))
                     if step / allowed > worstLeap {
@@ -609,14 +609,14 @@ extension DebugHarness {
 
             var shiftsBelow: [Int?] = Array(repeating: nil, count: frames.count)
             if tracksBelow, below.count >= 40 {
-                // The removed card travels with the block above it, and while it fades it
-                // passes behind the next card, which hides it.
+                /// The removed card travels with the block above it, and while it fades it
+                /// passes behind the next card, which hides it.
                 shiftsBelow = track(below)
                 judge(shiftsBelow, expected: expectedBelow, block: "below", minTracked: 0.9)
             }
 
-            // The removed card's visible opacity (single removals; with two, the second
-            // card's fade overlaps the first's and the blocks are judged instead).
+            /// The removed card's visible opacity (single removals; with two, the second
+            /// card's fade overlaps the first's and the blocks are judged instead).
             guard c.removals.count == 1 else {
                 writeFilmStrip(frames, name: "imports-removal-\(label)")
                 return
@@ -642,8 +642,8 @@ extension DebugHarness {
             r.check("\(label)/fade-seen", midway.count >= 3,
                     "\(midway.count) on-screen frames part-way faded"
                     + (midway.isEmpty ? "" : " (\(Fmt.fixed(midway.first!.0, 0))–\(Fmt.fixed(midway.last!.0, 0)) ms)"))
-            // One luminance level is a large step of cardness when card and page are close
-            // (about 0.1 in the dark appearance); a rise of one level is rounding, not a flicker.
+            /// One luminance level is a large step of cardness when card and page are close
+            /// (about 0.1 in the dark appearance); a rise of one level is rounding, not a flicker.
             let quantum = 1 / max(1, abs(card - (base.luminance(gutter, removed.lowerBound + 20))))
             r.check("\(label)/fade-monotone", rise <= quantum * 1.5 + 0.02,
                     "largest rise \(Fmt.fixed(rise, 2)) (one level = \(Fmt.fixed(quantum, 2)))")
@@ -663,8 +663,8 @@ extension DebugHarness {
             RemovalCase(label: "long-middle-at-bottom", count: 8, canceled: [2, 5], scroll: .bottom, removals: [(6, 0)]),
             RemovalCase(label: "long-near-bottom", count: 8, canceled: [2, 5], scroll: .aboveBottom(60), removals: [(6, 0)]),
             RemovalCase(label: "rapid-pair-at-bottom", count: 8, canceled: [2, 5], scroll: .bottom, removals: [(7, 0), (6, 120)]),
-            // Sixty cards: only a window near the viewport is mounted, with a spacer
-            // standing in above it (scrolled down) or below it (at the top).
+            /// Sixty cards: only a window near the viewport is mounted, with a spacer
+            /// standing in above it (scrolled down) or below it (at the top).
             RemovalCase(label: "windowed-top", count: 60, canceled: [2, 13, 30, 44], scroll: .top,
                         removals: [(1, 0)]),
             RemovalCase(label: "windowed-bottom", count: 60, canceled: [2, 13, 30, 44, 57], scroll: .bottom,
@@ -674,7 +674,7 @@ extension DebugHarness {
             RemovalCase(label: "windowed-rapid-pair", count: 60, canceled: [2, 13, 30, 44, 57], scroll: .bottom,
                         removals: [(59, 0), (58, 120)]),
         ]
-        // `-FTDebugImportsCases a,b` runs only those cases (and `repeat` for the repeat run).
+        /// `-FTDebugImportsCases a,b` runs only those cases (and `repeat` for the repeat run).
         let only = UserDefaults.standard.string(forKey: "FTDebugImportsCases")
             .map { Set($0.split(separator: ",").map(String.init)) }
         for c in cases where only?.contains(c.label) ?? true {
@@ -682,8 +682,8 @@ extension DebugHarness {
             await run(c, ids: ids, label: c.label)
         }
 
-        // Repeatability: clear the bottom card again and again, staying at the bottom, until
-        // the list is empty — the clamped cases first, then the short ones.
+        /// Repeatability: clear the bottom card again and again, staying at the bottom, until
+        /// the list is empty — the clamped cases first, then the short ones.
         let repeatCount = only == nil || only!.contains("repeat") ? 7 : 0
         let repeatCase = RemovalCase(label: "repeat", count: repeatCount, canceled: [3], scroll: .bottom, removals: [])
         let repeatIDs = repeatCount > 0 ? await seed(repeatCase) : []

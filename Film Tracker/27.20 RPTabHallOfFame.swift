@@ -1,7 +1,7 @@
 // MARK: - RPTabHallOfFame.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Hall of Fame report: a ranked list of films, with each film's purchase standing and upgrade note. Its rows also feed the PDF export.
+/// The Hall of Fame report: a ranked list of films, with each film's purchase standing and upgrade note. Its rows also feed the PDF export.
 
 import SwiftUI
 
@@ -44,13 +44,13 @@ struct HallOfFameView: View {
                 trailingColumns: Self.trailingColumns
             )
         }
-        // Expose selection to the MenuBar so that Film menu items (e.g. "Delete from Library")
-        // reflect the current HoF selection and can be enabled/disabled correctly.
+        /// Expose selection to the MenuBar so that Film menu items (e.g. "Delete from Library")
+        /// reflect the current HoF selection and can be enabled/disabled correctly.
         .focusedSceneValue(\.selectedFilmIDs, selectionState.selectedFilmIDs)
         .focusedSceneValue(\.selectedFilmID, selectionState.selectedFilmID)
         .onAppear {
-            // Mount path. Seed from the cache so the list renders at once, then reconcile with a fresh load two run-loop cycles later,
-            // after the Picker's fade (see ReportsState.selectCategory). The first visit loads synchronously, to avoid a placeholder flash.
+            /// Mount path. Seed from the cache so the list renders at once, then reconcile with a fresh load two run-loop cycles later,
+            /// after the Picker's fade (see ReportsState.selectCategory). The first visit loads synchronously, to avoid a placeholder flash.
             if ReportsState.shared.hasLoadedData(for: .hallOfFame) {
                 films = ReportsState.shared.cachedHallOfFameFilms
                 DispatchQueue.main.async {
@@ -62,32 +62,32 @@ struct HallOfFameView: View {
                 loadHallOfFameFilms()
             }
         }
-        // Refresh on film updates, such as films added to or removed from the Hall of Fame in FilmSheet.
+        /// Refresh on film updates, such as films added to or removed from the Hall of Fame in FilmSheet.
         .onFilmEvent { event in
             switch event {
             case .updated(let filmID):
-                // Use dataCoordinator.hallOfFameFilms, the canonical UUID list. dataCoordinator.films is the active view's filtered array,
-                // which may not contain the film in Reports. Selection cleanup rides on the reload (see pruneSelectionToLiveRows).
+                /// Use dataCoordinator.hallOfFameFilms, the canonical UUID list. dataCoordinator.films is the active view's filtered array,
+                /// which may not contain the film in Reports. Selection cleanup rides on the reload (see pruneSelectionToLiveRows).
                 if films.contains(where: { $0.id == filmID })
                     || dataCoordinator.hallOfFameFilms.contains(filmID) {
                     loadHallOfFameFilms()
                 }
             case .deleted(let filmIDs):
-                // Reload if a deleted film was in the Hall of Fame. The reload prunes it from the selection.
+                /// Reload if a deleted film was in the Hall of Fame. The reload prunes it from the selection.
                 if films.contains(where: { filmIDs.contains($0.id) }) {
                     loadHallOfFameFilms()
                 }
             case .added(let filmID):
-                // A save never adds a film with a position: a new film the sheet puts in
-                // the Hall of Fame joins through addToHallOfFame, which posts .updated.
-                // The one film that does arrive ranked is a deletion being rolled back
-                // (its save failed): its position is restored before .added is posted,
-                // and .deleted already dropped its row here, so reload for it.
+                /// A save never adds a film with a position: a new film the sheet puts in
+                /// the Hall of Fame joins through addToHallOfFame, which posts .updated.
+                /// The one film that does arrive ranked is a deletion being rolled back
+                /// (its save failed): its position is restored before .added is posted,
+                /// and .deleted already dropped its row here, so reload for it.
                 if dataCoordinator.hallOfFameFilms.contains(filmID) {
                     loadHallOfFameFilms()
                 }
             case .releaseChanged:
-                // No on-screen column reads releases. The purchase standing does, but only the PDF prints it, and the export rebuilds its rows.
+                /// No on-screen column reads releases. The purchase standing does, but only the PDF prints it, and the export rebuilds its rows.
                 break
             }
         }
@@ -102,12 +102,12 @@ struct HallOfFameView: View {
         let ranking = dataCoordinator.hallOfFameFilms
         Task {
             let rebuilt = await Task.detached(priority: .userInitiated) {
-                // Built the same way getHallOfFameFilms() builds them.
+                /// Built the same way getHallOfFameFilms() builds them.
                 HallOfFameFilm.rows(films: ranking.compactMap { filmsMap[$0] })
             }.value
             guard generation == loadGeneration else { return }
-            // Rows from a library or ranking that has since changed would be stale, and the change may not have triggered a reload.
-            // Fall back to the synchronous load, which reads both as they are now.
+            /// Rows from a library or ranking that has since changed would be stale, and the change may not have triggered a reload.
+            /// Fall back to the synchronous load, which reads both as they are now.
             guard dataCoordinator.hallOfFameFilms == ranking,
                   dataCoordinator.getAllFilmsMap() == filmsMap else {
                 loadHallOfFameFilms()
@@ -119,19 +119,19 @@ struct HallOfFameView: View {
 
     private func loadHallOfFameFilms() {
         loadGeneration += 1
-        // Built by HallOfFameFilm.rows, which the PDF export also uses. The ranking, purchase standing, and upgrade note are derived once.
+        /// Built by HallOfFameFilm.rows, which the PDF export also uses. The ranking, purchase standing, and upgrade note are derived once.
         applyHallOfFameFilms(HallOfFameFilm.rows(films: dataCoordinator.getHallOfFameFilms()))
     }
 
     private func applyHallOfFameFilms(_ rebuilt: [HallOfFameFilm]) {
-        // Assign only on an actual change. A drag-reorder emits one .film(.updated) per shifted member, and each one reloads synchronously.
-        // Reassigning on each would rebuild the List mid-drag, even though handleMove already applied the same order. @State does not compare
-        // on assignment, so the guard is explicit.
+        /// Assign only on an actual change. A drag-reorder emits one .film(.updated) per shifted member, and each one reloads synchronously.
+        /// Reassigning on each would rebuild the List mid-drag, even though handleMove already applied the same order. @State does not compare
+        /// on assignment, so the guard is explicit.
         if rebuilt != films {
             films = rebuilt
         }
 
-        // Always called. ReportsState does its own change detection, and it needs the first call to mark the category loaded.
+        /// Always called. ReportsState does its own change detection, and it needs the first call to mark the category loaded.
         ReportsState.shared.updateHallOfFameData(rebuilt)
 
         pruneSelectionToLiveRows()
@@ -149,41 +149,41 @@ struct HallOfFameView: View {
 
     private func handleMove(from source: IndexSet, to destination: Int) {
         loadGeneration += 1
-        // Reorder the local array.
+        /// Reorder the local array.
         var updatedFilms = films
         updatedFilms.move(fromOffsets: source, toOffset: destination)
 
-        // Update positions.
+        /// Update positions.
         for index in updatedFilms.indices {
             updatedFilms[index].position = index + 1
         }
 
         films = updatedFilms
 
-        // Extract film IDs in new order.
+        /// Extract film IDs in new order.
         let orderedFilmIDs = updatedFilms.map { $0.id }
 
-        // Update coordinator (debounced persistence).
+        /// Update coordinator (debounced persistence).
         dataCoordinator.reorderHallOfFame(orderedFilmIDs)
 
-        // Update ReportsState.
+        /// Update ReportsState.
         ReportsState.shared.updateHallOfFameData(films)
     }
 
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
-        // No selection.
+        /// No selection.
         if newSelection.isEmpty {
             selectionState.clearImmediate()
             return
         }
 
-        // Multi-selection.
+        /// Multi-selection.
         if newSelection.count > 1 {
             selectionState.select(newSelection)
             return
         }
 
-        // Single selection. The count is exactly 1 here, so `first` is non-nil.
+        /// Single selection. The count is exactly 1 here, so `first` is non-nil.
         if let selectedFilmID = newSelection.first {
             selectionState.select(selectedFilmID)
         }

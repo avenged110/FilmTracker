@@ -1,23 +1,23 @@
 // MARK: - DHBulkEdit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only scenarios for the MultiFilmSheet (52.00–52.20), the bulk editor. None is in a
-// suite; run them by name, on a sandbox copy of a real library.
-//
-// `bulk-edit-shots` renders the sheet offscreen — both tabs, and the Details tab's fields at
-// full height — for a mixed selection, a selection that shares its values, an edited sheet,
-// a blacklisting one and a 300-film one, plus the FilmSheet's Details tab, to PNGs in
-// `harness-reports/bulk-edit-shots/`. It asserts nothing; view the images.
-//
-// `bulk-edit-check` drives real edits on four films through the sheet's own confirm():
-// every field, the shared-value prefill, the mixed checkbox cycle, list membership, the
-// Queue, the Hall of Fame, both capacity refusals, the blacklist cascade and clearing
-// shared notes — checking memory and a fresh NSManagedObjectContext read of the store after each.
-//
-// `bulk-edit-perf` times the sheet on the whole library, first topping it up to 1,600 films
-// with copies (no releases, posters or identifiers) when it has fewer: opening the sheet,
-// laying out both tabs, the per-keystroke gutter work, and saving each kind of edit, split
-// into the synchronous part (what the user waits on) and the background write.
+/// DEBUG-only scenarios for the MultiFilmSheet (52.00–52.20), the bulk editor. None is in a
+/// suite; run them by name, on a sandbox copy of a real library.
+///
+/// `bulk-edit-shots` renders the sheet offscreen — both tabs, and the Details tab's fields at
+/// full height — for a mixed selection, a selection that shares its values, an edited sheet,
+/// a blacklisting one and a 300-film one, plus the FilmSheet's Details tab, to PNGs in
+/// `harness-reports/bulk-edit-shots/`. It asserts nothing; view the images.
+///
+/// `bulk-edit-check` drives real edits on four films through the sheet's own confirm():
+/// every field, the shared-value prefill, the mixed checkbox cycle, list membership, the
+/// Queue, the Hall of Fame, both capacity refusals, the blacklist cascade and clearing
+/// shared notes — checking memory and a fresh NSManagedObjectContext read of the store after each.
+///
+/// `bulk-edit-perf` times the sheet on the whole library, first topping it up to 1,600 films
+/// with copies (no releases, posters or identifiers) when it has fewer: opening the sheet,
+/// laying out both tabs, the per-keystroke gutter work, and saving each kind of edit, split
+/// into the synchronous part (what the user waits on) and the background write.
 
 #if DEBUG
 
@@ -100,8 +100,8 @@ extension DebugHarness {
 
         await shoot(MultiFilmSheet(coordinator: coordinator, filmIDs: five), "mixed")
 
-        // Films that share a genre, MPAA rating, Watched, Edited and special sorting, so the
-        // sheet opens to their values.
+        /// Films that share a genre, MPAA rating, Watched, Edited and special sorting, so the
+        /// sheet opens to their values.
         let groups = Dictionary(grouping: byName) { film in
             "\(film.genre)|\(film.rating)|\(film.watched)|\(film.edited)|\(film.specialSorting.sorted())|\(film.rotationThresholdOverride ?? 0)"
         }
@@ -134,7 +134,7 @@ extension DebugHarness {
         let many = byName.filter { $0.hofPosition == 0 }.prefix(300).map(\.id)
         await shoot(MultiFilmSheet(coordinator: coordinator, filmIDs: Array(many)), "blocked")
 
-        // The FilmSheet's Details tab, on the shared controls, with automatic queueing on.
+        /// The FilmSheet's Details tab, on the shared controls, with automatic queueing on.
         if let queued = byName.first(where: { $0.autoAddToQueueOnRotation != nil }) ?? byName.first {
             let filmSheet = FilmSheet(coordinator: coordinator, filmID: queued.id)
             await render(FilmSheetView(owner: filmSheet), size: sheetSize, to: dir.appendingPathComponent("filmsheet-details.png"))
@@ -183,12 +183,12 @@ extension DebugHarness {
             return dismissed
         }
 
-        // The selection is mixed on lists (A/B membership) and opens blank there.
+        /// The selection is mixed on lists (A/B membership) and opens blank there.
         let opened = MultiFilmSheet(coordinator: coordinator, filmIDs: ids)
         check(opened.shared.userListIDs == .mixed, "mixed list membership opens blank")
         check(!opened.canConfirm, "an untouched sheet cannot be saved")
 
-        // Edit 1: every field.
+        /// Edit 1: every field.
         let hofBefore = coordinator.getHallOfFameFilms().count
         let edit1 = await run { s in
             s.genre = .set("Drama")
@@ -226,7 +226,7 @@ extension DebugHarness {
         }
         compareStore(ids, coordinator) { check($0, $1) }
 
-        // The same films now share every value: a fresh sheet opens to them, unchanged.
+        /// The same films now share every value: a fresh sheet opens to them, unchanged.
         let shared = MultiFilmSheet(coordinator: coordinator, filmIDs: ids)
         check(shared.shared.genre == .same("Drama") && shared.shared.rating == .same("PG-13"), "prefill: genre and rating")
         check(shared.shared.watched == .same(false) && shared.shared.infoComplete == .same(true), "prefill: flags")
@@ -245,7 +245,7 @@ extension DebugHarness {
         shared.clickCheckbox(\.watched, shared: shared.shared.watched)
         check(!shared.watched.isSet, "shared checkbox: a second click is no change again")
 
-        // Mixed checkbox cycle: mixed → checked → unchecked → mixed.
+        /// Mixed checkbox cycle: mixed → checked → unchecked → mixed.
         var field = BulkField<Bool>.unchanged
         let cycle = (0..<3).map { _ -> BulkField<Bool> in
             field = BulkFilmEdit.checkboxClick(field, shared: .mixed)
@@ -253,8 +253,8 @@ extension DebugHarness {
         }
         check(cycle == [.set(true), .set(false), .unchanged], "mixed checkbox cycle")
 
-        // Capacity: an add that does not fit is refused whole, with its alert, and nothing
-        // is written — the Hall of Fame and "Up Next" alike.
+        /// Capacity: an add that does not fit is refused whole, with its alert, and nothing
+        /// is written — the Hall of Fame and "Up Next" alike.
         let hofRoom = BulkFilmEdit.hallOfFameCapacity - hofBefore
         let before = ids.compactMap { coordinator.getFilm($0) }
         if hofRoom < ids.count {
@@ -284,7 +284,7 @@ extension DebugHarness {
         await coordinator.commitPendingWritesForExport()
         check(ids.compactMap { coordinator.getFilm($0) } == before, "refusals wrote nothing")
 
-        // Hall of Fame add, as many films as there is room for (at most 2), in sheet order.
+        /// Hall of Fame add, as many films as there is room for (at most 2), in sheet order.
         let adding = Array(ids.prefix(max(0, min(2, hofRoom))))
         if !adding.isEmpty {
             let added = await run(adding) { s in s.inHallOfFame = .set(true) }
@@ -294,7 +294,7 @@ extension DebugHarness {
             compareStore(adding, coordinator) { check($0, $1) }
         }
 
-        // Edit 2: blacklist, and every removal.
+        /// Edit 2: blacklist, and every removal.
         let edit2 = await run { s in
             s.specialSorting = .set([blacklisted])
             s.queueSection = .set(nil)
@@ -313,20 +313,20 @@ extension DebugHarness {
         }
         check(coordinator.getHallOfFameFilms().count == hofBefore, "Hall of Fame back to its size")
 
-        // All blacklisted: the threshold row opens locked at 60.
+        /// All blacklisted: the threshold row opens locked at 60.
         let locked = MultiFilmSheet(coordinator: coordinator, filmIDs: ids)
         check(locked.rotationLocked, "all-blacklisted selection locks the threshold row")
         locked.specialSorting = .set([])
         check(!locked.rotationLocked && locked.rotationBaseline == .same(nil), "un-blacklisting shows the default threshold")
 
-        // Edit 3: a threshold alone leaves blacklisted films at 60; un-blacklisting resets.
+        /// Edit 3: a threshold alone leaves blacklisted films at 60; un-blacklisting resets.
         _ = await run { s in s.rotationThresholdOverride = .set(36) }
         check(ids.allSatisfy { coordinator.getFilm($0)?.rotationThresholdOverride == 60 }, "threshold alone skips blacklisted films")
         _ = await run { s in s.specialSorting = .set([]) }
         check(ids.allSatisfy { coordinator.getFilm($0)?.rotationThresholdOverride == nil }, "un-blacklisting resets to default")
         check(ids.allSatisfy { coordinator.getFilm($0)?.specialSorting.isEmpty == true }, "special sorting cleared")
 
-        // Edit 4: clearing notes every film shares clears them, after the Clear Notes prompt.
+        /// Edit 4: clearing notes every film shares clears them, after the Clear Notes prompt.
         let clearing = MultiFilmSheet(coordinator: coordinator, filmIDs: ids)
         var cleared = false
         clearing.dismissHandler = { cleared = true }
@@ -337,7 +337,7 @@ extension DebugHarness {
         clearing.confirmNotesReplacement()
         await coordinator.commitPendingWritesForExport()
         check(cleared && ids.allSatisfy { coordinator.getFilm($0)?.notes.isEmpty == true }, "shared notes cleared")
-        // Over a mix, an empty field is still no change.
+        /// Over a mix, an empty field is still no change.
         if let other = candidates.dropFirst(4).first(where: { !$0.notes.isEmpty }) {
             let mixedNotes = MultiFilmSheet(coordinator: coordinator, filmIDs: [ids[0], other.id])
             check(mixedNotes.shared.notes.isMixed && !mixedNotes.notesEdit.isSet, "empty notes over a mix is no change")
@@ -383,7 +383,7 @@ extension DebugHarness {
         let clock = ContinuousClock()
         func ms(_ start: ContinuousClock.Instant) -> Double { milliseconds(clock.now - start) }
 
-        // Top the library up to 1,600 films.
+        /// Top the library up to 1,600 films.
         let target = 1600
         let existing = filmsByName(coordinator)
         if existing.count < target, !existing.isEmpty {
@@ -401,7 +401,7 @@ extension DebugHarness {
         r.metric("films", Double(ids.count), "films")
         r.check("bulk-edit-perf/1500-plus", ids.count >= 1500, "\(ids.count) films")
 
-        // Opening: the model, then both tabs laid out in a window.
+        /// Opening: the model, then both tabs laid out in a window.
         var start = clock.now
         let sheet = MultiFilmSheet(coordinator: coordinator, filmIDs: ids)
         r.metric("open/model", ms(start), "ms")
@@ -420,7 +420,7 @@ extension DebugHarness {
         sheet.selectedTab = .details
         await Task.yield()
 
-        // Per keystroke: what the gutter and Update button re-read, with tags to append.
+        /// Per keystroke: what the gutter and Update button re-read, with tags to append.
         sheet.tags = ["BulkPerfTag"]
         start = clock.now
         for _ in 0..<20 { _ = sheet.gutterNote; _ = sheet.canConfirm }
@@ -445,7 +445,7 @@ extension DebugHarness {
             let writeStart = clock.now
             await coordinator.commitPendingWritesForExport()
             let write = ms(writeStart)
-            // Let the main queue drain whatever the save scheduled (deferred reloads, events).
+            /// Let the main queue drain whatever the save scheduled (deferred reloads, events).
             let drainStart = clock.now
             for _ in 0..<5 { await Task.yield() }
             try? await Task.sleep(for: .milliseconds(50))
@@ -489,7 +489,7 @@ extension DebugHarness {
         }
         r.check("bulk-edit-perf/watched-was-mixed", true, mixedWatched ? "mixed" : "shared")
 
-        // The store agrees with memory after all of it.
+        /// The store agrees with memory after all of it.
         let start2 = clock.now
         compareStore(ids, coordinator) { ok, what in r.check("bulk-edit-perf/store/\(what)", ok) }
         r.metric("verify/store-compare", ms(start2), "ms")

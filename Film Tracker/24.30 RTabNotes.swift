@@ -1,8 +1,8 @@
 // MARK: - RTabNotes.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Notes tab in RightSidebar. It shows the film's release, tools, warnings, descriptions, notes, and frame
-// and time-code tables. The frame tables are drawn with AppKit rows, and a legend explains their glyphs.
+/// The Notes tab in RightSidebar. It shows the film's release, tools, warnings, descriptions, notes, and frame
+/// and time-code tables. The frame tables are drawn with AppKit rows, and a legend explains their glyphs.
 
 import SwiftUI
 import AppKit
@@ -30,7 +30,7 @@ struct RTabNotes: View {
                 RSBHelpers.textSectionList(
                     title: RSBHelpers.pluralizedTitle("Software Tool", "Software Tools", count: film.tools.count),
                     values: film.tools)
-                // Two-column section: "HandBrake RF Value" and "Edit Date".
+                /// Two-column section: "HandBrake RF Value" and "Edit Date".
                 HStack(spacing: 12) {
                     RSBHelpers.textSection(
                         title: "HandBrake RF Value",
@@ -50,14 +50,14 @@ struct RTabNotes: View {
 
                 if !RSBProfileFlags.noNotesFrames {
                     framesSection(title: "HandBrake Frames", values: film.handbrakeFrames)
-                    // Only this table gets the aligned range layout. Time codes look ragged only because the font is proportional,
-                    // and the sub-columns correct that. Frame numbers vary in length for real reasons, so they stay unaligned.
+                    /// Only this table gets the aligned range layout. Time codes look ragged only because the font is proportional,
+                    /// and the sub-columns correct that. Frame numbers vary in length for real reasons, so they stay unaligned.
                     framesSection(title: "Associated Time Codes",
                                   values: film.correspondingTimecodes,
                                   alignsRanges: true)
                 }
                 
-                // Legend: shown only when an entry in either table carries one of its glyphs. Plain frame numbers show none.
+                /// Legend: shown only when an entry in either table carries one of its glyphs. Plain frame numbers show none.
                 if FramesEntryParser.containsLegendGlyphs(film.handbrakeFrames)
                     || FramesEntryParser.containsLegendGlyphs(film.correspondingTimecodes) {
                     legendSection
@@ -111,7 +111,7 @@ struct RTabNotes: View {
         VStack(alignment: .leading, spacing: RSBHelpers.headerRowSpacing) {
             RSBHelpers.sectionHeader(title)
             
-            // Content
+            /// Content
             if values.isEmpty {
                 Text("None provided")
                     .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
@@ -121,8 +121,8 @@ struct RTabNotes: View {
                     .sidebarRowContainer()
             } else {
                 Group {
-                    // Parity with the VStack of FrameEntryRow is checked by the `rsb-frames-parity`
-                    // harness scenario (99.20 DHViewState.swift).
+                    /// Parity with the VStack of FrameEntryRow is checked by the `rsb-frames-parity`
+                    /// harness scenario (99.20 DHViewState.swift).
                     if RSBProfileFlags.swiftUIFramesRows {
                         VStack(alignment: .leading, spacing: FrameEntryRow.spacing) {
                             ForEach(values.indices, id: \.self) { index in
@@ -147,7 +147,7 @@ struct RTabNotes: View {
         VStack(alignment: .leading, spacing: RSBHelpers.headerRowSpacing) {
             RSBHelpers.sectionHeader("Legend")
             
-            // Content
+            /// Content
             VStack(alignment: .leading, spacing: 4) {
                 legendRow(glyph: "asterisk", text: "See notes")
                 legendRow(glyph: "chevron.up", text: "See notes")
@@ -197,15 +197,15 @@ struct FrameEntryRow: View {
         let parsed = FramesEntryParser.parse(entry)
         
         HStack(spacing: 8) {
-            // Zero-padded and tinted to match the sheet's `ReorderableFramesList`, so the two surfaces agree.
-            // Padding fills the tens place for rows 1 to 9, so the column reads as numerals. `%02d` is a minimum width, not a cap.
+            /// Zero-padded and tinted to match the sheet's `ReorderableFramesList`, so the two surfaces agree.
+            /// Padding fills the tens place for rows 1 to 9, so the column reads as numerals. `%02d` is a minimum width, not a cap.
             Text("\(Fmt.padded(index, 2)).")
                 .font(.system(size: RSBHelpers.rowFontSize, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 24, alignment: .trailing)
             
-            // Frame value. The aligned variant splits the same string into three sub-columns. Anything that is not a time-code range falls back to plain text.
-            // Font and truncation are set inside that view. `.textSelection` is an environment modifier, so it applies to both.
+            /// Frame value. The aligned variant splits the same string into three sub-columns. Anything that is not a time-code range falls back to plain text.
+            /// Font and truncation are set inside that view. `.textSelection` is an environment modifier, so it applies to both.
             Group {
                 if alignsRanges {
                     TimeCodeRangeText(text: parsed.text, fontSize: RSBHelpers.rowFontSize)
@@ -219,9 +219,9 @@ struct FrameEntryRow: View {
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
             
-            // Indicators
+            /// Indicators
             HStack(spacing: 5) {
-                // Mark indicator (11pt wide)
+                /// Mark indicator (11pt wide)
                 Group {
                     if parsed.mark != .none {
                         Image(systemName: parsed.mark.symbolName)
@@ -233,7 +233,7 @@ struct FrameEntryRow: View {
                 }
                 .frame(width: 11, height: 11)
                 
-                // Fade-in indicator (27pt wide total: 11pt arrow + 2pt spacing + 14pt glyph)
+                /// Fade-in indicator (27pt wide total: 11pt arrow + 2pt spacing + 14pt glyph)
                 HStack(spacing: 2) {
                     Group {
                         if parsed.fadeIn != .none {
@@ -257,7 +257,7 @@ struct FrameEntryRow: View {
                 }
                 .frame(width: 27)
                 
-                // Fade-out indicator (27pt wide total: 11pt arrow + 2pt spacing + 14pt glyph)
+                /// Fade-out indicator (27pt wide total: 11pt arrow + 2pt spacing + 14pt glyph)
                 HStack(spacing: 2) {
                     Group {
                         if parsed.fadeOut != .none {
@@ -281,7 +281,7 @@ struct FrameEntryRow: View {
                 }
                 .frame(width: 27)
             }
-            .frame(width: 75) // Total: 11 + 5 + 27 + 5 + 27
+            .frame(width: 75) /// Total: 11 + 5 + 27 + 5 + 27
         }
     }
     
@@ -293,10 +293,10 @@ struct FrameEntryRow: View {
 }
 
 // MARK: - Frames Row List
-//
-// The rows of one frames table, built from AppKit views rather than a ForEach of FrameEntryRow. Each row has the zero-padded index,
-// the value as a selectable label (three labels for an aligned time-code range), and five indicator slots. A film change re-points
-// the rows, and a longer table only adds rows to the pool. The table's container and header stay SwiftUI.
+///
+/// The rows of one frames table, built from AppKit views rather than a ForEach of FrameEntryRow. Each row has the zero-padded index,
+/// the value as a selectable label (three labels for an aligned time-code range), and five indicator slots. A film change re-points
+/// the rows, and a longer table only adds rows to the pool. The table's container and header stay SwiftUI.
 struct FramesRowList: NSViewRepresentable {
     let entries: [String]
     var alignsRanges: Bool = false
@@ -478,13 +478,13 @@ final class FramesRowView: NSView {
         func pixel(_ v: CGFloat) -> CGFloat { (v * scale).rounded(.toNearestOrAwayFromZero) / scale }
         func centeredY(_ h: CGFloat) -> CGFloat { pixel((b.height - h) / 2) }
 
-        // Index: trailing in its 24 pt column.
+        /// Index: trailing in its 24 pt column.
         let indexWidth = indexLabel.intrinsicContentSize.width
         indexLabel.frame = NSRect(x: pixel(Self.indexWidth - indexWidth) - 2, y: centeredY(Self.indexHeight),
                                   width: indexWidth + 4, height: Self.indexHeight)
 
-        // Value column. A selectable label is a text field 2 pt wider on each side than its
-        // text (see CrewRowView).
+        /// Value column. A selectable label is a text field 2 pt wider on each side than its
+        /// text (see CrewRowView).
         let valueX = Self.indexWidth + Self.gap
         let valueWidth = max(0, b.width - valueX - Self.gap - Self.indicatorsWidth)
         let y = centeredY(Self.valueHeight), h = Self.valueHeight
@@ -501,7 +501,7 @@ final class FramesRowView: NSView {
             place(valueLabel, x: valueX, width: valueWidth, align: 0)
         }
 
-        // Indicators: 11 (mark), 5, 11 + 2 + 14 (fade in), 5, 11 + 2 + 14 (fade out).
+        /// Indicators: 11 (mark), 5, 11 + 2 + 14 (fade in), 5, 11 + 2 + 14 (fade out).
         let indicatorsX = b.width - Self.indicatorsWidth
         let slots: [(CGFloat, CGFloat)] = [(0, 11), (16, 11), (29, 14), (48, 11), (61, 14)]
         for (glyph, slot) in zip(glyphs, slots) {

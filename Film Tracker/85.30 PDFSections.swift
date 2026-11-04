@@ -1,40 +1,40 @@
 // MARK: - PDFSections.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The library PDF's two per-film detail sections: "Viewing History" and "Disc-based
-// Releases".
-//
-// Layer three of the PDF stack described at the top of PDFCore.swift (85.00), beside
-// LibraryPDFReport (85.20). Both sections here are ONE ROW PER FILM followed by that film's
-// own detail rows, rather than the one-row-per-film summary the complete-library table is —
-// which is the whole reason they exist: the summary table has a fixed sixteen columns and a
-// film may have any number of viewings and any number of releases.
-//
-// # The shape both sections take
-//
-// `PDFTableRenderer` draws a flat list of rows; it has no concept of a nested group. The
-// nesting is therefore expressed in the DATA, identically in both sections:
-//
-//   * A FILM ROW carries the index and the title, and is filled edge to edge in the
-//     neutral gray. It is the only filled-across row either section draws, so a reader
-//     scanning down the page sees the films as bands and everything between two bands as
-//     belonging to the upper one.
-//   * DETAIL ROWS leave the index and title columns empty and begin in the columns to
-//     their right, which is the indent — the detail is physically inset from the title it
-//     hangs off, at the width of the title column.
-//   * A film with nothing to report still gets its film row, carrying the reason in place
-//     of a count. Skipping it would leave the reader unable to tell "this film has no
-//     releases" from "I lost my place".
-//
-// # What each section does NOT restate
-//
-// Film order comes from `LibraryPDFReport.ordered`, so a film sits at the same position in
-// all three sections. The viewing entries come from `viewingHistoryEntries(from:)` in
-// CalendarTable (24.14) — the same call the sidebar's own Viewing History table makes, so
-// the paper copy cannot disagree with the screen about which viewings there are, what order
-// they are in, or what gap is printed beside them. Release order and every derived release
-// string come from the shared helpers in RSBHelpers (24.02) that the sidebar's releases
-// table uses.
+/// The library PDF's two per-film detail sections: "Viewing History" and "Disc-based
+/// Releases".
+///
+/// Layer three of the PDF stack described at the top of PDFCore.swift (85.00), beside
+/// LibraryPDFReport (85.20). Both sections here are ONE ROW PER FILM followed by that film's
+/// own detail rows, rather than the one-row-per-film summary the complete-library table is —
+/// which is the whole reason they exist: the summary table has a fixed sixteen columns and a
+/// film may have any number of viewings and any number of releases.
+///
+/// # The shape both sections take
+///
+/// `PDFTableRenderer` draws a flat list of rows; it has no concept of a nested group. The
+/// nesting is therefore expressed in the DATA, identically in both sections:
+///
+///   * A FILM ROW carries the index and the title, and is filled edge to edge in the
+///     neutral gray. It is the only filled-across row either section draws, so a reader
+///     scanning down the page sees the films as bands and everything between two bands as
+///     belonging to the upper one.
+///   * DETAIL ROWS leave the index and title columns empty and begin in the columns to
+///     their right, which is the indent — the detail is physically inset from the title it
+///     hangs off, at the width of the title column.
+///   * A film with nothing to report still gets its film row, carrying the reason in place
+///     of a count. Skipping it would leave the reader unable to tell "this film has no
+///     releases" from "I lost my place".
+///
+/// # What each section does NOT restate
+///
+/// Film order comes from `LibraryPDFReport.ordered`, so a film sits at the same position in
+/// all three sections. The viewing entries come from `viewingHistoryEntries(from:)` in
+/// CalendarTable (24.14) — the same call the sidebar's own Viewing History table makes, so
+/// the paper copy cannot disagree with the screen about which viewings there are, what order
+/// they are in, or what gap is printed beside them. Release order and every derived release
+/// string come from the shared helpers in RSBHelpers (24.02) that the sidebar's releases
+/// table uses.
 
 import AppKit
 import Foundation
@@ -85,8 +85,8 @@ private enum FilmDetailStyle {
                         values: [Int: String]) -> [PDFCell] {
         (0..<columnCount).map { column in
             switch column {
-            // The rule across the top of the band is BLACK, the whole way across — the
-            // boundary between one film and the next is the strongest line on the page.
+            /// The rule across the top of the band is BLACK, the whole way across — the
+            /// boundary between one film and the next is the strongest line on the page.
             case 0:
                 return PDFCell("\(index)", fill: filmBand, monospaced: true,
                                topRuleColor: PDFPalette.filmRule)
@@ -131,8 +131,8 @@ private enum FilmDetailStyle {
         (0..<columns).map { column in
             let sides: PDFCellBorders
             switch column {
-            case 0:            sides = .left           // the table's own edge
-            case columns - 1:  sides = .right          // opens the first column with content
+            case 0:            sides = .left           /// the table's own edge
+            case columns - 1:  sides = .right          /// opens the first column with content
             default:           sides = []
             }
             return continuation(sides: sides, closing: closing)
@@ -195,16 +195,16 @@ enum ViewingHistoryPDFReport {
     nonisolated static let sectionTitle = "Viewing History"
 
     // MARK: Column widths
-    //
-    // WEIGHTS, not points — `PDFTableRenderer` normalizes the set to the width of ONE PANE
-    // before drawing (see `PDFTableColumn.width` and `PDFTableSection.columnsPerPage`).
-    // They are written as points against a half-page pane — 720pt of content less the 14pt
-    // gutter, halved, so 353pt — and sum to exactly that, which makes each value below its
-    // real on-page width today.
-    //
-    // Every column but the title is measured against its longest value, which is what makes
-    // the two-up layout worth having: nothing here grows, so a full-width table would spend
-    // half the page on whitespace.
+    ///
+    /// WEIGHTS, not points — `PDFTableRenderer` normalizes the set to the width of ONE PANE
+    /// before drawing (see `PDFTableColumn.width` and `PDFTableSection.columnsPerPage`).
+    /// They are written as points against a half-page pane — 720pt of content less the 14pt
+    /// gutter, halved, so 353pt — and sum to exactly that, which makes each value below its
+    /// real on-page width today.
+    ///
+    /// Every column but the title is measured against its longest value, which is what makes
+    /// the two-up layout worth having: nothing here grows, so a full-width table would spend
+    /// half the page on whitespace.
 
     private enum Width {
         /// The shared index width — the same column, at the same size, as the one the
@@ -253,14 +253,14 @@ enum ViewingHistoryPDFReport {
             PDFTableColumn("#", width: Width.index, alignment: .right,
                            headerAlignment: .center),
             PDFTableColumn("Title", width: Width.title, alignment: .left),
-            // The year identifies the film, so it belongs beside the title and nowhere
-            // else: two films may share a name, and the year is what tells them apart.
+            /// The year identifies the film, so it belongs beside the title and nowhere
+            /// else: two films may share a name, and the year is what tells them apart.
             PDFTableColumn("Year", width: Width.year, alignment: .center),
             PDFTableColumn("Viewings", width: Width.count, alignment: .center),
-            // Right-aligned values under a CENTERED label. The dates are a column the eye
-            // runs down, and ragged right edges break that; but "Viewing Date" pinned to
-            // the right of its own column would read as though it belonged to "Since
-            // Prior" beside it.
+            /// Right-aligned values under a CENTERED label. The dates are a column the eye
+            /// runs down, and ragged right edges break that; but "Viewing Date" pinned to
+            /// the right of its own column would read as though it belonged to "Since
+            /// Prior" beside it.
             PDFTableColumn("Viewing Date", width: Width.date, alignment: .right,
                            headerAlignment: .center),
             PDFTableColumn("Since Prior", width: Width.sincePrior, alignment: .right,
@@ -269,8 +269,8 @@ enum ViewingHistoryPDFReport {
         ]
 
         var rows: [[PDFCell]] = []
-        // Each film's band plus its own viewings, so a pane never opens with viewing dates
-        // whose film is on the pane before. See `PDFTableSection.keepTogether`.
+        /// Each film's band plus its own viewings, so a pane never opens with viewing dates
+        /// whose film is on the pane before. See `PDFTableSection.keepTogether`.
         var blocks: [Range<Int>] = []
         for (position, film) in LibraryPDFReport.ordered(films).enumerated() {
             let entries = viewingHistoryEntries(from: film.calendarTable)
@@ -283,16 +283,16 @@ enum ViewingHistoryPDFReport {
                 values: [Column.year: film.releaseYear,
                          Column.count: summary(for: film, entries: entries)]))
 
-            // Newest first, exactly as the sidebar lists them — `viewingHistoryEntries`
-            // has already sorted and measured the gaps, so this loop only maps.
+            /// Newest first, exactly as the sidebar lists them — `viewingHistoryEntries`
+            /// has already sorted and measured the gaps, so this loop only maps.
             for (offset, entry) in entries.enumerated() {
                 let closing = offset == entries.count - 1
                 rows.append(
                     FilmDetailStyle.indent(columns: Column.filmSpanning, closing: closing) + [
                         PDFCell(entry.formattedDate),
-                        // The oldest viewing has no prior to measure against and comes back
-                        // with an empty gap; it prints as the placeholder rather than as a
-                        // blank cell, which would read as a value that failed to compute.
+                        /// The oldest viewing has no prior to measure against and comes back
+                        /// with an empty gap; it prints as the placeholder rather than as a
+                        /// blank cell, which would read as a value that failed to compute.
                         PDFCell(FilmDetailStyle.orDash(entry.daysSincePrior)),
                         PDFCell(FilmDetailStyle.orDash(
                             extractVersionCode(from: entry.original).displayName)),
@@ -355,15 +355,15 @@ enum DiscReleasesPDFReport {
     nonisolated static let sectionTitle = "Disc-based Releases"
 
     // MARK: Column widths
-    //
-    // Weights against the FULL content width — this section has an elastic Notes field and
-    // a two-row release record, so it has no whitespace to recover by splitting the page.
-    // They sum to exactly 720pt (792pt landscape less two 36pt margins), which is what
-    // makes each value below its real on-page width and lets `PDFColumnWidth.index` mean
-    // the same thing here as it does in the complete-library table.
-    //
-    // Each is measured against the longest of the FOUR things sharing it: its two fields
-    // and its two header labels.
+    ///
+    /// Weights against the FULL content width — this section has an elastic Notes field and
+    /// a two-row release record, so it has no whitespace to recover by splitting the page.
+    /// They sum to exactly 720pt (792pt landscape less two 36pt margins), which is what
+    /// makes each value below its real on-page width and lets `PDFColumnWidth.index` mean
+    /// the same thing here as it does in the complete-library table.
+    ///
+    /// Each is measured against the longest of the FOUR things sharing it: its two fields
+    /// and its two header labels.
 
     private enum Width {
         /// The shared index column. See `PDFColumnWidth.index`.
@@ -385,16 +385,16 @@ enum DiscReleasesPDFReport {
         static let regionLock: CGFloat = 42
 
         // MARK: The decoupled region
-        //
-        // Four columns, none of which is a field on its own: the two body rows divide this
-        // span at DIFFERENT points, and these are the pieces both divisions are built from.
-        //
-        //   top row:     |‹———— Video ————›|‹—— Aspect Ratio ——›|‹—————— Notes ——————
-        //   bottom row:  |‹—— Versions Included ——›|‹—— Packaging ——›|‹— Audio — …
-        //   columns:     |    video   | vTail | aTail |   pTail    |
-        //
-        // Every field is one column or a `columnSpan` over two of them, so resizing one
-        // column does not move the other row's fields. See `specificationRow` and `provenanceRow`.
+        ///
+        /// Four columns, none of which is a field on its own: the two body rows divide this
+        /// span at DIFFERENT points, and these are the pieces both divisions are built from.
+        ///
+        ///   top row:     |‹———— Video ————›|‹—— Aspect Ratio ——›|‹—————— Notes ——————
+        ///   bottom row:  |‹—— Versions Included ——›|‹—— Packaging ——›|‹— Audio — …
+        ///   columns:     |    video   | vTail | aTail |   pTail    |
+        ///
+        /// Every field is one column or a `columnSpan` over two of them, so resizing one
+        /// column does not move the other row's fields. See `specificationRow` and `provenanceRow`.
 
         /// Video alone, sized by the widest string the vocabulary can build:
         /// "HEVC (Upscaled), Dolby Vision" (75.9pt of text).
@@ -461,10 +461,10 @@ enum DiscReleasesPDFReport {
     // MARK: Section
 
     static func section(films: [FilmSnapshot]) -> PDFTableSection {
-        // The BOTTOM header row is each column's own title; the top row is contributed by
-        // the header groups above. That is what puts a label over each of a release's two
-        // rows: the reader reads straight down from "Studio" to a studio and from "Region
-        // Lock" to a region, and no cell has to carry its own label.
+        /// The BOTTOM header row is each column's own title; the top row is contributed by
+        /// the header groups above. That is what puts a label over each of a release's two
+        /// rows: the reader reads straight down from "Studio" to a studio and from "Region
+        /// Lock" to a region, and no cell has to carry its own label.
         var columns: [PDFTableColumn] = [
             PDFTableColumn("#", width: Width.index, alignment: .right,
                            headerAlignment: .center),
@@ -482,16 +482,16 @@ enum DiscReleasesPDFReport {
             PDFTableColumn("Date of Purchase", width: Width.date, alignment: .right),
         ]
 
-        // The bottom header row divides this span at different points from the top one, so
-        // its two labels each straddle a boundary the top row draws. Dropping the rule
-        // between the header cells is what merges each label into the one field it names —
-        // "Versions Included" across its 120pt, "Packaging" across its 103pt.
+        /// The bottom header row divides this span at different points from the top one, so
+        /// its two labels each straddle a boundary the top row draws. Dropping the rule
+        /// between the header cells is what merges each label into the one field it names —
+        /// "Versions Included" across its 120pt, "Packaging" across its 103pt.
         columns[Column.video].headerBorders = [.top, .bottom, .left]
         columns[Column.versionsTail].headerBorders = [.top, .bottom, .right]
         columns[Column.aspectTail].headerBorders = [.top, .bottom, .left]
         columns[Column.packagingTail].headerBorders = [.top, .bottom, .right]
 
-        // The header sits on the same axis as the values beneath it — see `PDFPairedText`.
+        /// The header sits on the same axis as the values beneath it — see `PDFPairedText`.
         columns[11].pairedTitle = PDFPairedText("Cost", "Spent")
 
         let groups = specificationHeaders.map {
@@ -501,16 +501,16 @@ enum DiscReleasesPDFReport {
         }
 
         var rows: [[PDFCell]] = []
-        // Each film's band plus its own releases — a page must not open with release rows
-        // whose film is named on the page before. See `PDFTableSection.keepTogether`.
+        /// Each film's band plus its own releases — a page must not open with release rows
+        /// whose film is named on the page before. See `PDFTableSection.keepTogether`.
         var blocks: [Range<Int>] = []
         for (position, film) in LibraryPDFReport.ordered(films).enumerated() {
             let start = rows.count
 
-            // The sidebar's catalog ordering: parent, then its bundled children, then the
-            // next release — kept as GROUPS, because a combo pack is drawn as one record.
-            // Children are KEPT — a combo pack's Blu-ray is a real disc the user owns, and
-            // this section is a catalog of discs.
+            /// The sidebar's catalog ordering: parent, then its bundled children, then the
+            /// next release — kept as GROUPS, because a combo pack is drawn as one record.
+            /// Children are KEPT — a combo pack's Blu-ray is a real disc the user owns, and
+            /// this section is a catalog of discs.
             let groups = releasesGroupedByHierarchy(film.releases)
 
             rows.append(FilmDetailStyle.filmRow(
@@ -518,15 +518,15 @@ enum DiscReleasesPDFReport {
                 film: film,
                 columnCount: Column.total,
                 values: [
-                    // A combo pack counts ONCE. It is one purchase, one box and one shelf
-                    // slot; the bundled disc is part of it, not a second acquisition.
+                    /// A combo pack counts ONCE. It is one purchase, one box and one shelf
+                    /// slot; the bundled disc is part of it, not a second acquisition.
                     Column.status: groups.isEmpty
                         ? "No releases"
                         : "\(groups.count) release\(groups.count == 1 ? "" : "s")",
-                    // The film's own release date, in the column its releases print THEIR
-                    // dates in, and in the same "2016.03.01" form — the base year in a
-                    // release's "2016.03.01 (1977)" is this film's year, so the column reads
-                    // consistently from the band down.
+                    /// The film's own release date, in the column its releases print THEIR
+                    /// dates in, and in the same "2016.03.01" form — the base year in a
+                    /// release's "2016.03.01 (1977)" is this film's year, so the column reads
+                    /// consistently from the band down.
                     Column.year: filmReleaseDate(film),
                 ]))
 
@@ -538,13 +538,13 @@ enum DiscReleasesPDFReport {
                     : .comboParent(childCount: children.count,
                                    firstChildHasBaseYear: hasBaseYear(children[0]))
 
-                // The rule across the top of each RELEASE — the darker gray, from the
-                // trailing edge of the index column across — so a film's releases are
-                // divided from one another more firmly than a release's two rows are, and
-                // less firmly than one film is from the next. A child is NOT a new release
-                // and takes no rule of its own; nor does the FIRST release, whose top edge
-                // is the band's bottom — that boundary is already the black rule above the
-                // band, and a second weight directly beneath it would only compete with it.
+                /// The rule across the top of each RELEASE — the darker gray, from the
+                /// trailing edge of the index column across — so a film's releases are
+                /// divided from one another more firmly than a release's two rows are, and
+                /// less firmly than one film is from the next. A child is NOT a new release
+                /// and takes no rule of its own; nor does the FIRST release, whose top edge
+                /// is the band's bottom — that boundary is already the black rule above the
+                /// band, and a second weight directly beneath it would only compete with it.
                 let specification = specificationRow(group[0], placement: parentPlacement)
                 rows.append(groupOffset == 0 ? specification : releaseRule(specification))
                 rows.append(provenanceRow(group[0], placement: parentPlacement,
@@ -628,15 +628,15 @@ enum DiscReleasesPDFReport {
                                          placement: Placement) -> [PDFCell] {
         let format = ReleaseFormat(rawValue: release.format)
 
-        // HDR is meaningful only on 4K UHD; on the other formats the field is noise, so it
-        // is appended only where it says something — matching the sidebar table, which
-        // prints "N/A" in a column it has to fill and this one does not.
+        /// HDR is meaningful only on 4K UHD; on the other formats the field is noise, so it
+        /// is appended only where it says something — matching the sidebar table, which
+        /// prints "N/A" in a column it has to fill and this one does not.
         var video = releaseVideoDisplay(for: release)
         if format == .uhd4K, !release.hasHDR.isEmpty {
             video += ", \(release.hasHDR)"
         }
 
-        // The cells a merge from above may own instead — see `Placement` and `yearCell`.
+        /// The cells a merge from above may own instead — see `Placement` and `yearCell`.
         let statusCell: PDFCell
         let studioCell: PDFCell
         switch placement {
@@ -645,18 +645,18 @@ enum DiscReleasesPDFReport {
             studioCell = PDFCell(FilmDetailStyle.orDash(release.studio), alignment: .left,
                                  truncates: true, columnSpan: 2)
         case let .comboParent(childCount, _):
-            // One standing for the whole box, centered down every row of it.
+            /// One standing for the whole box, centered down every row of it.
             statusCell = PDFCell(status(release), fill: statusTint(release),
                                  rowSpan: 2 * (1 + childCount))
-            // Down to the first child's specification row, leaving its provenance row
-            // for the fields the parent has no version of.
+            /// Down to the first child's specification row, leaving its provenance row
+            /// for the fields the parent has no version of.
             studioCell = PDFCell(FilmDetailStyle.orDash(release.studio), alignment: .left,
                                  truncates: true, rowSpan: 3, columnSpan: 2)
         case let .comboChild(isFirst):
-            // Covered by the parent's Status.
+            /// Covered by the parent's Status.
             statusCell = PDFCell("")
-            // The first child's cell is covered by the parent's Studio; a later child's is
-            // outside that rectangle and draws its own.
+            /// The first child's cell is covered by the parent's Studio; a later child's is
+            /// outside that rectangle and draws its own.
             studioCell = isFirst
                 ? PDFCell("")
                 : PDFCell(FilmDetailStyle.orDash(release.studio), alignment: .left,
@@ -664,7 +664,7 @@ enum DiscReleasesPDFReport {
         }
 
         return FilmDetailStyle.deemphasizingPlaceholders([
-            // Never `closing`: the provenance row always follows this one.
+            /// Never `closing`: the provenance row always follows this one.
             FilmDetailStyle.continuation(closing: false),
             formatBadge(release, format: format, placement: placement),
             statusCell,
@@ -672,14 +672,14 @@ enum DiscReleasesPDFReport {
             studioCell,
             PDFCell(""),
             videoCell(video, release: release, format: format),
-            // Truncates, and the span is sized for three ratios and an ellipsis. A release
-            // listing more than that is describing a box set, and the fourth ratio is worth
-            // less than the width it would take from Notes on every row.
+            /// Truncates, and the span is sized for three ratios and an ellipsis. A release
+            /// listing more than that is describing a box set, and the fourth ratio is worth
+            /// less than the width it would take from Notes on every row.
             aspectCell(release),
             PDFCell(""),
-            // Notes take the whole width of the four columns below them. It is the one
-            // field with no upper bound on its length, and the width is what keeps it from
-            // wrapping into a row three lines tall.
+            /// Notes take the whole width of the four columns below them. It is the one
+            /// field with no upper bound on its length, and the width is what keeps it from
+            /// wrapping into a row three lines tall.
             PDFCell(FilmDetailStyle.orDash(release.notes), columnSpan: 4),
             PDFCell(""),
             PDFCell(""),
@@ -708,7 +708,7 @@ enum DiscReleasesPDFReport {
     /// — because the release year it would otherwise repeat is printed directly above it.
     /// That cell, too, spans down over its Condition when the pack is unpurchased.
     private static func yearCell(_ release: ReleaseSnapshot, placement: Placement) -> PDFCell {
-        // Rows the cell reaches BELOW its own row's Condition slot, on its own record.
+        /// Rows the cell reaches BELOW its own row's Condition slot, on its own record.
         let ownStack = release.purchased ? 1 : 2
 
         switch placement {
@@ -716,14 +716,14 @@ enum DiscReleasesPDFReport {
             return PDFCell(years(release), rowSpan: ownStack)
 
         case let .comboParent(_, firstChildHasBaseYear):
-            // Always its own two rows; then, when the first child has no year of its own,
-            // on down through the child's specification row and — unpurchased — its
-            // Condition row as well.
+            /// Always its own two rows; then, when the first child has no year of its own,
+            /// on down through the child's specification row and — unpurchased — its
+            /// Condition row as well.
             let reach = firstChildHasBaseYear ? 2 : 2 + ownStack
             return PDFCell(years(release), rowSpan: reach)
 
         case .comboChild:
-            // Covered by the parent's reach unless this disc has a base year of its own.
+            /// Covered by the parent's reach unless this disc has a base year of its own.
             guard hasBaseYear(release) else { return PDFCell("") }
             let base = release.baseReleaseYear.trimmingCharacters(in: .whitespacesAndNewlines)
             return PDFCell("(\(base))", rowSpan: ownStack)
@@ -737,49 +737,49 @@ enum DiscReleasesPDFReport {
                                       closing: Bool) -> [PDFCell] {
         let region = regionLock(release)
 
-        // On a combo parent, Condition is covered by the Year merged down from above, and
-        // Provenance and Region Lock by the Studio — the child's row carries all three for
-        // the pair. See `Placement`.
+        /// On a combo parent, Condition is covered by the Year merged down from above, and
+        /// Provenance and Region Lock by the Studio — the child's row carries all three for
+        /// the pair. See `Placement`.
         let parentCovered: Bool
         if case .comboParent = placement { parentCovered = true } else { parentCovered = false }
-        // …and on ANY unpurchased record the Condition cell is covered by the year above it
-        // (see `yearCell`), including a child's, and a child's whose parent's year reaches
-        // down this far. A cell the renderer will never draw must still be present, and
-        // must be empty.
+        /// …and on ANY unpurchased record the Condition cell is covered by the year above it
+        /// (see `yearCell`), including a child's, and a child's whose parent's year reaches
+        /// down this far. A cell the renderer will never draw must still be present, and
+        /// must be empty.
         let conditionCovered = parentCovered || !release.purchased
 
-        // The provenance row is SECONDARY to the specification above it, and reads that
-        // way: these are cataloguing detail — what state the disc is in, where it was
-        // pressed, what it is packaged in — rather than what the disc IS. The gray lets the
-        // eye run down the specification rows and drop into this one only when it wants
-        // the detail, which is the reading order the two-row record is for.
-        //
-        // Condition describes a disc the user HOLDS. On something not yet bought there is
-        // no disc to be in any condition, so the cell is blank rather than dashed — a dash
-        // would claim the field was left unfilled.
+        /// The provenance row is SECONDARY to the specification above it, and reads that
+        /// way: these are cataloguing detail — what state the disc is in, where it was
+        /// pressed, what it is packaged in — rather than what the disc IS. The gray lets the
+        /// eye run down the specification rows and drop into this one only when it wants
+        /// the detail, which is the reading order the two-row record is for.
+        ///
+        /// Condition describes a disc the user HOLDS. On something not yet bought there is
+        /// no disc to be in any condition, so the cell is blank rather than dashed — a dash
+        /// would claim the field was left unfilled.
         let conditionCell = conditionCovered ? PDFCell("") : PDFCell(
             FilmDetailStyle.orDash(release.condition.capitalized),
             textColor: PDFPalette.secondaryText)
         let provenanceCell = parentCovered ? PDFCell("") : PDFCell(
             FilmDetailStyle.orDash(release.nationalOrigin), textColor: PDFPalette.secondaryText)
-        // The one exception to the gray: a FLAGGED region keeps the primary color. The
-        // orange fill exists to catch the eye, and graying the text on it would take back
-        // with one hand what the fill gives with the other.
+        /// The one exception to the gray: a FLAGGED region keeps the primary color. The
+        /// orange fill exists to catch the eye, and graying the text on it would take back
+        /// with one hand what the fill gives with the other.
         let regionCell = parentCovered ? PDFCell("") : PDFCell(
             region.text, fill: region.fill,
             textColor: region.fill == nil ? PDFPalette.secondaryText : nil)
 
         return FilmDetailStyle.deemphasizingPlaceholders([
             FilmDetailStyle.continuation(closing: closing),
-            // Covered by the format and status cells merged down from the row above; the
-            // renderer draws nothing here. Present so the row is the full column count.
+            /// Covered by the format and status cells merged down from the row above; the
+            /// renderer draws nothing here. Present so the row is the full column count.
             PDFCell(""),
             PDFCell(""),
             conditionCell,
             provenanceCell,
             regionCell,
-            // Versions and Packaging each span two columns, and each straddles a boundary
-            // the row above draws — see the column map in `Width`.
+            /// Versions and Packaging each span two columns, and each straddles a boundary
+            /// the row above draws — see the column map in `Width`.
             versionsCell(release),
             PDFCell(""),
             PDFCell(FilmDetailStyle.orDash(packaging(release)), columnSpan: 2,
@@ -843,9 +843,9 @@ enum DiscReleasesPDFReport {
             return PDFCell(text, textColor: PDFPalette.secondaryText)
         }
 
-        // The codec as `releaseVideoDisplay` resolved it — including the HEVC default a 4K
-        // release with an empty field takes — so the highlight matches what was drawn
-        // rather than what was stored.
+        /// The codec as `releaseVideoDisplay` resolved it — including the HEVC default a 4K
+        /// release with an empty field takes — so the highlight matches what was drawn
+        /// rather than what was stored.
         let codec = release.videoFormat.isEmpty ? ReleaseVideoFormat.hevc : release.videoFormat
         return PDFCell(text, highlights: [PDFTextHighlight(codec,
                                                            color: PDFPalette.secondaryText)])
@@ -897,9 +897,9 @@ enum DiscReleasesPDFReport {
                        fill: formatTint(release, format: format),
                        truncates: true,
                        rowSpan: 2,
-                       // Stepped in under the film title in the same column, and a bundled
-                       // disc stepped in again under the box it came in. Two levels of the
-                       // same indent, so the hierarchy reads as an outline.
+                       /// Stepped in under the film title in the same column, and a bundled
+                       /// disc stepped in again under the box it came in. Two levels of the
+                       /// same indent, so the hierarchy reads as an outline.
                        indent: formatIndent * (placement.isChild ? 2 : 1),
                        textColor: inverted ? PDFPalette.invertedText : nil,
                        fillIsOpaque: inverted)
@@ -912,9 +912,9 @@ enum DiscReleasesPDFReport {
     /// "Blu-ray" row on a fresh page with its money columns deferring elsewhere would
     /// otherwise look like a record someone forgot to finish.
     private static func releaseLabel(_ release: ReleaseSnapshot) -> String {
-        // "combo-pack" hyphenated, matching `ReleaseIndependence.comboPack` — the stored
-        // vocabulary's own spelling, which the packaging column and the money note beside
-        // this one both print.
+        /// "combo-pack" hyphenated, matching `ReleaseIndependence.comboPack` — the stored
+        /// vocabulary's own spelling, which the packaging column and the money note beside
+        /// this one both print.
         release.isChild ? "\(release.format) (included in combo-pack)" : release.format
     }
 
@@ -974,7 +974,7 @@ enum DiscReleasesPDFReport {
     private static func years(_ release: ReleaseSnapshot) -> String {
         let trimmed = release.releaseDate.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = ReleaseDateValue(trimmed, format: release.format)
-        // The stored "yyyy.MM.dd" or bare year; an unreadable value prints as it is stored.
+        /// The stored "yyyy.MM.dd" or bare year; an unreadable value prints as it is stored.
         let date = value?.storageString ?? trimmed
         let year = value.map { Fmt.padded($0.year, 4) } ?? trimmed
         let base = release.baseReleaseYear.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1004,17 +1004,17 @@ enum DiscReleasesPDFReport {
     private static func packaging(_ release: ReleaseSnapshot) -> String {
         var parts: [String] = []
 
-        // The pack type, in its full form — this cell has room for "Combo-pack (dual BD)"
-        // where the sidebar's 78pt column does not, so it does NOT go through
-        // `compactDisplay`, whose whole purpose is that column's width.
+        /// The pack type, in its full form — this cell has room for "Combo-pack (dual BD)"
+        /// where the sidebar's 78pt column does not, so it does NOT go through
+        /// `compactDisplay`, whose whole purpose is that column's width.
         if release.independence != ReleaseIndependence.standalone,
            !release.independence.isEmpty {
             parts.append(release.independence)
         }
 
-        // A steelbook is the one artwork tag that describes the CASE rather than the
-        // printing on it, which is what makes it packaging. The "Yes"/"No" tags answer a
-        // different question and belong to the artwork column, not here.
+        /// A steelbook is the one artwork tag that describes the CASE rather than the
+        /// printing on it, which is what makes it packaging. The "Yes"/"No" tags answer a
+        /// different question and belong to the artwork column, not here.
         if release.hasArtwork == ReleaseArtwork.steelbook {
             parts.append(ReleaseArtwork.steelbook)
         }
@@ -1025,10 +1025,10 @@ enum DiscReleasesPDFReport {
             parts.append("recordable")
         }
 
-        // Joined verbatim rather than through `PDFNoteList`: every part here is already
-        // cased the way it must be printed — the pack type and "Steelbook" are stored
-        // vocabulary terms, and the other two are written above in the case they read in —
-        // so the case transform that convention applies would only be something to undo.
+        /// Joined verbatim rather than through `PDFNoteList`: every part here is already
+        /// cased the way it must be printed — the pack type and "Steelbook" are stored
+        /// vocabulary terms, and the other two are written above in the case they read in —
+        /// so the case transform that convention applies would only be something to undo.
         return parts.joined(separator: ", ")
     }
 
@@ -1056,17 +1056,17 @@ enum DiscReleasesPDFReport {
         if let inherited = comboPackNote(release) { return inherited }
         guard release.purchased else {
             guard release.lowestPrice != 0 else { return PDFCell(FilmDetailStyle.dash) }
-            // Left-aligned, like the "Last seen" note beside it: it is a labeled sentence,
-            // not a figure, and centering it would move its prefix on every row.
+            /// Left-aligned, like the "Last seen" note beside it: it is a labeled sentence,
+            /// not a figure, and centering it would move its prefix on every row.
             return PDFCell("Lowest: \(FilmDetailStyle.money(release.lowestPrice))",
                            alignment: .left, textColor: PDFPalette.secondaryText)
         }
 
-        // A purchase with a recorded cost but nothing spent reads "$0.00", not a dash: on a
-        // disc the user owns, a zero paid is a FIGURE — a gift, a freebie, a trade — and
-        // the app's own release card reports it that way. The dash is reserved for a field
-        // nobody filled in, which on a purchased release is only credible when neither
-        // figure was recorded at all.
+        /// A purchase with a recorded cost but nothing spent reads "$0.00", not a dash: on a
+        /// disc the user owns, a zero paid is a FIGURE — a gift, a freebie, a trade — and
+        /// the app's own release card reports it that way. The dash is reserved for a field
+        /// nobody filled in, which on a purchased release is only credible when neither
+        /// figure was recorded at all.
         let spent = release.cost == 0
             ? FilmDetailStyle.money(release.amountSpent)
             : FilmDetailStyle.exactMoney(release.amountSpent)

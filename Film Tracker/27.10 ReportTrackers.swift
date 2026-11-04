@@ -1,8 +1,8 @@
 // MARK: - ReportTrackers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Purchase and Expense Tracker and Price Tracker report views. Each lists releases from the library, with the rows
-// built by ReleaseData's shared helpers, which the PDF export also uses.
+/// The Purchase and Expense Tracker and Price Tracker report views. Each lists releases from the library, with the rows
+/// built by ReleaseData's shared helpers, which the PDF export also uses.
 
 import SwiftUI
 
@@ -75,8 +75,8 @@ struct CostTrackerView: View {
                 for: .costTracker, filmsMap: filmsMap, defaultSortOrder: ReleaseData.costTrackerDefaultSort,
                 build: ReleaseData.costTrackerRows)
             guard generation == loadGeneration else { return }
-            // Rows from a library that has since changed would be stale, and the change may not have triggered a reload.
-            // Fall back to the synchronous load, which reads the current library.
+            /// Rows from a library that has since changed would be stale, and the change may not have triggered a reload.
+            /// Fall back to the synchronous load, which reads the current library.
             guard dataCoordinator.getAllFilmsMap() == filmsMap else {
                 loadPurchasedReleases()
                 return
@@ -88,16 +88,16 @@ struct CostTrackerView: View {
 
     private func loadPurchasedReleases() {
         loadGeneration += 1
-        // The row set comes from ReleaseData.costTrackerRows, which the PDF export also uses. The predicate and field mapping live in one place,
-        // so the table and the printed sheet cannot disagree.
+        /// The row set comes from ReleaseData.costTrackerRows, which the PDF export also uses. The predicate and field mapping live in one place,
+        /// so the table and the printed sheet cannot disagree.
         applyPurchasedReleases(ReleaseData.costTrackerRows(films: dataCoordinator.getAllFilms()))
     }
 
     private func applyPurchasedReleases(_ loadedReleases: [ReleaseData]) {
         releases = loadedReleases
-        // Push the result to ReportsState directly. The onChange(of: releases) handler does not fire when the result equals the current value,
-        // such as [] on a first load with no qualifying data. Without this call, the category would stay unmarked as loaded and the scan
-        // would run in the mount frame on every visit. updateData is idempotent, so a duplicate call from onChange is harmless.
+        /// Push the result to ReportsState directly. The onChange(of: releases) handler does not fire when the result equals the current value,
+        /// such as [] on a first load with no qualifying data. Without this call, the category would stay unmarked as loaded and the scan
+        /// would run in the mount frame on every visit. updateData is idempotent, so a duplicate call from onChange is harmless.
         ReportsState.shared.updateData(loadedReleases, for: .costTracker)
     }
 }
@@ -164,7 +164,7 @@ struct PriceTrackerView: View {
                 for: .priceTracker, filmsMap: filmsMap, defaultSortOrder: ReleaseData.priceTrackerDefaultSort,
                 build: ReleaseData.priceTrackerRows)
             guard generation == loadGeneration else { return }
-            // See CostTrackerView.reconcilePurchasedReleases.
+            /// See CostTrackerView.reconcilePurchasedReleases.
             guard dataCoordinator.getAllFilmsMap() == filmsMap else {
                 loadPriceTrackerData()
                 return
@@ -176,13 +176,13 @@ struct PriceTrackerView: View {
 
     private func loadPriceTrackerData() {
         loadGeneration += 1
-        // Shared with the PDF export. See CostTrackerView.loadPurchasedReleases.
+        /// Shared with the PDF export. See CostTrackerView.loadPurchasedReleases.
         applyPriceTrackerData(ReleaseData.priceTrackerRows(films: dataCoordinator.getAllFilms()))
     }
 
     private func applyPriceTrackerData(_ loadedReleases: [ReleaseData]) {
         releases = loadedReleases
-        // See CostTrackerView.loadPurchasedReleases for why this direct push is needed.
+        /// See CostTrackerView.loadPurchasedReleases for why this direct push is needed.
         ReportsState.shared.updateData(loadedReleases, for: .priceTracker)
     }
 }
@@ -206,11 +206,11 @@ struct ReportsReleaseTableView: View, Loggable {
     @State private var selection: Set<UUID> = []
     @State private var sortOrder: [KeyPathComparator<ReleaseData>]
 
-    // Memoized sort result, recomputed only when `releases` or `sortOrder` changes, via the onChange handlers below.
-    // A computed property would re-sort on every body pass, such as selection changes, and each sort would reload the table.
+    /// Memoized sort result, recomputed only when `releases` or `sortOrder` changes, via the onChange handlers below.
+    /// A computed property would re-sort on every body pass, such as selection changes, and each sort would reload the table.
     @State private var sortedReleases: [ReleaseData] = []
 
-    // No row windowing. ReportTable builds only the rows on screen, so the full sorted set costs about what the first screen does.
+    /// No row windowing. ReportTable builds only the rows on screen, so the full sorted set costs about what the first screen does.
 
     init(
         category: ReportsCategory,
@@ -246,16 +246,16 @@ struct ReportsReleaseTableView: View, Loggable {
                 handleSelectionChange(newSelection)
             }
             .onChange(of: sortOrder) { _, newSortOrder in
-                // Update ReportsState with current sort order for this category.
+                /// Update ReportsState with current sort order for this category.
                 ReportsState.shared.updateSortOrder(newSortOrder, for: category)
-                // Recompute the memoized sort when the sort order changes.
+                /// Recompute the memoized sort when the sort order changes.
                 recomputeSort(releases, using: newSortOrder)
             }
         }
         .reportsStatusBarInset()
         .onAppear {
-            // Restore the sort order from the last visit, so the column sort survives tab switches. The mount-path cache was sorted under
-            // that order, so a default order here would force a full re-sort in the mount frame.
+            /// Restore the sort order from the last visit, so the column sort survives tab switches. The mount-path cache was sorted under
+            /// that order, so a default order here would force a full re-sort in the mount frame.
             if let saved = ReportsState.shared.savedSortOrder(for: category) {
                 sortOrder = saved
             }
@@ -263,41 +263,41 @@ struct ReportsReleaseTableView: View, Loggable {
             ReportsState.shared.updateSortOrder(sortOrder, for: category)
         }
         .onChange(of: releases) { _, newReleases in
-            // Recompute the memoized sort when the data changes.
+            /// Recompute the memoized sort when the data changes.
             recomputeSort(newReleases, using: sortOrder)
-            // Update ReportsState with current data for export.
+            /// Update ReportsState with current data for export.
             ReportsState.shared.updateData(newReleases, for: category)
-            // Drop any selected release that is no longer in the loaded rows.
+            /// Drop any selected release that is no longer in the loaded rows.
             reconcileSelection(against: newReleases)
         }
-        // Clears the table selection when SelectionState is cleared elsewhere, such as on a view switch.
+        /// Clears the table selection when SelectionState is cleared elsewhere, such as on a view switch.
         .onChange(of: selectionState.selectedFilmIDs) { _, newSelectedFilmIDs in
-            // If SelectionState was cleared, clear the local table selection
+            /// If SelectionState was cleared, clear the local table selection
             if newSelectedFilmIDs.isEmpty && !selection.isEmpty {
                 selection = []
             }
         }
-        // Refresh on film events, such as releases added, removed, or edited in FilmSheet. Each case reloads when the event could affect this table.
-        // Selection cleanup is in `reconcileSelection(against:)`, called from `.onChange(of: releases)` with the fresh rows. It runs a run-loop pass
-        // later, so NSTableView does not re-sync a stale selection back into the binding.
+        /// Refresh on film events, such as releases added, removed, or edited in FilmSheet. Each case reloads when the event could affect this table.
+        /// Selection cleanup is in `reconcileSelection(against:)`, called from `.onChange(of: releases)` with the fresh rows. It runs a run-loop pass
+        /// later, so NSTableView does not re-sync a stale selection back into the binding.
         .onFilmEvent { event in
             switch event {
             case .updated(let filmID):
-                // Only matters if the film is shown, such as a title change. Release changes arrive as `.releaseChanged`.
+                /// Only matters if the film is shown, such as a title change. Release changes arrive as `.releaseChanged`.
                 guard releases.contains(where: { $0.filmID == filmID }) else { break }
                 onDataChange()
 
             case .deleted(let filmIDs):
-                // Reload only if a deleted film had releases in this table.
+                /// Reload only if a deleted film had releases in this table.
                 guard releases.contains(where: { filmIDs.contains($0.filmID) }) else { break }
                 onDataChange()
 
             case .releaseChanged:
-                // Always reload. A release change can add a film (marking it purchased or adding price data) or remove one.
+                /// Always reload. A release change can add a film (marking it purchased or adding price data) or remove one.
                 onDataChange()
 
             case .added:
-                // A new film may have qualifying release data.
+                /// A new film may have qualifying release data.
                 onDataChange()
             }
         }
@@ -336,13 +336,13 @@ struct ReportsReleaseTableView: View, Loggable {
     }
 
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
-        // Handle no selection (cleared)
+        /// Handle no selection (cleared)
         if newSelection.isEmpty {
             selectionState.clearImmediate()
             return
         }
         
-        // Handle multi-selection
+        /// Handle multi-selection
         if newSelection.count > 1 {
             let filmIDs = newSelection.compactMap { releaseID in
                 releases.first(where: { $0.releaseID == releaseID })?.filmID
@@ -351,14 +351,14 @@ struct ReportsReleaseTableView: View, Loggable {
             return
         }
         
-        // Single selection. The empty and multi cases have returned, so `first` is non-nil. Matches HallOfFameView.handleSelectionChange.
+        /// Single selection. The empty and multi cases have returned, so `first` is non-nil. Matches HallOfFameView.handleSelectionChange.
         guard let selectedReleaseID = newSelection.first else { return }
 
-        // Look up the release data to get the film ID
+        /// Look up the release data to get the film ID
         if let releaseData = releases.first(where: { $0.releaseID == selectedReleaseID }) {
             selectionState.select(releaseData.filmID)
         } else {
-            // Not found in the array, which is an error. Log it and clear the selection to prevent stale state.
+            /// Not found in the array, which is an error. Log it and clear the selection to prevent stale state.
             log("ERROR: Selected release \(selectedReleaseID) not found in releases array")
             selectionState.clearImmediate()
         }
@@ -411,7 +411,7 @@ struct ReleaseData: Identifiable, Equatable {
         self.studio = studio
         self.condition = condition
         self.notes = notes
-        // Precomputed once per row, since stripArticles allocates and a sort compares each row many times.
+        /// Precomputed once per row, since stripArticles allocates and a sort compares each row many times.
         self.titleSort = GalleryTitleKey(name: filmTitle, sortName: filmSortName,
                                          year: Int(filmYear) ?? 0, filmID: filmID)
     }
@@ -419,14 +419,14 @@ struct ReleaseData: Identifiable, Equatable {
     /// The row's place in the gallery's Title sort. It orders the Title column and breaks ties in the other columns.
     let titleSort: GalleryTitleKey
 
-    // Cost Tracker formatters
+    /// Cost Tracker formatters
     var costFormatted: String {
         guard cost > 0 else { return "—" }
         return Fmt.dollars(cost)
     }
     
     var amountSpentFormatted: String {
-        // Intentionally left as displaying '$0.00' for empty fields.
+        /// Intentionally left as displaying '$0.00' for empty fields.
         return Fmt.dollars(amountSpent)
     }
     
@@ -434,7 +434,7 @@ struct ReleaseData: Identifiable, Equatable {
         formatDate(purchaseDate)
     }
     
-    // Price Tracker formatters
+    /// Price Tracker formatters
     var lowestPriceFormatted: String {
         guard lowestPrice > 0 else { return "—" }
         return Fmt.dollars(lowestPrice)
@@ -444,8 +444,8 @@ struct ReleaseData: Identifiable, Equatable {
         formatDate(lowestPriceDate)
     }
     
-    // "May 1, 2024" for a stored date, or the stored text if it does not parse. Dates are stored as `yyyy.MM.dd`, which the app's
-    // shared parser reads.
+    /// "May 1, 2024" for a stored date, or the stored text if it does not parse. Dates are stored as `yyyy.MM.dd`, which the app's
+    /// shared parser reads.
     private func formatDate(_ dateString: String) -> String {
         guard !dateString.isEmpty else { return "—" }
         guard let date = parseDate(from: dateString) else { return dateString }
@@ -462,7 +462,7 @@ extension ReleaseData {
         var rows: [ReleaseData] = []
         for film in films {
             for release in film.releases where release.purchased && release.isTopLevel {
-                // Only include releases with cost or amount spent data.
+                /// Only include releases with cost or amount spent data.
                 guard release.cost > 0 || release.amountSpent > 0 else { continue }
 
                 rows.append(ReleaseData(
@@ -490,7 +490,7 @@ extension ReleaseData {
         var rows: [ReleaseData] = []
         for film in films {
             for release in film.releases where !release.purchased && release.isTopLevel {
-                // Only include releases with lowest price data.
+                /// Only include releases with lowest price data.
                 guard release.lowestPrice > 0 else { continue }
 
                 rows.append(ReleaseData(
@@ -538,7 +538,7 @@ extension ReleaseData {
     ) async -> Reconciled {
         let order = ReportsState.shared.savedSortOrder(for: category) ?? defaultSortOrder
         let (rows, sorted) = await Task.detached(priority: .userInitiated) {
-            // Array(values) matches what getAllFilms() returns for this dictionary.
+            /// Array(values) matches what getAllFilms() returns for this dictionary.
             let rows = build(Array(filmsMap.values))
             return (rows, ReleaseData.sorted(rows, using: order))
         }.value
@@ -556,7 +556,7 @@ extension ReleaseData {
     /// rules, since a String key path's default comparator follows the system language.
     private static func comparator(forKey key: String, order: SortOrder) -> KeyPathComparator<ReleaseData>? {
         switch key {
-        // The gallery's Title order (sort name, articles stripped, numbers last), not the raw title.
+        /// The gallery's Title order (sort name, articles stripped, numbers last), not the raw title.
         case "filmTitle":       return KeyPathComparator(\.titleSort, order: order)
         case "purchaseDate":    return KeyPathComparator(\.purchaseDate, comparator: EnglishText.standardComparator, order: order)
         case "lowestPriceDate": return KeyPathComparator(\.lowestPriceDate, comparator: EnglishText.standardComparator, order: order)
@@ -590,11 +590,11 @@ extension ReleaseData {
         _ items: [ReleaseData],
         using order: [KeyPathComparator<ReleaseData>]
     ) -> [ReleaseData] {
-        // No active sort: keep the input order. Unreachable in practice, since both tabs open with a non-empty default.
+        /// No active sort: keep the input order. Unreachable in practice, since both tabs open with a non-empty default.
         guard !order.isEmpty else { return items }
 
         return items.sorted { lhs, rhs in
-            // Apply each comparator in priority order; the first non-equal result wins.
+            /// Apply each comparator in priority order; the first non-equal result wins.
             for comparator in order {
                 switch comparator.compare(lhs, rhs) {
                 case .orderedAscending:  return true
@@ -602,8 +602,8 @@ extension ReleaseData {
                 case .orderedSame:       continue
                 }
             }
-            // All comparators tied. Use the gallery's title order (which ends on the film id), then the release id. Two copies of one film tie
-            // on everything else, and the input order changes each launch, so without the release id their rows could swap.
+            /// All comparators tied. Use the gallery's title order (which ends on the film id), then the release id. Two copies of one film tie
+            /// on everything else, and the input order changes each launch, so without the release id their rows could swap.
             if lhs.titleSort != rhs.titleSort { return lhs.titleSort < rhs.titleSort }
             return lhs.releaseID.uuidString < rhs.releaseID.uuidString
         }

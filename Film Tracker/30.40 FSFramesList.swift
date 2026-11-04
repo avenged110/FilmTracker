@@ -1,49 +1,49 @@
 // MARK: - FSFramesList.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The reorderable frames/time-code table used by the FilmSheet Notes tab.
-//
-// Split out of 30.20 FSControlHelpers.swift alongside the parallel split of
-// ReorderableStringList into 30.30 FSStringList.swift. The two list components
-// remain separate types: a frames entry is a four-field comma-packed record with
-// its own popover-driven editor, whereas a string-list entry is a bare value
-// edited in place, so unifying them would mean one component carrying two
-// disjoint row models and edit paths.
-//
-// What they DO share lives in FSControlHelpers.swift — `ListCircleButton`/
-// `ListCircleButtonStyle` (the circular control family), `ListImportPopover`
-// (the bulk-entry sheet and its parsing rule), and `ListRowMetrics` (shared row
-// and control geometry) — so both tables' chrome is tuned in one place. Container
-// chrome comes from the shared field edge (`listContainerChrome`) likewise.
-//
+/// The reorderable frames/time-code table used by the FilmSheet Notes tab.
+///
+/// Split out of 30.20 FSControlHelpers.swift alongside the parallel split of
+/// ReorderableStringList into 30.30 FSStringList.swift. The two list components
+/// remain separate types: a frames entry is a four-field comma-packed record with
+/// its own popover-driven editor, whereas a string-list entry is a bare value
+/// edited in place, so unifying them would mean one component carrying two
+/// disjoint row models and edit paths.
+///
+/// What they DO share lives in FSControlHelpers.swift — `ListCircleButton`/
+/// `ListCircleButtonStyle` (the circular control family), `ListImportPopover`
+/// (the bulk-entry sheet and its parsing rule), and `ListRowMetrics` (shared row
+/// and control geometry) — so both tables' chrome is tuned in one place. Container
+/// chrome comes from the shared field edge (`listContainerChrome`) likewise.
+///
 // MARK: Why this is one table and not two
-//
-// The two arrays were kept in step by convention only: entry n of one described the same
-// moment as entry n of the other, with nothing enforcing it. A delete, reorder, or flag
-// toggle on one table and not the other silently desynchronized the pair.
-//
-// The storage format is unchanged — two `[String]` arrays of four-field records — which
-// keeps the right sidebar's read-only Notes tab (24.30 RTabNotes.swift) working untouched,
-// with its two tables still separate where horizontal space doesn't allow a combined view.
-// The FilmSheet presents them as one table of paired rows: a row carries a frame, a time
-// code, and ONE set of flags, and every write path writes both arrays together. Divergence
-// is something this component cannot produce.
-//
-// Legacy records whose two arrays are of unequal length display as-is (the
-// shorter side renders blank) and normalize on the first write of any kind, by
-// padding the shorter array with placeholder records that repeat the longer side's
-// flags (`ReorderableFramesList.placeholder(pairedWith:)`). Nothing is written merely
-// by opening the sheet.
+///
+/// The two arrays were kept in step by convention only: entry n of one described the same
+/// moment as entry n of the other, with nothing enforcing it. A delete, reorder, or flag
+/// toggle on one table and not the other silently desynchronized the pair.
+///
+/// The storage format is unchanged — two `[String]` arrays of four-field records — which
+/// keeps the right sidebar's read-only Notes tab (24.30 RTabNotes.swift) working untouched,
+/// with its two tables still separate where horizontal space doesn't allow a combined view.
+/// The FilmSheet presents them as one table of paired rows: a row carries a frame, a time
+/// code, and ONE set of flags, and every write path writes both arrays together. Divergence
+/// is something this component cannot produce.
+///
+/// Legacy records whose two arrays are of unequal length display as-is (the
+/// shorter side renders blank) and normalize on the first write of any kind, by
+/// padding the shorter array with placeholder records that repeat the longer side's
+/// flags (`ReorderableFramesList.placeholder(pairedWith:)`). Nothing is written merely
+/// by opening the sheet.
 
 import SwiftUI
 import AppKit
 import Combine
 
 // MARK: - Shared Color Constants
-// Constructed once at process launch rather than bridged NSColor→Color on every
-// render of the fade-style rows below. Declared privately here as well as in
-// FSControlHelpers.swift: file-private constants do not collide across files,
-// and duplicating one bridged color is cheaper than exposing it module-wide.
+/// Constructed once at process launch rather than bridged NSColor→Color on every
+/// render of the fade-style rows below. Declared privately here as well as in
+/// FSControlHelpers.swift: file-private constants do not collide across files,
+/// and duplicating one bridged color is cheaper than exposing it module-wide.
 private let disabledControlTextColor = Color(NSColor.disabledControlTextColor)
 
 // MARK: - Mark Style Enum
@@ -56,9 +56,9 @@ enum MarkStyle: String, Hashable {
     case number   = "number"
     case none     = "no"
 
-    // No `displayName` and no `CaseIterable`. The picker supplies its own labels and
-    // offers only the glyph-bearing cases: `.none` is expressed by the row's toggle,
-    // not by a segment, so an iterable list would misdescribe the control.
+    /// No `displayName` and no `CaseIterable`. The picker supplies its own labels and
+    /// offers only the glyph-bearing cases: `.none` is expressed by the row's toggle,
+    /// not by a segment, so an iterable list would misdescribe the control.
 
 
     var symbolName: String {
@@ -70,8 +70,8 @@ enum MarkStyle: String, Hashable {
         }
     }
 
-    // Parsing uses the failable `init(rawValue:)` rather than a defaulting helper, so an
-    // unrecognized token stays distinguishable from a stored "no" (see FramesEntryParser.parse).
+    /// Parsing uses the failable `init(rawValue:)` rather than a defaulting helper, so an
+    /// unrecognized token stays distinguishable from a stored "no" (see FramesEntryParser.parse).
 }
 
 // MARK: - Frames Entry Parser
@@ -100,16 +100,16 @@ enum FramesEntryParser {
 
     static func parse(_ entry: String) -> Entry {
         let components = entry.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
-        // Four fields is necessary but not sufficient. A bare-text note with exactly three
-        // commas, such as "reel 2, 3, 4, and 5", must not parse as a record: it would be
-        // truncated to its first field, and the next write would keep only that text.
-        // PairedFramesRecord.cleaned strips commas before writing, so new data cannot
-        // produce that state.
-        //
-        // Every record written here puts an exact enum raw value in each metadata field
-        // (PairedFramesRecord.make interpolates `.rawValue`), so requiring those fields to
-        // parse is a strict test at no cost. The accepted tokens come from the enums rather
-        // than a literal list, so adding a case widens the test automatically.
+        /// Four fields is necessary but not sufficient. A bare-text note with exactly three
+        /// commas, such as "reel 2, 3, 4, and 5", must not parse as a record: it would be
+        /// truncated to its first field, and the next write would keep only that text.
+        /// PairedFramesRecord.cleaned strips commas before writing, so new data cannot
+        /// produce that state.
+        ///
+        /// Every record written here puts an exact enum raw value in each metadata field
+        /// (PairedFramesRecord.make interpolates `.rawValue`), so requiring those fields to
+        /// parse is a strict test at no cost. The accepted tokens come from the enums rather
+        /// than a literal list, so adding a case widens the test automatically.
         guard components.count == 4,
               let mark    = MarkStyle(rawValue: components[1]),
               let fadeIn  = AudioFadeStyle(rawValue: components[2]),
@@ -225,16 +225,16 @@ enum PairedFramesRecord {
 }
 
 // MARK: - Frames Popover Row Helpers
-//
-// Both `ReorderableFramesList.addPopoverContent` and
-// `PairedFramesListRow.editPopoverContent` render an identical triple of rows: a
-// mark-style row and two fade-style rows (fade-in, fade-out), above an identical
-// pair of labeled text fields. The helper views below give both popovers one
-// definition of each row's structure, spacing, disabled styling, and list of
-// selectable fade styles.
-//
-// The helpers are fileprivate because they are only used within this file and
-// nowhere else in the codebase.
+///
+/// Both `ReorderableFramesList.addPopoverContent` and
+/// `PairedFramesListRow.editPopoverContent` render an identical triple of rows: a
+/// mark-style row and two fade-style rows (fade-in, fade-out), above an identical
+/// pair of labeled text fields. The helper views below give both popovers one
+/// definition of each row's structure, spacing, disabled styling, and list of
+/// selectable fade styles.
+///
+/// The helpers are fileprivate because they are only used within this file and
+/// nowhere else in the codebase.
 
 /// The mark-style row of a frames popover: an enable toggle, a static "Mark with:"
 /// label whose foreground dims when disabled, and a segmented Picker offering
@@ -247,14 +247,14 @@ fileprivate struct FramesMarkRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            // An AppKit checkbox, so it is a stop in the popover's Tab walk — see
-            // SheetCheckbox (30.20).
+            /// An AppKit checkbox, so it is a stop in the popover's Tab walk — see
+            /// SheetCheckbox (30.20).
             SheetCheckbox(isOn: $enabled)
             Text("Mark with:")
                 .font(.system(size: 12))
                 .foregroundStyle(enabled ? .primary : disabledControlTextColor)
-            // An AppKit segmented control, as the sheet's other segmented pickers are —
-            // see SheetSegmentedControl (30.20).
+            /// An AppKit segmented control, as the sheet's other segmented pickers are —
+            /// see SheetSegmentedControl (30.20).
             SheetSegmentedControl(selection: $style, segments: Self.styleSegments)
                 .frame(width: 165)
                 .disabled(!enabled)
@@ -271,22 +271,22 @@ fileprivate struct FramesFadeRow: View {
     @Binding var enabled: Bool
     @Binding var style: AudioFadeStyle
 
-    // The four selectable fade styles, as the menu's rows. Declared static so the
-    // array allocation happens once at type load time rather than on every body
-    // evaluation.
+    /// The four selectable fade styles, as the menu's rows. Declared static so the
+    /// array allocation happens once at type load time rather than on every body
+    /// evaluation.
     private static let styleItems: [SheetPopUpButton<AudioFadeStyle>.Item] =
         [.linear, .scurve, .plus, .minus].map { .option(tag: $0, title: $0.displayName) }
 
     var body: some View {
         HStack(spacing: 6) {
-            // An AppKit checkbox, so it is a stop in the popover's Tab walk — see
-            // SheetCheckbox (30.20).
+            /// An AppKit checkbox, so it is a stop in the popover's Tab walk — see
+            /// SheetCheckbox (30.20).
             SheetCheckbox(isOn: $enabled)
             Text(leadingLabel)
                 .font(.system(size: 12))
                 .foregroundStyle(enabled ? .primary : disabledControlTextColor)
-            // An AppKit pop-up, as every menu picker in the sheet is — see
-            // SheetPopUpButton (30.20).
+            /// An AppKit pop-up, as every menu picker in the sheet is — see
+            /// SheetPopUpButton (30.20).
             SheetMenuPicker(selection: $style, items: Self.styleItems, width: 85)
                 .disabled(!enabled)
             Text("in FCP.")
@@ -464,16 +464,16 @@ struct TimeCodeRangeText: View {
     @MainActor static func metrics(fontSize: CGFloat) -> Metrics {
         if let cached = metricsCache[fontSize] { return cached }
 
-        // `NSFont.systemFont(ofSize:)` is the same face SwiftUI's
-        // `.system(size:)` resolves to at these sizes and weights, so measuring
-        // through AppKit describes what SwiftUI will actually draw.
+        /// `NSFont.systemFont(ofSize:)` is the same face SwiftUI's
+        /// `.system(size:)` resolves to at these sizes and weights, so measuring
+        /// through AppKit describes what SwiftUI will actually draw.
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: fontSize)
         ]
 
-        // Rounded up rather than to nearest: a sub-column a fraction of a point
-        // narrower than its content truncates, and a fraction wider costs
-        // nothing that matters.
+        /// Rounded up rather than to nearest: a sub-column a fraction of a point
+        /// narrower than its content truncates, and a fraction wider costs
+        /// nothing that matters.
         let widestHalf = "0123456789".map { digit in
             (referenceShape.replacingOccurrences(of: "#", with: String(digit)) as NSString)
                 .size(withAttributes: attributes).width
@@ -508,7 +508,7 @@ struct TimeCodeRangeText: View {
     /// The two halves, if and only if both exist, both are time-code shaped, and
     /// both fit their sub-column.
     ///
-    /// The fit test is belt-and-braces for a well-formed code: the sub-column is
+    /// The fit test is belt-and-suspenders for a well-formed code: the sub-column is
     /// `referenceShape` in the widest numeral, so no "##:##:##" can exceed it. A
     /// hand-typed value with extra digits could, though, and that value must fall
     /// back rather than lose its tail — which is the failure this whole block
@@ -546,10 +546,10 @@ struct TimeCodeRangeText: View {
 
         return Group {
             if let halves = alignedHalves(within: metrics) {
-                // Spacing is 0 and every gap comes from a sub-column's own
-                // measured width, so the group totals what the widest possible
-                // range occupies as a single run — a point or two more than
-                // "00:00:00 – 00:00:00", which the flexible column absorbs.
+                /// Spacing is 0 and every gap comes from a sub-column's own
+                /// measured width, so the group totals what the widest possible
+                /// range occupies as a single run — a point or two more than
+                /// "00:00:00 – 00:00:00", which the flexible column absorbs.
                 HStack(spacing: 0) {
                     Text(halves.leading)
                         .frame(width: metrics.half, alignment: .leading)
@@ -564,9 +564,9 @@ struct TimeCodeRangeText: View {
         }
         .font(.system(size: fontSize))
         .lineLimit(1)
-        // Reachable only on the fallback branch — an aligned half is measured to
-        // fit before its frame is ever drawn — but kept for that branch, which
-        // draws exactly what the tables drew before this view existed.
+        /// Reachable only on the fallback branch — an aligned half is measured to
+        /// fit before its frame is ever drawn — but kept for that branch, which
+        /// draws exactly what the tables drew before this view existed.
         .truncationMode(.tail)
     }
 }
@@ -593,11 +593,11 @@ fileprivate struct StrictFramesRangeRow: View {
         self.kind = kind
         self.placeholder = placeholder
         self._text = text
-        // Seeded from the stored value at construction rather than in onAppear.
-        // A popover's content is built when it is presented and discarded when it
-        // closes, so this runs exactly once per editing session — and it runs
-        // before the first draw, which is what keeps the fields from flashing
-        // empty behind an existing record.
+        /// Seeded from the stored value at construction rather than in onAppear.
+        /// A popover's content is built when it is presented and discarded when it
+        /// closes, so this runs exactly once per editing session — and it runs
+        /// before the first draw, which is what keeps the fields from flashing
+        /// empty behind an existing record.
         let halves = FramesRangeText.split(text.wrappedValue)
         _leading  = State(initialValue: FramesRangeText.seed(halves.leading, kind: kind))
         _trailing = State(initialValue: FramesRangeText.seed(halves.trailing, kind: kind))
@@ -619,13 +619,13 @@ fileprivate struct StrictFramesRangeRow: View {
     }
 
     var body: some View {
-        // The label hugs the leading edge at its own fixed width; the field
-        // group (leading half, dash, trailing half) hugs the trailing edge.
-        // The `Spacer` between them is what does the work — it absorbs
-        // whatever width the row has beyond the label and the fields, so the
-        // two halves' right edge lands at the row's right edge regardless of
-        // how wide the popover happens to be, rather than sitting wherever
-        // the label's fixed width plus fixed field widths happen to end.
+        /// The label hugs the leading edge at its own fixed width; the field
+        /// group (leading half, dash, trailing half) hugs the trailing edge.
+        /// The `Spacer` between them is what does the work — it absorbs
+        /// whatever width the row has beyond the label and the fields, so the
+        /// two halves' right edge lands at the row's right edge regardless of
+        /// how wide the popover happens to be, rather than sitting wherever
+        /// the label's fixed width plus fixed field widths happen to end.
         HStack(spacing: 0) {
             Text(label)
                 .font(.system(size: 12))
@@ -634,12 +634,12 @@ fileprivate struct StrictFramesRangeRow: View {
             Spacer(minLength: PairedEntryFields.rowSpacing)
 
             HStack(spacing: PairedEntryFields.rowSpacing) {
-                // The leading half advances to the trailing one on fill; the
-                // trailing one does not advance at all. See `advancesOnFill`.
+                /// The leading half advances to the trailing one on fill; the
+                /// trailing one does not advance at all. See `advancesOnFill`.
                 field($leading, advancesOnFill: true)
 
-                // The dash the two halves are joined with, shown between them
-                // so the row reads as the range it will be stored as.
+                /// The dash the two halves are joined with, shown between them
+                /// so the row reads as the range it will be stored as.
                 Text("–")
                     .font(.system(size: 12))
 
@@ -647,27 +647,27 @@ fileprivate struct StrictFramesRangeRow: View {
             }
         }
         .frame(maxWidth: .infinity)
-        // Composed on every keystroke, so the Add and Update buttons measure the
-        // same value the commit will write. Writing only on change is deliberate:
-        // an untouched row never has its stored text rewritten by being looked at.
+        /// Composed on every keystroke, so the Add and Update buttons measure the
+        /// same value the commit will write. Writing only on change is deliberate:
+        /// an untouched row never has its stored text rewritten by being looked at.
         .onChange(of: leading)  { _, _ in compose() }
         .onChange(of: trailing) { _, _ in compose() }
-        // Belt and braces against the halves outliving an editing session.
-        //
-        // The seeding above happens in `init`, which SwiftUI honors only the FIRST
-        // time a given view identity appears — so it is correct only if a popover's
-        // content is genuinely torn down when it closes. It is, but that is a
-        // framework behavior this view would be silently wrong about if it ever
-        // changed: reopening the popover on a DIFFERENT row would show the previous
-        // row's halves, and the commit would then write them. `onAppear` runs on
-        // every presentation, so re-seeding here closes that gap regardless.
-        //
-        // Guarded on disagreement, and idempotent when it does run — seeding an
-        // already-seeded value returns it unchanged — so the ordinary case does two
-        // string comparisons and nothing else. Deliberately does NOT write to
-        // `text`: a legitimate disagreement also arises the moment an unnormalized
-        // legacy record is seeded ("1:23:45" displayed as "01:23:45"), and that
-        // must not be committed by merely opening the row.
+        /// Belt-and-suspenders against the halves outliving an editing session.
+        ///
+        /// The seeding above happens in `init`, which SwiftUI honors only the FIRST
+        /// time a given view identity appears — so it is correct only if a popover's
+        /// content is genuinely torn down when it closes. It is, but that is a
+        /// framework behavior this view would be silently wrong about if it ever
+        /// changed: reopening the popover on a DIFFERENT row would show the previous
+        /// row's halves, and the commit would then write them. `onAppear` runs on
+        /// every presentation, so re-seeding here closes that gap regardless.
+        ///
+        /// Guarded on disagreement, and idempotent when it does run — seeding an
+        /// already-seeded value returns it unchanged — so the ordinary case does two
+        /// string comparisons and nothing else. Deliberately does NOT write to
+        /// `text`: a legitimate disagreement also arises the moment an unnormalized
+        /// legacy record is seeded ("1:23:45" displayed as "01:23:45"), and that
+        /// must not be committed by merely opening the row.
         .onAppear {
             guard FramesRangeText.join(leading, trailing) != text else { return }
             let halves = FramesRangeText.split(text)
@@ -714,11 +714,11 @@ fileprivate struct StrictFramesRangeRow: View {
                        alignment: .natural,
                        placeholder: placeholder,
                        advancesOnFill: advancesOnFill)
-            // Fixed width and fixed height — see the note above the
-            // row's `body`. The `width:height:` overload is what takes both as
-            // plain fixed values; the `minHeight:maxHeight:` pair only exists
-            // on the flexible overload, which does not accept `width:` at all
-            // (hence the "Extra argument" error when the two were combined).
+            /// Fixed width and fixed height — see the note above the
+            /// row's `body`. The `width:height:` overload is what takes both as
+            /// plain fixed values; the `minHeight:maxHeight:` pair only exists
+            /// on the flexible overload, which does not accept `width:` at all
+            /// (hence the "Extra argument" error when the two were combined).
             .frame(width: PairedEntryFields.fieldWidth,
                    height: Self.fieldHeight)
     }
@@ -796,7 +796,7 @@ fileprivate struct PairedEntryFields: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if strictChecking {
-                // Strict mode: each row is a validated range.
+                /// Strict mode: each row is a validated range.
                 StrictFramesRangeRow(label: "Frames:",
                                      kind: .frames,
                                      placeholder: "000000",
@@ -824,9 +824,9 @@ fileprivate struct PairedEntryFields: View {
                 }
             }
         }
-        // Keyed on the mode so that toggling the preference while a popover is
-        // open rebuilds these rows — and therefore re-seeds the strict halves
-        // from the current record — rather than leaving stale state behind.
+        /// Keyed on the mode so that toggling the preference while a popover is
+        /// open rebuilds these rows — and therefore re-seeds the strict halves
+        /// from the current record — rather than leaving stale state behind.
         .id(strictChecking)
     }
 }
@@ -880,16 +880,16 @@ struct ReorderableFramesList: View {
     @State private var dismissRowPopovers = PassthroughSubject<Void, Never>()
 
     // MARK: Import Popover State
-    //
-    // The presentation flag, so a scroll or a reorder can close the popover, and the
-    // both-lists replace mode, which the popover resolves on open. The drafted text
-    // lives in the popover and opens empty on every presentation. Mirrors
-    // ReorderableStringList.
+    ///
+    /// The presentation flag, so a scroll or a reorder can close the popover, and the
+    /// both-lists replace mode, which the popover resolves on open. The drafted text
+    /// lives in the popover and opens empty on every presentation. Mirrors
+    /// ReorderableStringList.
 
     @State private var showImportPopover = false
     @State private var importReplaces = false
 
-    // Add-popover state (owned by the parent list, not per-row)
+    /// Add-popover state (owned by the parent list, not per-row)
     /// Bumped each time a row is committed, which is what asks the add row to
     /// scroll itself back into the viewport. See `ListAddRowRevealer`.
     @State private var addRevealToken = 0
@@ -918,11 +918,11 @@ struct ReorderableFramesList: View {
     private static let maxItems = 99
 
     // MARK: Row Geometry
-    //
-    // Row height, per-row inset, list padding, and every control dimension come
-    // from `ListRowMetrics` (30.20 FSControlHelpers.swift), shared with
-    // `ReorderableStringList` so the sheet's tables cannot drift apart. Only the
-    // measurements specific to this table live here.
+    ///
+    /// Row height, per-row inset, list padding, and every control dimension come
+    /// from `ListRowMetrics` (30.20 FSControlHelpers.swift), shared with
+    /// `ReorderableStringList` so the sheet's tables cannot drift apart. Only the
+    /// measurements specific to this table live here.
 
     /// Width of the mark/fade indicator block on an entry row, and of the
     /// stand-in the add row draws in its place.
@@ -1087,9 +1087,9 @@ struct ReorderableFramesList: View {
     // MARK: - Body
 
     var body: some View {
-        // `listHeight` is exactly what `listContainer` hands to
-        // `listContainerChrome(height:)`, so a deferred build reserves the space
-        // the finished table will occupy and the swap moves nothing.
+        /// `listHeight` is exactly what `listContainer` hands to
+        /// `listContainerChrome(height:)`, so a deferred build reserves the space
+        /// the finished table will occupy and the swap moves nothing.
         DeferredFieldContent(wave: renderWave, placeholderHeight: listHeight) {
             listContainer
         }
@@ -1100,29 +1100,29 @@ struct ReorderableFramesList: View {
     /// defers, rather than only part of it.
     private var listContainer: some View {
         List {
-            // `id: \.self` is what selects `ForEach`'s data-and-identity
-            // initializer over the constant-range one, which is the distinction
-            // that actually matters here: the row count changes with every add,
-            // delete, and import, and the constant-range form does not support
-            // that. Stating the identity is sufficient for it — the range needs
-            // no `Array` around it, which is what the string and text lists have
-            // always done with `items.indices` (the same `Range<Int>` type).
-            // Materializing one allocated a fresh array on every body pass, up
-            // to 99 elements, for a value `ForEach` reads and discards.
+            /// `id: \.self` is what selects `ForEach`'s data-and-identity
+            /// initializer over the constant-range one, which is the distinction
+            /// that actually matters here: the row count changes with every add,
+            /// delete, and import, and the constant-range form does not support
+            /// that. Stating the identity is sufficient for it — the range needs
+            /// no `Array` around it, which is what the string and text lists have
+            /// always done with `items.indices` (the same `Range<Int>` type).
+            /// Materializing one allocated a fresh array on every body pass, up
+            /// to 99 elements, for a value `ForEach` reads and discards.
             ForEach(0..<rowCount, id: \.self) { index in
                 PairedFramesListRow(
                     index: index,
-                    // Each row receives only its own two records, never the
-                    // arrays. Handing the arrays down would make every row an
-                    // observer of every edit, so a single commit would
-                    // re-evaluate up to 99 row bodies.
+                    /// Each row receives only its own two records, never the
+                    /// arrays. Handing the arrays down would make every row an
+                    /// observer of every edit, so a single commit would
+                    /// re-evaluate up to 99 row bodies.
                     frameRecord: index < frames.count ? frames[index] : nil,
                     timecodeRecord: index < timecodes.count ? timecodes[index] : nil,
                     dismissRowPopovers: dismissRowPopovers,
-                    // The arrays live here, so the duplicate comparison, the
-                    // position verification, and both writes do too. The row
-                    // hands over the finished pair and the pair it opened
-                    // against; see `updateRow` and `deleteRow`.
+                    /// The arrays live here, so the duplicate comparison, the
+                    /// position verification, and both writes do too. The row
+                    /// hands over the finished pair and the pair it opened
+                    /// against; see `updateRow` and `deleteRow`.
                     onUpdate: { pair, expectedFrame, expectedTimecode in
                         updateRow(at: index,
                                   to: pair,
@@ -1138,74 +1138,74 @@ struct ReorderableFramesList: View {
                 .listRowInsets(ListRowMetrics.rowInsets)
             }
             .onMove { source, destination in
-                // Editors must close before the move, on the same terms as the
-                // string list's `endEditing()`: a popover is anchored to a row
-                // at a position, and the move redefines what occupies it.
-                //
-                // In practice a transient `NSPopover` is dismissed by the drag's
-                // own mouseDown before this runs, so this is the belt to that
-                // brace — and the `expecting` checks on both the update and the
-                // delete are what make a late commit safe rather than merely
-                // unlikely.
+                /// Editors must close before the move, on the same terms as the
+                /// string list's `endEditing()`: a popover is anchored to a row
+                /// at a position, and the move redefines what occupies it.
+                ///
+                /// In practice a transient `NSPopover` is dismissed by the drag's
+                /// own mouseDown before this runs, so this is the belt to that
+                /// brace — and the `expecting` checks on both the update and the
+                /// delete are what make a late commit safe rather than merely
+                /// unlikely.
                 closeAllEditors()
-                // Both arrays move together, which is the guarantee two separate
-                // tables could not make. `mutate` normalizes first, so the
-                // offsets are valid in both even for a legacy uneven pair.
+                /// Both arrays move together, which is the guarantee two separate
+                /// tables could not make. `mutate` normalizes first, so the
+                /// offsets are valid in both even for a legacy uneven pair.
                 mutate { f, t in
                     f.move(fromOffsets: source, toOffset: destination)
                     t.move(fromOffsets: source, toOffset: destination)
                 }
             }
 
-            // The add row, outside the `ForEach` and therefore outside
-            // `.onMove` — it is not an entry, so it must be neither draggable
-            // nor a valid drop destination. `.onMove` bounds both the source and
-            // the destination to its own `ForEach`'s range, so keeping this a
-            // sibling gives that for free.
+            /// The add row, outside the `ForEach` and therefore outside
+            /// `.onMove` — it is not an entry, so it must be neither draggable
+            /// nor a valid drop destination. `.onMove` bounds both the source and
+            /// the destination to its own `ForEach`'s range, so keeping this a
+            /// sibling gives that for free.
             addRow
-                // The add row's leading indent flips with the table's emptiness
-                // (see `addRow`: the index-column stand-in is only reserved once
-                // there is a row to align against). That flip must not slide —
-                // animating a horizontal shift of the placeholder concurrently
-                // with a row insert reads as the label being dragged sideways by
-                // the row rather than as the column simply appearing.
+                /// The add row's leading indent flips with the table's emptiness
+                /// (see `addRow`: the index-column stand-in is only reserved once
+                /// there is a row to align against). That flip must not slide —
+                /// animating a horizontal shift of the placeholder concurrently
+                /// with a row insert reads as the label being dragged sideways by
+                /// the row rather than as the column simply appearing.
                 .animation(nil, value: rowCount == 0)
-                // Brings this row back into the viewport after a commit pushes
-                // it down. A background contributes no layout and consumes no
-                // events, so the row is unaffected.
+                /// Brings this row back into the viewport after a commit pushes
+                /// it down. A background contributes no layout and consumes no
+                /// events, so the row is unaffected.
                 .background(ListAddRowRevealer(token: addRevealToken))
                 .listRowInsets(ListRowMetrics.rowInsets)
         }
-        // List style, sizing, clip, border, and shadow — one modifier, shared with the
-        // string and text lists so all three tables are drawn identically and in
-        // the same order. The order is load-bearing: sizing before the clip is
-        // what keeps the last alternating background band's overhang from
-        // escaping it as a one-point sliver below the border. The full account is
-        // on `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
+        /// List style, sizing, clip, border, and shadow — one modifier, shared with the
+        /// string and text lists so all three tables are drawn identically and in
+        /// the same order. The order is load-bearing: sizing before the clip is
+        /// what keeps the last alternating background band's overhang from
+        /// escaping it as a one-point sliver below the border. The full account is
+        /// on `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
-        // Scroll detection, done in AppKit rather than in SwiftUI.
-        // `ScrollActivityObserver` (30.20 FSControlHelpers.swift) watches the
-        // enclosing clip view's bounds — the signal AppKit already posts for its
-        // own use — so SwiftUI does no work at all until something actually has
-        // to change, which with the per-row `.onReceive` means only when a
-        // popover is open.
+        /// Scroll detection, done in AppKit rather than in SwiftUI.
+        /// `ScrollActivityObserver` (30.20 FSControlHelpers.swift) watches the
+        /// enclosing clip view's bounds — the signal AppKit already posts for its
+        /// own use — so SwiftUI does no work at all until something actually has
+        /// to change, which with the per-row `.onReceive` means only when a
+        /// popover is open.
         .background(
             ScrollActivityObserver {
                 closeAllEditors()
             }
         )
-        // Raised by `commitAdd` and by a row's Update when the finished pair
-        // already exists verbatim on another row.
+        /// Raised by `commitAdd` and by a row's Update when the finished pair
+        /// already exists verbatim on another row.
         .listDuplicateAlert($duplicatePrompt)
-        // Attached to the List rather than to the button that raises it, for the
-        // reason `duplicatePrompt` is held here: the add row is rebuilt as the
-        // table's contents change, and an alert anchored to a view that the
-        // confirmed action itself destroys has nothing left to dismiss from.
-        .alert("Clear Table Contents", isPresented: $showClearAlert) {
+        /// Attached to the List rather than to the button that raises it, for the
+        /// reason `duplicatePrompt` is held here: the add row is rebuilt as the
+        /// table's contents change, and an alert anchored to a view that the
+        /// confirmed action itself destroys has nothing left to dismiss from.
+        .alert("Clear Table?", isPresented: $showClearAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Clear Table", role: .destructive) { clearTable() }
         } message: {
-            Text("Are you sure you want to clear the HandBrake Frames table's contents? This action cannot be undone unless all changes to the sheet are discarded.")
+            Text("The HandBrake Frames table's contents will be cleared. This action cannot be undone unless all changes to the sheet are discarded.")
         }
     }
 
@@ -1220,45 +1220,45 @@ struct ReorderableFramesList: View {
     /// exactly as it already is for the per-row "info" button.
     private var addRow: some View {
         HStack(spacing: 8) {
-            // The index column and the first data column, grouped so the gap
-            // after the period is set by `indexTrailingGap` here exactly as it
-            // is on an entry row — the placeholder therefore begins precisely
-            // where a row's frame number does.
+            /// The index column and the first data column, grouped so the gap
+            /// after the period is set by `indexTrailingGap` here exactly as it
+            /// is on an entry row — the placeholder therefore begins precisely
+            /// where a row's frame number does.
             HStack(spacing: Self.indexTrailingGap) {
-                // The index column's slot on the add row. It holds one of
-                // three things, and its width is the same in all three cases so
-                // the placeholder beside it never moves:
-                //
-                //  - two or more rows: the clear-table control, centered on the
-                //    column of index numbers above it;
-                //  - exactly one row: an empty stand-in, so the placeholder
-                //    still aligns with that row's text;
-                //  - no rows: nothing at all. The index column exists in nothing
-                //    but the stand-in at that point, so holding it open indents
-                //    the placeholder against no visible column — which reads as
-                //    a layout error rather than as alignment.
-                //
-                // The two-row threshold is deliberate. Clearing a one-row table
-                // is the row's own Delete with an extra confirmation in front of
-                // it, so the control would offer nothing the user does not
-                // already have, and a destructive button that appears the
-                // instant a table stops being empty invites a misclick for no
-                // gain.
+                /// The index column's slot on the add row. It holds one of
+                /// three things, and its width is the same in all three cases so
+                /// the placeholder beside it never moves:
+                ///
+                ///  - two or more rows: the clear-table control, centered on the
+                ///    column of index numbers above it;
+                ///  - exactly one row: an empty stand-in, so the placeholder
+                ///    still aligns with that row's text;
+                ///  - no rows: nothing at all. The index column exists in nothing
+                ///    but the stand-in at that point, so holding it open indents
+                ///    the placeholder against no visible column — which reads as
+                ///    a layout error rather than as alignment.
+                ///
+                /// The two-row threshold is deliberate. Clearing a one-row table
+                /// is the row's own Delete with an extra confirmation in front of
+                /// it, so the control would offer nothing the user does not
+                /// already have, and a destructive button that appears the
+                /// instant a table stops being empty invites a misclick for no
+                /// gain.
                 if rowCount >= 2 {
                     ListCircleButton(
                         systemImage: "xmark",
                         fill: Preferences.red,
                         diameter: ListRowMetrics.circleDiameter,
-                        // Smaller than the "+" it shares the row with, which is
-                        // what makes it read as the same size: `xmark` runs its
-                        // strokes corner to corner where `plus` stops short of
-                        // its box, so nominal parity draws a visibly larger
-                        // mark — the wrong emphasis for the one control here
-                        // that destroys data. See `xmarkGlyphSize`.
+                        /// Smaller than the "+" it shares the row with, which is
+                        /// what makes it read as the same size: `xmark` runs its
+                        /// strokes corner to corner where `plus` stops short of
+                        /// its box, so nominal parity draws a visibly larger
+                        /// mark — the wrong emphasis for the one control here
+                        /// that destroys data. See `xmarkGlyphSize`.
                         glyphSize: ListRowMetrics.xmarkGlyphSize,
                         help: "Clear all entries",
-                        // Per-symbol correction, held with the family's others
-                        // rather than as a literal here.
+                        /// Per-symbol correction, held with the family's others
+                        /// rather than as a literal here.
                         glyphOffset: ListCircleButtonStyle.xmarkGlyphOffset,
                         action: { showClearAlert = true }
                     )
@@ -1269,49 +1269,49 @@ struct ReorderableFramesList: View {
                         .frame(width: Self.indexColumnWidth, height: 12)
                 }
 
-                // At the cap the invitation is replaced by the reason there is
-                // none: the "+" beside it can only gray out and darken, which
-                // says "not now" without saying why. Scaled rather than
-                // truncated, because a sentence cut off mid-word explains
-                // nothing.
+                /// At the cap the invitation is replaced by the reason there is
+                /// none: the "+" beside it can only gray out and darken, which
+                /// says "not now" without saying why. Scaled rather than
+                /// truncated, because a sentence cut off mid-word explains
+                /// nothing.
                 Text(canAdd ? "Add new…" : ListAddRowCopy.atCapacity)
                     .font(.system(size: 12))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                     .foregroundStyle(.tertiary)
-                    // Applied only while the index stand-in above is withdrawn.
-                    // It is the same inset `ReorderableStringList` and
-                    // `ReorderableTextList` give their own placeholders, so an
-                    // empty frames table's "Add new…" begins in the same column
-                    // as theirs.
+                    /// Applied only while the index stand-in above is withdrawn.
+                    /// It is the same inset `ReorderableStringList` and
+                    /// `ReorderableTextList` give their own placeholders, so an
+                    /// empty frames table's "Add new…" begins in the same column
+                    /// as theirs.
                     .padding(.leading, rowCount == 0 ? ListRowMetrics.fieldTextInset : 0)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            // Stand-in for the metadata glyph block, so the "+" sits in the same
-            // column as the rows' "info" buttons rather than drifting left.
-            // Narrowed by exactly the width the bulk-import control occupies —
-            // see `ListRowMetrics.controlSpan` — so that column is unmoved by
-            // the control's presence.
-            //
-            // Omitted at the cap, so the at-capacity sentence has the full width
-            // up to the trailing controls to run in. The "+" is disabled in that
-            // state, so there is nothing left for the column alignment to serve.
+            /// Stand-in for the metadata glyph block, so the "+" sits in the same
+            /// column as the rows' "info" buttons rather than drifting left.
+            /// Narrowed by exactly the width the bulk-import control occupies —
+            /// see `ListRowMetrics.controlSpan` — so that column is unmoved by
+            /// the control's presence.
+            ///
+            /// Omitted at the cap, so the at-capacity sentence has the full width
+            /// up to the trailing controls to run in. The "+" is disabled in that
+            /// state, so there is nothing left for the column alignment to serve.
             if canAdd {
                 Color.clear
                     .frame(width: Self.metadataBlockWidth - ListRowMetrics.controlSpan, height: 12)
             }
 
-            // Bulk import, in the slot immediately left of the "+", from the
-            // shared control all three tables present it with. The account of
-            // why it is permanently gray and deliberately NOT gated on `canAdd`
-            // lives on `ListBulkImportButton` (30.20 FSControlHelpers.swift).
+            /// Bulk import, in the slot immediately left of the "+", from the
+            /// shared control all three tables present it with. The account of
+            /// why it is permanently gray and deliberately NOT gated on `canAdd`
+            /// lives on `ListBulkImportButton` (30.20 FSControlHelpers.swift).
             ListBulkImportButton(
                 isPresented: $showImportPopover,
                 help: "Add multiple entries from comma-separated lists",
                 onOpen: {
-                    // Replace mode is the only mode that can do anything at the
-                    // cap, so the popover opens in it and locks it.
+                    /// Replace mode is the only mode that can do anything at the
+                    /// cap, so the popover opens in it and locks it.
                     importReplaces = !canAdd
                 },
                 popoverContent: { importPopoverContent }
@@ -1321,17 +1321,17 @@ struct ReorderableFramesList: View {
                 systemImage: "plus",
                 fill: Preferences.green,
                 diameter: ListRowMetrics.circleDiameter,
-                // "plus" is optically heavier than "info" at the same nominal
-                // size, so it is set fractionally smaller. Matches the string
-                // list's add row.
+                /// "plus" is optically heavier than "info" at the same nominal
+                /// size, so it is set fractionally smaller. Matches the string
+                /// list's add row.
                 glyphSize: ListRowMetrics.plusGlyphSize,
                 isActive: showAddPopover,
-                // Disabled at the cap; the factory substitutes its own gray fill
-                // in that state, which is why no fill is chosen for it here.
+                /// Disabled at the cap; the factory substitutes its own gray fill
+                /// in that state, which is why no fill is chosen for it here.
                 isEnabled: canAdd,
                 help: "Add an entry",
-                // Per-symbol correction, shared with the string list's add row
-                // so both tables' "+" sit identically in their circles.
+                /// Per-symbol correction, shared with the string list's add row
+                /// so both tables' "+" sit identically in their circles.
                 glyphOffset: ListCircleButtonStyle.plusGlyphOffset,
                 action: {
                     resetAddFields()
@@ -1366,14 +1366,14 @@ struct ReorderableFramesList: View {
             currentCount: rowCount,
             replaces: $importReplaces,
             onImport: { parsedFrames, parsedTimecodes, replacingFrames, replacingTimecodes in
-                // Dismiss, then commit once the popover has finished closing.
-                // An import changes the row count, which moves this popover's
-                // own anchor — see `ListPopoverDismissal`.
-                //
-                // The two dispositions are carried through rather than re-read
-                // from `importReplaces` at commit time: only the both-lists
-                // switch is stored there, and the per-list switches live and die
-                // with the presentation that is closing as this runs.
+                /// Dismiss, then commit once the popover has finished closing.
+                /// An import changes the row count, which moves this popover's
+                /// own anchor — see `ListPopoverDismissal`.
+                ///
+                /// The two dispositions are carried through rather than re-read
+                /// from `importReplaces` at commit time: only the both-lists
+                /// switch is stored there, and the per-list switches live and die
+                /// with the presentation that is closing as this runs.
                 showImportPopover = false
                 ListPopoverDismissal.afterClose {
                     commitImport(frameEntries: parsedFrames,
@@ -1422,16 +1422,16 @@ struct ReorderableFramesList: View {
                 Spacer()
 
                 Button("Add") {
-                    // Dismiss BEFORE committing. The commit may raise the
-                    // duplicate confirmation, and an alert presented while this
-                    // popover is still up would be competing with it for the
-                    // window's presentation. The write itself is unaffected: it
-                    // is performed by the table, not by this view.
-                    //
-                    // Held until the close animation has finished, additionally,
-                    // because the appended row grows the table under a popover
-                    // that is still tracking its anchor — see
-                    // `ListPopoverDismissal`.
+                    /// Dismiss BEFORE committing. The commit may raise the
+                    /// duplicate confirmation, and an alert presented while this
+                    /// popover is still up would be competing with it for the
+                    /// window's presentation. The write itself is unaffected: it
+                    /// is performed by the table, not by this view.
+                    ///
+                    /// Held until the close animation has finished, additionally,
+                    /// because the appended row grows the table under a popover
+                    /// that is still tracking its anchor — see
+                    /// `ListPopoverDismissal`.
                     showAddPopover = false
                     ListPopoverDismissal.afterClose { commitAdd() }
                 }
@@ -1458,8 +1458,8 @@ struct ReorderableFramesList: View {
     /// actually changes something, which is also the first moment it can matter.
     private func paddedArrays() -> (frames: [String], timecodes: [String]) {
         let n = max(frames.count, timecodes.count)
-        // At most one side is short, and the other is exactly `n` long, so each pad reads
-        // its flags from a counterpart that has a record at every position it fills.
+        /// At most one side is short, and the other is exactly `n` long, so each pad reads
+        /// its flags from a counterpart that has a record at every position it fills.
         return (Self.padded(frames, to: n, flagsFrom: timecodes),
                 Self.padded(timecodes, to: n, flagsFrom: frames))
     }
@@ -1525,10 +1525,10 @@ struct ReorderableFramesList: View {
     }
 
     private func commitAdd() {
-        // Bounded here as well as at the "+" button. The button is disabled at
-        // the cap, so this cannot normally be reached — but the cap is a limit
-        // on the model, not a UI rule, and `commitImport` enforces it on its own
-        // path rather than trusting its caller for the same reason.
+        /// Bounded here as well as at the "+" button. The button is disabled at
+        /// the cap, so this cannot normally be reached — but the cap is a limit
+        /// on the model, not a UI rule, and `commitImport` enforces it on its own
+        /// path rather than trusting its caller for the same reason.
         guard canAdd else { return }
         guard let pair = assembledAddPair() else { return }
         confirmingDuplicate(pair, excluding: nil,
@@ -1546,8 +1546,8 @@ struct ReorderableFramesList: View {
             f.append(pair.frame)
             t.append(pair.timecode)
         }
-        // Only on a write that actually grew the table, so a rejected draft
-        // leaves the viewport alone.
+        /// Only on a write that actually grew the table, so a rejected draft
+        /// leaves the viewport alone.
         addRevealToken &+= 1
     }
 
@@ -1691,11 +1691,11 @@ struct ReorderableFramesList: View {
             removePair(at: index)
             return
         }
-        // The search runs over the normalized arrays, so an expectation of `nil`
-        // — a side that had no record — is matched against the placeholder the
-        // normalization gives it, which is exactly what that position will hold
-        // once the removal's own `mutate` normalizes. That placeholder carries the
-        // other half's flags; see `padded(_:to:flagsFrom:)`.
+        /// The search runs over the normalized arrays, so an expectation of `nil`
+        /// — a side that had no record — is matched against the placeholder the
+        /// normalization gives it, which is exactly what that position will hold
+        /// once the removal's own `mutate` normalizes. That placeholder carries the
+        /// other half's flags; see `padded(_:to:flagsFrom:)`.
         let (f, t) = paddedArrays()
         let wantedFrame = expectingFrame ?? Self.placeholder(pairedWith: expectingTimecode)
         let wantedTimecode = expectingTimecode ?? Self.placeholder(pairedWith: expectingFrame)
@@ -1773,15 +1773,15 @@ struct ReorderableFramesList: View {
                               replacingTimecodes: Bool) {
         guard !frameEntries.isEmpty || !timecodeEntries.isEmpty else { return }
 
-        // Normalized first, so a position is a row in both arrays and the
-        // inheritance lookups below are indexed unambiguously.
+        /// Normalized first, so a position is a row in both arrays and the
+        /// inheritance lookups below are indexed unambiguously.
         let (currentFrames, currentTimecodes) = paddedArrays()
 
-        // Inheritance applies only to the column being rebuilt over a column
-        // that is being kept. When both are replaced — the both-lists mode, or
-        // both per-list switches checked — there is no surviving row to read
-        // flags from, and taking them from an array that is itself about to be
-        // discarded would resurrect metadata the user asked to clear.
+        /// Inheritance applies only to the column being rebuilt over a column
+        /// that is being kept. When both are replaced — the both-lists mode, or
+        /// both per-list switches checked — there is no surviving row to read
+        /// flags from, and taking them from an array that is itself about to be
+        /// discarded would resurrect metadata the user asked to clear.
         let newFrames = Self.importRecords(
             from: frameEntries,
             inheritingFrom: (replacingFrames && !replacingTimecodes) ? currentTimecodes : nil)
@@ -1792,51 +1792,51 @@ struct ReorderableFramesList: View {
         var updatedFrames = replacingFrames ? newFrames : currentFrames + newFrames
         var updatedTimecodes = replacingTimecodes ? newTimecodes : currentTimecodes + newTimecodes
 
-        // The cap is a row count, and a row exists wherever either column has an
-        // entry — so the pair is measured by its longer half. Resolved BEFORE
-        // either array is written, which is what keeps a refused batch from
-        // landing in one array and leaving the other untouched.
+        /// The cap is a row count, and a row exists wherever either column has an
+        /// entry — so the pair is measured by its longer half. Resolved BEFORE
+        /// either array is written, which is what keeps a refused batch from
+        /// landing in one array and leaving the other untouched.
         let count = max(updatedFrames.count, updatedTimecodes.count)
-        // Zero is not reachable from an enabled Import button, which requires at
-        // least one parsed entry. Refused rather than written regardless: an
-        // import that emptied the table would be a destructive operation behind
-        // a button that does not describe one, and clearing has its own
-        // confirmed control.
+        /// Zero is not reachable from an enabled Import button, which requires at
+        /// least one parsed entry. Refused rather than written regardless: an
+        /// import that emptied the table would be a destructive operation behind
+        /// a button that does not describe one, and clearing has its own
+        /// confirmed control.
         guard count > 0, count <= Self.maxItems else { return }
 
         updatedFrames = Self.padded(updatedFrames, to: count, flagsFrom: updatedTimecodes)
         updatedTimecodes = Self.padded(updatedTimecodes, to: count, flagsFrom: updatedFrames)
 
-        // Close any open editor, matching the `endEditing()`
-        // `ReorderableStringList.commitImport` performs at this same point and
-        // the `closeAllEditors()` `ReorderableTextList.commitImport` performs at
-        // its own. Ordered after the guard for the reason the string list
-        // states: a rejected batch must not close a field the user is still
-        // working in.
-        //
-        // The gap this closes is real but narrow. The commit is dispatched
-        // through `ListPopoverDismissal.afterClose`, and the sheet stays fully
-        // interactive across that interval — so a row's edit popover can be
-        // opened between the Import click and this running. An import that
-        // replaces a column then redefines or removes the row that popover is
-        // anchored to, leaving an editor floating over a row that no longer
-        // holds the pair it was opened on. The `expecting` checks in `writeRow`
-        // and `deleteRow` already make a late commit from such an editor a no-op
-        // rather than a write to the wrong row; this closes the visual half
-        // those checks cannot reach. The editor is drafted, so closing it
-        // discards nothing that was committed.
+        /// Close any open editor, matching the `endEditing()`
+        /// `ReorderableStringList.commitImport` performs at this same point and
+        /// the `closeAllEditors()` `ReorderableTextList.commitImport` performs at
+        /// its own. Ordered after the guard for the reason the string list
+        /// states: a rejected batch must not close a field the user is still
+        /// working in.
+        ///
+        /// The gap this closes is real but narrow. The commit is dispatched
+        /// through `ListPopoverDismissal.afterClose`, and the sheet stays fully
+        /// interactive across that interval — so a row's edit popover can be
+        /// opened between the Import click and this running. An import that
+        /// replaces a column then redefines or removes the row that popover is
+        /// anchored to, leaving an editor floating over a row that no longer
+        /// holds the pair it was opened on. The `expecting` checks in `writeRow`
+        /// and `deleteRow` already make a late commit from such an editor a no-op
+        /// rather than a write to the wrong row; this closes the visual half
+        /// those checks cannot reach. The editor is drafted, so closing it
+        /// discards nothing that was committed.
         closeAllEditors()
 
-        // Measured before the write, so the comparison is against the table the
-        // import is replacing rather than the one it produced.
+        /// Measured before the write, so the comparison is against the table the
+        /// import is replacing rather than the one it produced.
         let grew = count > rowCount
         if updatedFrames != frames { frames = updatedFrames }
         if updatedTimecodes != timecodes { timecodes = updatedTimecodes }
 
-        // The add row moves down by one row per entry gained, so a bulk import
-        // can push it well below the fold. Only on growth: an import that
-        // shrinks the table moves the add row UP, and scrolling to it then would
-        // drag the viewport for no reason.
+        /// The add row moves down by one row per entry gained, so a bulk import
+        /// can push it well below the fold. Only on growth: an import that
+        /// shrinks the table moves the add row UP, and scrolling to it then would
+        /// drag the viewport for no reason.
         if grew { addRevealToken &+= 1 }
     }
 
@@ -1947,15 +1947,15 @@ private struct PairedFramesListRow: View {
     /// `ReorderableFramesList.deleteRow(at:expectingFrame:expectingTimecode:)`.
     let onDelete: (String?, String?) -> Void
 
-    // Row control geometry comes from `ListRowMetrics`, shared with
-    // `StringListRow`'s per-row controls: 16pt of circle plus the button style's
-    // 2pt shadow margin on each side is exactly the row's 20pt content height,
-    // so the button fits without forcing the row taller.
+    /// Row control geometry comes from `ListRowMetrics`, shared with
+    /// `StringListRow`'s per-row controls: 16pt of circle plus the button style's
+    /// 2pt shadow margin on each side is exactly the row's 20pt content height,
+    /// so the button fits without forcing the row taller.
 
-    // Each row owns its popover state independently
+    /// Each row owns its popover state independently
     @State private var showPopover = false
 
-    // Popover edit fields
+    /// Popover edit fields
     @State private var entryFrameText = ""
     @State private var entryTimecodeText = ""
     @State private var entryMarkEnabled = false
@@ -1965,13 +1965,13 @@ private struct PairedFramesListRow: View {
     @State private var entryFadeOutEnabled = false
     @State private var entryFadeOut = AudioFadeStyle.scurve
 
-    // Parse results, computed once per construction. The table constructs a row only
-    // when its own body re-runs, which is when a record can have changed. Plain values
-    // cannot lag the records they describe; a cached `@State` copy would need an
-    // `onChange` per record to stay current.
-    //
-    // Declared through `FramesEntryParser.Entry` rather than by restating the tuple, so
-    // their shape cannot fall out of step with what the parser actually returns.
+    /// Parse results, computed once per construction. The table constructs a row only
+    /// when its own body re-runs, which is when a record can have changed. Plain values
+    /// cannot lag the records they describe; a cached `@State` copy would need an
+    /// `onChange` per record to stay current.
+    ///
+    /// Declared through `FramesEntryParser.Entry` rather than by restating the tuple, so
+    /// their shape cannot fall out of step with what the parser actually returns.
     private let parsedFrame: FramesEntryParser.Entry
     private let parsedTimecode: FramesEntryParser.Entry
 
@@ -2009,38 +2009,38 @@ private struct PairedFramesListRow: View {
     }
 
     var body: some View {
-        // Resolved once per pass and reused by all three glyph blocks below,
-        // rather than recomputed at each of them.
+        /// Resolved once per pass and reused by all three glyph blocks below,
+        /// rather than recomputed at each of them.
         let marks = flags
 
-        // Spacing is 0 here rather than a uniform value, and each gap is drawn
-        // as its own fixed-width `Spacer` below, so the trailing gap to the
-        // edit button can be tightened independently of the row's other two
-        // gaps without disturbing them.
+        /// Spacing is 0 here rather than a uniform value, and each gap is drawn
+        /// as its own fixed-width `Spacer` below, so the trailing gap to the
+        /// edit button can be tightened independently of the row's other two
+        /// gaps without disturbing them.
         HStack(spacing: 0) {
-            // Index and frames column, grouped so the gap after the period is
-            // set independently of the gaps between the row's other columns.
+            /// Index and frames column, grouped so the gap after the period is
+            /// set independently of the gaps between the row's other columns.
             HStack(spacing: ReorderableFramesList.indexTrailingGap) {
-                // Index (monospaced, always 2 digits).
-                //
-                // Zero-padded rather than drawn as the bare ordinal. The column
-                // is trailing-aligned and the font is monospaced, so an unpadded
-                // index already lined up on its period — but rows 1 through 9
-                // then left the tens place blank, breaking the column of
-                // numerals that the rows from 10 up form. Padding fills that
-                // place, which also makes the index exactly three glyphs on
-                // every row: the assumption `clearButtonCenteringOffset` is
-                // derived from, and it holds for every row.
-                //
-                // Two places suffices because `maxItems` caps the table at 99
-                // rows.
+                /// Index (monospaced, always 2 digits).
+                ///
+                /// Zero-padded rather than drawn as the bare ordinal. The column
+                /// is trailing-aligned and the font is monospaced, so an unpadded
+                /// index already lined up on its period — but rows 1 through 9
+                /// then left the tens place blank, breaking the column of
+                /// numerals that the rows from 10 up form. Padding fills that
+                /// place, which also makes the index exactly three glyphs on
+                /// every row: the assumption `clearButtonCenteringOffset` is
+                /// derived from, and it holds for every row.
+                ///
+                /// Two places suffices because `maxItems` caps the table at 99
+                /// rows.
                 Text("\(Fmt.padded(index + 1, 2)).")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .frame(width: ReorderableFramesList.indexColumnWidth, alignment: .trailing)
 
-                // Frames column — fixed width, left-aligned, so every row's
-                // frame number begins at the same x.
+                /// Frames column — fixed width, left-aligned, so every row's
+                /// frame number begins at the same x.
                 Text(parsedFrame.text)
                     .font(.system(size: 12))
                     .lineLimit(1)
@@ -2051,34 +2051,34 @@ private struct PairedFramesListRow: View {
             Spacer()
                 .frame(width: ReorderableFramesList.indexGroupTrailingGap)
 
-            // Time-codes column — takes the remaining width, left-aligned for
-            // the same reason. Its left edge is fixed because everything before
-            // it is.
-            // Drawn in three sub-columns rather than as one run, so the dash and
-            // the ending code land at the same x on every row despite the
-            // proportional face. Font, line limit, and truncation belong to that
-            // view, which needs the point size to derive its sub-column widths.
-            // It falls back to a plain run for any value it cannot align, so the
-            // flexible frame around it is still the operative one in that case.
+            /// Time-codes column — takes the remaining width, left-aligned for
+            /// the same reason. Its left edge is fixed because everything before
+            /// it is.
+            /// Drawn in three sub-columns rather than as one run, so the dash and
+            /// the ending code land at the same x on every row despite the
+            /// proportional face. Font, line limit, and truncation belong to that
+            /// view, which needs the point size to derive its sub-column widths.
+            /// It falls back to a plain run for any value it cannot align, so the
+            /// flexible frame around it is still the operative one in that case.
             TimeCodeRangeText(text: parsedTimecode.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
                 .frame(width: ReorderableFramesList.timecodeTrailingGap)
 
-            // Metadata glyphs with fixed-width containers for alignment. One set
-            // per ROW, not per array: the pair carries one mark and one pair of
-            // fades, which removes the hand-synchronization the combined table exists
-            // to prevent.
-            // Spacings and container widths come from the table's geometry
-            // constants rather than from literals here, so the block and the
-            // `metadataBlockWidth` the add row's stand-in is sized to are
-            // computed from one set of numbers. The mark-to-pair gap and the
-            // pair-to-pair gap are set independently — `metadataGlyphSpacing`
-            // and `pairGroupSpacing` respectively — so the two fade pairs can
-            // sit tighter to each other than either does to the mark.
+            /// Metadata glyphs with fixed-width containers for alignment. One set
+            /// per ROW, not per array: the pair carries one mark and one pair of
+            /// fades, which removes the hand-synchronization the combined table exists
+            /// to prevent.
+            /// Spacings and container widths come from the table's geometry
+            /// constants rather than from literals here, so the block and the
+            /// `metadataBlockWidth` the add row's stand-in is sized to are
+            /// computed from one set of numbers. The mark-to-pair gap and the
+            /// pair-to-pair gap are set independently — `metadataGlyphSpacing`
+            /// and `pairGroupSpacing` respectively — so the two fade pairs can
+            /// sit tighter to each other than either does to the mark.
             HStack(spacing: ReorderableFramesList.metadataGlyphSpacing) {
-                // Mark indicator
+                /// Mark indicator
                 Group {
                     if marks.mark != .none {
                         Image(systemName: marks.mark.symbolName)
@@ -2091,8 +2091,8 @@ private struct PairedFramesListRow: View {
                 .frame(width: ReorderableFramesList.markGlyphWidth, height: 12)
 
                 HStack(spacing: ReorderableFramesList.pairGroupSpacing) {
-                    // Fade-in indicator: direction arrow plus curve shape, set
-                    // tighter to each other than to anything around them.
+                    /// Fade-in indicator: direction arrow plus curve shape, set
+                    /// tighter to each other than to anything around them.
                     HStack(spacing: ReorderableFramesList.fadeGlyphSpacing) {
                         Group {
                             if marks.fadeIn != .none {
@@ -2115,7 +2115,7 @@ private struct PairedFramesListRow: View {
                     }
                     .frame(width: ReorderableFramesList.fadePairWidth)
 
-                    // Fade-out indicator — same pairing, same tightening.
+                    /// Fade-out indicator — same pairing, same tightening.
                     HStack(spacing: ReorderableFramesList.fadeGlyphSpacing) {
                         Group {
                             if marks.fadeOut != .none {
@@ -2139,30 +2139,30 @@ private struct PairedFramesListRow: View {
                     .frame(width: ReorderableFramesList.fadePairWidth)
                 }
             }
-            // Shared with the add row's stand-in, which subtracts the
-            // bulk-import control's span from this same value. Restating a
-            // literal in either place would let the trailing controls fall out
-            // of column silently.
+            /// Shared with the add row's stand-in, which subtracts the
+            /// bulk-import control's span from this same value. Restating a
+            /// literal in either place would let the trailing controls fall out
+            /// of column silently.
             .frame(width: ReorderableFramesList.metadataBlockWidth)
 
-            // Trailing gap to the edit button — see `trailingGlyphGap`. Set
-            // explicitly here — rather than folded into the outer HStack's own
-            // spacing — so this one gap can be adjusted without moving the
-            // index/frames, time-code, or glyph groups relative to each other.
+            /// Trailing gap to the edit button — see `trailingGlyphGap`. Set
+            /// explicitly here — rather than folded into the outer HStack's own
+            /// spacing — so this one gap can be adjusted without moving the
+            /// index/frames, time-code, or glyph groups relative to each other.
             Spacer()
                 .frame(width: ReorderableFramesList.trailingGlyphGap)
 
-            // Edit button — toggles the popover for this specific row.
-            //
-            // Built from the shared factory rather than drawn inline, so it is
-            // the same control as the string list's per-row pencil: same
-            // diameter, same glyph weight, same shadow, same press response.
-            // `info` rather than `info.circle` because the factory already
-            // supplies the circle.
-            //
-            // `isActive` holds the accent fill for as long as the popover is
-            // open. `showPopover` is this row's own state, so no other row's
-            // button lights up.
+            /// Edit button — toggles the popover for this specific row.
+            ///
+            /// Built from the shared factory rather than drawn inline, so it is
+            /// the same control as the string list's per-row pencil: same
+            /// diameter, same glyph weight, same shadow, same press response.
+            /// `info` rather than `info.circle` because the factory already
+            /// supplies the circle.
+            ///
+            /// `isActive` holds the accent fill for as long as the popover is
+            /// open. `showPopover` is this row's own state, so no other row's
+            /// button lights up.
             ListCircleButton(
                 systemImage: "info",
                 fill: Color.gray.opacity(0.5),
@@ -2170,9 +2170,9 @@ private struct PairedFramesListRow: View {
                 glyphSize: ListRowMetrics.circleGlyphSize,
                 isActive: showPopover,
                 help: showPopover ? "Finish editing" : "Edit this entry",
-                // `info` is the one glyph in the family that is not symmetric in
-                // its own box; the correction lives with the family's other
-                // per-symbol corrections rather than as a literal here.
+                /// `info` is the one glyph in the family that is not symmetric in
+                /// its own box; the correction lives with the family's other
+                /// per-symbol corrections rather than as a literal here.
                 glyphOffset: ListCircleButtonStyle.infoGlyphOffset,
                 action: {
                     if showPopover {
@@ -2229,22 +2229,22 @@ private struct PairedFramesListRow: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                // Shared with the text list's and `ViewingDatesTable`'s Delete
-                // buttons; the full account of the treatment is on
-                // `PopoverDeleteButton` (30.20 FSControlHelpers.swift).
-                //
-                // Dismiss BEFORE mutating. The delete removes this row, which
-                // tears down the view the popover is anchored to; ordering it
-                // this way leaves AppKit nothing to dismiss a popover from.
-                // Held until the close animation has finished for the same
-                // reason an add is: removing a row moves every anchor below it,
-                // including this one — see `ListPopoverDismissal`.
+                /// Shared with the text list's and `ViewingDatesTable`'s Delete
+                /// buttons; the full account of the treatment is on
+                /// `PopoverDeleteButton` (30.20 FSControlHelpers.swift).
+                ///
+                /// Dismiss BEFORE mutating. The delete removes this row, which
+                /// tears down the view the popover is anchored to; ordering it
+                /// this way leaves AppKit nothing to dismiss a popover from.
+                /// Held until the close animation has finished for the same
+                /// reason an add is: removing a row moves every anchor below it,
+                /// including this one — see `ListPopoverDismissal`.
                 PopoverDeleteButton(action: {
-                    // Captured here, at the click, rather than read inside the
-                    // deferred closure: a row addresses a POSITION, so reading
-                    // the records after the delay would ask "what is at this
-                    // position now" — which is precisely the question the
-                    // verification exists to stop the delete from depending on.
+                    /// Captured here, at the click, rather than read inside the
+                    /// deferred closure: a row addresses a POSITION, so reading
+                    /// the records after the delay would ask "what is at this
+                    /// position now" — which is precisely the question the
+                    /// verification exists to stop the delete from depending on.
                     let removingFrame = frameRecord
                     let removingTimecode = timecodeRecord
                     showPopover = false
@@ -2256,17 +2256,17 @@ private struct PairedFramesListRow: View {
                 Spacer()
 
                 Button("Update") {
-                    // Assembled at the click, so the deferred commit carries a
-                    // finished value rather than depending on this view — whose
-                    // teardown the dismissal below has already begun — still
-                    // being around to produce one.
+                    /// Assembled at the click, so the deferred commit carries a
+                    /// finished value rather than depending on this view — whose
+                    /// teardown the dismissal below has already begun — still
+                    /// being around to produce one.
                     guard let pair = assembledPair() else { return }
                     let expectedFrame = frameRecord
                     let expectedTimecode = timecodeRecord
-                    // Dismiss BEFORE committing, on the same terms as Delete
-                    // above: the commit may raise the table's duplicate
-                    // confirmation, and an alert presented while this popover is
-                    // still up would be competing with it.
+                    /// Dismiss BEFORE committing, on the same terms as Delete
+                    /// above: the commit may raise the table's duplicate
+                    /// confirmation, and an alert presented while this popover is
+                    /// still up would be competing with it.
                     showPopover = false
                     ListPopoverDismissal.afterClose {
                         onUpdate(pair, expectedFrame, expectedTimecode)
@@ -2290,8 +2290,8 @@ private struct PairedFramesListRow: View {
         entryFadeIn         = marks.fadeIn != .none ? marks.fadeIn : .scurve
         entryFadeOutEnabled = marks.fadeOut != .none
         entryFadeOut        = marks.fadeOut != .none ? marks.fadeOut : .scurve
-        // Nothing further to capture: the baseline the Update button measures
-        // against is the two stored records themselves.
+        /// Nothing further to capture: the baseline the Update button measures
+        /// against is the two stored records themselves.
     }
 
     /// The pair the current popover fields would produce, or `nil` when neither
@@ -2563,60 +2563,60 @@ private struct PairedFramesImportPopover: View {
         Array(repeating: " ", count: roomLines).joined(separator: "\n")
 
     var body: some View {
-        // Parsed once per body evaluation and reused by the readout, the
-        // mismatch note, the enablement rule, and the commit — so the popover
-        // never parses the same text twice and all four necessarily agree.
+        /// Parsed once per body evaluation and reused by the readout, the
+        /// mismatch note, the enablement rule, and the commit — so the popover
+        /// never parses the same text twice and all four necessarily agree.
         let parsedFrames = ListImportPopover.parseItems(from: framesDraft)
         let parsedTimecodes = ListImportPopover.parseItems(from: timecodesDraft)
         let rows = max(parsedFrames.count, parsedTimecodes.count)
-        // Each list is measured against its own column's limit. The readout
-        // below still counts entries *typed*, which is the quantity the limits
-        // were restated in terms of — see `columnLimit`.
+        /// Each list is measured against its own column's limit. The readout
+        /// below still counts entries *typed*, which is the quantity the limits
+        /// were restated in terms of — see `columnLimit`.
         let framesRoom = framesLimit
         let timecodesRoom = timecodesLimit
         let isOverflowing = parsedFrames.count > framesRoom || parsedTimecodes.count > timecodesRoom
 
         VStack(alignment: .leading, spacing: 12) {
-            // Named for what the two lists below actually are, rather than for
-            // the row they combine into. Matches the "Bulk Import <content>"
-            // form every other CSV-button popover uses.
+            /// Named for what the two lists below actually are, rather than for
+            /// the row they combine into. Matches the "Bulk Import <content>"
+            /// form every other CSV-button popover uses.
             Text("Bulk Import Frames and Time Codes")
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            // Two statements on two lines: what this popover always does with
-            // what is typed below it, and how much of it there is room for right
-            // now. The second changes with the disposition of each list — the
-            // full cap for a list being replaced, the remaining room for one
-            // being appended to — and is recomputed from the three checkboxes,
-            // so toggling any of them updates the sentence, the readout's color,
-            // and the Import button together.
-            //
-            // The pairing rule is shown at all times rather than only when the
-            // two lists actually disagree, and the room sentence is given a
-            // fixed two lines whether it needs them or not. Both are the same
-            // decision: this block sits directly above two focusable text views,
-            // and an `NSPopover` that changes height while one of them has focus
-            // moves every control below the caret. The popover's geometry is
-            // therefore independent of its content and of its checkboxes.
+            /// Two statements on two lines: what this popover always does with
+            /// what is typed below it, and how much of it there is room for right
+            /// now. The second changes with the disposition of each list — the
+            /// full cap for a list being replaced, the remaining room for one
+            /// being appended to — and is recomputed from the three checkboxes,
+            /// so toggling any of them updates the sentence, the readout's color,
+            /// and the Import button together.
+            ///
+            /// The pairing rule is shown at all times rather than only when the
+            /// two lists actually disagree, and the room sentence is given a
+            /// fixed two lines whether it needs them or not. Both are the same
+            /// decision: this block sits directly above two focusable text views,
+            /// and an `NSPopover` that changes height while one of them has focus
+            /// moves every control below the caret. The popover's geometry is
+            /// therefore independent of its content and of its checkboxes.
             VStack(alignment: .leading, spacing: 4) {
                 Text(Self.entryRules)
                     .fixedSize(horizontal: false, vertical: true)
 
-                // Given its space unconditionally, so that a checkbox changing
-                // the sentence from one line to two cannot move the entry areas
-                // below it. See `roomLines`.
+                /// Given its space unconditionally, so that a checkbox changing
+                /// the sentence from one line to two cannot move the entry areas
+                /// below it. See `roomLines`.
                 roomSentence(frames: framesRoom, timecodes: timecodesRoom)
             }
             .font(.system(size: Self.footnoteSize))
             .foregroundStyle(.secondary)
 
-            // Scrolling text views rather than text fields: pasted lists are
-            // routinely long, and three visible lines with scrolling beyond that
-            // lets the whole entry be reviewed before importing. Line breaks
-            // remain one of the two supported separators — they just take
-            // Option-Return here, as they do in every other instance of this
-            // control.
+            /// Scrolling text views rather than text fields: pasted lists are
+            /// routinely long, and three visible lines with scrolling beyond that
+            /// lets the whole entry be reviewed before importing. Line breaks
+            /// remain one of the two supported separators — they just take
+            /// Option-Return here, as they do in every other instance of this
+            /// control.
             VStack(alignment: .leading, spacing: 4) {
                 perListHeader("Frames:",
                               isOn: $replaceFramesOnly,
@@ -2635,15 +2635,15 @@ private struct PairedFramesImportPopover: View {
                     .frame(height: FixedHeightScrollingTextView.fixedHeight(lineCount: Self.visibleLines))
             }
 
-            // Label supplied as a view rather than as a string, so the red at the
-            // cap applies to the text and not to the checkbox glyph beside it —
-            // the constraint is being explained, not flagged as an error in the
-            // control itself. An empty table locks the same control for the
-            // opposite and entirely unremarkable reason, so it takes the
-            // system's disabled text color instead.
-            // An AppKit checkbox beside its label rather than a Toggle wrapping it, so
-            // the box is a stop in the popover's Tab walk (SheetCheckbox, 30.20). The
-            // label still toggles it on click, as a Toggle's label would.
+            /// Label supplied as a view rather than as a string, so the red at the
+            /// cap applies to the text and not to the checkbox glyph beside it —
+            /// the constraint is being explained, not flagged as an error in the
+            /// control itself. An empty table locks the same control for the
+            /// opposite and entirely unremarkable reason, so it takes the
+            /// system's disabled text color instead.
+            /// An AppKit checkbox beside its label rather than a Toggle wrapping it, so
+            /// the box is a stop in the popover's Tab walk (SheetCheckbox, 30.20). The
+            /// label still toggles it on click, as a Toggle's label would.
             HStack(spacing: Preferences.spacingAfterCheckbox) {
                 SheetCheckbox(isOn: modeBinding)
                 Text("Replace all existing entries for both lists")
@@ -2659,28 +2659,28 @@ private struct PairedFramesImportPopover: View {
 
             Divider()
 
-            // Cancel leads, per the platform convention for a dismissive action;
-            // the readout sits directly to the left of Import, which is what it
-            // describes.
+            /// Cancel leads, per the platform convention for a dismissive action;
+            /// the readout sits directly to the left of Import, which is what it
+            /// describes.
             HStack(alignment: .center, spacing: 8) {
                 Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
 
                 Spacer(minLength: 8)
 
-                // Shown only once something has been entered. With both fields
-                // empty there is nothing to report, and a permanent "No entries
-                // detected." reads as an error before the user has done
-                // anything.
+                /// Shown only once something has been entered. With both fields
+                /// empty there is nothing to report, and a permanent "No entries
+                /// detected." reads as an error before the user has done
+                /// anything.
                 if rows > 0 {
-                    // Colored off `isOverflowing` — the exact term the Import
-                    // button is disabled on — rather than off a separately
-                    // written comparison, so the red and the disabled button can
-                    // only ever appear and clear together. The count itself
-                    // stays the aggregate row count while the test is per list,
-                    // so when the two lists have different limits the red says
-                    // "one of these does not fit" rather than naming which; the
-                    // paragraph above carries both numbers.
+                    /// Colored off `isOverflowing` — the exact term the Import
+                    /// button is disabled on — rather than off a separately
+                    /// written comparison, so the red and the disabled button can
+                    /// only ever appear and clear together. The count itself
+                    /// stays the aggregate row count while the test is per list,
+                    /// so when the two lists have different limits the red says
+                    /// "one of these does not fit" rather than naming which; the
+                    /// paragraph above carries both numbers.
                     Text(rows == 1 ? "1 row detected" : "\(rows) rows detected")
                         .font(.system(size: Self.footnoteSize))
                         .foregroundStyle(isOverflowing
@@ -2701,48 +2701,48 @@ private struct PairedFramesImportPopover: View {
         }
         .frame(width: Self.width)
         .padding(Self.padding)
-        // Return runs Import; Option-Return enters a line break.
+        /// Return runs Import; Option-Return enters a line break.
         .fieldSubmitAction(submitAction)
         .onAppear {
-            // Every presentation opens empty. The drafts are not mirrored to the caller:
-            // every table clears its storage in `onOpen` before presenting. Reset here
-            // rather than relied upon from the property initializers, for the reason the
-            // per-list switches below give: SwiftUI may reuse this node for a later
-            // presentation.
+            /// Every presentation opens empty. The drafts are not mirrored to the caller:
+            /// every table clears its storage in `onOpen` before presenting. Reset here
+            /// rather than relied upon from the property initializers, for the reason the
+            /// per-list switches below give: SwiftUI may reuse this node for a later
+            /// presentation.
             if !framesDraft.isEmpty { framesDraft = "" }
             if !timecodesDraft.isEmpty { timecodesDraft = "" }
-            // The mode this presentation opens in, resolved once and then
-            // written to both copies, so the local mirror and the caller's
-            // storage can never begin a session disagreeing. At the cap,
-            // replacing is the only mode that can do any work, so it is forced
-            // ON; with nothing to replace, the two modes are identical, so it is
-            // locked OFF. The two conditions are mutually exclusive given a
-            // positive cap, so their order is immaterial.
+            /// The mode this presentation opens in, resolved once and then
+            /// written to both copies, so the local mirror and the caller's
+            /// storage can never begin a session disagreeing. At the cap,
+            /// replacing is the only mode that can do any work, so it is forced
+            /// ON; with nothing to replace, the two modes are identical, so it is
+            /// locked OFF. The two conditions are mutually exclusive given a
+            /// positive cap, so their order is immaterial.
             var resolved = replaces
             if isAtCapacity { resolved = true }
             if !hasEntries { resolved = false }
             if replaces != resolved { replaces = resolved }
             if replaceLocal != resolved { replaceLocal = resolved }
-            // The per-list switches are ephemeral, so a presentation begins with
-            // both off. Written here rather than relied upon from the property
-            // initializers: SwiftUI may reuse this node for a later
-            // presentation, in which case the initializers do not run again and
-            // a box checked for the previous paste would still be checked over
-            // the next one — silently replacing a list the user had not named.
+            /// The per-list switches are ephemeral, so a presentation begins with
+            /// both off. Written here rather than relied upon from the property
+            /// initializers: SwiftUI may reuse this node for a later
+            /// presentation, in which case the initializers do not run again and
+            /// a box checked for the previous paste would still be checked over
+            /// the next one — silently replacing a list the user had not named.
             if replaceFramesOnly { replaceFramesOnly = false }
             if replaceTimecodesOnly { replaceTimecodesOnly = false }
-            // Installed in `onAppear`, not in `body` — assigning the handler is
-            // a mutation of a shared object and must not happen during view
-            // evaluation. The closure captures this view value, and `@State`
-            // reads route through SwiftUI's storage rather than a captured copy,
-            // so the drafts are the text current at the moment Return is
-            // pressed.
-            //
-            // The guards below are precisely the Import button's own
-            // `.disabled(rows == 0 || isOverflowing)`, expanded to the two
-            // per-list comparisons that term is built from, so Return is inert
-            // exactly when the button is rather than importing something the
-            // button would have refused.
+            /// Installed in `onAppear`, not in `body` — assigning the handler is
+            /// a mutation of a shared object and must not happen during view
+            /// evaluation. The closure captures this view value, and `@State`
+            /// reads route through SwiftUI's storage rather than a captured copy,
+            /// so the drafts are the text current at the moment Return is
+            /// pressed.
+            ///
+            /// The guards below are precisely the Import button's own
+            /// `.disabled(rows == 0 || isOverflowing)`, expanded to the two
+            /// per-list comparisons that term is built from, so Return is inert
+            /// exactly when the button is rather than importing something the
+            /// button would have refused.
             submitAction.setHandler {
                 let f = ListImportPopover.parseItems(from: framesDraft)
                 let t = ListImportPopover.parseItems(from: timecodesDraft)
@@ -2754,13 +2754,13 @@ private struct PairedFramesImportPopover: View {
                 return true
             }
         }
-        // Cleared on dismissal so a handler capturing a finished presentation
-        // cannot survive into the next one if SwiftUI reuses this node.
+        /// Cleared on dismissal so a handler capturing a finished presentation
+        /// cannot survive into the next one if SwiftUI reuses this node.
         .onDisappear {
             submitAction.setHandler(nil)
         }
-        // Mirrored back on every change, so the caller's storage stays the value
-        // the next presentation is seeded from.
+        /// Mirrored back on every change, so the caller's storage stays the value
+        /// the next presentation is seeded from.
         .onChange(of: replaceLocal) { _, newValue in
             guard let newValue else { return }
             if replaces != newValue { replaces = newValue }
@@ -2798,10 +2798,10 @@ private struct PairedFramesImportPopover: View {
             .overlay(alignment: .topLeading) {
                 Text(Self.roomDescription(frames: frames, timecodes: timecodes))
                     .lineLimit(Self.roomLines)
-                    // Wraps into the reserved second line rather than truncating
-                    // at the first — the overlay is given the host's width but
-                    // its ideal height, so this is what lets it use two lines.
-                    // It can no longer disturb the layout by doing so.
+                    /// Wraps into the reserved second line rather than truncating
+                    /// at the first — the overlay is given the host's width but
+                    /// its ideal height, so this is what lets it use two lines.
+                    /// It can no longer disturb the layout by doing so.
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -2839,7 +2839,7 @@ private struct PairedFramesImportPopover: View {
 
             Spacer(minLength: 8)
 
-            // AppKit checkbox + label, as above.
+            /// AppKit checkbox + label, as above.
             HStack(spacing: Preferences.spacingAfterCheckbox) {
                 SheetCheckbox(isOn: isOn)
                 Text("Replace existing entries")
@@ -2879,7 +2879,7 @@ enum AudioFadeStyle: String, Hashable {
         }
     }
     
-    // Parsing uses the failable `init(rawValue:)`, so an unrecognized token stays
-    // distinguishable from a stored "none" (see FramesEntryParser.parse).
+    /// Parsing uses the failable `init(rawValue:)`, so an unrecognized token stays
+    /// distinguishable from a stored "none" (see FramesEntryParser.parse).
 
 }

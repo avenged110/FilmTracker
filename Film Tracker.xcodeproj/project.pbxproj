@@ -8,18 +8,18 @@
 
 /* Begin PBXBuildFile section */
 		5A5E5E000000000000000001 /* 50.30 SavedSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */; };
-		5A5E5E000000000000000003 /* 50.31 SavedSearchStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000002 /* 50.31 SavedSearchStore.swift */; };
-		5A5E5E000000000000000005 /* 50.32 SavedSearchSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000004 /* 50.32 SavedSearchSheet.swift */; };
-		5A5E5E000000000000000007 /* 23.73 SavedSearchControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000006 /* 23.73 SavedSearchControls.swift */; };
+		5A5E5E000000000000000003 /* 50.31 SSStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000002 /* 50.31 SSStore.swift */; };
+		5A5E5E000000000000000005 /* 50.32 SSSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000004 /* 50.32 SSSheet.swift */; };
+		5A5E5E000000000000000007 /* 23.73 SSControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000006 /* 23.73 SSControls.swift */; };
 		5A5E5E000000000000000009 /* 67.00 SavedSearchObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000008 /* 67.00 SavedSearchObj.swift */; };
-		5A5E5E00000000000000000B /* 50.33 SavedSearchRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E00000000000000000A /* 50.33 SavedSearchRules.swift */; };
+		5A5E5E00000000000000000B /* 50.33 SSRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E00000000000000000A /* 50.33 SSRules.swift */; };
 		83D7EC01B3C36BA5CE592EE9 /* 29.10 UpNextSlots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */; };
 		8DEE0C7CB2A20E44A3DF7CBF /* COPYING in Resources */ = {isa = PBXBuildFile; fileRef = 2317EABA733A9F7CD5E801C9 /* COPYING */; };
 		A71200000000000000000002 /* 70.10 ReleaseNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */; };
 		B0E0ED0000000000000000D2 /* 99.57 DHBulkEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */; };
 		B0E0ED000000000000000101 /* 30.25 FSSharedFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000001 /* 30.25 FSSharedFields.swift */; };
 		B0E0ED000000000000000102 /* 52.00 MultiFilmSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */; };
-		B0E0ED000000000000000103 /* 52.10 MultiFilmSheetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000003 /* 52.10 MultiFilmSheetView.swift */; };
+		B0E0ED000000000000000103 /* 52.10 MFSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000003 /* 52.10 MFSView.swift */; };
 		B0E0ED000000000000000104 /* 52.20 BulkFilmEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */; };
 		C0DA7A000000000000000002 /* 11.05 LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA7A000000000000000001 /* 11.05 LibraryStore.swift */; };
 		CE0EAE952ED44979005C6F4D /* 23.71 SortFilterMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE942ED44979005C6F4D /* 23.71 SortFilterMenu.swift */; };
@@ -149,7 +149,7 @@
 		CEF877C82ECC3F99002D7E45 /* 23.50 GalleryItemView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF877C72ECC3F99002D7E45 /* 23.50 GalleryItemView.swift */; };
 		CEF877CA2ECC6EA2002D7E45 /* 11.30 PosterCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF877C92ECC6EA2002D7E45 /* 11.30 PosterCache.swift */; };
 		CEF877D02ECE6836002D7E45 /* 65.00 ImportSessionObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEF877CF2ECE6836002D7E45 /* 65.00 ImportSessionObj.swift */; };
-		CEFD000000000000000003E9 /* 43.10 PDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFD000000000000000003E8 /* 43.10 PDFExporter.swift */; };
+		CEFD000000000000000003E9 /* 85.40 PDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFD000000000000000003E8 /* 85.40 PDFExporter.swift */; };
 		CEFD000000000000000003EB /* 85.00 PDFCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFD000000000000000003EA /* 85.00 PDFCore.swift */; };
 		CEFD000000000000000003ED /* 85.10 PDFTableRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFD000000000000000003EC /* 85.10 PDFTableRenderer.swift */; };
 		CEFD000000000000000003EF /* 85.20 PDFReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEFD000000000000000003EE /* 85.20 PDFReport.swift */; };
@@ -171,16 +171,16 @@
 /* Begin PBXFileReference section */
 		2317EABA733A9F7CD5E801C9 /* COPYING */ = {isa = PBXFileReference; lastKnownFileType = text; path = COPYING; sourceTree = "<group>"; };
 		5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.30 SavedSearch.swift"; sourceTree = "<group>"; };
-		5A5E5E000000000000000002 /* 50.31 SavedSearchStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.31 SavedSearchStore.swift"; sourceTree = "<group>"; };
-		5A5E5E000000000000000004 /* 50.32 SavedSearchSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.32 SavedSearchSheet.swift"; sourceTree = "<group>"; };
-		5A5E5E000000000000000006 /* 23.73 SavedSearchControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.73 SavedSearchControls.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000002 /* 50.31 SSStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.31 SSStore.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000004 /* 50.32 SSSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.32 SSSheet.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000006 /* 23.73 SSControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.73 SSControls.swift"; sourceTree = "<group>"; };
 		5A5E5E000000000000000008 /* 67.00 SavedSearchObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "67.00 SavedSearchObj.swift"; sourceTree = "<group>"; };
-		5A5E5E00000000000000000A /* 50.33 SavedSearchRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.33 SavedSearchRules.swift"; sourceTree = "<group>"; };
+		5A5E5E00000000000000000A /* 50.33 SSRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.33 SSRules.swift"; sourceTree = "<group>"; };
 		83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.10 UpNextSlots.swift"; sourceTree = "<group>"; };
 		A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "70.10 ReleaseNotifications.swift"; sourceTree = "<group>"; };
 		B0E0ED000000000000000001 /* 30.25 FSSharedFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "30.25 FSSharedFields.swift"; sourceTree = "<group>"; };
 		B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.00 MultiFilmSheet.swift"; sourceTree = "<group>"; };
-		B0E0ED000000000000000003 /* 52.10 MultiFilmSheetView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.10 MultiFilmSheetView.swift"; sourceTree = "<group>"; };
+		B0E0ED000000000000000003 /* 52.10 MFSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.10 MFSView.swift"; sourceTree = "<group>"; };
 		B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.20 BulkFilmEdit.swift"; sourceTree = "<group>"; };
 		B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.57 DHBulkEdit.swift"; sourceTree = "<group>"; };
 		C0DA7A000000000000000001 /* 11.05 LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.05 LibraryStore.swift"; sourceTree = "<group>"; };
@@ -315,7 +315,7 @@
 		CEF877C72ECC3F99002D7E45 /* 23.50 GalleryItemView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.50 GalleryItemView.swift"; sourceTree = "<group>"; };
 		CEF877C92ECC6EA2002D7E45 /* 11.30 PosterCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.30 PosterCache.swift"; sourceTree = "<group>"; };
 		CEF877CF2ECE6836002D7E45 /* 65.00 ImportSessionObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "65.00 ImportSessionObj.swift"; sourceTree = "<group>"; };
-		CEFD000000000000000003E8 /* 43.10 PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "43.10 PDFExporter.swift"; sourceTree = "<group>"; };
+		CEFD000000000000000003E8 /* 85.40 PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "85.40 PDFExporter.swift"; sourceTree = "<group>"; };
 		CEFD000000000000000003EA /* 85.00 PDFCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "85.00 PDFCore.swift"; sourceTree = "<group>"; };
 		CEFD000000000000000003EC /* 85.10 PDFTableRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "85.10 PDFTableRenderer.swift"; sourceTree = "<group>"; };
 		CEFD000000000000000003EE /* 85.20 PDFReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "85.20 PDFReport.swift"; sourceTree = "<group>"; };
@@ -444,20 +444,19 @@
 				CE2A1F532E972BBF00EB1C02 /* 41.00 STabGeneral.swift */,
 				CE2A1F552E972BDC00EB1C02 /* 42.00 STabImport.swift */,
 				CE2A1F8F2E98FC2200EB1C02 /* 43.00 STabExport.swift */,
-				CEFD000000000000000003E8 /* 43.10 PDFExporter.swift */,
 				CE2A1F592E972FBB00EB1C02 /* 44.00 STabRestore.swift */,
 				CE2A1F5D2E972FD200EB1C02 /* 45.00 STabAdvanced.swift */,
 				CE40BABC2EC340D9009A4ECA /* 50.00 SearchController.swift */,
 				CE42AD5F2EEC135A0096D62D /* 50.10 SearchToken.swift */,
 				CE42AD5F2EEC135A0096D7A1 /* 50.20 SearchSuggestions.swift */,
 				5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */,
-				5A5E5E000000000000000002 /* 50.31 SavedSearchStore.swift */,
-				5A5E5E000000000000000004 /* 50.32 SavedSearchSheet.swift */,
-				5A5E5E00000000000000000A /* 50.33 SavedSearchRules.swift */,
-				5A5E5E000000000000000006 /* 23.73 SavedSearchControls.swift */,
+				5A5E5E000000000000000002 /* 50.31 SSStore.swift */,
+				5A5E5E000000000000000004 /* 50.32 SSSheet.swift */,
+				5A5E5E00000000000000000A /* 50.33 SSRules.swift */,
+				5A5E5E000000000000000006 /* 23.73 SSControls.swift */,
 				CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */,
 				B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */,
-				B0E0ED000000000000000003 /* 52.10 MultiFilmSheetView.swift */,
+				B0E0ED000000000000000003 /* 52.10 MFSView.swift */,
 				B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */,
 				CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */,
 				CE2A1F382E96277600EB1C02 /* 61.00 FilmObj.swift */,
@@ -487,6 +486,7 @@
 				CEFD000000000000000003EC /* 85.10 PDFTableRenderer.swift */,
 				CEFD000000000000000003EE /* 85.20 PDFReport.swift */,
 				CEFD00000000000000000A10 /* 85.30 PDFSections.swift */,
+				CEFD000000000000000003E8 /* 85.40 PDFExporter.swift */,
 				CE42AD572EE5588E0096D62D /* 90.00 GlobalUtilities.swift */,
 				CE2A1F732E98585F00EB1C02 /* 91.00 InputUtilities.swift */,
 				CE42AD8D2F0B1E0F0096D62D /* 93.00 CustomTable.swift */,
@@ -611,7 +611,7 @@
 				CE2A1F922E9C4C0A00EB1C02 /* 24.11 Header.swift in Sources */,
 				CE0EAEA52EDDA206005C6F4D /* 51.00 DuplicateSheet.swift in Sources */,
 				B0E0ED000000000000000102 /* 52.00 MultiFilmSheet.swift in Sources */,
-				B0E0ED000000000000000103 /* 52.10 MultiFilmSheetView.swift in Sources */,
+				B0E0ED000000000000000103 /* 52.10 MFSView.swift in Sources */,
 				B0E0ED000000000000000104 /* 52.20 BulkFilmEdit.swift in Sources */,
 				CECF3DC22EACDC5700D7897A /* 28.10 ImportProgress.swift in Sources */,
 				CEFE00000000000000000B61 /* 28.20 ImportHistory.swift in Sources */,
@@ -624,10 +624,10 @@
 				CE42AD602EEC135A0096D62D /* 50.10 SearchToken.swift in Sources */,
 				CE42AD602EEC135A0096D7A2 /* 50.20 SearchSuggestions.swift in Sources */,
 				5A5E5E000000000000000001 /* 50.30 SavedSearch.swift in Sources */,
-				5A5E5E000000000000000003 /* 50.31 SavedSearchStore.swift in Sources */,
-				5A5E5E000000000000000005 /* 50.32 SavedSearchSheet.swift in Sources */,
-				5A5E5E00000000000000000B /* 50.33 SavedSearchRules.swift in Sources */,
-				5A5E5E000000000000000007 /* 23.73 SavedSearchControls.swift in Sources */,
+				5A5E5E000000000000000003 /* 50.31 SSStore.swift in Sources */,
+				5A5E5E000000000000000005 /* 50.32 SSSheet.swift in Sources */,
+				5A5E5E00000000000000000B /* 50.33 SSRules.swift in Sources */,
+				5A5E5E000000000000000007 /* 23.73 SSControls.swift in Sources */,
 				5A5E5E000000000000000009 /* 67.00 SavedSearchObj.swift in Sources */,
 				CE40BAD32EC88BC7009A4ECA /* 11.00 DataCoordinator.swift in Sources */,
 				CE2A1F4A2E96343700EB1C02 /* 23.00 GalleryView.swift in Sources */,
@@ -736,7 +736,7 @@
 				CEFE00000000000000000092 /* 99.52 DHCurrencyPlaceholder.swift in Sources */,
 				CE55EE0000000000000055AC /* 99.61 DHResizeSweep.swift in Sources */,
 				CE55EE00000000000000A7B1 /* 99.14 DHLibraryOrders.swift in Sources */,
-				CEFD000000000000000003E9 /* 43.10 PDFExporter.swift in Sources */,
+				CEFD000000000000000003E9 /* 85.40 PDFExporter.swift in Sources */,
 				CEFD000000000000000003EB /* 85.00 PDFCore.swift in Sources */,
 				CEFD000000000000000003ED /* 85.10 PDFTableRenderer.swift in Sources */,
 				CEFD000000000000000003EF /* 85.20 PDFReport.swift in Sources */,
@@ -893,7 +893,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 75;
+				CURRENT_PROJECT_VERSION = 77;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -944,7 +944,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 75;
+				CURRENT_PROJECT_VERSION = 77;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;

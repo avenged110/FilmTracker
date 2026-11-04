@@ -1,7 +1,7 @@
 // MARK: - DragDropSupport.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Drag-and-drop support for gallery items. It uses standard pasteboard types, so no Info.plist registration is needed.
+/// Drag-and-drop support for gallery items. It uses standard pasteboard types, so no Info.plist registration is needed.
 
 import AppKit
 import SwiftUI
@@ -56,12 +56,12 @@ final class FilmDragPasteboardWriter: NSObject, NSPasteboardWriting, Loggable {
     // MARK: - NSPasteboardWriting
     
     func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        // Provide both our custom type and a standard JSON type for SwiftUI Transferable
+        /// Provide both our custom type and a standard JSON type for SwiftUI Transferable
         return [.filmIDs, .init(UTType.json.identifier)]
     }
     
     func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        // Encode the payload as JSON for both types
+        /// Encode the payload as JSON for both types
         do {
             let encoder = JSONEncoder()
             return try encoder.encode(payload)
@@ -81,12 +81,12 @@ struct FilmDragDecoder: Loggable {
     
     /// Decodes film IDs from an NSPasteboard.
     static func decode(from pasteboard: NSPasteboard) -> Set<UUID>? {
-        // Try our custom type first
+        /// Try our custom type first
         if let data = pasteboard.data(forType: .filmIDs) {
             return decodeData(data)
         }
         
-        // Fall back to JSON type (for SwiftUI Transferable compatibility)
+        /// Fall back to JSON type (for SwiftUI Transferable compatibility)
         if let data = pasteboard.data(forType: .init(UTType.json.identifier)) {
             return decodeData(data)
         }
@@ -127,11 +127,11 @@ struct FilmDragImageProvider {
         posterImage: NSImage? = nil,
         size: NSSize = NSSize(width: 80, height: 120)
     ) -> NSImage {
-        // Badge overhang: portion of badge that extends beyond content area
-        // Sized to accommodate badges with up to 5 digits (e.g., "99999")
+        /// Badge overhang: portion of badge that extends beyond content area
+        /// Sized to accommodate badges with up to 5 digits (e.g., "99999")
         let badgeOverhang: CGFloat = 25
         
-        // Expand canvas to accommodate badge overhang on right and bottom
+        /// Expand canvas to accommodate badge overhang on right and bottom
         let canvasSize = NSSize(
             width: size.width + badgeOverhang,
             height: size.height + badgeOverhang
@@ -141,10 +141,10 @@ struct FilmDragImageProvider {
         
         image.lockFocus()
         
-        // Enable anti-aliasing for smooth edges
+        /// Enable anti-aliasing for smooth edges
         NSGraphicsContext.current?.imageInterpolation = .high
         
-        // Content area is shifted up to make room for badge below
+        /// Content area is shifted up to make room for badge below
         let contentRect = NSRect(
             x: 0,
             y: badgeOverhang,
@@ -155,27 +155,27 @@ struct FilmDragImageProvider {
         let cornerRadius: CGFloat = 6
         let insetRect = contentRect.insetBy(dx: 2, dy: 2)
         
-        // Create clipping path for rounded corners (continuous, like the gallery's posters)
+        /// Create clipping path for rounded corners (continuous, like the gallery's posters)
         let clipPath = NSBezierPath(cgPath: CGPath.continuousRoundedRect(insetRect, cornerRadius: cornerRadius))
         
         if let poster = posterImage {
-            // Draw poster with semi-transparency (ghost effect)
+            /// Draw poster with semi-transparency (ghost effect)
             NSGraphicsContext.saveGraphicsState()
             clipPath.addClip()
             poster.draw(in: insetRect,
                        from: NSRect(origin: .zero, size: poster.size),
                        operation: .sourceOver,
-                       fraction: 0.8)  // Semi-transparent ghost effect
+                       fraction: 0.8)  /// Semi-transparent ghost effect
             NSGraphicsContext.restoreGraphicsState()
         } else {
-            // Draw placeholder background
+            /// Draw placeholder background
             NSGraphicsContext.saveGraphicsState()
             clipPath.addClip()
             NSColor.controlBackgroundColor.withAlphaComponent(0.8).setFill()
             insetRect.fill()
             NSGraphicsContext.restoreGraphicsState()
             
-            // Draw film icon centered
+            /// Draw film icon centered
             if let icon = NSImage(systemSymbolName: "film.fill", accessibilityDescription: nil) {
                 let config = NSImage.SymbolConfiguration(pointSize: 28, weight: .regular)
                 let configuredIcon = icon.withSymbolConfiguration(config) ?? icon
@@ -193,12 +193,12 @@ struct FilmDragImageProvider {
             }
         }
         
-        // Draw subtle border
+        /// Draw subtle border
         NSColor.black.withAlphaComponent(0.2).setStroke()
         clipPath.lineWidth = 1
         clipPath.stroke()
         
-        // Always draw count badge (positioned at bottom-right corner)
+        /// Always draw count badge (positioned at bottom-right corner)
         drawCountBadge(count: filmCount, contentRect: contentRect)
         
         image.unlockFocus()
@@ -223,8 +223,8 @@ struct FilmDragImageProvider {
         let badgeWidth = max(textSize.width + badgePadding * 2, minBadgeSize)
         let badgeHeight = max(textSize.height + badgePadding, minBadgeSize)
         
-        // Position badge at bottom-right corner, hanging about 35% off the edge
-        // (offset inward by 65% of badge size from corner)
+        /// Position badge at bottom-right corner, hanging about 35% off the edge
+        /// (offset inward by 65% of badge size from corner)
         let overhangFraction: CGFloat = 0.35
         let badgeRect = NSRect(
             x: contentRect.maxX - badgeWidth * (1 - overhangFraction),
@@ -233,17 +233,17 @@ struct FilmDragImageProvider {
             height: badgeHeight
         )
         
-        // Badge shadow
+        /// Badge shadow
         let shadowPath = NSBezierPath(cgPath: CGPath.continuousCapsule(badgeRect.offsetBy(dx: 0, dy: -1)))
         NSColor.black.withAlphaComponent(0.3).setFill()
         shadowPath.fill()
         
-        // Badge background (system red)
+        /// Badge background (system red)
         let badgePath = NSBezierPath(cgPath: CGPath.continuousCapsule(badgeRect))
         NSColor.systemRed.setFill()
         badgePath.fill()
         
-        // Badge text centered
+        /// Badge text centered
         let textRect = NSRect(
             x: badgeRect.origin.x + (badgeWidth - textSize.width) / 2,
             y: badgeRect.origin.y + (badgeHeight - textSize.height) / 2 + 1,
@@ -406,7 +406,7 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
     /// The NSView that will call `beginDraggingSession`. Must be set before any drag fires.
     weak var sourceView: NSView?
 
-    // Drag state
+    /// Drag state
     private var potentialDragStart: NSPoint = .zero
     private var isDragInitiated = false
     /// The original mouseDown event — stored so beginDraggingSession receives it.
@@ -415,11 +415,11 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
     private var mouseDownEvent: NSEvent?
 
     // MARK: - Flyback Window State (NSTableView / list path only)
-    //
-    // The grid path (startManualDrag) uses the native dragging-item preview (see
-    // nativeDragPreview) and never touches these fields. The list path uses a separate,
-    // manually positioned borderless NSWindow, integrated with DragSessionMonitor's
-    // click-window and session bookkeeping.
+    ///
+    /// The grid path (startManualDrag) uses the native dragging-item preview (see
+    /// nativeDragPreview) and never touches these fields. The list path uses a separate,
+    /// manually positioned borderless NSWindow, integrated with DragSessionMonitor's
+    /// click-window and session bookkeeping.
     private var dragStartScreen: NSPoint = .zero
     private var dragImageSize: NSSize = .zero
     private var dragCursorOffset: NSPoint = .zero
@@ -429,12 +429,12 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
 
     override init() {
         super.init()
-        // Observes the dismissal notification that drop destinations (e.g. LeftSidebar) post
-        // from concludeDragOperation. The flyback window hides with AppKit's synchronous drop
-        // teardown, not at draggingSessionEnded, which AppKit defers. It is a no-op for the
-        // grid's GalleryDragEngine, which never creates a flyback window.
-        // The target/selector registration needs no token or deinit, since NotificationCenter
-        // drops it when this object deallocates.
+        /// Observes the dismissal notification that drop destinations (e.g. LeftSidebar) post
+        /// from concludeDragOperation. The flyback window hides with AppKit's synchronous drop
+        /// teardown, not at draggingSessionEnded, which AppKit defers. It is a no-op for the
+        /// grid's GalleryDragEngine, which never creates a flyback window.
+        /// The target/selector registration needs no token or deinit, since NotificationCenter
+        /// drops it when this object deallocates.
         NotificationCenter.default.addObserver(
             self, selector: #selector(dismissDragPreviewNotified(_:)),
             name: .dismissDragPreviewImmediately, object: nil)
@@ -472,9 +472,9 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
     func mouseUpForDrag() {
         isDragInitiated = false
         mouseDownEvent = nil
-        // Safety net: if sessionWillBegin() was marked but the session never tracked, no
-        // session-end callback fires and the monitor would stay stuck. In a normal flow AppKit
-        // consumes the mouseUp, and the flag is already false, so this branch is not reached.
+        /// Safety net: if sessionWillBegin() was marked but the session never tracked, no
+        /// session-end callback fires and the monitor would stay stuck. In a normal flow AppKit
+        /// consumes the mouseUp, and the flag is already false, so this branch is not reached.
         if DragSessionMonitor.shared.isDragSessionActive {
             DragSessionMonitor.shared.sessionDidEnd()
             NotificationCenter.default.post(name: .dragSessionDidEnd, object: nil)
@@ -495,16 +495,16 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         let filmIDs = getDragFilmIDs(potentialDragStart)
         guard !filmIDs.isEmpty else { return }
 
-        // The poster preview uses the film clicked at mouseDown, not whatever is under the
-        // moved cursor.
+        /// The poster preview uses the film clicked at mouseDown, not whatever is under the
+        /// moved cursor.
         let clickedID = getClickedFilmID?(potentialDragStart)
         let posterID = clickedID ?? filmIDs.first
         let posterImage: NSImage? = posterID.flatMap { getPosterImage?($0) }
 
         let pasteboardItem = NSDraggingItem(pasteboardWriter: FilmDragPasteboardWriter(filmIDs: filmIDs))
 
-        // Native drag preview: the ghost-poster image becomes the dragging item's contents,
-        // anchored to the cursor. AppKit keeps it there with no per-frame work in the app.
+        /// Native drag preview: the ghost-poster image becomes the dragging item's contents,
+        /// anchored to the cursor. AppKit keeps it there with no per-frame work in the app.
         let preview = Self.nativeDragPreview(
             filmCount: filmIDs.count,
             posterImage: posterImage,
@@ -513,12 +513,12 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         )
         pasteboardItem.setDraggingFrame(preview.frame, contents: preview.image)
 
-        // Marks the session live BEFORE beginDraggingSession. The run loop may drain queued
-        // work, including SelectionState's deferred write, as soon as the session starts.
+        /// Marks the session live BEFORE beginDraggingSession. The run loop may drain queued
+        /// work, including SelectionState's deferred write, as soon as the session starts.
         DragSessionMonitor.shared.sessionWillBegin()
         let session = sourceView.beginDraggingSession(with: [pasteboardItem], event: event, source: self)
-        // AppKit runs the cancel fly-back natively, off the main thread. draggingSession(_:endedAt:)
-        // and .dragSessionDidEnd arrive only after that animation settles.
+        /// AppKit runs the cancel fly-back natively, off the main thread. draggingSession(_:endedAt:)
+        /// and .dragSessionDidEnd arrive only after that animation settles.
         session.animatesToStartingPositionsOnCancelOrFail = true
         session.draggingFormation = .none
     }
@@ -553,11 +553,11 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
     ) -> (image: NSImage, frame: NSRect) {
         let (image, cursorOffset) = composeDragPreview(filmCount: filmCount, posterImage: posterImage)
         let size = image.size
-        // Visually, the image's left edge sits cursorOffset.x left of the cursor and
-        // its top edge cursorOffset.y above it.
+        /// Visually, the image's left edge sits cursorOffset.x left of the cursor and
+        /// its top edge cursorOffset.y above it.
         let originY = view.isFlipped
-            ? location.y - cursorOffset.y                   // flipped: minY is the visual top
-            : location.y - (size.height - cursorOffset.y)   // unflipped: minY is the visual bottom
+            ? location.y - cursorOffset.y                   /// flipped: minY is the visual top
+            : location.y - (size.height - cursorOffset.y)   /// unflipped: minY is the visual bottom
         let frame = NSRect(
             x: location.x - cursorOffset.x,
             y: originY,
@@ -576,25 +576,25 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
 
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        // AppKit tears down the native dragging image, so nothing visual is left to dismiss.
-        //
-        // The monitor is cleared BEFORE .dragSessionDidEnd is posted, so observers already read
-        // the session as inactive.
+        /// AppKit tears down the native dragging image, so nothing visual is left to dismiss.
+        ///
+        /// The monitor is cleared BEFORE .dragSessionDidEnd is posted, so observers already read
+        /// the session as inactive.
         DragSessionMonitor.shared.sessionDidEnd()
-        // AppKit delivers this callback after its drag-completion pass, including any cancel
-        // fly-back. Observers (AlertHostView's deferred Film Queue confirmation, RightSidebar's
-        // deferred content resolution) can run without contention.
+        /// AppKit delivers this callback after its drag-completion pass, including any cancel
+        /// fly-back. Observers (AlertHostView's deferred Film Queue confirmation, RightSidebar's
+        /// deferred content resolution) can run without contention.
         NotificationCenter.default.post(name: .dragSessionDidEnd, object: nil)
     }
 
     // MARK: - NSTableView Drag Pipeline
-    //
-    // NSTableView detects drag gestures from within its own mouseDown event-tracking
-    // loop and calls the delegate. We hook in here rather than via mouseDown overrides.
-    //
-    // This path shows a manually positioned borderless NSWindow (the "flyback window") instead
-    // of the native dragging item. The native preview could not track the cursor here. The
-    // flyback window uses screen-point arithmetic in `prepareFlybackWindow` and `dragMoved(to:)`.
+    ///
+    /// NSTableView detects drag gestures from within its own mouseDown event-tracking
+    /// loop and calls the delegate. We hook in here rather than via mouseDown overrides.
+    ///
+    /// This path shows a manually positioned borderless NSWindow (the "flyback window") instead
+    /// of the native dragging item. The native preview could not track the cursor here. The
+    /// flyback window uses screen-point arithmetic in `prepareFlybackWindow` and `dragMoved(to:)`.
 
     /// Called by the NSTableViewDelegate's willBeginAt callback. Marks the session
     /// live in DragSessionMonitor and prepares the flyback window at the drag's
@@ -612,9 +612,9 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         isDragInitiated = true
         DragSessionMonitor.shared.sessionWillBegin()
 
-        // Shares the grid path's own composeDragPreview helper (rather than
-        // recomputing the same poster size and cursor-anchor ratio independently)
-        // so the two paths' preview geometry can never silently drift apart.
+        /// Shares the grid path's own composeDragPreview helper (rather than
+        /// recomputing the same poster size and cursor-anchor ratio independently)
+        /// so the two paths' preview geometry can never silently drift apart.
         let (image, cursorOffset) = Self.composeDragPreview(
             filmCount: filmCount,
             posterImage: posterImage
@@ -652,11 +652,11 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         } else {
             dismissFlybackImmediately()
         }
-        // Clear the monitor BEFORE posting .dragSessionDidEnd below, so any observer
-        // reacting to the notification already reads the session as inactive.
+        /// Clear the monitor BEFORE posting .dragSessionDidEnd below, so any observer
+        /// reacting to the notification already reads the session as inactive.
         DragSessionMonitor.shared.sessionDidEnd()
-        // Same session-end announcement as the grid path (see .dragSessionDidEnd
-        // documentation).
+        /// Same session-end announcement as the grid path (see .dragSessionDidEnd
+        /// documentation).
         NotificationCenter.default.post(name: .dragSessionDidEnd, object: nil)
     }
 
@@ -715,8 +715,8 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
             ctx.allowsImplicitAnimation = true
             window.animator().setFrame(endFrame, display: true)
         }) {
-            // AppKit calls completion handlers on the main thread, but the SDK types
-            // them as nonisolated @Sendable closures.
+            /// AppKit calls completion handlers on the main thread, but the SDK types
+            /// them as nonisolated @Sendable closures.
             MainActor.assumeIsolated {
                 NSAnimationContext.runAnimationGroup({ ctx in
                     ctx.duration = 0.2

@@ -1,73 +1,73 @@
 // MARK: - SettingsKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Drop-in settings window kit: builds a tabbed NSWindow from a configuration value and
-// includes reusable settings controls.
-//
-// STANDARDIZED SETTINGS WINDOW UTILITY — drop in, describe the window, done.
-//
-// A hand-built NSWindow hosting an NSTabViewController with `tabStyle = .toolbar`, a
-// locked content size, a title set once, and teardown on close — described by a
-// `SettingsWindowConfiguration` rather than rebuilt per app.
-//
-// It also carries the reusable pieces of settings CONTENT: the focus sink, the temporary
-// main menu, the main-window lifetime rule, the log-file monitor, the launch-at-login
-// control, the Debug Logging block,
-// and a row factory (`SettingsPage` / `SettingsRow` / `SettingsControlStrip`, sharing the
-// 19 pt `SettingsMetrics.checkboxTitleInset` so control-less rows line up with checkbox
-// rows). None of them depends on the window, so a project can take just the one it wants
-// and put it inside a window it builds itself.
-//
-// WHY NOT A SwiftUI `Settings` SCENE
-// ──────────────────────────────────
-// It reassigns the window title from the selected tab's `tabItem` label on every tab
-// change, with no public API to opt out. It also introduces an independent scene scope,
-// which duplicates menu commands (a second "Settings…" entry, an extra View/Help menu)
-// and does not inherit the app's environment.
-//
-// WIRING IT UP
-// ────────────
-//   private let settings = SettingsWindowController(
-//       .init(title: "MyApp Settings",
-//             contentSize: NSSize(width: 500, height: 398),
-//             tabs: [
-//                 .swiftUI(id: "general",  title: "General",  symbol: "gearshape") {
-//                     GeneralTabView()
-//                 },
-//                 .swiftUI(id: "advanced", title: "Advanced", symbol: "gearshape.2") {
-//                     AdvancedTabView()
-//                 },
-//             ]))
-//
-//   settings.open()                 // default tab
-//   settings.open(tab: "about")     // a specific tab
-//
-// A single-tab window needs no change of shape — pass one tab and set `tabBar: .hidden`;
-// the content is hosted directly, spending no toolbar band on an icon that is already
-// selected. An AppKit project passes `.viewController` tabs instead of `.swiftUI` ones;
-// everything else is identical.
-//
-// SIZING TO CONTENT
-// ─────────────────
-// `contentSize:` states the content area outright. The alternative is to fix only the
-// width and let the height come from the tabs themselves:
-//
-//   .init(title: "MyApp Settings",
-//         sizing: .fitToContent(width: 500),
-//         tabs: [...])
-//
-// Each tab's view is measured once, when the window is built, and the window takes the
-// height of the tallest — so a caption that gains a line moves the bottom edge instead of
-// leaving a hand-tuned constant one line short, and the tabs still share one size (the
-// window never resizes between them). It asks that a tab's content be top-aligned and
-// free to grow: `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)`
-// with its own `edgePadding`, which is how every tab is built.
-// A tab that pins its own height (`.frame(height:)`) simply measures as that height.
+/// Drop-in settings window kit: builds a tabbed NSWindow from a configuration value and
+/// includes reusable settings controls.
+///
+/// STANDARDIZED SETTINGS WINDOW UTILITY — drop in, describe the window, done.
+///
+/// A hand-built NSWindow hosting an NSTabViewController with `tabStyle = .toolbar`, a
+/// locked content size, a title set once, and teardown on close — described by a
+/// `SettingsWindowConfiguration` rather than rebuilt per app.
+///
+/// It also carries the reusable pieces of settings CONTENT: the focus sink, the temporary
+/// main menu, the main-window lifetime rule, the log-file monitor, the launch-at-login
+/// control, the Debug Logging block,
+/// and a row factory (`SettingsPage` / `SettingsRow` / `SettingsControlStrip`, sharing the
+/// 19 pt `SettingsMetrics.checkboxTitleInset` so control-less rows line up with checkbox
+/// rows). None of them depends on the window, so a project can take just the one it wants
+/// and put it inside a window it builds itself.
+///
+/// WHY NOT A SwiftUI `Settings` SCENE
+/// ──────────────────────────────────
+/// It reassigns the window title from the selected tab's `tabItem` label on every tab
+/// change, with no public API to opt out. It also introduces an independent scene scope,
+/// which duplicates menu commands (a second "Settings…" entry, an extra View/Help menu)
+/// and does not inherit the app's environment.
+///
+/// WIRING IT UP
+/// ────────────
+///   private let settings = SettingsWindowController(
+///       .init(title: "MyApp Settings",
+///             contentSize: NSSize(width: 500, height: 398),
+///             tabs: [
+///                 .swiftUI(id: "general",  title: "General",  symbol: "gearshape") {
+///                     GeneralTabView()
+///                 },
+///                 .swiftUI(id: "advanced", title: "Advanced", symbol: "gearshape.2") {
+///                     AdvancedTabView()
+///                 },
+///             ]))
+///
+///   settings.open()                 // default tab
+///   settings.open(tab: "about")     // a specific tab
+///
+/// A single-tab window needs no change of shape — pass one tab and set `tabBar: .hidden`;
+/// the content is hosted directly, spending no toolbar band on an icon that is already
+/// selected. An AppKit project passes `.viewController` tabs instead of `.swiftUI` ones;
+/// everything else is identical.
+///
+/// SIZING TO CONTENT
+/// ─────────────────
+/// `contentSize:` states the content area outright. The alternative is to fix only the
+/// width and let the height come from the tabs themselves:
+///
+///   .init(title: "MyApp Settings",
+///         sizing: .fitToContent(width: 500),
+///         tabs: [...])
+///
+/// Each tab's view is measured once, when the window is built, and the window takes the
+/// height of the tallest — so a caption that gains a line moves the bottom edge instead of
+/// leaving a hand-tuned constant one line short, and the tabs still share one size (the
+/// window never resizes between them). It asks that a tab's content be top-aligned and
+/// free to grow: `.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)`
+/// with its own `edgePadding`, which is how every tab is built.
+/// A tab that pins its own height (`.frame(height:)`) simply measures as that height.
 
 import AppKit
 import SwiftUI
 import ServiceManagement
-import System // FileDescriptor, for the log directory monitor
+import System /// FileDescriptor, for the log directory monitor
 
 
 // MARK: - Tab Specification
@@ -426,8 +426,8 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate, Loggabl
             return
         }
 
-        // The tabs' controllers are built BEFORE the window, because under `.fitToContent`
-        // the window's size is theirs to decide.
+        /// The tabs' controllers are built BEFORE the window, because under `.fitToContent`
+        /// the window's size is theirs to decide.
         tabIDs = configuration.tabs.map(\.id)
         let controllers = configuration.tabs.map {
             $0.makeViewController(configuration.usesFocusSink)
@@ -435,9 +435,9 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate, Loggabl
         let contentSize = resolveContentSize(measuring: controllers)
         self.contentSize = contentSize
 
-        // `NSWindow(contentRect:)` takes a CONTENT rect and derives the frame itself.
-        // Passing `NSWindow.frameRect(forContentRect:styleMask:)` here would add the
-        // titlebar height a second time.
+        /// `NSWindow(contentRect:)` takes a CONTENT rect and derives the frame itself.
+        /// Passing `NSWindow.frameRect(forContentRect:styleMask:)` here would add the
+        /// titlebar height a second time.
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: contentSize),
                               styleMask: configuration.styleMask,
                               backing: .buffered,
@@ -445,8 +445,8 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate, Loggabl
         window.title = configuration.title
         window.contentMinSize = contentSize
         window.contentMaxSize = contentSize
-        // AppKit's default of `true` performs an extra release on close, over-releasing a
-        // window this controller holds strongly.
+        /// AppKit's default of `true` performs an extra release on close, over-releasing a
+        /// window this controller holds strongly.
         window.isReleasedWhenClosed = false
         window.delegate = self
 
@@ -527,16 +527,16 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate, Loggabl
     -> NSViewController {
         guard let controller = controllers.first else { return NSViewController() }
 
-        // With no tab view controller to measure it, the hosted view must NOT size the
-        // window: `NSHostingView` answers a size change by resizing the window, which
-        // resizes it again, until AppKit throws `NSGenericException`. `sizingOptions = []`
-        // switches that propagation off and the window's fixed min/max size decides.
+        /// With no tab view controller to measure it, the hosted view must NOT size the
+        /// window: `NSHostingView` answers a size change by resizing the window, which
+        /// resizes it again, until AppKit throws `NSGenericException`. `sizingOptions = []`
+        /// switches that propagation off and the window's fixed min/max size decides.
         if let hosting = controller as? (any SettingsHostingControllerSizing) {
             hosting.disableAutomaticSizing()
         }
-        // `NSHostingView` opts out of the autoresizing mask, so with sizing off it
-        // collapses to zero. Handing the mask back makes the view one the window TELLS its
-        // size, which cannot answer back — hence no constraint loop.
+        /// `NSHostingView` opts out of the autoresizing mask, so with sizing off it
+        /// collapses to zero. Handing the mask back makes the view one the window TELLS its
+        /// size, which cannot answer back — hence no constraint loop.
         controller.view.translatesAutoresizingMaskIntoConstraints = true
         controller.view.frame = NSRect(origin: .zero, size: contentSize)
         controller.view.autoresizingMask = [.width, .height]
@@ -602,8 +602,8 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate, Loggabl
     public func windowWillClose(_ notification: Notification) {
         configuration.onWindowWillClose?()
 
-        // Dropped before the view tree goes away, so AppKit is not left holding a
-        // responder inside a controller about to be deallocated.
+        /// Dropped before the view tree goes away, so AppKit is not left holding a
+        /// responder inside a controller about to be deallocated.
         window?.makeFirstResponder(nil)
         restoreMainMenuIfNeeded()
 
@@ -641,12 +641,12 @@ extension NSHostingController: SettingsHostingControllerSizing {
 
 
 
-// ─────────────────────────────────────────────────────────────────────────────────────
-// REUSABLE SETTINGS CONTENT
-//
-// Each of these is independent of `SettingsWindowController` and of the others, and can be
-// dropped into a window a project builds itself.
-// ─────────────────────────────────────────────────────────────────────────────────────
+/// ─────────────────────────────────────────────────────────────────────────────────────
+/// REUSABLE SETTINGS CONTENT
+///
+/// Each of these is independent of `SettingsWindowController` and of the others, and can be
+/// dropped into a window a project builds itself.
+/// ─────────────────────────────────────────────────────────────────────────────────────
 
 // MARK: - Focus Sink
 
@@ -675,19 +675,19 @@ public struct SettingsFocusSink: NSViewRepresentable {
         button.title = ""
         button.focusRingType = .none
         button.translatesAutoresizingMaskIntoConstraints = false
-        // Zero-size at required priority, so the button contributes no intrinsic size to
-        // the hosting view that wraps it.
+        /// Zero-size at required priority, so the button contributes no intrinsic size to
+        /// the hosting view that wraps it.
         NSLayoutConstraint.activate([
             button.widthAnchor.constraint(equalToConstant: 0),
             button.heightAnchor.constraint(equalToConstant: 0),
         ])
-        // The async hop is needed: at `makeNSView` return the hosting view is not yet in a
-        // window, so `window?.makeFirstResponder` would be sent to nil.
-        //
-        // The visibility check matters in a tabbed window: every tab's view is built up
-        // front to be measured, so every tab's sink runs this and the last one would claim
-        // focus — possibly inside a tab the user cannot see. A sink that declines here gets
-        // its turn when `SettingsTabViewController` re-seats focus on its tab.
+        /// The async hop is needed: at `makeNSView` return the hosting view is not yet in a
+        /// window, so `window?.makeFirstResponder` would be sent to nil.
+        ///
+        /// The visibility check matters in a tabbed window: every tab's view is built up
+        /// front to be measured, so every tab's sink runs this and the last one would claim
+        /// focus — possibly inside a tab the user cannot see. A sink that declines here gets
+        /// its turn when `SettingsTabViewController` re-seats focus on its tab.
         Task { @MainActor [weak button] in
             guard let button, let window = unsafe button.window,
                   !button.isHiddenOrHasHiddenAncestor else { return }
@@ -707,7 +707,7 @@ public struct SettingsFocusSink: NSViewRepresentable {
         public override var acceptsFirstResponder: Bool { true }
 
         public override func keyDown(with event: NSEvent) {
-            // 36 = Return, 49 = Space. Discarded outright: no action, no beep.
+            /// 36 = Return, 49 = Space. Discarded outright: no action, no beep.
             if event.keyCode == 36 || event.keyCode == 49 { return }
             super.keyDown(with: event)
         }
@@ -733,8 +733,8 @@ public struct SettingsFocusSinkWrapper<Content: View>: View {
     public var body: some View {
         if isActive {
             VStack(spacing: 0) {
-                // Zero height at the SwiftUI level as well as at the Auto Layout level;
-                // the wrapped content's own layout is untouched.
+                /// Zero height at the SwiftUI level as well as at the Auto Layout level;
+                /// the wrapped content's own layout is untouched.
                 SettingsFocusSink()
                     .frame(height: 0)
                     .clipped()
@@ -765,7 +765,7 @@ public enum SettingsMainMenu {
         let mainMenu = NSMenu()
         let appName = ProcessInfo.processInfo.processName
 
-        // ----- Application menu (first) -----
+        /// ----- Application menu (first) -----
         let appMenuItem = NSMenuItem()
         mainMenu.addItem(appMenuItem)
         let appSubmenu = NSMenu()
@@ -800,23 +800,23 @@ public enum SettingsMainMenu {
         appSubmenu.addItem(quitItem)
         appMenuItem.submenu = appSubmenu
 
-        // ----- File -----
+        /// ----- File -----
         let fileMenuItem = NSMenuItem()
         mainMenu.addItem(fileMenuItem)
         let fileMenu = NSMenu(title: "File")
         let closeItem = NSMenuItem(title: "Close",
                                    action: #selector(NSWindow.performClose(_:)),
                                    keyEquivalent: "w")
-        closeItem.target = nil // Let the responder chain handle close.
+        closeItem.target = nil /// Let the responder chain handle close.
         fileMenu.addItem(closeItem)
         fileMenuItem.submenu = fileMenu
 
-        // ----- Edit -----
+        /// ----- Edit -----
         let editMenuItem = NSMenuItem()
         mainMenu.addItem(editMenuItem)
         editMenuItem.submenu = CleanEditMenu(title: "Edit")
 
-        // ----- Window -----
+        /// ----- Window -----
         let windowMenuItem = NSMenuItem()
         mainMenu.addItem(windowMenuItem)
         let windowMenu = NSMenu(title: "Window")
@@ -955,7 +955,10 @@ public enum LoginItemManager: Loggable {
 
     public static func setEnabled(_ enabled: Bool) {
         let status = SMAppService.mainApp.status
-        if (enabled && status == .enabled) || (!enabled && status == .notRegistered) {
+        /// `.notFound` counts as off: there is nothing registered to remove, and
+        /// `unregister()` would only throw.
+        let isOff = status == .notRegistered || status == .notFound
+        if (enabled && status == .enabled) || (!enabled && isOff) {
             log("Launch at login already \(enabled ? "enabled" : "disabled") — no changes required.")
             return
         }
@@ -992,9 +995,9 @@ public final class LogFileMonitor: Loggable {
 
     public init() {}
 
-    // Isolated, so it can read `source` directly. A release on the main actor (the usual
-    // case: SwiftUI dropping the owning view's state) runs it inline; a release elsewhere
-    // runs it on the main actor shortly after.
+    /// Isolated, so it can read `source` directly. A release on the main actor (the usual
+    /// case: SwiftUI dropping the owning view's state) runs it inline; a release elsewhere
+    /// runs it on the main actor shortly after.
     isolated deinit {
         source?.cancel()
     }
@@ -1012,13 +1015,13 @@ public final class LogFileMonitor: Loggable {
         logFileExists = FileManager.default.fileExists(atPath: Logger.safeLogFileURL.path)
     }
 
-    // `retriesRemaining` is threaded through so a failing open cannot re-arm a fresh
-    // budget each attempt — retrying via the public `start()` would turn a persistently
-    // unopenable directory into an unbounded retry chain.
+    /// `retriesRemaining` is threaded through so a failing open cannot re-arm a fresh
+    /// budget each attempt — retrying via the public `start()` would turn a persistently
+    /// unopenable directory into an unbounded retry chain.
     private func start(retriesRemaining: Int, delay: TimeInterval) {
         stop()
 
-        // Resolved once: `safeLogFileURL` can do FileManager work on a cold cache.
+        /// Resolved once: `safeLogFileURL` can do FileManager work on a cold cache.
         let logFileURL = Logger.safeLogFileURL
         logFileExists = FileManager.default.fileExists(atPath: logFileURL.path)
 
@@ -1035,10 +1038,10 @@ public final class LogFileMonitor: Loggable {
             eventMask: [.attrib, .delete, .rename, .write],
             queue: .main)
 
-        // The handler runs on `DispatchQueue.main`, so `MainActor.assumeIsolated` bridges
-        // that guarantee into the actor system without an async hop. Flags are read through
-        // `self.source` rather than by capturing `source`, which would retain-cycle
-        // (source → handler → source).
+        /// The handler runs on `DispatchQueue.main`, so `MainActor.assumeIsolated` bridges
+        /// that guarantee into the actor system without an async hop. Flags are read through
+        /// `self.source` rather than by capturing `source`, which would retain-cycle
+        /// (source → handler → source).
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -1046,28 +1049,28 @@ public final class LogFileMonitor: Loggable {
                 self.logFileExists = FileManager.default.fileExists(
                     atPath: Logger.safeLogFileURL.path)
                 if flags.contains(.rename) || flags.contains(.delete) {
-                    // The watched directory went away. A fresh situation rather than a
-                    // continuation of a failing attempt, so the budget starts over.
+                    /// The watched directory went away. A fresh situation rather than a
+                    /// continuation of a failing attempt, so the budget starts over.
                     self.stop()
                     self.scheduleRestart(retriesRemaining: 3, delay: 0.5)
                 }
             }
         }
 
-        // Runs on the source's own queue, and closes the descriptor it captured — which is
-        // why no descriptor is stored on self.
+        /// Runs on the source's own queue, and closes the descriptor it captured — which is
+        /// why no descriptor is stored on self.
         source.setCancelHandler { try? descriptor.close() }
 
         source.resume()
         self.source = source
     }
 
-    // Retries after the source could not be established.
-    //
-    // Gated on nothing but a re-attempt: a retry only happens when the DIRECTORY could not
-    // be opened, in which case the file cannot exist either, so testing for the file would
-    // never recover. Resolving the log URL creates the directory as a side effect, which is
-    // what makes a bare retry likely to succeed.
+    /// Retries after the source could not be established.
+    ///
+    /// Gated on nothing but a re-attempt: a retry only happens when the DIRECTORY could not
+    /// be opened, in which case the file cannot exist either, so testing for the file would
+    /// never recover. Resolving the log URL creates the directory as a side effect, which is
+    /// what makes a bare retry likely to succeed.
     private func scheduleRestart(retriesRemaining: Int, delay: TimeInterval) {
         guard retriesRemaining > 0 else {
             log("Giving up on re-establishing the log directory monitor.", level: .warning)
@@ -1075,7 +1078,7 @@ public final class LogFileMonitor: Loggable {
         }
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            // A `start()` that already succeeded in the meantime makes this retry moot.
+            /// A `start()` that already succeeded in the meantime makes this retry moot.
             guard let self, self.source == nil else { return }
             self.start(retriesRemaining: retriesRemaining - 1, delay: delay * 2.0)
         }
@@ -1155,18 +1158,22 @@ public struct SettingsLoggingSection: View, Loggable {
             }
         }
         .onChange(of: loggingEnabled) { oldValue, newValue in
-            // Compared against `oldValue`, NOT the preference: `@AppStorage` commits the
-            // new value before this closure runs, so the preference always equals
-            // `newValue` and a guard against it would suppress the body every time.
+            /// Compared against `oldValue`, NOT the preference: `@AppStorage` commits the
+            /// new value before this closure runs, so the preference always equals
+            /// `newValue` and a guard against it would suppress the body every time.
             guard newValue != oldValue else { return }
             onChange?(newValue)
 
             if newValue {
+                /// The file now, not at the first flush up to `flushInterval` later, so
+                /// Reveal and Clear enable as soon as logging does.
+                Logger.prepareLogDirectory()
+                monitor.refresh()
                 Self.log("Logging toggled -> true")
             } else {
-                // `@AppStorage` has already committed `false`, so an ordinary log would be
-                // dropped and nothing would record why the log goes silent. `logForced` is
-                // the bypass for that one line; `shutdownLogging()` flushes it to disk.
+                /// `@AppStorage` has already committed `false`, so an ordinary log would be
+                /// dropped and nothing would record why the log goes silent. `logForced` is
+                /// the bypass for that one line; `shutdownLogging()` flushes it to disk.
                 Logger.logForced("Logging toggled -> false", cName: Self.logTag)
                 Logger.shutdownLogging()
             }
@@ -1177,14 +1184,14 @@ public struct SettingsLoggingSection: View, Loggable {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) { clearLog() }
         } message: {
-            Text("This will permanently erase the current contents of the debug log file. This action cannot be undone.")
+            Text("The current contents of the debug log file will be permanently erased. This action cannot be undone.")
         }
     }
 
     private func clearLog() {
-        // `Logger.clearLog()` rather than writing empty Data at the file: it drains the
-        // pipe and the write chain first, so the clear cannot land in the middle of an
-        // in-flight append.
+        /// `Logger.clearLog()` rather than writing empty Data at the file: it drains the
+        /// pipe and the disk writer first, so the clear cannot land in the middle of an
+        /// in-flight append.
         Task {
             let cleared = await Logger.clearLog()
             monitor.refresh()
@@ -1202,6 +1209,12 @@ public struct SettingsLoggingSection: View, Loggable {
 /// Re-queried on appear and whenever the app regains focus, because the user can change
 /// Login Items in System Settings while this window is open. The delay after toggling is
 /// because `SMAppService.status` does not reflect a register/unregister immediately.
+///
+/// Only a click registers or unregisters, through the binding's setter. Re-syncing the
+/// checkbox from the system must not, so this does not react to `onChange(of: isOn)`:
+/// with the item awaiting approval (`.requiresApproval`, which reads as off), a re-sync to
+/// off would unregister it, removing the very entry the user is meant to approve in System
+/// Settings — on the check right after enabling, or on returning from System Settings.
 @MainActor
 public struct LaunchAtLoginToggle: View, Loggable {
     public nonisolated static let logTag = "[LaunchAtLogin]"
@@ -1214,15 +1227,17 @@ public struct LaunchAtLoginToggle: View, Loggable {
     }
 
     public var body: some View {
-        Toggle(title, isOn: $isOn)
-            .onChange(of: isOn) { _, newValue in
+        Toggle(title, isOn: Binding(
+            get: { isOn },
+            set: { newValue in
+                isOn = newValue
                 LoginItemManager.setEnabled(newValue)
+                Self.log("Launch at Login toggled -> \(newValue)")
                 Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(300))
                     isOn = LoginItemManager.isEnabled
                 }
-                Self.log("Launch at Login toggled -> \(newValue)")
-            }
+            }))
             .onAppear { isOn = LoginItemManager.isEnabled }
             .onReceive(NotificationCenter.default.publisher(
                 for: NSApplication.didBecomeActiveNotification)
@@ -1233,17 +1248,17 @@ public struct LaunchAtLoginToggle: View, Loggable {
 }
 
 // MARK: - Settings Row Factory
-//
-// Nearly every Settings row across these apps is the same shape: a title, an optional
-// secondary caption, and sometimes a trailing control on the title line or a strip of
-// buttons beneath it. Some rows are headed by their own checkbox; the rest have to be
-// pushed right by the width of a checkbox-plus-gap so every title lands on one vertical
-// line and the tab reads as a single column.
-//
-// `SettingsMetrics.checkboxTitleInset` is that offset (19 pt). `SettingsRow` builds the
-// shared shape and applies the inset for the control-less rows; `SettingsPage` is the
-// outer stack that holds the rows. The genuine outliers stay hand-built — reach for
-// `.settingsCheckboxTitleAligned()` on those so they still line up.
+///
+/// Nearly every Settings row across these apps is the same shape: a title, an optional
+/// secondary caption, and sometimes a trailing control on the title line or a strip of
+/// buttons beneath it. Some rows are headed by their own checkbox; the rest have to be
+/// pushed right by the width of a checkbox-plus-gap so every title lands on one vertical
+/// line and the tab reads as a single column.
+///
+/// `SettingsMetrics.checkboxTitleInset` is that offset (19 pt). `SettingsRow` builds the
+/// shared shape and applies the inset for the control-less rows; `SettingsPage` is the
+/// outer stack that holds the rows. The genuine outliers stay hand-built — reach for
+/// `.settingsCheckboxTitleAligned()` on those so they still line up.
 
 /// Shared layout values for a Settings tab, so every app's rows agree on one grid.
 public enum SettingsMetrics {
@@ -1371,8 +1386,8 @@ public struct SettingsRow<Trailing: View, Accessory: View>: View {
 
     private var label: some View {
         VStack(alignment: .leading, spacing: SettingsMetrics.rowContentSpacing) {
-            // An `EmptyView` trailing contributes no size and no spacing, so the common
-            // no-trailing-control row still reads as a bare title.
+            /// An `EmptyView` trailing contributes no size and no spacing, so the common
+            /// no-trailing-control row still reads as a bare title.
             HStack(alignment: .firstTextBaseline,
                    spacing: SettingsMetrics.titleControlSpacing) {
                 Text(title)

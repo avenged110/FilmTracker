@@ -1,42 +1,42 @@
 // MARK: - DHPipelines.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// DEBUG-only harness scenarios for the two pipelines that exist to protect the user's data
-// when something goes wrong: the optimistic-write rollback infrastructure, and the
-// export / restore round trip.
-//
-// WHY A FAULT INJECTOR RATHER THAN INSPECTION
-//
-// Every mutation in DataCoordinator is optimistic: MemoryStore is updated immediately and
-// the database write is dispatched to the background, with a rollback closure that is
-// supposed to put memory back exactly as it was if that write fails. Those closures are the
-// least-exercised code in the application — they run only when persistence fails, which
-// essentially never happens during development — and they are hand-written per call site,
-// so "looks right" is worth very little. `DebugPersistenceFault` makes the failure happen on
-// demand, at the trackOperation boundary every path funnels through.
-//
-// The assertion is a whole-store DIGEST comparison, not a field spot-check: the store's
-// films (including Hall of Fame positions and release arrays) and every list's membership
-// are serialized before the mutation and again after the rollback, and the two must be
-// byte-identical. A rollback that restores the film but forgets its list membership, or
-// restores the ranking but not the compaction applied to survivors, fails this — which is
-// exactly the class of omission a per-case assertion tends to miss.
-//
-// Each case also asserts that the injector actually fired. Without that control, a path
-// that silently dispatched no work at all would "pass" its rollback test vacuously.
-//
-// WHAT THE ROUND-TRIP SCENARIOS ARE FOR
-//
-// The export pipeline reflects managed objects into an untyped [String: Any] bag, writes it
-// as XML, and the import pipeline guesses each value's type back from its text. That guess
-// is the interesting part: nothing in the file records whether a field was a String or an
-// Int, so a string-typed field whose CONTENT looks numeric, boolean, or array-shaped is
-// reconstructed as the wrong type. `export-roundtrip` puts values of exactly that shape
-// into string fields and checks what comes back, and `restore-endtoend` carries the same
-// corpus through the real DBRestorer and re-reads the rebuilt store.
-//
-// ORDERING: `restore-endtoend` DESTROYS the sandbox store — that is what a restore does —
-// so it runs last, after every scenario that needs a live library.
+/// DEBUG-only harness scenarios for the two pipelines that exist to protect the user's data
+/// when something goes wrong: the optimistic-write rollback infrastructure, and the
+/// export / restore round trip.
+///
+/// WHY A FAULT INJECTOR RATHER THAN INSPECTION
+///
+/// Every mutation in DataCoordinator is optimistic: MemoryStore is updated immediately and
+/// the database write is dispatched to the background, with a rollback closure that is
+/// supposed to put memory back exactly as it was if that write fails. Those closures are the
+/// least-exercised code in the application — they run only when persistence fails, which
+/// essentially never happens during development — and they are hand-written per call site,
+/// so "looks right" is worth very little. `DebugPersistenceFault` makes the failure happen on
+/// demand, at the trackOperation boundary every path funnels through.
+///
+/// The assertion is a whole-store DIGEST comparison, not a field spot-check: the store's
+/// films (including Hall of Fame positions and release arrays) and every list's membership
+/// are serialized before the mutation and again after the rollback, and the two must be
+/// byte-identical. A rollback that restores the film but forgets its list membership, or
+/// restores the ranking but not the compaction applied to survivors, fails this — which is
+/// exactly the class of omission a per-case assertion tends to miss.
+///
+/// Each case also asserts that the injector actually fired. Without that control, a path
+/// that silently dispatched no work at all would "pass" its rollback test vacuously.
+///
+/// WHAT THE ROUND-TRIP SCENARIOS ARE FOR
+///
+/// The export pipeline reflects managed objects into an untyped [String: Any] bag, writes it
+/// as XML, and the import pipeline guesses each value's type back from its text. That guess
+/// is the interesting part: nothing in the file records whether a field was a String or an
+/// Int, so a string-typed field whose CONTENT looks numeric, boolean, or array-shaped is
+/// reconstructed as the wrong type. `export-roundtrip` puts values of exactly that shape
+/// into string fields and checks what comes back, and `restore-endtoend` carries the same
+/// corpus through the real DBRestorer and re-reads the rebuilt store.
+///
+/// ORDERING: `restore-endtoend` DESTROYS the sandbox store — that is what a restore does —
+/// so it runs last, after every scenario that needs a live library.
 
 #if DEBUG
 
@@ -64,7 +64,7 @@ extension DebugHarness {
         case "restore-endtoend":   return await restoreEndToEndScenario(coordinator: coordinator)
         case "release-date-rules": return releaseDateRulesScenario()
         case "membership-cascade": return await membershipCascadeScenario()
-        // By name only, not in any suite: the cross-build restore parity test.
+        /// By name only, not in any suite: the cross-build restore parity test.
         case "parity-export":      return await parityExportScenario(coordinator: coordinator)
         case "parity-restore":     return await parityRestoreScenario(coordinator: coordinator)
         default:                   return nil
@@ -115,8 +115,8 @@ extension DebugHarness {
             if ContinuousClock.now > deadline { return false }
             try? await Task.sleep(for: .milliseconds(5))
         }
-        // One more turn so any MainActor continuation queued by the final operation
-        // (the rollback closure itself) has run before the digest is taken.
+        /// One more turn so any MainActor continuation queued by the final operation
+        /// (the rollback closure itself) has run before the digest is taken.
         await Task.yield()
         return true
     }
@@ -134,8 +134,8 @@ extension DebugHarness {
 
         DebugPersistenceFault.mode = .beforeWork
         await mutate()
-        // Debounced paths (Hall of Fame and wishlist reorders) do not dispatch until their
-        // quiet window expires, so those cases ask for an explicit settle period.
+        /// Debounced paths (Hall of Fame and wishlist reorders) do not dispatch until their
+        /// quiet window expires, so those cases ask for an explicit settle period.
         if let settle { try? await Task.sleep(for: settle) }
         let drained = await drainOperations(coordinator)
         DebugPersistenceFault.mode = .none
@@ -151,9 +151,9 @@ extension DebugHarness {
                 after == before ? "byte-identical to the pre-mutation state"
                                 : firstDifference(before, after))
 
-        // The published array is what the gallery draws. A rollback that fixes the store but
-        // leaves `films` holding the mutated snapshots repaints nothing, so the user keeps
-        // seeing an edit that was never persisted and has already been undone underneath.
+        /// The published array is what the gallery draws. A rollback that fixes the store but
+        /// leaves `films` holding the mutated snapshots repaints nothing, so the user keeps
+        /// seeing an edit that was never persisted and has already been undone underneath.
         let mismatched = coordinator.films.filter { published in
             store.getFilm(published.id) != published
         }
@@ -163,7 +163,7 @@ extension DebugHarness {
                 coordinator.totalFilmCount == store.totalFilmCount,
                 "published \(coordinator.totalFilmCount), store \(store.totalFilmCount)")
 
-        // cachedLists drives the sidebar's per-list film counts.
+        /// cachedLists drives the sidebar's per-list film counts.
         let cached = Dictionary(uniqueKeysWithValues: coordinator.cachedLists.map { ($0.listID, $0.filmCount) })
         let live = Dictionary(uniqueKeysWithValues: coordinator.getAllLists().map { ($0.listID, $0.filmIDs.count) })
         r.check("\(name)/published-list-counts-agree", cached == live,
@@ -220,9 +220,9 @@ extension DebugHarness {
             passed: rows.count == Set(rows).count,
             detail: "\(rows.count) row(s) for \(Set(rows).count) distinct film(s)"))
 
-        // A repeat add of the identical set must insert nothing: the dedupe is what the
-        // existing-membership lookup at the top of batchAddFilmsToLists exists to provide,
-        // and it is the part of that method most exposed to regression.
+        /// A repeat add of the identical set must insert nothing: the dedupe is what the
+        /// existing-membership lookup at the top of batchAddFilmsToLists exists to provide,
+        /// and it is the part of that method most exposed to regression.
         coordinator.addFilmsToList(filmIDs: added, listID: listID)
         _ = await drainOperations(coordinator)
         rows = persistedMembershipFilmIDs(coordinator, listID: listID)
@@ -231,7 +231,7 @@ extension DebugHarness {
             passed: rows.count == added.count && Set(rows) == added,
             detail: "\(rows.count) row(s) after re-adding the same \(added.count) film(s)"))
 
-        // A partial removal must delete exactly the named pairs and leave the rest standing.
+        /// A partial removal must delete exactly the named pairs and leave the rest standing.
         let removed = Set(corpus.prefix(3).map(\.id))
         coordinator.removeFilmsFromList(filmIDs: removed, listID: listID)
         _ = await drainOperations(coordinator)
@@ -242,8 +242,8 @@ extension DebugHarness {
             passed: Set(rows) == expected && rows.count == expected.count,
             detail: "\(rows.count) row(s) remain, expected \(expected.count)"))
 
-        // Removing films that are not members must not disturb the ones that are — the
-        // targeted fetch must not widen to rows the caller never named.
+        /// Removing films that are not members must not disturb the ones that are — the
+        /// targeted fetch must not widen to rows the caller never named.
         coordinator.removeFilmsFromList(
             filmIDs: Set(corpus.suffix(4).map(\.id)), listID: listID)
         _ = await drainOperations(coordinator)
@@ -253,17 +253,17 @@ extension DebugHarness {
             passed: Set(rows) == expected && rows.count == expected.count,
             detail: "\(rows.count) row(s) remain, expected \(expected.count)"))
 
-        // The whole point: what is on disk and what the UI reads must be the same set.
+        /// The whole point: what is on disk and what the UI reads must be the same set.
         let inMemory = store.getList(listID)?.filmIDs ?? []
         checks.append(HarnessCheck(
             name: "membership-persistence/agrees-with-memory-store",
             passed: Set(rows) == inMemory,
             detail: "store holds \(Set(rows).count), MemoryStore holds \(inMemory.count)"))
 
-        // --- Film Queue section move ----------------------------------------------------
-        // A move is an exclusivity removal plus an add. Both halves ride in one tracked
-        // operation and one database transaction, so the assertion is on the committed
-        // result: the film holds a membership row in its new section and in NO other.
+        /// --- Film Queue section move ----------------------------------------------------
+        /// A move is an exclusivity removal plus an add. Both halves ride in one tracked
+        /// operation and one database transaction, so the assertion is on the committed
+        /// result: the film holds a membership row in its new section and in NO other.
         let mover = corpus[12].id
         _ = coordinator.addFilmsToList(filmIDs: [mover],
                                                 listID: FilmQueueSection.later.listID)
@@ -312,14 +312,14 @@ extension DebugHarness {
         }
         _ = await drainOperations(coordinator)
 
-        // Control: the pre-existing create-time behavior, so a failure below can be read as
-        // a rename defect rather than a collapse of uniquification generally.
+        /// Control: the pre-existing create-time behavior, so a failure below can be read as
+        /// a rename defect rather than a collapse of uniquification generally.
         checks.append(HarnessCheck(
             name: "list-naming/create-uniquifies",
             passed: name(of: first) == "Naming Probe" && name(of: second) == "Naming Probe 1",
             detail: "'\(name(of: first))' and '\(name(of: second))'"))
 
-        // Rename onto an existing name must uniquify.
+        /// Rename onto an existing name must uniquify.
         _ = ListManager.updateListName(second, newName: "Naming Probe",
                                              coordinator: coordinator)
         _ = await drainOperations(coordinator)
@@ -328,8 +328,8 @@ extension DebugHarness {
             passed: name(of: second) == "Naming Probe 1",
             detail: "second list is now '\(name(of: second))', expected 'Naming Probe 1'"))
 
-        // Case-insensitivity: the comparison must not be fooled by casing, or the duplicate
-        // simply comes back in a different shape.
+        /// Case-insensitivity: the comparison must not be fooled by casing, or the duplicate
+        /// simply comes back in a different shape.
         _ = ListManager.updateListName(second, newName: "naming probe",
                                              coordinator: coordinator)
         _ = await drainOperations(coordinator)
@@ -338,8 +338,8 @@ extension DebugHarness {
             passed: name(of: second).lowercased() != "naming probe",
             detail: "second list is now '\(name(of: second))'"))
 
-        // A list must still be able to keep its own name: excluding the list being renamed
-        // from the comparison set is what stops a re-save turning "Alpha" into "Alpha 1".
+        /// A list must still be able to keep its own name: excluding the list being renamed
+        /// from the comparison set is what stops a re-save turning "Alpha" into "Alpha 1".
         _ = ListManager.updateListName(first, newName: "Naming Probe",
                                              coordinator: coordinator)
         _ = await drainOperations(coordinator)
@@ -348,7 +348,7 @@ extension DebugHarness {
             passed: name(of: first) == "Naming Probe",
             detail: "first list is now '\(name(of: first))', expected 'Naming Probe'"))
 
-        // Recasing a list's own name must be honored, not treated as a self-collision.
+        /// Recasing a list's own name must be honored, not treated as a self-collision.
         _ = ListManager.updateListName(first, newName: "NAMING PROBE",
                                              coordinator: coordinator)
         _ = await drainOperations(coordinator)
@@ -387,8 +387,8 @@ extension DebugHarness {
         let store = coordinator.memoryStoreForTesting
         DebugPersistenceFault.reset()
 
-        // A fresh context per read, so every value comes from the store rather than from
-        // objects some earlier fetch registered.
+        /// A fresh context per read, so every value comes from the store rather than from
+        /// objects some earlier fetch registered.
         func persistedFilm(_ id: UUID) -> Film? {
             let context = coordinator.persistentContainer.makeMainContext()
             return try? context.fetch(Film.request(.equals("id", id))).first
@@ -407,8 +407,8 @@ extension DebugHarness {
                 listsToAdd: [], listsToRemove: []))
         }
 
-        // --- Quick-add viewing derives viewCount ----------------------------------------------
-        // Dates well in the past, so the Film Queue auto-removal (today/yesterday) stays out.
+        /// --- Quick-add viewing derives viewCount ----------------------------------------------
+        /// Dates well in the past, so the Film Queue auto-removal (today/yesterday) stays out.
         let viewer = makeSnapshot(name: "Audit Viewer", lastWatched: "2020.05.01",
                                   calendarTable: ["2020.05.01"])
         saveNew(viewer)
@@ -424,7 +424,7 @@ extension DebugHarness {
         r.check("viewing-dates/viewcount-persisted", storedViews == 2,
                 "store holds \(storedViews), expected 2 — backups export this value verbatim")
 
-        // --- Wishlist reorder reaches combo-pack children, and the export flush commits it ------
+        /// --- Wishlist reorder reaches combo-pack children, and the export flush commits it ------
         let parentID = UUID(), childID = UUID()
         let pack = makeSnapshot(name: "Audit Pack", releases: [
             ReleaseSnapshot(id: parentID, wishlist: 1, format: ReleaseFormat.uhd4K.rawValue,
@@ -442,14 +442,14 @@ extension DebugHarness {
         saveNew(solo)
         _ = await drainOperations(coordinator)
 
-        // Solo first, so the pack's parent moves from 1 to 2 and its child must follow.
+        /// Solo first, so the pack's parent moves from 1 to 2 and its child must follow.
         coordinator.reorderWishlist([(filmID: solo.id, releaseID: soloID),
                                      (filmID: pack.id, releaseID: parentID)])
         let childInMemory = store.getFilm(pack.id)?.releases.first { $0.id == childID }?.wishlist ?? -1
         r.check("wishlist-reorder/child-mirrors-parent-in-memory", childInMemory == 2,
                 "child holds \(childInMemory), expected the parent's new position 2")
 
-        // Committed well inside the one-second debounce: only the flush can have written it.
+        /// Committed well inside the one-second debounce: only the flush can have written it.
         await coordinator.commitPendingWritesForExport()
         let parentStored = persistedRelease(parentID)?.wishlist ?? -1
         let childStored = persistedRelease(childID)?.wishlist ?? -1
@@ -458,7 +458,7 @@ extension DebugHarness {
         r.check("wishlist-reorder/child-mirrors-parent-persisted", childStored == 2,
                 "store holds child position \(childStored), expected 2")
 
-        // --- The export flush commits a pending Hall of Fame reorder ---------------------------
+        /// --- The export flush commits a pending Hall of Fame reorder ---------------------------
         for film in [viewer, pack, solo] where store.hallOfFameFilms.count < 2 {
             coordinator.addToHallOfFame(film.id)
         }
@@ -472,10 +472,10 @@ extension DebugHarness {
                 store.hallOfFameFilms.count >= 2 && mismatchedRanks.isEmpty,
                 "\(mismatchedRanks.count) of \(store.hallOfFameFilms.count) ranked film(s) differ between store and memory")
 
-        // --- The export flush commits a debounced settings change -----------------------------
+        /// --- The export flush commits a debounced settings change -----------------------------
         let originalFuzzy = Preferences.fuzzyImportMatching
         Preferences.fuzzyImportMatching = !originalFuzzy
-        // The setter posts preferencesChanged from a Task; let it arm the debounce.
+        /// The setter posts preferencesChanged from a Task; let it arm the debounce.
         for _ in 0..<3 { await Task.yield() }
         await coordinator.commitPendingWritesForExport()
         let storedFuzzy = storedSettings(coordinator)?.fuzzyImportMatching
@@ -485,9 +485,9 @@ extension DebugHarness {
         for _ in 0..<3 { await Task.yield() }
         await coordinator.commitPendingWritesForExport()
 
-        // A write the way @AppStorage makes it: straight to the defaults suite, with no
-        // preferencesChanged event, so nothing is ever marked pending. Most Settings
-        // toggles work this way; the export must still carry their values.
+        /// A write the way @AppStorage makes it: straight to the defaults suite, with no
+        /// preferencesChanged event, so nothing is ever marked pending. Most Settings
+        /// toggles work this way; the export must still carry their values.
         if let suite = DebugSandbox.userDefaultsSuiteName.flatMap({ UserDefaults(suiteName: $0) }) {
             let originalConfirm = Preferences.confirmReleaseDelete
             suite.set(!originalConfirm, forKey: Preferences.confirmReleaseDeleteKey)
@@ -501,9 +501,9 @@ extension DebugHarness {
             r.check("export-flush/silent-appstorage-write-committed", false, "sandbox defaults suite unavailable")
         }
 
-        // --- Search upper bounds skip films with no value ---------------------------------------
-        // A private controller: SearchController.shared drives the live search UI.
-        // (updateSearchQuery is ignored outside the search view, which the harness never opens.)
+        /// --- Search upper bounds skip films with no value ---------------------------------------
+        /// A private controller: SearchController.shared drives the live search UI.
+        /// (updateSearchQuery is ignored outside the search view, which the harness never opens.)
         let blank = makeSnapshot(name: "Audit Blank", releaseYear: "", rating: 0, duration: "")
         let valued = makeSnapshot(name: "Audit Valued", releaseYear: "1990", rating: 5,
                                   duration: "5400000")
@@ -522,7 +522,7 @@ extension DebugHarness {
                 "matched \(unrated), expected only '\(blank.name)'")
         search.clearSearch()
 
-        // --- Rotation threshold keywords test the override, not the effective value ------------
+        /// --- Rotation threshold keywords test the override, not the effective value ------------
         let defaultMonths = Preferences.defaultRotationThreshold
         let otherMonths = Preferences.rotationThresholdOptions.first { $0 != defaultMonths } ?? defaultMonths
         let noOverride = makeSnapshot(name: "Rot NoOverride")
@@ -550,7 +550,7 @@ extension DebugHarness {
                 "matched \(rotation("\(defaultMonths)")), expected the no-override and same-as-default films")
         search.clearSearch()
 
-        // --- Ranges, unparseable dates, and the synopsis token ---------------------------------
+        /// --- Ranges, unparseable dates, and the synopsis token ---------------------------------
         func ids(_ field: SearchField, _ value: String, in films: [FilmSnapshot], inverted: Bool = false) -> Set<String> {
             search.currentTokens = [SearchToken(field: field, value: value, isInverted: inverted, isOr: false)]
             return Set(search.filterFilms(films, lists: SearchListCatalog(entries: [])).map(\.name))
@@ -563,7 +563,7 @@ extension DebugHarness {
                 ids(.rating, "8-", in: band) == names(1...8), "\(ids(.rating, "8-", in: band))")
         r.check("range/rating-reversed-is-same-span",
                 ids(.rating, "9-7", in: band) == names(7...9), "\(ids(.rating, "9-7", in: band))")
-        r.check("range/duration-60-120",   // minutes: Band n runs n * 20
+        r.check("range/duration-60-120",   /// minutes: Band n runs n * 20
                 ids(.duration, "60-120", in: band) == names(3...6), "\(ids(.duration, "60-120", in: band))")
         r.check("range/year-unchanged", ids(.year, "1992-1994", in: band) == names(2...4), "\(ids(.year, "1992-1994", in: band))")
         r.check("range/duration-skips-no-duration",
@@ -582,7 +582,7 @@ extension DebugHarness {
                 ids(.lastWatched, "garbage", in: dated, inverted: true) == ["Dated", "Undated"], "inverted junk")
         r.check("date-valid-still-works", ids(.lastWatched, ">2022", in: dated) == ["Dated"], "\(ids(.lastWatched, ">2022", in: dated))")
 
-        // "none" and bare calendar years.
+        /// "none" and bare calendar years.
         var y2025 = makeSnapshot(name: "Y2025", lastWatched: "2025.12.31")
         y2025.dateAdded = "2025.12.31"
         let y2024 = makeSnapshot(name: "Y2024", lastWatched: "2024.12.31")
@@ -595,12 +595,12 @@ extension DebugHarness {
                 "\(ids(.lastWatched, "2025", in: years)); Dec 31 2024 and Jan 1 2026 must be outside")
         r.check("date-year/2024-includes-last-day", ids(.lastWatched, "2024", in: years) == ["Y2024"], "\(ids(.lastWatched, "2024", in: years))")
 
-        // Duration follows the edited runtime when the film has one.
+        /// Duration follows the edited runtime when the film has one.
         var edited = makeSnapshot(name: "Edited", duration: "\(150 * 60_000)")
         edited.edited = true
         edited.editedDuration = "\(146 * 60_000)"
         var staleEdit = makeSnapshot(name: "StaleEdit", duration: "\(150 * 60_000)")
-        staleEdit.editedDuration = "\(100 * 60_000)"      // not marked edited: ignored
+        staleEdit.editedDuration = "\(100 * 60_000)"      /// not marked edited: ignored
         let runtimes = [edited, staleEdit]
         r.check("duration-effective/at-least-uses-edited", ids(.duration, "150", in: runtimes) == ["StaleEdit"],
                 "\(ids(.duration, "150", in: runtimes))")
@@ -624,7 +624,7 @@ extension DebugHarness {
                 "an alias does not resolve to .synopsis")
         search.clearSearch()
 
-        // Leave the library as found for the scenarios that follow.
+        /// Leave the library as found for the scenarios that follow.
         await coordinator.deleteFilms(withIDs: [viewer.id, pack.id, solo.id])
         _ = await drainOperations(coordinator)
         return r
@@ -636,26 +636,26 @@ extension DebugHarness {
         var r = HarnessScenarioResult(scenario: "rollback-integrity")
         let store = coordinator.memoryStoreForTesting
 
-        // The corpus is seeded through the COORDINATOR's own entry points, not by writing to
-        // the store directly. That matters: the coordinator maintains published state
-        // (totalFilmCount, cachedLists, films) alongside the store, and a scenario that
-        // seeded behind its back would start with those already disagreeing — every
-        // published-state assertion below would then fail on the setup rather than on
-        // anything a rollback did.
+        /// The corpus is seeded through the COORDINATOR's own entry points, not by writing to
+        /// the store directly. That matters: the coordinator maintains published state
+        /// (totalFilmCount, cachedLists, films) alongside the store, and a scenario that
+        /// seeded behind its back would start with those already disagreeing — every
+        /// published-state assertion below would then fail on the setup rather than on
+        /// anything a rollback did.
         let corpus = standardCorpus(count: 30, seed: 0x1201_1BAC)
         coordinator.importFilms(corpus)
         let listID = coordinator.createList(name: "Rollback Target", displayOrder: 900)
         coordinator.addFilmsToList(filmIDs: Set(corpus.prefix(6).map(\.id)), listID: listID)
 
-        // Three ranked films, so the Hall of Fame paths have a real ranking to compact and
-        // restore rather than trivially operating on an empty list.
+        /// Three ranked films, so the Hall of Fame paths have a real ranking to compact and
+        /// restore rather than trivially operating on an empty list.
         coordinator.addToHallOfFame(corpus[0].id)
         coordinator.addToHallOfFame(corpus[1].id)
         coordinator.addToHallOfFame(corpus[2].id)
 
-        // Some films carry an override and an infoComplete flag before any case runs, so the
-        // two library-wide reset paths have work to do without seeding state inside their own
-        // mutation closure — which would put that state outside the case's own baseline.
+        /// Some films carry an override and an infoComplete flag before any case runs, so the
+        /// two library-wide reset paths have work to do without seeding state inside their own
+        /// mutation closure — which would put that state outside the case's own baseline.
         for index in [4, 5, 6] {
             var film = store.getFilm(corpus[index].id) ?? corpus[index]
             film.rotationThresholdOverride = 24
@@ -667,7 +667,7 @@ extension DebugHarness {
             await coordinator.updateFilm(film)
         }
 
-        // Give a few releases real wishlist positions, for the same reason.
+        /// Give a few releases real wishlist positions, for the same reason.
         let wishlistFilms = corpus.filter { $0.releases.contains { $0.isTopLevel } }.prefix(3)
         for (index, film) in wishlistFilms.enumerated() {
             guard var updated = store.getFilm(film.id) else { continue }
@@ -677,26 +677,26 @@ extension DebugHarness {
             await coordinator.updateFilm(updated)
         }
 
-        // One film starts in the "Later" queue section, so the exclusivity case below has a
-        // real cross-section move to make rather than a plain add.
+        /// One film starts in the "Later" queue section, so the exclusivity case below has a
+        /// real cross-section move to make rather than a plain add.
         _ = coordinator.addFilmsToList(filmIDs: [corpus[21].id],
                                                 listID: FilmQueueSection.later.listID)
 
         _ = await drainOperations(coordinator)
         coordinator.refreshFilms()
 
-        // --- Persisted list membership -------------------------------------------------
-        // Runs BEFORE any fault is injected, and is the only part of this scenario that
-        // reads the store rather than MemoryStore.
-        //
-        // Every other list assertion in this harness compares MemoryStore against itself
-        // or against the coordinator's published copies of it. That is the right shape for
-        // rollback, but it is blind in one specific direction: DataCoordinator's list
-        // mutations are optimistic, so memory is correct the instant they are called and
-        // stays correct whether or not the background write did anything at all. A
-        // batchAddFilmsToLists that inserted no rows, or a batchRemoveFilmsFromLists that
-        // matched none, would pass every existing check and only surface on the next cold
-        // launch, as list memberships that silently vanished.
+        /// --- Persisted list membership -------------------------------------------------
+        /// Runs BEFORE any fault is injected, and is the only part of this scenario that
+        /// reads the store rather than MemoryStore.
+        ///
+        /// Every other list assertion in this harness compares MemoryStore against itself
+        /// or against the coordinator's published copies of it. That is the right shape for
+        /// rollback, but it is blind in one specific direction: DataCoordinator's list
+        /// mutations are optimistic, so memory is correct the instant they are called and
+        /// stays correct whether or not the background write did anything at all. A
+        /// batchAddFilmsToLists that inserted no rows, or a batchRemoveFilmsFromLists that
+        /// matched none, would pass every existing check and only surface on the next cold
+        /// launch, as list memberships that silently vanished.
         r.checks.append(contentsOf: await membershipPersistenceChecks(coordinator: coordinator,
                                                                      corpus: corpus))
         r.checks.append(contentsOf: await listNamingChecks(coordinator: coordinator))
@@ -707,7 +707,7 @@ extension DebugHarness {
         let baseline = storeDigest(store)
         DebugPersistenceFault.reset()
 
-        // --- Scalar edit ---------------------------------------------------------------
+        /// --- Scalar edit ---------------------------------------------------------------
         await rollbackCase("update-film", coordinator: coordinator, into: &r) {
             var edited = corpus[10]
             edited.name = "Rolled Back Title"
@@ -715,7 +715,7 @@ extension DebugHarness {
             await coordinator.updateFilm(edited)
         }
 
-        // --- Viewing dates (also the queue auto-removal trigger) -------------------------
+        /// --- Viewing dates (also the queue auto-removal trigger) -------------------------
         await rollbackCase("update-viewing-dates", coordinator: coordinator, into: &r) {
             let today = DateFormatter()
             today.dateFormat = "yyyy.MM.dd"
@@ -726,28 +726,28 @@ extension DebugHarness {
                 lastWatched: stamp, watched: true)
         }
 
-        // --- Deletion of an unranked film -------------------------------------------------
+        /// --- Deletion of an unranked film -------------------------------------------------
         await rollbackCase("delete-film", coordinator: coordinator, into: &r) {
             await coordinator.deleteFilms(withIDs: [corpus[12].id])
         }
 
-        // --- Deletion of a film that is in a list ------------------------------------------
+        /// --- Deletion of a film that is in a list ------------------------------------------
         await rollbackCase("delete-film-in-list", coordinator: coordinator, into: &r) {
             await coordinator.deleteFilms(withIDs: [corpus[0].id, corpus[3].id])
         }
 
-        // --- Deletion of a RANKED film: the ranking compaction must be undone too -----------
+        /// --- Deletion of a RANKED film: the ranking compaction must be undone too -----------
         await rollbackCase("delete-ranked-film", coordinator: coordinator, into: &r) {
             await coordinator.deleteFilms(withIDs: [corpus[1].id])
         }
 
-        // --- deleteFilms(onPersisted:) contract ------------------------------------------
-        // FilmManager hangs irreversible poster teardown (cache eviction + file removal)
-        // off this callback. The whole point is that it must fire ONLY when the deletion
-        // actually commits: on the rollback path the films come back, and artwork erased
-        // in the meantime could not come back with them. Both directions are asserted
-        // because only the pair proves the contract — a callback that never fires would
-        // pass the negative case on its own.
+        /// --- deleteFilms(onPersisted:) contract ------------------------------------------
+        /// FilmManager hangs irreversible poster teardown (cache eviction + file removal)
+        /// off this callback. The whole point is that it must fire ONLY when the deletion
+        /// actually commits: on the rollback path the films come back, and artwork erased
+        /// in the meantime could not come back with them. Both directions are asserted
+        /// because only the pair proves the contract — a callback that never fires would
+        /// pass the negative case on its own.
         let persistedProbe = OnPersistedProbe()
 
         await rollbackCase("delete-film-onpersisted-suppressed",
@@ -759,9 +759,9 @@ extension DebugHarness {
                 "onPersisted ran \(persistedProbe.fired) time(s) on a rolled-back deletion — "
                     + "irreversible cleanup would have run against films that were restored")
 
-        // The committing case. Run with fault injection off, then the deletion is undone by
-        // re-importing the snapshot so the digest baseline the remaining cases rely on is
-        // left exactly as it was found.
+        /// The committing case. Run with fault injection off, then the deletion is undone by
+        /// re-importing the snapshot so the digest baseline the remaining cases rely on is
+        /// left exactly as it was found.
         let committedSubject = corpus[14]
         DebugPersistenceFault.mode = .none
         await coordinator.deleteFilms(withIDs: [committedSubject.id]) { persistedProbe.fired += 1 }
@@ -775,7 +775,7 @@ extension DebugHarness {
         coordinator.importFilms([committedSubject])
         _ = await drainOperations(coordinator)
 
-        // --- FilmSheet save: scalars + releases + list membership in one changeset ----------
+        /// --- FilmSheet save: scalars + releases + list membership in one changeset ----------
         await rollbackCase("save-changeset-existing", coordinator: coordinator, into: &r) {
             var edited = corpus[13]
             edited.name = "Changeset Edit"
@@ -788,7 +788,7 @@ extension DebugHarness {
             coordinator.saveFilmChangeset(changeset)
         }
 
-        // --- FilmSheet save of a NEW film: the rollback must remove it entirely --------------
+        /// --- FilmSheet save of a NEW film: the rollback must remove it entirely --------------
         await rollbackCase("save-changeset-new-film", coordinator: coordinator, into: &r) {
             var fresh = makeSnapshot(name: "Brand New Film")
             fresh.lastModified = "2026.01.01"
@@ -800,7 +800,7 @@ extension DebugHarness {
             coordinator.saveFilmChangeset(changeset)
         }
 
-        // --- List membership ------------------------------------------------------------------
+        /// --- List membership ------------------------------------------------------------------
         await rollbackCase("add-films-to-list", coordinator: coordinator, into: &r) {
             coordinator.addFilmsToList(
                 filmIDs: Set(corpus.suffix(5).map(\.id)), listID: listID)
@@ -814,21 +814,21 @@ extension DebugHarness {
                 filmIDs: [corpus[20].id], listID: FilmQueueSection.soon.listID)
         }
 
-        // --- Film Queue exclusivity: a cross-section add is an enforcement removal PLUS an
-        //     add, and both ride in ONE tracked write against one database transaction
-        //     (DataManager.moveFilmsBetweenLists), with one composed rollback. The
-        //     dispatched-a-tracked-write check below therefore expects a single injected
-        //     failure, not two — a second would mean the halves had come apart again, which
-        //     is what would let a committed removal survive a failed add and leave the
-        //     film in no section at all. The film's initial section was established during
-        //     setup, before the baseline digest, so it is part of the state the whole
-        //     sequence must return to. ------------------------------------------------------
+        /// --- Film Queue exclusivity: a cross-section add is an enforcement removal PLUS an
+        ///     add, and both ride in ONE tracked write against one database transaction
+        ///     (DataManager.moveFilmsBetweenLists), with one composed rollback. The
+        ///     dispatched-a-tracked-write check below therefore expects a single injected
+        ///     failure, not two — a second would mean the halves had come apart again, which
+        ///     is what would let a committed removal survive a failed add and leave the
+        ///     film in no section at all. The film's initial section was established during
+        ///     setup, before the baseline digest, so it is part of the state the whole
+        ///     sequence must return to. ------------------------------------------------------
         await rollbackCase("queue-exclusivity-move", coordinator: coordinator, into: &r) {
             _ = coordinator.addFilmsToList(filmIDs: [corpus[21].id],
                                                     listID: FilmQueueSection.upNext.listID)
         }
 
-        // --- List lifecycle -----------------------------------------------------------------
+        /// --- List lifecycle -----------------------------------------------------------------
         await rollbackCase("create-list", coordinator: coordinator, into: &r) {
             _ = coordinator.createList(name: "Ephemeral", displayOrder: 950)
         }
@@ -843,20 +843,20 @@ extension DebugHarness {
             coordinator.batchUpdateListOrders([(listID: listID, displayOrder: 42)])
         }
 
-        // --- Hall of Fame ---------------------------------------------------------------------
+        /// --- Hall of Fame ---------------------------------------------------------------------
         await rollbackCase("hof-add", coordinator: coordinator, into: &r) {
             coordinator.addToHallOfFame(corpus[15].id)
         }
         await rollbackCase("hof-remove", coordinator: coordinator, into: &r) {
             coordinator.removeFromHallOfFame(Set([corpus[0].id, corpus[2].id]))
         }
-        // The reorder is debounced by one second before it dispatches.
+        /// The reorder is debounced by one second before it dispatches.
         await rollbackCase("hof-reorder", coordinator: coordinator, into: &r,
                            settle: .milliseconds(1400)) {
             coordinator.reorderHallOfFame(store.hallOfFameFilms.reversed())
         }
 
-        // --- Wishlist reorder (also debounced) --------------------------------------------------
+        /// --- Wishlist reorder (also debounced) --------------------------------------------------
         if wishlistFilms.count >= 2 {
             let pairs = wishlistFilms.compactMap { film -> (filmID: UUID, releaseID: UUID)? in
                 guard let release = film.releases.first else { return nil }
@@ -870,7 +870,7 @@ extension DebugHarness {
             r.check("wishlist-specimen-available", false, "corpus produced no wishlistable releases")
         }
 
-        // --- Import paths --------------------------------------------------------------------
+        /// --- Import paths --------------------------------------------------------------------
         await rollbackCase("import-films", coordinator: coordinator, into: &r) {
             let imported = standardCorpus(count: 5, seed: 0xBEEF_0001)
             coordinator.importFilms(imported)
@@ -880,7 +880,7 @@ extension DebugHarness {
                 corpus.prefix(4).map { (filmID: $0.id, rating: ($0.userRating + 3) % 6) })
         }
 
-        // --- Library-wide resets ------------------------------------------------------------
+        /// --- Library-wide resets ------------------------------------------------------------
         await rollbackCase("reset-rotation-overrides", coordinator: coordinator, into: &r) {
             coordinator.resetAllRotationThresholdOverrides()
         }
@@ -888,24 +888,24 @@ extension DebugHarness {
             coordinator.resetAllInfoCompleteFlags()
         }
 
-        // --- Whole-sequence check --------------------------------------------------------------
-        // Every case above restored individually. This asserts they also compose: after the
-        // full sequence the store is where it started, so no case left a residue that a
-        // later case's baseline silently absorbed.
+        /// --- Whole-sequence check --------------------------------------------------------------
+        /// Every case above restored individually. This asserts they also compose: after the
+        /// full sequence the store is where it started, so no case left a residue that a
+        /// later case's baseline silently absorbed.
         r.check("sequence-composes", storeDigest(store) == baseline,
                 storeDigest(store) == baseline
                     ? "\(DebugPersistenceFault.injectedCount) injected failures later, the store is byte-identical to its baseline"
                     : firstDifference(baseline, storeDigest(store)))
         r.metric("injected-failures", Double(DebugPersistenceFault.injectedCount), "count")
 
-        // --- The other failure shape: the write COMMITTED and still reported failure ---------
-        // Every rollback closure above is written for "nothing was persisted". Several
-        // DataManager methods commit in batches (batchAddFilmsToLists,
-        // batchRemoveFilmsFromLists and batchInsertFilms all call save() per batch), so a
-        // failure or cancellation partway through leaves earlier batches committed while the rollback restores ALL of memory.
-        // This case does not assert that the outcome is correct — it cannot be, by
-        // construction — it pins the fact that the rollback runs identically in both cases,
-        // which is what makes the divergence silent.
+        /// --- The other failure shape: the write COMMITTED and still reported failure ---------
+        /// Every rollback closure above is written for "nothing was persisted". Several
+        /// DataManager methods commit in batches (batchAddFilmsToLists,
+        /// batchRemoveFilmsFromLists and batchInsertFilms all call save() per batch), so a
+        /// failure or cancellation partway through leaves earlier batches committed while the rollback restores ALL of memory.
+        /// This case does not assert that the outcome is correct — it cannot be, by
+        /// construction — it pins the fact that the rollback runs identically in both cases,
+        /// which is what makes the divergence silent.
         let preAfterWork = storeDigest(store)
         DebugPersistenceFault.mode = .afterWork
         var edited = corpus[25]
@@ -921,7 +921,7 @@ extension DebugHarness {
 
         DebugPersistenceFault.reset()
 
-        // Clean up so the following scenarios see the library they expect.
+        /// Clean up so the following scenarios see the library they expect.
         store.deleteFilms(ids: Set(corpus.map(\.id)))
         store.deleteList(listID: listID)
         coordinator.refreshFilms()
@@ -963,32 +963,32 @@ extension DebugHarness {
         add("RT NegativeNumberText") { $0.numberOfDiscs = "-3" }
         add("RT ScientificText") { $0.aspectRatio = "1e3" }
         add("RT RankedAndRated") { $0.hofPosition = 3; $0.userRating = 4; $0.watched = true }
-        // APPENDED, not inserted: the round-trip checks below index this array positionally,
-        // so a new case belongs at the end where it shifts nothing.
-        //
-        // Array elements whose own TEXT is entity-shaped. XMLParser hands the writer's JSON
-        // back with every entity already resolved, so a second unescape in the array branch
-        // would turn "&amp;" into "&", "&lt;p&gt;" into "<p>", and the
-        // "&quot;" case would produce bare quotes that broke the JSON outright — losing the WHOLE
-        // field rather than one element. Distinct from RT ArrayWithSpecials, which carries
-        // the raw characters and always round-tripped correctly.
+        /// APPENDED, not inserted: the round-trip checks below index this array positionally,
+        /// so a new case belongs at the end where it shifts nothing.
+        ///
+        /// Array elements whose own TEXT is entity-shaped. XMLParser hands the writer's JSON
+        /// back with every entity already resolved, so a second unescape in the array branch
+        /// would turn "&amp;" into "&", "&lt;p&gt;" into "<p>", and the
+        /// "&quot;" case would produce bare quotes that broke the JSON outright — losing the WHOLE
+        /// field rather than one element. Distinct from RT ArrayWithSpecials, which carries
+        /// the raw characters and always round-tripped correctly.
         add("RT ArrayWithEntityText") {
             $0.cast = ["Tom &amp; Jerry", "&lt;p&gt;", "&#65;", "plain"]
             $0.tags = ["He said &quot;hi&quot;"]
             $0.alternateTitle = ["R&amp;B &apos;74"]
         }
-        // A LITERAL backslash before an apostrophe, in both a String field and an array
-        // element. DBPackager must not run a `\'` → `'` cleanup over outgoing strings, because
-        // it damages each of these:
-        //   • notes would lose its backslashes outright, unrecoverably.
-        //   • cast arrives at the packager as JSON in which the backslash is already
-        //     encoded as `\\`; the cleanup matched the `\'` inside that `\\'` and produced
-        //     `\'`, which is not a legal JSON escape. The array would then fail to decode on
-        //     restore and the WHOLE field would come back empty — one apostrophe losing an entire
-        //     cast list. Distinct from RT ArrayWithSpecials, whose D'Onofrio carries a bare
-        //     apostrophe and round-trips correctly.
-        // The read-side counterpart in DBImporter.decodeArray is unaffected and still
-        // repairs genuinely legacy files that carry the invalid escape.
+        /// A LITERAL backslash before an apostrophe, in both a String field and an array
+        /// element. DBPackager must not run a `\'` → `'` cleanup over outgoing strings, because
+        /// it damages each of these:
+        ///   • notes would lose its backslashes outright, unrecoverably.
+        ///   • cast arrives at the packager as JSON in which the backslash is already
+        ///     encoded as `\\`; the cleanup matched the `\'` inside that `\\'` and produced
+        ///     `\'`, which is not a legal JSON escape. The array would then fail to decode on
+        ///     restore and the WHOLE field would come back empty — one apostrophe losing an entire
+        ///     cast list. Distinct from RT ArrayWithSpecials, whose D'Onofrio carries a bare
+        ///     apostrophe and round-trips correctly.
+        /// The read-side counterpart in DBImporter.decodeArray is unaffected and still
+        /// repairs genuinely legacy files that carry the invalid escape.
         add("RT BackslashApostrophe") {
             $0.notes = #"He said \'hi\' about D\'Onofrio"#
             $0.cast = [#"D\'Onofrio, Vincent"#, "plain"]
@@ -1066,8 +1066,8 @@ extension DebugHarness {
         }
         r.check("backup-parses", true, "\(parsed.objects.count) object(s)")
 
-        // Every film written must come back. A film silently dropped by the reflection-based
-        // extractor is the worst possible export failure and the cheapest thing to check.
+        /// Every film written must come back. A film silently dropped by the reflection-based
+        /// extractor is the worst possible export failure and the cheapest thing to check.
         let filmObjects = parsed.objects.filter { $0.entityName == "Film" }
         let parsedByID: [String: ParsedObject] = Dictionary(
             filmObjects.compactMap { object -> (String, ParsedObject)? in
@@ -1084,9 +1084,9 @@ extension DebugHarness {
                 parsed.manifest["Film"] ?? 0 >= corpus.count,
                 "manifest says \(parsed.manifest["Film"] ?? 0), corpus was \(corpus.count)")
 
-        // --- Field-level fidelity ---------------------------------------------------------
-        // Each check names one film and one field, so a failure states exactly which value
-        // did not survive rather than "something changed".
+        /// --- Field-level fidelity ---------------------------------------------------------
+        /// Each check names one film and one field, so a failure states exactly which value
+        /// did not survive rather than "something changed".
         func stringField(_ film: FilmSnapshot, _ key: String) -> (parsed: Any?, expected: String)? {
             guard let object = parsedByID[film.id.uuidString.uppercased()] else { return nil }
             let expected: String
@@ -1140,9 +1140,9 @@ extension DebugHarness {
         checkStringField(corpus[17], "numberOfDiscs", "negative-number-string")
         checkStringField(corpus[18], "aspectRatio", "scientific-notation-string")
 
-        // Control characters are stripped on write by design (they are illegal in XML 1.0).
-        // Asserted as the documented behavior rather than as fidelity, so the deliberate
-        // loss is recorded rather than mistaken for a bug later.
+        /// Control characters are stripped on write by design (they are illegal in XML 1.0).
+        /// Asserted as the documented behavior rather than as fidelity, so the deliberate
+        /// loss is recorded rather than mistaken for a bug later.
         if let object = parsedByID[corpus[11].id.uuidString.uppercased()],
            let notes = object.properties["notes"] as? String {
             r.check("field:control-characters-stripped",
@@ -1150,7 +1150,7 @@ extension DebugHarness {
                     "illegal XML scalars removed on write (documented, lossy): \(String(reflecting: notes))")
         }
 
-        // Arrays are JSON-encoded, which is the one field kind that carries its own type.
+        /// Arrays are JSON-encoded, which is the one field kind that carries its own type.
         if let object = parsedByID[corpus[14].id.uuidString.uppercased()] {
             let parsedCast = object.properties["cast"] as? [String]
             r.check("field:string-array-round-trips", parsedCast == corpus[14].cast,
@@ -1161,9 +1161,9 @@ extension DebugHarness {
             r.check("field:unicode-array-round-trips", parsed == corpus[12].alternateTitle,
                     "expected \(corpus[12].alternateTitle), got \(String(describing: parsed))")
         }
-        // Entity-shaped element TEXT — the double-unescape case. The third field is the
-        // severe one: unescaping "&quot;" into a bare quote invalidates the JSON, and the
-        // importer's decode failure drops the entire array rather than one element.
+        /// Entity-shaped element TEXT — the double-unescape case. The third field is the
+        /// severe one: unescaping "&quot;" into a bare quote invalidates the JSON, and the
+        /// importer's decode failure drops the entire array rather than one element.
         if let object = parsedByID[corpus[20].id.uuidString.uppercased()] {
             let cast = object.properties["cast"] as? [String]
             r.check("field:entity-text-array-round-trips", cast == corpus[20].cast,
@@ -1176,8 +1176,8 @@ extension DebugHarness {
                     "expected \(corpus[20].alternateTitle), got \(String(describing: alt))")
         }
 
-        // Scalars whose declared type matches their shape are the control group: if these
-        // failed, the problem would be the pipeline as a whole rather than the type guess.
+        /// Scalars whose declared type matches their shape are the control group: if these
+        /// failed, the problem would be the pipeline as a whole rather than the type guess.
         if let object = parsedByID[corpus[19].id.uuidString.uppercased()] {
             let rank = object.properties["hofPosition"]
             let rating = object.properties["userRating"]
@@ -1190,11 +1190,11 @@ extension DebugHarness {
                     "watched → \(String(describing: watched))")
         }
 
-        // An empty String stays an empty String rather than collapsing to a null. The declared-type attribute
-        // keeps the two distinct on read. Without it both read as an empty element, which is
-        // harmless only because every String field on these models is
-        // non-optional and defaults to "" anyway. Pinned here so the distinction is not lost
-        // the moment an optional String field is added.
+        /// An empty String stays an empty String rather than collapsing to a null. The declared-type attribute
+        /// keeps the two distinct on read. Without it both read as an empty element, which is
+        /// harmless only because every String field on these models is
+        /// non-optional and defaults to "" anyway. Pinned here so the distinction is not lost
+        /// the moment an optional String field is added.
         if let object = parsedByID[corpus[13].id.uuidString.uppercased()] {
             r.check("field:empty-string-stays-a-string",
                     object.properties["notes"] as? String == "",
@@ -1232,7 +1232,7 @@ extension DebugHarness {
 
         let header = #"<?xml version="1.0" encoding="utf-8"?>"#
 
-        // Absent file.
+        /// Absent file.
         let absent = scratch.appendingPathComponent("does-not-exist.xml")
         if case .failure(let error) = await parse(absent) {
             if case DBImporterError.fileNotFound = error {
@@ -1244,7 +1244,7 @@ extension DebugHarness {
             r.check("rejects:absent-file", false, "parsed a nonexistent file")
         }
 
-        // Not XML at all.
+        /// Not XML at all.
         if let url = write("garbage.xml", "this is not xml at all"),
            case .failure(let error) = await parse(url) {
             r.check("rejects:non-xml", error is DBImporterError, "\(error)")
@@ -1252,7 +1252,7 @@ extension DebugHarness {
             r.check("rejects:non-xml", false, "accepted non-XML content")
         }
 
-        // Truncated mid-object — the shape a copy interrupted by a full disk produces.
+        /// Truncated mid-object — the shape a copy interrupted by a full disk produces.
         let truncated = header + """
         <FilmTrackerBackup format="FilmTrackerXML" version="1" created="2026-01-01T00:00:00Z">
           <Objects>
@@ -1266,7 +1266,7 @@ extension DebugHarness {
             r.check("rejects:truncated", false, "accepted a truncated file")
         }
 
-        // Wrong format marker — a different app's XML, or a renamed file.
+        /// Wrong format marker — a different app's XML, or a renamed file.
         let wrongFormat = header + """
         <FilmTrackerBackup format="SomeOtherApp" version="1" created="2026-01-01T00:00:00Z">
           <Objects></Objects>
@@ -1282,7 +1282,7 @@ extension DebugHarness {
             r.check("rejects:wrong-format", false, "accepted a foreign format")
         }
 
-        // A future version this build cannot interpret.
+        /// A future version this build cannot interpret.
         let futureVersion = header + """
         <FilmTrackerBackup format="FilmTrackerXML" version="99" created="2026-01-01T00:00:00Z">
           <Objects></Objects>
@@ -1298,7 +1298,7 @@ extension DebugHarness {
             r.check("rejects:future-version", false, "accepted a newer format version")
         }
 
-        // Missing required root attributes.
+        /// Missing required root attributes.
         let noVersion = header + """
         <FilmTrackerBackup format="FilmTrackerXML" created="2026-01-01T00:00:00Z">
           <Objects></Objects>
@@ -1314,7 +1314,7 @@ extension DebugHarness {
             r.check("rejects:missing-version", false, "accepted a file with no version")
         }
 
-        // Nesting bomb — must be refused by the depth cap rather than recursing.
+        /// Nesting bomb — must be refused by the depth cap rather than recursing.
         let depth = 80
         let nested = header
             + "<FilmTrackerBackup format=\"FilmTrackerXML\" version=\"1\" created=\"2026-01-01T00:00:00Z\">"
@@ -1326,7 +1326,7 @@ extension DebugHarness {
             r.check("rejects:excessive-nesting", false, "accepted \(depth)-level nesting")
         }
 
-        // An object with no id attribute is dropped rather than restored half-formed.
+        /// An object with no id attribute is dropped rather than restored half-formed.
         let anonymous = header + """
         <FilmTrackerBackup format="FilmTrackerXML" version="1" created="2026-01-01T00:00:00Z">
           <Objects>
@@ -1346,8 +1346,8 @@ extension DebugHarness {
             r.check("drops:object-without-id", false, "file failed to parse")
         }
 
-        // A well-formed but empty backup is valid: restoring it yields an empty library,
-        // which is a legitimate thing to have backed up.
+        /// A well-formed but empty backup is valid: restoring it yields an empty library,
+        /// which is a legitimate thing to have backed up.
         let empty = header + """
         <FilmTrackerBackup format="FilmTrackerXML" version="1" created="2026-01-01T00:00:00Z">
           <Manifest></Manifest>
@@ -1360,8 +1360,8 @@ extension DebugHarness {
             r.check("accepts:empty-backup", false, "a valid empty backup was rejected")
         }
 
-        // A CDATA section carrying its own terminator, written the way DBPackager writes it.
-        // If the split-and-rejoin were wrong the file would not parse at all.
+        /// A CDATA section carrying its own terminator, written the way DBPackager writes it.
+        /// If the split-and-rejoin were wrong the file would not parse at all.
         let cdata = header + """
         <FilmTrackerBackup format="FilmTrackerXML" version="1" created="2026-01-01T00:00:00Z">
           <Objects>
@@ -1392,11 +1392,11 @@ extension DebugHarness {
     private static func restoreEndToEndScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "restore-endtoend")
 
-        // A distinctive settings value, so the scenario can tell restored settings apart from
-        // whatever the session happens to be carrying. Both MUST be members of
-        // Preferences.rotationThresholdOptions — the setter silently replaces anything else
-        // with the registered default, which would make this check report a failure that is
-        // entirely its own doing.
+        /// A distinctive settings value, so the scenario can tell restored settings apart from
+        /// whatever the session happens to be carrying. Both MUST be members of
+        /// Preferences.rotationThresholdOptions — the setter silently replaces anything else
+        /// with the registered default, which would make this check report a failure that is
+        /// entirely its own doing.
         let backupThreshold = 48
         let sessionThreshold = 18
         do {
@@ -1414,14 +1414,14 @@ extension DebugHarness {
             return r
         }
 
-        // --- Poisoned list names --------------------------------------------------------
-        // Written straight into the container, bypassing ListManager's uniquification, so
-        // the backup carries exactly what a hand-edited file, a merge of two libraries, or
-        // a build that predated the rename guard could: user lists sharing one name (in two
-        // different casings, since the comparison is case-insensitive) and one squatting on
-        // a smart list's name. A backup is not a trusted input, and a restore is the one
-        // moment the app can correct this quietly; the checks after the restore below are
-        // what hold it to that.
+        /// --- Poisoned list names --------------------------------------------------------
+        /// Written straight into the container, bypassing ListManager's uniquification, so
+        /// the backup carries exactly what a hand-edited file, a merge of two libraries, or
+        /// a build that predated the rename guard could: user lists sharing one name (in two
+        /// different casings, since the comparison is case-insensitive) and one squatting on
+        /// a smart list's name. A backup is not a trusted input, and a restore is the one
+        /// moment the app can correct this quietly; the checks after the restore below are
+        /// what hold it to that.
         do {
             let context = coordinator.persistentContainer.makeMainContext()
             for (index, name) in ["Collision", "Collision", "collision",
@@ -1441,8 +1441,8 @@ extension DebugHarness {
         }
         r.check("export-succeeds", true, packageURL.lastPathComponent)
 
-        // The library moves on after the backup: a film is deleted, another edited, and the
-        // session's settings are changed. A correct restore reverses all of it.
+        /// The library moves on after the backup: a film is deleted, another edited, and the
+        /// session's settings are changed. A correct restore reverses all of it.
         let deletedID = corpus[0].id
         let editedID = corpus[1].id
         do {
@@ -1462,10 +1462,10 @@ extension DebugHarness {
             r.check("post-backup-mutation", false, "\(error)")
         }
 
-        // --- The restore itself -------------------------------------------------------------
-        // The snapshot cache is written first, so the invalidation checks below have files
-        // to prove gone: a cache left in place would validate against the restored store
-        // whenever the two differ only outside the fingerprint (see MemoryStoreCache.invalidateOnDisk).
+        /// --- The restore itself -------------------------------------------------------------
+        /// The snapshot cache is written first, so the invalidation checks below have files
+        /// to prove gone: a cache left in place would validate against the restored store
+        /// whenever the two differ only outside the fingerprint (see MemoryStoreCache.invalidateOnDisk).
         let cacheFiles = ["memorystore-fingerprint.bin", "memorystore-cache.bin"]
             .compactMap { Preferences.dataFolderURL?.appendingPathComponent($0) }
         let cacheExists = { cacheFiles.map { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) } }
@@ -1485,21 +1485,21 @@ extension DebugHarness {
 
         r.check("restore-cache/invalidated", !cacheExists().contains(true),
                 "cache files present after restore: \(cacheExists())")
-        // The session's memory still describes the pre-restore library; a flush now must not
-        // put that back on disk before the relaunch.
+        /// The session's memory still describes the pre-restore library; a flush now must not
+        /// put that back on disk before the relaunch.
         await coordinator.saveImmediately()
         r.check("restore-cache/not-rewritten-by-session", !cacheExists().contains(true),
                 "cache files present after a post-restore flush: \(cacheExists())")
 
-        // --- Re-read the rebuilt store --------------------------------------------------------
+        /// --- Re-read the rebuilt store --------------------------------------------------------
         guard let storeURL = backupHarnessStoreURL else {
             r.check("restored-store-readable", false, "could not resolve store URL")
             return r
         }
         let restored: [Film]
         let restoredLists: [ListObject]
-        // Held for the rest of the scenario: a managed object whose context is gone reads
-        // every attribute as nil, and the checks below read these long after the fetch.
+        /// Held for the rest of the scenario: a managed object whose context is gone reads
+        /// every attribute as nil, and the checks below read these long after the fetch.
         var keepAlive: [AnyObject] = []
         defer { withExtendedLifetime(keepAlive) {} }
         do {
@@ -1514,11 +1514,11 @@ extension DebugHarness {
         }
         r.check("restored-store-readable", true, "\(restored.count) film(s), \(restoredLists.count) list(s)")
 
-        // --- List names came back unambiguous -------------------------------------------
-        // The counterpart to the poisoned names seeded before the export. Distinctness is
-        // asserted case-insensitively because that is the comparison every other naming
-        // path in the app uses, and because two lists differing only in case are exactly as
-        // indistinguishable in a menu as two spelled identically.
+        /// --- List names came back unambiguous -------------------------------------------
+        /// The counterpart to the poisoned names seeded before the export. Distinctness is
+        /// asserted case-insensitively because that is the comparison every other naming
+        /// path in the app uses, and because two lists differing only in case are exactly as
+        /// indistinguishable in a menu as two spelled identically.
         let restoredNames = restoredLists.map { $0.listName }
         let loweredNames = restoredNames.map { $0.lowercased() }
         r.check("restored-list-names-are-unique",
@@ -1526,10 +1526,10 @@ extension DebugHarness {
                 "\(loweredNames.count) list(s), \(Set(loweredNames).count) distinct name(s): "
                     + restoredNames.sorted().joined(separator: ", "))
 
-        // The three internal Film Queue lists legitimately carry reserved names — they are
-        // matched by their fixed UUIDs and restored verbatim — so only user lists are held
-        // to this. A user list squatting on a reserved name would shadow a smart list or a
-        // Queue section everywhere both are listed.
+        /// The three internal Film Queue lists legitimately carry reserved names — they are
+        /// matched by their fixed UUIDs and restored verbatim — so only user lists are held
+        /// to this. A user list squatting on a reserved name would shadow a smart list or a
+        /// Queue section everywhere both are listed.
         let restoredUserLists = restoredLists.filter { FilmQueueSection(listID: $0.listID) == nil }
         let squatters = restoredUserLists.filter {
             SmartListType.isReservedName($0.listName) || FilmQueue.isReservedName($0.listName)
@@ -1540,8 +1540,8 @@ extension DebugHarness {
                     : "reserved name(s) still held by a user list: "
                         + squatters.map { $0.listName }.joined(separator: ", "))
 
-        // Every seeded collision must still be PRESENT, just renamed — resolving a clash by
-        // dropping a list would pass the distinctness check above while losing user data.
+        /// Every seeded collision must still be PRESENT, just renamed — resolving a clash by
+        /// dropping a list would pass the distinctness check above while losing user data.
         let collisionVariants = restoredNames.filter { $0.lowercased().hasPrefix("collision") }
         r.check("restored-colliding-lists-are-all-kept", collisionVariants.count == 3,
                 "\(collisionVariants.count) of 3 seeded 'Collision' list(s) survived: "
@@ -1558,8 +1558,8 @@ extension DebugHarness {
         r.check("film-count-matches-backup", restored.count >= corpus.count,
                 "\(restored.count) restored vs \(corpus.count) in the corpus")
 
-        // Field-by-field fidelity through the complete pipeline. This is the assertion that
-        // matters: everything before it tests a stage, this tests the promise.
+        /// Field-by-field fidelity through the complete pipeline. This is the assertion that
+        /// matters: everything before it tests a stage, this tests the promise.
         var lost: [String] = []
         for original in corpus {
             guard let film = restoredByID[original.id] else {
@@ -1594,9 +1594,9 @@ extension DebugHarness {
                 lost.append("\(original.name).alternateTitle: \(original.alternateTitle) → \(film.alternateTitle)")
             }
         }
-        // `notes` is compared separately: the control-character specimen is expected to lose
-        // its illegal scalars (stripped on write, by design and documented), so folding it in
-        // with the rest would make a deliberate behavior read as a defect.
+        /// `notes` is compared separately: the control-character specimen is expected to lose
+        /// its illegal scalars (stripped on write, by design and documented), so folding it in
+        /// with the rest would make a deliberate behavior read as a defect.
         for original in corpus where !original.notes.unicodeScalars.contains(where: {
             $0.value < 0x20 && $0.value != 0x09 && $0.value != 0x0A && $0.value != 0x0D }) {
             if let film = restoredByID[original.id], film.notes != original.notes {
@@ -1610,10 +1610,10 @@ extension DebugHarness {
                     : "\(lost.count) field(s) changed: " + lost.prefix(8).joined(separator: " | "))
         r.metric("fields-lost-in-restore", Double(lost.count), "count")
 
-        // --- Restored settings ------------------------------------------------------------------
-        // The backup carries defaultRotationThreshold = 48; the session was moved to 18 after
-        // the backup was taken. A restore that applies the backup's settings leaves 48 — even
-        // though the session's own value was not the default.
+        /// --- Restored settings ------------------------------------------------------------------
+        /// The backup carries defaultRotationThreshold = 48; the session was moved to 18 after
+        /// the backup was taken. A restore that applies the backup's settings leaves 48 — even
+        /// though the session's own value was not the default.
         let appliedThreshold = Preferences.defaultRotationThreshold
         r.check("restored-settings-applied", appliedThreshold == backupThreshold,
                 appliedThreshold == backupThreshold
@@ -1622,8 +1622,8 @@ extension DebugHarness {
                         + "the settings applied after a restore must come from the staged store "
                         + "(DBRestorer.restoredSettings), not the app's container")
 
-        // And the value that actually landed in the restored database, which is what the
-        // mandatory post-restore relaunch will read.
+        /// And the value that actually landed in the restored database, which is what the
+        /// mandatory post-restore relaunch will read.
         do {
             let container = try LibraryStore.makeContainer(at: storeURL, readOnly: true)
             let context = container.makeMainContext()
@@ -1636,16 +1636,16 @@ extension DebugHarness {
             r.check("restored-database-carries-backup-settings", false, "\(error)")
         }
 
-        // --- Backward compatibility with backups written before the declared-type attribute ----
-        //
-        // Runs LAST: it restores a package containing no SettingsObject, which wipes the
-        // settings the checks above assert on.
-        //
-        // Every .ftbackup the user already owns was written without `type="string"`, so those
-        // files still take the original inference path. This restores a hand-written legacy
-        // package to prove two things at once: that such a file still restores at all, and
-        // that the values inference misreads are not ERASED — the boolean- and
-        // array-shaped strings come back as text, not as "".
+        /// --- Backward compatibility with backups written before the declared-type attribute ----
+        ///
+        /// Runs LAST: it restores a package containing no SettingsObject, which wipes the
+        /// settings the checks above assert on.
+        ///
+        /// Every .ftbackup the user already owns was written without `type="string"`, so those
+        /// files still take the original inference path. This restores a hand-written legacy
+        /// package to prove two things at once: that such a file still restores at all, and
+        /// that the values inference misreads are not ERASED — the boolean- and
+        /// array-shaped strings come back as text, not as "".
         let legacyID = UUID()
         let legacyURL = (DebugSandbox.rootURL ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("legacy.ftbackup", isDirectory: true)
@@ -1695,25 +1695,25 @@ extension DebugHarness {
             r.check("legacy-real-array-intact", film.cast == ["Real", "Array"],
                     "cast → \(film.cast)")
 
-            // The apostrophe fallback in DBImporter.decodeArray, which runs only after
-            // a verbatim decode fails. This legacy array carries the invalid `\\'` escape, so
-            // the verbatim decode fails and the fallback repairs it. A correctly written backup
-            // never reaches that path, which is what keeps valid JSON from being corrupted (see RT BackslashApostrophe).
+            /// The apostrophe fallback in DBImporter.decodeArray, which runs only after
+            /// a verbatim decode fails. This legacy array carries the invalid `\\'` escape, so
+            /// the verbatim decode fails and the fallback repairs it. A correctly written backup
+            /// never reaches that path, which is what keeps valid JSON from being corrupted (see RT BackslashApostrophe).
             r.check("legacy-apostrophe-escape-repaired",
                     film.directors == ["D'Onofrio, Vincent"],
                     "directors → \(film.directors)")
 
-            // The restore keeps the two shapes that inference misreads. Inference still misreads them in a
-            // legacy file — nothing in it says they are strings — but the restore
-            // reconstructs the text instead of substituting an empty string.
+            /// The restore keeps the two shapes that inference misreads. Inference still misreads them in a
+            /// legacy file — nothing in it says they are strings — but the restore
+            /// reconstructs the text instead of substituting an empty string.
             r.check("legacy-boolean-text-not-erased", film.notes == "true",
                     "notes → \(String(reflecting: film.notes)) (was \"\" before the fix)")
             r.check("legacy-array-text-not-erased", film.comments == #"["alpha","beta"]"#,
                     "comments → \(String(reflecting: film.comments)) (was \"\" before the fix)")
 
-            // Numeric reformatting is NOT fixed for legacy files and cannot be: the file
-            // records no type, so "007" is indistinguishable from the integer 7. Pinned as
-            // the known, documented residue rather than left unstated.
+            /// Numeric reformatting is NOT fixed for legacy files and cannot be: the file
+            /// records no type, so "007" is indistinguishable from the integer 7. Pinned as
+            /// the known, documented residue rather than left unstated.
             r.check("legacy-numeric-string-reformatted-not-lost",
                     film.numberOfDiscs == "7",
                     "numberOfDiscs → \(String(reflecting: film.numberOfDiscs)) — a legacy file "
@@ -1722,24 +1722,24 @@ extension DebugHarness {
             r.check("legacy-backup-restores", false, "\(error)")
         }
 
-        // --- A backup carrying an unorderable base release year -------------------------------
-        //
-        // `baseReleaseYear` is meaningful only as a value strictly BELOW the release year, and
-        // the FilmSheet's Steppers cannot produce anything else. A backup can: hand-edited
-        // XML, a record written before the ordering rule existed, or an interrupted export.
-        // DBRestorer.createRelease drops the base year in both bad shapes rather than letting
-        // an impossible pair into the store, where the sidebar, the releases table, and the
-        // reports would read it directly.
-        //
-        // Three releases in one file: the two defects and a well-ordered control, so a guard
-        // that simply blanked every base year would fail this scenario rather than pass it.
-        //
-        // Those three carry the `releaseYear` key, as every backup written before
-        // full release dates does, so they also prove the legacy key is still read. Two more
-        // carry the current `releaseDate` key with a full date — one well-ordered, one
-        // inverted — proving the guard compares the base year against the date's YEAR. A
-        // sixth is a Blu-ray full date before the 2006 Blu-ray floor: restore drops the date,
-        // and the base year beside it, then orphaned, with it.
+        /// --- A backup carrying an unorderable base release year -------------------------------
+        ///
+        /// `baseReleaseYear` is meaningful only as a value strictly BELOW the release year, and
+        /// the FilmSheet's Steppers cannot produce anything else. A backup can: hand-edited
+        /// XML, a record written before the ordering rule existed, or an interrupted export.
+        /// DBRestorer.createRelease drops the base year in both bad shapes rather than letting
+        /// an impossible pair into the store, where the sidebar, the releases table, and the
+        /// reports would read it directly.
+        ///
+        /// Three releases in one file: the two defects and a well-ordered control, so a guard
+        /// that simply blanked every base year would fail this scenario rather than pass it.
+        ///
+        /// Those three carry the `releaseYear` key, as every backup written before
+        /// full release dates does, so they also prove the legacy key is still read. Two more
+        /// carry the current `releaseDate` key with a full date — one well-ordered, one
+        /// inverted — proving the guard compares the base year against the date's YEAR. A
+        /// sixth is a Blu-ray full date before the 2006 Blu-ray floor: restore drops the date,
+        /// and the base year beside it, then orphaned, with it.
         let guardFilmID  = UUID()
         let orphanID     = UUID()
         let invertedID   = UUID()
@@ -1875,21 +1875,21 @@ private final class OnPersistedProbe {
 }
 
 // MARK: - film-field-merge
-//
-// FilmSheet saves as a three-way merge with the film as it stands at save time, and
-// DataManager writes only the merged delta (FilmField / FilmChangeset.changedFields).
-//
-//   • table/*      — FilmField covers every stored FilmSnapshot property exactly once, and
-//                    each case's key paths touch its own property and nothing else, on
-//                    both the snapshot and the Film model.
-//   • rule/*       — the merge rule, exhaustively per field over every combination of
-//                    sheet / loaded / stored / current drawn from three distinct values.
-//   • identity/*   — with nothing changed while the sheet was open, the merge returns the
-//                    sheet exactly: the whole-object save it replaced, bit for bit.
-//   • e2e/*        — the real FilmSheet against the store: background changes survive a
-//                    save that did not edit them, conflicts go to the user, derived
-//                    fields follow the merged calendar, and the store is written as a delta.
-//   • perf         — merge and delta-apply cost against the full apply it replaces.
+///
+/// FilmSheet saves as a three-way merge with the film as it stands at save time, and
+/// DataManager writes only the merged delta (FilmField / FilmChangeset.changedFields).
+///
+///   • table/*      — FilmField covers every stored FilmSnapshot property exactly once, and
+///                    each case's key paths touch its own property and nothing else, on
+///                    both the snapshot and the Film model.
+///   • rule/*       — the merge rule, exhaustively per field over every combination of
+///                    sheet / loaded / stored / current drawn from three distinct values.
+///   • identity/*   — with nothing changed while the sheet was open, the merge returns the
+///                    sheet exactly: the whole-object save it replaced, bit for bit.
+///   • e2e/*        — the real FilmSheet against the store: background changes survive a
+///                    save that did not edit them, conflicts go to the user, derived
+///                    fields follow the merged calendar, and the store is written as a delta.
+///   • perf         — merge and delta-apply cost against the full apply it replaces.
 extension DebugHarness {
 
     static func filmFieldMergeScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
@@ -1897,9 +1897,9 @@ extension DebugHarness {
         let store = coordinator.memoryStoreForTesting
         DebugPersistenceFault.reset()
 
-        // --- Variants: three snapshots of one film where every field differs -------------
-        // (Bool fields have only two values, so variant 2 repeats variant 0 there; the
-        // rule table below detects that per field and enumerates two values instead.)
+        /// --- Variants: three snapshots of one film where every field differs -------------
+        /// (Bool fields have only two values, so variant 2 repeats variant 0 there; the
+        /// rule table below detects that per field and enumerates two values instead.)
         let base = makeSnapshot(name: "Merge Base")
         func variant(_ k: Int) -> FilmSnapshot {
             let t = "v\(k)"
@@ -1931,7 +1931,7 @@ extension DebugHarness {
         let v = [variant(0), variant(1), variant(2)]
         let fields = FilmField.allCases
 
-        // --- table/coverage --------------------------------------------------------------
+        /// --- table/coverage --------------------------------------------------------------
         let stored = Set(Mirror(reflecting: base).children.compactMap(\.label))
             .subtracting(["id", "releases"])
         let named = Set(fields.map(\.rawValue))
@@ -1941,7 +1941,7 @@ extension DebugHarness {
                 fields.allSatisfy { $0.differs(v[0], v[1]) },
                 "same in v0/v1: \(fields.filter { !$0.differs(v[0], v[1]) }.map(\.rawValue))")
 
-        // --- table/isolation: each case moves its own property and no other --------------
+        /// --- table/isolation: each case moves its own property and no other --------------
         var leaks: [String] = []
         for f in fields {
             let moved = f.copy(from: v[1], into: v[0])
@@ -1950,7 +1950,7 @@ extension DebugHarness {
         }
         r.check("table/snapshot-keypaths-isolated", leaks.isEmpty, leaks.joined(separator: "; "))
 
-        // --- table/film-apply: per-field apply matches FilmSnapshot.apply(to:) ------------
+        /// --- table/film-apply: per-field apply matches FilmSnapshot.apply(to:) ------------
         do {
             let whole = Film(); v[1].apply(to: whole)
             let piecewise = Film()
@@ -1970,26 +1970,26 @@ extension DebugHarness {
             r.check("table/film-keypaths-isolated", filmLeaks.isEmpty, filmLeaks.joined(separator: "; "))
         }
 
-        // --- rule/*: exhaustive per-field truth table -------------------------------------
-        // Every (sheet, loaded, stored, current) over the field's distinct values, with the
-        // other fields held at independent values so cross-talk would show. Expected
-        // outcome from indices alone: edited → sheet; untouched elsewhere → sheet; else current.
+        /// --- rule/*: exhaustive per-field truth table -------------------------------------
+        /// Every (sheet, loaded, stored, current) over the field's distinct values, with the
+        /// other fields held at independent values so cross-talk would show. Expected
+        /// outcome from indices alone: edited → sheet; untouched elsewhere → sheet; else current.
         var ruleCases = 0
         var ruleFailures: [String] = []
         for f in fields {
             let n = f.differs(v[0], v[2]) ? 3 : 2
             for si in 0..<n { for li in 0..<n { for sti in 0..<n { for ci in 0..<n {
-                // Every other field: unedited on the sheet (sheet = loaded = 0) and changed
-                // in the background (stored 2 → current 1), so each must keep current's 1.
-                // (For a Bool, 2 is 0, which still differs from 1.)
+                /// Every other field: unedited on the sheet (sheet = loaded = 0) and changed
+                /// in the background (stored 2 → current 1), so each must keep current's 1.
+                /// (For a Bool, 2 is 0, which still differs from 1.)
                 let sheet   = f.copy(from: v[si],  into: v[0])
                 let loaded  = f.copy(from: v[li],  into: v[0])
                 let stored  = f.copy(from: v[sti], into: v[2])
                 let current = f.copy(from: v[ci],  into: v[1])
                 let result = FilmField.merge(sheet: sheet, loaded: loaded, stored: stored, current: current)
                 let expected = (si != li || sti == ci) ? si : ci
-                // A coupled partner of an edited field follows it to the sheet (value 0);
-                // every other field keeps current's 1.
+                /// A coupled partner of an edited field follows it to the sheet (value 0);
+                /// every other field keeps current's 1.
                 let partners = FilmField.coupled.first { $0.contains(f) }?.subtracting([f]) ?? []
                 let pulled = si != li ? partners : []
                 ruleCases += 1
@@ -2008,10 +2008,10 @@ extension DebugHarness {
         r.check("rule/exhaustive-truth-table", ruleFailures.isEmpty,
                 "\(ruleCases) cases; " + ruleFailures.joined(separator: "; "))
 
-        // --- coupled/*: pairs the sheet derives together are never split ------------------
+        /// --- coupled/*: pairs the sheet derives together are never split ------------------
         do {
-            // The user re-dates within the same year (releaseYear itself unedited) while a
-            // background write changed the year: both come from the sheet.
+            /// The user re-dates within the same year (releaseYear itself unedited) while a
+            /// background write changed the year: both come from the sheet.
             var loaded = v[0], sheet = v[0], stored = v[0], current = v[0]
             sheet.releaseDate = "2000-06-15T12:00:00Z"
             current.releaseYear = "1999"
@@ -2021,15 +2021,15 @@ extension DebugHarness {
                     r1.merged.releaseDate == sheet.releaseDate && r1.merged.releaseYear == sheet.releaseYear
                         && r1.changed == [.releaseDate, .releaseYear],
                     "\(r1.merged.releaseDate) / \(r1.merged.releaseYear), wrote \(r1.changed.map(\.rawValue).sorted())")
-            // Neither edited, background changed the date: both keep current's.
+            /// Neither edited, background changed the date: both keep current's.
             current = v[0]; current.releaseDate = "2000-09-09T12:00:00Z"; current.releaseYear = "2000"
             sheet = v[0]; loaded = v[0]
             let r2 = FilmField.merge(sheet: sheet, loaded: loaded, stored: stored, current: current)
             r.check("coupled/unedited-pair-keeps-background",
                     r2.merged.releaseDate == current.releaseDate && r2.changed.isEmpty,
                     "\(r2.merged.releaseDate), wrote \(r2.changed.map(\.rawValue))")
-            // The user edits the edited runtime while the background flips `edited`:
-            // the flag comes with it, so the runtime is never saved under edited == false.
+            /// The user edits the edited runtime while the background flips `edited`:
+            /// the flag comes with it, so the runtime is never saved under edited == false.
             sheet = v[1]; loaded = v[1]; current = v[1]
             sheet.editedDuration = "7777777"
             current.edited = false
@@ -2037,7 +2037,7 @@ extension DebugHarness {
             r.check("coupled/edited-flag-follows-runtime",
                     r3.merged.edited && r3.merged.editedDuration == "7777777",
                     "edited \(r3.merged.edited) runtime \(r3.merged.editedDuration)")
-            // Frames rows: editing one column takes the other with it.
+            /// Frames rows: editing one column takes the other with it.
             sheet = v[0]; loaded = v[0]; current = v[0]
             sheet.handbrakeFrames = ["1", "2"]; sheet.correspondingTimecodes = ["a", "b"]
             loaded.handbrakeFrames = ["1"]; loaded.correspondingTimecodes = ["a", "b"]
@@ -2050,13 +2050,13 @@ extension DebugHarness {
                     FilmField.coupled.reduce(0) { $0 + $1.count } == Set(FilmField.coupled.flatMap { $0 }).count, "")
         }
 
-        // --- identity/*: nothing changed underneath → the merge equals a whole-object save ------
+        /// --- identity/*: nothing changed underneath → the merge equals a whole-object save ------
         do {
             var rng = SeededGenerator(seed: 0x5EED_F11E)
             var mismatches = 0, iterations = 0
             for _ in 0..<500 {
-                // Random per-field mix of the three variants for each role, with
-                // current == stored (no background change).
+                /// Random per-field mix of the three variants for each role, with
+                /// current == stored (no background change).
                 func mix() -> FilmSnapshot {
                     fields.reduce(v[0]) { $1.copy(from: v[Int.random(in: 0..<3, using: &rng)], into: $0) }
                 }
@@ -2075,7 +2075,7 @@ extension DebugHarness {
                     "\(sameAll.changed.map(\.rawValue))")
         }
 
-        // --- perf ------------------------------------------------------------------------
+        /// --- perf ------------------------------------------------------------------------
         do {
             let reps = 2_000
             let clock = ContinuousClock()
@@ -2105,7 +2105,7 @@ extension DebugHarness {
                     "delta \(deltaUS) µs vs full \(fullUS) µs")
         }
 
-        // --- e2e: the real FilmSheet against the store ------------------------------------
+        /// --- e2e: the real FilmSheet against the store ------------------------------------
         func persistedFilm(_ id: UUID) -> FilmSnapshot? {
             let context = coordinator.persistentContainer.makeMainContext()
             return (try? context.fetch(Film.request(.equals("id", id))).first)
@@ -2143,22 +2143,22 @@ extension DebugHarness {
         let fRevert     = fixture("Merge Revert")
         let fHoF        = fixture("Merge HoF")
         let fRepair     = fixture("Merge Repair") { $0.frameRate = 23.976 }
-        // numberOfDiscs agrees with the sheet's derived "0", so saving it is not a repair.
+        /// numberOfDiscs agrees with the sheet's derived "0", so saving it is not a repair.
         let fDelta      = fixture("Merge Delta") { $0.numberOfDiscs = "0" }
         let fCross      = fixture("Merge Cross Tab")
         coordinator.importFilms([fBackground, fConflict, fCalendar, fCalBoth,
                                  fRevert, fHoF, fRepair, fDelta, fCross])
         _ = await drainOperations(coordinator)
 
-        // 1. A background rating change survives a save that edited only the name.
+        /// 1. A background rating change survives a save that edited only the name.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fBackground.id)
             var bg = store.getFilm(fBackground.id)!; bg.userRating = 5
             await coordinator.updateFilm(bg)
             _ = await drainOperations(coordinator)
             sheet.detailsTab.name = "Merge Background Renamed"
-            // Negative control: the sheet itself still holds the stale rating, so the old
-            // whole-object save would have written 3 over the import's 5.
+            /// Negative control: the sheet itself still holds the stale rating, so the old
+            /// whole-object save would have written 3 over the import's 5.
             r.check("e2e/background/sheet-holds-stale-value",
                     sheet.detailsTab.collectFilmFields().userRating == 3,
                     "sheet rating \(sheet.detailsTab.collectFilmFields().userRating)")
@@ -2168,7 +2168,7 @@ extension DebugHarness {
                  { $0.name == "Merge Background Renamed" }, { $0.name })
         }
 
-        // 2. Both changed the same field: the user's edit wins.
+        /// 2. Both changed the same field: the user's edit wins.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fConflict.id)
             var bg = store.getFilm(fConflict.id)!; bg.userRating = 5
@@ -2179,8 +2179,8 @@ extension DebugHarness {
             both("e2e/conflict/user-wins", fConflict.id, { $0.userRating == 1 }, { "rating \($0.userRating)" })
         }
 
-        // 3. A background viewing added while the sheet edits the name: the calendar and
-        //    both derived fields keep the background's values.
+        /// 3. A background viewing added while the sheet edits the name: the calendar and
+        ///    both derived fields keep the background's values.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fCalendar.id)
             coordinator.updateViewingDates(filmID: fCalendar.id,
@@ -2195,8 +2195,8 @@ extension DebugHarness {
                  { "\($0.calendarTable) last \($0.lastWatched) count \($0.viewCount) name \($0.name)" })
         }
 
-        // 4. Both changed the calendar: the user's calendar wins and lastWatched/viewCount
-        //    are derived from it, never mixed with the background's.
+        /// 4. Both changed the calendar: the user's calendar wins and lastWatched/viewCount
+        ///    are derived from it, never mixed with the background's.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fCalBoth.id)
             coordinator.updateViewingDates(filmID: fCalBoth.id,
@@ -2211,7 +2211,7 @@ extension DebugHarness {
                  { "\($0.calendarTable) last \($0.lastWatched) count \($0.viewCount)" })
         }
 
-        // 5. An edit reverted before saving counts as no edit: the background value stays.
+        /// 5. An edit reverted before saving counts as no edit: the background value stays.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fRevert.id)
             var bg = store.getFilm(fRevert.id)!; bg.genre = "Background Genre"
@@ -2226,7 +2226,7 @@ extension DebugHarness {
                  { $0.genre == "Background Genre" }, { "genre \($0.genre)" })
         }
 
-        // 6. A Hall of Fame entry made while the sheet is open keeps its position.
+        /// 6. A Hall of Fame entry made while the sheet is open keeps its position.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fHoF.id)
             coordinator.addToHallOfFame(fHoF.id)
@@ -2239,7 +2239,7 @@ extension DebugHarness {
                  { "position \($0.hofPosition) comments \($0.comments)" })
         }
 
-        // 6b. The user switches Hall of Fame off on the sheet: it is removed.
+        /// 6b. The user switches Hall of Fame off on the sheet: it is removed.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fHoF.id)
             sheet.detailsTab.inHallOfFame = false
@@ -2247,8 +2247,8 @@ extension DebugHarness {
             both("e2e/hof-off/removed", fHoF.id, { $0.hofPosition == 0 }, { "position \($0.hofPosition)" })
         }
 
-        // 6c. Switched on by the user AND entered in the background meanwhile: entered
-        //     once, not twice (the position must not move past the background's).
+        /// 6c. Switched on by the user AND entered in the background meanwhile: entered
+        ///     once, not twice (the position must not move past the background's).
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fHoF.id)
             coordinator.addToHallOfFame(fHoF.id)
@@ -2263,8 +2263,8 @@ extension DebugHarness {
             r.check("e2e/hof-both/entered-once", after == count, "\(count) → \(after)")
         }
 
-        // 7. A value the tabs normalize on load is still written when nothing else
-        //    changed it — a repair the save still makes.
+        /// 7. A value the tabs normalize on load is still written when nothing else
+        ///    changed it — a repair the save still makes.
         do {
             let sheet = FilmSheet(coordinator: coordinator, filmID: fRepair.id)
             sheet.detailsTab.name = "Merge Repair Renamed"
@@ -2273,9 +2273,9 @@ extension DebugHarness {
                  { $0.frameRate == 23.98 }, { "frameRate \($0.frameRate)" })
         }
 
-        // 8. The store is written as a delta: a value present only in the store (behind
-        //    MemoryStore's back) survives a save that did not change that field, while
-        //    the edited field and lastModified are written.
+        /// 8. The store is written as a delta: a value present only in the store (behind
+        ///    MemoryStore's back) survives a save that did not change that field, while
+        ///    the edited field and lastModified are written.
         do {
             let context = coordinator.persistentContainer.makeMainContext()
             let id = fDelta.id
@@ -2297,11 +2297,11 @@ extension DebugHarness {
                     db?.lastModified ?? "nil")
         }
 
-        // 9. Edits on three tabs with no background change: the saved film equals
-        //    the sheet's assembled snapshot, field for field.
+        /// 9. Edits on three tabs with no background change: the saved film equals
+        ///    the sheet's assembled snapshot, field for field.
         do {
-            // `expected` is the sheet's own whole-object assembly, taken just before the
-            // save — the value the sheet holds at save time, load repairs included.
+            /// `expected` is the sheet's own whole-object assembly, taken just before the
+            /// save — the value the sheet holds at save time, load repairs included.
             let sheet = FilmSheet(coordinator: coordinator, filmID: fCross.id)
             sheet.detailsTab.name = "Merge Cross Renamed"
             sheet.metadataTab.studio = ["Cross Studio"]
@@ -2321,7 +2321,7 @@ extension DebugHarness {
                     "differ: \(mem.flatMap { m in db.map { d in fields.filter { $0.differs(m, d) }.map(\.rawValue) } } ?? [])")
         }
 
-        // 10. Add mode still writes the whole film.
+        /// 10. Add mode still writes the whole film.
         do {
             let sheet = FilmSheet(coordinator: coordinator)
             sheet.detailsTab.name = "Merge Added Film"
@@ -2339,17 +2339,17 @@ extension DebugHarness {
 
 
 // MARK: - release-date-rules
-//
-// The rules the release card, the sidebar and release-day notifications build on the full
-// release date:
-//
-//   • upcoming/*    — ReleaseDateValue.isUpcoming: a full date after today, or a year-only
-//                     value in a later year; today itself is not upcoming.
-//   • latest/*      — the picker's ceiling is one year ahead, less a day.
-//   • text/*        — "Month Day, Year" for the sidebar row and tooltip.
-//   • card/*        — the card model's release-date range, its picker bridges, and the
-//                     ordering rule under a release year past the current year.
-//   • notify/*      — ReleaseNotifications.plan: what is scheduled, for whom, and when.
+///
+/// The rules the release card, the sidebar and release-day notifications build on the full
+/// release date:
+///
+///   • upcoming/*    — ReleaseDateValue.isUpcoming: a full date after today, or a year-only
+///                     value in a later year; today itself is not upcoming.
+///   • latest/*      — the picker's ceiling is one year ahead, less a day.
+///   • text/*        — "Month Day, Year" for the sidebar row and tooltip.
+///   • card/*        — the card model's release-date range, its picker bridges, and the
+///                     ordering rule under a release year past the current year.
+///   • notify/*      — ReleaseNotifications.plan: what is scheduled, for whom, and when.
 extension DebugHarness {
     @MainActor
     static func releaseDateRulesScenario() -> HarnessScenarioResult {
@@ -2366,7 +2366,7 @@ extension DebugHarness {
             return "\(c.year!).\(c.month!).\(c.day!)"
         }
 
-        // upcoming/*
+        /// upcoming/*
         let today = day(2026, 10, 17)
         r.check("upcoming/tomorrow", value("2026.10.18")?.isUpcoming(today: today) == true)
         r.check("upcoming/today-is-not", value("2026.10.17")?.isUpcoming(today: today) == false)
@@ -2374,11 +2374,11 @@ extension DebugHarness {
         r.check("upcoming/next-year-start", value("2027.01.01")?.isUpcoming(today: day(2026, 12, 31)) == true)
         r.check("upcoming/year-only-later-year", value("2027")?.isUpcoming(today: today) == true)
         r.check("upcoming/year-only-this-year-is-not", value("2026")?.isUpcoming(today: today) == false)
-        // Any moment of the day reads as that day.
+        /// Any moment of the day reads as that day.
         r.check("upcoming/late-in-the-day", value("2026.10.18")?.isUpcoming(
             today: today.addingTimeInterval(23 * 3600 + 59 * 60)) == true)
 
-        // latest/*
+        /// latest/*
         r.check("latest/spec-example", key(ReleaseDateValue.latestSelectableDay(today: today)) == "2027.10.16",
                 key(ReleaseDateValue.latestSelectableDay(today: today)))
         r.check("latest/new-years-eve", key(ReleaseDateValue.latestSelectableDay(today: day(2026, 12, 31))) == "2027.12.30")
@@ -2388,14 +2388,14 @@ extension DebugHarness {
         r.check("latest/not-upcoming-past-it", value("2027.10.17").map {
             $0.sortKey > (value("2027.10.16")?.sortKey ?? 0) } == true)
 
-        // text/*
+        /// text/*
         r.check("text/full", value("2026.10.17")?.displayText == "October 17, 2026")
         r.check("text/single-digit-day", value("2026.03.05")?.displayText == "March 5, 2026")
         r.check("text/year-only", value("2014")?.displayText == "2014")
         r.check("text/day", value("2026.10.17")?.day == day(2026, 10, 17))
         r.check("text/year-only-has-no-day", value("2014")?.day == nil)
 
-        // card/*
+        /// card/*
         let realToday = CurrentDay.shared.today
         let currentYear = cal.component(.year, from: realToday)
         let latestYear = cal.component(.year, from: ReleaseDateValue.latestSelectableDay(today: realToday))
@@ -2424,8 +2424,8 @@ extension DebugHarness {
         m.hasReleaseYear = false
         r.check("card/clearing-drops-month-day", m.releaseMonthDay == nil)
 
-        // The ordering rule under a release year past the current year: the base year is
-        // pulled beneath it but never past the current year.
+        /// The ordering rule under a release year past the current year: the base year is
+        /// pulled beneath it but never past the current year.
         let o = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
         o.hasReleaseYear = true
         o.releaseYear = currentYear + 1
@@ -2434,8 +2434,8 @@ extension DebugHarness {
         o.enforceReleaseYearOrder()
         r.check("card/order-future-release", o.hasBaseReleaseYear && o.baseReleaseYear == currentYear,
                 "\(o.hasBaseReleaseYear) \(o.baseReleaseYear)")
-        // A range collapsed to the current year (a film released this year) still leaves the
-        // current year as a legal base year beneath an upcoming release.
+        /// A range collapsed to the current year (a film released this year) still leaves the
+        /// current year as a legal base year beneath an upcoming release.
         let c = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue, filmReleaseYear: currentYear)
         c.hasReleaseYear = true
         c.releaseYear = currentYear + 1
@@ -2446,7 +2446,7 @@ extension DebugHarness {
         c.releaseYear = currentYear
         c.enforceReleaseYearOrder()
         r.check("card/order-collapsed-range-current-release", !c.hasBaseReleaseYear)
-        // A release year inside the range is unaffected.
+        /// A release year inside the range is unaffected.
         let p = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
         p.hasReleaseYear = true
         p.releaseYear = 2010
@@ -2468,7 +2468,7 @@ extension DebugHarness {
         u.hasReleaseYear = false
         r.check("card/no-date-not-upcoming", !u.isUpcomingRelease(today: realToday))
 
-        // notify/*
+        /// notify/*
         let prefix = ReleaseNotifications.identifierPrefix
         let parent = UUID()
         let rTomorrow = ReleaseSnapshot(studio: "Criterion", releaseDate: "2026.10.18", format: "4K UHD")
@@ -2482,7 +2482,7 @@ extension DebugHarness {
         let film = makeSnapshot(name: "Notify Film", releases: [
             rTomorrow, rWished, rChild, rTodayNew, rTodayPending, rYearOnly, rPast, rNextYear])
         func id(_ release: ReleaseSnapshot) -> String { prefix + release.id.uuidString }
-        let early = today.addingTimeInterval(3600)   // 01:00 local-ish, before delivery
+        let early = today.addingTimeInterval(3600)   /// 01:00 local-ish, before delivery
         let all = ReleaseNotifications.plan(films: [film], pendingIDs: [id(rTodayPending)],
                                             today: today, now: early, wishlistedOnly: false)
         r.check("notify/upcoming-scheduled", all[id(rTomorrow)] != nil)
@@ -2506,7 +2506,7 @@ extension DebugHarness {
         let wished = ReleaseNotifications.plan(films: [film], pendingIDs: [id(rTodayPending)],
                                                today: today, now: early, wishlistedOnly: true)
         r.check("notify/wishlisted-only", Set(wished.keys) == [id(rWished)], "\(wished.keys)")
-        // After the delivery hour on the release day, today's request is no longer wanted.
+        /// After the delivery hour on the release day, today's request is no longer wanted.
         var local = Calendar(identifier: .gregorian)
         local.timeZone = .current
         let late = local.date(from: DateComponents(year: 2026, month: 10, day: 17, hour: 23))!
@@ -2514,7 +2514,7 @@ extension DebugHarness {
                                               today: today, now: late, wishlistedOnly: false)
         r.check("notify/today-after-delivery-dropped", after[id(rTodayPending)] == nil)
 
-        // The cap keeps the soonest.
+        /// The cap keeps the soonest.
         let many = (1...75).map { i in
             ReleaseSnapshot(releaseDate: StorageDateFormatters.dot.string(
                 from: cal.date(byAdding: .day, value: i, to: today)!), format: "Blu-ray")
@@ -2525,11 +2525,11 @@ extension DebugHarness {
         r.check("notify/capped", capped.count == ReleaseNotifications.maxScheduled, "\(capped.count)")
         r.check("notify/soonest-kept", capped[id(many[0])] != nil && capped[id(many[74])] == nil)
 
-        // short/* — the wishlist report's form.
+        /// short/* — the wishlist report's form.
         r.check("short/full", value("2027.01.15")?.shortDisplayText == "Jan 15, 2027")
         r.check("short/year-only", value("2014")?.shortDisplayText == "2014")
 
-        // avail/* — an upcoming release's availability is cleared, the combo lock kept.
+        /// avail/* — an upcoming release's availability is cleared, the combo lock kept.
         let a = ReleaseCardModel(format: ReleaseFormat.bluRay.rawValue)
         a.hasReleaseYear = true
         a.marketAvailability = [ReleaseMarketAvailability.available]
@@ -2549,7 +2549,7 @@ extension DebugHarness {
         y.endYearOnlyReleaseDate()
         r.check("avail/cleared-on-year-only-activation", y.marketAvailability.isEmpty)
 
-        // floor/* — the film's own release day floors the picker.
+        /// floor/* — the film's own release day floors the picker.
         let f = ReleaseCardModel(format: ReleaseFormat.uhd4K.rawValue, filmReleaseYear: 2019,
                                  filmReleaseDay: day(2019, 5, 3))
         r.check("floor/film-day", key(f.releaseDateFloor) == "2019.5.3")
@@ -2559,14 +2559,14 @@ extension DebugHarness {
         let h = ReleaseCardModel(format: ReleaseFormat.uhd4K.rawValue)
         r.check("floor/no-film-date", key(h.releaseDateFloor) == "2016.1.1")
 
-        // defaults/* — new-release picker values.
+        /// defaults/* — new-release picker values.
         let k4 = ReleaseFormat.newReleaseDefaults(for: ReleaseFormat.uhd4K.rawValue)
         r.check("defaults/4k", k4.audioFormat == ReleaseAudioFormat.dtsHDMA
                 && k4.audioChannels == ReleaseAudioChannels.surround51 && k4.hasHDR == ReleaseHDR.dolbyVision)
         let bd = ReleaseFormat.newReleaseDefaults(for: ReleaseFormat.bluRay.rawValue)
         r.check("defaults/bluray", bd.audioChannels == ReleaseAudioChannels.surround51)
 
-        // search/* — the release token's date forms.
+        /// search/* — the release token's date forms.
         func matches(_ q: String, _ stored: String) -> Bool? {
             let monthYear: (String) -> Date? = { text in
                 let fmt = DateFormatter(); fmt.locale = Locale(identifier: "en_US_POSIX"); fmt.dateFormat = "MMMM yyyy"
@@ -2588,7 +2588,7 @@ extension DebugHarness {
         r.check("search/studio-not-a-date", SearchController.releaseDateMatcher("criterion", parseMonthYear: { _ in nil }) == nil
                 && SearchController.releaseDateMatcher("88 films", parseMonthYear: { _ in nil }) == nil)
 
-        // smart/* — Upcoming Releases membership.
+        /// smart/* — Upcoming Releases membership.
         let upFilm = makeSnapshot(name: "Up", releases: [ReleaseSnapshot(releaseDate: "2026.10.18", format: "Blu-ray")])
         let outFilm = makeSnapshot(name: "Out", releases: [ReleaseSnapshot(releaseDate: "2026.10.17", format: "Blu-ray")])
         r.check("smart/upcoming", SmartLists.membership(of: upFilm, today: today).contains(.upcomingReleases))
@@ -2641,18 +2641,18 @@ extension DebugHarness {
 }
 
 // MARK: - Scenario: Membership Cascade
-//
-// Deleting a film or a list relies on Core Data's delete rules to remove its ListMembership
-// rows. This scenario decides whether Core Data's
-// delete rules alone (Film.memberships and ListObject.memberships cascade; ListMembership.film
-// and .list nullify) can be trusted.
-//
-// There are no explicit deletes, so this guards the delete rules alone.
-// Every case runs on its own on-disk store (`cascade/…`). After every
-// step the store FILE is read with raw SQL, not through Core Data, so the audit does not trust
-// the layer it audits. It must match a shadow model of the films, lists and (film, list)
-// pairs that should exist: no orphan of either kind, no duplicate, no row lost and nothing
-// over-deleted. A control case first proves the audit catches each kind of orphan.
+///
+/// Deleting a film or a list relies on Core Data's delete rules to remove its ListMembership
+/// rows. This scenario decides whether Core Data's
+/// delete rules alone (Film.memberships and ListObject.memberships cascade; ListMembership.film
+/// and .list nullify) can be trusted.
+///
+/// There are no explicit deletes, so this guards the delete rules alone.
+/// Every case runs on its own on-disk store (`cascade/…`). After every
+/// step the store FILE is read with raw SQL, not through Core Data, so the audit does not trust
+/// the layer it audits. It must match a shadow model of the films, lists and (film, list)
+/// pairs that should exist: no orphan of either kind, no duplicate, no row lost and nothing
+/// over-deleted. A control case first proves the audit catches each kind of orphan.
 
 extension DebugHarness {
 
@@ -2854,7 +2854,7 @@ extension DebugHarness {
         }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
-        // --- Control: the audit must see each kind of orphan, or every pass below is vacuous.
+        /// --- Control: the audit must see each kind of orphan, or every pass below is vacuous.
         do {
             let probe = try CascadeProbe(url: folder.appendingPathComponent("control.sqlite"))
             let filmIDs = try await probe.insertFilms(3, seed: 0xCA5C_0001)
@@ -2864,12 +2864,12 @@ extension DebugHarness {
             if let list = try context.fetch(ListObject.request(.equals("listID", listIDs[0]))).first,
                let film = try context.fetch(Film.request(.equals("id", filmIDs[0]))).first {
                 let stray = ListMembership(film: film, list: list)
-                stray.film = nil       // a row with no film
+                stray.film = nil       /// a row with no film
                 try context.commit()
             }
             var db: OpaquePointer?
             if unsafe sqlite3_open_v2(probe.url.path(percentEncoded: false), &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK {
-                // A film row removed underneath its membership: a dangling reference.
+                /// A film row removed underneath its membership: a dangling reference.
                 _ = unsafe sqlite3_exec(db, "DELETE FROM ZFILM WHERE Z_PK = (SELECT MIN(ZFILM) FROM ZLISTMEMBERSHIP WHERE ZFILM IS NOT NULL)", nil, nil, nil)
             }
             unsafe sqlite3_close(db)
@@ -2896,8 +2896,8 @@ extension DebugHarness {
                 }
             }
 
-            // Everything in one DataManager session: the rows were created by the context
-            // that deletes them. This is the case the delete rules must handle.
+            /// Everything in one DataManager session: the rows were created by the context
+            /// that deletes them. This is the case the delete rules must handle.
             await run("same-session") { p in
                 let f = try await p.insertFilms(12, seed: 0xCA5C_0010)
                 let l = try await p.createLists(4)
@@ -2912,8 +2912,8 @@ extension DebugHarness {
                 try await p.deleteFilms(f); p.verify("all-films-deleted")
             }
 
-            // The rows were created by an earlier session; the deleting stack has never
-            // loaded them.
+            /// The rows were created by an earlier session; the deleting stack has never
+            /// loaded them.
             await run("after-relaunch") { p in
                 let f = try await p.insertFilms(10, seed: 0xCA5C_0020)
                 let l = try await p.createLists(3)
@@ -2926,8 +2926,8 @@ extension DebugHarness {
                 try await p.deleteFilms(f[4...]); try await p.deleteList(l[1]); p.verify("rest-deleted")
             }
 
-            // Deleting one side must not over-delete: a list's delete leaves the film and its
-            // other memberships, a film's delete leaves every list.
+            /// Deleting one side must not over-delete: a list's delete leaves the film and its
+            /// other memberships, a film's delete leaves every list.
             await run("multi-list") { p in
                 let f = try await p.insertFilms(3, seed: 0xCA5C_0030)
                 let l = try await p.createLists(6)
@@ -2938,7 +2938,7 @@ extension DebugHarness {
                 try await p.deleteList(l[1]); p.verify("second-list-deleted")
             }
 
-            // Rows created by the FilmSheet save path, then deleted in the same session.
+            /// Rows created by the FilmSheet save path, then deleted in the same session.
             await run("changeset") { p in
                 let l = try await p.createLists(3)
                 let fresh = makeSnapshot(name: "Changeset Probe")
@@ -2951,7 +2951,7 @@ extension DebugHarness {
                 try await p.deleteFilms([fresh.id]); p.verify("deleted")
             }
 
-            // Rows created by the Queue's move path, and rows removed then re-added.
+            /// Rows created by the Queue's move path, and rows removed then re-added.
             await run("move-and-readd") { p in
                 let f = try await p.insertFilms(6, seed: 0xCA5C_0040)
                 let l = try await p.createLists(3)
@@ -2963,8 +2963,8 @@ extension DebugHarness {
                 try await p.deleteList(l[1]); p.verify("list-deleted")
             }
 
-            // Straight Core Data: insert and delete in one save, and objects turned back into
-            // faults or forgotten (reset) before the delete.
+            /// Straight Core Data: insert and delete in one save, and objects turned back into
+            /// faults or forgotten (reset) before the delete.
             await run("raw-context") { p in
                 let f = try await p.insertFilms(4, seed: 0xCA5C_0050)
                 let l = try await p.createLists(2)
@@ -2977,8 +2977,8 @@ extension DebugHarness {
                 try context.commit(); p.verify("inserted-and-deleted-in-one-save")
 
                 let films = try context.fetch(Film.request(.in("id", [f[0], f[1]])))
-                _ = films.flatMap { $0.memberships }   // fire the relationship faults
-                context.refreshAllObjects()            // and turn everything back into faults
+                _ = films.flatMap { $0.memberships }   /// fire the relationship faults
+                context.refreshAllObjects()            /// and turn everything back into faults
                 for film in films { context.delete(film) }
                 try context.commit(); p.expectFilmsDeleted([f[0], f[1]]); p.verify("deleted-as-faults")
 
@@ -2987,13 +2987,13 @@ extension DebugHarness {
                 context.delete(other)
                 try context.commit(); p.expectListDeleted(l[1]); p.verify("deleted-after-reset")
 
-                // A delete that is rolled back must leave every row.
+                /// A delete that is rolled back must leave every row.
                 let survivor = try context.fetch(Film.request(.equals("id", f[2]))).first!
                 context.delete(survivor)
                 context.rollback()
                 try context.commit(); p.verify("rolled-back")
 
-                // A delete and an insert in the same save.
+                /// A delete and an insert in the same save.
                 let doomed = try context.fetch(Film.request(.equals("id", f[3]))).first!
                 let replacement = Film(); context.insert(replacement)
                 let target = try context.fetch(ListObject.request(.equals("listID", l[0]))).first!
@@ -3004,9 +3004,9 @@ extension DebugHarness {
                 p.verify("delete-and-insert-in-one-save")
             }
 
-            // The view context has the rows registered when DataManager deletes them; after
-            // the merge it must not see them, and a later view-context save must not bring
-            // them back.
+            /// The view context has the rows registered when DataManager deletes them; after
+            /// the merge it must not see them, and a later view-context save must not bring
+            /// them back.
             await run("view-context-merge") { p in
                 let f = try await p.insertFilms(5, seed: 0xCA5C_0060)
                 let l = try await p.createLists(2)
@@ -3027,13 +3027,13 @@ extension DebugHarness {
                 p.verify("after-view-save")
             }
 
-            // Another context adds a row after the deleting context loaded the relationship.
-            // The app has no such writer (DataManager is the only one), so this is the edge
-            // where a stale relationship could hide a row from the cascade.
+            /// Another context adds a row after the deleting context loaded the relationship.
+            /// The app has no such writer (DataManager is the only one), so this is the edge
+            /// where a stale relationship could hide a row from the cascade.
             await run("foreign-insert") { p in
                 let f = try await p.insertFilms(4, seed: 0xCA5C_0070)
                 let l = try await p.createLists(3)
-                try await p.add([f[0], f[1]], to: [l[0]])   // DataManager holds both relationships
+                try await p.add([f[0], f[1]], to: [l[0]])   /// DataManager holds both relationships
                 let foreign = p.container.makeMainContext()
                 let film0 = try foreign.fetch(Film.request(.equals("id", f[0]))).first!
                 let film2 = try foreign.fetch(Film.request(.equals("id", f[2]))).first!
@@ -3047,8 +3047,8 @@ extension DebugHarness {
                 try await p.deleteFilms([f[0]]); p.verify("film-deleted")
                 try await p.deleteList(l[0]); p.verify("list-deleted")
 
-                // The same with the film's own relationship loaded first: an existing-film
-                // changeset that adds a list reads film.memberships.
+                /// The same with the film's own relationship loaded first: an existing-film
+                /// changeset that adds a list reads film.memberships.
                 let snapshot = makeSnapshot(name: "Foreign Probe")
                 try await p.dataManager.applyFilmChangeset(FilmChangeset(
                     filmID: f[1], isNewFilm: false, filmSnapshot: snapshot,
@@ -3064,7 +3064,7 @@ extension DebugHarness {
                 try await p.deleteList(l[2]); try await p.deleteList(l[1]); p.verify("remaining-lists-deleted")
             }
 
-            // Long random sequences of every operation, with relaunches, verified at every step.
+            /// Long random sequences of every operation, with relaunches, verified at every step.
             for (index, fuzzSeed) in [UInt64(0xCA5C_F022), 0x5EED_0042, 0xB01D_FACE].enumerated() {
             await run("fuzz-\(index + 1)") { p in
                 var rng = SeededGenerator(seed: fuzzSeed)
@@ -3112,8 +3112,8 @@ extension DebugHarness {
             }
             }
 
-            // The real library, when this sandbox holds a copy of it: every film that is in a
-            // list, then every list, then everything.
+            /// The real library, when this sandbox holds a copy of it: every film that is in a
+            /// list, then every list, then everything.
             if let live = LibraryStore.storeURL,
                let liveAudit = membershipAudit(live), liveAudit.films.count >= 500 {
                 await run("real-library") { p in

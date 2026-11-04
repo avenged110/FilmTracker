@@ -1,8 +1,8 @@
 // MARK: - MemStoreCache.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Persists MemoryStore's snapshot as JSON, so a later launch can skip the store fetch on a cache hit.
-// The cache is validated by a lightweight store fingerprint. A mismatch triggers a full read and rewrite.
+/// Persists MemoryStore's snapshot as JSON, so a later launch can skip the store fetch on a cache hit.
+/// The cache is validated by a lightweight store fingerprint. A mismatch triggers a full read and rewrite.
 
 import Foundation
 import CoreData
@@ -228,32 +228,32 @@ final class MemoryStoreCache: Loggable {
 
         let filmCount = films.count
 
-        // Both files must still be there: the version only says what was written, not that
-        // nothing has removed it since.
+        /// Both files must still be there: the version only says what was written, not that
+        /// nothing has removed it since.
         if contentVersion == onDiskContentVersion,
            FileManager.default.fileExists(atPath: payloadURL.path(percentEncoded: false)),
            FileManager.default.fileExists(atPath: fingerprintURL.path(percentEncoded: false)) {
             Self.log("Save skipped: snapshot cache on disk is current (\(filmCount) films)")
             return
         }
-        // Unknown from here until this write succeeds: a failure partway leaves the files in
-        // a state no version describes.
+        /// Unknown from here until this write succeeds: a failure partway leaves the files in
+        /// a state no version describes.
         onDiskContentVersion = nil
         let fingerprint = buildFingerprint(films: films, lists: lists)
-        // An invalidation that lands while the detached write below is running cannot stop
-        // it, and the write would put the old library's files back after the invalidation
-        // deleted them. Checked again once the write finishes.
+        /// An invalidation that lands while the detached write below is running cannot stop
+        /// it, and the write would put the old library's files back after the invalidation
+        /// deleted them. Checked again once the write finishes.
         let startEpoch = invalidationEpoch
 
-        // Timed inside the detached task, so the figures are the work and not the wait for it.
+        /// Timed inside the detached task, so the figures are the work and not the wait for it.
         let saved = await Task.detached(priority: .utility) {
             () -> (encode: Duration, write: Duration, bytes: Int)? in
             do {
                 let encodeStart = ContinuousClock.now
 
-                // Array construction happens here rather than on MainActor: `Array(_.values)`
-                // is an O(N) copy of every FilmSnapshot, and there is no reason for the main
-                // thread to pay for it.
+                /// Array construction happens here rather than on MainActor: `Array(_.values)`
+                /// is an O(N) copy of every FilmSnapshot, and there is no reason for the main
+                /// thread to pay for it.
                 let payload = MemoryStoreCachePayload(
                     version: currentCacheFormatVersion,
                     films: Array(films.values),
@@ -265,8 +265,8 @@ final class MemoryStoreCache: Loggable {
                 let writeStart = ContinuousClock.now
                 try payloadData.write(to: payloadURL, options: .atomic)
 
-                // Payload first, fingerprint second, both atomic. A crash between the writes must never leave a
-                // fingerprint that claims validity for an unwritten payload. load() reads them in the mirror order.
+                /// Payload first, fingerprint second, both atomic. A crash between the writes must never leave a
+                /// fingerprint that claims validity for an unwritten payload. load() reads them in the mirror order.
 
                 let fingerprintEncoder = PropertyListEncoder()
                 fingerprintEncoder.outputFormat = .binary
@@ -341,8 +341,8 @@ final class MemoryStoreCache: Loggable {
     /// This runs once per launch, from Phase 1, before any mutation can occur. The ordering rule is kept for
     /// future callers.
     func load(dataManager: DataManager) async -> MemoryStoreCacheResult {
-        // Steps 1–3 below have usually been running since FilmTrackerApp.init (see
-        // beginEarlyLoad); otherwise they run now. Either way nothing is judged until here.
+        /// Steps 1–3 below have usually been running since FilmTrackerApp.init (see
+        /// beginEarlyLoad); otherwise they run now. Either way nothing is judged until here.
         let pipeline: CachePipeline
         if let early = earlyPipeline {
             earlyPipeline = nil
@@ -368,8 +368,8 @@ final class MemoryStoreCache: Loggable {
             return .miss
 
         case .storedFingerprintUnreadable(let elapsed):
-            // Causes: no fingerprint file (first launch), a corrupt file, or a file written by a build with a
-            // different fingerprint shape. The last happens once after an upgrade that adds a field.
+            /// Causes: no fingerprint file (first launch), a corrupt file, or a file written by a build with a
+            /// different fingerprint shape. The last happens once after an upgrade that adds a field.
             Self.log("Cache miss: could not read stored fingerprint — absent, unreadable, or "
                 + "written by a build with a different fingerprint shape (expected exactly "
                 + "once after an upgrade that adds a field; this session's save rewrites it). "
@@ -385,8 +385,8 @@ final class MemoryStoreCache: Loggable {
             LaunchTimeline.mark("snapshotFingerprints", at: fingerprintsAt)
         }
 
-        // Step 4: compare. Equatable conformance covers every field, so a field added to
-        // StoreFingerprint cannot be left out of the check.
+        /// Step 4: compare. Equatable conformance covers every field, so a field added to
+        /// StoreFingerprint cannot be left out of the check.
         guard let liveFP = liveFPResult else {
             Self.log("Cache miss: could not compute live fingerprint from the store")
             return .miss
@@ -396,20 +396,20 @@ final class MemoryStoreCache: Loggable {
             let detail = "stored \(storedFP.filmCount) films/\(storedFP.listCount) lists/\(storedFP.membershipCount) memberships, "
                 + "live \(liveFP.filmCount) films/\(liveFP.listCount) lists/\(liveFP.membershipCount) memberships"
 
-            // Checks whether the film identity and list counts agree, which confines the difference to one layer.
+            /// Checks whether the film identity and list counts agree, which confines the difference to one layer.
             let filmIdentityMatches =
                 liveFP.filmCount == storedFP.filmCount
                 && liveFP.xorFingerprint == storedFP.xorFingerprint
                 && liveFP.maxLastModified == storedFP.maxLastModified
                 && liveFP.listCount == storedFP.listCount
 
-            // Computed once, so the two branches below are exact complements.
+            /// Computed once, so the two branches below are exact complements.
             let hofDiffers = liveFP.hofRankFingerprint != storedFP.hofRankFingerprint
             let ratingDiffers = liveFP.userRatingFingerprint != storedFP.userRatingFingerprint
 
-            // Rank or rating mismatch, with every count matching. The usual cause is a change lost in the save
-            // throttle after a force quit. The slow path corrects it in one launch. Repetition on normal quits
-            // would point to a defect in the shutdown flush.
+            /// Rank or rating mismatch, with every count matching. The usual cause is a change lost in the save
+            /// throttle after a force quit. The slow path corrects it in one launch. Repetition on normal quits
+            /// would point to a defect in the shutdown flush.
             if filmIdentityMatches,
                liveFP.membershipCount == storedFP.membershipCount,
                hofDiffers || ratingDiffers {
@@ -432,15 +432,15 @@ final class MemoryStoreCache: Loggable {
                 return .miss
             }
 
-            // Membership-count mismatch, with every other layer matching. The causes are duplicate (film, list)
-            // rows, which recur until cleaned, or a list change lost in the save throttle, which the next save
-            // resolves. Orphaned rows cannot cause this, because the store predicate excludes them.
+            /// Membership-count mismatch, with every other layer matching. The causes are duplicate (film, list)
+            /// rows, which recur until cleaned, or a list change lost in the save throttle, which the next save
+            /// resolves. Orphaned rows cannot cause this, because the store predicate excludes them.
             if filmIdentityMatches,
-               // The new digests must agree too, or this is not a membership-only
-               // difference and labeling it as one would send the reader looking for
-               // duplicate rows that do not exist.
+               /// The new digests must agree too, or this is not a membership-only
+               /// difference and labeling it as one would send the reader looking for
+               /// duplicate rows that do not exist.
                !hofDiffers, !ratingDiffers,
-               // Strictly greater: a lower live count means memberships were removed, not duplicated.
+               /// Strictly greater: a lower live count means memberships were removed, not duplicated.
                liveFP.membershipCount > storedFP.membershipCount {
                 let excess = liveFP.membershipCount - storedFP.membershipCount
                 Self.log("Cache miss: MEMBERSHIP-ONLY discrepancy — film and list layers match "
@@ -463,9 +463,9 @@ final class MemoryStoreCache: Loggable {
 
         Self.log("Fingerprint match (\(storedFP.filmCount) films, \(storedFP.listCount) lists, \(storedFP.membershipCount) memberships) — loading snapshot cache...")
 
-        // Step 5: join the speculative payload pipeline. On the fast path this has already
-        // completed — started from FilmTrackerApp.init, it finishes while AppKit is still
-        // building the menu bar and first window — so this await is free.
+        /// Step 5: join the speculative payload pipeline. On the fast path this has already
+        /// completed — started from FilmTrackerApp.init, it finishes while AppKit is still
+        /// building the menu bar and first window — so this await is free.
         let speculative = await payloadTask.value
         LaunchTimeline.mark("snapshotPayloadStart", at: speculative.startedAt)
         LaunchTimeline.mark("snapshotPayloadDone", at: speculative.finishedAt)
@@ -485,13 +485,13 @@ final class MemoryStoreCache: Loggable {
             return .miss
         }
 
-        // Not retained here. A second reference would force a copy-on-write copy on the first film edit.
+        /// Not retained here. A second reference would force a copy-on-write copy on the first film edit.
         Self.log("Cache hit: restored \(decoded.films.count) films, \(decoded.lists.count) lists from snapshot cache")
 
-        // These segments run alongside AppKit's launch work, off the critical path.
-        //
-        // The counts and field total are diagnostics for decode cost, which scales with field count.
-        // They are computed only when logging is on.
+        /// These segments run alongside AppKit's launch work, off the critical path.
+        ///
+        /// The counts and field total are diagnostics for decode cost, which scales with field count.
+        /// They are computed only when logging is on.
         if Logger.isLoggingEnabled {
             let releaseCount = decoded.films.values.reduce(0) { $0 + $1.releases.count }
             let membershipCount = decoded.lists.values.reduce(0) { $0 + $1.filmIDs.count }
@@ -557,8 +557,8 @@ final class MemoryStoreCache: Loggable {
         }
         let pipelineStart = LaunchTimeline.now()
 
-        // Step 1: the stored fingerprint read and the live fingerprint computation run concurrently,
-        // leaving MainActor free.
+        /// Step 1: the stored fingerprint read and the live fingerprint computation run concurrently,
+        /// leaving MainActor free.
         async let storedFPLoad: (fingerprint: StoreFingerprint?, elapsed: Duration)
             = Task.detached(priority: .userInitiated) {
                 () -> (fingerprint: StoreFingerprint?, elapsed: Duration) in
@@ -572,21 +572,21 @@ final class MemoryStoreCache: Loggable {
 
         async let liveFPLoad: StoreFingerprint? = dataManager.computeStoreFingerprint()
 
-        // Step 2: wait for the stored fingerprint, since the payload read must follow it.
+        /// Step 2: wait for the stored fingerprint, since the payload read must follow it.
         let storedFPResult = await storedFPLoad
         guard let storedFP = storedFPResult.fingerprint else {
             return .storedFingerprintUnreadable(elapsed: storedFPResult.elapsed)
         }
-        // Step 3: start the payload read, decode, and rebuild on one background task, before the verdict is known.
-        // Decoding early keeps it off the critical path. A mismatch wastes that work, which is acceptable.
-        //
-        // Decoding early is not trusting early: the result is used only after the comparison passes.
-        //
-        // The task is unstructured and `.detached`, not an `async let`. A mismatch then does not block on it,
-        // and it does not inherit MainActor isolation.
+        /// Step 3: start the payload read, decode, and rebuild on one background task, before the verdict is known.
+        /// Decoding early keeps it off the critical path. A mismatch wastes that work, which is acceptable.
+        ///
+        /// Decoding early is not trusting early: the result is used only after the comparison passes.
+        ///
+        /// The task is unstructured and `.detached`, not an `async let`. A mismatch then does not block on it,
+        /// and it does not inherit MainActor isolation.
         let payloadTask = Task.detached(priority: .userInitiated) {
             () -> SpeculativePayloadLoad in
-            // Stamped for the launch timeline around the whole read-decode-rebuild.
+            /// Stamped for the launch timeline around the whole read-decode-rebuild.
             let startedAt = LaunchTimeline.now()
             var result = { () -> SpeculativePayloadLoad in
             let readStart = ContinuousClock.now
@@ -607,7 +607,7 @@ final class MemoryStoreCache: Loggable {
             }
             let decodeElapsed = ContinuousClock.now - decodeStart
 
-            // A payload from another format version is rejected, not reinterpreted.
+            /// A payload from another format version is rejected, not reinterpreted.
             guard payload.version == currentCacheFormatVersion else {
                 return SpeculativePayloadLoad(outcome: .versionMismatch(found: payload.version),
                                               byteCount: payloadData.count,
@@ -616,7 +616,7 @@ final class MemoryStoreCache: Loggable {
                                               rebuildElapsed: .zero)
             }
 
-            // Rebuild the dictionaries here, off MainActor.
+            /// Rebuild the dictionaries here, off MainActor.
 
             let rebuildStart = ContinuousClock.now
 
@@ -664,8 +664,8 @@ final class MemoryStoreCache: Loggable {
                           hofPosition: snapshot.hofPosition, userRating: snapshot.userRating)
         }
 
-        // Membership count mirrors the total filmIDs across all lists,
-        // matching what Core Data reports via fetchCount(ListMembership.request()).
+        /// Membership count mirrors the total filmIDs across all lists,
+        /// matching what Core Data reports via fetchCount(ListMembership.request()).
         let membershipCount = lists.values.reduce(0) { $0 + $1.filmIDs.count }
 
         return StoreFingerprint(
@@ -688,7 +688,7 @@ extension UUID {
     ///
     /// Used by `FilmLayerDigest`, which both sides of the fingerprint accumulate through.
     var fingerprintHalves: (UInt64, UInt64) {
-        let bytes = uuid  // uuid is a (UInt8, UInt8, ...) 16-tuple
+        let bytes = uuid  /// uuid is a (UInt8, UInt8, ...) 16-tuple
         let hi = UInt64(bytes.0)  << 56 | UInt64(bytes.1)  << 48
                 | UInt64(bytes.2)  << 40 | UInt64(bytes.3)  << 32
                 | UInt64(bytes.4)  << 24 | UInt64(bytes.5)  << 16

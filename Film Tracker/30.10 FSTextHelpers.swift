@@ -1,10 +1,10 @@
 // MARK: - FSTextHelpers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Low-level AppKit/SwiftUI text and input field primitives used by FilmSheet tabs.
-//
-// Contains infrastructure that changes when text-editing or input-validation behavior needs
-// updating, independently of the domain-level control widgets in FSControlHelpers.swift (30.20).
+/// Low-level AppKit/SwiftUI text and input field primitives used by FilmSheet tabs.
+///
+/// Contains infrastructure that changes when text-editing or input-validation behavior needs
+/// updating, independently of the domain-level control widgets in FSControlHelpers.swift (30.20).
 
 import SwiftUI
 import AppKit
@@ -59,17 +59,17 @@ struct ExternalIDField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
-        // Keep the coordinator's parent current, for the same reason
-        // ScrollingTextViewRepresentable does it below: SwiftUI recreates this
-        // representable struct on every update but REUSES the coordinator, so without
-        // this the delegate goes on writing through the `text` binding captured when the
-        // coordinator was made.
-        //
-        // This field's only call site (FSTabDetailsView's External IDs row) passes a
-        // `Binding(get:set:)` that captures the stable view model, so a stale binding still
-        // reaches the right object. A call site whose binding closes over per-render state would
-        // write into a previous generation of it. Refreshing the reference costs one assignment
-        // per update and removes that dependence.
+        /// Keep the coordinator's parent current, for the same reason
+        /// ScrollingTextViewRepresentable does it below: SwiftUI recreates this
+        /// representable struct on every update but REUSES the coordinator, so without
+        /// this the delegate goes on writing through the `text` binding captured when the
+        /// coordinator was made.
+        ///
+        /// This field's only call site (FSTabDetailsView's External IDs row) passes a
+        /// `Binding(get:set:)` that captures the stable view model, so a stale binding still
+        /// reaches the right object. A call site whose binding closes over per-render state would
+        /// write into a previous generation of it. Refreshing the reference costs one assignment
+        /// per update and removes that dependence.
         context.coordinator.parent = self
 
         if nsView.stringValue != text {
@@ -124,34 +124,34 @@ private final class ExternalIDFormatter: StringFormatter {
     ) -> Bool {
         let proposed = unsafe partialStringPtr.pointee as String
 
-        // Allow clearing the field.
+        /// Allow clearing the field.
         if proposed.isEmpty { return true }
 
-        // Compute the net character change to distinguish paste from typing.
-        // origSelRange.length accounts for selected text being replaced.
+        /// Compute the net character change to distinguish paste from typing.
+        /// origSelRange.length accounts for selected text being replaced.
         let insertedCount = proposed.count - origString.count + origSelRange.length
 
         if insertedCount > 1 {
-            // Multi-character insertion = paste or drag-drop.
-            // Extract what was actually inserted by removing the parts of
-            // origString that surround the insertion point.
+            /// Multi-character insertion = paste or drag-drop.
+            /// Extract what was actually inserted by removing the parts of
+            /// origString that surround the insertion point.
             let prefixEnd = origSelRange.location
             let suffixStart = origSelRange.location + origSelRange.length
             let prefix = String(origString.prefix(prefixEnd))
             let suffix = String(origString.dropFirst(suffixStart))
-            // The inserted portion is the proposed string minus the kept prefix/suffix.
+            /// The inserted portion is the proposed string minus the kept prefix/suffix.
             let inserted: String
             if proposed.hasPrefix(prefix) && proposed.hasSuffix(suffix) {
                 let afterPrefix = proposed.dropFirst(prefix.count)
                 inserted = String(afterPrefix.dropLast(suffix.count))
             } else {
-                // Fallback: the entire proposed string is new content.
+                /// Fallback: the entire proposed string is new content.
                 inserted = proposed
             }
 
             let trimmed = inserted.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Path 1 — valid site-specific URL: extract the ID.
+            /// Path 1 — valid site-specific URL: extract the ID.
             if let extracted = site.extractID(from: trimmed) {
                 unsafe partialStringPtr.pointee = extracted as NSString
                 if let ptr = unsafe proposedSelRangePtr {
@@ -160,7 +160,7 @@ private final class ExternalIDFormatter: StringFormatter {
                 return false
             }
 
-            // Path 2 — pure digit string (1–9 chars): accept as-is.
+            /// Path 2 — pure digit string (1–9 chars): accept as-is.
             if !trimmed.isEmpty,
                trimmed.count <= 9,
                trimmed.allSatisfy(\.isASCIIDigit) {
@@ -171,7 +171,7 @@ private final class ExternalIDFormatter: StringFormatter {
                 return false
             }
 
-            // Path 3 — anything else: reject by reverting to the original string.
+            /// Path 3 — anything else: reject by reverting to the original string.
             unsafe partialStringPtr.pointee = origString as NSString
             if let ptr = unsafe proposedSelRangePtr {
                 unsafe ptr.pointee = origSelRange
@@ -179,13 +179,13 @@ private final class ExternalIDFormatter: StringFormatter {
             return false
         }
 
-        // Single-character typing (or deletion that leaves content).
-        // Accept only if the full proposed result is all-digits and ≤ 9 chars.
+        /// Single-character typing (or deletion that leaves content).
+        /// Accept only if the full proposed result is all-digits and ≤ 9 chars.
         if proposed.count <= 9, proposed.allSatisfy(\.isASCIIDigit) {
             return true
         }
 
-        // Reject: revert to original.
+        /// Reject: revert to original.
         unsafe partialStringPtr.pointee = origString as NSString
         if let ptr = unsafe proposedSelRangePtr {
             unsafe ptr.pointee = origSelRange
@@ -217,37 +217,37 @@ enum ExternalIDSite {
     ///   IMDb:    https://www.imdb.com/title/tt<digits>/reference/
     ///   Blu-ray: https://www.blu-ray.com/<dashed-name>/<digits>/
     func extractID(from trimmed: String) -> String? {
-        // Parse as a URL first. This is the hard gate — anything that is not a
-        // well-formed URL with an https scheme is rejected before any other check.
+        /// Parse as a URL first. This is the hard gate — anything that is not a
+        /// well-formed URL with an https scheme is rejected before any other check.
         guard let url = URL(string: trimmed),
               url.scheme == "https",
               let host = url.host else { return nil }
 
-        // pathComponents on a URL always begins with "/". Filter it out so
-        // parts[0] is the first real path segment.
+        /// pathComponents on a URL always begins with "/". Filter it out so
+        /// parts[0] is the first real path segment.
         let parts = url.pathComponents.filter { $0 != "/" }
 
         switch self {
         case .imdb:
-            // Host must be exactly www.imdb.com.
+            /// Host must be exactly www.imdb.com.
             guard host == "www.imdb.com" else { return nil }
-            // Path must begin with /title/tt<digits>; the trailing /reference
-            // segment is optional. Additional trailing components are ignored.
+            /// Path must begin with /title/tt<digits>; the trailing /reference
+            /// segment is optional. Additional trailing components are ignored.
             guard parts.count >= 2,
                   parts[0] == "title",
                   parts[1].hasPrefix("tt"),
                   parts.count < 3 || parts[2] == "reference" else { return nil }
-            let digits = String(parts[1].dropFirst(2))   // drop the "tt" prefix
+            let digits = String(parts[1].dropFirst(2))   /// drop the "tt" prefix
             guard !digits.isEmpty,
                   digits.allSatisfy(\.isASCIIDigit),
                   digits.count <= 9 else { return nil }
             return digits
 
         case .bluray:
-            // Host must be exactly www.blu-ray.com.
+            /// Host must be exactly www.blu-ray.com.
             guard host == "www.blu-ray.com" else { return nil }
-            // Path must be /<dashed-name>/<digits>  (at least 2 components;
-            // the final component must be an all-digit ID).
+            /// Path must be /<dashed-name>/<digits>  (at least 2 components;
+            /// the final component must be an all-digit ID).
             guard parts.count >= 2,
                   let last = parts.last,
                   !last.isEmpty,
@@ -259,50 +259,50 @@ enum ExternalIDSite {
 }
 
 // MARK: - FixedHeightScrollingTextView
-//
-// Fixed-height multiline text field with native AppKit styling and the system focus
-// ring (standard shrink-to-fit animation). Content scrolls vertically when it overflows
-// the fixed frame; below that point the scroll view is non-scrollable, so trackpad/
-// scroll-wheel events pass through to the parent scroll view.
-//
-// Architecture:
-//   • FixedHeightScrollingTextView (public SwiftUI wrapper) — SwiftUI .background fill
-//     and .overlay border, plus fixedHeight(lineCount:).
-//   • ScrollingTextViewRepresentable (private NSViewRepresentable) — input/scrolling
-//     mechanism, fully transparent so the SwiftUI chrome shows through.
-//   • ConditionalScrollView (private NSScrollView subclass) — draws the system focus
-//     ring on behalf of its first-responder document view; gates scrolling until
-//     content overflows.
-//   • InnerTextView (private NSTextView subclass) — placeholder drawing, and opens the
-//     focus-ring "gate" (focusRingType = .exterior) so ConditionalScrollView can draw it.
-//
-// Focus ring: AppKit draws the ring for the actual first responder (InnerTextView), but
-// the ring wanted is around the fixed-size scroll view. Standard AppKit behavior: an
-// NSScrollView draws the ring on behalf of its document view when that view's
-// focusRingType is not .none — InnerTextView's .exterior is the "gate"; the ring shape
-// itself comes from ConditionalScrollView's drawFocusRingMask/focusRingMaskBounds.
-//
-// Visual chrome: drawn entirely in SwiftUI (.background/.overlay), not on the
-// layer-backed NSScrollView. Color(NSColor:) re-resolves for light/dark automatically in
-// SwiftUI; a layer-backed AppKit view resolves its background color once and washes out
-// in dark mode. .background/.overlay also avoids .clipShape, which would mask the
-// exterior focus ring drawn ~3 px beyond the field edge.
-//
-// Scrollability gating: ConditionalScrollView.isScrollingEnabled is toggled by the
-// Coordinator after every text change by comparing content height to frame height.
-// Scroll-wheel events forward to the next responder while scrolling is disabled.
-//
-// Return / Option-Return: Return never inserts a paragraph break. Inside a popover that
-// installs a FieldSubmitAction (via .fieldSubmitAction(_:)) Return runs that popover's
-// confirming button; everywhere else — the FilmSheet's own fields — Return finishes
-// editing the field and gives up focus, so the NEXT Return, with no field active, saves
-// the sheet. Option-Return enters a line break via AppKit's own standard binding
-// (insertNewlineIgnoringFieldEditor(_:)), not custom key interception. All of it runs
-// through NSTextViewDelegate's textView(_:doCommandBy:); see FieldSubmitAction.
-//
-// Usage:
-//     FixedHeightScrollingTextView(text: $text, placeholder: "Notes")
-//         .frame(height: FixedHeightScrollingTextView.fixedHeight(lineCount: 3))
+///
+/// Fixed-height multiline text field with native AppKit styling and the system focus
+/// ring (standard shrink-to-fit animation). Content scrolls vertically when it overflows
+/// the fixed frame; below that point the scroll view is non-scrollable, so trackpad/
+/// scroll-wheel events pass through to the parent scroll view.
+///
+/// Architecture:
+///   • FixedHeightScrollingTextView (public SwiftUI wrapper) — SwiftUI .background fill
+///     and .overlay border, plus fixedHeight(lineCount:).
+///   • ScrollingTextViewRepresentable (private NSViewRepresentable) — input/scrolling
+///     mechanism, fully transparent so the SwiftUI chrome shows through.
+///   • ConditionalScrollView (private NSScrollView subclass) — draws the system focus
+///     ring on behalf of its first-responder document view; gates scrolling until
+///     content overflows.
+///   • InnerTextView (private NSTextView subclass) — placeholder drawing, and opens the
+///     focus-ring "gate" (focusRingType = .exterior) so ConditionalScrollView can draw it.
+///
+/// Focus ring: AppKit draws the ring for the actual first responder (InnerTextView), but
+/// the ring wanted is around the fixed-size scroll view. Standard AppKit behavior: an
+/// NSScrollView draws the ring on behalf of its document view when that view's
+/// focusRingType is not .none — InnerTextView's .exterior is the "gate"; the ring shape
+/// itself comes from ConditionalScrollView's drawFocusRingMask/focusRingMaskBounds.
+///
+/// Visual chrome: drawn entirely in SwiftUI (.background/.overlay), not on the
+/// layer-backed NSScrollView. Color(NSColor:) re-resolves for light/dark automatically in
+/// SwiftUI; a layer-backed AppKit view resolves its background color once and washes out
+/// in dark mode. .background/.overlay also avoids .clipShape, which would mask the
+/// exterior focus ring drawn ~3 px beyond the field edge.
+///
+/// Scrollability gating: ConditionalScrollView.isScrollingEnabled is toggled by the
+/// Coordinator after every text change by comparing content height to frame height.
+/// Scroll-wheel events forward to the next responder while scrolling is disabled.
+///
+/// Return / Option-Return: Return never inserts a paragraph break. Inside a popover that
+/// installs a FieldSubmitAction (via .fieldSubmitAction(_:)) Return runs that popover's
+/// confirming button; everywhere else — the FilmSheet's own fields — Return finishes
+/// editing the field and gives up focus, so the NEXT Return, with no field active, saves
+/// the sheet. Option-Return enters a line break via AppKit's own standard binding
+/// (insertNewlineIgnoringFieldEditor(_:)), not custom key interception. All of it runs
+/// through NSTextViewDelegate's textView(_:doCommandBy:); see FieldSubmitAction.
+///
+/// Usage:
+///     FixedHeightScrollingTextView(text: $text, placeholder: "Notes")
+///         .frame(height: FixedHeightScrollingTextView.fixedHeight(lineCount: 3))
 
 // MARK: - FieldSubmitAction
 
@@ -428,13 +428,13 @@ private final class InnerTextView: NSTextView {
     }
 
     private func commonInit() {
-        // Appearance.
-        drawsBackground     = false   // transparent — the SwiftUI wrapper draws the fill
+        /// Appearance.
+        drawsBackground     = false   /// transparent — the SwiftUI wrapper draws the fill
         textColor           = .textColor
         insertionPointColor = .controlAccentColor
         font                = .systemFont(ofSize: NSFont.systemFontSize)
 
-        // Behavior.
+        /// Behavior.
         isEditable          = true
         isSelectable        = true
         isRichText          = false
@@ -444,27 +444,27 @@ private final class InnerTextView: NSTextView {
         isAutomaticQuoteSubstitutionEnabled = false
         isAutomaticDashSubstitutionEnabled  = false
 
-        // Layout — vertically resizable so content grows inside the scroll view.
+        /// Layout — vertically resizable so content grows inside the scroll view.
         isVerticallyResizable   = true
         isHorizontallyResizable = false
         autoresizingMask        = [.width]
 
-        // Text container.
+        /// Text container.
         unsafe textContainer?.containerSize       = NSSize(width: 0,
                                                     height: CGFloat.greatestFiniteMagnitude)
         unsafe textContainer?.widthTracksTextView = true
         unsafe textContainer?.lineFragmentPadding = 5
         textContainerInset                 = NSSize(width: 6, height: 4)
 
-        // Focus ring — OPEN THE GATE.
-        // AppKit only draws/animates a focus ring for the first responder. This text
-        // view is the first responder, but the ring we want sits around the FIXED-size
-        // scroll view, not this (vertically resizable) document view. The standard
-        // AppKit behavior — used by the system scrollable text view — is that the
-        // enclosing NSScrollView draws the ring on behalf of its document view, but
-        // ONLY when the document view's focusRingType is not .none. Setting .exterior
-        // here is what permits ConditionalScrollView to draw the ring at all; the ring's
-        // SHAPE is defined by the scroll view, so this view installs no mask of its own.
+        /// Focus ring — OPEN THE GATE.
+        /// AppKit only draws/animates a focus ring for the first responder. This text
+        /// view is the first responder, but the ring we want sits around the FIXED-size
+        /// scroll view, not this (vertically resizable) document view. The standard
+        /// AppKit behavior — used by the system scrollable text view — is that the
+        /// enclosing NSScrollView draws the ring on behalf of its document view, but
+        /// ONLY when the document view's focusRingType is not .none. Setting .exterior
+        /// here is what permits ConditionalScrollView to draw the ring at all; the ring's
+        /// SHAPE is defined by the scroll view, so this view installs no mask of its own.
         focusRingType = .exterior
     }
 
@@ -490,24 +490,24 @@ private final class InnerTextView: NSTextView {
     }
 
     // MARK: Paste — line-break flattening.
-    //
-    // Pasted content is flattened to a single paragraph: every line break in the incoming
-    // string is removed and the lines joined with a single space, so "This is\na test of
-    // a string with\ntwo new line breaks in it" lands as "This is a test of a string with
-    // two new line breaks in it".
-    //
-    // Hooked in three places. `paste(_:)` and `pasteAsPlainText(_:)` are the actions the Paste
-    // menu item and Command-V send to the first responder, so they are overridden directly.
-    // `readSelection(from:type:)` is the path for dragged-in text and Services, and it routes
-    // to the same helper. It does not catch Paste on its own: line breaks survive that route.
-    //
-    // All three delegate to `insertFlattenedPasteboardString(from:)`, which reports
-    // whether it handled the insertion. When it declines (no plain text, or text with no
-    // line breaks), the override falls through to `super` unchanged. The pasteboard
-    // itself is never mutated, and no key events are intercepted.
-    //
-    // Option-Return is untouched — this affects only pasted content; line breaks the
-    // user enters themselves are left alone.
+    ///
+    /// Pasted content is flattened to a single paragraph: every line break in the incoming
+    /// string is removed and the lines joined with a single space, so "This is\na test of
+    /// a string with\ntwo new line breaks in it" lands as "This is a test of a string with
+    /// two new line breaks in it".
+    ///
+    /// Hooked in three places. `paste(_:)` and `pasteAsPlainText(_:)` are the actions the Paste
+    /// menu item and Command-V send to the first responder, so they are overridden directly.
+    /// `readSelection(from:type:)` is the path for dragged-in text and Services, and it routes
+    /// to the same helper. It does not catch Paste on its own: line breaks survive that route.
+    ///
+    /// All three delegate to `insertFlattenedPasteboardString(from:)`, which reports
+    /// whether it handled the insertion. When it declines (no plain text, or text with no
+    /// line breaks), the override falls through to `super` unchanged. The pasteboard
+    /// itself is never mutated, and no key events are intercepted.
+    ///
+    /// Option-Return is untouched — this affects only pasted content; line breaks the
+    /// user enters themselves are left alone.
     override func paste(_ sender: Any?) {
         if !insertFlattenedPasteboardString(from: .general) {
             super.paste(sender)
@@ -552,13 +552,13 @@ private final class InnerTextView: NSTextView {
 
         let flattened = Self.flatteningLineBreaks(in: raw)
 
-        // Nothing to change — let AppKit do its own (identical) work.
+        /// Nothing to change — let AppKit do its own (identical) work.
         guard flattened != raw else { return false }
 
-        // Content that was nothing but line breaks and spaces flattens away to nothing.
-        // Consume the paste and leave the field as it was; replacing the selection with an
-        // empty string would silently delete the user's text in exchange for content that
-        // carried none.
+        /// Content that was nothing but line breaks and spaces flattens away to nothing.
+        /// Consume the paste and leave the field as it was; replacing the selection with an
+        /// empty string would silently delete the user's text in exchange for content that
+        /// carried none.
         guard !flattened.isEmpty else { return true }
 
         let target = selectedRange()
@@ -566,8 +566,8 @@ private final class InnerTextView: NSTextView {
         replaceCharacters(in: target, with: flattened)
         didChangeText()
 
-        // Leave the insertion point after the inserted run, as a normal paste does.
-        // UTF-16 length, because NSRange is measured in UTF-16 units.
+        /// Leave the insertion point after the inserted run, as a normal paste does.
+        /// UTF-16 length, because NSRange is measured in UTF-16 units.
         let insertedLength = (flattened as NSString).length
         let caret = NSRange(location: target.location + insertedLength, length: 0)
         setSelectedRange(caret)
@@ -613,10 +613,10 @@ private final class InnerTextView: NSTextView {
     }
 
     // MARK: First-responder transitions.
-    // Nudge the enclosing scroll view to refresh its focus ring as focus enters and
-    // leaves. AppKit drives the ring's appearance/animation off first-responder changes,
-    // but noteFocusRingMaskChanged() guarantees the scroll view re-evaluates and redraws
-    // its ring at the moment of transition (and after any field resize while focused).
+    /// Nudge the enclosing scroll view to refresh its focus ring as focus enters and
+    /// leaves. AppKit drives the ring's appearance/animation off first-responder changes,
+    /// but noteFocusRingMaskChanged() guarantees the scroll view re-evaluates and redraws
+    /// its ring at the moment of transition (and after any field resize while focused).
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
@@ -629,7 +629,7 @@ private final class InnerTextView: NSTextView {
         let result = super.resignFirstResponder()
         if result {
             enclosingScrollView?.noteFocusRingMaskChanged()
-            if string.isEmpty { needsDisplay = true }   // restore placeholder
+            if string.isEmpty { needsDisplay = true }   /// restore placeholder
         }
         return result
     }
@@ -654,14 +654,14 @@ private final class ConditionalScrollView: NSScrollView {
         }
     }
 
-    // One-shot guard for the initial scroll-to-top. An NSTextView embedded in a scroll
-    // view can land scrolled to the BOTTOM of overflowing content on first appearance,
-    // which would show the user the END of the text with the beginning hidden above the
-    // viewport. We bring the beginning of the content into view exactly once per instance
-    // so the field first reads from the top, with the overflow tucked below the viewport.
-    // Consumed on the first layout pass that has a real (non-zero) frame — i.e. before the
-    // user can interact — so that a later layout pass triggered by the user typing a
-    // short field past its fixed height can never yank the view back to the top mid-edit.
+    /// One-shot guard for the initial scroll-to-top. An NSTextView embedded in a scroll
+    /// view can land scrolled to the BOTTOM of overflowing content on first appearance,
+    /// which would show the user the END of the text with the beginning hidden above the
+    /// viewport. We bring the beginning of the content into view exactly once per instance
+    /// so the field first reads from the top, with the overflow tucked below the viewport.
+    /// Consumed on the first layout pass that has a real (non-zero) frame — i.e. before the
+    /// user can interact — so that a later layout pass triggered by the user typing a
+    /// short field past its fixed height can never yank the view back to the top mid-edit.
     private var didPerformInitialScroll = false
 
     override init(frame: NSRect) {
@@ -675,42 +675,42 @@ private final class ConditionalScrollView: NSScrollView {
     }
 
     private func commonInit() {
-        // wantsLayer = true is required for AppKit to draw the focus ring on this view
-        // inside SwiftUI's layer-backed hosting hierarchy. Without it, AppKit silently
-        // suppresses the ring on non-layer-backed views that sit inside a layer-backed
-        // ancestor.
+        /// wantsLayer = true is required for AppKit to draw the focus ring on this view
+        /// inside SwiftUI's layer-backed hosting hierarchy. Without it, AppKit silently
+        /// suppresses the ring on non-layer-backed views that sit inside a layer-backed
+        /// ancestor.
         wantsLayer    = true
         focusRingType = .exterior
 
-        // The scroll view is fully transparent. The visible chrome — the rounded
-        // textBackgroundColor fill and the border — is drawn in SwiftUI behind/over the
-        // representable (see FixedHeightScrollingTextView), where Color(NSColor:) values
-        // re-resolve for light/dark automatically. This deliberately avoids hosting the
-        // fill on this layer-backed NSScrollView: an AppKit/layer background color is
-        // resolved only once, against the appearance current at set time (typically
-        // light, before the view is in a window), so it washes out in dark mode, and a
-        // layer background set with drawsBackground = false is liable to be cleared by
-        // the scroll view's own background management. Keeping the fill in SwiftUI
-        // sidesteps both issues; doing it with .background/.overlay there — rather than
-        // .clipShape — keeps the exterior focus ring from being masked away.
+        /// The scroll view is fully transparent. The visible chrome — the rounded
+        /// textBackgroundColor fill and the border — is drawn in SwiftUI behind/over the
+        /// representable (see FixedHeightScrollingTextView), where Color(NSColor:) values
+        /// re-resolve for light/dark automatically. This deliberately avoids hosting the
+        /// fill on this layer-backed NSScrollView: an AppKit/layer background color is
+        /// resolved only once, against the appearance current at set time (typically
+        /// light, before the view is in a window), so it washes out in dark mode, and a
+        /// layer background set with drawsBackground = false is liable to be cleared by
+        /// the scroll view's own background management. Keeping the fill in SwiftUI
+        /// sidesteps both issues; doing it with .background/.overlay there — rather than
+        /// .clipShape — keeps the exterior focus ring from being masked away.
         drawsBackground = false
     }
 
     // MARK: Scrollability gating
-    //
-    // Canonical overflow evaluation. Compares the document view's laid-out content
-    // height against the visible content height and toggles isScrollingEnabled
-    // accordingly. Idempotent — it mutates isScrollingEnabled only when the computed
-    // value differs from the current one, so it is safe to call repeatedly: from
-    // layout() (initial appearance and every resize), after user edits (textDidChange),
-    // and after programmatic text changes (updateNSView). Centralizing the computation
-    // here keeps a single source of truth shared by all three call sites.
+    ///
+    /// Canonical overflow evaluation. Compares the document view's laid-out content
+    /// height against the visible content height and toggles isScrollingEnabled
+    /// accordingly. Idempotent — it mutates isScrollingEnabled only when the computed
+    /// value differs from the current one, so it is safe to call repeatedly: from
+    /// layout() (initial appearance and every resize), after user edits (textDidChange),
+    /// and after programmatic text changes (updateNSView). Centralizing the computation
+    /// here keeps a single source of truth shared by all three call sites.
     func updateScrollability() {
         guard let textView = documentView as? InnerTextView,
               let lm = unsafe textView.layoutManager,
               let tc = unsafe textView.textContainer else { return }
-        // layoutManager.usedRect gives the true content height including all laid-out
-        // text, using the same container as the text view itself.
+        /// layoutManager.usedRect gives the true content height including all laid-out
+        /// text, using the same container as the text view itself.
         lm.ensureLayout(for: tc)
         let contentHeight = lm.usedRect(for: tc).height
             + textView.textContainerInset.height * 2
@@ -721,47 +721,47 @@ private final class ConditionalScrollView: NSScrollView {
     }
 
     // MARK: Initial scroll position
-    //
-    // Brings the very top of the document into view. We scroll the clip view to the
-    // document's true top-left origin (0, 0) rather than using scrollRangeToVisible to
-    // the first glyph: scrollRangeToVisible parks the first GLYPH at the top edge of the
-    // viewport, which scrolls past the textContainerInset — the small gap that should sit
-    // above the first line — leaving the text a few pixels too high. Scrolling to the
-    // document origin preserves that top inset, so the resting position matches a
-    // freshly-shown field whose content fits exactly. For a flipped document view
-    // (NSTextView is flipped) bounds origin (0, 0) is the top, regardless of content
-    // height. reflectScrolledClipView syncs the scrollers/visual state to the new origin.
+    ///
+    /// Brings the very top of the document into view. We scroll the clip view to the
+    /// document's true top-left origin (0, 0) rather than using scrollRangeToVisible to
+    /// the first glyph: scrollRangeToVisible parks the first GLYPH at the top edge of the
+    /// viewport, which scrolls past the textContainerInset — the small gap that should sit
+    /// above the first line — leaving the text a few pixels too high. Scrolling to the
+    /// document origin preserves that top inset, so the resting position matches a
+    /// freshly-shown field whose content fits exactly. For a flipped document view
+    /// (NSTextView is flipped) bounds origin (0, 0) is the top, regardless of content
+    /// height. reflectScrolledClipView syncs the scrollers/visual state to the new origin.
     private func scrollToTop() {
         contentView.scroll(to: NSPoint(x: 0, y: 0))
         reflectScrolledClipView(contentView)
     }
 
     // MARK: Layout
-    //
-    // AppKit calls layout() after this scroll view is assigned its real frame, in particular on
-    // first appearance, when contentSize first becomes non-zero. Evaluating overflow here makes a
-    // field whose content already exceeds the fixed height scrollable WITHOUT any user interaction,
-    // on every fresh sheet session (isScrollingEnabled starts false on each new instance).
-    // makeNSView is too early to measure: contentSize is still zero there.
+    ///
+    /// AppKit calls layout() after this scroll view is assigned its real frame, in particular on
+    /// first appearance, when contentSize first becomes non-zero. Evaluating overflow here makes a
+    /// field whose content already exceeds the fixed height scrollable WITHOUT any user interaction,
+    /// on every fresh sheet session (isScrollingEnabled starts false on each new instance).
+    /// makeNSView is too early to measure: contentSize is still zero there.
     override func layout() {
         super.layout()
         updateScrollability()
 
-        // One-time initial scroll-to-top, performed on the FIRST layout pass that has a
-        // real (non-zero) frame — the same frame-valid moment updateScrollability relies
-        // on. Consuming the one-shot here, before the user can interact, guarantees we
-        // never scroll to the top in response to a LATER event: in particular, if a field
-        // that fit on load is subsequently typed past its fixed height, the resulting
-        // layout pass must leave the insertion point where the user is typing rather than
-        // snapping the view back to the top. We actually scroll only when the content
-        // overflows (isScrollingEnabled); when it fits, the top is already shown and a
-        // scroll would be a no-op. The scroll itself is deferred one run-loop turn so it
-        // runs after AppKit finishes the entire layout/sizing cascade for this pass —
-        // including any re-tile triggered by toggling the vertical scroller in the
-        // isScrollingEnabled didSet — guaranteeing our position is the final word rather
-        // than being overridden mid-cascade. DispatchQueue.main.async (not Task) matches
-        // the codebase convention for deferring from AppKit layout callbacks where
-        // run-loop ordering matters.
+        /// One-time initial scroll-to-top, performed on the FIRST layout pass that has a
+        /// real (non-zero) frame — the same frame-valid moment updateScrollability relies
+        /// on. Consuming the one-shot here, before the user can interact, guarantees we
+        /// never scroll to the top in response to a LATER event: in particular, if a field
+        /// that fit on load is subsequently typed past its fixed height, the resulting
+        /// layout pass must leave the insertion point where the user is typing rather than
+        /// snapping the view back to the top. We actually scroll only when the content
+        /// overflows (isScrollingEnabled); when it fits, the top is already shown and a
+        /// scroll would be a no-op. The scroll itself is deferred one run-loop turn so it
+        /// runs after AppKit finishes the entire layout/sizing cascade for this pass —
+        /// including any re-tile triggered by toggling the vertical scroller in the
+        /// isScrollingEnabled didSet — guaranteeing our position is the final word rather
+        /// than being overridden mid-cascade. DispatchQueue.main.async (not Task) matches
+        /// the codebase convention for deferring from AppKit layout callbacks where
+        /// run-loop ordering matters.
         if !didPerformInitialScroll, bounds.width > 0, bounds.height > 0 {
             didPerformInitialScroll = true
             if isScrollingEnabled {
@@ -781,11 +781,11 @@ private final class ConditionalScrollView: NSScrollView {
     }
 
     // MARK: Focus ring.
-    // System-standard ring shaped to match the SwiftUI rounded border (radius 6). That border is a
-    // `RoundedRectangle`, whose default corner style is `.continuous`, so the ring mask uses the same
-    // continuous curve rather than NSBezierPath's circular `roundedRect`. AppKit invokes these on this
-    // scroll view because focusRingType is .exterior here, and the document view (InnerTextView) has a
-    // non-.none focusRingType. That makes the scroll view the ring drawer for its first-responder document view.
+    /// System-standard ring shaped to match the SwiftUI rounded border (radius 6). That border is a
+    /// `RoundedRectangle`, whose default corner style is `.continuous`, so the ring mask uses the same
+    /// continuous curve rather than NSBezierPath's circular `roundedRect`. AppKit invokes these on this
+    /// scroll view because focusRingType is .exterior here, and the document view (InnerTextView) has a
+    /// non-.none focusRingType. That makes the scroll view the ring drawer for its first-responder document view.
 
     override var focusRingMaskBounds: NSRect { bounds }
 
@@ -812,11 +812,11 @@ private struct ScrollingTextViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> ConditionalScrollView {
         let scrollView                         = ConditionalScrollView()
         scrollView.borderType                  = .noBorder
-        scrollView.hasVerticalScroller         = false  // starts disabled; enabled when content overflows
+        scrollView.hasVerticalScroller         = false  /// starts disabled; enabled when content overflows
         scrollView.hasHorizontalScroller       = false
         scrollView.autohidesScrollers          = true
-        // Both the scroll view (set in commonInit) and its clip view are transparent so
-        // the SwiftUI rounded fill behind the representable shows through.
+        /// Both the scroll view (set in commonInit) and its clip view are transparent so
+        /// the SwiftUI rounded fill behind the representable shows through.
         scrollView.contentView.drawsBackground = false
 
         let textView         = InnerTextView()
@@ -832,9 +832,9 @@ private struct ScrollingTextViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: ConditionalScrollView, context: Context) {
-        // Keep the coordinator's parent current: SwiftUI recreates this representable
-        // struct on every update but reuses the coordinator, so refreshing the reference
-        // ensures textDidChange always writes through the latest binding.
+        /// Keep the coordinator's parent current: SwiftUI recreates this representable
+        /// struct on every update but reuses the coordinator, so refreshing the reference
+        /// ensures textDidChange always writes through the latest binding.
         context.coordinator.parent = self
 
         guard let textView = scrollView.documentView as? InnerTextView else { return }
@@ -846,10 +846,10 @@ private struct ScrollingTextViewRepresentable: NSViewRepresentable {
         }
         if textView.placeholder != placeholder { textView.placeholder = placeholder }
 
-        // When the text changes programmatically (e.g. a different record is loaded into
-        // the sheet), re-evaluate overflow so scrolling engages immediately rather than
-        // only after the first keystroke. Initial appearance is handled by the scroll
-        // view's layout() override; user edits are handled in textDidChange.
+        /// When the text changes programmatically (e.g. a different record is loaded into
+        /// the sheet), re-evaluate overflow so scrolling engages immediately rather than
+        /// only after the first keystroke. Initial appearance is handled by the scroll
+        /// view's layout() override; user edits are handled in textDidChange.
         if textChanged {
             scrollView.updateScrollability()
         }
@@ -870,35 +870,35 @@ private struct ScrollingTextViewRepresentable: NSViewRepresentable {
         }
 
         // MARK: Return / Option-Return
-        //
-        // AppKit's own routing, not an override of it: `interpretKeyEvents` translates a
-        // key press into a selector via the standard key bindings and offers it to the
-        // delegate here first; returning true means "handled, do not act." Two selectors
-        // matter: insertNewline(_:) (Return) and insertNewlineIgnoringFieldEditor(_:)
-        // (Option-Return).
-        //
-        // Return never inserts a paragraph break. With a submit action installed (a
-        // popover's), it runs that action; a decline (confirming button disabled) leaves
-        // the key consumed and inert, as Return against any disabled default button is.
-        //
-        // With NO action installed — every field on the FilmSheet itself — Return
-        // finishes editing: the field gives up first responder, its text stays exactly as
-        // typed (it is live-bound, so there is nothing further to commit), and the next
-        // Return, now with no field active, reaches the sheet and saves it. That is the
-        // sheet's Return rule: an active field takes Return first. The single-line fields
-        // follow the same rule through FilmSheetView's key monitor.
-        //
-        // Option-Return is deliberately NOT consumed — it's the sole way to enter a line
-        // break. `NSTextView`'s own insertNewlineIgnoringFieldEditor(_:) inserts one
-        // without ending editing; returning false hands it straight through, so undo,
-        // marked text, and the usual textDidChange-driven layout update all run
-        // unmodified. This is AppKit's standard binding for the selector — the same one
-        // system commit-on-Return fields use.
-        //
-        // Marked text guard: while an input method has an uncommitted composition on
-        // screen, Return commits that composition, so intercepting it would discard the
-        // user's in-progress input — the composition wins and the key goes to the text
-        // view in that one case.
+        ///
+        /// AppKit's own routing, not an override of it: `interpretKeyEvents` translates a
+        /// key press into a selector via the standard key bindings and offers it to the
+        /// delegate here first; returning true means "handled, do not act." Two selectors
+        /// matter: insertNewline(_:) (Return) and insertNewlineIgnoringFieldEditor(_:)
+        /// (Option-Return).
+        ///
+        /// Return never inserts a paragraph break. With a submit action installed (a
+        /// popover's), it runs that action; a decline (confirming button disabled) leaves
+        /// the key consumed and inert, as Return against any disabled default button is.
+        ///
+        /// With NO action installed — every field on the FilmSheet itself — Return
+        /// finishes editing: the field gives up first responder, its text stays exactly as
+        /// typed (it is live-bound, so there is nothing further to commit), and the next
+        /// Return, now with no field active, reaches the sheet and saves it. That is the
+        /// sheet's Return rule: an active field takes Return first. The single-line fields
+        /// follow the same rule through FilmSheetView's key monitor.
+        ///
+        /// Option-Return is deliberately NOT consumed — it's the sole way to enter a line
+        /// break. `NSTextView`'s own insertNewlineIgnoringFieldEditor(_:) inserts one
+        /// without ending editing; returning false hands it straight through, so undo,
+        /// marked text, and the usual textDidChange-driven layout update all run
+        /// unmodified. This is AppKit's standard binding for the selector — the same one
+        /// system commit-on-Return fields use.
+        ///
+        /// Marked text guard: while an input method has an uncommitted composition on
+        /// screen, Return commits that composition, so intercepting it would discard the
+        /// user's in-progress input — the composition wins and the key goes to the text
+        /// view in that one case.
         func textView(_ textView: NSTextView,
                       doCommandBy commandSelector: Selector) -> Bool {
             guard commandSelector == #selector(NSResponder.insertNewline(_:)) else {
@@ -985,27 +985,27 @@ struct FixedHeightScrollingTextView: View {
     static let labelTopOffset: CGFloat = 4
 
     var body: some View {
-        // The focus ring is drawn by ConditionalScrollView at the AppKit level. The fill
-        // and border are SwiftUI here, using Color(NSColor:) values that re-resolve for
-        // light/dark automatically. These are applied as a rounded .background and
-        // .overlay — NOT a .clipShape: a clip would mask away the exterior focus ring
-        // (drawn ~3px beyond the field edge), whereas a background/overlay only draws
-        // behind/over the field without masking it. The corner radius and shape match
-        // the AppKit drawFocusRingMask (radius 6) so the ring hugs the border.
-        //
-        // The edge is the shared `.standard` field edge, so a text field and a list sitting in
-        // the same column read as the same kind of object. Its continuous corners match the
-        // focus ring mask (`drawFocusRingMask`, a continuous rounded rect of the same radius).
+        /// The focus ring is drawn by ConditionalScrollView at the AppKit level. The fill
+        /// and border are SwiftUI here, using Color(NSColor:) values that re-resolve for
+        /// light/dark automatically. These are applied as a rounded .background and
+        /// .overlay — NOT a .clipShape: a clip would mask away the exterior focus ring
+        /// (drawn ~3px beyond the field edge), whereas a background/overlay only draws
+        /// behind/over the field without masking it. The corner radius and shape match
+        /// the AppKit drawFocusRingMask (radius 6) so the ring hugs the border.
+        ///
+        /// The edge is the shared `.standard` field edge, so a text field and a list sitting in
+        /// the same column read as the same kind of object. Its continuous corners match the
+        /// focus ring mask (`drawFocusRingMask`, a continuous rounded rect of the same radius).
         ScrollingTextViewRepresentable(
             text: $text,
             placeholder: placeholder,
             submitAction: submitAction
         )
-        // The shadow is cast by the fill shape alone, not by the finished control: a shadow on
-        // the outer view would derive a silhouette from content that includes a hosted `NSView`.
-        // The fill is inset by the border width so it stops where the border begins;
-        // `separatorColor` is translucent, so a fill running under the border would tint the
-        // outline from below. No clip, which would mask away the exterior focus ring.
+        /// The shadow is cast by the fill shape alone, not by the finished control: a shadow on
+        /// the outer view would derive a silhouette from content that includes a hosted `NSView`.
+        /// The fill is inset by the border width so it stops where the border begins;
+        /// `separatorColor` is translucent, so a fill running under the border would tint the
+        /// outline from below. No clip, which would mask away the exterior focus ring.
         .fieldEdgeChrome(fill: Color(NSColor.textBackgroundColor), insetsInterior: true)
     }
 }

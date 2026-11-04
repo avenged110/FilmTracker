@@ -1,7 +1,7 @@
 // MARK: - STabExport.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// FilmTracker.app settings window: "Export" tab.
+/// FilmTracker.app settings window: "Export" tab.
 
 import SwiftUI
 import CoreData
@@ -119,8 +119,8 @@ struct MultiSelectPicker<Option: Identifiable & Hashable>: View {
 
     private var summary: String {
         if selection.count == options.count { return allLabel }
-        // One item left is unambiguous, so name it rather than calling it "Mixed" —
-        // "Mixed" is reserved for a genuinely partial selection of two or more.
+        /// One item left is unambiguous, so name it rather than calling it "Mixed" —
+        /// "Mixed" is reserved for a genuinely partial selection of two or more.
         if selection.count == 1, let only = options.first(where: { selection.contains($0) }) {
             return title(only)
         }
@@ -146,8 +146,8 @@ struct MultiSelectPicker<Option: Identifiable & Hashable>: View {
         } label: {
             Text(summary)
         }
-        // Default menu style, not .borderlessButton: the bordered pull-down with its
-        // chevron is what reads as a picker next to the row's push button.
+        /// Default menu style, not .borderlessButton: the bordered pull-down with its
+        /// chevron is what reads as a picker next to the row's push button.
         .frame(width: Self.width)
         .disabled(!isEnabled)
     }
@@ -179,10 +179,10 @@ private struct ExportBlock<Content: View>: View {
 
             Divider()
 
-            // The row is centered in whatever is left below the divider rather than
-            // hugging it. An expanding frame rather than a pair of Spacers: Spacers would each pick up the stack's 6pt spacing and
-            // push the row off-center by half of it. Safe because the block's height is fixed, so this frame divides a
-            // known remainder.
+            /// The row is centered in whatever is left below the divider rather than
+            /// hugging it. An expanding frame rather than a pair of Spacers: Spacers would each pick up the stack's 6pt spacing and
+            /// push the row off-center by half of it. Safe because the block's height is fixed, so this frame divides a
+            /// known remainder.
             content()
                 .frame(maxHeight: .infinity)
         }
@@ -238,8 +238,8 @@ struct ExportSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             SettingsTabDescription(blurb: .export)
 
-            // The destination below is shared by BOTH pipelines — a backup and a PDF are
-            // both written into whatever folder is selected here.
+            /// The destination below is shared by BOTH pipelines — a backup and a PDF are
+            /// both written into whatever folder is selected here.
             Text("Export Location:")
                 .font(.headline)
 
@@ -250,7 +250,7 @@ struct ExportSettingsView: View {
                 Button(action: { viewModel.selectDestination() }) {
                     Rectangle().foregroundStyle(.clear) }
                 .buttonStyle(.plain)
-                // Locked with the "Select Destination…" button below while an export runs.
+                /// Locked with the "Select Destination…" button below while an export runs.
                 .disabled(viewModel.isExporting))
 
             HStack(spacing: 12) {
@@ -308,22 +308,22 @@ struct ExportSettingsView: View {
 
             Spacer()
 
-            // One progress component for both pipelines, parked against the button gutter
-            // at the same inset the tab uses on its other edges.
+            /// One progress component for both pipelines, parked against the button gutter
+            /// at the same inset the tab uses on its other edges.
             ExportProgressRow(isExporting: viewModel.isExporting,
                               progress: viewModel.progress) {
                 viewModel.cancelExport()
             }
         }
         .padding()
-        // "Export Successful" alert.
+        /// "Export Successful" alert.
         .alert("Export Successful", isPresented: $viewModel.showExportSuccess) {
             Button("OK") { }
                 .keyboardShortcut(.defaultAction)
         } message: {
             Text(viewModel.exportSuccessMessage)
         }
-        // "Export Failed" alert.
+        /// "Export Failed" alert.
         .alert("Export Failed", isPresented: $viewModel.showExportFailure) {
             Button("OK") { }
                 .keyboardShortcut(.defaultAction)
@@ -349,14 +349,14 @@ final class ExportViewModel: Loggable {
     var backupIncludes: Set<BackupIncludeOption> = BackupIncludeOption.all
     var pdfSections: Set<LibraryPDFSection> = LibraryPDFSection.all
 
-    // Alert state — two separate Bool+message pairs following the same pattern
-    // used by RestoreViewModel. This avoids the deprecated Alert/Identifiable API.
+    /// Alert state — two separate Bool+message pairs following the same pattern
+    /// used by RestoreViewModel. This avoids the deprecated Alert/Identifiable API.
     var showExportSuccess = false
     var exportSuccessMessage = ""
     var showExportFailure = false
     var exportFailureMessage = ""
 
-    // Reference to the hosting window (Settings sheet) for proper panel attachment
+    /// Reference to the hosting window (Settings sheet) for proper panel attachment
     var hostingWindow: NSWindow?
 
     /// Both pipelines write into the one destination the tab's path bar names, so both
@@ -367,18 +367,18 @@ final class ExportViewModel: Loggable {
     var canExportPDF: Bool { canExport && !pdfSections.isEmpty }
 
     // MARK: - Progress Presentation Timing
-    //
-    // The progress row is a fade-in/fade-out affair, and a small library finishes faster
-    // than the fade does — so without these beats the user sees a bar arrive already full
-    // and leave again, which reads as a glitch rather than as work being done. The rules
-    // the export tasks follow:
-    //
-    //   1. Show the row, then WAIT for the fade-in to finish before any work starts, so the
-    //      bar is never filling while it is still materializing.
-    //   2. Keep the row on screen for at least `minimumVisibleDuration` once the work does
-    //      start, however quickly the work returns.
-    //   3. Hold the full bar, fade out, and only THEN reset progress to zero — resetting it
-    //      any earlier would empty the bar in the middle of the fade.
+    ///
+    /// The progress row is a fade-in/fade-out affair, and a small library finishes faster
+    /// than the fade does — so without these beats the user sees a bar arrive already full
+    /// and leave again, which reads as a glitch rather than as work being done. The rules
+    /// the export tasks follow:
+    ///
+    ///   1. Show the row, then WAIT for the fade-in to finish before any work starts, so the
+    ///      bar is never filling while it is still materializing.
+    ///   2. Keep the row on screen for at least `minimumVisibleDuration` once the work does
+    ///      start, however quickly the work returns.
+    ///   3. Hold the full bar, fade out, and only THEN reset progress to zero — resetting it
+    ///      any earlier would empty the bar in the middle of the fade.
 
     /// Matches `ExportProgressRow`'s fade, plus a frame's margin.
     private static let fadeDuration: Duration = .milliseconds(250)
@@ -428,7 +428,7 @@ final class ExportViewModel: Loggable {
         progress = 1.0
         try? await Task.sleep(for: Self.completionHoldDuration)
 
-        // One turn, no awaits: alert up and controls released together.
+        /// One turn, no awaits: alert up and controls released together.
         exportSuccessMessage = successMessage
         showExportSuccess = true
         isExporting = false
@@ -464,17 +464,17 @@ final class ExportViewModel: Loggable {
     func configure(persistentContainer: NSPersistentContainer?,
                    dataCoordinator: DataCoordinator? = nil) {
         guard !isConfigured else { return }
-        // The exporter is built from the NSPersistentContainer, never from a long-lived
-        // NSManagedObjectContext: DBExporter creates a fresh NSManagedObjectContext per export internally, so
-        // each backup reflects the current persisted state rather than a stale snapshot.
+        /// The exporter is built from the NSPersistentContainer, never from a long-lived
+        /// NSManagedObjectContext: DBExporter creates a fresh NSManagedObjectContext per export internally, so
+        /// each backup reflects the current persisted state rather than a stale snapshot.
         guard let container = persistentContainer else { return }
         self.exporter = DBExporter(persistentContainer: container)
         self.dataCoordinator = dataCoordinator
         isConfigured = true }
 
     func loadSavedBookmarkIfNeeded() {
-        // All bookmark I/O is routed through Preferences to ensure a single
-        // canonical UserDefaults key ("preferences.exportPathBookmark").
+        /// All bookmark I/O is routed through Preferences to ensure a single
+        /// canonical UserDefaults key ("preferences.exportPathBookmark").
         guard let url = Preferences.exportPathURL else {
             displayPathComponents = ["No location selected."]
             resolvedDestinationURL = nil
@@ -488,8 +488,8 @@ final class ExportViewModel: Loggable {
         displayPathComponents = comps.isEmpty ? [url.path(percentEncoded: false)] : comps }
 
     func selectDestination() {
-        // Defer panel presentation to the next run-loop turn to avoid a "multiple
-        // updates per frame" warning when the NSOpenPanel triggers focus changes.
+        /// Defer panel presentation to the next run-loop turn to avoid a "multiple
+        /// updates per frame" warning when the NSOpenPanel triggers focus changes.
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             let config = OpenPanelConfiguration(canChooseFiles: false,
@@ -497,7 +497,7 @@ final class ExportViewModel: Loggable {
                 allowedContentTypes: [], title: nil, message: "Select Export Destination",
                 prompt: "Select")
 
-            // Use hostingWindow to attach panel to the Settings sheet, not the main window.
+            /// Use hostingWindow to attach panel to the Settings sheet, not the main window.
             let selection = await OpenPanelPresenter.present(
                 configuration: config,
                 attachedTo: self.hostingWindow
@@ -505,7 +505,7 @@ final class ExportViewModel: Loggable {
             guard case let .urls(urls) = selection,
                   let url = urls.first else { return }
 
-            // Persist via Preferences so the bookmark key is always canonical.
+            /// Persist via Preferences so the bookmark key is always canonical.
             Preferences.exportPathURL = url
             self.resolvedDestinationURL = url
             self.updateDisplayPath(url: url)
@@ -526,42 +526,42 @@ final class ExportViewModel: Loggable {
         exportTask = TaskHandle(Task { [weak self] in
             guard let self = self else { return }
 
-            // Raise the progress row and let it finish fading in before anything reports
-            // a single percent — see the Progress Presentation Timing notes above.
+            /// Raise the progress row and let it finish fading in before anything reports
+            /// a single percent — see the Progress Presentation Timing notes above.
             await self.beginExportPresentation()
             let startedAt = ContinuousClock.now
 
             do {
-                // Access the resolved destination URL. Re-resolving the bookmark
-                // here would be redundant and would also risk reading from a stale key.
+                /// Access the resolved destination URL. Re-resolving the bookmark
+                /// here would be redundant and would also risk reading from a stale key.
                 let started = dest.startAccessingSecurityScopedResource()
                 defer { if started { dest.stopAccessingSecurityScopedResource() }}
 
-                // The exporter reads the store, not memory: commit what is still
-                // debounced (a preference changed on another tab of this sheet moments
-                // ago, a recent Hall of Fame or wishlist drag) so the backup has it.
+                /// The exporter reads the store, not memory: commit what is still
+                /// debounced (a preference changed on another tab of this sheet moments
+                /// ago, a recent Hall of Fame or wishlist drag) so the backup has it.
                 await self.dataCoordinator?.commitPendingWritesForExport()
 
-                // Collect posterUIDs from MemoryStore for orphan poster pruning.
-                // In-memory read on MainActor — near-instant, no NSManagedObjectContext access required.
-                //
-                // Passed through as-is, including when it is EMPTY, so that this call agrees
-                // with the automatic launch backup, which has always passed the set through
-                // unconditioned. `nil` means "no DataCoordinator, so the set of valid UIDs is
-                // unknown"; an empty set means "the coordinator answered, and no film in this
-                // library claims a poster".
-                //
-                // An empty set does NOT cause every file in the posters folder to be pruned.
-                // PosterPruner refuses to prune on an empty set at all, deliberately and
-                // unconditionally — see the SAFETY note in pruneOrphanedPosters. From inside
-                // the pruner "the library genuinely has no posters" and "the library could not
-                // be read" are indistinguishable, and acting on the second would delete every
-                // poster the user owns while the films that reference them are still intact.
-                // So the two states differ only in which layer declines: `nil` stops at
-                // DBExporter, empty stops at the pruner. Do not weaken the pruner's guard so that the two states
-                // behave the same.
+                /// Collect posterUIDs from MemoryStore for orphan poster pruning.
+                /// In-memory read on MainActor — near-instant, no NSManagedObjectContext access required.
+                ///
+                /// Passed through as-is, including when it is EMPTY, so that this call agrees
+                /// with the automatic launch backup, which has always passed the set through
+                /// unconditioned. `nil` means "no DataCoordinator, so the set of valid UIDs is
+                /// unknown"; an empty set means "the coordinator answered, and no film in this
+                /// library claims a poster".
+                ///
+                /// An empty set does NOT cause every file in the posters folder to be pruned.
+                /// PosterPruner refuses to prune on an empty set at all, deliberately and
+                /// unconditionally — see the SAFETY note in pruneOrphanedPosters. From inside
+                /// the pruner "the library genuinely has no posters" and "the library could not
+                /// be read" are indistinguishable, and acting on the second would delete every
+                /// poster the user owns while the films that reference them are still intact.
+                /// So the two states differ only in which layer declines: `nil` stops at
+                /// DBExporter, empty stops at the pruner. Do not weaken the pruner's guard so that the two states
+                /// behave the same.
                 let posterUIDsTakenAt = Date()
-                // `nil` (no pruning) when this session's library state is unreliable.
+                /// `nil` (no pruning) when this session's library state is unreliable.
                 let posterUIDs: Set<String>? = self.dataCoordinator
                     .flatMap { $0.isLibraryStateUnreliable ? nil : $0 }
                     .map { Set($0.getAllPosterUIDs()) }
@@ -584,7 +584,7 @@ final class ExportViewModel: Loggable {
             } catch is CancellationError {
                 await self.abortExportPresentation()
                 Self.log("NOTE: Export canceled by user: '\(filename)'")
-                // No alert shown on cancellation — user initiated, state is already reset.
+                /// No alert shown on cancellation — user initiated, state is already reset.
             } catch {
                 await self.failExportPresentation(
                     "The export could not be completed:\n\n\(error.localizedDescription)")
@@ -630,8 +630,8 @@ final class ExportViewModel: Loggable {
                     sections: sections,
                     progress: { [weak self] p in self?.progress = p })
 
-                // The same presentation beats the backup export uses, so the two pipelines
-                // are indistinguishable from the progress component's point of view.
+                /// The same presentation beats the backup export uses, so the two pipelines
+                /// are indistinguishable from the progress component's point of view.
                 await self.endExportPresentation(
                     startedAt: startedAt,
                     successMessage:
@@ -640,16 +640,16 @@ final class ExportViewModel: Loggable {
             } catch is CancellationError {
                 await self.abortExportPresentation()
                 Self.log("NOTE: Library PDF export canceled by user")
-                // No alert shown on cancellation — user initiated, state is already reset.
+                /// No alert shown on cancellation — user initiated, state is already reset.
             } catch {
                 await self.failExportPresentation(
                     "The library PDF could not be created:\n\n\(error.localizedDescription)")
                 Self.log("WARNING: Library PDF export failed: \(error.localizedDescription)") } }) }
 
     func cancelExport() {
-        // Nil the TaskHandle — its deinit cancels the underlying Task, which then
-        // follows the CancellationError catch path to reset isExporting and progress.
-        // Clearing state here in parallel would race with the task's own teardown.
+        /// Nil the TaskHandle — its deinit cancels the underlying Task, which then
+        /// follows the CancellationError catch path to reset isExporting and progress.
+        /// Clearing state here in parallel would race with the task's own teardown.
         Self.log("User requested export cancellation")
         exportTask = nil
     }

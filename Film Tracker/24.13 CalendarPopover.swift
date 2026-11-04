@@ -1,9 +1,9 @@
 // MARK: - CalendarPopover.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Add Viewing Event popover for WatchDetails, with its shared form row and the pending-entry
-// snapshot that survives a duplicate-date alert. It reacts to calendar permission changes so a
-// TCC grant takes effect immediately.
+/// The Add Viewing Event popover for WatchDetails, with its shared form row and the pending-entry
+/// snapshot that survives a duplicate-date alert. It reacts to calendar permission changes so a
+/// TCC grant takes effect immediately.
 
 import SwiftUI
 import EventKit
@@ -66,16 +66,16 @@ struct UnifiedViewingPopover: View, Loggable {
     /// popover. The parent stores the snapshot and passes it back as `initialEntry` on the next open.
     let onDuplicateDateDetected: (PendingViewingEntry) -> Void
     
-    // Authorization state - reactive to permission changes
+    /// Authorization state - reactive to permission changes
     @State private var hasCalendarAccess = false
     @State private var isRequestingPermission = false
     
-    // Calendar settings. availableCalendars is reloaded in onAppear (see loadCalendars()).
-    // selectedCalendar is seeded from initialEntry, so a restored entry keeps its calendar.
+    /// Calendar settings. availableCalendars is reloaded in onAppear (see loadCalendars()).
+    /// selectedCalendar is seeded from initialEntry, so a restored entry keeps its calendar.
     @State private var availableCalendars: [EKCalendar] = []
     @State private var selectedCalendar: EKCalendar?
 
-    // Date and time settings, all seeded from `initialEntry` in the init below.
+    /// Date and time settings, all seeded from `initialEntry` in the init below.
     @State private var selectedDate: Date
     @State private var selectedVersion: ViewingVersion?
     @State private var hour: Int
@@ -92,47 +92,47 @@ struct UnifiedViewingPopover: View, Loggable {
         self._isPresented = isPresented
         self.onDateSelected = onDateSelected
         self.onDuplicateDateDetected = onDuplicateDateDetected
-        // `initialEntry` is nil on a fresh open (WatchDetails clears pendingViewingEntry before
-        // showing the popover), so each field falls back to its blank default.
+        /// `initialEntry` is nil on a fresh open (WatchDetails clears pendingViewingEntry before
+        /// showing the popover), so each field falls back to its blank default.
         self._selectedDate = State(initialValue: initialEntry?.date ?? Date())
-        // No `?? nil` on `initialEntry?.version`: it is already `ViewingVersion?`.
+        /// No `?? nil` on `initialEntry?.version`: it is already `ViewingVersion?`.
         self._selectedVersion = State(initialValue: initialEntry?.version)
         self._hour = State(initialValue: initialEntry?.hour ?? 7)
         self._minute = State(initialValue: initialEntry?.minute ?? 0)
-        self._isAM = State(initialValue: initialEntry?.isAM ?? false) // Default to PM
+        self._isAM = State(initialValue: initialEntry?.isAM ?? false) /// Default to PM
         self._addToSystemCalendar = State(initialValue: initialEntry?.addToSystemCalendar ?? true)
         self._selectedCalendar = State(initialValue: initialEntry?.selectedCalendar)
     }
     
-    // Cached DateFormatter for end time display (avoids per-evaluation allocation).
+    /// Cached DateFormatter for end time display (avoids per-evaluation allocation).
     private static let endTimeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "h:mm a"
         return formatter
     }()
 
-    // Base-date (no version code) format for comparing against film.calendarTable entries and
-    // extractDatePortion(from:) results. It is StorageDateFormatters.dot, shared with the other
-    // viewing-date code, so the "yyyy.MM.dd" strings match exactly.
+    /// Base-date (no version code) format for comparing against film.calendarTable entries and
+    /// extractDatePortion(from:) results. It is StorageDateFormatters.dot, shared with the other
+    /// viewing-date code, so the "yyyy.MM.dd" strings match exactly.
     private static let baseDateFormatter = StorageDateFormatters.dot
     
-    // Preference for calendar integration
+    /// Preference for calendar integration
     @AppStorage(preference: Preferences.iCalIntegrationKey)
     private var iCalIntegrationEnabled: Bool
     
-    // Computed: Show full calendar features if preference enabled AND we have access
+    /// Computed: Show full calendar features if preference enabled AND we have access
     private var showFullCalendarFeatures: Bool {
         iCalIntegrationEnabled && hasCalendarAccess
     }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header (centered)
+            /// Header (centered)
             Text("Add Viewing Event")
                 .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .center)
             
-            // Film details
+            /// Film details
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(film.name) (\(film.releaseYear))")
                     .font(.system(size: 13))
@@ -154,12 +154,12 @@ struct UnifiedViewingPopover: View, Loggable {
             
             Divider()
             
-            // Date picker
+            /// Date picker
             ViewingFormRow("Select date:") {
                 CustomDateStepper(date: $selectedDate, minDate: releaseDateMin, maxDate: Date())
             }
             
-            // Version picker
+            /// Version picker
             ViewingFormRow("Version:") {
                 Picker("", selection: $selectedVersion) {
                     Text("Select…").tag(nil as ViewingVersion?)
@@ -171,7 +171,7 @@ struct UnifiedViewingPopover: View, Loggable {
                 .frame(maxWidth: 183)
             }
             
-            // System calendar checkbox (only if integration enabled)
+            /// System calendar checkbox (only if integration enabled)
             if iCalIntegrationEnabled {
                 HStack(spacing: 7) {
                     Spacer()
@@ -183,7 +183,7 @@ struct UnifiedViewingPopover: View, Loggable {
                             .disabled(!hasCalendarAccess)
                             .onChange(of: addToSystemCalendar) { _, newValue in
                                 if newValue && !hasCalendarAccess {
-                                    // User wants to add to calendar but we don't have permission
+                                    /// User wants to add to calendar but we don't have permission
                                     Task {
                                         await requestCalendarPermission()
                                     }
@@ -194,7 +194,7 @@ struct UnifiedViewingPopover: View, Loggable {
                             .font(.system(size: 12))
                             .foregroundStyle(hasCalendarAccess ? .primary : .secondary)
                         
-                        // Show requesting indicator
+                        /// Show requesting indicator
                         if isRequestingPermission {
                             ProgressView()
                                 .controlSize(.small)
@@ -204,7 +204,7 @@ struct UnifiedViewingPopover: View, Loggable {
                 }
             }
             
-            // Time picker (only if integration enabled, calendar checkbox true, and has access)
+            /// Time picker (only if integration enabled, calendar checkbox true, and has access)
             if iCalIntegrationEnabled {
                 ViewingFormRow("Time:") {
                     
@@ -214,13 +214,13 @@ struct UnifiedViewingPopover: View, Loggable {
                 .opacity((addToSystemCalendar && hasCalendarAccess) ? 1.0 : 0.5)
             }
             
-            // Calendar picker (only if integration enabled, checkbox true, and has access)
+            /// Calendar picker (only if integration enabled, checkbox true, and has access)
             if iCalIntegrationEnabled {
                 ViewingFormRow("Calendar:") {
                     Picker("", selection: $selectedCalendar) {
-                        // selectedCalendar is nil before loadCalendars() runs, and also when the
-                        // account has no writable calendar. Without a tag for nil, the Picker
-                        // matches no option and draws blank. The tag names that state instead.
+                        /// selectedCalendar is nil before loadCalendars() runs, and also when the
+                        /// account has no writable calendar. Without a tag for nil, the Picker
+                        /// matches no option and draws blank. The tag names that state instead.
                         Text(availableCalendars.isEmpty ? "No calendars available" : "Select…")
                             .tag(nil as EKCalendar?)
                         ForEach(availableCalendars, id: \.calendarIdentifier) { calendar in
@@ -242,7 +242,7 @@ struct UnifiedViewingPopover: View, Loggable {
             
             Divider()
             
-            // Buttons
+            /// Buttons
             HStack {
                 Button("Cancel") {
                     isPresented = false
@@ -253,7 +253,7 @@ struct UnifiedViewingPopover: View, Loggable {
                 
                 Button("Add") {
                     guard !isDuplicateViewingDate(selectedDate) else {
-                        // Snapshot the entry first: presenting the alert closes this popover (see PendingViewingEntry).
+                        /// Snapshot the entry first: presenting the alert closes this popover (see PendingViewingEntry).
                         onDuplicateDateDetected(PendingViewingEntry(
                             date: selectedDate,
                             version: selectedVersion,
@@ -281,11 +281,11 @@ struct UnifiedViewingPopover: View, Loggable {
         .frame(width: EntryPopoverMetrics.width)
         .padding(EntryPopoverMetrics.padding)
         .onAppear {
-            // updateCalendarAccess() reports whether it already loaded calendars, so this
-            // handler does not load them a second time.
+            /// updateCalendarAccess() reports whether it already loaded calendars, so this
+            /// handler does not load them a second time.
             let didLoad = updateCalendarAccess()
-            // If integration is on but access is not recognized, recheck live (uncached).
-            // This covers a TCC grant that arrived after polling had timed out.
+            /// If integration is on but access is not recognized, recheck live (uncached).
+            /// This covers a TCC grant that arrived after polling had timed out.
             if iCalIntegrationEnabled && !hasCalendarAccess {
                 EventKitManager.shared.recheckAuthorizationStatus()
             }
@@ -293,11 +293,11 @@ struct UnifiedViewingPopover: View, Loggable {
                 loadCalendars()
             }
         }
-        // React to calendar authorization changes
+        /// React to calendar authorization changes
         .onReceive(AppEventBus.shared.viewEvents) { event in
             if case .calendarAuthorizationChanged = event {
                 log("Received calendar authorization change notification")
-                // Same as onAppear: skip the load if updateCalendarAccess already did it.
+                /// Same as onAppear: skip the load if updateCalendarAccess already did it.
                 let didLoad = updateCalendarAccess()
                 if hasCalendarAccess && !didLoad {
                     loadCalendars()
@@ -346,7 +346,7 @@ struct UnifiedViewingPopover: View, Loggable {
     }
     
     private var calculatedEndTime: String {
-        // Create start date using selected date and time
+        /// Create start date using selected date and time
         var components = AppCalendar.current.dateComponents([.year, .month, .day], from: selectedDate)
         components.hour = hour24
         components.minute = minute
@@ -355,13 +355,13 @@ struct UnifiedViewingPopover: View, Loggable {
             return "--:-- --"
         }
         
-        // Calculate end date (start + duration in minutes).
+        /// Calculate end date (start + duration in minutes).
         
         guard let endDate = AppCalendar.current.date(byAdding: .minute, value: durationMinutes, to: startDate) else {
             return "--:-- --"
         }
         
-        // Format end time without seconds
+        /// Format end time without seconds
         return Self.endTimeFormatter.string(from: endDate)
     }
     
@@ -383,7 +383,7 @@ struct UnifiedViewingPopover: View, Loggable {
         log("Calendar access changed: \(hasCalendarAccess) → \(newAccessState)")
         hasCalendarAccess = newAccessState
 
-        // If we gained access and the checkbox is on, load calendars
+        /// If we gained access and the checkbox is on, load calendars
         guard newAccessState && addToSystemCalendar else { return false }
         loadCalendars()
         return true
@@ -408,7 +408,7 @@ struct UnifiedViewingPopover: View, Loggable {
         } else {
             log("Calendar permission denied")
             hasCalendarAccess = false
-            // Turn off the checkbox since we don't have access
+            /// Turn off the checkbox since we don't have access
             addToSystemCalendar = false
         }
     }
@@ -422,17 +422,17 @@ struct UnifiedViewingPopover: View, Loggable {
             return
         }
         
-        // Get calendars from manager (uses cache when valid, reduces XPC calls).
+        /// Get calendars from manager (uses cache when valid, reduces XPC calls).
         availableCalendars = EventKitManager.shared.getWritableCalendars()
         log("Loaded \(availableCalendars.count) calendars")
         
-        // Only auto-select a calendar if nothing is already selected. A non-nil
-        // value here means either the user actively chose one this session, or it
-        // was restored via initialEntry after a duplicate-date rejection — either
-        // way, it must not be silently overridden by the remembered/default pick.
+        /// Only auto-select a calendar if nothing is already selected. A non-nil
+        /// value here means either the user actively chose one this session, or it
+        /// was restored via initialEntry after a duplicate-date rejection — either
+        /// way, it must not be silently overridden by the remembered/default pick.
         guard selectedCalendar == nil else { return }
 
-        // Try to load remembered calendar.
+        /// Try to load remembered calendar.
         if let rememberedID = Preferences.store.string(forKey: Preferences.lastSelectedCalendarIDKey),
            let remembered = availableCalendars.first(where: { $0.calendarIdentifier == rememberedID }) {
             selectedCalendar = remembered
@@ -446,10 +446,10 @@ struct UnifiedViewingPopover: View, Loggable {
     @MainActor
     private func addEventAndViewing() {
         guard let calendar = selectedCalendar else {
-            // No writable calendar, or the picker is on its untagged "Select…" entry. This is
-            // handled like a failed EventKit write: the viewing is recorded, since that is the
-            // primary intent, and the failure is surfaced. Returning early left the popover open
-            // with no visible result.
+            /// No writable calendar, or the picker is on its untagged "Select…" entry. This is
+            /// handled like a failed EventKit write: the viewing is recorded, since that is the
+            /// primary intent, and the failure is surfaced. Returning early left the popover open
+            /// with no visible result.
             log("Cannot add event - no calendar selected; recording viewing locally only")
             onDateSelected(selectedDate, selectedVersion ?? .none)
             isPresented = false
@@ -457,17 +457,17 @@ struct UnifiedViewingPopover: View, Loggable {
             return
         }
         
-        // Remember calendar selection.
+        /// Remember calendar selection.
         Preferences.store.set(calendar.calendarIdentifier, forKey: Preferences.lastSelectedCalendarIDKey)
         
-        // Create start date using selected date and time.
+        /// Create start date using selected date and time.
         var components = AppCalendar.current.dateComponents([.year, .month, .day], from: selectedDate)
         components.hour = hour24
         components.minute = minute
         
-        // A start date that cannot be composed is handled like a missing calendar, for the same
-        // reason. It is unreachable in practice, since the components come from a real date and
-        // a valid time.
+        /// A start date that cannot be composed is handled like a missing calendar, for the same
+        /// reason. It is unreachable in practice, since the components come from a real date and
+        /// a valid time.
         guard let startDate = AppCalendar.current.date(from: components) else {
             log("Failed to create start date; recording viewing locally only")
             onDateSelected(selectedDate, selectedVersion ?? .none)
@@ -476,17 +476,17 @@ struct UnifiedViewingPopover: View, Loggable {
             return
         }
 
-        // Calculate end date (start + duration in minutes).
+        /// Calculate end date (start + duration in minutes).
 
         let endDate = AppCalendar.current.date(byAdding: .minute, value: durationMinutes, to: startDate) ?? startDate
         
         log("Creating event: Start=\(startDate), Duration=\(durationMinutes)min, End=\(endDate)")
         
-        // Create event with title including year.
-        // No empty "()" for a film without a release year.
+        /// Create event with title including year.
+        /// No empty "()" for a film without a release year.
         let eventTitle = film.releaseYear.isEmpty ? film.name : "\(film.name) (\(film.releaseYear))"
         
-        // Use EventKitManager to create event (reduces XPC overhead).
+        /// Use EventKitManager to create event (reduces XPC overhead).
         let success = EventKitManager.shared.createEvent(
             title: eventTitle,
             startDate: startDate,
@@ -494,17 +494,17 @@ struct UnifiedViewingPopover: View, Loggable {
             calendar: calendar
         )
         
-        // The viewing is recorded either way. The calendar event is optional, so a failed
-        // EventKit write must not discard the viewing.
+        /// The viewing is recorded either way. The calendar event is optional, so a failed
+        /// EventKit write must not discard the viewing.
         log(success ? "Event created successfully" : "Failed to create event — recording viewing locally only")
 
-        // Add viewing date to FilmTracker (just the date, not time) with version.
+        /// Add viewing date to FilmTracker (just the date, not time) with version.
         onDateSelected(selectedDate, selectedVersion ?? .none)
         isPresented = false
 
         if !success {
-            // Fired after the commit above so the viewing is already saved by the time
-            // the alert is presented (presenting an NSAlert tears this popover down).
+            /// Fired after the commit above so the viewing is already saved by the time
+            /// the alert is presented (presenting an NSAlert tears this popover down).
             AppEventBus.shared.sendAlert(.calendarEventCreationFailed)
         }
     }

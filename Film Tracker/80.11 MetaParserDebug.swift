@@ -1,7 +1,7 @@
 // MARK: - MetaParserDebug.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Debug utilities for MetaParser.swift.
+/// Debug utilities for MetaParser.swift.
 
 import AVFoundation
 
@@ -11,7 +11,7 @@ enum MetaParserDebug {
         MetaParser.log("Available metadata formats: \(formats.map { $0.rawValue }.joined(separator: ", "))") }
 
     nonisolated static func logMetadataItem(_ item: AVMetadataItem) async {
-        // Extract info before crossing any isolation boundary
+        /// Extract info before crossing any isolation boundary
         var parts: [String] = []
         if let id = item.identifier?.rawValue { parts.append("identifier:\(id)") }
         if let common = item.commonKey?.rawValue { parts.append("commonKey:\(common)") }
@@ -43,9 +43,9 @@ enum MetaParserDebug {
     static func logLegacyGenreMapping(_ code: Int, parsedGenre: String) async {
         MetaParser.log("Parsed numeric genre \(code) → \"\(parsedGenre)\"") }
 
-    // Always logged (not gated behind DEBUG_METADATA) so the user is clearly informed
-    // whenever a legacy fallback genre with no canonical bucket is remapped onto the
-    // app's whitelisted genre vocabulary during import.
+    /// Always logged (not gated behind DEBUG_METADATA) so the user is clearly informed
+    /// whenever a legacy fallback genre with no canonical bucket is remapped onto the
+    /// app's whitelisted genre vocabulary during import.
     static func logFallbackGenreMapped(filmName: String, fallbackGenre: String, canonicalGenre: String) async {
         MetaParser.log("'\(filmName)' was parsed with fallback genre \"\(fallbackGenre)\" during import; mapping to canonical genre \"\(canonicalGenre)\"") }
 }

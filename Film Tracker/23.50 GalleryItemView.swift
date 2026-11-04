@@ -1,13 +1,13 @@
 // MARK: - GalleryItemView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Pure-AppKit gallery tile content. GalleryItem (23.40 GalleryItem.swift) pins
-// GalleryTileContentView edge to edge inside the cell, alongside its own ring and shadow layers.
-//
-// Cell reuse and live resize involve no SwiftUI view diffing or layout pass. The image uses
-// CALayer.contentsGravity = .resizeAspectFill, the AppKit equivalent of scaledToFill, so the
-// compositor scales and crops it with no CPU image work per cell or per layout tick. The
-// placeholder, label, and optional subtitle are plain NSImageView and NSTextField instances.
+/// Pure-AppKit gallery tile content. GalleryItem (23.40 GalleryItem.swift) pins
+/// GalleryTileContentView edge to edge inside the cell, alongside its own ring and shadow layers.
+///
+/// Cell reuse and live resize involve no SwiftUI view diffing or layout pass. The image uses
+/// CALayer.contentsGravity = .resizeAspectFill, the AppKit equivalent of scaledToFill, so the
+/// compositor scales and crops it with no CPU image work per cell or per layout tick. The
+/// placeholder, label, and optional subtitle are plain NSImageView and NSTextField instances.
 
 import AppKit
 import SwiftUI
@@ -145,10 +145,10 @@ final class GalleryTileContentView: NSView {
     /// the tile edge. Its outermost pixel therefore reaches ringGap + lineWidth past the tile once selected.
     /// ringGap comes from GalleryTileGeometry, which GalleryItem also uses.
     private static let ringVisualOverhang: CGFloat =
-        GalleryTileGeometry.ringGap + Preferences.selectionLineWidth  // 6
+        GalleryTileGeometry.ringGap + Preferences.selectionLineWidth  /// 6
     /// Gap between the tile's bottom edge and the subtitle. It equals the ring's full overhang, so the ring
     /// and the subtitle meet without overlapping, even when selected.
-    private static let subtitleTopGap: CGFloat = ringVisualOverhang  // 6
+    private static let subtitleTopGap: CGFloat = ringVisualOverhang  /// 6
     /// How far the subtitle label may extend past each side of the cell, into the inter-column gutter. The widest dates
     /// can be wider than a narrow cell, so this gives the label room without a visible overflow. The gutter is itemSpacing
     /// (16 pt). The cell does not mask to bounds, since the ring already overhangs it, so nothing clips the label.
@@ -467,20 +467,20 @@ final class GalleryTileContentView: NSView {
 }
 
 // MARK: - Poster Edge Sheen
-// A soft, inward-fading "inner shadow" along the poster edges, so the hard edge fades
-// into the image instead of reading as a sharp line.
-//
-// Performance: the band is rasterized once per (cornerRadius, inset) pair into a small
-// RGBA texture, transparent in the center and translucent at the edges. Every poster then
-// stretches that texture as a 9-slice image, so corners keep their rounded shape and the
-// edges keep a fixed point width at any size. On the grid, each cell has one layer-backed
-// view whose `contents` is the shared CGImage, so there is no CPU drawing on reuse, scroll,
-// or resize. On the list, each row gets one `Image.resizable(capInsets:)` overlay that draws
-// the same shared texture. PosterCache is unchanged.
-//
-// All of the effect lives in this section. Each call site is one line. To remove the
-// effect, delete this section and the call sites (GalleryTileContentView,
-// PosterThumbnailView, the header, and the Film Sheet poster tab).
+/// A soft, inward-fading "inner shadow" along the poster edges, so the hard edge fades
+/// into the image instead of reading as a sharp line.
+///
+/// Performance: the band is rasterized once per (cornerRadius, inset) pair into a small
+/// RGBA texture, transparent in the center and translucent at the edges. Every poster then
+/// stretches that texture as a 9-slice image, so corners keep their rounded shape and the
+/// edges keep a fixed point width at any size. On the grid, each cell has one layer-backed
+/// view whose `contents` is the shared CGImage, so there is no CPU drawing on reuse, scroll,
+/// or resize. On the list, each row gets one `Image.resizable(capInsets:)` overlay that draws
+/// the same shared texture. PosterCache is unchanged.
+///
+/// All of the effect lives in this section. Each call site is one line. To remove the
+/// effect, delete this section and the call sites (GalleryTileContentView,
+/// PosterThumbnailView, the header, and the Film Sheet poster tab).
 
 @MainActor
 enum PosterEdgeSheen {
@@ -531,7 +531,7 @@ enum PosterEdgeSheen {
     /// rect, so only the shadow's spill lands inside. The shadow is offset by nothing, giving a
     /// symmetric band on all four sides with a naturally rounded fall-off at each corner.
     private static func render(_ profile: Profile) -> CGImage {
-        // Point-size of the texture: two corner tiles plus a 1pt stretchable center.
+        /// Point-size of the texture: two corner tiles plus a 1pt stretchable center.
         let tile = cornerTile(for: profile)
         let sidePt = tile * 2 + 1
         let sidePx = Int((sidePt * textureScale).rounded(.up))
@@ -584,7 +584,7 @@ enum PosterEdgeSheen {
             layer?.contentsScale = textureScale
             layer?.contentsGravity = .resize
             layer?.contentsCenter = CGRect(x: f, y: f, width: 1 - 2 * f, height: 1 - 2 * f)
-            // Snap on reuse/resize, matching the poster image view beneath it.
+            /// Snap on reuse/resize, matching the poster image view beneath it.
             layer?.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(),
                               "hidden": NSNull()]
         }

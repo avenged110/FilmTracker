@@ -1,9 +1,9 @@
 // MARK: - RPTabDataViz.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Data Visualizations report view, which draws its sections with AppKit (27.44 and 27.45), plus the navigation its figures open
-// (DVNavigation). It also holds DataCoordinatorModifier and DataCoordinatorScrollView, the environment re-injection helpers shared
-// with ImportsView and the Settings tabs. The statistics models live in 27.41 and 27.43.
+/// The Data Visualizations report view, which draws its sections with AppKit (27.44 and 27.45), plus the navigation its figures open
+/// (DVNavigation). It also holds DataCoordinatorModifier and DataCoordinatorScrollView, the environment re-injection helpers shared
+/// with ImportsView and the Settings tabs. The statistics models live in 27.41 and 27.43.
 
 import SwiftUI
 
@@ -90,7 +90,7 @@ struct DataVisualizationsView: View {
                     message: "Add films to your library to view statistics and visualizations."
                 )
             } else if let stats, let insights {
-                // Drawn by AppKit (27.44 and 27.45), not hosted. See DVCanvasPageView. The navigation closures capture `appState` here, in this body.
+                /// Drawn by AppKit (27.44 and 27.45), not hosted. See DVCanvasPageView. The navigation closures capture `appState` here, in this body.
                 DVCanvasScrollView(model: DVCanvasModel(
                     stats: stats, insights: insights, period: period,
                     navigation: DVNavigation(appState: appState), showInfoComplete: showInfoComplete,
@@ -98,15 +98,15 @@ struct DataVisualizationsView: View {
                     compare: $compareWithPriorYear, compareYear: $compareYear,
                     revision: pageRevision))
             } else {
-                // Shown only between onAppear and calculateStatistics() in the same run-loop pass, so not visible in practice.
+                /// Shown only between onAppear and calculateStatistics() in the same run-loop pass, so not visible in practice.
                 Color.clear
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
-            // Mount path. If statistics were computed earlier this launch, seed from the cache so the page renders at once. The fresh
-            // recalculation runs off the main actor, two run-loop cycles later, after the Picker's fade (see ReportsState.selectCategory).
-            // The first visit computes synchronously. The whole page is built in one turn.
+            /// Mount path. If statistics were computed earlier this launch, seed from the cache so the page renders at once. The fresh
+            /// recalculation runs off the main actor, two run-loop cycles later, after the Picker's fade (see ReportsState.selectCategory).
+            /// The first visit computes synchronously. The whole page is built in one turn.
             if let cached = ReportsState.shared.cachedVisualizations {
                 apply(cached)
                 Self.afterCommit { recalculateInBackground() }
@@ -117,7 +117,7 @@ struct DataVisualizationsView: View {
         .onChange(of: selectedYear) { _, newYear in
             let comparable = insights?.viewingYears.filter { $0 != newYear } ?? []
             let newCompareYear = comparable.contains(newYear - 1) ? newYear - 1 : (comparable.last ?? newYear - 1)
-            // If the comparison year moves too, its own onChange rebuilds the period. Rebuilding here as well would walk every viewing twice.
+            /// If the comparison year moves too, its own onChange rebuilds the period. Rebuilding here as well would walk every viewing twice.
             if newCompareYear != compareYear {
                 compareYear = newCompareYear
             } else {
@@ -127,20 +127,20 @@ struct DataVisualizationsView: View {
         .onChange(of: yearToDate) { _, _ in rebuildPeriod() }
         .onChange(of: compareYear) { _, _ in rebuildPeriod() }
         .onChange(of: compareWithPriorYear) { _, _ in pageRevision += 1 }
-        // Two settings the figures depend on. Settings opens as a sheet over this tab, so without these the page would keep old figures until the next remount.
+        /// Two settings the figures depend on. Settings opens as a sheet over this tab, so without these the page would keep old figures until the next remount.
         .onChange(of: showInfoComplete) { _, _ in scheduleRecalculation() }
         .onChange(of: defaultRotationThreshold) { _, _ in scheduleRecalculation() }
-        // Overdue / due-soon counts, the year-to-date span and every "last 90 days" figure
-        // are day-granular, and no film event fires at midnight: without this a tab left
-        // open overnight kept yesterday's figures until something in the library changed.
-        // `compute` compares the day, so this recalculates only when it actually rolled.
+        /// Overdue / due-soon counts, the year-to-date span and every "last 90 days" figure
+        /// are day-granular, and no film event fires at midnight: without this a tab left
+        /// open overnight kept yesterday's figures until something in the library changed.
+        /// `compute` compares the day, so this recalculates only when it actually rolled.
         .onReceive(CurrentDay.shared.dayChanged) { _ in scheduleRecalculation() }
         .onDisappear {
-            // A result still in flight belongs to a view that is gone. It still refreshes the cache, but must not write to this view's state.
+            /// A result still in flight belongs to a view that is gone. It still refreshes the cache, but must not write to this view's state.
             recalculationGeneration += 1
         }
         .onFilmEvent { _ in
-            // Any event can move a number on this tab, so no membership test applies. What is avoided is one pass per event in a burst.
+            /// Any event can move a number on this tab, so no membership test applies. What is avoided is one pass per event in a burst.
             scheduleRecalculation()
         }
     }
@@ -189,8 +189,8 @@ struct DataVisualizationsView: View {
         Task(priority: .userInitiated) {
             guard let dataset = await DVDataset.compute(films: films, previous: previous,
                                                         showInfoComplete: showInfoComplete) else { return }
-            // The cache takes a result even if the tab went away mid-pass, but never one read from the library before what it already holds.
-            // Passes can finish out of order (see ReportsState's tickets).
+            /// The cache takes a result even if the tab went away mid-pass, but never one read from the library before what it already holds.
+            /// Passes can finish out of order (see ReportsState's tickets).
             ReportsState.shared.updateVisualizationsData(dataset, ticket: ticket)
             guard generation == recalculationGeneration else { return }
             apply(dataset)
@@ -204,7 +204,7 @@ struct DataVisualizationsView: View {
         self.dataset = dataset
         stats = dataset.stats
         insights = dataset.insights
-        // Clamp the stepper to a year that has viewings, on first load.
+        /// Clamp the stepper to a year that has viewings, on first load.
         let viewingYears = dataset.insights.viewingYears
         if !viewingYears.contains(selectedYear), let last = viewingYears.last {
             selectedYear = last
@@ -218,8 +218,8 @@ struct DataVisualizationsView: View {
 
     private func rebuildPeriod() {
         let today = Date()
-        // Reused when nothing it depends on has moved, which is the common case on a cache-seeded mount (see ReportsState.cachedPeriod).
-        // The inputs comparison is cheap there, since the seeded dataset shares the cached film array.
+        /// Reused when nothing it depends on has moved, which is the common case on a cache-seeded mount (see ReportsState.cachedPeriod).
+        /// The inputs comparison is cheap there, since the seeded dataset shares the cached film array.
         let key = dataset.map {
             ReportsState.PeriodKey(inputs: $0.inputs, year: selectedYear, yearToDate: yearToDate,
                                    compareYear: compareYear,

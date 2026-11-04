@@ -1,42 +1,42 @@
 // MARK: - DebugLogKit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Drop-in logging kit: call sites hand messages to an ordered pipe, and an actor buffers
-// them and writes them to a log file.
-//
-// STANDARDIZED LOGGING UTILITY — one file, drop into any project.
-//
-// Call sites hand messages to an ordered pipe; an actor formats them, buffers them, and
-// flushes to disk on a timer or when the buffer fills. Everything a project might want to
-// vary — file name, location, size cap, timestamp format — is a value on
-// `LoggerConfiguration` rather than an edit to this file.
-//
-// WIRING IT UP
-// ────────────
-// One call, as early as possible in launch (before the first log line):
-//
-//   Logger.bootstrap(
-//       .init(fileName: "MyApp.log",
-//             destination: .containerLibraryLogs,
-//             isEnabled: { Preferences.loggingEnabled }))
-//   Logger.prepareLogDirectory()   // after preference defaults are registered
-//
-// Then:
-//
-//   struct Foo: Loggable { static let logTag = "[Foo]" }   // tag optional
-//   log("something happened")                              // instance or static
-//   Logger.log("something happened", cName: "[Foo]")
-//
-// And at teardown:
-//
-//   await Logger.shutdownLoggingAwaiting()    // app termination (preferred)
-//   Logger.shutdownLogging()                  // fire-and-forget (logging toggled off)
-//   Logger.shutdownLoggingBlocking()          // synchronous terminate hooks
-//
-// To surface problems in the app itself, whether or not the log file is on, pass an
-// observer at bootstrap; it sees every message at or above its level:
-//
-//   observer: LogObserver(minimumLevel: .error) { message, level, category, date in … }
+/// Drop-in logging kit: call sites hand messages to an ordered pipe, and an actor buffers
+/// them and writes them to a log file.
+///
+/// STANDARDIZED LOGGING UTILITY — one file, drop into any project.
+///
+/// Call sites hand messages to an ordered pipe; an actor formats them, buffers them, and
+/// flushes to disk on a timer or when the buffer fills. Everything a project might want to
+/// vary — file name, location, size cap, timestamp format — is a value on
+/// `LoggerConfiguration` rather than an edit to this file.
+///
+/// WIRING IT UP
+/// ────────────
+/// One call, as early as possible in launch (before the first log line):
+///
+///   Logger.bootstrap(
+///       .init(fileName: "MyApp.log",
+///             destination: .containerLibraryLogs,
+///             isEnabled: { Preferences.loggingEnabled }))
+///   Logger.prepareLogDirectory()   // after preference defaults are registered
+///
+/// Then:
+///
+///   struct Foo: Loggable { static let logTag = "[Foo]" }   // tag optional
+///   log("something happened")                              // instance or static
+///   Logger.log("something happened", cName: "[Foo]")
+///
+/// And at teardown:
+///
+///   await Logger.shutdownLoggingAwaiting()    // app termination (preferred)
+///   Logger.shutdownLogging()                  // fire-and-forget (logging toggled off)
+///   Logger.shutdownLoggingBlocking()          // synchronous terminate hooks
+///
+/// To surface problems in the app itself, whether or not the log file is on, pass an
+/// observer at bootstrap; it sees every message at or above its level:
+///
+///   observer: LogObserver(minimumLevel: .error) { message, level, category, date in … }
 
 import Foundation
 import os
@@ -199,6 +199,13 @@ public struct LoggerConfiguration: Sendable {
         self.observer = observer
     }
 
+    /// Whether a message at `level` would be written now: logging on, and at or above
+    /// `minimumLevel`. Checked where a message is produced, so one that would be dropped
+    /// is never formatted, queued or handed to the actor.
+    func writes(_ level: LogLevel) -> Bool {
+        isEnabled() && level >= minimumLevel
+    }
+
     /// Used until `Logger.bootstrap` runs. Names the file after the bundle and reads the
     /// `preferences.loggingEnabled` default, so a missing bootstrap degrades to logging
     /// somewhere sane rather than crashing or silently discarding.
@@ -215,10 +222,10 @@ public struct LoggerConfiguration: Sendable {
 
 // MARK: - Configuration Storage
 
-// Written once by `Logger.bootstrap`, read from every isolation context. A lock rather
-// than an actor because `Logger.isLoggingEnabled` and `Logger.safeLogFileURL` are
-// synchronous properties, read directly from SwiftUI bodies and AppKit delegates. The
-// state lives inside the `Mutex`, so the compiler checks the `Sendable` conformance.
+/// Written once by `Logger.bootstrap`, read from every isolation context. A lock rather
+/// than an actor because `Logger.isLoggingEnabled` and `Logger.safeLogFileURL` are
+/// synchronous properties, read directly from SwiftUI bodies and AppKit delegates. The
+/// state lives inside the `Mutex`, so the compiler checks the `Sendable` conformance.
 private final class ConfigurationBox: Sendable {
     static let shared = ConfigurationBox()
 
@@ -251,13 +258,13 @@ private var configuration: LoggerConfiguration { ConfigurationBox.shared.current
 /// Conform a type to get `log(...)` for free, tagged with the type's own name.
 public protocol Loggable { static var logTag: String { get } }
 
-// These guard on the enabled check (or an interested observer) before dispatching, so
-// conforming types need not repeat it.
-//
-// `message` is an `@autoclosure`: the caller's interpolation is not evaluated when logging
-// is off, so a hot path that builds an involved diagnostic string pays nothing. It is
-// non-escaping and evaluated in the caller's own isolation context, so it raises no
-// concurrency concerns.
+/// These guard on the enabled check (or an interested observer) before dispatching, so
+/// conforming types need not repeat it.
+///
+/// `message` is an `@autoclosure`: the caller's interpolation is not evaluated when logging
+/// is off, so a hot path that builds an involved diagnostic string pays nothing. It is
+/// non-escaping and evaluated in the caller's own isolation context, so it raises no
+/// concurrency concerns.
 public extension Loggable {
     static var logTag: String { "[\(String(describing: Self.self))]" }
 
@@ -291,14 +298,19 @@ private func resolveSafeLogFileURL() -> URL {
     }
 
     /// Makes sure `directory` exists and is a directory, then returns the file inside it.
-    func file(in directory: URL) -> URL? {
-        // Resolved first so a symlink to a directory counts as one, and a dangling or
-        // looping symlink (still a link after resolving) counts as nothing — the same
-        // answers `fileExists(atPath:isDirectory:)` gives, without its pointer argument.
-        let existing = try? directory.resolvingSymlinksInPath()
-            .resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+    ///
+    /// `repairs` lets it delete a regular file sitting where the directory belongs. Only
+    /// for the Logs folders the kit itself names: a `.custom` base is the app's own data
+    /// folder, and Application Support holds every other file the app keeps, so a file in
+    /// either place is never the kit's to remove — creation fails and the log falls back.
+    func file(in directory: URL, repairs: Bool) -> URL? {
+        /// Resolved first so a symlink to a directory counts as one, and a dangling or
+        /// looping symlink (still a link after resolving) counts as nothing — the same
+        /// answers `fileExists(atPath:isDirectory:)` gives, without its pointer argument.
+        let existing = repairs ? try? directory.resolvingSymlinksInPath()
+            .resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]) : nil
         if existing?.isDirectory == false, existing?.isSymbolicLink == false {
-            // A regular file where a directory belongs. Remove it rather than failing.
+            /// A regular file where a directory belongs. Remove it rather than failing.
             do { try fileManager.removeItem(at: directory) }
             catch {
                 writeToStandardError("[LOG] ERROR: Could not remove non-directory at \(directory.path): \(error.localizedDescription)\n")
@@ -316,11 +328,11 @@ private func resolveSafeLogFileURL() -> URL {
 
     switch config.destination {
     case .containerLibraryLogs:
-        // `create: true` materializes Library on a first launch into a brand-new container.
+        /// `create: true` materializes Library on a first launch into a brand-new container.
         guard let library = try? fileManager.url(for: .libraryDirectory, in: .userDomainMask,
                                                  appropriateFor: nil, create: true)
         else { return temporaryFallback("Could not locate the Library directory") }
-        return file(in: library.appendingPathComponent("Logs", isDirectory: true))
+        return file(in: library.appendingPathComponent("Logs", isDirectory: true), repairs: true)
             ?? temporaryFallback("Could not prepare the Logs directory")
 
     case .applicationSupport:
@@ -328,7 +340,7 @@ private func resolveSafeLogFileURL() -> URL {
                                                  in: .userDomainMask,
                                                  appropriateFor: nil, create: true)
         else { return temporaryFallback("Application Support is unavailable") }
-        return file(in: support)
+        return file(in: support, repairs: false)
             ?? temporaryFallback("Could not prepare the Application Support directory")
 
     case .userLibraryLogs(let subdirectory):
@@ -338,25 +350,34 @@ private func resolveSafeLogFileURL() -> URL {
         let directory = library
             .appendingPathComponent("Logs", isDirectory: true)
             .appendingPathComponent(subdirectory, isDirectory: true)
-        return file(in: directory) ?? temporaryFallback("Could not prepare \(subdirectory)")
+        return file(in: directory, repairs: true)
+            ?? temporaryFallback("Could not prepare \(subdirectory)")
 
     case .custom(let provider):
         guard let base = provider() else {
             return temporaryFallback("The custom log directory is unavailable")
         }
-        return file(in: base) ?? temporaryFallback("Could not prepare \(base.path)")
+        return file(in: base, repairs: false) ?? temporaryFallback("Could not prepare \(base.path)")
     }
 }
 
 /// The size of the file, or nil if it cannot be determined.
+///
+/// The cached value is dropped first. A URL caches the resource values it has read, and the
+/// logger hands the same cached URL to every write, so without this every check after the
+/// first returned the size from the first one — the file never measured over the cap and
+/// was never trimmed.
 private func fileSize(of fileURL: URL) -> UInt64? {
+    var fileURL = fileURL
+    fileURL.removeCachedResourceValue(forKey: .fileSizeKey)
     guard let size = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize,
           size >= 0 else { return nil }
     return UInt64(size)
 }
 
 /// Keeps the newest half of `maxFileSizeBytes`, aligned to the next newline so no record
-/// is cut mid-line (or mid-UTF-8-sequence).
+/// is cut mid-line (or mid-UTF-8-sequence). The newline is looked for in the first 64 KiB
+/// past the cut — wide enough for any line the app writes, and read once per trim.
 ///
 /// PRECONDITION: only called when the file is already known to exceed the cap; the guard
 /// below is a defense-in-depth backstop, not a branch that fires on normal paths.
@@ -381,7 +402,7 @@ private func trimLogFile(at fileURL: URL, knownSize size: UInt64) {
 
     let lookAhead: Data
     do {
-        lookAhead = try handle.read(upToCount: 512) ?? Data()
+        lookAhead = try handle.read(upToCount: 64 * 1024) ?? Data()
     } catch {
         writeToStandardError("[LOG] WARNING: Failed to read look-ahead during log trim: \(error.localizedDescription)\n")
         return
@@ -404,9 +425,9 @@ private func trimLogFile(at fileURL: URL, knownSize size: UInt64) {
 /// Performs the append. Always writes once invoked; whether to accept or drop a message is
 /// decided upstream.
 ///
-/// TRIM BEFORE OPENING THE HANDLE. The trim writes atomically, which replaces the file with
-/// a new inode; a FileHandle opened beforehand would still address the old, unlinked one
-/// and its writes would vanish.
+/// TRIM ONLY WITH NO HANDLE OPEN. The trim writes atomically, which replaces the file with
+/// a new inode; a FileHandle open across it would still address the old, unlinked one and
+/// its writes would vanish. Here the handle is closed before the trim runs.
 private func performLogWrite(data: Data, to fileURL: URL) {
     let fileManager = FileManager.default
 
@@ -419,12 +440,6 @@ private func performLogWrite(data: Data, to fileURL: URL) {
         }
     }
 
-    // Trimming happens after the cap is passed, not before, so the file may overshoot by
-    // at most one flush.
-    if let size = fileSize(of: fileURL), size > configuration.maxFileSizeBytes {
-        trimLogFile(at: fileURL, knownSize: size)
-    }
-
     do {
         let handle = try FileHandle(forUpdating: fileURL)
         defer { try? handle.close() }
@@ -433,10 +448,17 @@ private func performLogWrite(data: Data, to fileURL: URL) {
     } catch {
         writeToStandardError("[LOG] ERROR: Failed to write to log file: \(error.localizedDescription)\n")
     }
+
+    /// After the append, not before it, so no write leaves the file over the cap — however
+    /// much one write carries (the writer merges a backlog into one batch). The `defer`
+    /// above has already closed the handle.
+    if let size = fileSize(of: fileURL), size > configuration.maxFileSizeBytes {
+        trimLogFile(at: fileURL, knownSize: size)
+    }
 }
 
-/// Empties the file. Call only from `LoggerCore`, which serializes it against the write
-/// chain — an unserialized clear replaces the inode underneath an in-flight append,
+/// Empties the file. Call only from `LoggerCore`, which serializes it against the disk
+/// writer — an unserialized clear replaces the inode underneath an in-flight append,
 /// discarding either the append or the clear depending on which lands last.
 private func performLogClear(at fileURL: URL) -> Bool {
     do {
@@ -460,10 +482,20 @@ public actor LoggerCore {
     /// The pending deferred flush; nil while the buffer is empty.
     private var flushTask: Task<Void, Never>?
 
-    /// Tail of the serial disk-write chain. Each flush links its write after the previous
-    /// one's completion, so writes never run concurrently — independent FileHandles each
-    /// doing seek-to-end + append could otherwise clobber one another — and always land in
-    /// the order they were buffered.
+    /// Flushed data not yet on disk, oldest first, each batch with the file it was
+    /// buffered for. Consecutive flushes to the same file are merged into one batch.
+    private var pendingWrites: [(url: URL, data: Data)] = []
+
+    /// The one disk writer, running while `pendingWrites` has anything in it, and nil
+    /// otherwise — it clears itself, on this actor, in the same step that finds the queue
+    /// empty, so queued data never sits without a writer.
+    ///
+    /// One writer draining a queue, rather than a task per flush awaiting the one before:
+    /// writes still never run concurrently (two FileHandles each seeking to the end and
+    /// appending could clobber one another) and still land in buffered order, but a burst
+    /// of logging that outpaces the disk no longer builds a chain of tasks thousands deep.
+    /// Awaiting the tail of such a chain from a higher priority — shutdown at termination
+    /// does — escalates every task in it recursively and overflows the stack.
     private var writeTask: Task<Void, Never>?
 
     /// Cached log file URL, resolved once on first use.
@@ -535,12 +567,12 @@ public actor LoggerCore {
     fileprivate func log(_ message: String, level: LogLevel, category: String?,
                          occurredAt: Date, force: Bool = false) {
         let config = configuration
-        // Re-checked here as well as at the facade, in case the actor is called directly.
-        guard force || config.isEnabled() else { return }
-        guard force || level >= config.minimumLevel else { return }
+        /// Re-checked here as well as at the facade: logging may have been switched off
+        /// while the message sat in the pipe.
+        guard force || config.writes(level) else { return }
 
-        // Bootstrap can land after this actor is created, so the formatter is reconciled
-        // lazily rather than frozen at init.
+        /// Bootstrap can land after this actor is created, so the formatter is reconciled
+        /// lazily rather than frozen at init.
         if dateFormatterFormat != config.timestampFormat {
             dateFormatterFormat = config.timestampFormat
             dateFormatter.dateFormat = config.timestampFormat
@@ -600,24 +632,39 @@ public actor LoggerCore {
     /// written. The remaining buffer is written INLINE, so awaiting this guarantees the
     /// data is on disk before the caller resumes.
     public func shutdown() async {
-        flushTask?.cancel()
-        flushTask = nil
-        // Drain writes already in flight first, so the inline write below appends after
-        // them rather than racing an atomic trim/replace they may perform.
-        await writeTask?.value
-        writeTask = nil
+        /// Drain writes already in flight first, so the inline write below appends after
+        /// them rather than racing an atomic trim/replace they may perform.
+        await drainWrites()
         flushBufferedLogsSynchronously()
     }
 
     /// Empties the log file, behind every queued write so the clear can neither be undone
     /// by an in-flight append nor discard one.
     fileprivate func clearLogFile() async -> Bool {
-        await writeTask?.value
-        writeTask = nil
-        // Anything still buffered belongs to the pre-clear log and would otherwise be
-        // appended to the freshly emptied file moments later.
+        await drainWrites()
+        /// Anything still buffered belongs to the pre-clear log and would otherwise be
+        /// appended to the freshly emptied file moments later.
         writeBuffer.removeAll(keepingCapacity: true)
+        flushTask?.cancel()
+        flushTask = nil
         return performLogClear(at: resolvedLogFileURL())
+    }
+
+    /// Waits until no disk write is queued or running.
+    ///
+    /// A loop, not one await: the actor is reentrant, so a `log()` arriving during the
+    /// await can fill the buffer and queue more data, which may start a fresh writer once
+    /// the awaited one has finished. Returning then would let the caller's own inline write
+    /// or clear run alongside that writer — two handles appending, or a clear replacing the
+    /// file under an append. The caller does no further awaiting after this returns, so
+    /// nothing can be queued between the drain and its own file work.
+    private func drainWrites() async {
+        /// No timer flush is armed mid-drain; the caller handles the buffer itself.
+        flushTask?.cancel()
+        flushTask = nil
+        while let writer = writeTask {
+            await writer.value
+        }
     }
 
     /// Forgets the resolved URL so the next write re-resolves it.
@@ -632,9 +679,9 @@ public actor LoggerCore {
         if let url = cachedLogFileURL { return url }
         let generation = LoggerCore.facadeURLSnapshot().generation
         let url = resolveSafeLogFileURL()
-        // Mirrored so `Logger.safeLogFileURL` need not re-walk the filesystem. Kept here only
-        // if the mirror took it: a resolution that straddled an invalidation is used for this
-        // write but re-resolved on the next, rather than pinning the old location all session.
+        /// Mirrored so `Logger.safeLogFileURL` need not re-walk the filesystem. Kept here only
+        /// if the mirror took it: a resolution that straddled an invalidation is used for this
+        /// write but re-resolved on the next, rather than pinning the old location all session.
         if LoggerCore.storeFacadeURL(url, ifGeneration: generation) {
             cachedLogFileURL = url
         }
@@ -651,14 +698,14 @@ public actor LoggerCore {
     private func scheduleFlushIfNeeded() {
         guard flushTask == nil else { return }
 
-        // Captures this actor directly so the timer does not go through
-        // `LoggerCore.shared`.
+        /// Captures this actor directly so the timer does not go through
+        /// `LoggerCore.shared`.
         let interval = configuration.flushInterval
         flushTask = Task.detached(priority: .utility) { [core = self] in
             do {
                 try await Task.sleep(for: .seconds(interval))
             } catch {
-                return // Canceled: the buffer was flushed some other way.
+                return /// Canceled: the buffer was flushed some other way.
             }
             await core.flushBufferedLogs()
         }
@@ -668,8 +715,8 @@ public actor LoggerCore {
     /// swapped out before the disk call so new `log()` calls are never blocked waiting on
     /// I/O.
     private func flushBufferedLogs() {
-        // Disarmed even when there is nothing to write: whichever path got here, the
-        // buffer is now empty, and the next line must arm a fresh full interval.
+        /// Disarmed even when there is nothing to write: whichever path got here, the
+        /// buffer is now empty, and the next line must arm a fresh full interval.
         flushTask?.cancel()
         flushTask = nil
         guard !writeBuffer.isEmpty else { return }
@@ -678,18 +725,39 @@ public actor LoggerCore {
         writeBuffer = Data()
         let fileURL = resolvedLogFileURL()
 
-        // Off the actor's executor so it stays responsive, and chained after the previous
-        // write so ordering holds and two handles never race a seek-to-end append.
-        let previous = writeTask
-        writeTask = Task.detached(priority: .utility) {
-            await previous?.value
-            performLogWrite(data: toWrite, to: fileURL)
+        if let last = pendingWrites.indices.last, pendingWrites[last].url == fileURL {
+            pendingWrites[last].data.append(toWrite)
+        } else {
+            pendingWrites.append((url: fileURL, data: toWrite))
         }
+        guard writeTask == nil else { return }
+
+        /// Off the actor's executor so it stays responsive. See `writeTask`.
+        writeTask = Task.detached(priority: .utility) { [core = self] in
+            while let batches = await core.takePendingWrites() {
+                for batch in batches { performLogWrite(data: batch.data, to: batch.url) }
+            }
+        }
+    }
+
+    /// Hands the writer everything queued, or — when nothing is — retires it, in one
+    /// actor step, so a flush can never queue data the departing writer will not take.
+    private func takePendingWrites() -> [(url: URL, data: Data)]? {
+        guard !pendingWrites.isEmpty else {
+            writeTask = nil
+            return nil
+        }
+        defer { pendingWrites = [] }
+        return pendingWrites
     }
 
     /// Terminal-path flush, written INLINE on the actor's executor: at termination a
     /// detached write is not guaranteed to run before macOS reclaims the process.
     private func flushBufferedLogsSynchronously() {
+        /// Disarmed here too: a line logged during the drain may have armed a timer for
+        /// the buffer this write is about to empty.
+        flushTask?.cancel()
+        flushTask = nil
         guard !writeBuffer.isEmpty else { return }
 
         let toWrite = writeBuffer
@@ -755,8 +823,8 @@ private enum LogPipe {
     /// final messages.
     static func flushBarrier() async {
         await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
-            // Anything other than `.enqueued` means the command will never reach the
-            // consumer, so the barrier has to resume itself or the caller hangs.
+            /// Anything other than `.enqueued` means the command will never reach the
+            /// consumer, so the barrier has to resume itself or the caller hangs.
             if case .enqueued = continuation.yield(.barrier(waiter)) { return }
             waiter.resume()
         }
@@ -775,16 +843,16 @@ public enum Logger {
     /// before the first log line and before `prepareLogDirectory()`.
     public static func bootstrap(_ configuration: LoggerConfiguration) {
         ConfigurationBox.shared.set(configuration)
-        // A log line or `safeLogFileURL` read before this call resolved and cached a URL
-        // from the fallback configuration; without this the app would keep writing there
-        // all session, ignoring the `fileName` and `destination` just supplied.
-        //
-        // The generation always advances, so a resolution already under way from the fallback
-        // configuration is not cached. The actor task is skipped when nothing has been cached
-        // yet, which is the ordinary case: `bootstrap` is the first thing a launch does, so
-        // the actor holds no stale URL either — and the task would otherwise instantiate
-        // `LoggerCore` (and its DateFormatter) on the launch path, for a logger that is
-        // usually switched off.
+        /// A log line or `safeLogFileURL` read before this call resolved and cached a URL
+        /// from the fallback configuration; without this the app would keep writing there
+        /// all session, ignoring the `fileName` and `destination` just supplied.
+        ///
+        /// The generation always advances, so a resolution already under way from the fallback
+        /// configuration is not cached. The actor task is skipped when nothing has been cached
+        /// yet, which is the ordinary case: `bootstrap` is the first thing a launch does, so
+        /// the actor holds no stale URL either — and the task would otherwise instantiate
+        /// `LoggerCore` (and its DateFormatter) on the launch path, for a logger that is
+        /// usually switched off.
         guard LoggerCore.invalidateFacadeURL() else { return }
         Task.detached(priority: .utility) {
             await LoggerCore.shared.invalidateLogFileURLCache()
@@ -805,9 +873,9 @@ public enum Logger {
     /// cached here as well as inside the actor — this is read on every Reveal/Clear press
     /// and every restart of the log-file monitor.
     public static var safeLogFileURL: URL {
-        // Re-resolves when an invalidation lands mid-resolution, so the caller gets the new
-        // location. Bounded: after a few contested attempts the latest URL is returned
-        // uncached, and the next read tries again.
+        /// Re-resolves when an invalidation lands mid-resolution, so the caller gets the new
+        /// location. Bounded: after a few contested attempts the latest URL is returned
+        /// uncached, and the next read tries again.
         var resolved: URL
         var attempts = 0
         repeat {
@@ -858,35 +926,39 @@ public enum Logger {
 
     /// The main entry point. Returns immediately; all work happens asynchronously.
     ///
-    /// Call sites are expected to guard on `isLoggingEnabled` first — the `Loggable`
-    /// extension does it for you, and also lets through what an observer wants. A call
-    /// site that guards on `isLoggingEnabled` itself hides its messages from the observer.
+    /// Drops the message at once when logging is off or it is below `minimumLevel`, after
+    /// showing it to the observer. The `Loggable` extension goes further and does not even
+    /// build the message then; a call site that guards on `isLoggingEnabled` itself hides
+    /// its messages from the observer.
     public static func log(_ message: String, level: LogLevel = .info, cName: String? = nil) {
-        // `Date()` is read on the calling thread, so the timestamp is the moment of the
-        // event rather than the moment the logger drained it.
+        /// `Date()` is read on the calling thread, so the timestamp is the moment of the
+        /// event rather than the moment the logger drained it.
+        let config = configuration
         let now = Date()
-        observe(message, level: level, category: cName, occurredAt: now)
+        observe(message, level: level, category: cName, occurredAt: now, config: config)
+        guard config.writes(level) else { return }
         LogPipe.send(LogEntry(message: message, level: level, category: cName,
                               occurredAt: now, force: false))
     }
 
-    /// The `Loggable` path: evaluates the message only if logging is on or the observer
-    /// wants it, and writes it only if logging is on, so with no observer it behaves
-    /// exactly as a guard on `isLoggingEnabled` did.
+    /// The `Loggable` path: evaluates the message only if it will be written or the
+    /// observer wants it, and writes it only in the first case, so with no observer it
+    /// behaves exactly as a guard on `isLoggingEnabled` did.
     fileprivate static func route(_ message: () -> String, level: LogLevel, category: String) {
         let config = configuration
-        let enabled = config.isEnabled()
+        let writes = config.writes(level)
         let observer = config.observer.flatMap { $0.observes(level) ? $0 : nil }
-        guard enabled || observer != nil else { return }
+        guard writes || observer != nil else { return }
         let text = message()
         let now = Date()
         observer?.deliver(text, level: level, category: category, occurredAt: now)
-        guard enabled else { return }
+        guard writes else { return }
         LogPipe.send(LogEntry(message: text, level: level, category: category, occurredAt: now, force: false))
     }
 
-    private static func observe(_ message: String, level: LogLevel, category: String?, occurredAt: Date) {
-        guard let observer = configuration.observer, observer.observes(level) else { return }
+    private static func observe(_ message: String, level: LogLevel, category: String?,
+                                occurredAt: Date, config: LoggerConfiguration) {
+        guard let observer = config.observer, observer.observes(level) else { return }
         observer.deliver(message, level: level, category: category, occurredAt: occurredAt)
     }
 
@@ -899,7 +971,7 @@ public enum Logger {
     public static func logForced(_ message: String, level: LogLevel = .info,
                                  cName: String? = nil) {
         let now = Date()
-        observe(message, level: level, category: cName, occurredAt: now)
+        observe(message, level: level, category: cName, occurredAt: now, config: configuration)
         LogPipe.send(LogEntry(message: message, level: level, category: cName,
                               occurredAt: now, force: true))
     }
@@ -908,9 +980,10 @@ public enum Logger {
     /// buffer before proceeding — most notably just before a shutdown that flushes it.
     public static func logAwaiting(_ message: String, level: LogLevel = .info,
                                    cName: String? = nil) async {
+        let config = configuration
         let now = Date()
-        observe(message, level: level, category: cName, occurredAt: now)
-        guard isLoggingEnabled else { return }
+        observe(message, level: level, category: cName, occurredAt: now, config: config)
+        guard config.writes(level) else { return }
         LogPipe.send(LogEntry(message: message, level: level, category: cName,
                               occurredAt: now, force: false))
         await LogPipe.flushBarrier()
@@ -918,15 +991,15 @@ public enum Logger {
 
     // MARK: Clearing
 
-    /// Empties the log file, serialized behind the write chain so the clear can neither be
+    /// Empties the log file, serialized behind the disk writer so the clear can neither be
     /// undone by nor discard an in-flight append. Returns true on success.
     ///
     /// Always prefer this to writing empty `Data` at the file yourself — see
     /// `performLogClear` for what an unserialized clear does.
     @discardableResult
     public static func clearLog() async -> Bool {
-        // Barrier first: anything still in the pipe has not reached the buffer yet and
-        // would be written to the file just after it was emptied.
+        /// Barrier first: anything still in the pipe has not reached the buffer yet and
+        /// would be written to the file just after it was emptied.
         await LogPipe.flushBarrier()
         return await LoggerCore.shared.clearLogFile()
     }
@@ -947,9 +1020,9 @@ public enum Logger {
     /// Awaitable teardown for the app-termination path, where the process must not exit
     /// until the final buffer has reached disk. The preferred form.
     public static func shutdownLoggingAwaiting() async {
-        // Barrier first: anything still queued in the pipe has not reached the buffer that
-        // `shutdown()` is about to flush and discard. This is what captures teardown
-        // messages logged through the ordinary fire-and-forget path.
+        /// Barrier first: anything still queued in the pipe has not reached the buffer that
+        /// `shutdown()` is about to flush and discard. This is what captures teardown
+        /// messages logged through the ordinary fire-and-forget path.
         await LogPipe.flushBarrier()
         await LoggerCore.shared.shutdown()
     }

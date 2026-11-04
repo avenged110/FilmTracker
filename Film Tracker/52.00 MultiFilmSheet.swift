@@ -1,12 +1,12 @@
 // MARK: - MultiFilmSheet.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Observable view model for the MultiFilmSheet — the bulk editor opened by Edit Metadata…
-// (⌘E, ⌘I) with more than one film selected. Every field opens to the value the films
-// share, or blank (a checkbox, mixed) when they differ, and once changed is written to every
-// film; Tags are appended instead. Owns the capacity checks, the
-// confirmations and the save, which reuses the app's own list, Queue and Hall of Fame
-// paths and one batched field write (DataCoordinator.applyBulkFieldEdit).
+/// Observable view model for the MultiFilmSheet — the bulk editor opened by Edit Metadata…
+/// (⌘E, ⌘I) with more than one film selected. Every field opens to the value the films
+/// share, or blank (a checkbox, mixed) when they differ, and once changed is written to every
+/// film; Tags are appended instead. Owns the capacity checks, the
+/// confirmations and the save, which reuses the app's own list, Queue and Hall of Fame
+/// paths and one batched field write (DataCoordinator.applyBulkFieldEdit).
 
 import SwiftUI
 
@@ -62,12 +62,12 @@ final class MultiFilmSheet: Identifiable, Loggable {
     let shared: Shared
 
     // MARK: Fields
-    //
-    // One tracked property per field rather than one BulkFilmEdit, so a row observes only
-    // its own field: a keystroke in Notes re-evaluates the Notes row and the gutter, not
-    // every row. `edit` assembles them when something needs the whole. Rows write them
-    // through `assign(_:_:shared:)` (or a checkbox's click), so a field set back to the
-    // films' shared value reads unchanged again.
+    ///
+    /// One tracked property per field rather than one BulkFilmEdit, so a row observes only
+    /// its own field: a keystroke in Notes re-evaluates the Notes row and the gutter, not
+    /// every row. `edit` assembles them when something needs the whole. Rows write them
+    /// through `assign(_:_:shared:)` (or a checkbox's click), so a field set back to the
+    /// films' shared value reads unchanged again.
 
     var genre: BulkField<String> = .unchanged
     var rating: BulkField<String> = .unchanged
@@ -148,14 +148,20 @@ final class MultiFilmSheet: Identifiable, Loggable {
         return .set(notes)
     }
 
+    /// Whether Tags has anything to append. Reads only `tags`, so the Tags row's change
+    /// marker does not observe every other field, as reading `edit` would.
+    var appendsTags: Bool {
+        tags.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+
     /// Puts Notes back to what it opened with.
     func revertNotes() {
         if case .same(let text) = shared.notes { notes = text } else { notes = "" }
     }
 
     // MARK: Shown values
-    //
-    // What the rows show for fields whose display depends on more than their own value.
+    ///
+    /// What the rows show for fields whose display depends on more than their own value.
 
     /// The automatic-queueing checkbox: nil while it is unchanged over a mix.
     var autoAddShownEnabled: Bool? {
@@ -176,10 +182,10 @@ final class MultiFilmSheet: Identifiable, Loggable {
         case nil: autoAddToQueueOnRotation = shared.field(for: autoAddShownSection ?? 0)
         case true?: autoAddToQueueOnRotation = shared.field(for: nil)
         case false?:
-            // Back to unchanged when that is where it came from: over a mix, or when every
-            // film already queues automatically (to sections that may differ, which "Up
-            // Next" would overwrite). Otherwise checking picks "Up Next", as the FilmSheet's
-            // checkbox does, unless a section is already showing.
+            /// Back to unchanged when that is where it came from: over a mix, or when every
+            /// film already queues automatically (to sections that may differ, which "Up
+            /// Next" would overwrite). Otherwise checking picks "Up Next", as the FilmSheet's
+            /// checkbox does, unless a section is already showing.
             let enabled = self.shared.autoAddEnabled
             autoAddToQueueOnRotation = enabled.isMixed || enabled == .same(true)
                 ? .unchanged : shared.field(for: autoAddShownSection ?? 0)
@@ -216,11 +222,11 @@ final class MultiFilmSheet: Identifiable, Loggable {
     }
 
     // MARK: Capacity, as the sheet opened
-    //
-    // Fixed for the sheet's life, as FSTabDetails.upNextWasFullAtOpen is: they decide
-    // whether the "Up Next" segment and the Hall of Fame checkbox can be used at all, from
-    // the first frame. Nothing else can change either while the sheet is up except the
-    // midnight auto-enqueue, which confirm() re-checks against.
+    ///
+    /// Fixed for the sheet's life, as FSTabDetails.upNextWasFullAtOpen is: they decide
+    /// whether the "Up Next" segment and the Hall of Fame checkbox can be used at all, from
+    /// the first frame. Nothing else can change either while the sheet is up except the
+    /// midnight auto-enqueue, which confirm() re-checks against.
 
     /// Selected films not yet in "Up Next" — the slots choosing it would take.
     let upNextIncoming: Int
@@ -242,9 +248,9 @@ final class MultiFilmSheet: Identifiable, Loggable {
 
     // MARK: Sheet state
 
+    /// No save-error state: save() only dispatches, and a failed background write rolls
+    /// itself back and raises the app's persistence alert (DataCoordinator.trackOperation).
     private(set) var isConfirming = false
-    var showingSaveError = false
-    var saveErrorDetail: String?
     /// A refusal or confirmation raised by confirm(), shown by the button bar.
     var pendingAlert: ConfirmAlert?
     /// The user agreed to replace other notes; reset whenever Notes changes again.
@@ -282,7 +288,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
         self.films = films
         self.filmIDs = films.map(\.id)
         let count = films.count
-        // Singular only if films were deleted between the selection and the open.
+        /// Singular only if films were deleted between the selection and the open.
         let noun = count == 1 ? "1 Film" : "\(count) Films"
         windowTitle = "Edit \(noun)"
         confirmButtonTitle = "Update \(noun)"
@@ -306,7 +312,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
         shared.edited = BulkSharedValue(films.lazy.map(\.edited))
         shared.inHallOfFame = BulkSharedValue(films.lazy.map { $0.hofPosition > 0 })
         shared.infoComplete = BulkSharedValue(films.lazy.map(\.infoComplete))
-        // As a set: the menu compares sets, and stored order is not the user's choice.
+        /// As a set: the menu compares sets, and stored order is not the user's choice.
         shared.specialSorting = BulkSharedValue(films.lazy.map { Set($0.specialSorting) })
         shared.rotationThresholdOverride = BulkSharedValue(films.lazy.map(\.rotationThresholdOverride))
         shared.autoAddToQueueOnRotation = BulkSharedValue(films.lazy.map(\.autoAddToQueueOnRotation))
@@ -319,7 +325,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
             let lists = coordinator.getListIDs(forFilm: film.id)
             userLists.append(lists.subtracting(queueIDs))
             let queued = lists.intersection(queueIDs)
-            // A film in two sections (a damaged restore) shares no section with anything.
+            /// A film in two sections (a damaged restore) shares no section with anything.
             if queued.count > 1 { damagedQueue = true }
             sections.append(queued.first.flatMap(FilmQueueSection.init(listID:)))
         }
@@ -328,9 +334,9 @@ final class MultiFilmSheet: Identifiable, Loggable {
         self.shared = shared
         if case .same(let text) = shared.notes { notes = text }
 
-        // As FSTabDetails does: the read can rebuild the store's sorted lists, which is
-        // work better kept off the presentation animation's first frames. The menu's
-        // label does not need the lists, and its contents cannot open before this runs.
+        /// As FSTabDetails does: the read can rebuild the store's sorted lists, which is
+        /// work better kept off the presentation animation's first frames. The menu's
+        /// label does not need the lists, and its contents cannot open before this runs.
         Task { @MainActor [weak self] in
             self?.refreshAvailableLists()
         }
@@ -388,8 +394,8 @@ final class MultiFilmSheet: Identifiable, Loggable {
     }
 
     /// The films still in the library: save() skips any deleted since the sheet opened, so
-    /// the capacity checks must not count them either.
-    private var liveFilmIDs: [UUID] { filmIDs.filter { coordinator.getFilm($0) != nil } }
+    /// the capacity checks (here and the Queue row's) must not count them either.
+    var liveFilmIDs: [UUID] { filmIDs.filter { coordinator.getFilm($0) != nil } }
 
     private func queueListsByFilm() -> [UUID: Set<UUID>] {
         Dictionary(uniqueKeysWithValues: filmIDs.map { ($0, coordinator.filmQueueListIDs(forFilm: $0)) })
@@ -430,14 +436,14 @@ final class MultiFilmSheet: Identifiable, Loggable {
     /// Re-checks the capacities live, asks about replacing other films' notes, then saves.
     func confirm() {
         guard !isConfirming else { return }
-        // A Tags entry still held for its popover's close animation lands first, as in
-        // FilmSheet.confirm(); one stopped at its duplicate prompt leaves the save for later.
+        /// A Tags entry still held for its popover's close animation lands first, as in
+        /// FilmSheet.confirm(); one stopped at its duplicate prompt leaves the save for later.
         if ListPopoverDismissal.settlePending() { return }
         let edit = edit
         guard !edit.isEmpty else { return }
 
-        // "Up Next" can fill while the sheet is open (the midnight auto-enqueue); the add
-        // is refused whole, as every other add to it is.
+        /// "Up Next" can fill while the sheet is open (the midnight auto-enqueue); the add
+        /// is refused whole, as every other add to it is.
         if liveUpNextOverflow() > 0 {
             pendingAlert = .upNextFull(message: FilmQueue.upNextFullDropMessage(Set(liveFilmIDs), coordinator: coordinator))
             Self.log("Refused: 'Up Next' has no room for the selection")
@@ -473,13 +479,21 @@ final class MultiFilmSheet: Identifiable, Loggable {
     }
 
     /// Applies the edit: memberships first, so the field events that follow see the films
-    /// where they now are (saveFilmChangeset's order); then the fields; then the Hall of
-    /// Fame, whose add reads the snapshots the field write just stored.
+    /// where they now are (saveFilmChangeset's order); then the Hall of Fame; then the
+    /// fields, last so their events are the turn's last.
+    ///
+    /// The field write's events go out in reverse gallery order, so the gallery keeps the
+    /// first edited film in view (applyBulkFieldEdit). The Hall of Fame's own events, sent
+    /// after them, would have made the last film (or, for a removal, any film) the scroll
+    /// target. Writing the Hall of Fame first is safe: its full-snapshot persist commits
+    /// before the field write's (trackOperation runs them in order), which then writes its
+    /// fields over it, and smart-list membership does not read the Hall of Fame, so its
+    /// events cannot set off a rotation auto-enqueue outside the explicit-Queue guard.
     private func save(_ edit: BulkFilmEdit) {
         isConfirming = true
         defer { isConfirming = false }
 
-        // Re-read now: a film can have been deleted, or moved, since the sheet opened.
+        /// Re-read now: a film can have been deleted, or moved, since the sheet opened.
         let ids = filmIDs.filter { coordinator.getFilm($0) != nil }
         guard !ids.isEmpty else { dismissHandler?(); return }
         let queueIDs = FilmQueue.allListIDs
@@ -509,7 +523,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
         mark("prepare")
         #endif
 
-        // ── Memberships ─────────────────────────────────────────────────────────────
+        /// ── Memberships ─────────────────────────────────────────────────────────────
         for (listID, films) in memberships.additions {
             FilmManager.addFilmsToList(films, listID: listID, coordinator: coordinator)
         }
@@ -524,9 +538,17 @@ final class MultiFilmSheet: Identifiable, Loggable {
         mark("memberships")
         #endif
 
-        // ── Fields ──────────────────────────────────────────────────────────────────
-        // Every film the edit touches is stamped modified, as a FilmSheet save stamps its
-        // film whatever it changed.
+        /// ── Hall of Fame ────────────────────────────────────────────────────────────
+        if !hallOfFame.remove.isEmpty { coordinator.removeFromHallOfFame(hallOfFame.remove) }
+        if !hallOfFame.add.isEmpty { coordinator.addToHallOfFame(hallOfFame.add) }
+
+        #if DEBUG
+        mark("hallOfFame")
+        #endif
+
+        /// ── Fields ──────────────────────────────────────────────────────────────────
+        /// Every film the edit touches is stamped modified, as a FilmSheet save stamps its
+        /// film whatever it changed.
         let touched = memberships.films.union(hallOfFame.add).union(hallOfFame.remove)
         coordinator.applyBulkFieldEdit(edit, filmIDs: ids, alsoTouched: touched,
                                        explicitQueueFilmIDs: memberships.queueFilms(queueListIDs: queueIDs))
@@ -534,10 +556,6 @@ final class MultiFilmSheet: Identifiable, Loggable {
         #if DEBUG
         mark("fields")
         #endif
-
-        // ── Hall of Fame ────────────────────────────────────────────────────────────
-        if !hallOfFame.remove.isEmpty { coordinator.removeFromHallOfFame(hallOfFame.remove) }
-        if !hallOfFame.add.isEmpty { coordinator.addToHallOfFame(hallOfFame.add) }
 
         dismissHandler?()
     }

@@ -1,14 +1,14 @@
 // MARK: - STabGeneral.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// FilmTracker.app settings window: "General" tab. SettingsSheet hosts this tab
-// inside DataCoordinatorScrollView, the shared AppKitScrollView facade for
-// consumers that need nothing re-injected into the hosted tree beyond DataCoordinator.
-//
-// Rows with a caption or a button strip are built on SettingsKit's row factory
-// (SettingsRow / SettingsDescribedToggle / SettingsControlStrip) and share its grid
-// (SettingsMetrics). The rows that carry a Picker inside the checkbox label are the
-// genuine outliers the kit's header describes, and stay hand-built.
+/// FilmTracker.app settings window: "General" tab. SettingsSheet hosts this tab
+/// inside DataCoordinatorScrollView, the shared AppKitScrollView facade for
+/// consumers that need nothing re-injected into the hosted tree beyond DataCoordinator.
+///
+/// Rows with a caption or a button strip are built on SettingsKit's row factory
+/// (SettingsRow / SettingsDescribedToggle / SettingsControlStrip) and share its grid
+/// (SettingsMetrics). The rows that carry a Picker inside the checkbox label are the
+/// genuine outliers the kit's header describes, and stay hand-built.
 
 import SwiftUI
 
@@ -83,11 +83,11 @@ struct GeneralSettingsView: View, Loggable {
     @State private var isDeletingBackups = false
     @State private var showDeleteBackupsAlert = false
     @State private var backupMonitorTask: TaskHandle?
-    // Debounce task for rememberSortFilterSelections toggle to prevent rapid
-    // clear/capture cycles if the user checks and unchecks the box quickly.
+    /// Debounce task for rememberSortFilterSelections toggle to prevent rapid
+    /// clear/capture cycles if the user checks and unchecks the box quickly.
     @State private var sortFilterPrefDebounceTask: Task<Void, Never>?
 
-    // Convert months to years display format
+    /// Convert months to years display format
         private func formatRotationThresholdAsYears(_ months: Int) -> String {
             let years = Double(months) / 12.0
             if years == 1.0 { return "1 year"
@@ -96,8 +96,8 @@ struct GeneralSettingsView: View, Loggable {
             } else { return "\(years) years" } }
 
     var body: some View {
-        // SettingsPage with no padding: the inset is applied at the call site in
-        // SettingsSheet, which also supplies the scroll container.
+        /// SettingsPage with no padding: the inset is applied at the call site in
+        /// SettingsSheet, which also supplies the scroll container.
         SettingsPage(padding: 0) {
             SettingsDescribedToggle("System calendar integration",
                 description: """
@@ -116,9 +116,9 @@ struct GeneralSettingsView: View, Loggable {
                         Text(formatRotationThresholdAsYears(months)).tag(months) } }
                 .labelsHidden()
                 .frame(width: 120)
-                // @AppStorage bypasses Preferences' setter and its preferencesChanged
-                // post, so without this neither SettingsObject (backups) nor the
-                // rotation-derived state ever heard about the change.
+                /// @AppStorage bypasses Preferences' setter and its preferencesChanged
+                /// post, so without this neither SettingsObject (backups) nor the
+                /// rotation-derived state ever heard about the change.
                 .onChange(of: defaultRotationThreshold) { _, _ in
                     AppEventBus.shared.send(.view(.preferencesChanged)) }
             } accessory: {
@@ -137,11 +137,11 @@ struct GeneralSettingsView: View, Loggable {
                     Text("Deleting disc-based releases from the library")
                 }
 
-                // The Toggle acts as the master on/off switch for all list-related confirmation
-                // alerts. The inline Picker sits inside the Toggle's label closure so the
-                // checkbox aligns naturally with the surrounding rows — no manual HStack needed.
-                // The Picker refines which class of change is gated and is disabled while the
-                // toggle is off.
+                /// The Toggle acts as the master on/off switch for all list-related confirmation
+                /// alerts. The inline Picker sits inside the Toggle's label closure so the
+                /// checkbox aligns naturally with the surrounding rows — no manual HStack needed.
+                /// The Picker refines which class of change is gated and is disabled while the
+                /// toggle is off.
                 Toggle(isOn: $confirmListEdits) {
                     HStack(spacing: 4) {
                         Text("Making changes to")
@@ -166,9 +166,9 @@ struct GeneralSettingsView: View, Loggable {
             }
             .settingsChildRowInset()
 
-            // Master checkbox + scope Picker, matching the confirmListEdits/ListEditScope
-            // design above: the checkbox turns release-day notifications on and off, and the
-            // Picker, disabled while it is off, narrows them to wishlisted releases.
+            /// Master checkbox + scope Picker, matching the confirmListEdits/ListEditScope
+            /// design above: the checkbox turns release-day notifications on and off, and the
+            /// Picker, disabled while it is off, narrows them to wishlisted releases.
             Toggle(isOn: $notifyAboutNewReleases) {
                 HStack(spacing: 4) {
                     Text("Notify me about")
@@ -182,10 +182,10 @@ struct GeneralSettingsView: View, Loggable {
                 }
                 .padding(.vertical, -2)
             }
-            // @AppStorage writes directly to UserDefaults, bypassing Preferences' setters and
-            // their preferencesChanged post. Mirrored and posted here, as for smartLists
-            // below, because ReleaseNotifications reschedules on that event — turning the
-            // checkbox on is also what asks macOS for permission to notify.
+            /// @AppStorage writes directly to UserDefaults, bypassing Preferences' setters and
+            /// their preferencesChanged post. Mirrored and posted here, as for smartLists
+            /// below, because ReleaseNotifications reschedules on that event — turning the
+            /// checkbox on is also what asks macOS for permission to notify.
             .onChange(of: notifyAboutNewReleases) { _, newValue in
                 Preferences.notifyAboutNewReleases = newValue
                 AppEventBus.shared.send(.view(.preferencesChanged)) }
@@ -205,43 +205,43 @@ struct GeneralSettingsView: View, Loggable {
             Toggle(isOn: $smartLists) {
                 Text("Show the Smart Lists section in the sidebar") }
             .onChange(of: smartLists) { _, newValue in
-                // @AppStorage writes directly to UserDefaults, bypassing Preferences'
-                // custom setter (and therefore its postPreferenceChangedEvent() call).
-                // Mirror the value through the Preferences setter and post the event
-                // manually — as the other mirrored toggles on this tab do.
-                //
-                // Without this mirror SmartLists would not react to the master toggle: its computed sets and
-                // midnight rotation timer would not update when the feature is turned off or back on.
+                /// @AppStorage writes directly to UserDefaults, bypassing Preferences'
+                /// custom setter (and therefore its postPreferenceChangedEvent() call).
+                /// Mirror the value through the Preferences setter and post the event
+                /// manually — as the other mirrored toggles on this tab do.
+                ///
+                /// Without this mirror SmartLists would not react to the master toggle: its computed sets and
+                /// midnight rotation timer would not update when the feature is turned off or back on.
                 Preferences.smartLists = newValue
                 AppEventBus.shared.send(.view(.preferencesChanged)) }
 
-            // Governs whether films already present on any of the three internal Film
-            // Queue lists are hidden from the "Up for Rotation" smart list. Purely a
-            // presentation-layer filter — disabled whenever Smart Lists themselves are
-            // disabled, since the smart list is hidden from the sidebar in that case.
-            // Indented beneath the "Show the Smart Lists section" toggle above, matching
-            // the visual nesting used for the "Show a warning before:" and "Contextual
-            // sidebar:" grouped rows.
+            /// Governs whether films already present on any of the three internal Film
+            /// Queue lists are hidden from the "Up for Rotation" smart list. Purely a
+            /// presentation-layer filter — disabled whenever Smart Lists themselves are
+            /// disabled, since the smart list is hidden from the sidebar in that case.
+            /// Indented beneath the "Show the Smart Lists section" toggle above, matching
+            /// the visual nesting used for the "Show a warning before:" and "Contextual
+            /// sidebar:" grouped rows.
             Toggle(isOn: $excludeQueuedFromUpForRotation) {
                 Text("Exclude enqueued films from the \"Up for Rotation\" smart lists")
             }
             .disabled(!smartLists)
             .settingsChildRowInset()
             .onChange(of: excludeQueuedFromUpForRotation) { _, newValue in
-                // @AppStorage writes directly to UserDefaults, bypassing Preferences'
-                // custom setter (and therefore its postPreferenceChangedEvent() call).
-                // Explicitly mirror the value through the Preferences setter and post
-                // the event manually — as the other mirrored toggles on this tab do, so
-                // SmartLists' preferencesChanged listener picks up the change and
-                // refreshes any open "Up for Rotation" gallery in real time.
+                /// @AppStorage writes directly to UserDefaults, bypassing Preferences'
+                /// custom setter (and therefore its postPreferenceChangedEvent() call).
+                /// Explicitly mirror the value through the Preferences setter and post
+                /// the event manually — as the other mirrored toggles on this tab do, so
+                /// SmartLists' preferencesChanged listener picks up the change and
+                /// refreshes any open "Up for Rotation" gallery in real time.
                 Preferences.excludeQueuedFromUpForRotation = newValue
                 AppEventBus.shared.send(.view(.preferencesChanged)) }
 
 
-            // Governs whether the sidebar's "Film Queue" item accepts dragged films
-            // and, if so, which of the three internal Film Queue lists receives them.
-            // The Picker sits inside the Toggle's label closure so it aligns naturally
-            // with the checkbox, matching the confirmListEdits/ListEditScope pattern below.
+            /// Governs whether the sidebar's "Film Queue" item accepts dragged films
+            /// and, if so, which of the three internal Film Queue lists receives them.
+            /// The Picker sits inside the Toggle's label closure so it aligns naturally
+            /// with the checkbox, matching the confirmListEdits/ListEditScope pattern below.
             Toggle(isOn: $queueIsDropTarget) {
                 HStack(spacing: 4) {
                     Text("When dragging films onto the Queue, add them to the")
@@ -290,9 +290,9 @@ struct GeneralSettingsView: View, Loggable {
                 description: "Suggestions are based off of content in your library and local heuristics.",
                 isOn: $showSearchSuggestions)
 
-            // Indented beneath the suggestions toggle and disabled while it is off, matching
-            // the excludeQueuedFromUpForRotation row: recent searches are offered through
-            // the same drop-down, and SearchSuggestions only shows them while both are on.
+            /// Indented beneath the suggestions toggle and disabled while it is off, matching
+            /// the excludeQueuedFromUpForRotation row: recent searches are offered through
+            /// the same drop-down, and SearchSuggestions only shows them while both are on.
             SettingsDescribedToggle("Show recent searches when the search field is selected",
                 description: "The recording of recent searches is ephemeral and session-local.",
                 isOn: $showRecentSearches,
@@ -306,9 +306,9 @@ struct GeneralSettingsView: View, Loggable {
             Toggle(isOn: $maintainScrollPositionOnViewSwitch) {
                 Text("Remember prior scroll positions across view changes") }
 
-            // Master checkbox + scope Picker, matching the confirmListEdits/
-            // ListEditScope design above. rememberTabSelection is the on/off switch;
-            // tabRememberScopeRaw refines which tab(s) it applies to when enabled.
+            /// Master checkbox + scope Picker, matching the confirmListEdits/
+            /// ListEditScope design above. rememberTabSelection is the on/off switch;
+            /// tabRememberScopeRaw refines which tab(s) it applies to when enabled.
             Toggle(isOn: $rememberTabSelection) {
                 HStack(spacing: 4) {
                     Text("Remember the last-selected tab in")
@@ -331,24 +331,24 @@ struct GeneralSettingsView: View, Loggable {
                 get: { rememberSortFilterSelections },
                 set: { newValue in
                     rememberSortFilterSelections = newValue
-                    // Debounce the side-effects (clear or capture) by 400ms to prevent
-                    // redundant UserDefaults mutations if the user toggles the checkbox
-                    // rapidly. The AppStorage write above is immediate and intentional;
-                    // only the subsequent sort-state manipulation is deferred.
+                    /// Debounce the side-effects (clear or capture) by 400ms to prevent
+                    /// redundant UserDefaults mutations if the user toggles the checkbox
+                    /// rapidly. The AppStorage write above is immediate and intentional;
+                    /// only the subsequent sort-state manipulation is deferred.
                     sortFilterPrefDebounceTask?.cancel()
                     sortFilterPrefDebounceTask = Task {
                         try? await Task.sleep(for: .milliseconds(400))
                         guard !Task.isCancelled else { return }
                         if newValue {
-                            // Re-enabled: capture the current runtime sort/filter state
-                            // for all loaded views and write it to Preferences so these
-                            // selections persist across the next application restart.
+                            /// Re-enabled: capture the current runtime sort/filter state
+                            /// for all loaded views and write it to Preferences so these
+                            /// selections persist across the next application restart.
                             let snapshot = ViewStateManager.shared.snapshotAllViewSortStates()
                             Preferences.viewSortStates = snapshot
                             log("rememberSortFilterSelections enabled — captured \(snapshot.count) view state(s)")
                         } else {
-                            // Disabled: clear existing persisted state so all views
-                            // return to their built-in defaults on the next launch.
+                            /// Disabled: clear existing persisted state so all views
+                            /// return to their built-in defaults on the next launch.
                             Preferences.clearViewSortStates()
                             log("rememberSortFilterSelections disabled — cleared persisted view sort states")
                         }
@@ -374,35 +374,35 @@ struct GeneralSettingsView: View, Loggable {
             updateBackupFilesStatus()
             startMonitoringBackups() }
         .onDisappear { stopMonitoringBackups() }
-        .alert("Reset All Rotation Threshold Overrides",
+        .alert("Reset Threshold Overrides?",
             isPresented: $showResetOverridesAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Reset", role: .destructive) {
-                // resetAllRotationThresholdOverrides() is fire-and-forget:
-                // optimistic MemoryStore update is applied synchronously; background
-                // persistence is dispatched via trackOperation, which handles rollback
-                // and user alerting on failure internally.
+                /// resetAllRotationThresholdOverrides() is fire-and-forget:
+                /// optimistic MemoryStore update is applied synchronously; background
+                /// persistence is dispatched via trackOperation, which handles rollback
+                /// and user alerting on failure internally.
                 dataCoordinator.resetAllRotationThresholdOverrides()
             }
         } message: {
-            Text("Are you sure you want to reset all per-film rotation threshold overrides? They will revert to the default value, and films will continue to use the global default setting until individual overrides are configured again. This action cannot be undone.") }
-        .alert("Delete All Automatic Backups",
+            Text("All per-film rotation threshold overrides will be reset. Films will use the global default setting until individual overrides are configured again. This action cannot be undone.") }
+        .alert("Delete Automatic Backups?",
             isPresented: $showDeleteBackupsAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) { deleteBackups() }
         } message: {
-            Text("Are you sure you want to delete all automatic backups? This will permanently remove every automatically-generated backup file from the Backups folder in Film Tracker's sandbox container. This action cannot be undone.") } }
+            Text("Every automatic backup file will be permanently deleted from the Backups folder in Film Tracker's sandbox container. This action cannot be undone.") } }
 
     // MARK: - Backup Folder Operations
     private func startMonitoringBackups() {
-        // Avoid starting multiple tasks.
+        /// Avoid starting multiple tasks.
         guard backupMonitorTask == nil else { return }
 
         backupMonitorTask = TaskHandle(Task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
-                // The once-a-second directory listing runs off the main actor; only the
-                // resulting Bool comes back to set the view's state.
+                /// The once-a-second directory listing runs off the main actor; only the
+                /// resulting Bool comes back to set the view's state.
                 let backupURL = Preferences.backupFolderURL
                 let exist = await Task.detached(priority: .utility) {
                     Self.backupFilesExist(in: backupURL) }.value
@@ -410,7 +410,7 @@ struct GeneralSettingsView: View, Loggable {
                 if backupFilesExist != exist { backupFilesExist = exist } } }) }
 
     private func stopMonitoringBackups() {
-        // Nil the handle — its deinit cancels the underlying Task automatically.
+        /// Nil the handle — its deinit cancels the underlying Task automatically.
         backupMonitorTask = nil }
 
     private func updateBackupFilesStatus() {
@@ -446,16 +446,16 @@ struct GeneralSettingsView: View, Loggable {
         do {
             let fileManager = FileManager.default
 
-            // Get all .ftbackup files.
+            /// Get all .ftbackup files.
             let files = try fileManager.contentsOfDirectory(
                 at: backupURL, includingPropertiesForKeys: nil)
             let backupFiles = files.filter { BackupFilename.isBackup($0) }
 
             if backupFiles.isEmpty { log("No backup files to delete")
             } else {
-                // Each package on its own: the automatic backup's retention pass also deletes
-                // packages off the main actor and can remove one first. A failure skips that
-                // package rather than abandoning the rest; the button state is re-read after.
+                /// Each package on its own: the automatic backup's retention pass also deletes
+                /// packages off the main actor and can remove one first. A failure skips that
+                /// package rather than abandoning the rest; the button state is re-read after.
                 var deleted = 0
                 for file in backupFiles {
                     do {

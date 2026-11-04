@@ -1,29 +1,29 @@
 // MARK: - ImportHistory.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The Imports view's in-memory copy of every ImportSession, as values, kept current from
-// Core Data's save notifications.
-//
-// Why it exists: reading ImportSession through `@Query` would fetch every session of every type on each build
-// of the view (every visit, and every Metadata ⟷ Ratings switch), and SwiftData would materialize each one in full,
-// JSON-decoding its four title arrays, on the main thread. A predicate did not help, and `propertiesToFetch` saved nothing. The view reads this index
-// instead, which costs nothing to read. The only fetch is one full load in the background after launch.
-//
-// How it stays current: every ImportSession write in the app is saved, and every save posts
-// `NSManagedObjectContext.didSaveObjectIDsNotification` with the object IDs it touched.
-//   • Saves on the main context — ImportProgress creating, updating, canceling and completing
-//     its session; the harness seeding — are applied synchronously, inside the notification,
-//     from the very objects saved (still registered in the main context, under the permanent
-//     IDs the notification names). So by the time `save()` returns, the index already says
-//     what the store says: nothing that reads it afterward (ImportsView showing a
-//     just-canceled session, say) can see an older copy.
-//   • Deletions from any context (DataManager's "Clear This Item" / "Clear All") are removed
-//     by identifier.
-//   • Anything else — an insert or update saved by another context, which nothing in the app
-//     does today, or a save that invalidated every identifier — reloads the whole index in
-//     the background, and changes saved while that load runs are replayed over its result.
-// A restore replaces the store and relaunches the app, so there is never a container swap
-// to follow.
+/// The Imports view's in-memory copy of every ImportSession, as values, kept current from
+/// Core Data's save notifications.
+///
+/// Why it exists: reading ImportSession through `@Query` would fetch every session of every type on each build
+/// of the view (every visit, and every Metadata ⟷ Ratings switch), and SwiftData would materialize each one in full,
+/// JSON-decoding its four title arrays, on the main thread. A predicate did not help, and `propertiesToFetch` saved nothing. The view reads this index
+/// instead, which costs nothing to read. The only fetch is one full load in the background after launch.
+///
+/// How it stays current: every ImportSession write in the app is saved, and every save posts
+/// `NSManagedObjectContext.didSaveObjectIDsNotification` with the object IDs it touched.
+///   • Saves on the main context — ImportProgress creating, updating, canceling and completing
+///     its session; the harness seeding — are applied synchronously, inside the notification,
+///     from the very objects saved (still registered in the main context, under the permanent
+///     IDs the notification names). So by the time `save()` returns, the index already says
+///     what the store says: nothing that reads it afterward (ImportsView showing a
+///     just-canceled session, say) can see an older copy.
+///   • Deletions from any context (DataManager's "Clear This Item" / "Clear All") are removed
+///     by identifier.
+///   • Anything else — an insert or update saved by another context, which nothing in the app
+///     does today, or a save that invalidated every identifier — reloads the whole index in
+///     the background, and changes saved while that load runs are replayed over its result.
+/// A restore replaces the store and relaunches the app, so there is never a container swap
+/// to follow.
 
 import Foundation
 import CoreData
@@ -112,9 +112,9 @@ final class ImportHistory: Loggable {
         guard self.container == nil else { return }
         self.container = container
         let mainContextID = ObjectIdentifier(container.viewContext)
-        // queue: nil runs the block on the posting thread, synchronously inside `save()`. A
-        // main-context save is posted on the main thread, so it is applied before `save()`
-        // returns; other contexts' saves hop to the main actor.
+        /// queue: nil runs the block on the posting thread, synchronously inside `save()`. A
+        /// main-context save is posted on the main thread, so it is applied before `save()`
+        /// returns; other contexts' saves hop to the main actor.
         let didSave = NotificationCenter.default.addObserver(
             forName: NSManagedObjectContext.didSaveObjectIDsNotification, object: nil, queue: nil
         ) { [weak self] note in
@@ -140,8 +140,8 @@ final class ImportHistory: Loggable {
         _ = revision
         if self.container == nil { attach(container) }
         if byType == nil {
-            // Supersedes the background load: everything saved so far is in this fetch, and
-            // every later change applies directly.
+            /// Supersedes the background load: everything saved so far is in this fetch, and
+            /// every later change applies directly.
             loadGeneration += 1
             changesDuringLoad = nil
             byType = Self.group(Self.fetchRecords(container.viewContext) ?? [])
@@ -179,8 +179,8 @@ final class ImportHistory: Loggable {
         }
         var changes = event.deleted.map(Change.delete)
         if !event.changed.isEmpty {
-            // The main context's own objects, just saved and still registered there: reading
-            // them is not a fetch.
+            /// The main context's own objects, just saved and still registered there: reading
+            /// them is not a fetch.
             let models: [ImportSession]? = onMainContext
                 ? event.changed.compactMap { container.viewContext.registeredObject(for: $0) as? ImportSession }
                 : nil
@@ -207,7 +207,7 @@ final class ImportHistory: Loggable {
         case .upsert(let record):
             for type in map.keys { map[type]?.removeAll { $0.id == record.id } }
             var list = map[record.importType] ?? []
-            // Newest first; a session dated the same as others goes after them.
+            /// Newest first; a session dated the same as others goes after them.
             let index = list.firstIndex { $0.sessionDate < record.sessionDate } ?? list.endIndex
             list.insert(record, at: index)
             map[record.importType] = list

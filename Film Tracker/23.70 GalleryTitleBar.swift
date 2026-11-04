@@ -1,8 +1,8 @@
 // MARK: - GalleryTitleBar.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Toolbar at the top of the gallery for all grid-based views. It holds the sort and filter buttons and the
-// context-sensitive menus for film and list operations.
+/// Toolbar at the top of the gallery for all grid-based views. It holds the sort and filter buttons and the
+/// context-sensitive menus for film and list operations.
 
 import SwiftUI
 import AppKit
@@ -56,7 +56,7 @@ struct GalleryTitleBar: View {
                 .frame(width: Self.pickerWidth)
                 .padding(.leading, Self.pickerLeading)
 
-        // A family of one, Upcoming Releases, has nothing to pick between.
+        /// A family of one, Upcoming Releases, has nothing to pick between.
         case .smartList(let type) where type.familyVariants.count < 2:
             EmptyView()
 
@@ -73,8 +73,8 @@ struct GalleryTitleBar: View {
             }
             .padding(.leading, Self.pickerLeading)
 
-        // A saved search's Edit and Remove controls live in the sidebar menu and the menu bar. Search's Save
-        // Search button leads the row instead.
+        /// A saved search's Edit and Remove controls live in the sidebar menu and the menu bar. Search's Save
+        /// Search button leads the row instead.
         case .allFilms, .list, .reports, .imports, .search, .savedSearch:
             EmptyView()
         }
@@ -86,70 +86,70 @@ struct GalleryTitleBar: View {
     /// than the filters. With filters active, an empty result keeps the button enabled, so the user can clear
     /// them. It is also disabled during initial loading.
     private var shouldDisableFilterButton: Bool {
-        // Disabled during initial loading, as the sort button is. Otherwise it is disabled only when filters
-        // did not cause the empty view, so the user can always reach the button to clear active filters.
+        /// Disabled during initial loading, as the sort button is. Otherwise it is disabled only when filters
+        /// did not cause the empty view, so the user can always reach the button to clear active filters.
         FilterMenuInputs.menuDisabled(coordinator: coordinator)
     }
     
     // MARK: - Button Section
     
     private var buttonSection: some View {
-        // Captures the computed properties as constants, so each is evaluated once. Each does a lookup, and
-        // without this SwiftUI would evaluate it twice on a render pass.
+        /// Captures the computed properties as constants, so each is evaluated once. Each does a lookup, and
+        /// without this SwiftUI would evaluate it twice on a render pass.
         let filterButtonDisabled = shouldDisableFilterButton
         let viewStyleButtonDisabled = viewStyleToggleDisabled
 
         return HStack(spacing: 8) {
-            // "Dispatch to ATVQ": Film Queue only, and only while Preferences.atvq is on. It leads the row,
-            // so the other buttons keep their positions.
+            /// "Dispatch to ATVQ": Film Queue only, and only while Preferences.atvq is on. It leads the row,
+            /// so the other buttons keep their positions.
             if case .filmQueue = viewIdentifier {
                 ATVQDispatchButton()
             }
 
-            // "Save Search": Search only. It leads the row, as Dispatch to ATVQ does.
+            /// "Save Search": Search only. It leads the row, as Dispatch to ATVQ does.
             if case .search = viewIdentifier {
                 SaveSearchButton()
             }
 
-            // SIZING AND SPACING: do not tidy. The frame, fixedSize, and menuIndicator chains on the buttons
-            // below differ on purpose. Some apply their chain here and some inside their own view, and
-            // TrashMenuButton omits the maxWidth frame its siblings have. Each was tuned against the rendered
-            // toolbar, because SwiftUI menus, plain buttons, and menu-indicator suppression size differently.
-            // Values that look redundant, such as buttonWidth and buttonSpacing, produce the even spacing.
-            // Collapsing them into one modifier or making them symmetric brings the layout artifacts back.
-            // Sort menu button, shown for all views and locked for the fixed-sort views (every Recents tab
-            // and Upcoming Releases; see ViewIdentifier.hasFixedSort). It uses totalFilmCount, not filmCount,
-            // so the sort button stays enabled when filters leave no films.
-            //
-            // It checks viewIdentifier directly, not the capability flag. The flag also covers Reports and
-            // Imports for MenuBar's Sort By, which this button does not disable. The Film Queue's Sort and
-            // Filter menus are enabled whenever it has films.
-            //
-            // The button is not .disabled() as a whole, since that would also block the Jump to Section
-            // submenu. That submenu only navigates. isDisabled is passed through instead. It locks the sort
-            // options and direction, which is what the disable is for. With no films, the submenu does not
-            // render.
+            /// SIZING AND SPACING: do not tidy. The frame, fixedSize, and menuIndicator chains on the buttons
+            /// below differ on purpose. Some apply their chain here and some inside their own view, and
+            /// TrashMenuButton omits the maxWidth frame its siblings have. Each was tuned against the rendered
+            /// toolbar, because SwiftUI menus, plain buttons, and menu-indicator suppression size differently.
+            /// Values that look redundant, such as buttonWidth and buttonSpacing, produce the even spacing.
+            /// Collapsing them into one modifier or making them symmetric brings the layout artifacts back.
+            /// Sort menu button, shown for all views and locked for the fixed-sort views (every Recents tab
+            /// and Upcoming Releases; see ViewIdentifier.hasFixedSort). It uses totalFilmCount, not filmCount,
+            /// so the sort button stays enabled when filters leave no films.
+            ///
+            /// It checks viewIdentifier directly, not the capability flag. The flag also covers Reports and
+            /// Imports for MenuBar's Sort By, which this button does not disable. The Film Queue's Sort and
+            /// Filter menus are enabled whenever it has films.
+            ///
+            /// The button is not .disabled() as a whole, since that would also block the Jump to Section
+            /// submenu. That submenu only navigates. isDisabled is passed through instead. It locks the sort
+            /// options and direction, which is what the disable is for. With no films, the submenu does not
+            /// render.
             let sortMenuDisabled = SortMenuInputs.optionsLocked(coordinator: coordinator)
             GallerySortMenu(isDisabled: sortMenuDisabled, coordinator: coordinator)
                 .frame(maxWidth: Preferences.buttonWidth)
                 .fixedSize()
                 .frame(width: Preferences.buttonSpacing)
             
-            // Filter menu button, with all filter options.
+            /// Filter menu button, with all filter options.
             GalleryFilterMenu(isDisabled: filterButtonDisabled)
                 .frame(maxWidth: Preferences.buttonWidth)
                 .fixedSize()
                 .frame(width: Preferences.buttonSpacing)
                 .disabled(filterButtonDisabled)
             
-            // Selection menu: Add to Queue, Add to List, and Show in List.
+            /// Selection menu: Add to Queue, Add to List, and Show in List.
             SelectionMenuButton(
                 selectionState: selectionState,
                 appState: appState,
                 coordinator: coordinator
             )
             
-            // Trash menu for selection-based operations.
+            /// Trash menu for selection-based operations.
             TrashMenuButton(
                 showsRemoveFromList: appState.selectedSidebarItem.capabilities.showsRemoveFromListInTrashMenu,
                 selectionState: selectionState,
@@ -158,10 +158,10 @@ struct GalleryTitleBar: View {
                 onDeleteFromLibrary: confirmDeleteFromLibrary
             )
             
-            // View style toggle. The glyph and help show the action that a click will perform. It is enabled
-            // for every gallery view, including the Film Queue. The list draws the queue's three sections
-            // with labeled divider rows (see ListRowItem in GalleryListView.swift), as the grid draws its own
-            // dividers.
+            /// View style toggle. The glyph and help show the action that a click will perform. It is enabled
+            /// for every gallery view, including the Film Queue. The list draws the queue's three sections
+            /// with labeled divider rows (see ListRowItem in GalleryListView.swift), as the grid draws its own
+            /// dividers.
             Button {
                 ViewStateManager.shared.updateListViewStyle(!isListView)
             } label: {
@@ -176,7 +176,7 @@ struct GalleryTitleBar: View {
             .disabled(!appState.selectedSidebarItem.capabilities.supportsListGridToggle || viewStyleButtonDisabled)
             .help(isListView ? "View as grid" : "View as list")
         }
-        .focusable(false) // Remove from Tab navigation order
+        .focusable(false) /// Remove from Tab navigation order
         .padding(.trailing, 18)
     }
 
@@ -193,16 +193,16 @@ struct GalleryTitleBar: View {
     }
     
     // MARK: - Removal Commands
-    // Each of the three trash-menu commands hands off to FilmRemoval (LibraryManager.swift). FilmRemoval
-    // resolves the context, pre-filters membership, applies the confirmation preference, and builds the alert
-    // for every surface that offers these commands: this toolbar, the gallery context menu, the MenuBar Film
-    // menu, and KeyboardManager's Opt+Delete.
-    //
-    // `clearingSelection: true` is this surface's own choice. The gallery clears the selection, since the
-    // films leave the view, while the MenuBar and keyboard paths do not.
-    //
-    // FilmRemoval reads the active list from appState.selectedSidebarItem. The earlier listID and listName
-    // properties were a cache of that value, one render behind.
+    /// Each of the three trash-menu commands hands off to FilmRemoval (LibraryManager.swift). FilmRemoval
+    /// resolves the context, pre-filters membership, applies the confirmation preference, and builds the alert
+    /// for every surface that offers these commands: this toolbar, the gallery context menu, the MenuBar Film
+    /// menu, and KeyboardManager's Opt+Delete.
+    ///
+    /// `clearingSelection: true` is this surface's own choice. The gallery clears the selection, since the
+    /// films leave the view, while the MenuBar and keyboard paths do not.
+    ///
+    /// FilmRemoval reads the active list from appState.selectedSidebarItem. The earlier listID and listName
+    /// properties were a cache of that value, one render behind.
 
     @MainActor
     private func confirmRemoveFromList() {
@@ -251,8 +251,8 @@ private struct SmartListVariantPicker<Style: PickerStyle>: View {
             options: state.variants,
             selection: state.selected,
             title: \.rawValue,
-            // Only the menu style skips the deferral. Its action arrives after the menu fades (see
-            // SubcategoryPicker).
+            /// Only the menu style skips the deferral. Its action arrives after the menu fades (see
+            /// SubcategoryPicker).
             onSelect: { state.select($0, immediate: style is MenuPickerStyle) })
     }
 }
@@ -281,8 +281,8 @@ private struct SmartListVariantHelpButton: View {
     var body: some View {
         let selected = SmartListVariantState.shared(for: parent).selected
         if selected.isRotationVariant && excludeQueuedFromUpForRotation {
-            // Shown for either rotation variant, since SmartLists.filmIDs(for:) applies the exclusion to
-            // both. The earlier condition named both cases of a two-case enum, so it could never be false.
+            /// Shown for either rotation variant, since SmartLists.filmIDs(for:) applies the exclusion to
+            /// both. The earlier condition named both cases of a two-case enum, so it could never be false.
             HelpPopoverButton(helpText: "Films which have already been added to the Queue are currently excluded from this list. This can be changed in Settings.")
         } else if selected == .filteredLibrary {
             HelpPopoverButton(helpText: "This list contains films which are marked as having been watched and which do not contain any \u{201C}special sorting\u{201D} parameter.")
@@ -389,10 +389,10 @@ private struct SelectionMenuButton: View, Loggable {
 
     var body: some View {
         Menu {
-            // All three submenus come from the shared definition (23.72 SelectionMenu.swift). This
-            // button and the MenuBar Film menu differ only in how they load values, never in what they show.
-            // `createShortcut: nil` is this host's one deliberate difference. A keyboard shortcut inside this
-            // always-mounted button would register globally, so ⇧⌘N belongs to the menu bar alone.
+            /// All three submenus come from the shared definition (23.72 SelectionMenu.swift). This
+            /// button and the MenuBar Film menu differ only in how they load values, never in what they show.
+            /// `createShortcut: nil` is this host's one deliberate difference. A keyboard shortcut inside this
+            /// always-mounted button would register globally, so ⇧⌘N belongs to the menu bar alone.
             Menu(anyFilmInQueue ? "Manage Queue Membership" : "Add to Queue") {
                 AddToQueueMenuBody(filmIDs: filmIDs,
                                    unanimousSection: unanimousQueueSection,
@@ -409,8 +409,8 @@ private struct SelectionMenuButton: View, Loggable {
             }
 
             Menu("Show in List") {
-                // The selection-size branching stays here, matching the MenuBar's copy. See
-                // ShowInListMenuBody for why it is not shared.
+                /// The selection-size branching stays here, matching the MenuBar's copy. See
+                /// ShowInListMenuBody for why it is not shared.
                 if filmIDs.count == 1, let filmID = filmIDs.first {
                     ShowInListMenuBody(filmID: filmID,
                                        containingLists: containingLists,
@@ -439,9 +439,9 @@ private struct SelectionMenuButton: View, Loggable {
         .onChange(of: selectionState.selectedFilmIDs) { _, _ in
             reload()
         }
-        // Any list data change (created, renamed, deleted, or membership changed) can alter all three
-        // submenus, so one subscription covers them. The progress-only events carry no data change and are
-        // skipped, so a bulk operation reloads once.
+        /// Any list data change (created, renamed, deleted, or membership changed) can alter all three
+        /// submenus, so one subscription covers them. The progress-only events carry no data change and are
+        /// skipped, so a bulk operation reloads once.
         .onListEvent { event in
             switch event {
             case .created, .updated, .deleted, .membershipChanged:
@@ -450,10 +450,10 @@ private struct SelectionMenuButton: View, Loggable {
                 break
             }
         }
-        // Smart list membership is recalculated, not stored, so it can change with no list event. Two sources
-        // are watched, as in ShowInListMenuItems: the manager's full recalculation (startup, midnight
-        // rotation, restore, preference change), and any change to the selected film, whose per-film
-        // recalculation emits no view event.
+        /// Smart list membership is recalculated, not stored, so it can change with no list event. Two sources
+        /// are watched, as in ShowInListMenuItems: the manager's full recalculation (startup, midnight
+        /// rotation, restore, preference change), and any change to the selected film, whose per-film
+        /// recalculation emits no view event.
         .onReceive(AppEventBus.shared.viewEvents) { event in
             if case .smartListsRecalculated = event { reload() }
         }
@@ -465,10 +465,10 @@ private struct SelectionMenuButton: View, Loggable {
                 break
             }
         }
-        // Turning the feature on mid-session must load the submenu that was hidden while it was off.
-        // @AppStorage alone only re-renders. Flipping the master toggle also runs clearAllLists() and
-        // calculateAllLists(), which broadcast smartListsRecalculated. The subscription above already listens
-        // for that, so this load also refreshes the other two submenus.
+        /// Turning the feature on mid-session must load the submenu that was hidden while it was off.
+        /// @AppStorage alone only re-renders. Flipping the master toggle also runs clearAllLists() and
+        /// calculateAllLists(), which broadcast smartListsRecalculated. The subscription above already listens
+        /// for that, so this load also refreshes the other two submenus.
         .onChange(of: smartListsEnabled) { _, _ in
             reload()
         }
@@ -491,8 +491,8 @@ private struct SelectionMenuButton: View, Loggable {
         anyFilmInQueue = SelectionMenuModel.anyFilmInQueue(filmIDs: ids, coordinator: coordinator)
         upNextBlocked = FilmQueue.upNextOverflow(adding: ids, coordinator: coordinator) > 0
 
-        // Show in List is a single-selection command. For any other selection the placeholder branches are
-        // used, and these lists stay empty.
+        /// Show in List is a single-selection command. For any other selection the placeholder branches are
+        /// used, and these lists stay empty.
         if ids.count == 1, let filmID = ids.first {
             containingLists = SelectionMenuModel.listsContaining(filmID: filmID,
                                                                  coordinator: coordinator)
@@ -512,8 +512,8 @@ private struct SelectionMenuButton: View, Loggable {
         Self.log("Adding \(ids.count) film(s) to list \(listID)")
 
         Task {
-            // Runs as a batched background operation. Progress shows in LeftSidebar, as on the MenuBar and
-            // context-menu paths. Selection is kept after adding, as in FilmSheet and MenuBar.
+            /// Runs as a batched background operation. Progress shows in LeftSidebar, as on the MenuBar and
+            /// context-menu paths. Selection is kept after adding, as in FilmSheet and MenuBar.
             FilmManager.addFilmsToList(ids, listID: listID, coordinator: coordinator)
         }
     }
@@ -533,9 +533,9 @@ private struct TrashMenuButton: View {
     
     var body: some View {
         Menu {
-            // For the Film Queue, "Remove from List" removes each selected film from its current section
-            // only. User-list memberships are untouched, as with a single user list. "Remove from All Lists"
-            // still clears every membership, queue and user lists alike.
+            /// For the Film Queue, "Remove from List" removes each selected film from its current section
+            /// only. User-list memberships are untouched, as with a single user list. "Remove from All Lists"
+            /// still clears every membership, queue and user lists alike.
             if showsRemoveFromList {
                 Button("Remove from List") {
                     onRemoveFromList()
@@ -552,8 +552,8 @@ private struct TrashMenuButton: View {
                 .font(.system(size: 14))
                 .frame(width: Preferences.buttonWidth)
         }
-        // No .frame(maxWidth:) here, unlike the sibling buttons. This was tuned against the rendered toolbar.
-        // See the sizing note at the top of GalleryTitleBar.buttonSection before changing it.
+        /// No .frame(maxWidth:) here, unlike the sibling buttons. This was tuned against the rendered toolbar.
+        /// See the sizing note at the top of GalleryTitleBar.buttonSection before changing it.
         .fixedSize()
         .menuIndicator(.hidden)
         .frame(width: Preferences.buttonSpacing)

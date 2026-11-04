@@ -1,8 +1,8 @@
 // MARK: - SettingsManager.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// Manages synchronization between UserDefaults (runtime) and database (backup/restore).
-// All database operations are routed through DataCoordinator/DataManager abstraction.
+/// Manages synchronization between UserDefaults (runtime) and database (backup/restore).
+/// All database operations are routed through DataCoordinator/DataManager abstraction.
 
 import Foundation
 import Combine
@@ -15,7 +15,7 @@ final class SettingsManager: Loggable {
     private weak var dataCoordinator: DataCoordinator?
     private var cancellables = Set<AnyCancellable>()
 
-    // Debounce interval for database writes (5 seconds)
+    /// Debounce interval for database writes (5 seconds)
     private let debounceInterval: TimeInterval = 5.0
 
     /// The in-flight debounce. Owned explicitly (rather than left to Combine's
@@ -51,15 +51,15 @@ final class SettingsManager: Loggable {
         setupObservers()
     }
     
-    // NOTE: No explicit deinit needed. AnyCancellable automatically cancels its
-    // upstream subscription when deallocated, so `cancellables` cleans up on its own.
-    // A Task that clears `cancellables` from deinit would be unsafe: deinit is nonisolated, and the
-    // task would touch instance storage after deallocation had begun.
+    /// NOTE: No explicit deinit needed. AnyCancellable automatically cancels its
+    /// upstream subscription when deallocated, so `cancellables` cleans up on its own.
+    /// A Task that clears `cancellables` from deinit would be unsafe: deinit is nonisolated, and the
+    /// task would touch instance storage after deallocation had begun.
     
     // MARK: - Observers
     private func setupObservers() {
-        // Observe settings changes via AppEventBus. The debounce itself is applied in
-        // scheduleDebouncedSync() rather than by a Combine operator — see debounceTask.
+        /// Observe settings changes via AppEventBus. The debounce itself is applied in
+        /// scheduleDebouncedSync() rather than by a Combine operator — see debounceTask.
         AppEventBus.shared.viewEvents
             .filter { event in
                 if case .preferencesChanged = event { return true }
@@ -67,8 +67,8 @@ final class SettingsManager: Loggable {
             }
             .sink { [weak self] _ in
                 self?.scheduleDebouncedSync()
-                // Hosted here because this observer is installed unconditionally
-                // (activateSettingsObserver), unlike the lazily built SmartLists.
+                /// Hosted here because this observer is installed unconditionally
+                /// (activateSettingsObserver), unlike the lazily built SmartLists.
                 self?.dataCoordinator?.handleDefaultRotationThresholdChangeIfNeeded()
             }
             .store(in: &cancellables)
@@ -139,12 +139,12 @@ final class SettingsManager: Loggable {
             return
         }
 
-        // Create SettingsSnapshot from current Preferences
+        /// Create SettingsSnapshot from current Preferences
         let snapshot = createSnapshotFromPreferences()
         let generation = changeGeneration
 
-        // Skip the write entirely when nothing has actually changed since the last
-        // successful sync (lastSyncDate aside — see hasSameSettings).
+        /// Skip the write entirely when nothing has actually changed since the last
+        /// successful sync (lastSyncDate aside — see hasSameSettings).
         if let lastSynced, lastSynced.hasSameSettings(as: snapshot) {
             hasPendingChanges = false
             Self.log("Settings unchanged since last sync — write skipped")
@@ -154,14 +154,14 @@ final class SettingsManager: Loggable {
         Self.log("Syncing settings to database...")
 
         do {
-            // Save via DataCoordinator
+            /// Save via DataCoordinator
             try await dataCoordinator.saveSettings(snapshot)
 
             lastSynced = snapshot
             if changeGeneration == generation { hasPendingChanges = false }
             Self.log("Settings synced successfully")
         } catch {
-            // Deliberately leaves hasPendingChanges set so a later flush retries.
+            /// Deliberately leaves hasPendingChanges set so a later flush retries.
             Self.log("ERROR: Failed to sync settings: \(error.localizedDescription)")
         }
     }
@@ -171,11 +171,11 @@ final class SettingsManager: Loggable {
     
     /// Creates a SettingsSnapshot from current Preferences (UserDefaults) values
     private func createSnapshotFromPreferences() -> SettingsSnapshot {
-        // Encode the consolidated view-sort-states dictionary as a JSON string.
-        // The dictionary maps view-identifier keys (e.g. "allFilms", "recents.recentlyViewed",
-        // "smartList.filteredLibrary") to three-element [String] arrays encoding each view's
-        // sort option, filter options, and sort direction. Stored in selectedSortOptionsJSON
-        // so the backup XML attribute name is unchanged from prior versions.
+        /// Encode the consolidated view-sort-states dictionary as a JSON string.
+        /// The dictionary maps view-identifier keys (e.g. "allFilms", "recents.recentlyViewed",
+        /// "smartList.filteredLibrary") to three-element [String] arrays encoding each view's
+        /// sort option, filter options, and sort direction. Stored in selectedSortOptionsJSON
+        /// so the backup XML attribute name is unchanged from prior versions.
         let sortOptionsJSON: String? = {
             if let jsonData = try? JSONEncoder().encode(Preferences.viewSortStates),
                let jsonString = String(data: jsonData, encoding: .utf8) {
@@ -196,7 +196,7 @@ final class SettingsManager: Loggable {
             snapshotID: SettingsObject.singletonID,
             version: SettingsObject.currentVersion,
             lastSyncDate: Date(),
-            // General Preferences
+            /// General Preferences
             confirmGalleryDelete: Preferences.confirmGalleryDelete,
             confirmListEdits: Preferences.confirmListEdits,
             listEditScope: Preferences.listEditScope.rawValue,
@@ -218,18 +218,18 @@ final class SettingsManager: Loggable {
             showInfoComplete: Preferences.showInfoComplete,
             performBackupAtLaunch: Preferences.performBackupAtLaunch,
             defaultRotationThreshold: Preferences.defaultRotationThreshold,
-            // Import Preferences
+            /// Import Preferences
             importScanSubfolders: Preferences.importScanSubfolders,
             fuzzyImportMatching: Preferences.fuzzyImportMatching,
             fuzzyImportYearMatching: Preferences.fuzzyImportYearMatching,
             overrideSortNameField: Preferences.overrideSortNameField,
             allowUpdatesForDuplicateImports: Preferences.allowUpdatesForDuplicateImports,
             allowUpdatesForDuplicateRatings: Preferences.allowUpdatesForDuplicateRatings,
-            // Export Preferences
+            /// Export Preferences
             exportPosterImages: Preferences.exportPosterImages,
             prunePosterImages: Preferences.prunePosterImages,
             exportUserSettings: Preferences.exportUserSettings,
-            // UI State Preferences
+            /// UI State Preferences
             maintainScrollPositionOnViewSwitch: Preferences.maintainScrollPositionOnViewSwitch,
             rememberTabSelection: Preferences.rememberTabSelection,
             tabRememberScope: Preferences.tabRememberScope.rawValue,
@@ -246,9 +246,9 @@ final class SettingsManager: Loggable {
             strictFramesTableChecking: Preferences.strictFramesTableChecking,
             showWatchDetailsAnnotationGlyphs: Preferences.showWatchDetailsAnnotationGlyphs,
             atvq: Preferences.atvq,
-            // Advanced Preferences
+            /// Advanced Preferences
             loggingEnabled: Preferences.loggingEnabled,
-            // Complex Preferences (JSON)
+            /// Complex Preferences (JSON)
             selectedSortOptionsJSON: sortOptionsJSON,
             ignoredDuplicatePairsJSON: duplicatePairsJSON
         )
@@ -272,7 +272,7 @@ final class SettingsManager: Loggable {
             if let value { set(value) }
         }
 
-        // General Preferences
+        /// General Preferences
         apply(snapshot.confirmGalleryDelete) { Preferences.confirmGalleryDelete = $0 }
         
         apply(snapshot.confirmListEdits) { Preferences.confirmListEdits = $0 }
@@ -318,7 +318,7 @@ final class SettingsManager: Loggable {
         
         apply(snapshot.defaultRotationThreshold) { Preferences.defaultRotationThreshold = $0 }
         
-        // Import Preferences
+        /// Import Preferences
         apply(snapshot.importScanSubfolders) { Preferences.importScanSubfolders = $0 }
         
         apply(snapshot.fuzzyImportMatching) { Preferences.fuzzyImportMatching = $0 }
@@ -331,21 +331,21 @@ final class SettingsManager: Loggable {
         
         apply(snapshot.allowUpdatesForDuplicateRatings) { Preferences.allowUpdatesForDuplicateRatings = $0 }
         
-        // Export Preferences
+        /// Export Preferences
         apply(snapshot.exportPosterImages) { Preferences.exportPosterImages = $0 }
         
         apply(snapshot.prunePosterImages) { Preferences.prunePosterImages = $0 }
         
         apply(snapshot.exportUserSettings) { Preferences.exportUserSettings = $0 }
         
-        // UI State Preferences
+        /// UI State Preferences
         apply(snapshot.maintainScrollPositionOnViewSwitch) { Preferences.maintainScrollPositionOnViewSwitch = $0 }
 
-        // Tab-remember consolidated fields. A backup exported prior to this
-        // preference's consolidation simply won't contain these keys, in which case
-        // both are nil here and this is a no-op — the current in-app values are left
-        // untouched (see the "aside from not restoring those now-removed keys"
-        // behavior this is intentionally designed to accept).
+        /// Tab-remember consolidated fields. A backup exported prior to this
+        /// preference's consolidation simply won't contain these keys, in which case
+        /// both are nil here and this is a no-op — the current in-app values are left
+        /// untouched (see the "aside from not restoring those now-removed keys"
+        /// behavior this is intentionally designed to accept).
         apply(snapshot.rememberTabSelection) { Preferences.rememberTabSelection = $0 }
 
         if let raw = snapshot.tabRememberScope,
@@ -380,7 +380,7 @@ final class SettingsManager: Loggable {
             Preferences.queueSectionOnDrop = section
         }
 
-        // Advanced Preferences
+        /// Advanced Preferences
         apply(snapshot.strictFramesTableChecking) { Preferences.strictFramesTableChecking = $0 }
         
         apply(snapshot.showWatchDetailsAnnotationGlyphs) { Preferences.showWatchDetailsAnnotationGlyphs = $0 }
@@ -388,24 +388,24 @@ final class SettingsManager: Loggable {
 
         apply(snapshot.loggingEnabled) { Preferences.loggingEnabled = $0 }
         
-        // Decode view-sort-states from the JSON string stored in selectedSortOptionsJSON.
-        //
-        // New format: JSON-encoded [String:[String]] dictionary keyed by view identifier.
-        // Old format (pre-consolidation backups): JSON-encoded [String] flat array
-        //   containing the allFilms state only.
-        //
-        // Attempt the new format first. If that fails, attempt the old [String] format and
-        // silently drop it per the documented upgrade policy — the user's current selections
-        // are lost on that one restore, but the app never crashes or produces corrupt state.
-        // If neither decode succeeds, the existing viewSortStates value is left untouched.
+        /// Decode view-sort-states from the JSON string stored in selectedSortOptionsJSON.
+        ///
+        /// New format: JSON-encoded [String:[String]] dictionary keyed by view identifier.
+        /// Old format (pre-consolidation backups): JSON-encoded [String] flat array
+        ///   containing the allFilms state only.
+        ///
+        /// Attempt the new format first. If that fails, attempt the old [String] format and
+        /// silently drop it per the documented upgrade policy — the user's current selections
+        /// are lost on that one restore, but the app never crashes or produces corrupt state.
+        /// If neither decode succeeds, the existing viewSortStates value is left untouched.
         if let json = snapshot.selectedSortOptionsJSON,
            let data = json.data(using: .utf8) {
             if let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) {
                 Preferences.viewSortStates = decoded
             } else if (try? JSONDecoder().decode([String].self, from: data)) != nil {
-                // Old flat-array format detected. Per the upgrade policy, we do not attempt
-                // to migrate this data — the allFilms-only entry is silently discarded and
-                // all views reset to their built-in defaults on next launch.
+                /// Old flat-array format detected. Per the upgrade policy, we do not attempt
+                /// to migrate this data — the allFilms-only entry is silently discarded and
+                /// all views reset to their built-in defaults on next launch.
                 Self.log("selectedSortOptionsJSON contained legacy flat-array format; discarding (expected after first restore from a pre-consolidation backup)")
             }
         }

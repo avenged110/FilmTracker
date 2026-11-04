@@ -1,7 +1,7 @@
 // MARK: - SelectionState.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The observable selection tracker shared by all views. It also records what kind of input produced each change.
+/// The observable selection tracker shared by all views. It also records what kind of input produced each change.
 
 import SwiftUI
 import AppKit
@@ -65,7 +65,7 @@ final class SelectionState: Loggable {
 
     private init() {}
 
-    // The set of currently selected film UUIDs (updates immediately on selection change).
+    /// The set of currently selected film UUIDs (updates immediately on selection change).
     var selectedFilmIDs: Set<UUID> = [] {
         didSet { untrackedSelectedFilmIDs = selectedFilmIDs } }
 
@@ -74,7 +74,7 @@ final class SelectionState: Loggable {
     /// It is written synchronously with `selectedFilmIDs`, so it is never stale.
     @ObservationIgnored private(set) var untrackedSelectedFilmIDs: Set<UUID> = []
 
-    // Convenience property for single-selection scenarios (returns first selected UUID).
+    /// Convenience property for single-selection scenarios (returns first selected UUID).
     var selectedFilmID: UUID? { selectedFilmIDs.first }
 
     /// Classifies the input that produced the selection change currently reflected in
@@ -113,15 +113,15 @@ final class SelectionState: Loggable {
     ///   that cannot supply an authoritative signal (marquee selection, drag, programmatic
     ///   selection, etc.).
     func select(_ filmIDs: Set<UUID>, inputKind: SelectionInputKind = .unspecified) {
-        // Avoid redundant publishes and downstream work when the selection is unchanged.
+        /// Avoid redundant publishes and downstream work when the selection is unchanged.
         guard filmIDs != (pendingFilmIDs ?? selectedFilmIDs) else { return }
         selectionGeneration &+= 1
         let generation = selectionGeneration
         pendingFilmIDs = filmIDs
 
-        // DispatchQueue.main.async defers the write while keeping the caller's QoS. AppKit events run at
-        // User-Interactive QoS, and a bare Task { @MainActor } runs at default QoS, which the runtime flags as a
-        // priority inversion. Task(priority: .userInteractive) avoids this but is deprecated in Swift 6.
+        /// DispatchQueue.main.async defers the write while keeping the caller's QoS. AppKit events run at
+        /// User-Interactive QoS, and a bare Task { @MainActor } runs at default QoS, which the runtime flags as a
+        /// priority inversion. Task(priority: .userInteractive) avoids this but is deprecated in Swift 6.
         DispatchQueue.main.async { [weak self] in
             guard let self, generation == self.selectionGeneration else { return }
             self.pendingFilmIDs = nil
@@ -138,18 +138,18 @@ final class SelectionState: Loggable {
     ///   `SelectionInputKind`). Defaults to `.unspecified`.
     func selectImmediate(_ filmIDs: Set<UUID>, inputKind: SelectionInputKind = .unspecified) {
         cancelPendingSelection()
-        // Avoid redundant publishes and downstream work when the selection is unchanged.
+        /// Avoid redundant publishes and downstream work when the selection is unchanged.
         guard filmIDs != selectedFilmIDs else { return }
         
-        // Direct update - zero latency for menu/keyboard actions.
-        // Only safe when called from event handlers, not from view callbacks.
+        /// Direct update - zero latency for menu/keyboard actions.
+        /// Only safe when called from event handlers, not from view callbacks.
         lastSelectionInputKind = inputKind
         selectedFilmIDs = filmIDs
     }
 
-    // Convenience for single selection (UI-driven). A nil selection clears immediately. A deferred clear would
-    // land after the coordinator's isUpdatingSelection flag resets, and it would cause a spurious deselect one frame later.
-    // A non-nil selection is deferred, as select(_:) is, to avoid view-update publishing.
+    /// Convenience for single selection (UI-driven). A nil selection clears immediately. A deferred clear would
+    /// land after the coordinator's isUpdatingSelection flag resets, and it would cause a spurious deselect one frame later.
+    /// A non-nil selection is deferred, as select(_:) is, to avoid view-update publishing.
     func select(_ filmID: UUID?, inputKind: SelectionInputKind = .unspecified) {
         if let filmID = filmID {
             select([filmID], inputKind: inputKind)
@@ -158,7 +158,7 @@ final class SelectionState: Loggable {
         }
     }
 
-    // Convenience function for single immediate selection (programmatic).
+    /// Convenience function for single immediate selection (programmatic).
     func selectImmediate(_ filmID: UUID?, inputKind: SelectionInputKind = .unspecified) {
         if let filmID = filmID {
             selectImmediate([filmID], inputKind: inputKind)

@@ -1,8 +1,8 @@
 // MARK: - ViewGlyphs.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The single source for the SF Symbols that identify a view: sidebar rows, the GalleryTitleBar, and the
-// gallery's empty-state placeholders.
+/// The single source for the SF Symbols that identify a view: sidebar rows, the GalleryTitleBar, and the
+/// gallery's empty-state placeholders.
 
 import Foundation
 

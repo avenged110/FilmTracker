@@ -1,9 +1,9 @@
-// MARK: - SavedSearchStore.swift
+// MARK: - SSStore.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// The saved searches in memory: the sidebar's rows, every change to them (written through
-// to the database memory-first, rolled back if the write fails), and the films each one
-// matches.
+/// The saved searches in memory: the sidebar's rows, every change to them (written through
+/// to the database memory-first, rolled back if the write fails), and the films each one
+/// matches.
 
 import Foundation
 import Observation
@@ -37,7 +37,7 @@ final class SavedSearchStore: Loggable {
     /// Configuration Changed" placeholder and a `#list` naming it finds nothing — until the
     /// user saves it from the builder sheet, which rewrites what is stored. Worked out from
     /// the rows at every launch, so a restore needs to record nothing.
-    private(set) var needingReview: Set<UUID> = []
+    private var needingReview: Set<UUID> = []
 
     /// How the store reaches the rest of the app. Set once, by DataCoordinator, when the
     /// library finishes loading; until then the store holds no searches and changes go
@@ -125,7 +125,10 @@ final class SavedSearchStore: Loggable {
             + (wasNeedingReview ? " (reviewed)" : ""))
         hooks?.didChange(.changed)
         persist(rollback: { [weak self] in
-            guard let self, let index = self.searches.firstIndex(where: { $0.id == id }) else { return }
+            /// Only while the search is still what this write wrote: a later update, queued
+            /// behind this one, has written its own values, which must not be undone here.
+            guard let self, let index = self.searches.firstIndex(where: { $0.id == id }),
+                  self.searches[index] == written else { return }
             self.searches[index] = before
             if wasNeedingReview { self.needingReview.insert(id) }
             self.hooks?.didChange(.changed)
@@ -161,10 +164,17 @@ final class SavedSearchStore: Loggable {
         guard !changed.isEmpty else { return }
         persist(rollback: { [weak self] in
             guard let self else { return }
-            // Only the order is undone: a search created or deleted since keeps that change.
+            /// Only the order is undone, and only where it is still this write's: a search
+            /// created or deleted since keeps that change, and one a later move renumbered
+            /// keeps the number that move wrote.
             let oldOrder = Dictionary(uniqueKeysWithValues: before.map { ($0.id, $0.displayOrder) })
             self.searches = self.searches
-                .map { var s = $0; s.displayOrder = oldOrder[s.id] ?? s.displayOrder; return s }
+                .map { s in
+                    guard changed[s.id] == s.displayOrder, let old = oldOrder[s.id] else { return s }
+                    var restored = s
+                    restored.displayOrder = old
+                    return restored
+                }
                 .sorted { $0.displayOrder < $1.displayOrder }
         }) { writer in try await writer.updateSavedSearchOrders(changed) }
     }

@@ -1,8 +1,8 @@
 // MARK: - GalleryViewUI.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// UI interaction components for gallery view: custom collection view with marquee
-// selection, drag/drop support, and smooth resizing grid layout.
+/// UI interaction components for gallery view: custom collection view with marquee
+/// selection, drag/drop support, and smooth resizing grid layout.
 
 import SwiftUI
 import AppKit
@@ -40,14 +40,14 @@ final class GalleryCollectionView: NSCollectionView {
     private var marqueeCurrentPoint: NSPoint = .zero
     private var preMarqueeSelection: Set<IndexPath> = []
 
-    // Drag state (click tracking — drag execution delegated to GalleryDragEngine)
+    /// Drag state (click tracking — drag execution delegated to GalleryDragEngine)
     private var isDragInitiated = false
     private var clickedOnItem = false
     /// Set in mouseDown on a plain click on an item already in the selection. The selection commit is deferred to
     /// mouseUp for that case only (see mouseDown(with:)).
     private var pendingPlainClickCollapse: IndexPath?
 
-    // GalleryDragEngine handles the flyback window and NSDraggingSource protocol.
+    /// GalleryDragEngine handles the flyback window and NSDraggingSource protocol.
     private lazy var dragEngine: GalleryDragEngine = {
         let engine = GalleryDragEngine()
         engine.sourceView = self
@@ -74,8 +74,8 @@ final class GalleryCollectionView: NSCollectionView {
         let result = super.becomeFirstResponder()
         guard result else { return false }
 
-        // Seed item 0 only for keyboard focus (Tab or programmatic). Mouse focus is handled by didSelectItemsAt(_:),
-        // which sets the cursor on the clicked item.
+        /// Seed item 0 only for keyboard focus (Tab or programmatic). Mouse focus is handled by didSelectItemsAt(_:),
+        /// which sets the cursor on the clicked item.
         let triggeringEventType = NSApp.currentEvent?.type
         let isMouseEvent = triggeringEventType == .leftMouseDown
                         || triggeringEventType == .rightMouseDown
@@ -83,14 +83,14 @@ final class GalleryCollectionView: NSCollectionView {
 
         guard !isMouseEvent else { return result }
 
-        // Snapshot the selection count synchronously. Reading it later could miss a selection cleared in between.
+        /// Snapshot the selection count synchronously. Reading it later could miss a selection cleared in between.
         let hadSelectionAtFocusTime = !selectionIndexPaths.isEmpty
         let hasItems = numberOfItems(inSection: 0) > 0
 
         guard !hadSelectionAtFocusTime, hasItems else { return result }
 
-        // Defer one run-loop cycle so any selection set in the same event lands first. seedInitialCursor declines to
-        // seed over an existing selection, and the hadSelectionAtFocusTime guard covers a prior selection that was cleared.
+        /// Defer one run-loop cycle so any selection set in the same event lands first. seedInitialCursor declines to
+        /// seed over an existing selection, and the hadSelectionAtFocusTime guard covers a prior selection that was cleared.
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   self.numberOfItems(inSection: 0) > 0 else { return }
@@ -100,7 +100,7 @@ final class GalleryCollectionView: NSCollectionView {
     }
 
     override func keyDown(with event: NSEvent) {
-        // Case-folded, since charactersIgnoringModifiers reports "A" while CapsLock is on.
+        /// Case-folded, since charactersIgnoringModifiers reports "A" while CapsLock is on.
         if event.charactersIgnoringModifiers?.lowercased() == "a",
            event.modifierFlags.contains(.command),
            onSelectAll?() == true {
@@ -143,29 +143,29 @@ final class GalleryCollectionView: NSCollectionView {
     deinit { NotificationCenter.default.removeObserver(self) }
 
     // MARK: - Mouse Handling
-    //
-    // SELECTION TIMING: AppKit normally defers didSelectItemsAt(_:) until mouseUp, so a drag can grab the whole
-    // existing selection. Drag detection here is independent of AppKit's loop, and super.mouseDown is not needed for
-    // item hits. The commit timing is split by case:
-    //   - A click that changes the selection (an unselected item, or Shift/Cmd) commits immediately in mouseDown.
-    //   - A plain click on an item already selected defers the collapse to mouseUp, so a drag still takes the group.
-    //
-    // Empty-space clicks start a marquee, which AppKit still handles through super so autoscroll works.
+    ///
+    /// SELECTION TIMING: AppKit normally defers didSelectItemsAt(_:) until mouseUp, so a drag can grab the whole
+    /// existing selection. Drag detection here is independent of AppKit's loop, and super.mouseDown is not needed for
+    /// item hits. The commit timing is split by case:
+    ///   - A click that changes the selection (an unselected item, or Shift/Cmd) commits immediately in mouseDown.
+    ///   - A plain click on an item already selected defers the collapse to mouseUp, so a drag still takes the group.
+    ///
+    /// Empty-space clicks start a marquee, which AppKit still handles through super so autoscroll works.
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         let hitPath = indexPathForItem(at: location)
 
-        // Defensive self-heal: close any stale click window, which is a no-op in normal flow.
+        /// Defensive self-heal: close any stale click window, which is a no-op in normal flow.
         DragSessionMonitor.shared.clickWindowDidClose()
 
-        // The user is acting on this viewport, so any pending scroll restore is stale and must not run on a later draw.
+        /// The user is acting on this viewport, so any pending scroll restore is stale and must not run on a later draw.
         onUserViewportInteraction?()
 
         isDragInitiated = false
         pendingPlainClickCollapse = nil
 
         guard let hitPath else {
-            // Start marquee selection — unchanged.
+            /// Start marquee selection — unchanged.
             isMarqueeDragging = true
             clickedOnItem = false
             marqueeStartPoint = location
@@ -181,32 +181,32 @@ final class GalleryCollectionView: NSCollectionView {
         clickedOnItem = true
         preMarqueeSelection = []
 
-        // Opens the click-ambiguity window from mouseDown until the gesture resolves as a click (mouseUp) or a drag
-        // (GalleryDragEngine.startManualDrag). Heavy consumers such as RightSidebar defer until then. Selection is still set
-        // synchronously, so the focus ring is unaffected. Marquee clicks never open a window. See DragSessionMonitor.
+        /// Opens the click-ambiguity window from mouseDown until the gesture resolves as a click (mouseUp) or a drag
+        /// (GalleryDragEngine.startManualDrag). Heavy consumers such as RightSidebar defer until then. Selection is still set
+        /// synchronously, so the focus ring is unaffected. Marquee clicks never open a window. See DragSessionMonitor.
         DragSessionMonitor.shared.clickWindowDidOpen()
 
-        // Records the potential drag start at mouseDown, before any selection work.
+        /// Records the potential drag start at mouseDown, before any selection work.
         dragEngine.mouseDownForDrag(at: location, event: event)
 
-        // Sets first responder before the selection branches below. The current event is still this mouseDown, so
-        // becomeFirstResponder's mouse-versus-keyboard check sees this mouseDown.
+        /// Sets first responder before the selection branches below. The current event is still this mouseDown, so
+        /// becomeFirstResponder's mouse-versus-keyboard check sees this mouseDown.
         unsafe window?.makeFirstResponder(self)
 
         let shiftHeld = NSEvent.modifierFlags.contains(.shift)
         let commandHeld = NSEvent.modifierFlags.contains(.command)
 
         if !shiftHeld && !commandHeld && selectionIndexPaths.contains(hitPath) {
-            // Plain click on an already-selected item: defer the collapse to mouseUp. selectionIndexPaths is left alone,
-            // so a drag started here still grabs the full selection.
+            /// Plain click on an already-selected item: defer the collapse to mouseUp. selectionIndexPaths is left alone,
+            /// so a drag started here still grabs the full selection.
             pendingPlainClickCollapse = hitPath
             return
         }
 
-        // A click that changes the selection commits now. Shift extends a range, Cmd toggles one item, and a plain click
-        // on an unselected item has no group to keep.
+        /// A click that changes the selection commits now. Shift extends a range, Cmd toggles one item, and a plain click
+        /// on an unselected item has no group to keep.
         if commandHeld {
-            // Cmd-click toggle. didSelectItemsAt(_:) trusts selectionIndexPaths, so the toggle is applied here first.
+            /// Cmd-click toggle. didSelectItemsAt(_:) trusts selectionIndexPaths, so the toggle is applied here first.
             var newSelection = selectionIndexPaths
             if newSelection.contains(hitPath) {
                 newSelection.remove(hitPath)
@@ -216,8 +216,8 @@ final class GalleryCollectionView: NSCollectionView {
             selectionIndexPaths = newSelection
         }
 
-        // Programmatic changes to selectionIndexPaths do not call the delegate, so the delegate is invoked here, as
-        // AppKit would for a real click.
+        /// Programmatic changes to selectionIndexPaths do not call the delegate, so the delegate is invoked here, as
+        /// AppKit would for a real click.
         delegate?.collectionView?(self, didSelectItemsAt: [hitPath])
     }
 
@@ -242,27 +242,27 @@ final class GalleryCollectionView: NSCollectionView {
             isMarqueeDragging = false
             onMarqueeSelectionChanged?(selectionIndexPaths)
         } else if let pending = pendingPlainClickCollapse, !isDragInitiated {
-            // The deferred click from mouseDown never turned into a drag — commit
-            // the collapse to the single clicked item now, exactly where AppKit's
-            // own internal tracking loop would have committed it. didSelectItemsAt's
-            // plain-click branch does the actual selectionIndexPaths assignment.
+            /// The deferred click from mouseDown never turned into a drag — commit
+            /// the collapse to the single clicked item now, exactly where AppKit's
+            /// own internal tracking loop would have committed it. didSelectItemsAt's
+            /// plain-click branch does the actual selectionIndexPaths assignment.
             delegate?.collectionView?(self, didSelectItemsAt: [pending])
         }
-        // If isDragInitiated is true here, a drag was started with the selection
-        // left intact by the deferred branch above; there is nothing left to commit.
+        /// If isDragInitiated is true here, a drag was started with the selection
+        /// left intact by the deferred branch above; there is nothing left to commit.
         pendingPlainClickCollapse = nil
         clickedOnItem = false
         isDragInitiated = false
         dragEngine.mouseUpForDrag()
-        // Close the click-ambiguity deferral window: the gesture has fully resolved
-        // as a plain click, so RightSidebar's deferred content resolution may now
-        // flush (clickWindowDidClose posts .dragDeferralWindowDidEnd). Ordered AFTER
-        // the pendingPlainClickCollapse commit above so the collapse's deferred
-        // selection write is already enqueued ahead of the flush on the main queue.
-        // For a gesture that became a drag, AppKit consumes the mouseUp (this method
-        // never runs) and sessionWillBegin already absorbed the window — the flush
-        // then happens at session end. Guarded internally, so marquee and
-        // empty-space mouseUps (no window ever opened) are free no-ops.
+        /// Close the click-ambiguity deferral window: the gesture has fully resolved
+        /// as a plain click, so RightSidebar's deferred content resolution may now
+        /// flush (clickWindowDidClose posts .dragDeferralWindowDidEnd). Ordered AFTER
+        /// the pendingPlainClickCollapse commit above so the collapse's deferred
+        /// selection write is already enqueued ahead of the flush on the main queue.
+        /// For a gesture that became a drag, AppKit consumes the mouseUp (this method
+        /// never runs) and sessionWillBegin already absorbed the window — the flush
+        /// then happens at session end. Guarded internally, so marquee and
+        /// empty-space mouseUps (no window ever opened) are free no-ops.
         DragSessionMonitor.shared.clickWindowDidClose()
         super.mouseUp(with: event)
     }
@@ -286,13 +286,13 @@ final class GalleryCollectionView: NSCollectionView {
 
         guard let layout = collectionViewLayout as? SmoothResizingGridLayout else { return }
         var newSelection = preMarqueeSelection
-        // layoutAttributesForElements(in:) can also return section-divider decoration attributes
-        // whose IndexPath lives in the same numeric namespace as real items
-        // (item: 0, 1, 2...). Without this filter, a marquee drag sweeping over a divider band
-        // would fold a bogus, colliding IndexPath into the selection. `.representedElementCategory
-        // == .item` is the first-party way to recognize a real, selectable cell's attributes and
-        // exclude decoration (and any future supplementary) views. This is a no-op for every
-        // non-divider view, where all returned attributes are already `.item`.
+        /// layoutAttributesForElements(in:) can also return section-divider decoration attributes
+        /// whose IndexPath lives in the same numeric namespace as real items
+        /// (item: 0, 1, 2...). Without this filter, a marquee drag sweeping over a divider band
+        /// would fold a bogus, colliding IndexPath into the selection. `.representedElementCategory
+        /// == .item` is the first-party way to recognize a real, selectable cell's attributes and
+        /// exclude decoration (and any future supplementary) views. This is a no-op for every
+        /// non-divider view, where all returned attributes are already `.item`.
         for attrs in layout.layoutAttributesForElements(in: rect) where attrs.representedElementCategory == .item {
             if let ip = attrs.indexPath { newSelection.insert(ip) }
         }
@@ -316,24 +316,24 @@ enum ArrowDirection {
 }
 
 // MARK: - Section Divider Decoration
-//
-// A gallery grid draws a labeled divider band at the start of every section that
-// currently contains at least one film. Two things produce those sections: the Film
-// Queue's "All" tab, whose three fixed sections ("Up Next", "Soon", "Later") describe the
-// view's own structure, and — when that view's ViewState.showSectionDividers is on —
-// every other gallery view, whose bands are derived from the sort option its films are
-// ordered by (see GallerySections.swift). The band itself is identical either way; only
-// the labels differ, which is why this decoration knows nothing about either producer.
-// This is implemented as an AppKit decoration
-// view (NSCollectionViewLayout's first-party mechanism for layout-managed, non-data-backed
-// visual elements) rather than as a synthetic "pseudo item" injected into the real film
-// array. That choice keeps the feature almost entirely non-invasive: `films`, the
-// Selection, arrow navigation, marquee hit-testing, drag-and-drop, and the context menu all work with real
-// film items and never see dividers. Only the layout's row math and up/down arrow navigation (which steps over a
-// divider) are divider-aware. See SmoothResizingGridLayout and GallerySubview.Coordinator.handleArrowKey.
-//
-// Dividers are inert wherever no bands apply: every view except the Film Queue while sorting sections are off,
-// and the purchase-date sort. Those cases publish no section breaks, so this decoration is never created.
+///
+/// A gallery grid draws a labeled divider band at the start of every section that
+/// currently contains at least one film. Two things produce those sections: the Film
+/// Queue's "All" tab, whose three fixed sections ("Up Next", "Soon", "Later") describe the
+/// view's own structure, and — when that view's ViewState.showSectionDividers is on —
+/// every other gallery view, whose bands are derived from the sort option its films are
+/// ordered by (see GallerySections.swift). The band itself is identical either way; only
+/// the labels differ, which is why this decoration knows nothing about either producer.
+/// This is implemented as an AppKit decoration
+/// view (NSCollectionViewLayout's first-party mechanism for layout-managed, non-data-backed
+/// visual elements) rather than as a synthetic "pseudo item" injected into the real film
+/// array. That choice keeps the feature almost entirely non-invasive: `films`, the
+/// Selection, arrow navigation, marquee hit-testing, drag-and-drop, and the context menu all work with real
+/// film items and never see dividers. Only the layout's row math and up/down arrow navigation (which steps over a
+/// divider) are divider-aware. See SmoothResizingGridLayout and GallerySubview.Coordinator.handleArrowKey.
+///
+/// Dividers are inert wherever no bands apply: every view except the Film Queue while sorting sections are off,
+/// and the purchase-date sort. Those cases publish no section breaks, so this decoration is never created.
 let sectionDividerDecorationKind = "SectionDividerDecoration"
 
 /// Layout attributes for a section-divider band. They carry the band's identity with its geometry.
@@ -344,8 +344,8 @@ let sectionDividerDecorationKind = "SectionDividerDecoration"
 /// them part of AppKit's comparison (see `isEqual`), so a relabeled band always re-applies. The label is then a pure
 /// function of the attributes, which come from the same sort that loaded the films.
 final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
-    // NSObject's isEqual, hash, and copy are nonisolated, but NSCollectionViewLayoutAttributes is @MainActor. The
-    // fields therefore sit behind a Mutex, so nonisolated access is checked. Contention is negligible.
+    /// NSObject's isEqual, hash, and copy are nonisolated, but NSCollectionViewLayoutAttributes is @MainActor. The
+    /// fields therefore sit behind a Mutex, so nonisolated access is checked. Contention is negligible.
     private struct Fields { var section: GallerySection?; var filmCount = 0 }
     private nonisolated let fields = Mutex(Fields())
 
@@ -358,7 +358,7 @@ final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
         set { fields.withLock { $0.filmCount = newValue } }
     }
 
-    // Copies must carry `section`. Without it, a copy would read as "no label" at unpredictable moments.
+    /// Copies must carry `section`. Without it, a copy would read as "no label" at unpredictable moments.
     override func copy(with zone: NSZone? = nil) -> Any {
         let copy = super.copy(with: zone)
         if let copy = copy as? SectionDividerLayoutAttributes {
@@ -368,8 +368,8 @@ final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
         return copy
     }
 
-    // Equality must include the band's identity, not just its rectangle. Otherwise AppKit would skip re-applying a
-    // relabeled band whose frame did not change.
+    /// Equality must include the band's identity, not just its rectangle. Otherwise AppKit would skip re-applying a
+    /// relabeled band whose frame did not change.
     override func isEqual(_ object: Any?) -> Bool {
         guard let other = object as? SectionDividerLayoutAttributes else { return false }
         return super.isEqual(object) && other.section == section && other.filmCount == filmCount
@@ -390,13 +390,13 @@ final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
 final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
     private let sectionLabel = NSTextField(labelWithString: "")
     private let filmCountLabel = NSTextField(labelWithString: "")
-    // A custom hairline view, since NSBox's separator draws at a fixed thickness.
+    /// A custom hairline view, since NSBox's separator draws at a fixed thickness.
     private let separatorLine = NSView()
     private static let separatorThickness: CGFloat = 2.0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // A new CALayer's backgroundColor is already transparent, so no clear color is set.
+        /// A new CALayer's backgroundColor is already transparent, so no clear color is set.
         wantsLayer = true
         setUpSubviews()
     }
@@ -440,13 +440,13 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
         ])
     }
 
-    // Resolved once in viewDidMoveToSuperview(), not on every reposition. It is weak because this view does not own
-    // the layout.
+    /// Resolved once in viewDidMoveToSuperview(), not on every reposition. It is weak because this view does not own
+    /// the layout.
     private weak var cachedLayout: SmoothResizingGridLayout?
 
-    // AppKit sets `frame` from the layout's attributes. layout() does not reliably re-fire when only the origin moves,
-    // which happens when a recycled divider view is reused for another row. Overriding setFrameOrigin and setFrameSize
-    // refreshes the label on every reposition, so a recycled view never shows a stale name.
+    /// AppKit sets `frame` from the layout's attributes. layout() does not reliably re-fire when only the origin moves,
+    /// which happens when a recycled divider view is reused for another row. Overriding setFrameOrigin and setFrameSize
+    /// refreshes the label on every reposition, so a recycled view never shows a stale name.
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
         refreshSectionLabel()
@@ -470,17 +470,17 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
             .collectionViewLayout as? SmoothResizingGridLayout
     }
 
-    // apply(_:) runs whenever AppKit re-applies attributes. That can happen with no frame change, such as when a film
-    // moves between two other sections. The frame setters would miss that, so this hook also refreshes the label. It
-    // short-circuits when the text is unchanged.
+    /// apply(_:) runs whenever AppKit re-applies attributes. That can happen with no frame change, such as when a film
+    /// moves between two other sections. The frame setters would miss that, so this hook also refreshes the label. It
+    /// short-circuits when the text is unchanged.
     func apply(_ layoutAttributes: NSCollectionViewLayoutAttributes) {
-        // The authoritative path. The attributes carry the identity, so no layout lookup or geometry is needed.
+        /// The authoritative path. The attributes carry the identity, so no layout lookup or geometry is needed.
         guard let attrs = layoutAttributes as? SectionDividerLayoutAttributes,
               let section = attrs.section else { return }
         setLabels(section: section, filmCount: attrs.filmCount)
     }
 
-    // A CALayer color does not follow appearance changes, so it is re-resolved when the appearance changes.
+    /// A CALayer color does not follow appearance changes, so it is re-resolved when the appearance changes.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         separatorLine.layer?.backgroundColor = NSColor.separatorColor.cgColor
@@ -496,7 +496,7 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
     /// Frame-driven fallback. It is the only path that relies on AppKit setting the frame from the attributes. It
     /// resolves from `dividerRows`, the same array `dividerAttributes` uses, so it always agrees with `apply(_:)`.
     private func refreshSectionLabel() {
-        // Re-resolve if the walk at insertion time came up empty.
+        /// Re-resolve if the walk at insertion time came up empty.
         if cachedLayout == nil { cachedLayout = resolveLayout() }
         guard let layout = cachedLayout, let section = layout.section(atDividerY: frame.minY) else { return }
         setLabels(section: section, filmCount: layout.filmCount(atDividerY: frame.minY) ?? 0)
@@ -511,34 +511,34 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
         if filmCountLabel.stringValue != countText { filmCountLabel.stringValue = countText }
     }
 
-    // Purely decorative — never intercept clicks/drags. See the type's doc comment.
+    /// Purely decorative — never intercept clicks/drags. See the type's doc comment.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 // MARK: - Smooth Resizing Grid Layout
 final class SmoothResizingGridLayout: NSCollectionViewLayout {
-    // Fixed layout constants. They are `let`, since nothing configures them. GallerySubview reads them from the layout
-    // for its scroll math, so the two cannot drift apart.
+    /// Fixed layout constants. They are `let`, since nothing configures them. GallerySubview reads them from the layout
+    /// for its scroll math, so the two cannot drift apart.
     let edgeInset: CGFloat = 16
     let itemSpacing: CGFloat = 16
     let lineSpacing: CGFloat = 16
-    // Extra bottom padding for StatusBar. updateNSView rewrites it when the StatusBar is shown or hidden.
+    /// Extra bottom padding for StatusBar. updateNSView rewrites it when the StatusBar is shown or hidden.
     var bottomInset: CGFloat = 0
 
-    // Configurable by Coordinator when settings change.
+    /// Configurable by Coordinator when settings change.
     var hasSubtitles: Bool = false
 
-    // Grid computation constants.
+    /// Grid computation constants.
     private let minItemWidth: CGFloat = Preferences.galleryMinItemWidth
-    // Set by GallerySubview from the largeGalleryGrid preference. The default is 7 columns; true gives 6.
+    /// Set by GallerySubview from the largeGalleryGrid preference. The default is 7 columns; true gives 6.
     var maxColumns: Int = Preferences.galleryMaxColumns
     private let maxGridWidth: CGFloat = Preferences.galleryMaxGridWidth
 
-    // Computed layout state — populated during prepare(), readable externally.
+    /// Computed layout state — populated during prepare(), readable externally.
     private(set) var containerWidth: CGFloat = 0
     private(set) var columnsPerRow: Int = 1
-    // There is no `itemWidth` property. The floored per-column width would be confused with the exact average the
-    // vertical math uses. Column widths also vary by a backing pixel, so colWPx is the only authoritative width.
+    /// There is no `itemWidth` property. The floored per-column width would be confused with the exact average the
+    /// vertical math uses. Column widths also vary by a backing pixel, so colWPx is the only authoritative width.
     private(set) var itemHeight: CGFloat = 150
     private(set) var gridOffsetX: CGFloat = 0
     private(set) var effectiveGridWidth: CGFloat = 0
@@ -561,14 +561,14 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     var sectionBreaks: [SectionBreak] = []
 
     // MARK: - "Up Next" Slots
-    //
-    // The Film Queue's "All" tab follows the "Up Next" films with empty placeholder slots,
-    // one per vacancy up to FilmQueue.upNextCapacity (UpNextSlots.swift). They are laid
-    // out exactly like cells, continuing the "Up Next" run's rows, but are decoration views
-    // rather than items: the film index space, selection, marquee, drag and Left/Right
-    // navigation never see them. Up/Down navigation steps over a row holding only slots
-    // the same way it steps over a divider band. Nil everywhere else, which leaves every
-    // other gallery's geometry exactly as it was.
+    ///
+    /// The Film Queue's "All" tab follows the "Up Next" films with empty placeholder slots,
+    /// one per vacancy up to FilmQueue.upNextCapacity (UpNextSlots.swift). They are laid
+    /// out exactly like cells, continuing the "Up Next" run's rows, but are decoration views
+    /// rather than items: the film index space, selection, marquee, drag and Left/Right
+    /// navigation never see them. Up/Down navigation steps over a row holding only slots
+    /// the same way it steps over a divider band. Nil everywhere else, which leaves every
+    /// other gallery's geometry exactly as it was.
 
     /// Where the slots go. `itemIndex` is the real-item index they follow (the end of the
     /// "Up Next" run); `firstNumber` is the 1-based slot number of the first one. When
@@ -601,51 +601,51 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     /// Scroll correction computed during prepare() for viewport anchoring.
     var pendingScrollCorrection: NSPoint? = nil
 
-    // Grid geometry stored per prepare() pass for on-demand attribute computation.
-    // On-demand means layoutAttributesForItem(at:) and layoutAttributesForElements(in:)
-    // synthesize NSCollectionViewLayoutAttributes from this geometry rather than reading
-    // from a pre-built N-element cache. This makes prepare() O(1) in item count instead
-    // of O(N), eliminating the dominant main-thread cost that was blocking CoreAnimation's
-    // menu dismissal animation during gallery reloads on large libraries.
+    /// Grid geometry stored per prepare() pass for on-demand attribute computation.
+    /// On-demand means layoutAttributesForItem(at:) and layoutAttributesForElements(in:)
+    /// synthesize NSCollectionViewLayoutAttributes from this geometry rather than reading
+    /// from a pre-built N-element cache. This makes prepare() O(1) in item count instead
+    /// of O(N), eliminating the dominant main-thread cost that was blocking CoreAnimation's
+    /// menu dismissal animation during gallery reloads on large libraries.
     private var itemCount: Int = 0
-    private var colXPx: [Int] = []   // X origin in backing pixels for each column (max 7)
-    private var colWPx: [Int] = []   // Width in backing pixels for each column (max 7)
+    private var colXPx: [Int] = []   /// X origin in backing pixels for each column (max 7)
+    private var colWPx: [Int] = []   /// Width in backing pixels for each column (max 7)
     private var gridOffsetPx: Int = 0
     private var rowStride: CGFloat = 0
     private var layoutScale: CGFloat = 2.0
     private var contentHeight: CGFloat = 0
 
-    // Previous layout state for viewport anchoring across prepare() calls.
+    /// Previous layout state for viewport anchoring across prepare() calls.
     private var prevColumnsPerRow: Int = 0
     private var prevItemHeight: CGFloat = 0
 
     // MARK: Section-Divider Geometry (rebuilt per prepare() pass)
-    //
-    // A maximal run of consecutive real items (all part of the same section run, or the entire
-    // grid when there are no section breaks at all) that occupies contiguous rows starting at
-    // `rowStart` (an abstract row index — used only for arrow-key navigation, which cares purely
-    // about row counting, never pixel heights) and, in on-screen pixels, begins at `yStart`.
+    ///
+    /// A maximal run of consecutive real items (all part of the same section run, or the entire
+    /// grid when there are no section breaks at all) that occupies contiguous rows starting at
+    /// `rowStart` (an abstract row index — used only for arrow-key navigation, which cares purely
+    /// about row counting, never pixel heights) and, in on-screen pixels, begins at `yStart`.
     private struct Segment {
-        let itemStart: Int   // inclusive
-        let itemEnd: Int     // exclusive
-        let rowStart: Int    // abstract row index (navigation only)
-        let rowCount: Int    // number of content rows this segment occupies
-        let yStart: CGFloat  // on-screen Y where this segment's first row begins
-        var slotCount = 0    // "Up Next" slots laid out after the segment's items
+        let itemStart: Int   /// inclusive
+        let itemEnd: Int     /// exclusive
+        let rowStart: Int    /// abstract row index (navigation only)
+        let rowCount: Int    /// number of content rows this segment occupies
+        let yStart: CGFloat  /// on-screen Y where this segment's first row begins
+        var slotCount = 0    /// "Up Next" slots laid out after the segment's items
         var slotFirstNumber = 0
     }
     private struct DividerRow {
-        let row: Int             // abstract row index (navigation only)
+        let row: Int             /// abstract row index (navigation only)
         let section: GallerySection
-        let y: CGFloat           // on-screen Y where this divider band begins
-        let itemIndex: Int       // the real-item index (SectionBreak.index) this band precedes
+        let y: CGFloat           /// on-screen Y where this divider band begins
+        let itemIndex: Int       /// the real-item index (SectionBreak.index) this band precedes
     }
     private var segments: [Segment] = []
     private var dividerRows: [DividerRow] = []
     /// O(1) test for whether a row is a divider row. It works on abstract row indexes, not pixels.
     private var dividerRowSet: Set<Int> = []
-    // There is no stored `totalRowCount`. The `count > 0` guard in layoutAttributesForElements(in:) is equivalent
-    // to `itemCount > 0`, so no extra field needs syncing.
+    /// There is no stored `totalRowCount`. The `count > 0` guard in layoutAttributesForElements(in:) is equivalent
+    /// to `itemCount > 0`, so no extra field needs syncing.
     /// The running-Y accumulator's end after the last band, before the bottom inset and StatusBar reservation. It is
     /// stored so contentHeight is derived once.
     private var contentBodyEndY: CGFloat = 0
@@ -669,17 +669,17 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         let scrollWidth = cv.enclosingScrollView?.bounds.width ?? cv.bounds.width
         let scale = unsafe cv.window?.backingScaleFactor ?? 2.0
 
-        // === Capture viewport anchor from the previous layout ===
-        // Records the item at the top of the viewport and its pixel offset. After the new layout is computed, the
-        // scroll correction is calculated from where that item now sits. `segments` and `dividerRows` still hold the
-        // previous values here, so the search uses the geometry the viewport was last drawn with. With no dividers,
-        // this is the single-segment row math.
+        /// === Capture viewport anchor from the previous layout ===
+        /// Records the item at the top of the viewport and its pixel offset. After the new layout is computed, the
+        /// scroll correction is calculated from where that item now sits. `segments` and `dividerRows` still hold the
+        /// previous values here, so the search uses the geometry the viewport was last drawn with. With no dividers,
+        /// this is the single-segment row math.
         let anchor: (itemIndex: Int, viewportOffset: CGFloat)?
         if let scrollView = cv.enclosingScrollView,
            prevColumnsPerRow > 0, prevItemHeight > 0 {
             let visibleRect = scrollView.documentVisibleRect
             let oldRowStride = prevItemHeight + lineSpacing
-            // Skip anchoring near the top, where items resize in place from the top edge.
+            /// Skip anchoring near the top, where items resize in place from the top edge.
             if visibleRect.minY > 1.0, oldRowStride > 0,
                let (anchorIdx, anchorY) = Self.anchorItem(atY: visibleRect.minY,
                                                           segments: segments,
@@ -691,31 +691,31 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             } else { anchor = nil }
         } else { anchor = nil }
 
-        // === Compute new layout ===
-        // Horizontal: integer backing-pixel math. The remainder is spread so the first columns get one extra backing
-        // pixel, which removes horizontal jiggle during resize.
-        // Vertical: exact fractional math, so item height tracks the width continuously with no stepping.
-        // CATransaction.setDisableActions(true) in WidthObservingScrollView stops Core Animation from interpolating
-        // between frames during resize.
+        /// === Compute new layout ===
+        /// Horizontal: integer backing-pixel math. The remainder is spread so the first columns get one extra backing
+        /// pixel, which removes horizontal jiggle during resize.
+        /// Vertical: exact fractional math, so item height tracks the width continuously with no stepping.
+        /// CATransaction.setDisableActions(true) in WidthObservingScrollView stops Core Animation from interpolating
+        /// between frames during resize.
 
         containerWidth = scrollWidth
 
-        // Column count, in points.
+        /// Column count, in points.
         let availableWidth = scrollWidth - (edgeInset * 2)
         let theoreticalColumns = Int(floor((availableWidth + itemSpacing) / (minItemWidth + itemSpacing)))
         columnsPerRow = min(max(1, theoreticalColumns), maxColumns)
 
-        // Converts fixed spacings to backing pixels.
+        /// Converts fixed spacings to backing pixels.
         let edgePx = Int(edgeInset * scale)
         let spacingPx = Int(itemSpacing * scale)
 
-        // Total backing pixels, and the fixed and flexible portions.
+        /// Total backing pixels, and the fixed and flexible portions.
         let totalPx = Int(round(scrollWidth * scale))
         let fixedPx = 2 * edgePx + max(0, columnsPerRow - 1) * spacingPx
         var itemTotalPx = max(columnsPerRow, totalPx - fixedPx)
         var computedGridOffsetPx = 0
 
-        // Applies the maximum grid width.
+        /// Applies the maximum grid width.
         let maxGridPx = Int(maxGridWidth * scale)
         let uncappedGridPx = fixedPx + itemTotalPx
 
@@ -725,13 +725,13 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             computedGridOffsetPx = (totalPx - actualGridPx) / 2
         }
 
-        // Bresenham distribution: the first `remainder` columns get one extra pixel.
+        /// Bresenham distribution: the first `remainder` columns get one extra pixel.
         let baseItemPx = itemTotalPx / columnsPerRow
         let remainder = itemTotalPx % columnsPerRow
 
-        // Column X positions and widths are stored so that attributes can be built on demand. The arrays are cleared
-        // with keepingCapacity to avoid reallocating every frame during a continuous resize. Capacity is bounded by
-        // maxColumns, so the retained storage is small.
+        /// Column X positions and widths are stored so that attributes can be built on demand. The arrays are cleared
+        /// with keepingCapacity to avoid reallocating every frame during a continuous resize. Capacity is bounded by
+        /// maxColumns, so the retained storage is small.
         colXPx.removeAll(keepingCapacity: true)
         colWPx.removeAll(keepingCapacity: true)
         colXPx.reserveCapacity(columnsPerRow)
@@ -747,29 +747,29 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         gridOffsetX = CGFloat(computedGridOffsetPx) / scale
         effectiveGridWidth = CGFloat(fixedPx + itemTotalPx) / scale
 
-        // Vertical: exact fractional math from the precise average item width.
+        /// Vertical: exact fractional math from the precise average item width.
         let exactItemPts = CGFloat(itemTotalPx) / (CGFloat(columnsPerRow) * scale)
         let posterHeight = exactItemPts * GalleryTileGeometry.posterHeightMultiplier
         let subtitleHeight: CGFloat = hasSubtitles ? 20 : 0
         itemHeight = posterHeight + subtitleHeight
 
-        // Stores geometry for on-demand attribute synthesis.
+        /// Stores geometry for on-demand attribute synthesis.
         itemCount = count
         rowStride = itemHeight + lineSpacing
         gridOffsetPx = computedGridOffsetPx
         layoutScale = scale
 
-        // === Build segments and section-divider rows from sectionBreaks ===
-        // With no section breaks, this produces one full-grid segment and no divider rows, so all geometry below matches
-        // the grid without dividers. Segment count follows the number of sections, not the number of items.
+        /// === Build segments and section-divider rows from sectionBreaks ===
+        /// With no section breaks, this produces one full-grid segment and no divider rows, so all geometry below matches
+        /// the grid without dividers. Segment count follows the number of sections, not the number of items.
         rebuildSegments(count: count)
 
-        // Content height is the accumulator's end plus the bottom inset and StatusBar reservation. With no dividers,
-        // this matches the closed-form grid height.
+        /// Content height is the accumulator's end plus the bottom inset and StatusBar reservation. With no dividers,
+        /// this matches the closed-form grid height.
         contentHeight = contentBodyEndY + edgeInset + bottomInset
 
-        // === Compute viewport anchor correction ===
-        // The anchored item's new Y comes from makeAttributes, which is segment-aware.
+        /// === Compute viewport anchor correction ===
+        /// The anchored item's new Y comes from makeAttributes, which is segment-aware.
         if let anchor = anchor, let scrollView = cv.enclosingScrollView,
            let newAttrs = makeAttributes(for: anchor.itemIndex) {
             let newItemY = newAttrs.frame.minY
@@ -825,7 +825,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         dividerRows.removeAll(keepingCapacity: true)
         dividerRowSet.removeAll(keepingCapacity: true)
 
-        // "Up Next" slots go to the segment that ends where the run says.
+        /// "Up Next" slots go to the segment that ends where the run says.
         var pendingSlots = (columnsPerRow > 0 ? slotRun : nil).flatMap { $0.count > 0 ? $0 : nil }
         func rows(items: Int, slots: Int) -> Int {
             let total = items + slots
@@ -836,7 +836,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             pendingSlots = nil
             return (run.count, run.firstNumber)
         }
-        // An empty "Up Next" still shows its band and slots, ahead of the rest.
+        /// An empty "Up Next" still shows its band and slots, ahead of the rest.
         if let run = pendingSlots, let section = run.leadingSection, run.itemIndex == 0 {
             pendingSlots = nil
             let divY = advanceForDivider()
@@ -851,11 +851,11 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             currentRow += slotRows
         }
 
-        // Walk sectionBreaks only when the column count is known. prepare() already guards against zero items.
+        /// Walk sectionBreaks only when the column count is known. prepare() already guards against zero items.
         if columnsPerRow > 0 {
-            // `lastBreakIndex` enforces that each break index strictly advances. A repeated index would stack an empty band
-            // on the previous one. GallerySectioning never emits one, and the list style drops any remaining breaks, so both
-            // consumers agree on malformed input.
+            /// `lastBreakIndex` enforces that each break index strictly advances. A repeated index would stack an empty band
+            /// on the previous one. GallerySectioning never emits one, and the list style drops any remaining breaks, so both
+            /// consumers agree on malformed input.
             var lastBreakIndex = -1
             for brk in sectionBreaks {
                 guard brk.index > lastBreakIndex, brk.index >= currentItemStart,
@@ -887,15 +887,15 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         segments.append(Segment(itemStart: currentItemStart, itemEnd: count,
                                 rowStart: currentRow, rowCount: lastRows, yStart: lastY,
                                 slotCount: lastSlots.count, slotFirstNumber: lastSlots.first))
-        // No trailing `currentRow += lastRows`: nothing reads the accumulator after the final segment.
+        /// No trailing `currentRow += lastRows`: nothing reads the accumulator after the final segment.
 
         contentBodyEndY = currentY
     }
 
     // MARK: - On-Demand Attribute Synthesis
-    //
-    // Attributes are built at query time rather than for every item in prepare(). A large library would otherwise
-    // allocate thousands of layout attribute objects on each reloadData(). Only the attributes AppKit requests are built.
+    ///
+    /// Attributes are built at query time rather than for every item in prepare(). A large library would otherwise
+    /// allocate thousands of layout attribute objects on each reloadData(). Only the attributes AppKit requests are built.
     /// Computes layout attributes for one item index from the stored geometry. Returns nil if the index is out of range
     /// or the grid is not prepared. The Y value comes from the containing segment's `yStart`, so later sections move
     /// down correctly around dividers.
@@ -942,8 +942,8 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
 
         var result: [NSCollectionViewLayoutAttributes] = []
 
-        // Section-divider bands. dividerRows is empty where no bands apply, so this block is skipped. Both arrays are
-        // Y-ascending, so a binary search finds the first band that could be visible.
+        /// Section-divider bands. dividerRows is empty where no bands apply, so this block is skipped. Both arrays are
+        /// Y-ascending, so a binary search finds the first band that could be visible.
         if !dividerRows.isEmpty {
             let startDividerIdx = firstDividerIndex(reaching: rect.minY)
             for ordinal in startDividerIdx..<dividerRows.count {
@@ -955,7 +955,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             }
         }
 
-        // "Up Next" slot decorations.
+        /// "Up Next" slot decorations.
         if slotRun != nil {
             for seg in segments where seg.slotCount > 0 {
                 for slot in 0..<seg.slotCount {
@@ -966,8 +966,8 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             }
         }
 
-        // Item cells are scanned segment by segment. With no dividers there is one segment, which gives the single
-        // contiguous row scan.
+        /// Item cells are scanned segment by segment. With no dividers there is one segment, which gives the single
+        /// contiguous row scan.
         let startSegIdx = dividerRows.isEmpty ? 0 : firstSegmentIndex(reaching: rect.minY)
         for segIdx in startSegIdx..<segments.count {
             let seg = segments[segIdx]
@@ -1048,7 +1048,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             y: divider.y,
             width: max(0, effectiveGridWidth - 2 * edgeInset),
             height: dividerHeight)
-        // The identity is carried on the attributes, not looked up from the frame. See SectionDividerLayoutAttributes.
+        /// The identity is carried on the attributes, not looked up from the frame. See SectionDividerLayoutAttributes.
         attrs.section = divider.section
         attrs.filmCount = filmCount(atOrdinal: ordinal)
         return attrs
@@ -1080,7 +1080,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     /// The on-screen Y where the divider band before `itemIndex` begins, or nil if no band precedes it. The Sort menu's
     /// "Jump to Section" uses it to place the band's top edge at the top of the viewport.
     func dividerY(forItemIndex itemIndex: Int) -> CGFloat? {
-        // Last match wins: an empty "Up Next" band shares index 0 with the band after it.
+        /// Last match wins: an empty "Up Next" band shares index 0 with the band after it.
         dividerRows.last(where: { $0.itemIndex == itemIndex })?.y
     }
 
@@ -1165,7 +1165,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             return (index: index, y: seg.yStart + CGFloat(localRow) * rowStride)
         }
 
-        // Fast path with no dividers. segments has one entry, so this is a direct lookup.
+        /// Fast path with no dividers. segments has one entry, so this is a direct lookup.
         guard !dividerRows.isEmpty else {
             guard let seg = segments.first else { return nil }
             return resolve(seg)
@@ -1193,7 +1193,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: NSRect) -> Bool {
-        // AppKit drives layout invalidation. When the scroll view resizes, prepare() runs once with the current bounds.
+        /// AppKit drives layout invalidation. When the scroll view resizes, prepare() runs once with the current bounds.
         abs(newBounds.width - containerWidth) > 0.01
     }
 }

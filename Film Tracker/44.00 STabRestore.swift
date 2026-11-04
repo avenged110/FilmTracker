@@ -1,7 +1,7 @@
 // MARK: - STabRestore.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// FilmTracker.app settings window: "Restore" tab.
+/// FilmTracker.app settings window: "Restore" tab.
 
 import SwiftUI
 import CoreData
@@ -51,8 +51,8 @@ private struct BackupInfoBox: View {
             Divider()
 
             HStack(alignment: .center, spacing: 16) {
-                // Three rows, because the button takes width out of the box and two rows would have to crowd or
-                // truncate against it.
+                /// Three rows, because the button takes width out of the box and two rows would have to crowd or
+                /// truncate against it.
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 16) {
                         item("Format:", info.format)
@@ -76,18 +76,18 @@ private struct BackupInfoBox: View {
                     }
                 }
 
-                // No .defaultAction: the button reads as the system's standard chrome
-                // rather than as the sheet's primary action. (Return is already spoken
-                // for — the sheet's key monitor dismisses on it.)
+                /// No .defaultAction: the button reads as the system's standard chrome
+                /// rather than as the sheet's primary action. (Return is already spoken
+                /// for — the sheet's key monitor dismisses on it.)
                 Button("Restore Database") { restore() }
             }
-            // Fills the space below the divider so its children center in it.
+            /// Fills the space below the divider so its children center in it.
             .frame(maxHeight: .infinity)
         }
         .padding(8)
         .frame(height: Self.height, alignment: .topLeading)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        // The shared field edge, as on the path bar above and the Export tab's two blocks.
+        /// The shared field edge, as on the path bar above and the Export tab's two blocks.
         .fieldEdgeChrome()
     }
 }
@@ -98,15 +98,15 @@ struct RestoreSettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Sized against every tab's blurb, so the top-half contents of the Export and
-            // Restore tabs stay positionally aligned. See SettingsTabDescription.
+            /// Sized against every tab's blurb, so the top-half contents of the Export and
+            /// Restore tabs stay positionally aligned. See SettingsTabDescription.
             SettingsTabDescription(blurb: .restore)
 
-            // Backup file label.
+            /// Backup file label.
             Text("Backup file:")
                 .font(.headline)
 
-            // PathBar (always visible).
+            /// PathBar (always visible).
             PathBarView(
                 pathComponents: viewModel.backupInfo?.url.pathComponents.filter {
                     $0 != "/"
@@ -115,9 +115,9 @@ struct RestoreSettingsView: View {
                     : "questionmark.folder.fill")
             )
 
-            // Select Backup File Button with validation indicator.
-            // Use overlay to prevent layout shifting when the validation indicator
-            // appears/disappears.
+            /// Select Backup File Button with validation indicator.
+            /// Use overlay to prevent layout shifting when the validation indicator
+            /// appears/disappears.
             HStack(spacing: 0) {
                 Button {
                     viewModel.selectBackupFile()
@@ -128,7 +128,7 @@ struct RestoreSettingsView: View {
                 .disabled(viewModel.isRestoring || viewModel.isValidating)
                 .controlSize(.regular)
                 
-                // Validation indicator with fade animation - positioned as overlay
+                /// Validation indicator with fade animation - positioned as overlay
                 if viewModel.isValidating {
                     HStack(spacing: 8) {
                         ProgressView()
@@ -148,7 +148,7 @@ struct RestoreSettingsView: View {
 
             Divider()
 
-            // Backup Information (shown after successful validation).
+            /// Backup Information (shown after successful validation).
             if let info = viewModel.backupInfo {
                 BackupInfoBox(info: info) {
                     viewModel.showConfirmRestore = true
@@ -158,12 +158,12 @@ struct RestoreSettingsView: View {
             Spacer()
         }
         .padding()
-        // Progress sheet.
+        /// Progress sheet.
         .sheet(isPresented: viewModel.isRestoringBinding) {
             RestoreProgressSheet()
                 .interactiveDismissDisabled()
         }
-        // "Validation Error" alert.
+        /// "Validation Error" alert.
         .alert("Backup File Error", isPresented: $viewModel.showValidationError) {
             Button("OK", role: .cancel) {
                 viewModel.clearSelectedFile()
@@ -171,24 +171,24 @@ struct RestoreSettingsView: View {
         } message: {
             Text(viewModel.validationErrorMessage)
         }
-        // "Restore Confirmation" alert.
-        .alert("Restore Database", isPresented: $viewModel.showConfirmRestore) {
+        /// "Restore Confirmation" alert.
+        .alert("Restore Database?", isPresented: $viewModel.showConfirmRestore) {
             Button("Cancel", role: .cancel) { }
             Button("Restore", role: .destructive) {
                 viewModel.performRestore()
             }
         } message: {
-            Text("Are you sure you want to restore this database? All existing data will be permanently replaced with the contents of the selected backup. This action cannot be undone.")
+            Text("All existing data will be permanently replaced with the contents of the selected backup. This action cannot be undone.")
         }
-        // "Restore Error" alert.
-        //
-        // Two shapes, chosen by how far the restore got. A failure BEFORE the restored
-        // library was committed left the existing database untouched, so the session carries
-        // on and the alert simply dismisses. Nothing after the commit can fail today (the
-        // settings and posters are applied by the relaunch), but should a later step ever
-        // throw, the restored library still replaces this one at the next launch, so the
-        // alert offers the same forced relaunch the success path does. See
-        // DBRestorer.requiresRestart.
+        /// "Restore Error" alert.
+        ///
+        /// Two shapes, chosen by how far the restore got. A failure BEFORE the restored
+        /// library was committed left the existing database untouched, so the session carries
+        /// on and the alert simply dismisses. Nothing after the commit can fail today (the
+        /// settings and posters are applied by the relaunch), but should a later step ever
+        /// throw, the restored library still replaces this one at the next launch, so the
+        /// alert offers the same forced relaunch the success path does. See
+        /// DBRestorer.requiresRestart.
         .alert("Restoration Failed", isPresented: $viewModel.showRestoreError) {
             if viewModel.restoreFailureRequiresRestart {
                 Button("Quit and Restart") {
@@ -202,7 +202,7 @@ struct RestoreSettingsView: View {
         } message: {
             Text(viewModel.restoreErrorMessage)
         }
-        // "Restore Complete" alert.
+        /// "Restore Complete" alert.
         .alert("Restoration Complete", isPresented: $viewModel.showRestoreComplete) {
             Button("Quit and Restart") {
                 DBRestorer.restartApplication()
@@ -218,22 +218,22 @@ struct RestoreProgressSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
-            // Large icon.
+            /// Large icon.
             Image(systemName: "doc.badge.clock")
                 .font(.system(size: 60))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color.accentColor)
                 .padding(.vertical, 20)
-            // Title.
+            /// Title.
             Text("Restoring Database")
                 .font(.title2)
                 .fontWeight(.medium)
                 .padding(.bottom, 10)
-            // Information message.
+            /// Information message.
             Text("Please wait. Do not quit the application.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-            // Indeterminate spinner.
+            /// Indeterminate spinner.
             ProgressView()
                 .scaleEffect(0.8)
                 .padding(.top, 40)
@@ -258,7 +258,7 @@ final class RestoreViewModel: Loggable {
     private(set) var isValidating = false
     private(set) var isRestoring = false
     
-    // Alert states
+    /// Alert states
     var showValidationError = false
     var validationErrorMessage = ""
     var showConfirmRestore = false
@@ -269,17 +269,17 @@ final class RestoreViewModel: Loggable {
     /// Drives which button the "Restoration Failed" alert offers.
     private(set) var restoreFailureRequiresRestart = false
     var showRestoreComplete = false
-    // Message shown in the completion alert. Set by performRestore() so that a
-    // non-fatal settings-apply failure can be disclosed to the user alongside the
-    // successful-restore confirmation. Defaults to the standard success text.
+    /// Message shown in the completion alert. Set by performRestore() so that a
+    /// non-fatal settings-apply failure can be disclosed to the user alongside the
+    /// successful-restore confirmation. Defaults to the standard success text.
     var restoreCompletionMessage: String =
         "The restoration was successful. The application must be restarted for changes to take effect."
     
-    // Reference to the hosting window (Settings sheet) for proper panel attachment
+    /// Reference to the hosting window (Settings sheet) for proper panel attachment
     var hostingWindow: NSWindow?
     
     // MARK: - Computed Bindings
-    // Provides a binding for the restoration sheet presentation
+    /// Provides a binding for the restoration sheet presentation
     var isRestoringBinding: Binding<Bool> {
         Binding(
             get: { self.isRestoring },
@@ -304,11 +304,11 @@ final class RestoreViewModel: Loggable {
         let appVersion: String?
         let hasSettings: Bool
 
-        // Parses the ISO 8601 creation string stored in the backup manifest and
-        // returns a human-readable "Month Day, Year" string for display in the UI.
-        // Returns nil if the stored string cannot be parsed, so the label is simply
-        // omitted rather than showing a raw ISO timestamp.
-        //
+        /// Parses the ISO 8601 creation string stored in the backup manifest and
+        /// returns a human-readable "Month Day, Year" string for display in the UI.
+        /// Returns nil if the stored string cannot be parsed, so the label is simply
+        /// omitted rather than showing a raw ISO timestamp.
+        ///
         private static let isoParser = Date.ISO8601FormatStyle(timeZoneSeparator: .colon, includingFractionalSeconds: true)
         private static let isoParserNoFrac = Date.ISO8601FormatStyle(timeZoneSeparator: .colon)
         private static let displayFormatter: DateFormatter = {
@@ -319,9 +319,9 @@ final class RestoreViewModel: Loggable {
         }()
 
         var formattedCreationDate: String? {
-            // Try with fractional seconds first, then without, to handle both
-            // ISO 8601 variants that backup files may contain.
-            // Leading whitespace is skipped.
+            /// Try with fractional seconds first, then without, to handle both
+            /// ISO 8601 variants that backup files may contain.
+            /// Leading whitespace is skipped.
             let trimmed = String(created.drop(while: \.isWhitespace))
             let date = (try? Self.isoParser.parse(trimmed)) ?? (try? Self.isoParserNoFrac.parse(trimmed))
             return date.map { Self.displayFormatter.string(from: $0) }
@@ -339,12 +339,12 @@ final class RestoreViewModel: Loggable {
     
     func selectBackupFile() {
         Task { @MainActor in
-            // This avoids the "dyn.*" ad-hoc type mismatch that causes grayed-out items.
+            /// This avoids the "dyn.*" ad-hoc type mismatch that causes grayed-out items.
             let ftbackupTypes = UTType.types(tag: BackupFilename.fileExtension, tagClass: .filenameExtension,
                 conformingTo: .package)
             
-            // Prefer the canonical types if found, otherwise allow any package (still
-            // gated by extension below).
+            /// Prefer the canonical types if found, otherwise allow any package (still
+            /// gated by extension below).
             let allowedTypes: [UTType] = ftbackupTypes.isEmpty ? [.package] : ftbackupTypes
             
             let config = OpenPanelConfiguration(
@@ -357,7 +357,7 @@ final class RestoreViewModel: Loggable {
                 prompt: "Select"
             )
             
-            // Use hostingWindow to attach panel to Settings sheet, not main window
+            /// Use hostingWindow to attach panel to Settings sheet, not main window
             let selection = await OpenPanelPresenter.present(
                 configuration: config,
                 attachedTo: hostingWindow
@@ -365,8 +365,8 @@ final class RestoreViewModel: Loggable {
             guard case let .urls(urls) = selection,
                   let url = urls.first else { return }
             
-            // Safety: Double-check that the selected file has a .ftbackup extension
-            // in case filtering fell back to '.package' type.
+            /// Safety: Double-check that the selected file has a .ftbackup extension
+            /// in case filtering fell back to '.package' type.
             guard BackupFilename.isBackup(url) else {
                 validationErrorMessage =
                     "The selected file is not a valid Film Tracker backup (.ftbackup)."
@@ -392,30 +392,30 @@ final class RestoreViewModel: Loggable {
         
         Task {
             do {
-                // Begin security-scoped access in case the package is outside the sandbox.
+                /// Begin security-scoped access in case the package is outside the sandbox.
                 let didAccess = url.startAccessingSecurityScopedResource()
                 defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
                 
-                // Verify it's a package directory.
+                /// Verify it's a package directory.
                 guard url.isExistingDirectory else {
                     throw DBRestorerError.notAPackage(url)
                 }
                 
-                // Verify backup.xml exists inside the package.
+                /// Verify backup.xml exists inside the package.
                 let xmlURL = url.appendingPathComponent("backup.xml")
                 guard FileManager.default.fileExists(atPath: xmlURL.path(percentEncoded: false)) else {
                     throw DBRestorerError.missingXML(url)
                 }
                 
                 let importer = DBImporter()
-                // Parse the XML file. parseBackupFile validates format and version
-                // internally (throws DBImporterError.unsupportedFormat / .unsupportedVersion
-                // on failure), so a separate validateBackupFile call is redundant here.
+                /// Parse the XML file. parseBackupFile validates format and version
+                /// internally (throws DBImporterError.unsupportedFormat / .unsupportedVersion
+                /// on failure), so a separate validateBackupFile call is redundant here.
                 let backup = try await importer.parseBackupFile(at: xmlURL)
                 let format = backup.format
                 let version = backup.version
                 
-                // Count objects by type.
+                /// Count objects by type.
                 var filmCount = 0
                 var listCount = 0
                 var savedSearchCount = 0
@@ -433,10 +433,10 @@ final class RestoreViewModel: Loggable {
                     }
                 }
                 
-                // Count poster images in the package's Posters folder.
-                // Listed off the main actor: a full library's folder holds thousands of
-                // entries. The security-scoped access begun above stays open across this
-                // await, since its `defer` runs only when the Task body exits.
+                /// Count poster images in the package's Posters folder.
+                /// Listed off the main actor: a full library's folder holds thousands of
+                /// entries. The security-scoped access begun above stays open across this
+                /// await, since its `defer` runs only when the Task body exits.
                 let imagesURL = url.appendingPathComponent("Posters")
                 let posterCount = await Task.detached(priority: .userInitiated) { () -> Int in
                     guard FileManager.default.fileExists(atPath: imagesURL.path(percentEncoded: false)),
@@ -449,10 +449,10 @@ final class RestoreViewModel: Loggable {
                 }.value
                 guard generation == validationGeneration else { return }
                 
-                // RestoreViewModel is @MainActor-isolated; the unstructured Task {}
-                // created within that context inherits the same isolation. All code in
-                // this Task body — including the resume points after async calls — runs
-                // on the main actor, so direct property assignment is correct here.
+                /// RestoreViewModel is @MainActor-isolated; the unstructured Task {}
+                /// created within that context inherits the same isolation. All code in
+                /// this Task body — including the resume points after async calls — runs
+                /// on the main actor, so direct property assignment is correct here.
                 backupInfo = BackupFileInfo(
                     url: url,
                     format: format,
@@ -492,33 +492,33 @@ final class RestoreViewModel: Loggable {
         guard let info = backupInfo,
               let container = persistentContainer else { return }
         
-        // Start the restore state
+        /// Start the restore state
         isRestoring = true
         showRestoreError = false
         showRestoreComplete = false
         restoreFailureRequiresRestart = false
-        // Reset the completion message so a prior failed attempt cannot leak stale
-        // non-fatal-warning text into a subsequent successful run.
+        /// Reset the completion message so a prior failed attempt cannot leak stale
+        /// non-fatal-warning text into a subsequent successful run.
         restoreCompletionMessage =
             "The restoration was successful. The application must be restarted for changes to take effect."
         
         let backupURL = info.url
         let coordinator = self.dataCoordinator
         
-        // Run the restore on MainActor, inheriting from the @MainActor view model.
-        // DBRestorer is @MainActor-isolated and dispatches its heavy work off MainActor
-        // internally where needed — wrapping the call in Task.detached would capture the
-        // @MainActor-isolated `coordinator` across an actor boundary, which Swift 6
-        // strict concurrency flags as unsafe. Running here keeps the isolation contract
-        // simple and removes the need for MainActor.run trampolines in every branch.
-        // Not retained: a restore cannot be canceled (see DBRestorer.restoreFromBackup),
-        // so there is nothing a stored handle could be used for. The task keeps itself
-        // alive until it completes.
+        /// Run the restore on MainActor, inheriting from the @MainActor view model.
+        /// DBRestorer is @MainActor-isolated and dispatches its heavy work off MainActor
+        /// internally where needed — wrapping the call in Task.detached would capture the
+        /// @MainActor-isolated `coordinator` across an actor boundary, which Swift 6
+        /// strict concurrency flags as unsafe. Running here keeps the isolation contract
+        /// simple and removes the need for MainActor.run trampolines in every branch.
+        /// Not retained: a restore cannot be canceled (see DBRestorer.restoreFromBackup),
+        /// so there is nothing a stored handle could be used for. The task keeps itself
+        /// alive until it completes.
         Task { [weak self] in
             guard let self = self else { return }
             
             do {
-                // Begin security-scoped access during restore.
+                /// Begin security-scoped access during restore.
                 let didAccess = backupURL.startAccessingSecurityScopedResource()
                 defer { if didAccess { backupURL.stopAccessingSecurityScopedResource() } }
                 
@@ -526,19 +526,19 @@ final class RestoreViewModel: Loggable {
 
                 do {
                     try await restorer.restoreFromBackup(at: backupURL) { _, _ in
-                        // Progress callback intentionally ignored — UI shows indeterminate spinner
+                        /// Progress callback intentionally ignored — UI shows indeterminate spinner
                     }
                 } catch {
-                    // Record how far the restore got BEFORE the error is classified below.
-                    // Once the restored library is committed it replaces this one at the
-                    // next launch, so the failure alert must force a relaunch rather than
-                    // dismiss.
+                    /// Record how far the restore got BEFORE the error is classified below.
+                    /// Once the restored library is committed it replaces this one at the
+                    /// next launch, so the failure alert must force a relaunch rather than
+                    /// dismiss.
                     self.restoreFailureRequiresRestart = restorer.requiresRestart
                     throw error
                 }
                 
-                // Mark complete and do not refresh any data here. The application
-                // will restart, which will re-initialize everything cleanly.
+                /// Mark complete and do not refresh any data here. The application
+                /// will restart, which will re-initialize everything cleanly.
                 self.isRestoring = false
                 self.showRestoreComplete = true
             } catch let error as DBRestorerError {

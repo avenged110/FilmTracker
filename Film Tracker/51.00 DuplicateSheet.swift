@@ -1,7 +1,7 @@
 // MARK: - DuplicateSheet.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-// User interface for finding and resolving duplicate films in the library.
+/// User interface for finding and resolving duplicate films in the library.
 
 import SwiftUI
 
@@ -15,32 +15,32 @@ struct DuplicateSheet: View {
     @State private var keyMonitor: Any?
     @State private var scrollMonitor: Any?
     
-    // Reference-type box so the scroll monitor closure can reliably read and write
-    // the flag across the continuous stream of scrollWheel events in a single gesture.
+    /// Reference-type box so the scroll monitor closure can reliably read and write
+    /// the flag across the continuous stream of scrollWheel events in a single gesture.
     private final class SwipeState { var consumed: Bool = false }
     @State private var swipeState = SwipeState()
     
     var body: some View {
         VStack(spacing: 0) {
-            // Titlebar.
+            /// Titlebar.
             titleBar
             
-            // Main content area.
+            /// Main content area.
             ZStack {
                 if viewModel.duplicates.isEmpty {
-                    // Placeholder (initial, scanning, and post-scan states).
+                    /// Placeholder (initial, scanning, and post-scan states).
                     placeholderView
                 } else {
-                    // Results state: Show carousel of duplicates.
+                    /// Results state: Show carousel of duplicates.
                     carouselView
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .clipped() // Clip at exact titlebar boundary
+            .clipped() /// Clip at exact titlebar boundary
             
             Divider()
             
-            // Bottom buttons.
+            /// Bottom buttons.
             bottomBar
         }
         .background(Color(nsColor: .windowBackgroundColor))
@@ -78,68 +78,68 @@ struct DuplicateSheet: View {
                 return event
             }
             
-            // Set up keyboard event monitoring for this sheet
+            /// Set up keyboard event monitoring for this sheet
             keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak viewModel] event in
                 guard let viewModel = viewModel else { return event }
                 
-                // Handle Escape key
-                if event.keyCode == 53 { // Escape key
-                    // While the confirmation is up, Escape is its own (Continue Scan).
+                /// Handle Escape key
+                if event.keyCode == 53 { /// Escape key
+                    /// While the confirmation is up, Escape is its own (Continue Scan).
                     if viewModel.isScanning && !self.showingCancelConfirmation {
-                        // Trigger Cancel Scan confirmation
+                        /// Trigger Cancel Scan confirmation
                         Task { @MainActor in
                             self.showingCancelConfirmation = true
                         }
-                        return nil // Event handled
+                        return nil /// Event handled
                     }
-                    return event // Let default Close button handle it
+                    return event /// Let default Close button handle it
                 }
                 
-                // Handle Left/Right arrow keys for carousel navigation
+                /// Handle Left/Right arrow keys for carousel navigation
                 if !viewModel.duplicates.isEmpty && !viewModel.isScanning {
-                    if event.keyCode == 123 { // Left arrow
+                    if event.keyCode == 123 { /// Left arrow
                         Task { @MainActor in
                             viewModel.previousCard()
                         }
-                        return nil // Event handled
-                    } else if event.keyCode == 124 { // Right arrow
+                        return nil /// Event handled
+                    } else if event.keyCode == 124 { /// Right arrow
                         Task { @MainActor in
                             viewModel.nextCard()
                         }
-                        return nil // Event handled
+                        return nil /// Event handled
                     }
                 }
                 
-                return event // Pass through other keys
+                return event /// Pass through other keys
             }
         }
         .onDisappear {
-            // Remove keyboard event monitor
+            /// Remove keyboard event monitor
             if let monitor = keyMonitor {
                 NSEvent.removeMonitor(monitor)
                 keyMonitor = nil
             }
-            // Remove scroll event monitor
+            /// Remove scroll event monitor
             if let monitor = scrollMonitor {
                 NSEvent.removeMonitor(monitor)
                 scrollMonitor = nil
             }
             
-            // SAFETY NET: Cancel any ongoing scan if sheet is dismissed
+            /// SAFETY NET: Cancel any ongoing scan if sheet is dismissed
             if viewModel.isScanning {
                 viewModel.emergencyCancelScan()
             }
         }
         .interactiveDismissDisabled(viewModel.isScanning)
-        .alert("Stop Duplicate Scan", isPresented: $showingCancelConfirmation) {
+        .alert("Stop Duplicate Scan?", isPresented: $showingCancelConfirmation) {
             Button("Continue Scan", role: .cancel) {
-                // User canceled the cancellation — scan continues unaffected.
+                /// User canceled the cancellation — scan continues unaffected.
             }
             Button("Stop Scan", role: .destructive) {
                 viewModel.confirmCancelScan()
             }
         } message: {
-            Text("Are you sure you want to stop the duplicate scan? Progress will be lost.")
+            Text("The duplicate scan will stop, and its progress will be lost.")
         }
     }
     
@@ -156,12 +156,12 @@ struct DuplicateSheet: View {
     }
     
     // MARK: - Placeholder / Scanning View
-    // The glyph + label are vertically centered in the available space at all times.
-    // During a scan the progress bar and counter grow downward from below the label
-    // without disturbing the centered position of the glyph + label pair.
+    /// The glyph + label are vertically centered in the available space at all times.
+    /// During a scan the progress bar and counter grow downward from below the label
+    /// without disturbing the centered position of the glyph + label pair.
     private var placeholderView: some View {
         ZStack(alignment: .center) {
-            // Centered anchor: glyph + label always sit at the vertical midpoint.
+            /// Centered anchor: glyph + label always sit at the vertical midpoint.
             VStack(spacing: 16) {
                 Image(systemName: "rectangle.and.text.magnifyingglass")
                     .resizable()
@@ -169,8 +169,8 @@ struct DuplicateSheet: View {
                     .frame(width: 120, height: 120)
                     .foregroundStyle(.secondary)
                 
-                // Fixed 2-line height reservation (13pt × 2 lines + leading ≈ 36pt).
-                // Top-aligned so single-line strings don't shift the glyph above them.
+                /// Fixed 2-line height reservation (13pt × 2 lines + leading ≈ 36pt).
+                /// Top-aligned so single-line strings don't shift the glyph above them.
                 Text(viewModel.placeholderText)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -178,9 +178,9 @@ struct DuplicateSheet: View {
                     .frame(width: 320, height: 36, alignment: .top)
             }
             
-            // Progress components: offset downward from the ZStack center so they
-            // appear directly below the centered glyph + label without participating
-            // in the centering calculation themselves.
+            /// Progress components: offset downward from the ZStack center so they
+            /// appear directly below the centered glyph + label without participating
+            /// in the centering calculation themselves.
             if viewModel.isScanning {
                 VStack(spacing: 8) {
                     ProgressView(value: viewModel.scanProgress, total: 1.0)
@@ -193,8 +193,8 @@ struct DuplicateSheet: View {
                         .foregroundStyle(.secondary)
                         .contentTransition(.identity)
                 }
-                // Offset pushes this block below the centered glyph + label stack:
-                // 120pt glyph + 16pt gap + 36pt label (fixed) + 16pt gap + ~24pt half-progress ≈ 106pt
+                /// Offset pushes this block below the centered glyph + label stack:
+                /// 120pt glyph + 16pt gap + 36pt label (fixed) + 16pt gap + ~24pt half-progress ≈ 106pt
                 .offset(y: 106)
                 .transition(.opacity)
             }
@@ -207,7 +207,7 @@ struct DuplicateSheet: View {
     // MARK: - Carousel View
     private var carouselView: some View {
         ZStack {
-            // Full-width card container (viewport).
+            /// Full-width card container (viewport).
             GeometryReader { geometry in
                 ZStack {
                     ForEach(Array(viewModel.duplicates.enumerated()), id: \.element.id) { index, duplicate in
@@ -228,7 +228,7 @@ struct DuplicateSheet: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.currentIndex)
             .animation(.easeOut(duration: 0.3), value: viewModel.dismissingCardIndex)
             
-            // Arrow buttons overlaid on top.
+            /// Arrow buttons overlaid on top.
             HStack {
                 CarouselArrowButton(systemImage: "arrow.left",
                                     isDisabled: viewModel.currentIndex <= 0) { viewModel.previousCard() }
@@ -243,50 +243,50 @@ struct DuplicateSheet: View {
         .padding(.vertical, 20)
     }
     
-    // Calculate horizontal offset for each card based on current index.
+    /// Calculate horizontal offset for each card based on current index.
     private func cardOffset(for index: Int, in geometry: GeometryProxy) -> CGFloat {
         let cardWidth: CGFloat = 462
         let cardSpacing: CGFloat = 40
         let cardPlusSpacing = cardWidth + cardSpacing
         
-        // Calculate relative position from current card.
-        // Cards in ZStack are already centered, so current card needs offset of 0.
+        /// Calculate relative position from current card.
+        /// Cards in ZStack are already centered, so current card needs offset of 0.
         let relativePosition = CGFloat(index - viewModel.currentIndex)
         
         return relativePosition * cardPlusSpacing
     }
     
-    // Calculate vertical offset for dismissing animation.
+    /// Calculate vertical offset for dismissing animation.
     private func cardVerticalOffset(for index: Int) -> CGFloat {
         if let dismissingIndex = viewModel.dismissingCardIndex, index == dismissingIndex {
-            return -600 // Slide upward off screen
+            return -600 /// Slide upward off screen
         }
         return 0
     }
     
-    // Calculate opacity for cards (fade out cards that are far from viewport).
+    /// Calculate opacity for cards (fade out cards that are far from viewport).
     private func cardOpacity(for index: Int) -> Double {
-        // If this card is being dismissed, fade it out.
+        /// If this card is being dismissed, fade it out.
         if let dismissingIndex = viewModel.dismissingCardIndex, index == dismissingIndex {
             return 0.0
         }
         
         let distance = abs(index - viewModel.currentIndex)
         if distance == 0 {
-            return 1.0 // Current card: fully visible
+            return 1.0 /// Current card: fully visible
         } else if distance == 1 {
-            return 0.5 // Adjacent cards: partially visible
+            return 0.5 /// Adjacent cards: partially visible
         } else {
-            return 0.0 // Distant cards: invisible
+            return 0.0 /// Distant cards: invisible
         }
     }
     
     // MARK: - Bottom Bar
     private var bottomBar: some View {
         ZStack {
-            // Buttons in HStack
+            /// Buttons in HStack
             HStack {
-                // Close button - disabled during scan
+                /// Close button - disabled during scan
                 Button {
                     sheetCoordinator.dismissSheet()
                 } label: {
@@ -320,7 +320,7 @@ struct DuplicateSheet: View {
                 }
             }
             
-            // Duplicate counter centered in the entire sheet
+            /// Duplicate counter centered in the entire sheet
             if !viewModel.duplicates.isEmpty && !viewModel.isScanning {
                 Text("\(viewModel.currentIndex + 1) of \(viewModel.duplicates.count)")
                     .font(.system(size: 11))
@@ -352,7 +352,7 @@ struct DuplicateCardView: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(spacing: 12) {
-                // Confidence badge.
+                /// Confidence badge.
                 HStack {
                     Spacer()
                     Text("\(Int(duplicate.confidence * 100))% Match")
@@ -366,7 +366,7 @@ struct DuplicateCardView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 12)
                 
-                // Film posters - centered in their halves with unique IDs.
+                /// Film posters - centered in their halves with unique IDs.
                 HStack(spacing: 0) {
                     ForEach(Array(films.enumerated()), id: \.element.id) { index, film in
                         posterButton(for: film, position: index)
@@ -380,7 +380,7 @@ struct DuplicateCardView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 
-                // Action buttons (equal width for balanced proportions).
+                /// Action buttons (equal width for balanced proportions).
                 HStack(spacing: 12) {
                     Button(action: onIgnore) {
                         ZStack{ Text("Ignore") }
@@ -399,7 +399,7 @@ struct DuplicateCardView: View {
             }
             .padding(.bottom, 12)
             
-            // Differences list with unique ID to prevent sliding animation.
+            /// Differences list with unique ID to prevent sliding animation.
             differencesView
                 .id("differences-\(duplicate.id)")
         }
@@ -419,7 +419,7 @@ struct DuplicateCardView: View {
             selectedFilmID = film.id
         }) {
             VStack(spacing: 8) {
-                // Poster image (reduced by 20%).
+                /// Poster image (reduced by 20%).
                 if let posterImage = PosterCache.shared.getImageSync(for: film.posterUID) {
                     Image(nsImage: posterImage)
                         .resizable()
@@ -447,7 +447,7 @@ struct DuplicateCardView: View {
                                     lineWidth: isSelected ? 3 : 0))
                 }
                 
-                // Film title (reserved space for up to two lines to prevent layout shifts).
+                /// Film title (reserved space for up to two lines to prevent layout shifts).
                 Text(film.name)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(2)
@@ -481,7 +481,7 @@ struct DuplicateCardView: View {
                     VStack(spacing: 4) {
                         ForEach(differences, id: \.field) { diff in
                             HStack(spacing: 0) {
-                                // Left side (film1).
+                                /// Left side (film1).
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(diff.field)
                                         .font(.system(size: 10, weight: .medium))
@@ -492,13 +492,13 @@ struct DuplicateCardView: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 
-                                // Vertical divider.
+                                /// Vertical divider.
                                 Rectangle()
                                     .fill(Color(nsColor: .separatorColor))
                                     .frame(width: 1)
                                     .padding(.horizontal, 8)
                                 
-                                // Right side (film2).
+                                /// Right side (film2).
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(diff.field)
                                         .font(.system(size: 10, weight: .medium))
@@ -514,14 +514,14 @@ struct DuplicateCardView: View {
                             .id("diff-\(duplicate.id)-\(diff.field)")
                         }
                         
-                        // Bottom padding inside ScrollView
+                        /// Bottom padding inside ScrollView
                         Color.clear
                             .frame(height: 8)
                     }
                 }
                 .frame(height: 180)
                 
-                // Small spacer to ensure scrollbar indicator doesn't get clipped
+                /// Small spacer to ensure scrollbar indicator doesn't get clipped
                 Spacer()
                     .frame(height: 8)
             }
@@ -550,14 +550,14 @@ struct DuplicateCardView: View {
     private func calculateDifferences() -> [FieldDifference] {
         var differences: [FieldDifference] = []
         
-        // Retrieve film snapshots from the coordinator's memory store.
-        // getFilm() returns a FilmSnapshot value type — no model objects involved.
+        /// Retrieve film snapshots from the coordinator's memory store.
+        /// getFilm() returns a FilmSnapshot value type — no model objects involved.
         guard let film1 = dataCoordinator.getFilm(duplicate.film1ID),
               let film2 = dataCoordinator.getFilm(duplicate.film2ID) else {
             return differences
         }
         
-        // Compare relevant fields.
+        /// Compare relevant fields.
         if film1.releaseYear != film2.releaseYear {
             differences.append(FieldDifference(
                 field: "Year", value1: film1.releaseYear, value2: film2.releaseYear))
@@ -613,11 +613,11 @@ final class DuplicateSheetViewModel: Loggable {
     private var dataCoordinator: DataCoordinator?
     private var scanTask: Task<Void, Never>?
     
-    // Generation counter: each scan increments this value. Progress callbacks
-    // capture the generation at scan-start and are silently dropped if a newer
-    // scan (or cancellation) has since advanced the counter. This eliminates the
-    // race where callbacks from a canceled scan corrupt a freshly-started one,
-    // which would otherwise corrupt the counter and progress display.
+    /// Generation counter: each scan increments this value. Progress callbacks
+    /// capture the generation at scan-start and are silently dropped if a newer
+    /// scan (or cancellation) has since advanced the counter. This eliminates the
+    /// race where callbacks from a canceled scan corrupt a freshly-started one,
+    /// which would otherwise corrupt the counter and progress display.
     private var scanGeneration: Int = 0
     
     var placeholderText: String {
@@ -646,12 +646,12 @@ final class DuplicateSheetViewModel: Loggable {
     func startScan() {
         guard let coordinator = dataCoordinator else { return }
         
-        // Cancel any in-flight scan before starting a new one.
-        // Advancing the generation immediately invalidates all pending callbacks
-        // from the previous scan — they will see a mismatched generation and no-op.
+        /// Cancel any in-flight scan before starting a new one.
+        /// Advancing the generation immediately invalidates all pending callbacks
+        /// from the previous scan — they will see a mismatched generation and no-op.
         scanTask?.cancel()
         scanTask = nil
-        scanGeneration &+= 1               // Wrapping increment; overflow-safe
+        scanGeneration &+= 1               /// Wrapping increment; overflow-safe
         let myGeneration = scanGeneration
         
         Self.log("Starting duplicate scan (generation \(myGeneration))...")
@@ -669,7 +669,7 @@ final class DuplicateSheetViewModel: Loggable {
                 }
             ) { progress, current, total in
                 await MainActor.run {
-                    // Drop stale callbacks from a canceled or superseded scan.
+                    /// Drop stale callbacks from a canceled or superseded scan.
                     guard !Task.isCancelled, self.scanGeneration == myGeneration else { return }
                     self.scanProgress = progress
                     self.currentComparison = current
@@ -677,7 +677,7 @@ final class DuplicateSheetViewModel: Loggable {
                 }
             }
             
-            // Verify this scan is still the active one before touching any state.
+            /// Verify this scan is still the active one before touching any state.
             guard !Task.isCancelled, self.scanGeneration == myGeneration else {
                 Self.log("Scan generation \(myGeneration) superseded — discarding results")
                 return
@@ -692,12 +692,12 @@ final class DuplicateSheetViewModel: Loggable {
                 self.scanFoundDuplicates = true
             }
             
-            // If no duplicates found, give user a moment to see progress complete.
+            /// If no duplicates found, give user a moment to see progress complete.
             if foundDuplicates.isEmpty {
                 Self.log("No duplicates found - returning to placeholder")
                 try? await Task.sleep(for: .milliseconds(500))
-                // Re-check generation after the sleep — the sheet could have been
-                // dismissed or a new scan started during those 500ms.
+                /// Re-check generation after the sleep — the sheet could have been
+                /// dismissed or a new scan started during those 500ms.
                 guard self.scanGeneration == myGeneration else { return }
                 self.clearScanState(completed: true)
             }
@@ -709,7 +709,7 @@ final class DuplicateSheetViewModel: Loggable {
         abandonScan()
     }
 
-    // SAFETY NET: Emergency cancellation if sheet is dismissed unexpectedly
+    /// SAFETY NET: Emergency cancellation if sheet is dismissed unexpectedly
     func emergencyCancelScan() {
         Self.log("WARNING: Sheet dismissed while scanning - forcing scan cancelation")
         abandonScan()
@@ -750,21 +750,21 @@ final class DuplicateSheetViewModel: Loggable {
                                       deletedFilmID: UUID? = nil) async {
         guard scanGeneration == generation else { return }
 
-        // Safety: ensure the captured index is still valid.
+        /// Safety: ensure the captured index is still valid.
         guard indexToRemove < duplicates.count else {
             dismissingCardIndex = nil
             return
         }
 
-        // Remove the card and clear dismissing state.
+        /// Remove the card and clear dismissing state.
         duplicates.remove(at: indexToRemove)
         dismissingCardIndex = nil
 
-        // Purge any other remaining pairs that reference a film just deleted. If three or
-        // more films were mutual duplicates (e.g. pairs A–B and A–C both appeared in the
-        // scan), reconciling A–B would otherwise leave pair A–C in the carousel pointing at
-        // a film that no longer exists — that card would silently render with only one
-        // poster and its "Reconcile" button would be a dead end.
+        /// Purge any other remaining pairs that reference a film just deleted. If three or
+        /// more films were mutual duplicates (e.g. pairs A–B and A–C both appeared in the
+        /// scan), reconciling A–B would otherwise leave pair A–C in the carousel pointing at
+        /// a film that no longer exists — that card would silently render with only one
+        /// poster and its "Reconcile" button would be a dead end.
         if let deletedFilmID {
             let staleCount = duplicates.count
             duplicates.removeAll { pair in
@@ -775,15 +775,15 @@ final class DuplicateSheetViewModel: Loggable {
             }
         }
 
-        // Adjust index if any removal left it at or beyond the new end.
+        /// Adjust index if any removal left it at or beyond the new end.
         if currentIndex >= duplicates.count {
             currentIndex = max(0, duplicates.count - 1)
         }
 
-        // Clear selection.
+        /// Clear selection.
         selectedFilmForReconciliation = nil
 
-        // If no more duplicates, return to placeholder.
+        /// If no more duplicates, return to placeholder.
         if duplicates.isEmpty {
             Self.log("All duplicates resolved - returning to placeholder")
             try? await Task.sleep(for: .milliseconds(300))
@@ -794,8 +794,8 @@ final class DuplicateSheetViewModel: Loggable {
     
     // MARK: - Navigation
     func previousCard() {
-        // Block navigation while a card dismiss animation is in flight to prevent
-        // currentIndex from drifting before the async removal Task completes.
+        /// Block navigation while a card dismiss animation is in flight to prevent
+        /// currentIndex from drifting before the async removal Task completes.
         guard dismissingCardIndex == nil else { return }
         guard currentIndex > 0 else { return }
         withAnimation(.easeInOut(duration: 0.25)) {
@@ -805,7 +805,7 @@ final class DuplicateSheetViewModel: Loggable {
     }
     
     func nextCard() {
-        // Block navigation while a card dismiss animation is in flight.
+        /// Block navigation while a card dismiss animation is in flight.
         guard dismissingCardIndex == nil else { return }
         guard currentIndex < duplicates.count - 1 else { return }
         withAnimation(.easeInOut(duration: 0.25)) {
@@ -816,11 +816,11 @@ final class DuplicateSheetViewModel: Loggable {
     
     // MARK: - Actions
     func ignoreCurrentCard() {
-        // A second click while the card slides away would remove the next card too.
+        /// A second click while the card slides away would remove the next card too.
         guard dismissingCardIndex == nil, currentIndex < duplicates.count else { return }
         Self.log("Ignoring duplicate pair at index \(currentIndex)")
         
-        // Save the pair to ignored list before removing it
+        /// Save the pair to ignored list before removing it
         let pair = duplicates[currentIndex]
         let pairKey = Preferences.makeDuplicatePairKey(film1ID: pair.film1ID, film2ID: pair.film2ID)
         var ignoredPairs = Preferences.ignoredDuplicatePairs
@@ -830,8 +830,8 @@ final class DuplicateSheetViewModel: Loggable {
             Self.log("Added pair to ignored list: \(pairKey)")
         }
         
-        // Capture the index now — navigation is blocked while dismissingCardIndex is set,
-        // but we capture defensively so the async Task never reads a stale value.
+        /// Capture the index now — navigation is blocked while dismissingCardIndex is set,
+        /// but we capture defensively so the async Task never reads a stale value.
         let indexToRemove = currentIndex
         dismissingCardIndex = indexToRemove
         let generation = scanGeneration
@@ -839,22 +839,22 @@ final class DuplicateSheetViewModel: Loggable {
         Task { @MainActor [weak self] in
             guard let self = self else { return }
             
-            // Wait for upward slide animation to complete.
+            /// Wait for upward slide animation to complete.
             try? await Task.sleep(for: .milliseconds(300))
             await self.finishDismissingCard(at: indexToRemove, generation: generation)
         }
     }
     
     func reconcileCurrentCard() {
-        // A second click while the card slides away would remove the next card too.
+        /// A second click while the card slides away would remove the next card too.
         guard dismissingCardIndex == nil,
               let selectedID = selectedFilmForReconciliation,
               currentIndex < duplicates.count else { return }
         
         let pair = duplicates[currentIndex]
         
-        // Retrieve film snapshots from the memory store using IDs.
-        // DataCoordinator.getFilm returns a FilmSnapshot value type — no store involved.
+        /// Retrieve film snapshots from the memory store using IDs.
+        /// DataCoordinator.getFilm returns a FilmSnapshot value type — no store involved.
         guard let coordinator = dataCoordinator,
               let film1 = coordinator.getFilm(pair.film1ID),
               let film2 = coordinator.getFilm(pair.film2ID) else {
@@ -862,7 +862,7 @@ final class DuplicateSheetViewModel: Loggable {
             return
         }
         
-        // Determine which film to delete (the one NOT selected).
+        /// Determine which film to delete (the one NOT selected).
         let filmToDeleteID: UUID
         let keepName: String
         let deleteName: String
@@ -878,17 +878,17 @@ final class DuplicateSheetViewModel: Loggable {
         
         Self.log("Reconciling duplicate: Keeping '\(keepName)', deleting '\(deleteName)'")
         
-        // Capture the index now — navigation is blocked while dismissingCardIndex is set,
-        // but we capture defensively so the async Task never reads a stale value.
+        /// Capture the index now — navigation is blocked while dismissingCardIndex is set,
+        /// but we capture defensively so the async Task never reads a stale value.
         let indexToRemove = currentIndex
         dismissingCardIndex = indexToRemove
         let generation = scanGeneration
         
-        // Perform deletion.
+        /// Perform deletion.
         Task { @MainActor [weak self] in
             guard let self = self, let coordinator = self.dataCoordinator else { return }
             
-            // Wait for upward slide animation to complete.
+            /// Wait for upward slide animation to complete.
             try? await Task.sleep(for: .milliseconds(300))
             
             await FilmManager.deleteFilms(
@@ -898,8 +898,8 @@ final class DuplicateSheetViewModel: Loggable {
             
             Self.log("Film deleted successfully")
 
-            // The deletion above was the user's decision and stands; the card bookkeeping
-            // does not if a scan replaced `duplicates` meanwhile.
+            /// The deletion above was the user's decision and stands; the card bookkeeping
+            /// does not if a scan replaced `duplicates` meanwhile.
             await self.finishDismissingCard(at: indexToRemove, generation: generation,
                                             deletedFilmID: filmToDeleteID)
         }

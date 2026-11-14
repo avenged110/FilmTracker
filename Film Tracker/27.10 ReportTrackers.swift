@@ -1,7 +1,7 @@
 // MARK: - ReportTrackers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// The Purchase and Expense Tracker and Price Tracker report views. Each lists releases from the library, with the rows
+/// The Purchase Tracker and Price Tracker report views. Each lists releases from the library, with the rows
 /// built by ReleaseData's shared helpers, which the PDF export also uses.
 
 import SwiftUI
@@ -19,7 +19,7 @@ struct CostTrackerView: View {
             category: .costTracker,
             releases: releases,
             emptyStateConfig: EmptyStateConfig(
-                glyph: "chart.pie.fill",
+                glyph: ReportsCategory.costTracker.glyph,
                 noFilmsMessage: "Add films to your library to track costs.",
                 noDataMessage: "Add purchased releases with cost information to track spending."
             ),
@@ -115,7 +115,7 @@ struct PriceTrackerView: View {
             category: .priceTracker,
             releases: releases,
             emptyStateConfig: EmptyStateConfig(
-                glyph: "cart.fill",
+                glyph: ReportsCategory.priceTracker.glyph,
                 noFilmsMessage: "Add films to your library to track prices.",
                 noDataMessage: "Add unpurchased releases with lowest price information to track deals."
             ),
@@ -252,7 +252,7 @@ struct ReportsReleaseTableView: View, Loggable {
                 recomputeSort(releases, using: newSortOrder)
             }
         }
-        .reportsStatusBarInset()
+        .statusBarInset()
         .onAppear {
             /// Restore the sort order from the last visit, so the column sort survives tab switches. The mount-path cache was sorted under
             /// that order, so a default order here would force a full re-sort in the mount frame.
@@ -457,7 +457,7 @@ struct ReleaseData: Identifiable, Equatable {
 
 /// The two tracker tabs' row sets and orderings. The table and the PDF export share these, so they cannot drift apart.
 extension ReleaseData {
-    /// The Purchase and Expense Tracker's rows: purchased top-level releases with cost or spend data. Unsorted, since the table applies the column order.
+    /// The Purchase Tracker's rows: purchased top-level releases with cost or spend data. Unsorted, since the table applies the column order.
     static func costTrackerRows(films: [FilmSnapshot]) -> [ReleaseData] {
         var rows: [ReleaseData] = []
         for film in films {
@@ -545,7 +545,7 @@ extension ReleaseData {
         return Reconciled(category: category, rows: rows, sorted: sorted, sortOrder: order)
     }
 
-    /// The Purchase and Expense Tracker's opening order: newest purchase first.
+    /// The Purchase Tracker's opening order: newest purchase first.
     static let costTrackerDefaultSort: [KeyPathComparator<ReleaseData>] =
         [comparator(forKey: "purchaseDate", order: .reverse)!]
 

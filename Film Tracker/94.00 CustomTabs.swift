@@ -36,13 +36,9 @@ struct CustomTabHeader<Tab: CustomTab>: View {
 
     var body: some View {
         /// Compared by value, closure excluded: see `TabHeaderContent`.
-        let content = TabHeaderContent(selectedTab: selectedTab, enabled: enabled, showIcons: showIcons,
-                                       disabledTabs: disabledTabs, onTabSelect: onTabSelect)
-        if RSBProfileFlags.tabBarNoEquatable {
-            content
-        } else {
-            content.equatable()
-        }
+        TabHeaderContent(selectedTab: selectedTab, enabled: enabled, showIcons: showIcons,
+                         disabledTabs: disabledTabs, onTabSelect: onTabSelect)
+            .equatable()
     }
 }
 

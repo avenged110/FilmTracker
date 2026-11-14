@@ -522,7 +522,7 @@ enum DiscReleasesPDFReport {
                     /// slot; the bundled disc is part of it, not a second acquisition.
                     Column.status: groups.isEmpty
                         ? "No releases"
-                        : "\(groups.count) release\(groups.count == 1 ? "" : "s")",
+                        : Fmt.count(groups.count, "release"),
                     /// The film's own release date, in the column its releases print THEIR
                     /// dates in, and in the same "2016.03.01" form — the base year in a
                     /// release's "2016.03.01 (1977)" is this film's year, so the column reads
@@ -1012,14 +1012,14 @@ enum DiscReleasesPDFReport {
             parts.append(release.independence)
         }
 
-        /// A steelbook is the one artwork tag that describes the CASE rather than the
-        /// printing on it, which is what makes it packaging. The "Yes"/"No" tags answer a
-        /// different question and belong to the artwork column, not here.
-        if release.hasArtwork == ReleaseArtwork.steelbook {
-            parts.append(ReleaseArtwork.steelbook)
+        /// Steelbook and DigiBook/DigiPack are the artwork tags that describe the CASE rather
+        /// than the printing on it, which is what makes them packaging. The other artwork kinds
+        /// describe the printing, which this cell does not report.
+        if release.hasArtwork == ReleaseArtwork.steelbook || release.hasArtwork == ReleaseArtwork.digiBook {
+            parts.append(release.hasArtwork)
         }
 
-        parts.append("\(release.numberOfDiscs) disc\(release.numberOfDiscs == 1 ? "" : "s")")
+        parts.append(Fmt.count(release.numberOfDiscs, "disc"))
 
         if ReleaseReplicationType.isRecordable(release.replicationType) {
             parts.append("recordable")

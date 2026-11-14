@@ -202,7 +202,7 @@ struct LibraryStatistics {
             /// Missing release artwork - check if any purchased release has missing artwork
             /// Artwork belongs to the whole release container, since a 4K parent and its bundled Blu-ray ship together. So only top-level releases count.
             let hasMissingReleaseArtwork = film.releases.contains { release in
-                release.isTopLevel && release.purchased && release.hasArtwork.lowercased().contains("no")
+                release.isTopLevel && release.purchased && ReleaseArtwork.isMissing(release.hasArtwork)
             }
             if hasMissingReleaseArtwork {
                 missingReleaseArtworkCount += 1
@@ -431,12 +431,17 @@ struct LibraryStatistics {
         /// forms are composed through FilmDigitalSource to match the FilmSheet byte for byte. The picker's list ascends.
         let remasteredDVD = FilmDigitalSource.compose(source: FilmDigitalSource.dvd,
                                                       remastered: true)
+        let remastered1080p = FilmDigitalSource.compose(source: FilmDigitalSource.download1080p,
+                                                        remastered: true)
+        /// Rows shown only when they have items.
+        let optionalSources: Set<String> = [remasteredDVD, remastered1080p]
         let sourceOrder = [
             FilmDigitalSource.compose(source: FilmDigitalSource.blurayDisc, remastered: true),
             FilmDigitalSource.blurayDisc,
-            remasteredDVD, /// Only shown if it has items
+            remasteredDVD,
             FilmDigitalSource.dvd,
             FilmDigitalSource.download4K,
+            remastered1080p,
             FilmDigitalSource.download1080p,
             FilmDigitalSource.download720p,
             FilmDigitalSource.download540p,
@@ -448,8 +453,7 @@ struct LibraryStatistics {
 
         /// Add sources in order
         for source in sourceOrder {
-            if source == remasteredDVD {
-                /// Only add Remastered DVD if it has items
+            if optionalSources.contains(source) {
                 if let count = sourceCounts[source], count > 0 {
                     orderedSources.append((source, count))
                 }

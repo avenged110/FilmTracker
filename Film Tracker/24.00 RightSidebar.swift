@@ -92,59 +92,6 @@ extension EnvironmentValues {
     }
 }
 
-// MARK: - Profile Flags
-
-/// DEBUG launch flags that switch off one piece of the sidebar's load work, for A/B runs of
-/// the `rsb-load` harness scenario (99.20). Release builds read none of them.
-enum RSBProfileFlags {
-    #if DEBUG
-    /// `-FTNeighborArmingAllAtOnce`: arm both neighbor tabs in one commit, without staging.
-    static let neighborsAllAtOnce = ProcessInfo.processInfo.arguments.contains("-FTNeighborArmingAllAtOnce")
-    /// `-FTRSBNoTopPinnedLayout`: RSBTopPinnedLayout passes its proposal straight through.
-    static let noTopPinnedLayout = ProcessInfo.processInfo.arguments.contains("-FTRSBNoTopPinnedLayout")
-    /// `-FTRSBNoViewport`: SidebarScrollView tracks no viewport height.
-    static let noViewport = ProcessInfo.processInfo.arguments.contains("-FTRSBNoViewport")
-    /// `-FTRSBNoSidebar`: MainView puts an empty view where the sidebar goes, so a run
-    /// measures what a selection costs everything else.
-    static let noSidebar = ProcessInfo.processInfo.arguments.contains("-FTRSBNoSidebar")
-    /// `-FTRSBSwiftUICrewRows`: Metadata's crew sections draw their rows as a ForEach of
-    /// SearchableItemRow rather than as CrewRowList.
-    static let swiftUICrewRows = ProcessInfo.processInfo.arguments.contains("-FTRSBSwiftUICrewRows")
-    /// `-FTRSBNoCrewBlock`: Metadata leaves out its cast-and-crew block (measurement only).
-    static let noCrewBlock = ProcessInfo.processInfo.arguments.contains("-FTRSBNoCrewBlock")
-    /// `-FTRSBNoReleaseCards`: the Releases tab leaves out its card stack (measurement only).
-    static let noReleaseCards = ProcessInfo.processInfo.arguments.contains("-FTRSBNoReleaseCards")
-    /// `-FTRSBNoNotesFrames`: the Notes tab leaves out its two frames tables (measurement only).
-    static let noNotesFrames = ProcessInfo.processInfo.arguments.contains("-FTRSBNoNotesFrames")
-    /// `-FTRSBSwiftUIFramesRows`: the Notes tab's frames tables draw their rows as a ForEach of
-    /// FrameEntryRow rather than as FramesRowList.
-    static let swiftUIFramesRows = ProcessInfo.processInfo.arguments.contains("-FTRSBSwiftUIFramesRows")
-    /// `-FTRSBNoTabBar`: a same-height empty strip replaces the tab bar (measurement only).
-    static let noTabBar = ProcessInfo.processInfo.arguments.contains("-FTRSBNoTabBar")
-    /// `-FTRSBNoHeader`: a fixed-height empty block replaces the Header (measurement only).
-    static let noHeader = ProcessInfo.processInfo.arguments.contains("-FTRSBNoHeader")
-    /// `-FTRSBFlatPlane`: only the selected tab, placed directly, with no panning strip,
-    /// neighbor slots, or swipe animation (measurement only).
-    static let flatPlane = ProcessInfo.processInfo.arguments.contains("-FTRSBFlatPlane")
-    /// `-FTTabBarNoEquatable`: CustomTabHeader re-diffs on every parent update.
-    static let tabBarNoEquatable = ProcessInfo.processInfo.arguments.contains("-FTTabBarNoEquatable")
-    #else
-    static let neighborsAllAtOnce = false
-    static let noTopPinnedLayout = false
-    static let noViewport = false
-    static let noSidebar = false
-    static let swiftUICrewRows = false
-    static let noCrewBlock = false
-    static let noReleaseCards = false
-    static let noNotesFrames = false
-    static let swiftUIFramesRows = false
-    static let noTabBar = false
-    static let noHeader = false
-    static let flatPlane = false
-    static let tabBarNoEquatable = false
-    #endif
-}
-
 // MARK: - SidebarViewport
 
 /// The visible height of one sidebar tab's scroll view, for hosted content that sizes itself to
@@ -237,18 +184,13 @@ struct SidebarScrollView<Content: View>: View {
     }
 }
 
-/// Keeps a SidebarViewport's height current. Off under `RSBProfileFlags.noViewport`.
+/// Keeps a SidebarViewport's height current.
 private struct SidebarViewportTracking: ViewModifier {
     let viewport: SidebarViewport
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if RSBProfileFlags.noViewport {
-            content
-        } else {
-            content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                if viewport.height != height { viewport.height = height }
-            }
+        content.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            if viewport.height != height { viewport.height = height }
         }
     }
 }
@@ -496,13 +438,7 @@ struct RightSidebar: View, Loggable {
     private var sidebarHeader: some View {
         if let film = selectedFilm {
             VStack(spacing: 0) {
-                Group {
-                    if RSBProfileFlags.noHeader {
-                        Color.clear.frame(height: 150)
-                    } else {
-                        Header(filmID: film.id)
-                    }
-                }
+                Header(filmID: film.id)
                     .padding(.horizontal, RSBCardChrome.sidebarInset)
                     .padding(.top, 8)
                 Divider()
@@ -540,20 +476,7 @@ struct RightSidebar: View, Loggable {
     /// scroll-indicator flash. The swipe gesture itself is untouched. Its local `NSEvent` monitor
     /// (`installSwipeMonitor()`) inspects scroll-wheel events directly and never depends on
     /// hit-testing.
-    @ViewBuilder
     private var tabPlane: some View {
-        if RSBProfileFlags.flatPlane {
-            tabContent(for: selectedTab)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .environment(\.sidebarTabActivation, tabActivations[selectedTab])
-                .appKitScrollActivation(tabActivations[selectedTab]!, isActive: true)
-                .background(SidebarSwipeZoneAnchor(anchor: $swipeZoneAnchor))
-        } else {
-            swipingTabPlane
-        }
-    }
-
-    private var swipingTabPlane: some View {
         /// A `sidebarWidth`-wide, full-height viewport that clips the panning strip. The base is
         /// `Color.clear`, which is flexible and collapses to the sidebar's width. The strip is an
         /// overlay, so it does not enlarge the base, and `.clipped()` clips to the viewport rather
@@ -672,7 +595,7 @@ struct RightSidebar: View, Loggable {
             /// Two neighbors (the middle tab is selected). The priority one is armed now and the other a
             /// turn later, so the builds do not share a commit. The stage is written first, so this
             /// turn's render sees both values.
-            let staged = swipeWindowTabs.count > 2 && !RSBProfileFlags.neighborsAllAtOnce
+            let staged = swipeWindowTabs.count > 2
             neighborArmingStage = staged ? .priority : .all
             neighborsReadyFilmID = selectedFilm?.id
             guard staged else { return }
@@ -889,16 +812,7 @@ struct RightSidebar: View, Loggable {
         }
     }
     
-    @ViewBuilder
     private var tabsHeader: some View {
-        if RSBProfileFlags.noTabBar {
-            Color.clear.frame(height: 28)
-        } else {
-            realTabsHeader
-        }
-    }
-
-    private var realTabsHeader: some View {
         CustomTabHeader(
             selectedTab: selectedTab,
             enabled: hasSelection && !isMultiSelection,
@@ -1510,9 +1424,6 @@ enum SidebarPrewarm: Loggable {
     /// Called once at launch; skipped if a film is already selected, since the real
     /// sidebar has then paid the cost itself.
     static func runIfIdle(dataCoordinator: DataCoordinator) {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["FT_NO_SIDEBAR_PREWARM"] == "1" { return }
-        #endif
         guard SelectionState.shared.selectedFilmIDs.isEmpty,
               let film = dataCoordinator.films.first else { return }
         run(film: film, dataCoordinator: dataCoordinator)

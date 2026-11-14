@@ -5,7 +5,7 @@
 ///
 /// This file holds no PDF machinery. Page geometry, fonts, the fill palette, the drawing primitives, and the
 /// paginated table renderer live in the shared stack described at the top of PDFCore.swift (85.00), which the
-/// whole-library export in PDFExporter.swift (43.10) also draws from.
+/// whole-library export in PDFExporter.swift (85.40) also draws from.
 ///
 /// What remains here is the part that is genuinely about REPORTS: the column set and row
 /// content for each of the five tabs. `sheet(for:)` is internal to the module precisely so

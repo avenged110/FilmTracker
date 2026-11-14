@@ -63,7 +63,7 @@ extension DebugHarness {
                                 source: String = "", copies: Int = 1, discs: Int = 1, notes: String = "") -> ReleaseSnapshot {
         ReleaseSnapshot(studio: studio, purchased: purchased, wishlist: wishlist, format: format.rawValue,
                         videoFormat: video, audioFormat: audio, audioChannels: channels,
-                        numberOfDiscs: discs, hasArtwork: "Yes", nationalOrigin: origin,
+                        numberOfDiscs: discs, hasArtwork: ReleaseArtwork.standard, nationalOrigin: origin,
                         hasHDR: hdr, masterType: master, regionLock: region,
                         marketAvailability: availability, numberOfCopies: copies,
                         cost: cost, amountSpent: spent, purchaseDate: date,
@@ -345,7 +345,7 @@ extension DebugHarness {
         r.check("habits-purchases-by-month", h.purchasesByMonth == [0, 2, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0] && h.datedPurchases == 5,
                 "\(h.purchasesByMonth)")
         r.check("habits-busiest-month-sentence",
-                h.busiestMonthSentence == "February accounts for 40% of dated purchases, averaging \(DVFormat.money(14)) a release against \(DVFormat.money(95.0 / 3)) the rest of the year.",
+                h.busiestMonthSentence == "February accounts for 40% of dated purchases, averaging \(Fmt.dollars(14)) a release against \(Fmt.dollars(95.0 / 3)) the rest of the year.",
                 h.busiestMonthSentence ?? "nil")
         /// Rated 8 and owned: Overdue Six, Due Thirty (4K), Due Ninety, Shelf Of Shame → $28.75, 25% on 4K.
         /// Rated 10: On Schedule, a $8 DVD, no 4K owned.

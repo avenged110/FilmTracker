@@ -402,7 +402,7 @@ struct RSBHelpers {
     /// `glyphPointSize(for:)`, the size the gutter uses. Naming the symbol once here keeps the two surfaces in
     /// step. It lives in this file because neither module owns the other, and this file is where both share
     /// their row vocabulary.
-    static let queueMembershipGlyph = "text.line.first.and.arrowtriangle.forward"
+    static let queueMembershipGlyph = ViewGlyphs.filmQueue.outline
 
     /// The fixed box every glyph is centered in, sized for the widest symbol in use at `glyphPointSize` (16pt,
     /// from `cart.fill.badge.questionmark` and the queue arrow; the rest run 9 to 15). Centering happens inside
@@ -541,11 +541,6 @@ struct RSBHelpers {
                     .font(.system(size: rowFontSize))
                     .sidebarRowContainer(glyph: glyph,
                                          glyphColor: Color(nsColor: .tertiaryLabelColor))
-            } else if RSBProfileFlags.swiftUICrewRows {
-                ForEach(Array(trimmedItems.enumerated()), id: \.offset) { _, item in
-                    SearchableItemRow(item: item, field: field,
-                                      glyph: glyph, glyphColor: glyphColor)
-                }
             } else {
                 /// The same rows in AppKit, re-pointed rather than rebuilt per film. See
                 /// CrewRowList.
@@ -564,10 +559,9 @@ struct RSBHelpers {
 
         switch (hours, minutes) {
         case (0, 0): return "0 minutes"
-        case (0, _): return "\(minutes) minute" + (minutes == 1 ? "" : "s")
-        case (_, 0): return "\(hours) hour" + (hours == 1 ? "" : "s")
-        default: return "\(hours) hour" + (hours == 1 ? "" : "s") +
-            " \(minutes) minute" + (minutes == 1 ? "" : "s")
+        case (0, _): return Fmt.count(minutes, "minute")
+        case (_, 0): return Fmt.count(hours, "hour")
+        default: return Fmt.count(hours, "hour") + " " + Fmt.count(minutes, "minute")
         }
     }
 
@@ -607,20 +601,7 @@ struct RSBHelpers {
         return formatter
     }()
 
-    /// "Month Day, Year, at HH:MM AM/PM" for full timestamps. Private and @MainActor, like the parsers above. It is
-    /// read only by formatFullTimestamp(_:). Nonisolated would expose this mutable, non-Sendable formatter to every
-    /// isolation domain.
-    @MainActor
-    private static let fullTimestampFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = .current
-        formatter.calendar = AppCalendar.gregorian  /// .current alone carries the system calendar
-        formatter.timeZone = .current
-        formatter.dateFormat = "MMMM d, yyyy, 'at' h:mm a"
-        return formatter
-    }()
-
-    /// Formats a full ISO8601 timestamp as "Month Day, Year, HH:MM AM/PM" in the user's locale and time zone.
+    /// Formats a full ISO8601 timestamp as "November 4, 2025, at 2:46 PM" (the shared `formatTimestamp(_:)`) in the user's time zone.
     /// If parsing fails, it tries the non-fractional parser, then YYYY.MM.DD via formatDateString. If all of
     /// those fail, it returns the raw string so a real value shows rather than a placeholder.
     @MainActor
@@ -630,12 +611,12 @@ struct RSBHelpers {
 
         /// Primary attempt: Fractional seconds-capable parser.
         if let date = isoTimestampParser.date(from: value) {
-            return fullTimestampFormatter.string(from: date)
+            return formatTimestamp(date)
         }
 
         /// Secondary attempt: Try again without fractional seconds.
         if let date = isoTimestampFallbackParser.date(from: value) {
-            return fullTimestampFormatter.string(from: date)
+            return formatTimestamp(date)
         }
 
         /// Tertiary attempt: Try YYYY.MM.DD format.
@@ -914,15 +895,25 @@ struct RSBHelpers {
         ///   • DVD: shown only when the value is not a purchased disc, nothing on Blu-ray is buyable, and nothing on
         ///     4K is either. The 4K condition is waived for edited films, where 4K never applies, as the Blu-ray rule
         ///     waives it.
-        let has4KToBuy  = all4K.contains  { !$0.purchased }
-        let has2KToBuy  = all2K.contains  { !$0.purchased }
-        let hasDVDToBuy = allDVD.contains { !$0.purchased }
+        ///
+        /// A release marked "Unavailable" is not for sale, so it never counts as one to buy: a film whose only
+        /// unpurchased release of a format is unavailable advertises nothing for that format. "Temporarily
+        /// unavailable" still counts, since it is expected back. A disc bundled in a combo pack is locked to
+        /// "Combo-pack only" and is bought with its pack, so it takes the pack's availability.
+        func isBuyable(_ release: ReleaseSnapshot) -> Bool {
+            guard !release.purchased else { return false }
+            let pack = release.parentReleaseID.flatMap { id in film.releases.first { $0.id == id } } ?? release
+            return ReleaseMarketAvailability.status(pack.marketAvailability) != ReleaseMarketAvailability.unavailable
+        }
+        let has4KToBuy  = all4K.contains(where: isBuyable)
+        let has2KToBuy  = all2K.contains(where: isBuyable)
+        let hasDVDToBuy = allDVD.contains(where: isBuyable)
 
-        /// The backing release is the best unpurchased one of that format. A foreign origin makes the note say
+        /// The backing release is the best buyable one of that format. A foreign origin makes the note say
         /// "foreign". If the release is still to come, the note names its date instead ("Upcoming Blu-ray release
         /// on November 3, 2026").
         func buyPhrase(_ format: String, _ pool: [ReleaseSnapshot]) -> String {
-            let backing = ReleaseSnapshot.best(from: pool.filter { !$0.purchased })
+            let backing = ReleaseSnapshot.best(from: pool.filter(isBuyable))
             let foreign = backing.map { ReleaseOrigin.isImport($0.nationalOrigin) } ?? false
             let label = "\(foreign ? "foreign " : "")\(format)"
             if let backing,
@@ -1236,10 +1227,6 @@ struct RSBHelpers {
     }
 
     // MARK: - Shared Utilities
-    /// Returns singular or plural form of a title based on count.
-    static func pluralizedTitle(_ singular: String, _ plural: String, count: Int) -> String {
-        return count == 1 ? singular : plural
-    }
     
     /// Applies a state change with `.animation(_:value:)` modifiers suppressed, for state a
     /// tab animates on that must also follow a new selection in one step (the Details tab's
@@ -1261,7 +1248,8 @@ struct RSBHelpers {
 /// ═══════════════════════════════════════════════════════════════════════════════════════
 /// The Releases tab shows each release twice: as a row in the summary table (DiscReleasesTable, 24.21) and as a
 /// card (RTabReleases, 24.20). A row and its card describe the same disc, so the derivations that define what
-/// they say must match: the region mark and its color, the video line, and the release order.
+/// they say must match: the region mark and its color, and the release order. The video line is shared by the
+/// cards and the PDF export.
 ///
 /// Every derivation lives here only, so the table and the cards cannot drift apart.
 ///
@@ -1421,8 +1409,8 @@ func releaseSortKeysPrecede(_ lhs: ReleaseSnapshot, _ rhs: ReleaseSnapshot) -> B
 /// Groups are keyed on `parentReleaseID ?? id`, which pairs a child with its parent from
 /// the child's side alone — so the pairing holds regardless of whether the parent's
 /// `childReleaseIDs` agrees. Group order is decided entirely by each group's primary
-/// release, using `releaseSortKeysPrecede` — so the top-level entries appear in exactly
-/// the order the table's flat `.standard` sort would place them.
+/// release, using `releaseSortKeysPrecede`, so the top-level entries appear in that
+/// function's order.
 ///
 /// GROUP SHAPE: index 0 of each group is its top-level parent, and later indices are its children. The member
 /// sort puts `isTopLevel` first. The cards read index 0 as the plate's parent half and treat later indices as
@@ -1658,56 +1646,16 @@ enum QueryHandoff {
     }
 }
 
-// MARK: - SearchableItemRow
-/// One crew name's row: the name, selectable, with its token-search button. Internal rather than private, so
-/// Metadata's pooled crew block (24.17) draws exactly the same row.
-///
-/// The Search button fires `.activateTokenSearch`, which MainView handles as a single-token search. The result
-/// appears at once, with no intermediate state.
-@MainActor
-struct SearchableItemRow: View {
-    let item: String
-    let field: SearchField
-    let glyph: String?
-    let glyphColor: Color
-
-    var body: some View {
-        HStack(spacing: 6) {
-            /// Item text — expands to fill available space, truncating before the button.
-            Text(item)
-                .foregroundStyle(.primary)
-                .font(.system(size: RSBHelpers.rowFontSize))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            /// Search button — standard macOS bordered style.
-            Button {
-                AppEventBus.shared.sendCommand(.activateTokenSearch(field: field, value: item))
-            } label: {
-                Image(systemName: "magnifyingglass")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .fixedSize()
-            .help("Perform a token-based search for this name")
-        }
-        .sidebarRowContainer(glyph: glyph, glyphColor: glyphColor)
-    }
-}
-
 // MARK: - Crew Row List
 ///
 /// The rows of one Metadata crew section (Cast, Directors, …), built from AppKit views rather
-/// than as a ForEach of SearchableItemRow. Each row is a plate (fill, shadow and fading
+/// than as a ForEach of SwiftUI rows. Each row is a plate (fill, shadow and fading
 /// outline), an optional glyph, the name as a selectable label, and the token-search button
-/// — the same parts SearchableItemRow draws, to the point. A film change re-points the rows:
+/// — the same parts the SwiftUI row it replaced drew, to the point. A film change re-points the rows:
 /// a name is a string assignment, and a longer list adds rows to a pool that a shorter one
 /// leaves intact. The section header above stays SwiftUI.
 ///
-/// SwiftUI rows re-render even when nothing in them changes, and a film's crew lists run to 20 or 30 rows. The
-/// `rsb-crew-parity` harness scenario compares these rows with SearchableItemRow pixel for pixel, in light and dark.
+/// SwiftUI rows re-render even when nothing in them changes, and a film's crew lists run to 20 or 30 rows.
 struct CrewRowList: NSViewRepresentable {
     let items: [String]
     let field: SearchField
@@ -1774,11 +1722,11 @@ final class CrewRowListView: NSView {
     }
 }
 
-/// One crew row. Every measure is SearchableItemRow's, through `sidebarRowContainer` and
+/// One crew row. Every measure is the replaced SwiftUI row's, through `sidebarRowContainer` and
 /// `fieldEdgeChrome()`; the constants come from RSBHelpers, the edge from `FieldEdgeLayers`.
 final class CrewRowView: NSView {
     /// The taller of the label's line and the button, plus the plate's vertical padding —
-    /// SearchableItemRow's HStack. The button counts at its alignment rectangle, as SwiftUI
+    /// the SwiftUI row's HStack. The button counts at its alignment rectangle, as SwiftUI
     /// lays it out; its frame overhangs that for the bezel's shadow and focus ring.
     static let height: CGFloat = max(labelHeight, buttonAlignmentSize.height)
         + RSBHelpers.rowFontBackgroundVerticalPadding * 2
@@ -1821,7 +1769,7 @@ final class CrewRowView: NSView {
     }()
 
     /// SwiftUI's `.bordered` small button, as SwiftUI builds it: bezel style 28 (no public
-    /// name in the SDK; `rsb-crew-parity` logs the style SwiftUI's own button carries) with
+    /// name in the SDK; it is the style SwiftUI's own button carries) with
     /// the symbol at the small control font.
     private static func makeButton() -> NSButton {
         let button = NSButton(image: searchImage, target: nil, action: nil)
@@ -1945,8 +1893,8 @@ final class CrewRowView: NSView {
     }
 }
 
-/// A crew row's glyph, placed in its box exactly as SwiftUI places the Image in
-/// SearchableItemRow. NSImageView centers differently and misplaces some symbols by half a pixel or more.
+/// A crew row's glyph, placed in its box exactly as SwiftUI places an Image in
+/// a sidebar row. NSImageView centers differently and misplaces some symbols by half a pixel or more.
 final class CrewGlyphView: NSView {
     var image: NSImage? { didSet { needsDisplay = true } }
     var tint: NSColor = .secondaryLabelColor { didSet { needsDisplay = true } }
@@ -1955,7 +1903,7 @@ final class CrewGlyphView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let image else { return }
-        /// SwiftUI's placement, read off `rsb-crew-parity` captures of all seven crew symbols:
+        /// SwiftUI's placement, read off captures of all seven crew symbols:
         /// horizontally the alignment rectangle's width is centered, vertically the image's
         /// full height, and the origin is rounded to the nearest device pixel.
         let size = image.size
@@ -2215,18 +2163,12 @@ enum SidebarTextAbbreviation {
 /// Top placement also keeps a shorter stack at the top instead of centered.
 struct RSBTopPinnedLayout: Layout {
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        /// A plain pass-through under the profile flag, to measure what pinning costs.
-        if RSBProfileFlags.noTopPinnedLayout { return subviews.first?.sizeThatFits(proposal) ?? .zero }
         let ideal = subviews.first?.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) ?? .zero
         let height = proposal.height.flatMap { $0.isFinite ? $0 : nil } ?? ideal.height
         return CGSize(width: proposal.width ?? ideal.width, height: height)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        if RSBProfileFlags.noTopPinnedLayout {
-            subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size))
-            return
-        }
         subviews.first?.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
                               proposal: ProposedViewSize(width: bounds.width, height: nil))
     }

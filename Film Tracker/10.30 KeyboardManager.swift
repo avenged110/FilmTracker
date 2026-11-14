@@ -152,6 +152,10 @@ final class KeyboardManager {
             guard !isInSheet, !textInputActive else {
                 return false
             }
+            /// The gallery hidden under search's token-entry placeholder is not there to focus.
+            guard !GalleryReuse.hidesForTokenEntry(appState.selectedSidebarItem) else {
+                return false
+            }
             /// Move first responder directly to the gallery collection view.
             /// If the collection view cannot be located (e.g., empty gallery showing
             /// a placeholder), pass through so the event is not silently swallowed.
@@ -662,8 +666,7 @@ final class KeyboardManager {
             return step([.unwatched, .notRated], state.selectedCategory) { state.selectCategory($0) }
         case .libraryItem(.recents):
             let state = RecentsState.shared
-            return step([.recentlyViewed, .recentlyRotated, .recentlyAdded, .recentlyUpdated, .recentlyPurchased],
-                        state.selectedCategory) { state.selectCategory($0) }
+            return step(RecentsCategory.allCases, state.selectedCategory) { state.selectCategory($0) }
         case .libraryItem(.reports):
             let state = ReportsState.shared
             return step(ReportsCategory.allCases, state.selectedCategory) { state.selectCategory($0) }
@@ -750,29 +753,20 @@ final class KeyboardManager {
             return true
 
         case .libraryItem(.recents):
-            /// Tab order: 1=Most Recently Viewed, 2=Recently Come Up for Rotation,
-            ///            3=Recently Added, 4=Recently Updated, 5=Recently Purchased
-            switch tabNumber {
-            case 1: RecentsState.shared.selectCategory(.recentlyViewed)
-            case 2: RecentsState.shared.selectCategory(.recentlyRotated)
-            case 3: RecentsState.shared.selectCategory(.recentlyAdded)
-            case 4: RecentsState.shared.selectCategory(.recentlyUpdated)
-            case 5: RecentsState.shared.selectCategory(.recentlyPurchased)
-            default: return false
-            }
+            /// Tab order (RecentsCategory.allCases): 1=Recents (the summary), 2=Most Recently Viewed,
+            ///            3=Recently Come Up for Rotation, 4=Recently Added, 5=Recently Updated,
+            ///            6=Recently Purchased
+            let tabs = RecentsCategory.allCases
+            guard tabs.indices.contains(tabNumber - 1) else { return false }
+            RecentsState.shared.selectCategory(tabs[tabNumber - 1])
             return true
             
         case .libraryItem(.reports):
-            /// Tab order: 1=Purchase and Expense Tracker, 2=Price Tracker,
-            ///            3=Hall of Fame, 4=Release Wishlist, 5=Data Visualizations
-            switch tabNumber {
-            case 1: ReportsState.shared.selectCategory(.costTracker)
-            case 2: ReportsState.shared.selectCategory(.priceTracker)
-            case 3: ReportsState.shared.selectCategory(.hallOfFame)
-            case 4: ReportsState.shared.selectCategory(.releaseWishlist)
-            case 5: ReportsState.shared.selectCategory(.dataVisualizations)
-            default: return false
-            }
+            /// Tab order (ReportsCategory.allCases): 1=Insights, 2=Purchase Tracker,
+            ///            3=Price Tracker, 4=Hall of Fame, 5=Release Wishlist
+            let tabs = ReportsCategory.allCases
+            guard tabs.indices.contains(tabNumber - 1) else { return false }
+            ReportsState.shared.selectCategory(tabs[tabNumber - 1])
             return true
             
         case .libraryItem(.imports):
@@ -911,7 +905,7 @@ final class KeyboardManager {
     }
     
     /// Delegates to `TextInputFocus` (InputUtilities.swift), the single definition this
-    /// check shares with MenuBar's Cut/Copy/Paste enablement and SettingsSheet's
+    /// check shares with MenuBar's Select All scoping and SettingsSheet's
     /// Return-key monitor. Kept as a named method because the rationale for every
     /// `textInputActive` branch above is written in terms of it.
     private func isTextInputActive(in window: NSWindow) -> Bool {

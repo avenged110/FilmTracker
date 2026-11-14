@@ -223,8 +223,7 @@ final class ImportHistory: Loggable {
     /// At user-interactive QoS, deliberately. Every context shares the store's one SQLite
     /// connection, and this fetch holds it while it runs, so a save made meanwhile (the launch
     /// settings sync on the main thread, DataManager's launch bootstrap) waits for it. At a
-    /// lower QoS that wait is a priority inversion, which the `imports-qos` harness (99.55)
-    /// reproduces under libRPAC. The load is a single fetch, once per launch.
+    /// lower QoS that wait is a priority inversion (reproduced under libRPAC). The load is a single fetch, once per launch.
     private func reload() {
         guard let container else { return }
         loadGeneration += 1
@@ -248,12 +247,6 @@ final class ImportHistory: Loggable {
         byType = map
         revision += 1
     }
-
-    #if DEBUG
-    /// Starts a full background load, as after a save that invalidated every identifier —
-    /// for `imports-qos` (99.55), which saves an import session on the main thread while it runs.
-    func debugReload() { reload() }
-    #endif
 
     nonisolated private static func fetchRecords(_ context: NSManagedObjectContext) -> [ImportSessionRecord]? {
         context.performAndWait {

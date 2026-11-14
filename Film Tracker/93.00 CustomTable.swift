@@ -36,7 +36,7 @@ struct CustomTable<Data: RandomAccessCollection,
     /// computed ones below. The computed values exist to reconcile the three
     /// horizontal-scroll layout paths against one another; a caller that turns
     /// horizontal scrolling off but still wants the header to line up with the
-    /// scrolling layout's geometry (DiscReleasesTable's `.releaseCard` mode) has no
+    /// scrolling layout's geometry (DiscReleasesTable, the Releases summary table) has no
     /// way to express that through `contentPadding`, which reaches the data rows only.
     /// Nil everywhere else, and therefore a no-op.
     let headerLeadingPadding: CGFloat?
@@ -337,7 +337,7 @@ struct CustomTable<Data: RandomAccessCollection,
                             /// recognizer. That recognizer claims the row's hit-testing
                             /// region for itself, which silently swallows the hover
                             /// events that nested cells rely on for their .help()
-                            /// tooltips (e.g. Notes / Versions Included in ReleasesTable).
+                            /// tooltips (CustomTableCell's `tooltip`).
                             /// Selection-driven tables need the gesture, so it's only
                             /// attached here — non-selecting tables skip it entirely,
                             /// leaving hover free to reach inner tooltip overlays.

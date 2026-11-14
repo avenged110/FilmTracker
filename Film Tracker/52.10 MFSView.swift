@@ -51,27 +51,15 @@ struct MultiFilmSheetView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(owner.windowTitle)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color(NSColor.controlBackgroundColor))
-                .overlay(Divider(), alignment: .bottom)
+            SheetTitleBar(owner.windowTitle)
 
-            /// As the FilmSheet's tab header is placed (FilmSheetView).
             CustomTabHeader(
                 selectedTab: owner.selectedTab,
                 enabled: true,
                 showIcons: true,
                 onTabSelect: { owner.selectedTab = $0 }
             )
-            .padding(.horizontal, 4)
-            .padding(.top, -1)
-            .padding(.bottom, 1)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .focusEffectDisabled()
-            .overlay(Divider(), alignment: .bottom)
-            .zIndex(1)
+            .sheetTabHeaderBand()
 
             MultiFilmHeader()
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -126,18 +114,6 @@ struct MultiFilmSheetView: View {
         tabMonitor = nil
     }
 }
-
-#if DEBUG
-extension MultiFilmSheetView {
-    /// The Details tab's fields at their full height, for the `bulk-edit-shots` harness
-    /// scenario (DHBulkEdit), which renders what the sheet's scroll view would clip.
-    static func fieldsForHarness(_ owner: MultiFilmSheet) -> some View {
-        MultiFilmFields(owner: owner)
-            .padding(.horizontal, sideMargin)
-            .padding(.vertical, 20)
-    }
-}
-#endif
 
 // MARK: - Header
 
@@ -617,7 +593,7 @@ private struct RotationRow: View {
                         isUnset: shown == nil)
                 }
                 if keeping > 0 {
-                    let films = keeping == 1 ? "1 of the selected films is" : "\(keeping) of the selected films are"
+                    let films = keeping == 1 ? "1 of the selected films is" : "\(Fmt.count(keeping)) of the selected films are"
                     note("\(films) blacklisted and will keep a threshold of \(RotationThresholdPicker.formatAsYears(BulkFilmEdit.blacklistedThreshold)).")
                 }
             }
@@ -739,10 +715,10 @@ private struct MultiFilmButtonBar: View {
         case .replaceNotes(let count):
             let films = count == 1
                 ? "1 of the selected films has notes of its own"
-                : "\(count) of the selected films have notes of their own"
+                : "\(Fmt.count(count)) of the selected films have notes of their own"
             return "\(films), which will be replaced. This can\u{2019}t be undone."
         case .clearNotes(let count):
-            let films = count == 1 ? "1 selected film" : "all \(count) selected films"
+            let films = count == 1 ? "1 selected film" : "all \(Fmt.count(count)) selected films"
             return "The notes of \(films) will be cleared. This can\u{2019}t be undone."
         }
     }

@@ -30,24 +30,11 @@ struct SettingsSheet: View, Loggable {
 
     var body: some View {
         VStack(spacing: 0) {
-            /// Custom titlebar.
-            ZStack {
-                Text("Settings")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10) }
-            .background(Color(NSColor.controlBackgroundColor))
-            .overlay(Divider(), alignment: .bottom)
+            SheetTitleBar("Settings")
 
             /// Custom tab header.
             tabsHeader
-                .padding(.horizontal, 4)
-                .padding(.top, -1)
-                .padding(.bottom, 1)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .focusEffectDisabled()
-                .overlay(Divider(), alignment: .bottom)
-                .zIndex(1)
+                .sheetTabHeaderBand()
 
             /// Tab view content - using lazy evaluation with view identity.
             /// The if statements ensure only the selected view is in the hierarchy and the
@@ -101,9 +88,7 @@ struct SettingsSheet: View, Loggable {
                     /// Dismiss the sheet through coordinator
                     sheetCoordinator.dismissSheet()
                 } label: {
-                    Text("Close")
-                        .padding(4)
-                        .font(.system(size: 12))
+                    Text("Close").sheetButtonLabel()
                 }
                 .disabled(coordinator.isSheetDismissBlocked)
                 /// Attach the Escape keyboard shortcut only when the sheet is not blocked.

@@ -61,12 +61,25 @@ enum ViewGlyphs {
     // MARK: - Library
     /// All Films. Sidebar uses `.outline`; title bar and placeholder use `.filled`.
     static let allFilms = Glyph("film.stack")
-    /// Unwatched (and its Not Rated sub-category, which shares the glyph).
+    /// Unwatched, and its Unwatched tab. Sidebar uses `.outline`; title bar uses `.filled`.
     static let unwatched = Glyph("eye.slash")
+    /// The Unwatched view's Not Rated tab.
+    static let notRated = Glyph("star.slash")
     /// Reports. Sidebar uses `.outline`; title bar uses `.filled`.
     static let reports = Glyph("chart.pie")
-    /// Film Queue. No filled counterpart exists for this symbol.
-    static let filmQueue = Glyph.uniform("text.line.first.and.arrowtriangle.forward")
+    /// The Reports tabs (ReportsCategory.symbol). Sidebar uses `.outline`; title bar uses `.filled`.
+    static let insights = Glyph("chart.bar")
+    static let costTracker = reports
+    static let priceTracker = Glyph("cart")
+    static let hallOfFame = Glyph("trophy")
+    static let releaseWishlist = Glyph("gift")
+    /// The Film Queue as a whole: its sidebar row, its All tab, and its membership mark in the RightSidebar
+    /// (RSBHelpers.queueMembershipGlyph). No filled counterpart exists for this symbol.
+    static let filmQueue = Glyph.uniform("text.line.last.and.arrowtriangle.forward")
+    /// The Queue's section tabs (FilmQueueFilter.glyph). Up Next and Later have no filled counterpart.
+    static let queueUpNext = Glyph.uniform("text.line.first.and.arrowtriangle.forward")
+    static let queueSoon = Glyph("clock")
+    static let queueLater = Glyph.uniform("hourglass")
 
     // MARK: - Lists
     /// A user-created list.
@@ -85,14 +98,15 @@ enum ViewGlyphs {
     static let activeFilters = Glyph("line.3.horizontal.decrease.circle")
 
     // MARK: - Recents
-    /// The Recents sidebar row, which shares its glyph with the Recently Viewed
-    /// category (the default sub-category the row opens on).
-    static let recents = Glyph.uniform("calendar.badge.clock")
-    static let recentlyViewed = recents
+    /// The Recents sidebar row and its summary tab: a plain calendar, distinct from Most
+    /// Recently Viewed's.
+    static let recents = Glyph.uniform("calendar")
+    static let recentlyViewed = Glyph.uniform("calendar.badge.clock")
     static let recentlyRotated = Glyph.uniform("clock.arrow.2.circlepath")
     static let recentlyAdded = Glyph.uniform("goforward.plus")
     static let recentlyUpdated = Glyph.uniform("arrow.2.squarepath")
     static let recentlyPurchased = Glyph("opticaldisc")
+    static let recentDiscRelease = Glyph("cart.badge.clock")
 
     // MARK: - Imports
     /// The Imports sidebar row, which shares its glyph with the Metadata import

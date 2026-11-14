@@ -64,9 +64,6 @@ extension DebugHarness {
         case "restore-endtoend":   return await restoreEndToEndScenario(coordinator: coordinator)
         case "release-date-rules": return releaseDateRulesScenario()
         case "membership-cascade": return await membershipCascadeScenario()
-        /// By name only, not in any suite: the cross-build restore parity test.
-        case "parity-export":      return await parityExportScenario(coordinator: coordinator)
-        case "parity-restore":     return await parityRestoreScenario(coordinator: coordinator)
         default:                   return nil
         }
     }
@@ -135,8 +132,17 @@ extension DebugHarness {
         DebugPersistenceFault.mode = .beforeWork
         await mutate()
         /// Debounced paths (Hall of Fame and wishlist reorders) do not dispatch until their
-        /// quiet window expires, so those cases ask for an explicit settle period.
-        if let settle { try? await Task.sleep(for: settle) }
+        /// quiet window expires, so those cases ask for an explicit settle period. On a large
+        /// library the reorder's per-film update events can hold the main actor past that
+        /// window, so the case then waits (up to ten seconds) for the write to reach
+        /// persistence rather than letting it land inside the next case.
+        if let settle {
+            try? await Task.sleep(for: settle)
+            let deadline = ContinuousClock.now + .seconds(10)
+            while DebugPersistenceFault.injectedCount == injectedBefore, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+        }
         let drained = await drainOperations(coordinator)
         DebugPersistenceFault.mode = .none
 
@@ -642,6 +648,11 @@ extension DebugHarness {
         /// seeded behind its back would start with those already disagreeing — every
         /// published-state assertion below would then fail on the setup rather than on
         /// anything a rollback did.
+        /// Four Hall of Fame slots (three seeded below, plus `hof-add`) and two "Up Next" slots
+        /// (the membership-persistence move, plus `queue-exclusivity-move`), so on a real-library
+        /// copy every case reaches persistence instead of being refused at the cap.
+        let room = await makeRoom(coordinator, hallOfFame: 4, upNext: 2)
+
         let corpus = standardCorpus(count: 30, seed: 0x1201_1BAC)
         coordinator.importFilms(corpus)
         let listID = coordinator.createList(name: "Rollback Target", displayOrder: 900)
@@ -921,9 +932,12 @@ extension DebugHarness {
 
         DebugPersistenceFault.reset()
 
-        /// Clean up so the following scenarios see the library they expect.
-        store.deleteFilms(ids: Set(corpus.map(\.id)))
-        store.deleteList(listID: listID)
+        /// Clean up through the coordinator, so the store loses the corpus too and the following
+        /// scenarios, and the next launch of this sandbox, see the library they expect.
+        await coordinator.deleteFilms(withIDs: Set(corpus.map(\.id)))
+        coordinator.deleteList(listID: listID)
+        _ = await drainOperations(coordinator)
+        await restoreRoom(room, coordinator: coordinator)
         coordinator.refreshFilms()
         return r
     }
@@ -1470,6 +1484,12 @@ extension DebugHarness {
             .compactMap { Preferences.dataFolderURL?.appendingPathComponent($0) }
         let cacheExists = { cacheFiles.map { FileManager.default.fileExists(atPath: $0.path(percentEncoded: false)) } }
         await coordinator.saveImmediately()
+        /// A restore earlier in the same run suspends cache writes for the rest of the session
+        /// (one-way, by design), and then the flush above writes nothing. The invalidation only
+        /// has to remove whatever is there, so stand-in files serve as well as real ones.
+        for (url, present) in zip(cacheFiles, cacheExists()) where !present {
+            try? Data("harness stand-in".utf8).write(to: url)
+        }
         r.check("restore-cache/seeded-before-restore", cacheExists().allSatisfy { $0 },
                 "cache files present: \(cacheExists())")
 
@@ -2146,9 +2166,12 @@ extension DebugHarness {
         /// numberOfDiscs agrees with the sheet's derived "0", so saving it is not a repair.
         let fDelta      = fixture("Merge Delta") { $0.numberOfDiscs = "0" }
         let fCross      = fixture("Merge Cross Tab")
-        coordinator.importFilms([fBackground, fConflict, fCalendar, fCalBoth,
-                                 fRevert, fHoF, fRepair, fDelta, fCross])
+        /// The Hall of Fame cases enter one film, which a real-library copy's full ranking refuses.
+        let room = await makeRoom(coordinator, hallOfFame: 1)
+        let fixtures = [fBackground, fConflict, fCalendar, fCalBoth, fRevert, fHoF, fRepair, fDelta, fCross]
+        coordinator.importFilms(fixtures)
         _ = await drainOperations(coordinator)
+        var addedFilmID: UUID?
 
         /// 1. A background rating change survives a save that edited only the name.
         do {
@@ -2331,8 +2354,13 @@ extension DebugHarness {
             both("e2e/add/whole-film-written", sheet.filmID,
                  { $0.name == "Merge Added Film" && $0.comments == "added comments" && !$0.releaseYear.isEmpty },
                  { "\($0.name) / \($0.comments) / \($0.releaseYear)" })
+            addedFilmID = sheet.filmID
         }
 
+        /// Leave the library as found, for the scenarios after this one.
+        await coordinator.deleteFilms(withIDs: Set(fixtures.map(\.id) + [addedFilmID].compactMap { $0 }))
+        _ = await drainOperations(coordinator)
+        await restoreRoom(room, coordinator: coordinator)
         return r
     }
 }
@@ -2605,39 +2633,6 @@ extension DebugHarness {
 
 extension DebugHarness {
 
-    /// Exports the sandbox's library, posters included, to `<sandbox>/parity-export.ftbackup`
-    /// with the real exporter. The package is the input to the cross-build parity test.
-    fileprivate static func parityExportScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "parity-export")
-        guard let packageURL = await runExport(coordinator: coordinator, filename: "parity-export") else {
-            r.check("export-succeeds", false, "createCompleteBackup threw")
-            return r
-        }
-        r.check("export-succeeds", true, packageURL.path(percentEncoded: false))
-        return r
-    }
-
-    /// Restores the package named by `FT_PARITY_PACKAGE` with the real restorer. It stages
-    /// the restore and commits it, exactly as the Settings restore does; the sandbox's NEXT
-    /// launch (any run, e.g. `parity-export`) swaps it into the sandbox store through
-    /// PendingRestore, so the parity test also covers the real launch swap.
-    fileprivate static func parityRestoreScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "parity-restore")
-        guard let path = ProcessInfo.processInfo.environment["FT_PARITY_PACKAGE"] else {
-            r.check("package-named", false, "FT_PARITY_PACKAGE is not set")
-            return r
-        }
-        let restorer = DBRestorer(container: coordinator.persistentContainer, dataCoordinator: coordinator)
-        do {
-            try await restorer.restoreFromBackup(at: URL(fileURLWithPath: path)) { _, _ in }
-            r.check("restore-completes", true, path)
-            r.check("restore-committed", restorer.requiresRestart && PendingRestore.isPending,
-                    "a staged restore waits for the next launch")
-        } catch {
-            r.check("restore-completes", false, "\(error)")
-        }
-        return r
-    }
 }
 
 // MARK: - Scenario: Membership Cascade

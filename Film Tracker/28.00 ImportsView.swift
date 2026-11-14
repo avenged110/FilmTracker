@@ -176,8 +176,8 @@ struct ImportsView: View {
         }
         .onAppear {
             /// ImportProgress is already attached to the model context and coordinator
-            /// by MainView.onAppear (which fires before any child view appears).
-            /// No re-attachment is needed here.
+            /// by MainView's launch task, which runs while All Films is showing, before
+            /// this view can appear. No re-attachment is needed here.
 
             /// Tell ImportsState (and MenuBar) we're viewing the Imports screen.
             /// ImportProgress reads this same flag, so it must be set before the
@@ -317,6 +317,19 @@ final class ImportsState {
     /// around.
     private(set) var categoryRequestedByName = false
 
+    /// Shows the Imports view on `category`'s tab, named outright: the toolbar menu, the File menu's
+    /// import items and their shortcuts, and the Left Sidebar menu's Imports items all come here. It
+    /// deliberately stops there: arriving at the Imports view NEVER opens a file picker on its own,
+    /// however the user got here. Starting an import is always a second, explicit act — the title
+    /// bar's "Select Files" button, or pressing the same shortcut again once this view holds it.
+    ///
+    /// The tab is set synchronously, after the navigation and in the same turn, so it is in place
+    /// before ImportsView's next render whether the view is already showing or about to mount.
+    func open(_ category: ImportsCategory, appState: AppState) {
+        appState.navigate(to: .libraryItem(.imports))
+        requestCategory(category)
+    }
+
     /// Selects `category` on behalf of a caller that asked for it by name.
     /// The flag is raised BEFORE the selection: `selectCategory` drives
     /// ViewStateManager, and the flag must already be set for any appearance that
@@ -447,7 +460,7 @@ private struct ActiveImportRow: View {
             /// is stable for the entire import and never re-formatted on each re-render.
             HStack {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text((importProgress.importStartDate ?? Date()).formatted(Date.FormatStyle(date: .complete, time: .omitted, calendar: AppCalendar.current)))
+                    Text(formatWeekdayDate(importProgress.importStartDate ?? Date()))
                         .font(.headline)
                     Text("In Progress")
                         .font(.subheadline)
@@ -472,27 +485,27 @@ private struct ActiveImportRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 StatRow(
                     label: "Processing…",
-                    value: "\(importProgress.currentFile) of \(importProgress.totalFiles)")
+                    value: "\(Fmt.count(importProgress.currentFile)) of \(Fmt.count(importProgress.totalFiles))")
                 Divider()
                     .padding(.vertical, 2)
                 StatRow(
                     label: "New Items Added",
-                    value: "\(importProgress.successCount)")
+                    value: Fmt.count(importProgress.successCount))
                 StatRow(
                     label: "Existing Items Updated",
-                    value: "\(importProgress.updatedCount)")
+                    value: Fmt.count(importProgress.updatedCount))
                 StatRow(
                     label: "Errors",
-                    value: "\(importProgress.errorFiles.count)",
+                    value: Fmt.count(importProgress.errorFiles.count),
                     isError: importProgress.errorFiles.count > 0)
                 StatRow(
                     label: "Duplicates Skipped",
-                    value: "\(importProgress.duplicateCount)")
+                    value: Fmt.count(importProgress.duplicateCount))
                 /// "Not Found" is only meaningful for ratings imports.
                 if importProgress.activeImportType == .ratings {
                     StatRow(
                         label: "Skipped Due to Film Not Found in Library",
-                        value: "\(importProgress.notFoundCount)") } }
+                        value: Fmt.count(importProgress.notFoundCount)) } }
             .font(.caption) }
         .padding(16) }
 }
@@ -552,7 +565,7 @@ private struct ActiveImportRow: View {
 ///     measurement replaces it a frame later.
 ///   • The window is ImportsListViewport's, fed by the clip view (AppKitScrollProxy.viewportHandler and
 ///     liveScrollHandler). Changing it mid-scroll is what costs. Every change, however small, re-lays out the list and
-///     builds cards, at 20 ms or more (`imports-scroll`, 99.55, on a copy of a real library). So the window grows
+///     builds cards, at 20 ms or more (measured on a copy of a real library). So the window grows
 ///     while the list is at rest: after a visit's first frame (which builds only what it shows) and after each scroll,
 ///     one step per run-loop turn. A list up to `ImportsListViewport.wholeListHeight` tall (a few dozen sessions) grows
 ///     to all of it, and then scrolls as the full stack did. A longer list grows to `ImportsListViewport.lead` beyond
@@ -974,7 +987,7 @@ final class ImportsListViewport {
 
     /// A list no taller than this is mounted whole at rest, so nothing at all is built
     /// while it scrolls. About sixty cards; each mounted card adds about a millisecond to
-    /// leaving the view (`imports-switch-perf`).
+    /// leaving the view.
     static let wholeListHeight: CGFloat = 10_000
 
     /// The mounted span, in list coordinates; nil until the scroll view first reports.
@@ -1078,7 +1091,7 @@ final class ImportsListViewport {
 }
 
 #if DEBUG
-/// `imports-switch-perf` turns windowing off to prove the windowed list draws exactly
+/// `imports-window` (99.55) turns windowing off to prove the windowed list draws exactly
 /// what the full stack draws.
 @MainActor
 enum ImportsListDebug {
@@ -1174,7 +1187,8 @@ private struct SessionCardContent: View {
             /// Header.
             HStack {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(session.dateFormatted)
+                    /// A comma after the year when the time follows it ("Friday, November 14, 2026, at 2:46 PM").
+                    Text(session.isCanceled ? session.dateFormatted : session.dateFormatted + ",")
                         .font(.headline)
                     if session.isCanceled {
                         Text("Import Canceled")
@@ -1232,24 +1246,17 @@ private struct SessionCardContent: View {
                     .popover(isPresented: $isShowingDetailsPopover, arrowEdge: .leading) {
                         SessionDetailsPopover(session: session)
                     }
-                    /// Scroll-dismiss: closes the popover whenever this button's vertical
-                    /// position in global coordinates changes — i.e., the session list
-                    /// (an AppKitScrollView-backed NSScrollView) was scrolled. This is the
-                    /// same onGeometryChange(for:of:action:) pattern HelpPopoverButton
-                    /// uses (GlobalUtilities.swift) rather than a background
-                    /// GeometryReader: onGeometryChange computes only the reduced minY
-                    /// value and fires its action solely when that value actually
-                    /// changes, with no extra layout node and no per-frame view-tree
-                    /// work — the same efficiency rationale documented there applies
-                    /// here, where this button is mounted once per session card in a
-                    /// potentially long scrolling list.
-                    .onGeometryChange(for: CGFloat.self) { proxy in
-                        proxy.frame(in: .global).minY
-                    } action: { _ in
-                        if isShowingDetailsPopover {
-                            isShowingDetailsPopover = false
+                    /// Scroll-dismiss: closes the popover when the session list (an
+                    /// AppKitScrollView-backed NSScrollView) scrolls. ScrollActivityObserver
+                    /// listens to the clip view's bounds notification, which AppKit posts
+                    /// anyway. Reading this button's `.global` frame instead made SwiftUI
+                    /// recompute it for every mounted card on every scroll frame, whether or
+                    /// not a popover was open. With none open, the callback only reads a Bool.
+                    .background(
+                        ScrollActivityObserver {
+                            if isShowingDetailsPopover { isShowingDetailsPopover = false }
                         }
-                    }
+                    )
                 }
 
             }
@@ -1259,33 +1266,33 @@ private struct SessionCardContent: View {
                 VStack(alignment: .leading, spacing: 4) {
                     StatRow(
                         label: "Items Selected for Import",
-                        value: "\(session.totalItems)")
+                        value: Fmt.count(session.totalItems))
                 }
                 .font(.caption)
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     StatRow(
                         label: "Total Items Processed",
-                        value: "\(session.totalItems)")
+                        value: Fmt.count(session.totalItems))
                     Divider()
                         .padding(.vertical, 2)
                     StatRow(
                         label: "New Items Added",
-                        value: "\(session.successCount)")
+                        value: Fmt.count(session.successCount))
                     StatRow(
                         label: "Existing Items Updated",
-                        value: "\(session.updatedCount)")
+                        value: Fmt.count(session.updatedCount))
                     StatRow(
                         label: "Errors",
-                        value: "\(session.errorCount)",
+                        value: Fmt.count(session.errorCount),
                         isError: session.errorCount > 0)
                     StatRow(
                         label: "Duplicates Skipped",
-                        value: "\(session.duplicateCount)")
+                        value: Fmt.count(session.duplicateCount))
                     if session.importType == ImportsCategory.ratings.rawValue {
                         StatRow(
                             label: "Skipped Due to Film Not Found in Library",
-                            value: "\(session.notFoundCount)")
+                            value: Fmt.count(session.notFoundCount))
                     }
                 }
                 .font(.caption)

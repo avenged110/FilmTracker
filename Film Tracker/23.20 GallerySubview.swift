@@ -48,10 +48,6 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
     weak var galleryCoordinator: GallerySubview.Coordinator?
 
     override func layout() {
-        /// Sampling point for the live-resize profiler. It does nothing unless the app is launched with -FTDebugLiveResize.
-        #if DEBUG
-        DebugLiveResizeProfiler.shared.beginPass(width: bounds.width)
-        #endif
         /// Disables implicit Core Animation transitions during this layout pass, so resizing does not pulse.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -96,7 +92,7 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
     ///
     /// makeFirstResponder is deferred one turn, since becoming first responder restyles selected items and belongs outside
     /// the display pass. The selection is already in place, so the view does not seed item 0.
-    private func resolvePendingKeyboardFocus() {
+    fileprivate func resolvePendingKeyboardFocus() {
         guard pendingKeyboardFocus, let window = unsafe window, let target = documentView else { return }
         pendingKeyboardFocus = false
         DispatchQueue.main.async { [weak window, weak target] in
@@ -210,9 +206,6 @@ final class WidthObservingScrollView: NSScrollView, Loggable {
 
 // MARK: - GallerySubview
 
-/// StatusBar overlay height, for the bottom inset. It is file-scope so it is not redeclared on every update.
-private let kStatusBarHeight: CGFloat = StatusBar.height
-
 /// There is no local grid-padding constant. The scroll helpers read `layout.lineSpacing` from the live layout, so
 /// they cannot drift from the grid geometry.
 
@@ -235,11 +228,14 @@ struct GallerySubview: NSViewRepresentable, Loggable {
     /// and passes it down, so the style and dividers always match the same Film Queue tab. A change is a value change, which
     /// schedules the update pass that adds or removes the bands.
     let showSectionDividers: Bool
+    /// The StatusBar's height, 0 when hidden (StatusBarLayout.height, from GalleryView). The bottom inset that keeps the last row and the
+    /// scroller clear of the overlay.
+    let statusBarHeight: CGFloat
+    /// True for the one GalleryView shared across sidebar items (GalleryReuse). See the re-registration in updateNSView.
+    var isSharedHost = false
 
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
-    /// Observes the StatusBar preference, for bottom padding.
-    @AppStorage(preference: Preferences.showStatusBarKey) private var showStatusBar: Bool
     /// Observes the large grid preference, for the column maximum: false is 7 columns, true is 6.
     @AppStorage(preference: Preferences.largeGalleryGridKey) private var largeGalleryGrid: Bool
     /// maintainScrollPositionOnViewSwitch is not read here. ViewStateManager.prepareScrollHandoff checks the preference
@@ -258,7 +254,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         let layout = SmoothResizingGridLayout()
         /// edgeInset, itemSpacing, and lineSpacing are `let` on the layout, so they are not set here.
         /// Reserves space for StatusBar when it is visible.
-        layout.bottomInset = showStatusBar ? kStatusBarHeight : 0
+        layout.bottomInset = statusBarHeight
         layout.hasSubtitles = subtitleProvider != nil
         /// Applies the column maximum from the preference: 7 by default, 6 for the large grid.
         layout.maxColumns = largeGalleryGrid ? Preferences.galleryMaxColumnsLargeGrid
@@ -404,7 +400,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         scrollView.layerContentsRedrawPolicy = .onSetNeedsDisplay
         scrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         scrollView.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: showStatusBar ? kStatusBarHeight : 0, right: 0)
+        scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: statusBarHeight, right: 0)
     }
 
     private func configureCollectionView(_ collectionView: NSCollectionView) {
@@ -428,14 +424,11 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// Passes the current view identity, so the Coordinator can detect real view switches.
         coordinator.currentViewID = activeViewID
 
-        /// Calculates the StatusBar inset once.
-        let bottomInset: CGFloat = showStatusBar ? kStatusBarHeight : 0
-        
-        coordinator.isStatusBarVisible = showStatusBar
+        coordinator.statusBarHeight = statusBarHeight
 
         /// Updates the scroller insets so the scrollbar is not hidden behind the StatusBar.
-        if scrollView.scrollerInsets.bottom != bottomInset {
-            scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
+        if scrollView.scrollerInsets.bottom != statusBarHeight {
+            scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: statusBarHeight, right: 0)
         }
 
         /// Batches all layout changes into one invalidation, so multiple changes cause one layout pass.
@@ -455,8 +448,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         if let layout = collectionView.collectionViewLayout as? SmoothResizingGridLayout {
             var layoutNeedsInvalidation = false
 
-            if layout.bottomInset != bottomInset {
-                layout.bottomInset = bottomInset
+            if layout.bottomInset != statusBarHeight {
+                layout.bottomInset = statusBarHeight
                 layoutNeedsInvalidation = true
             }
             if providerChanged {
@@ -627,17 +620,44 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             /// Advances prevViewID now that the transition is consumed.
             coordinator.prevViewID = coordinator.currentViewID
 
+            /// A remounted gallery registers as the scroll-position provider in every makeNSView, so a registry another
+            /// gallery cleared on its way out is repaired at the next navigation. The shared gallery is not remounted, so
+            /// it re-registers at each view switch instead. Only it does this: no other gallery is mounted beside it.
+            if viewIdentityChanged && isSharedHost {
+                ViewStateManager.shared.registerScrollPositionProvider(coordinator)
+            }
+
+            /// A search exit's destination is this same instance, so the keyboard-focus handoff (GalleryFocusIntent) is
+            /// claimed here instead of in makeNSView. The claim is deferred one turn, so it lands after
+            /// GalleryView.resetForReuse resigns the gallery.
+            if viewIdentityChanged, isSharedHost,
+               GalleryFocusIntent.shared.consume(ifTargeting: activeViewID),
+               let focusScrollView = coordinator.scrollView {
+                focusScrollView.pendingKeyboardFocus = true
+                focusScrollView.resolvePendingKeyboardFocus()
+                Self.log("Keyboard-focus handoff armed on reuse path (view: \(activeViewID))")
+            }
+
+            /// The shared gallery (GalleryReuse) keeps this Coordinator across sidebar items, where a remount
+            /// would start a fresh one. The prune flag describes the outgoing item's selection. A sub-tab
+            /// switch keeps the flag, as it always has.
+            if isSharedHost {
+                let sidebarItem = AppDelegate.appState?.selectedSidebarItem
+                if viewIdentityChanged, coordinator.lastSidebarItem != nil, coordinator.lastSidebarItem != sidebarItem {
+                    coordinator.forgetPrunedSelection()
+                }
+                coordinator.lastSidebarItem = sidebarItem
+            }
+
             /// For view switches, zero the scroll position before reloading to prevent flicker. For same-view reloads (e.g. film
             /// edits), capture the origin to restore after reloadData(). reloadData() resets the scroll to zero, which would otherwise
             /// move the user to the top on every save.
             let savedScrollOrigin: CGPoint?
 
-            /// The scroll intent is not consumed here. Each destination has its own stable .id, so a search exit always mounts a
-            /// fresh GallerySubview, and makeNSView is the only place that consumes the intent. Consuming it here would be harmful. The
-            /// search instance still re-renders during the exit, with the destination's activeViewID already set, so it would consume
-            /// the intent and arm a scroll on a view about to be dismantled. The real destination would then find nothing.
-
             if isViewSwitch {
+                /// A coast in flight belongs to the view being left, whose position is banked above. Stopped first, or it would go
+                /// on scrolling the incoming view from wherever the restore below puts it.
+                coordinator.stopCoastForViewSwitch()
                 /// Discards any origin restore armed by an earlier pass that this transition supersedes. Otherwise a rapid sub-tab
                 /// switch could leave B's origin armed and resolve it against C's content. The restore below re-arms it for the incoming view.
                 coordinator.scrollView?.pendingScrollPosition = nil
@@ -665,15 +685,13 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             coordinator.dividerBandsNeedRefresh = true
 
             /// Decides how to handle scroll position after the reload, in this order:
-            ///   0. A reuse-path film handoff, which is a "Show in List" redirect to a sub-variant.
+            ///   0. A reuse-path film handoff (search exit, Show in List, Film Queue move).
             ///   1. scrollToFilmID, for an intentional post-edit reposition.
             ///   2. The saved origin, for a view-switch restore (maintainScrollPositionOnViewSwitch).
             ///   3. The same-view origin, to restore the viewport for in-place edits.
-            ///
-            /// The search-exit scroll is handled in makeNSView.
             if let handoffFilmID = GalleryScrollIntent.shared.consumeOnReuse(ifTargeting: coordinator.currentViewID) {
-                /// Priority 0: a reuse-path film handoff. It can only be a ShowInListNavigation redirect to a sub-variant of the parent
-                /// already on screen (see GalleryScrollIntent.consumableOnReuse). It outranks the origin restores, so the intent is
+                /// Priority 0: a reuse-path film handoff: a search exit, a Show in List, or a Film Queue move whose destination is
+                /// this mounted gallery (see GalleryScrollIntent.consumableOnReuse). It outranks the origin restores, so the intent is
                 /// retired and the armed origin discarded before the target is placed.
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
                 coordinator.scrollView?.pendingScrollPosition = nil
@@ -844,6 +862,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// Final reconciliation of the divider bands' text against the layout this pass produced. It runs last, when the collection
         /// view holds the current films and breaks. See refreshVisibleSectionDividers.
         coordinator.refreshVisibleSectionDividers()
+
+        coordinator.noteViewportSettledForSwitch()
     }
 
     /// Explicit teardown. It cancels the Coordinator's subscriptions when the representable is removed. It also saves the scroll
@@ -886,8 +906,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// reserve or release the subtitle row.
         var subtitleProvider: GallerySubtitleProvider?
 
-        /// Tracks StatusBar visibility for layout.
-        var isStatusBarVisible: Bool = false
+        /// The StatusBar's height, 0 when hidden, for the scroll-into-view padding.
+        var statusBarHeight: CGFloat = 0
 
         /// The current and previous view identifiers, for detecting view switches. updateNSView updates them on every pass.
         /// prevViewID is nil until the Coordinator has rendered a view. A non-optional default would compare equal on a fresh mount
@@ -1078,8 +1098,45 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             coastStopper.install(on: scrollView)
         }
 
-        /// Lets Cmd+L stop a trackpad coast in flight. It is installed and removed with the scroll-origin recorder.
+        /// Lets Cmd+L and view switches stop a trackpad coast in flight. It is installed and removed with the scroll-origin recorder.
         private let coastStopper = CoastingScrollStopper()
+
+        /// True from a view switch's coast stop until AppKit has ended that coast. See stopCoastForViewSwitch.
+        private var isStoppingCoastForSwitch = false
+        /// Where the switch's pass left the viewport, put back if the stopped coast's last write moved it.
+        private var switchSettledOrigin: CGPoint?
+
+        /// Freezes a coast in flight at a view switch, before the pass moves the viewport for the incoming view. Called by
+        /// updateNSView's reload branch after the outgoing position is banked. A no-op when nothing is coasting.
+        fileprivate func stopCoastForViewSwitch() {
+            isStoppingCoastForSwitch = true
+            switchSettledOrigin = nil
+            let stopped = coastStopper.stopCoastForViewSwitch { [weak self] endedLater in
+                guard let self else { return }
+                self.isStoppingCoastForSwitch = false
+                guard endedLater else { return }
+                self.restoreSwitchSettledOrigin()
+            }
+            if !stopped { isStoppingCoastForSwitch = false }
+        }
+
+        /// Records where this pass left the viewport, if a stopped coast has yet to end. Called at the end of updateNSView.
+        fileprivate func noteViewportSettledForSwitch() {
+            guard isStoppingCoastForSwitch, let scrollView else { return }
+            switchSettledOrigin = scrollView.contentView.bounds.origin
+        }
+
+        /// Undoes the stopped coast's last write, unless the user has started a new scroll since.
+        private func restoreSwitchSettledOrigin() {
+            defer { switchSettledOrigin = nil }
+            guard let origin = switchSettledOrigin, let scrollView, !coastStopper.isLive,
+                  scrollView.contentView.bounds.origin != origin else { return }
+            appViewportMove {
+                scrollView.contentView.setBoundsOrigin(origin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+            Self.log("Restored the switch's viewport after the stopped coast's last write: \(origin)")
+        }
 
         /// Removes the live-scroll observer. It is idempotent, and it removes the observation for any scroll view. Called from
         /// cancelSubscriptions().
@@ -1087,10 +1144,15 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             NotificationCenter.default.removeObserver(
                 self, name: NSScrollView.didEndLiveScrollNotification, object: nil)
             coastStopper.remove()
+            isStoppingCoastForSwitch = false
+            switchSettledOrigin = nil
         }
 
         @objc private func handleLiveScrollEnded(_ notification: Notification) {
             guard let scrollView else { return }
+            /// The end of a coast this gallery stopped for a view switch. Its position belongs to the view being left, which is
+            /// already banked, while displayedScrollKey already names the new one. See stopCoastForViewSwitch.
+            guard !isStoppingCoastForSwitch else { return }
             /// The user has taken over the viewport. Any pending restore is retired before the save, since bankScrollOrigin refuses to
             /// overwrite a key with an outstanding restore. Retiring it later would discard the position the user just reached. It is
             /// addressed, so it cannot cancel another view's intent.
@@ -1175,7 +1237,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             )
         }
 
-        /// Returns the poster for a film ID, for the flyback drag preview. It runs on the main thread during drag detection,
+        /// Returns the poster for a film ID, for the grid's native drag preview. It runs on the main thread during drag detection,
         /// so it reads only from the cache and never from disk. See PosterCache.dragPreviewImage.
         ///
         /// The lookup is O(1) through filmIndexMap. An index from that map is always in range, since the map is rebuilt whenever films
@@ -1386,6 +1448,15 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
             let ids = Set(indexPaths.compactMap { filmID(at: $0) })
             selectionState.select(ids)
+        }
+
+        /// The sidebar item of the last reload. Only kept by the shared gallery (see updateNSView).
+        fileprivate var lastSidebarItem: SidebarItem?
+
+        /// Drops the prune flag at a sidebar change, as a fresh Coordinator would start without it. Only called
+        /// for the shared gallery (see updateNSView).
+        func forgetPrunedSelection() {
+            selectionClearedByPrune = false
         }
 
         func syncSelectionToView() {
@@ -1900,6 +1971,8 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
         func selectAll() {
             guard let collectionView, !films.isEmpty else { return }
+            /// Covers every route in (the shortcut, the menu item, Cmd+A typed in the grid). See GalleryReuse.isHiddenForTokenEntry.
+            guard !GalleryReuse.isHiddenForTokenEntry else { return }
 
             /// The visual selection and the model update together. Setting selectionIndexPaths first makes focus rings appear at once.
             /// The model is updated unconditionally, so it stays in sync during rapid arrow navigation. NSCollectionView does not call
@@ -1944,10 +2017,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             /// Calculate the target scroll position to make item fully visible
             var targetPoint = scrollView.documentView?.bounds.origin ?? .zero
 
-            /// Padding depends on scroll direction. It uses the layout's inter-row gap, and adds the StatusBar height when the bar is visible.
+            /// Padding depends on scroll direction. It uses the layout's inter-row gap, and adds the StatusBar height (0 when hidden).
             let gridPadding = layout.lineSpacing
             let topPadding = gridPadding
-            let bottomPadding = isStatusBarVisible ? gridPadding + kStatusBarHeight : gridPadding
+            let bottomPadding = gridPadding + statusBarHeight
 
             if itemFrame.minY < visibleRect.minY {
                 /// Item is above visible area — scroll up
@@ -2161,33 +2234,66 @@ final class CoastingScrollStopper: NSObject, Loggable {
     /// `jump` receives true when a coast was stopped. AppKit's didEndLiveScroll then reached the scroll-origin recorder with the
     /// pre-jump position, so the caller must bank its new position itself. With false, the jump is a plain one.
     func jump(_ jump: @escaping @MainActor (_ stoppedCoast: Bool) -> Void) {
-        guard isLiveScrolling, NSEvent.pressedMouseButtons == 0,
-              let scrollView, let behavior = Self.stoppableBehavior(of: scrollView) else {
+        guard stopCoast(then: { jump(true) }) else {
             jump(false)
             return
         }
+    }
+
+    /// Ends a coast in flight because the view on screen is about to change underneath it, in this same update pass.
+    ///
+    /// Without this, a reused gallery (a sub-tab, a smart-list variant, the Film Queue's filter, and every sidebar item with
+    /// GalleryReuse) kept coasting through the switch: the new view went on scrolling from where its restore had put it.
+    ///
+    /// The caller moves the viewport right after this returns, so unlike `jump` it does not wait. `settled` runs once AppKit's
+    /// final write of the stopped coast is done: at once when the coast ended inside the stop, otherwise after
+    /// didEndLiveScroll (or `endTimeout`). By then that write may have overwritten the switch's own placement, which
+    /// `settled` puts back. Returns false, without calling `settled`, when no coast could be stopped.
+    @discardableResult
+    func stopCoastForViewSwitch(settled: @escaping @MainActor (_ endedLater: Bool) -> Void) -> Bool {
+        #if DEBUG
+        /// `-FTNoSwitchCoastStop`: the negative control for the `switch-coast` harness scenario.
+        if Self.switchStopDisabled { return false }
+        #endif
+        return stopCoast(then: { settled(true) }, endedAtOnce: { settled(false) })
+    }
+
+    #if DEBUG
+    private static let switchStopDisabled = ProcessInfo.processInfo.arguments.contains("-FTNoSwitchCoastStop")
+    #endif
+
+    /// The shared stop. Returns false when nothing was stopped. Otherwise `endedAtOnce` runs before this returns if the coast
+    /// ended inside the stop (it defaults to `then`), and `then` runs later if it did not.
+    private func stopCoast(then: @escaping @MainActor () -> Void,
+                           endedAtOnce: (@MainActor () -> Void)? = nil) -> Bool {
+        guard isLiveScrolling, NSEvent.pressedMouseButtons == 0,
+              let scrollView, let behavior = Self.stoppableBehavior(of: scrollView) else { return false }
 
         _ = unsafe behavior.perform(Self.stopSelector)
 
         guard isLiveScrolling else {
             /// didEndLiveScroll arrived inside the stop, so AppKit's final write is done.
             log("Stopped coast; ended synchronously")
-            jump(true)
-            return
+            (endedAtOnce ?? then)()
+            return true
         }
 
         pendingGeneration += 1
         let generation = pendingGeneration
-        pendingJump = { jump(true) }
+        pendingJump = then
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.endTimeout) { [weak self] in
             guard let self, generation == self.pendingGeneration,
                   let pending = self.pendingJump else { return }
             self.pendingJump = nil
-            self.log("No didEndLiveScroll \(Int(Self.endTimeout * 1000)) ms after stopping; jumping anyway",
+            self.log("No didEndLiveScroll \(Int(Self.endTimeout * 1000)) ms after stopping; continuing anyway",
                      level: .warning)
             pending()
         }
+        return true
     }
+
+    /// Whether a live scroll (a gesture, its coast, or a scroller drag) is in progress.
+    var isLive: Bool { isLiveScrolling }
 
     /// The scroll view's scrolling behavior, if it can be stopped safely. Otherwise nil.
     private static func stoppableBehavior(of scrollView: NSScrollView) -> NSObject? {

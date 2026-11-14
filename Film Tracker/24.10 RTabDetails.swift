@@ -43,11 +43,6 @@ private struct RTabDetailsContent: View {
     @State private var calendarExpanded: Bool
     @State private var listExpanded: Bool
 
-    #if DEBUG
-    /// Identifies this instance to DetailsExpandProbe; see the onDisappear below.
-    @State private var probeOwner = UUID()
-    #endif
-
     init(calendarTableExpanded: Binding<Bool>, listTableExpanded: Binding<Bool>) {
         self.calendarTableExpanded = calendarTableExpanded
         self.listTableExpanded = listTableExpanded
@@ -100,23 +95,6 @@ private struct RTabDetailsContent: View {
         .onChange(of: listTableExpanded.wrappedValue) { _, value in
             if listExpanded != value { RSBHelpers.withoutAnimation { listExpanded = value } }
         }
-        #if DEBUG
-        /// The `details-expand` harness scenario (99.56) drives the tables through this probe, writing the same
-        /// flags "Show All" writes. Teardown checks ownership, because SidebarPrewarm builds and discards a
-        /// throwaway copy, which could otherwise unhook the real sidebar's probe.
-        .onAppear {
-            let calendar = $calendarExpanded, list = $listExpanded
-            DetailsExpandProbe.owner = probeOwner
-            DetailsExpandProbe.set = { table, value in
-                if table == "calendar" { calendar.wrappedValue = value } else { list.wrappedValue = value }
-            }
-        }
-        .onDisappear {
-            guard DetailsExpandProbe.owner == probeOwner else { return }
-            DetailsExpandProbe.owner = nil
-            DetailsExpandProbe.set = nil
-        }
-        #endif
     }
 
 }

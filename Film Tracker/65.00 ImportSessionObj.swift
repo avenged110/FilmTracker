@@ -67,32 +67,15 @@ final class ImportSession: LibraryObject {
         self.isCompleted = isCompleted
         self.isCanceled = isCanceled }
 
-    // MARK: - Formatters
-    /// DateFormatter is expensive to construct; share a single instance per format.
-    /// DateFormatter is Sendable in the macOS 15 / Swift 6 SDK — no nonisolated(unsafe)
-    /// annotation is needed or appropriate.
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .full
-        f.timeStyle = .none
-        f.calendar = AppCalendar.gregorian  /// the locale is the user's; the calendar is not (AppCalendar)
-        return f
-    }()
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .none
-        f.timeStyle = .short
-        return f
-    }()
-
+    // MARK: - Display
+    /// Through the app's shared display formats: "Friday, November 14, 2026" and "2:46 PM".
     var dateFormatted: String { Self.formattedDate(sessionDate) }
 
     var timeFormatted: String { Self.formattedTime(sessionDate) }
 
     /// The card header's date and time, for a session held as a value (ImportSessionRecord).
-    static func formattedDate(_ date: Date) -> String { dateFormatter.string(from: date) }
-    static func formattedTime(_ date: Date) -> String { timeFormatter.string(from: date) }
+    static func formattedDate(_ date: Date) -> String { formatWeekdayDate(date) }
+    static func formattedTime(_ date: Date) -> String { formatTime(date) }
 }
 
 // MARK: - ExportableModel Conformance

@@ -967,7 +967,8 @@ final class LibraryModel: @unchecked Sendable {
         let session = entity("ImportSession", Self.importSessionAttributes, unique: "id")
         /// One settings row, enforced by the uniqueness constraint. Contexts that may insert a second
         /// (the restore's) resolve it with mergeByPropertyObjectTrump.
-        let settings = entity("SettingsObject", Self.settingsObjectAttributes, unique: "snapshotID")
+        let settings = entity("SettingsObject", Self.settingsObjectAttributes + Self.retiredSettingsObjectAttributes,
+                              unique: "snapshotID")
         let search = entity("SavedSearchObject", Self.savedSearchObjectAttributes, unique: "searchID")
 
         /// Relationships. Every to-many side is optional, as Core Data expects and batch delete requires.
@@ -1100,13 +1101,23 @@ final class LibraryModel: @unchecked Sendable {
         ("importScanSubfolders", .optionalBool), ("fuzzyImportMatching", .optionalBool), ("fuzzyImportYearMatching", .optionalBool),
         ("overrideSortNameField", .optionalBool), ("allowUpdatesForDuplicateImports", .optionalBool), ("allowUpdatesForDuplicateRatings", .optionalBool),
         ("exportPosterImages", .optionalBool), ("prunePosterImages", .optionalBool), ("exportUserSettings", .optionalBool),
-        ("maintainScrollPositionOnViewSwitch", .optionalBool), ("rememberTabSelection", .optionalBool), ("tabRememberScope", .optionalInt),
-        ("lastRecentsCategory", .optionalString), ("lastReportsCategory", .optionalString), ("rememberImportsTab", .optionalBool),
+        ("maintainScrollPositionOnViewSwitch", .optionalBool), ("rememberImportsTab", .optionalBool),
         ("lastImportsCategory", .optionalString), ("rememberSortFilterSelections", .optionalBool), ("confirmFilmQueueAdd", .optionalBool),
         ("notifyAboutNewReleases", .optionalBool), ("onlyNotifyForWishlisted", .optionalBool), ("queueIsDropTarget", .optionalBool),
         ("queueSectionOnDrop", .optionalInt), ("strictFramesTableChecking", .optionalBool), ("showWatchDetailsAnnotationGlyphs", .optionalBool),
         ("atvq", .optionalBool), ("loggingEnabled", .optionalBool), ("selectedSortOptionsJSON", .optionalString),
         ("ignoredDuplicatePairsJSON", .optionalString),
+    ]
+
+    /// Settings columns of preferences that no longer exist. They stay in the schema only so a store
+    /// written before their removal still matches the model: the model is built in code with no prior
+    /// version for Core Data to migrate from, so dropping a column would leave such a store unable to
+    /// open. Nothing reads or writes them, and neither backup nor restore includes them (a backup that
+    /// holds them restores without them; see DBRestorer). Retired in 1.1.0: the remembered Recents
+    /// and Insights tab.
+    static let retiredSettingsObjectAttributes: [Attribute] = [
+        ("rememberTabSelection", .optionalBool), ("tabRememberScope", .optionalInt),
+        ("lastRecentsCategory", .optionalString), ("lastReportsCategory", .optionalString),
     ]
 
     static let savedSearchObjectAttributes: [Attribute] = [

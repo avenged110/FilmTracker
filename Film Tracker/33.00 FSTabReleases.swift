@@ -679,7 +679,7 @@ struct ReleaseCarouselEntry: Identifiable, Equatable {
 
 @MainActor
 @Observable
-final class FSTabReleases {
+final class FSTabReleases: FilmSheetTabChangeTracking {
     weak var owner: FilmSheet?
 
     /// Not cached at launch, so release year defaults and purchase year ranges stay accurate if
@@ -1517,14 +1517,7 @@ final class FSTabReleases {
             lastDirtyDiagnostic = next
         }
 
-        /// Only write hasChanges — and only call owner.notifyChanges() — when the
-        /// aggregated result actually differs from the last known value. Skipping
-        /// the no-op path keeps the 150ms debounce tick from waking FilmSheet on
-        /// every keystroke once hasChanges has already latched to true.
-        if hasChanges != changed {
-            hasChanges = changed
-            owner.notifyChanges()
-        }
+        latchHasChanges(changed, notifying: owner)
     }
 
     // MARK: - Cache Maintenance
@@ -2837,19 +2830,18 @@ final class FSTabReleases {
 
         model.discMultiPack = (newValue == ReleaseIndependence.multiPack)
 
-        /// hasArtwork is reset because each type offers a different artwork tag set. Two
+        /// hasArtwork is reset because each type offers different kinds of artwork. Two
         /// exceptions, both rules of the artwork vocabulary rather than of this cascade:
-        ///   • the combo-pack forms share their tags, so moving between them keeps any tag
-        ///     the new form still offers — "Combo-pack (multi-pack)" adds "Yes (Multi-pack)",
-        ///     which is retracted on the way back to a form that lacks it;
-        ///   • "Steelbook" is offered under every type and purchased state (see
-        ///     _ArtworkPicker), so no type change can make it invalid. A cascade may retract a
-        ///     value the NEW vocabulary cannot express, never one it still can.
+        ///   • the combo-pack forms share their tags, so moving between them keeps any value
+        ///     the new form can still express, detail included — "Combo-pack (multi-pack)"
+        ///     adds "Multi-pack", which is retracted on the way back to a form that lacks it;
+        ///   • "Steelbook" and "DigiBook/DigiPack" are offered under every type (see
+        ///     ReleaseArtwork.keptOnTypeChange), so no type change can make them invalid. A
+        ///     cascade may retract a value the NEW vocabulary cannot express, never one it still can.
         let stayedWithinComboForms = ReleaseIndependence.isComboPack(oldValue)
             && ReleaseIndependence.isComboPack(newValue)
-            && (model.hasArtwork.isEmpty
-                || ReleaseArtwork.options(forIndependence: newValue).contains(model.hasArtwork))
-        if !stayedWithinComboForms && model.hasArtwork != ReleaseArtwork.steelbook {
+            && ReleaseArtwork.isExpressible(model.hasArtwork, forIndependence: newValue)
+        if !stayedWithinComboForms && !ReleaseArtwork.keptOnTypeChange.contains(model.hasArtwork) {
             model.hasArtwork = ""
         }
 

@@ -62,6 +62,9 @@ struct SortMenuInputs: Hashable, Sendable {
     /// The section bands the gallery is currently drawing, in display order.
     var jumpTargets: [GallerySectionJumpTarget] = []
 
+    /// Whether the menu as a whole is disabled for this view. See ViewIdentifier.sortMenuUnavailable.
+    var menuUnavailable: Bool = false
+
     /// Resolves every value above for the view on screen right now.
     ///
     /// `jumpTargets` comes from the same GallerySectioning call as the galleries' bands, so no host can offer
@@ -81,12 +84,14 @@ struct SortMenuInputs: Hashable, Sendable {
             disabledSortOptions: disabledSortOptions(
                 smartListType: activeView.smartListType,
                 unwatchedCategory: activeView.unwatchedCategory,
-                filterOptions: state.filterOptions),
+                filterOptions: state.filterOptions,
+                recentsCategory: activeView.recentsCategory),
             showSectionDividers: state.showSectionDividers,
             sectionDividersLocked: manager.sectionDividersLocked,
             jumpTargets: GallerySectioning.jumpTargets(
                 coordinator: coordinator,
-                showSortingSections: state.showSectionDividers))
+                showSortingSections: state.showSectionDividers),
+            menuUnavailable: activeView.sortMenuUnavailable)
     }
 
     /// Whether the sort options and direction pair are locked for the active view. That happens for a
@@ -104,11 +109,14 @@ struct SortMenuInputs: Hashable, Sendable {
     /// It is nil on Recently Come Up for Rotation, which no option describes. That view is ordered by
     /// rotation eligibility date, and its stored `.dateAdded` is a placeholder (see
     /// RecentsCategory.sortOption). Upcoming Releases is also nil, since its ordering is the soonest upcoming
-    /// release, and its stored `.title` is a placeholder.
+    /// release, and its stored `.title` is a placeholder. The Recents summary tab is nil as well, since each of
+    /// its rows has its own order, and so is Recent Disc Releases, ordered by release date.
     static func displayedSortOption(_ stored: SortOption,
                                     recentsCategory: RecentsCategory?,
                                     smartListType: SmartListType? = nil) -> SortOption? {
-        recentsCategory == .recentlyRotated || smartListType == .upcomingReleases ? nil : stored
+        recentsCategory == .recentlyRotated || recentsCategory == .summary
+            || recentsCategory == .recentDiscRelease
+            || smartListType == .upcomingReleases ? nil : stored
     }
 
     /// Sort options that are meaningless in a view. They stay visible but locked.
@@ -124,10 +132,17 @@ struct SortMenuInputs: Hashable, Sendable {
     /// Last Viewed is meaningless on the Unwatched tab, and Recorded View Count is disabled there too, since
     /// every film is at 0. Rating is meaningless on the Not Rated tab, where every rating is 0.
     ///
+    /// Every option is disabled on Recent Disc Releases, which is ordered by release date (no option's key) but
+    /// whose direction is the user's to set, so its menu is not locked as a whole (see
+    /// RecentsCategory.userSetsSortDirection). Only the menus pass `recentsCategory`.
+    /// ViewState.effectiveSortOption leaves it out, so that tab's placeholder sort is never swapped for Title.
+    ///
     /// It is a plain Set<SortOption>.
     static func disabledSortOptions(smartListType: SmartListType?,
                                     unwatchedCategory: UnwatchedCategory?,
-                                    filterOptions: Set<FilterOption>) -> Set<SortOption> {
+                                    filterOptions: Set<FilterOption>,
+                                    recentsCategory: RecentsCategory? = nil) -> Set<SortOption> {
+        if recentsCategory?.userSetsSortDirection == true { return Set(SortOption.allCases) }
         var disabled: Set<SortOption> = []
 
         if smartListType?.isUnpurchasedFormat == true || filterOptions.contains(.unpurchased) {
@@ -151,6 +166,12 @@ struct FilterMenuInputs: Hashable, Sendable {
     var filters: Set<FilterOption> = []
     /// Filter blocks that should be disabled (but still visible) for this view.
     var disabledBlocks: Set<FilterBlock> = []
+    /// True on the Recents summary tab, where one set of filters narrows every section's row. Both hosts say so
+    /// in the menu's title.
+    var filtersAllSections: Bool = false
+
+    /// The menu's name: the MenuBar's menu title, and the title bar menu's header (which adds a colon).
+    var menuTitle: String { filtersAllSections ? "Filter All Sections" : "Filter" }
 
     @MainActor
     static func current() -> FilterMenuInputs {
@@ -161,7 +182,8 @@ struct FilterMenuInputs: Hashable, Sendable {
             filters: manager.activeState.filterOptions,
             disabledBlocks: disabledBlocks(smartListType: activeView.smartListType,
                                            recentsCategory: activeView.recentsCategory,
-                                           unwatchedCategory: activeView.unwatchedCategory))
+                                           unwatchedCategory: activeView.unwatchedCategory),
+            filtersAllSections: activeView == .recents(.summary))
     }
 
     /// The blocks that are meaningless for a given view context, and so render visible-but-locked there.
@@ -488,6 +510,9 @@ struct GallerySortMenu: View {
                 .frame(width: Preferences.buttonWidth)
         }
         .menuIndicator(.hidden)
+        /// The whole button, where the view has nothing to sort or band. Elsewhere only the options lock
+        /// (`isDisabled`), so Jump to Section stays reachable.
+        .disabled(inputs.menuUnavailable)
         .help("Change the sorting order")
         .onAppear { refreshInputs() }
         .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { _ in
@@ -555,8 +580,8 @@ struct GalleryFilterMenu: View {
         Menu {
             /// A descriptive header, styled rather than disabled, as the Sort menu header is. A disabled
             /// header would read as another unavailable row beside the filter blocks that do disable.
-            Text("Filter:").foregroundStyle(.secondary)
             let inputs = self.inputs
+            Text("\(inputs.menuTitle):").foregroundStyle(.secondary)
             FilterMenuContent(
                 currentFilters: inputs.filters,
                 isDisabled: isDisabled,
@@ -573,7 +598,7 @@ struct GalleryFilterMenu: View {
             /// disabled button would mislead, because the user cannot interact with it, and the saved filters
             /// are not yet actionable during initial load.
             Image(systemName: !isDisabled && hasActiveFilters ?
-                "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                ViewGlyphs.activeFilters.filled : ViewGlyphs.activeFilters.outline)
                 .font(.system(size: 14))
                 .frame(width: Preferences.buttonWidth)
         }

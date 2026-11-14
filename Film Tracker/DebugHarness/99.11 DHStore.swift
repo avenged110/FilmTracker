@@ -55,7 +55,7 @@ extension DebugHarness {
     static var storeScenarios: [String] {
         ["store-invariants", "store-hall-of-fame", "store-queue", "store-coordinator",
          "store-snapshot-mapping", "store-fingerprint", "settings-sync-order",
-         "imports-delete-all-queued"]
+         "imports-delete-all-queued", "bulk-edit-check"]
     }
 
     /// Dispatch hook called by `DebugHarness.run(_:coordinator:)` before its own switch.
@@ -171,7 +171,7 @@ extension DebugHarness {
                                        detail: "\(multi.count) film(s) in more than one section"))
         }
 
-        return checks.map(classify)
+        return checks
     }
 
     /// The (view, sort, direction, filters) matrix every differential is evaluated over.
@@ -230,12 +230,12 @@ extension DebugHarness {
             }
         }
 
-        return [classify(HarnessCheck(
+        return [HarnessCheck(
             name: "\(label)/matches-fresh-store",
             passed: mismatches.isEmpty,
             detail: mismatches.isEmpty
                 ? "\(comparisons) view combinations identical to a store with no cache"
-                : "\(mismatches.count) of \(comparisons) differ — " + mismatches.prefix(4).joined(separator: " | ")))]
+                : "\(mismatches.count) of \(comparisons) differ — " + mismatches.prefix(4).joined(separator: " | "))]
     }
 
     // MARK: - Corpus

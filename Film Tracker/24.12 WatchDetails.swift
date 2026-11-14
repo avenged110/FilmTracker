@@ -558,9 +558,9 @@ struct WatchDetails: View, Loggable {
         }
         
         if let oldestYear = years.min() {
-            return ("\(count) (since \(oldestYear))", false)
+            return ("\(Fmt.count(count)) (since \(oldestYear))", false)
         } else {
-            return ("\(count)", false)
+            return (Fmt.count(count), false)
         }
     }
     
@@ -622,7 +622,7 @@ struct WatchDetails: View, Loggable {
         }
 
         let average = totalDays / (sortedDates.count - 1)
-        return "\(average) day" + (average == 1 ? "" : "s")
+        return Fmt.count(average, "day")
     }
     
     /// Renders the Duration field from the cached display strings.

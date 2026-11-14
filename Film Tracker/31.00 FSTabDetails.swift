@@ -8,7 +8,7 @@ import SwiftUI
 
 @MainActor
 @Observable
-final class FSTabDetails {
+final class FSTabDetails: FilmSheetTabChangeTracking {
     weak var owner: FilmSheet?
 
     /// Detail fields.
@@ -333,18 +333,10 @@ final class FSTabDetails {
         /// canConfirm there is `isValid` alone.
         let changed = owner.isEditMode ? computeHasChanges() : false
 
-        /// Only write hasChanges — and only call owner.notifyChanges() — when the
-        /// aggregated result actually differs from the last known value. Skipping
-        /// the no-op path keeps every keystroke in edit mode from waking FilmSheet
-        /// once hasChanges has already latched to its steady-state value.
-        /// Mirrors the identical pattern in FSTabReleases.checkForChanges().
-        if hasChanges != changed {
-            hasChanges = changed
-            /// notifyChanges() re-derives canConfirm through
-            /// performCanConfirmUpdate(), which consults isValid, so a validity
-            /// transition occurring on this same edit is covered by this branch.
-            owner.notifyChanges()
-        } else if validityChanged {
+        /// When hasChanges moves, notifyChanges() re-derives canConfirm through
+        /// performCanConfirmUpdate(), which consults isValid, so a validity transition
+        /// occurring on this same edit is covered by the latch.
+        if !latchHasChanges(changed, notifying: owner) && validityChanged {
             /// hasChanges did not move, so notifyChanges() was not called — but the
             /// validation state just flipped and canConfirm is derived from BOTH.
             /// Without this branch, a validity flip on an edit that leaves hasChanges
@@ -354,7 +346,7 @@ final class FSTabDetails {
             /// nothing on the far more common non-transitioning edits.
             ///
             /// This is also the path add mode always takes: `changed` is false there and
-            /// `hasChanges` is already false, so the first branch never fires and a
+            /// `hasChanges` is already false, so the latch never fires and a
             /// validity flip reaches updateCanConfirm() exactly as it did when add mode
             /// had a dedicated early return.
             owner.updateCanConfirm()

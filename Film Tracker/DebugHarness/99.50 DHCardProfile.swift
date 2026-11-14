@@ -1,18 +1,11 @@
 // MARK: - DHCardProfile.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// DEBUG-only measurement scenario for the Releases carousel's card: what it costs to MOUNT a
-/// ReleaseCardView, to RE-POINT a mounted one at a different model in place (the merged combo
-/// pack's variant swap, and the operation a slot-recycling carousel would perform on every
-/// step), and to UNMOUNT one. Opt-in (`-FTDebugHarness card-perf`); not part of `all`, because
-/// its output is a measurement rather than a verdict.
-///
-/// The card is hosted in a real NSHostingView inside an off-screen NSWindow, so every
-/// AppKit-backed control (NSPopUpButton, NSStepper, NSTextField, NSButton, NSSegmentedControl)
-/// is genuinely created, constrained and laid out — the census counts them afterward. The
-/// numbers are wall time around the synchronous layout call plus main-thread CPU across the
-/// run-loop turn that follows it, which is where SwiftUI and AppKit finish the work the
-/// synchronous call only started.
+/// DEBUG-only scenarios for the FilmSheet (its Releases carousel, save path and keyboard rules),
+/// the sheet and sidebar controls, the alert host, the Reports tables and the left sidebar's
+/// disclosure rows. Most are in `all`; `reports-table-behavior` is in `ui`; `reports-hitch`
+/// and `filmsheet-perf` are opt-in measurements; `jump-menu-width` and the two
+/// `sidebar-expansion-*` launches are opt-in checks run by name.
 
 #if DEBUG
 
@@ -22,8 +15,7 @@ import SwiftUI
 
 extension DebugHarness {
 
-    /// Scenario names owned by this file that `all` runs. `card-perf` is deliberately not
-    /// among them: its output is a measurement, not a verdict.
+    /// Scenario names owned by this file that `all` runs.
     static var cardScenarios: [String] {
         ["card-focus", "segmented-equivalence", "currency-placeholder", "releases-settle",
          "filmsheet-save", "return-key-policy", "queue-add-confirm", "alert-host", "alert-collision", "tab-cycle",
@@ -34,19 +26,10 @@ extension DebugHarness {
     static func runCardProfileScenario(_ scenario: String,
                                        coordinator: DataCoordinator) async -> HarnessScenarioResult? {
         switch scenario {
-        case "card-perf":  return await cardProfileScenario(coordinator: coordinator)
-        case "card-fit":   return await cardFitScenario(coordinator: coordinator)
         case "card-focus": return await cardFocusScenario(coordinator: coordinator)
         case "segmented-equivalence": return await segmentedEquivalenceScenario()
         case "currency-placeholder": return await currencyPlaceholderScenario(coordinator: coordinator)
-        case "picker-dismissal": return await pickerDismissalScenario(coordinator: coordinator)
-        case "reports-tab-perf": return await reportsTabPerfScenario(coordinator: coordinator)
         case "reports-hitch": return await reportsHitchScenario(coordinator: coordinator)
-        case "sheet-hitch": return await sheetHitchScenario(coordinator: coordinator)
-        case "reports-frames": return await reportsFramesScenario(coordinator: coordinator)
-        case "reports-loop": return await reportsLoopScenario(coordinator: coordinator)
-        case "dataviz-measure": return await dataVizMeasureScenario(coordinator: coordinator)
-        case "dataviz-window": return await dataVizWindowScenario(coordinator: coordinator)
         case "reports-table-behavior": return await reportsTableBehaviorScenario(coordinator: coordinator)
         case "releases-settle": return await releasesSettleScenario(coordinator: coordinator)
         case "filmsheet-save": return await filmSheetSaveScenario(coordinator: coordinator)
@@ -64,28 +47,6 @@ extension DebugHarness {
         case "jump-menu-width": return await jumpMenuWidthScenario(coordinator: coordinator)
         case "filmsheet-perf": return await filmSheetPerfScenario(coordinator: coordinator)
         default:           return nil
-        }
-    }
-
-    /// Mirrors the carousel's mounted/unmounted branch exactly: a model renders the real card
-    /// behind `.equatable()`, nil renders the inert spacer that stands in for an unmounted one.
-    private struct CardSlot: View {
-        let model: ReleaseCardModel?
-        let displayIndex: Int
-        let viewModel: FSTabReleases
-
-        var body: some View {
-            if let model {
-                ReleaseCardView(model: model,
-                                badgeFormat: model.format,
-                                displayIndex: displayIndex,
-                                onDelete: {},
-                                viewModel: viewModel)
-                    .equatable()
-                    .frame(width: 536)
-            } else {
-                Color.clear.frame(width: 536, height: 1)
-            }
         }
     }
 
@@ -186,617 +147,6 @@ extension DebugHarness {
             m.hasLowestPriceDate = true
         }
         return m
-    }
-
-    /// How much room the carousel leaves around a card inside a FilmSheet at its real size:
-    /// the gaps between the card's top edge and the carousel's (below the header), and
-    /// between the card's bottom edge and the carousel's (above the button gutter). A
-    /// measurement, not a verdict, so it is not part of `all`; run it after a change to the
-    /// card's height.
-    ///
-    /// The card's edges are found from two controls at known offsets inside it: the
-    /// Purchased checkbox (its center sits `checkboxCenterFromCardTop` below the card's top)
-    /// and the Notes field (whose bottom sits one card inset above the card's bottom).
-    private static func cardFitScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "card-fit")
-        let size = Preferences.sheetSize
-        let sheet = FilmSheet(coordinator: coordinator)
-        guard let vm = sheet.releasesTab else {
-            r.check("view-model", false, "FilmSheet has no releases tab")
-            return r
-        }
-        let model = makeModel(format: .uhd4K, purchased: false, sortOrder: 0)
-        /// `-FTDebugCardFitUpcoming` dates the card a month ahead, to see the "Upcoming"
-        /// badge and the Unreleased availability in the PNG.
-        if ProcessInfo.processInfo.arguments.contains("-FTDebugCardFitUpcoming"),
-           let ahead = StorageDateFormatters.calendar.date(byAdding: .month, value: 1, to: Date()) {
-            model.setReleaseDate(ahead)
-        }
-        vm.releases = [model]
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: size, height: size),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let host = NSHostingView(rootView: FilmSheetView(owner: sheet).frame(width: size, height: size))
-        host.frame = NSRect(x: 0, y: 0, width: size, height: size)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        for _ in 0..<4 { await oneRunLoopTurn() }
-        sheet.selectedTab = .releases
-        for _ in 0..<12 { await oneRunLoopTurn() }
-        try? await Task.sleep(for: .milliseconds(400))
-        host.layoutSubtreeIfNeeded()
-        await oneRunLoopTurn()
-
-        var carousel: NSRect?
-        var views: [(NSView, NSRect)] = []
-        var stack: [NSView] = [host]
-        while let v = stack.popLast() {
-            let f = host.convert(v.bounds, from: v)
-            if String(describing: type(of: v)).contains("PassthroughView") { carousel = f }
-            if !v.isHiddenOrHasHiddenAncestor { views.append((v, f)) }
-            stack.append(contentsOf: v.subviews)
-        }
-        /// Only controls on the card inside the carousel: other tabs may stay mounted.
-        let onCard = views.filter { carousel?.contains(NSPoint(x: $0.1.midX, y: $0.1.midY)) ?? false }
-        let checkbox = onCard.filter { $0.0 is NSButton && $0.1.width == 18 && $0.1.height == 18 }
-            .map(\.1).min { $0.minY < $1.minY }
-        let notes = onCard.filter { $0.0 is NSTextField && $0.1.width > 300 }
-            .map(\.1).max { $0.maxY < $1.maxY }
-        guard let carousel, let checkbox, let notes, host.isFlipped else {
-            r.check("found-controls", false, "carousel \(String(describing: carousel)), checkbox \(String(describing: checkbox)), notes \(String(describing: notes)), flipped \(host.isFlipped)")
-            return r
-        }
-        /// From card-perf's frames: the checkbox's center sits 75 pt below the card's top, and
-        /// the card ends 16 pt (its inset) below the Notes field.
-        let checkboxCenterFromCardTop: CGFloat = 75
-        let cardTop = checkbox.midY - checkboxCenterFromCardTop
-        let cardBottom = notes.maxY + 16
-        let topGap = cardTop - carousel.minY
-        let bottomGap = carousel.maxY - cardBottom
-        unsafe log(String(format: "card-fit: carousel %.1f–%.1f, card %.1f–%.1f (%.1f pt), gap above %.1f pt, below %.1f pt",
-                   carousel.minY, carousel.maxY, cardTop, cardBottom, cardBottom - cardTop, topGap, bottomGap))
-        r.metric("card-fit.gap.top", topGap, "pt")
-        r.metric("card-fit.gap.bottom", bottomGap, "pt")
-        /// The sheet as drawn, as `card-fit.png` in the sandbox.
-        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-            host.cacheDisplay(in: host.bounds, to: rep)
-            if let data = rep.representation(using: .png, properties: [:]),
-               let dir = DebugSandbox.rootURL {
-                try? data.write(to: dir.appendingPathComponent("card-fit.png"))
-            }
-        }
-        return r
-    }
-
-    private static func cardProfileScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "card-perf")
-
-        /// An add-mode sheet: no film needed, and its Releases view model is what the card
-        /// requires for wishlist and combo-pack callbacks (none of which fire here).
-        let sheet = FilmSheet(coordinator: coordinator)
-        guard let vm = sheet.releasesTab else {
-            r.check("view-model", false, "FilmSheet has no releases tab")
-            return r
-        }
-
-        let formats: [ReleaseFormat] = [.uhd4K, .bluRay, .dvd]
-        let models: [ReleaseCardModel] = (0..<12).map { i in
-            makeModel(format: formats[i % 3], purchased: i % 2 == 0, sortOrder: i)
-        }
-        vm.releases = models
-
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 900))
-        window.contentView = container
-        /// `-FTDebugCardPerfVisible` orders the window in (parked below the screen's bottom
-        /// edge, at 10% alpha) so the numbers can be compared against an off-screen window.
-        if ProcessInfo.processInfo.arguments.contains("-FTDebugCardPerfVisible") {
-            window.setFrameOrigin(NSPoint(x: 100, y: -880))
-            window.alphaValue = 0.1
-            window.orderFront(nil)
-            for _ in 0..<5 { await oneRunLoopTurn() }
-            log("card-perf: window ordered in at \(window.frame), onScreen=\(window.isOnActiveSpace)")
-        }
-
-        /// The window is ordered in only with -FTDebugCardPerfVisible. It must exist either way,
-        /// so AppKit installs the platform views, and layoutSubtreeIfNeeded runs the hosting
-        /// view's update pass.
-        typealias Host = NSHostingView<CardSlot>
-
-        var mount: [Sample] = [], swap: [Sample] = [], swapSameFormat: [Sample] = []
-        var unmount: [Sample] = [], remount: [Sample] = []
-        var viewCount = 0, focusableCount = 0
-        let trials = 14
-        let warmup = 3
-
-        for trial in 0..<trials {
-            let a = models[trial % models.count]
-            /// A model of a DIFFERENT format and purchase state: the branchiest swap.
-            let b = models[(trial + 1) % models.count]
-            /// Same format, same purchase state: the in-place update with nothing structural.
-            let c = models[(trial + 6) % models.count]
-
-            let host = Host(rootView: CardSlot(model: nil, displayIndex: 1, viewModel: vm))
-            host.frame = NSRect(x: 50, y: 50, width: 536, height: 800)
-            container.addSubview(host)
-            host.layoutSubtreeIfNeeded()
-            await oneRunLoopTurn()
-
-            let m = await measure {
-                host.rootView = CardSlot(model: a, displayIndex: 1, viewModel: vm)
-                host.layoutSubtreeIfNeeded()
-            }
-            if trial == warmup {
-                (viewCount, focusableCount) = census(host)
-                /// Card heights for every format × purchased state, the geometry that has to
-                /// survive any change to the card's controls.
-                for m in models.prefix(6) {
-                    host.rootView = CardSlot(model: m, displayIndex: 1, viewModel: vm)
-                    host.layoutSubtreeIfNeeded()
-                    await oneRunLoopTurn()
-                    let h = host.fittingSize.height
-                    r.metric("card.height.\(m.format).\(m.purchased ? "purchased" : "unpurchased")", h, "pt")
-                    unsafe log(String(format: "card fitting height %.2f pt (%@, purchased %d)", h, m.format, m.purchased ? 1 : 0))
-                }
-                /// Every AppKit control's frame in host coordinates, for a before/after diff of
-                /// the card's geometry (`-FTDebugCardPerfFrames` prints it).
-                if ProcessInfo.processInfo.arguments.contains("-FTDebugCardPerfFrames") {
-                    for m in models.prefix(2) {
-                        host.rootView = CardSlot(model: m, displayIndex: 1, viewModel: vm)
-                        host.layoutSubtreeIfNeeded()
-                        await oneRunLoopTurn()
-                        var stack: [NSView] = [host]
-                        var lines: [String] = []
-                        while let v = stack.popLast() {
-                            if v is NSControl {
-                                let f = host.convert(v.bounds, from: v)
-                                unsafe lines.append(String(format: "%@ %.1f,%.1f %.1fx%.1f", String(describing: type(of: v)).replacingOccurrences(of: "SwiftUI", with: ""), f.origin.x, f.origin.y, f.width, f.height))
-                            }
-                            stack.append(contentsOf: v.subviews)
-                        }
-                        log("FRAMES \(m.format)/\(m.purchased): " + lines.sorted().joined(separator: " | "))
-                    }
-                }
-                host.rootView = CardSlot(model: a, displayIndex: 1, viewModel: vm)
-                host.layoutSubtreeIfNeeded()
-                await oneRunLoopTurn()
-            }
-
-            let s = await measure {
-                host.rootView = CardSlot(model: b, displayIndex: 1, viewModel: vm)
-                host.layoutSubtreeIfNeeded()
-            }
-            let s2 = await measure {
-                host.rootView = CardSlot(model: c, displayIndex: 1, viewModel: vm)
-                host.layoutSubtreeIfNeeded()
-            }
-            let u = await measure {
-                host.rootView = CardSlot(model: nil, displayIndex: 1, viewModel: vm)
-                host.layoutSubtreeIfNeeded()
-            }
-            /// Mount again into the same slot, as a navigation step does after an unmount.
-            let rm = await measure {
-                host.rootView = CardSlot(model: a, displayIndex: 2, viewModel: vm)
-                host.layoutSubtreeIfNeeded()
-            }
-            host.removeFromSuperview()
-            await oneRunLoopTurn()
-
-            if trial >= warmup {
-                mount.append(m); swap.append(s); swapSameFormat.append(s2)
-                unmount.append(u); remount.append(rm)
-            }
-        }
-
-        func report(_ name: String, _ samples: [Sample], into r: inout HarnessScenarioResult) {
-            let t = stats(samples.map(\.total))
-            let w = stats(samples.map(\.layoutWall))
-            r.metric("\(name).total.median", t.median, "ms")
-            r.metric("\(name).total.max", t.max, "ms")
-            r.metric("\(name).layout.median", w.median, "ms")
-            unsafe log(String(format: "%@: total median %.2f ms (max %.2f) | sync layout median %.2f ms",
-                       name, t.median, t.max, w.median))
-        }
-        // MARK: Two more card-level probes
-        ///
-        /// swap-identical: the root view is reassigned with the SAME model. `.equatable()`
-        /// declines the body, so what remains is the fixed cost of a hosting-view update.
-        /// field-write: one property is written on the mounted model, which is the per-keystroke
-        /// path — Observation invalidates the one row that reads it.
-        var identical: [Sample] = [], fieldWrite: [Sample] = [], purchasedToggle: [Sample] = []
-        var unmountedWrite: [Sample] = [], discsWrite: [Sample] = [], audioWrite: [Sample] = []
-        do {
-            let host = Host(rootView: CardSlot(model: models[0], displayIndex: 1, viewModel: vm))
-            host.frame = NSRect(x: 50, y: 50, width: 536, height: 800)
-            container.addSubview(host)
-            host.layoutSubtreeIfNeeded()
-            await oneRunLoopTurn()
-            for trial in 0..<trials {
-                let i = await measure {
-                    host.rootView = CardSlot(model: models[0], displayIndex: 1, viewModel: vm)
-                    host.layoutSubtreeIfNeeded()
-                }
-                let f = await measure {
-                    models[0].notes = "typed \(trial)"
-                    host.layoutSubtreeIfNeeded()
-                }
-                let p = await measure {
-                    models[0].purchased.toggle()
-                    host.layoutSubtreeIfNeeded()
-                }
-                let un = await measure {
-                    models[1].notes = "typed \(trial)"   /// NOT mounted: observer cost alone
-                    host.layoutSubtreeIfNeeded()
-                }
-                let dw = await measure {
-                    models[0].numberOfDiscs = trial % 9 + 1
-                    host.layoutSubtreeIfNeeded()
-                }
-                let aw = await measure {
-                    models[0].audioChannels = trial % 2 == 0 ? "5.1" : "2.0"
-                    host.layoutSubtreeIfNeeded()
-                }
-                if trial >= warmup {
-                    identical.append(i); fieldWrite.append(f); purchasedToggle.append(p)
-                    unmountedWrite.append(un); discsWrite.append(dw); audioWrite.append(aw)
-                }
-            }
-            host.removeFromSuperview()
-            await oneRunLoopTurn()
-        }
-        report("swap-identical", identical, into: &r)
-        report("field-write-notes", fieldWrite, into: &r)
-        report("purchased-toggle", purchasedToggle, into: &r)
-        report("field-write-unmounted-model", unmountedWrite, into: &r)
-        report("field-write-discs", discsWrite, into: &r)
-        report("field-write-audioChannels", audioWrite, into: &r)
-        report("mount", mount, into: &r)
-        report("remount", remount, into: &r)
-        report("swap-cross-format", swap, into: &r)
-        report("swap-same-format", swapSameFormat, into: &r)
-        report("unmount", unmount, into: &r)
-        r.metric("card.nsviews", Double(viewCount), "views")
-        r.metric("card.focusable", Double(focusableCount), "views")
-        log("card census: \(viewCount) NSViews, \(focusableCount) accept first responder")
-
-        // MARK: Model-side costs, for scale
-        let model = models[0]
-        let hashIterations = 2000
-        let t0 = ContinuousClock.now
-        var acc = 0
-        for _ in 0..<hashIterations { acc &+= model.contentHash }
-        let hashUS = milliseconds(ContinuousClock.now - t0) * 1000 / Double(hashIterations)
-        let base = model.snapshot()
-        let t1 = ContinuousClock.now
-        var eq = 0
-        for _ in 0..<hashIterations { if model.snapshot() == base { eq += 1 } }
-        let snapUS = milliseconds(ContinuousClock.now - t1) * 1000 / Double(hashIterations)
-        r.metric("contentHash", hashUS, "us")
-        r.metric("snapshot-compare", snapUS, "us")
-        log("contentHash \(Fmt.fixed(hashUS, 2)) us | snapshot+compare \(Fmt.fixed(snapUS, 2)) us (acc \(Fmt.int(acc & 1)) eq \(Fmt.int(eq)))")
-
-        await controlTable(into: &r, container: container)
-        await describeSwiftUIPopUp(container: container)
-        await carouselStep(into: &r, container: container, coordinator: coordinator)
-
-        r.check("measured", mount.count == trials - warmup, "\(mount.count) samples")
-        window.close()
-        return r
-    }
-
-    // MARK: - A real navigation step
-    ///
-    /// Hosts the actual FSTabReleasesView over ten releases, lets it hydrate, then asks the
-    /// view model for one step and records main-thread CPU per run-loop turn for the next
-    /// second. The heaviest turn is Phase A's mount; the turns after it are the spring.
-    private static func carouselStep(into r: inout HarnessScenarioResult, container: NSView,
-                                     coordinator: DataCoordinator) async {
-        let sheet = FilmSheet(coordinator: coordinator, initialTab: .releases)
-        guard let vm = sheet.releasesTab else { return }
-        let formats: [ReleaseFormat] = [.uhd4K, .bluRay, .dvd]
-        vm.releases = (0..<10).map { i in makeModel(format: formats[i % 3], purchased: i % 2 == 0, sortOrder: i) }
-
-        let host = NSHostingView(rootView: FSTabReleasesView(viewModel: vm))
-        host.frame = NSRect(x: 0, y: 0, width: 600, height: 850)
-        container.addSubview(host)
-        host.layoutSubtreeIfNeeded()
-        /// Hydration takes a few turns; give it plenty.
-        for _ in 0..<30 { await oneRunLoopTurn() }
-        try? await Task.sleep(for: .milliseconds(200))
-        let (views, focusable) = census(host)
-        log("carousel at rest (10 releases, index 0): \(views) NSViews, \(focusable) focusable")
-        r.metric("carousel.rest.nsviews", Double(views), "views")
-
-        func stepAndSample(_ label: String, _ action: () -> Void) async -> [Double] {
-            var perTurn: [Double] = []
-            action()
-            var last = threadCPUMilliseconds()
-            let start = ContinuousClock.now
-            while milliseconds(ContinuousClock.now - start) < 900 {
-                await oneRunLoopTurn()
-                let now = threadCPUMilliseconds()
-                perTurn.append(now - last)
-                last = now
-            }
-            let total = perTurn.reduce(0, +)
-            let top = perTurn.sorted(by: >).prefix(4)
-            unsafe log(String(format: "%@: %.1f ms main-thread CPU over the step; heaviest turns %@",
-                       label, total, top.map { Fmt.fixed($0, 1) }.joined(separator: ", ")))
-            return perTurn
-        }
-        /// The first step also pays for whatever the hydration ramp left; take three.
-        var totals: [Double] = []
-        for i in 1...3 {
-            let t = await stepAndSample("step \(i) (next)") { vm.nextCard() }
-            totals.append(t.reduce(0, +))
-            let peak = t.max() ?? 0
-            r.metric("carousel.step\(i).cpu", t.reduce(0, +), "ms")
-            r.metric("carousel.step\(i).peakTurn", peak, "ms")
-        }
-        host.removeFromSuperview()
-        await oneRunLoopTurn()
-    }
-
-    // MARK: - What SwiftUI's Picker(.menu) actually builds
-    private static func describeSwiftUIPopUp(container: NSView) async {
-        let host = NSHostingView(rootView: AnyView(
-            VStack {
-                TaggedPicker(selection: .constant("Canada"),
-                             options: ReleaseOrigin.names.map { ReleaseOption($0) },
-                             placeholder: "Select Country…")
-                Picker("", selection: .constant("MGM")) {
-                    Text("Select Studio…").tag("")
-                    ForEach(ReleaseStudio.ordered, id: \.self) { Text($0).tag($0) }
-                    Divider()
-                    Text("Other").tag("Other")
-                }.pickerStyle(.menu).labelsHidden().frame(width: 144)
-                MenuProbeLabel()
-            }.frame(width: 536)))
-        host.frame = NSRect(x: 0, y: 0, width: 536, height: 300)
-        container.addSubview(host)
-        host.layoutSubtreeIfNeeded()
-        for _ in 0..<3 { await oneRunLoopTurn() }
-        await renderComparison(container: container)
-        var stack: [NSView] = [host]
-        var found = 0
-        while let v = stack.popLast() {
-            if let p = v as? NSPopUpButton {
-                found += 1
-                let cell = p.cell as? NSPopUpButtonCell
-                var desc = "NSPopUpButton #\(found): class=\(type(of: p)) pullsDown=\(p.pullsDown) "
-                desc += "bezel=\(p.bezelStyle.rawValue) bordered=\(p.isBordered) controlSize=\(p.controlSize.rawValue) "
-                desc += "font=\(p.font.map { "\($0.fontName) \($0.pointSize)" } ?? "nil") "
-                desc += "focusRing=\(p.focusRingType.rawValue) refusesFR=\(p.refusesFirstResponder) "
-                desc += "arrowPos=\(cell?.arrowPosition.rawValue ?? 99) prefEdge=\(cell?.preferredEdge.rawValue ?? 0) "
-                desc += "imagePos=\(p.imagePosition.rawValue) alignment=\(p.alignment.rawValue) "
-                desc += "frame=\(p.frame) intrinsic=\(p.intrinsicContentSize) items=\(p.numberOfItems) "
-                desc += "autoenables=\(p.menu?.autoenablesItems ?? false) menuDelegate=\(p.menu?.delegate.map { String(describing: type(of: $0)) } ?? "nil") "
-                desc += unsafe "selected='\(p.titleOfSelectedItem ?? "")' superview=\(type(of: p.superview!))"
-                log(desc)
-                if let items = p.menu?.items {
-                    let sample = items.prefix(3).map { "'\($0.title)' view=\($0.view.map { String(describing: type(of: $0)) } ?? "nil") attr=\($0.attributedTitle != nil) state=\($0.state.rawValue) sep=\($0.isSeparatorItem)" }
-                    log("   items: " + sample.joined(separator: " | "))
-                }
-            }
-            stack.append(contentsOf: v.subviews)
-        }
-        host.removeFromSuperview()
-        await oneRunLoopTurn()
-    }
-
-    /// Writes `popup-comparison.png` into the sandbox: SwiftUI's Picker(.menu) above
-    /// ReleasePopUpButton with the same selection, enabled and disabled, at 2x.
-    private static func renderComparison(container: NSView) async {
-        let countries = ReleaseOrigin.names.map { ReleaseOption($0) }
-        let items = ReleasePopUpButton.items(placeholder: "Select Country…", options: countries)
-        let view = VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Text("SwiftUI:").frame(width: 70, alignment: .trailing)
-                Picker("", selection: .constant("Canada")) {
-                    Text("Select Country…").tag("")
-                    ForEach(countries, id: \.tag) { Text($0.title).tag($0.tag) }
-                }.pickerStyle(.menu).labelsHidden().frame(width: 144, alignment: .leading)
-                Picker("", selection: .constant("")) {
-                    Text("Select Country…").tag("")
-                    ForEach(countries, id: \.tag) { Text($0.title).tag($0.tag) }
-                }.pickerStyle(.menu).labelsHidden().frame(width: 144, alignment: .leading).disabled(true)
-            }
-            HStack(spacing: 12) {
-                Text("AppKit:").frame(width: 70, alignment: .trailing)
-                ReleasePopUpButton(selection: .constant("Canada"), items: items)
-                    .frame(width: 144, height: ReleaseCardMetrics.popUpLayoutHeight, alignment: .leading)
-                ReleasePopUpButton(selection: .constant(""), items: items)
-                    .frame(width: 144, height: ReleaseCardMetrics.popUpLayoutHeight, alignment: .leading)
-                    .disabled(true)
-            }
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor))
-        let host = NSHostingView(rootView: AnyView(view))
-        host.frame = NSRect(x: 0, y: 0, width: 420, height: 90)
-        container.addSubview(host)
-        host.layoutSubtreeIfNeeded()
-        for _ in 0..<3 { await oneRunLoopTurn() }
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        if let data = rep.representation(using: .png, properties: [:]),
-           let dir = DebugSandbox.rootURL {
-            let url = dir.appendingPathComponent("popup-comparison.png")
-            try? data.write(to: url)
-            log("popup comparison written to \(url.path)")
-        }
-        host.removeFromSuperview()
-        await oneRunLoopTurn()
-    }
-
-    private struct MenuProbeLabel: View {
-        var body: some View {
-            Menu { Toggle(isOn: .constant(true)) { Text("A") } } label: { Text("Menu label") }
-                .frame(width: 144)
-        }
-    }
-
-    // MARK: - Per-control costs
-    ///
-    /// Each control kind is hosted ten-up in a VStack so the hosting view's own overhead is
-    /// amortized, mounted, then updated by reassigning the root view with a different value
-    /// (the same diff the card's in-place swap performs). Per-instance figures are the
-    /// ten-up total divided by ten.
-
-    private struct Probe {
-        let name: String
-        let make: (Int) -> AnyView   /// value index → view (ten stacked)
-    }
-
-    private static func tenUp<V: View>(_ index: Int, @ViewBuilder _ item: @escaping (Int) -> V) -> AnyView {
-        AnyView(VStack(spacing: 4) {
-            ForEach(0..<10, id: \.self) { row in item(index + row) }
-        }.frame(width: 536))
-    }
-
-    /// A hand-driven NSPopUpButton, as ReleaseJumpMenu is. `lazy` keeps only the selected
-    /// title in the menu and fills the rest in `menuNeedsUpdate`, which AppKit calls just
-    /// before the menu opens.
-    private struct PopUpProbe: NSViewRepresentable {
-        let titles: [String]
-        let selected: Int
-        let lazy: Bool
-
-        final class Coordinator: NSObject, NSMenuDelegate {
-            var titles: [String] = []
-            var selected = 0
-            func menuNeedsUpdate(_ menu: NSMenu) {
-                menu.removeAllItems()
-                for t in titles { menu.addItem(withTitle: t, action: nil, keyEquivalent: "") }
-            }
-        }
-        func makeCoordinator() -> Coordinator { Coordinator() }
-
-        func makeNSView(context: Context) -> NSPopUpButton {
-            let b = NSPopUpButton(frame: .zero, pullsDown: false)
-            b.controlSize = .regular
-            let menu = NSMenu()
-            if lazy { menu.delegate = context.coordinator }
-            b.menu = menu
-            return b
-        }
-        func updateNSView(_ b: NSPopUpButton, context: Context) {
-            context.coordinator.titles = titles
-            context.coordinator.selected = selected
-            guard let menu = b.menu else { return }
-            if lazy {
-                if menu.numberOfItems != 1 || menu.item(at: 0)?.title != titles[selected] {
-                    menu.removeAllItems()
-                    menu.addItem(withTitle: titles[selected], action: nil, keyEquivalent: "")
-                }
-                b.selectItem(at: 0)
-            } else {
-                if menu.numberOfItems != titles.count {
-                    menu.removeAllItems()
-                    for t in titles { menu.addItem(withTitle: t, action: nil, keyEquivalent: "") }
-                }
-                b.selectItem(at: selected)
-            }
-        }
-    }
-
-    private static func controlTable(into r: inout HarnessScenarioResult, container: NSView) async {
-        let countries = ReleaseOrigin.names.map { ReleaseOption($0) }
-        let studios   = ReleaseStudio.ordered
-        let aspects   = AspectRatioVocabulary.all
-
-        let probes: [Probe] = [
-            Probe(name: "text-only") { v in tenUp(v) { i in Text("Label \(i)").frame(width: 140) } },
-            Probe(name: "button-plain") { v in tenUp(v) { i in
-                Button(action: {}) { Circle().fill(.red).frame(width: 18, height: 18) }
-                    .buttonStyle(.plain).id(i) } },
-            Probe(name: "picker-menu-12") { v in tenUp(v) { i in
-                TaggedPicker(selection: .constant(countries[i % countries.count].tag),
-                             options: countries, placeholder: "Select Country…") } },
-            Probe(name: "picker-menu-25") { v in tenUp(v) { i in
-                Picker("", selection: .constant(studios[i % studios.count])) {
-                    Text("Select Studio…").tag("")
-                    ForEach(studios, id: \.self) { Text($0).tag($0) }
-                    Divider()
-                    Text("Other").tag("Other")
-                }.pickerStyle(.menu).labelsHidden().frame(width: 144) } },
-            Probe(name: "nspopup-eager-25") { v in tenUp(v) { i in
-                PopUpProbe(titles: studios, selected: i % studios.count, lazy: false).frame(width: 144, height: 22) } },
-            Probe(name: "nspopup-lazy-25") { v in tenUp(v) { i in
-                PopUpProbe(titles: studios, selected: i % studios.count, lazy: true).frame(width: 144, height: 22) } },
-            Probe(name: "picker-menu-3") { v in tenUp(v) { i in
-                Picker("", selection: .constant(["A","B","C"][i % 3])) {
-                    ForEach(["A","B","C"], id: \.self) { Text($0).tag($0) }
-                }.pickerStyle(.menu).labelsHidden().frame(width: 144) } },
-            Probe(name: "picker-segmented-2") { v in tenUp(v) { i in
-                Picker("", selection: .constant(i % 2 == 0 ? "New" : "Used")) {
-                    Text("New").tag("New"); Text("Used").tag("Used")
-                }.pickerStyle(.segmented).labelsHidden().frame(width: 144) } },
-            Probe(name: "menu-20-toggles") { v in tenUp(v) { i in
-                Menu {
-                    ForEach(aspects, id: \.self) { option in
-                        Toggle(isOn: .constant(option == aspects[i % aspects.count])) { Text(option) }
-                    }
-                } label: { Text(aspects[i % aspects.count]).frame(maxWidth: .infinity, alignment: .leading) }
-                .frame(width: 144) } },
-            Probe(name: "textfield-rounded") { v in tenUp(v) { i in
-                TextField("Notes", text: .constant("note \(i)")).textFieldStyle(.roundedBorder) } },
-            Probe(name: "toggle-checkbox") { v in tenUp(v) { i in
-                Toggle("", isOn: .constant(i % 2 == 0)).labelsHidden() } },
-            Probe(name: "stepper-swiftui") { v in tenUp(v) { i in
-                Stepper(value: .constant(i % 10 + 1), in: 1...10) { Text("\(i % 10 + 1)").frame(width: 41) } } },
-            Probe(name: "standard-stepper") { v in tenUp(v) { i in
-                StandardStepper(value: .constant(i % 10 + 1), in: 1...10) } },
-            Probe(name: "datepicker-year") { v in tenUp(v) { i in
-                CustomDateStepper(year: .constant(2000 + i % 20), hasValue: .constant(true),
-                                 yearRange: 1990...2026) {} } },
-            Probe(name: "datepicker-full") { v in tenUp(v) { i in
-                CustomDateStepper(date: .constant(Date(timeIntervalSince1970: Double(i) * 86_400 * 40)),
-                                 hasValue: .constant(true), yearRange: 1990...2026) {} } },
-            Probe(name: "currency-field") { v in tenUp(v) { i in
-                CurrencyInputField(value: .constant(Double(i) + 0.5)) } },
-            Probe(name: "help-button") { v in tenUp(v) { i in
-                HelpPopoverButton(helpText: "Help \(i)", autoDismissDuration: 10) } },
-        ]
-
-        for probe in probes {
-            var mountS: [Sample] = [], updateS: [Sample] = [], unmountS: [Sample] = []
-            var views = 0, focusable = 0
-            let trials = 8, warmup = 2
-            for trial in 0..<trials {
-                let host = NSHostingView(rootView: AnyView(Color.clear.frame(width: 536, height: 1)))
-                host.frame = NSRect(x: 50, y: 50, width: 536, height: 800)
-                container.addSubview(host)
-                host.layoutSubtreeIfNeeded()
-                await oneRunLoopTurn()
-                let m = await measure {
-                    host.rootView = probe.make(trial * 10)
-                    host.layoutSubtreeIfNeeded()
-                }
-                if trial == warmup { (views, focusable) = census(host) }
-                let u = await measure {
-                    host.rootView = probe.make(trial * 10 + 1)
-                    host.layoutSubtreeIfNeeded()
-                }
-                let d = await measure {
-                    host.rootView = AnyView(Color.clear.frame(width: 536, height: 1))
-                    host.layoutSubtreeIfNeeded()
-                }
-                host.removeFromSuperview()
-                await oneRunLoopTurn()
-                if trial >= warmup { mountS.append(m); updateS.append(u); unmountS.append(d) }
-            }
-            let m = stats(mountS.map(\.total)).median / 10
-            let u = stats(updateS.map(\.total)).median / 10
-            let d = stats(unmountS.map(\.total)).median / 10
-            r.metric("control.\(probe.name).mount", m, "ms/each")
-            r.metric("control.\(probe.name).update", u, "ms/each")
-            r.metric("control.\(probe.name).unmount", d, "ms/each")
-            unsafe log(String(format: "control %-20@ mount %6.2f  update %6.2f  unmount %6.2f  ms each | %3d views, %2d focusable (per 10)",
-                       probe.name, m, u, d, views, focusable))
-        }
     }
 }
 
@@ -1536,39 +886,54 @@ extension DebugHarness {
     }
 
     /// Row titles, by row index, named from the outline's structure: SwiftUI's sidebar rows
-    /// expose no readable text (no AX client is attached to a harness run). Level-0 rows are
-    /// the three section headers; the Library rows are LeftSidebar's six in order; a Smart
-    /// Lists level-1 row is the next of `sidebarCases` and its level-2 rows that family's
-    /// variants; the Lists rows are `cachedLists` in order. Any row the structure does not
-    /// account for is named "?", which the scenario's row-count checks catch.
+    /// expose no readable text (no AX client is attached to a harness run). Built from the same
+    /// sources LeftSidebar draws from, so a section or family added there is named here too:
+    /// level-0 rows are the section headers (Smart Lists only while enabled, Saved Searches only
+    /// once one exists); the Library rows are All Films, the grouped families, Imports and the
+    /// Queue, each family's level-2 rows its `childTabs`; a Smart Lists level-1 row is the next
+    /// of `sidebarCases` and its level-2 rows that family's variants; the Lists and Saved
+    /// Searches rows are `cachedLists` and the saved searches in order. Any row the structure
+    /// does not account for is named "?", which the scenario's row-count checks catch.
     private static func rowTitles(_ outline: NSOutlineView) -> [String] {
-        let library = ["All Films", "Unwatched", "Recents", "Reports", "Imports", "Queue"]
+        let libraryFamilies: [SidebarLibraryFamily?] =
+            [nil] + SidebarLibraryFamily.grouped.map(Optional.some) + [nil, .queue]
+        let library = [LibraryItem.allFilms.title] + SidebarLibraryFamily.grouped.map(\.title)
+            + [LibraryItem.imports.title, SidebarLibraryFamily.queue.title]
         let lists = AppDelegate.dataCoordinator?.cachedLists.map(\.listName) ?? []
+        let searches = SavedSearchStore.shared.searches.map(\.name)
+        var sections: [(header: String, rows: [String])] = [("§Library", library)]
+        if Preferences.smartLists { sections.append(("§Smart Lists", SmartListType.sidebarCases.map(\.rawValue))) }
+        sections.append(("§Lists", lists))
+        if !searches.isEmpty { sections.append(("§Saved Searches", searches)) }
+
         var titles: [String] = []
         var section = -1
         var level1 = 0
         var level2 = 0
-        var family: SmartListType?
+        var children: [String] = []
         for row in 0..<outline.numberOfRows {
             switch outline.level(forRow: row) {
             case 0:
                 section += 1; level1 = 0
-                titles.append(["§Library", "§Smart Lists", "§Lists"].indices.contains(section)
-                              ? ["§Library", "§Smart Lists", "§Lists"][section] : "?")
+                titles.append(sections.indices.contains(section) ? sections[section].header : "?")
             case 1:
-                let names: [String]
-                switch section {
-                case 0: names = library
-                case 1: names = SmartListType.sidebarCases.map(\.rawValue)
-                default: names = lists
-                }
+                let names = sections.indices.contains(section) ? sections[section].rows : []
                 titles.append(names.indices.contains(level1) ? names[level1] : "?")
-                family = section == 1 && SmartListType.sidebarCases.indices.contains(level1)
-                    ? SmartListType.sidebarCases[level1] : nil
+                children = []
+                switch sections.indices.contains(section) ? sections[section].header : "" {
+                case "§Library":
+                    if libraryFamilies.indices.contains(level1), let family = libraryFamilies[level1] {
+                        children = family.childTabs.map(\.title)
+                    }
+                case "§Smart Lists":
+                    if SmartListType.sidebarCases.indices.contains(level1) {
+                        children = SmartListType.sidebarCases[level1].familyVariants.dropFirst().map(\.rawValue)
+                    }
+                default: break
+                }
                 level1 += 1; level2 = 0
             default:
-                let variants = family.map { Array($0.familyVariants.dropFirst()) } ?? []
-                titles.append(variants.indices.contains(level2) ? variants[level2].rawValue : "?")
+                titles.append(children.indices.contains(level2) ? children[level2] : "?")
                 level2 += 1
             }
         }
@@ -1618,6 +983,11 @@ extension DebugHarness {
         func snapshot() -> String {
             "highlight \(highlighted(outline)), sidebar \(appState.selectedSidebarItem), view \(views.activeView), picker \(state.selected.rawValue)"
         }
+
+        /// The Smart Lists section is what this drives, so it must be showing.
+        let smartListsWereShown = Preferences.smartLists
+        if !smartListsWereShown { Preferences.smartLists = true; await settle(400) }
+        defer { if !smartListsWereShown { Preferences.smartLists = false } }
 
         /// Start collapsed, on the parent.
         Preferences.expandedSmartListFamilies = []
@@ -1696,345 +1066,6 @@ extension DebugHarness {
 }
 
 
-// MARK: - Picker menu dismissal
-///
-/// `picker-dismissal` (opt-in; ACTIVATES the app and puts a real window and real menus on
-/// screen for about a minute, taking keyboard and mouse focus from whatever the user is doing —
-/// warn before running it, and never while the user is working): opens the Reports
-/// title bar's sub-tab pop-up in a titled window, chooses each tab through REAL menu tracking
-/// (arrow and Return key events posted into the tracking loop), and samples the menu window's
-/// alpha from the window server on a background thread every 3 ms. The main thread cannot be
-/// asked how the fade went — it is the thing being measured — but the window server sees every
-/// alpha step the menu's tracking loop commits.
-///
-/// Run twice in one process: once with SwiftUI's `Picker(.menu)`, which the flag
-/// `debugForcesSwiftUISubcategoryMenuPicker` restores, and once with the shipping
-/// NSPopUpButton. A leg's fade is healthy when it steps down to zero without a gap
-/// longer than a few frames; the SwiftUI leg is expected to report the selection landing
-/// mid-fade and is recorded as metrics, while the checks gate only the shipping control.
-extension DebugHarness {
-
-    /// Background sampler of this process's pop-up-menu windows (window level ≥ 101).
-    private final class MenuFadeSampler: Thread, @unchecked Sendable {
-        struct Sample { let time: Double; let alpha: Double? }   /// nil: no menu window on screen
-        private let lock = NSLock()
-        private var samples: [Sample] = []
-        private var marks: [(time: Double, label: String)] = []
-        private let pid = getpid()
-        private let origin = CACurrentMediaTime()
-
-        func now() -> Double { (CACurrentMediaTime() - origin) * 1000 }
-
-        func mark(_ label: String) {
-            let t = now()
-            lock.lock(); marks.append((t, label)); lock.unlock()
-        }
-
-        override func main() {
-            while !isCancelled {
-                let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
-                var alpha: Double?
-                for w in list where (w[kCGWindowOwnerPID as String] as? Int32) == pid
-                    && (w[kCGWindowLayer as String] as? Int ?? 0) >= 101 {
-                    alpha = max(alpha ?? 0, w[kCGWindowAlpha as String] as? Double ?? 0)
-                }
-                let t = now()
-                lock.lock(); samples.append(Sample(time: t, alpha: alpha)); lock.unlock()
-                usleep(3000)
-            }
-        }
-
-        func reset() { lock.lock(); samples.removeAll(); marks.removeAll(); lock.unlock() }
-
-        func snapshot() -> (samples: [Sample], marks: [(time: Double, label: String)]) {
-            lock.lock(); defer { lock.unlock() }
-            return (samples, marks)
-        }
-    }
-
-    private struct ReportsHost: View {
-        let coordinator: DataCoordinator
-        let appState: AppState
-        var body: some View {
-            ReportsView()
-                .environment(SelectionState.shared)
-                .environment(appState)
-                .environment(coordinator)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    /// One analyzed selection.
-    private struct FadeReading {
-        var fadeFrames = 0              /// distinct alpha values between 1 and 0
-        var fadeDuration = 0.0          /// first step below 1 → alpha 0 (or vanish)
-        var longestStall = 0.0          /// longest interval with no alpha change during the fade
-        var lastAlphaBeforeVanish = 1.0 /// > 0 means the window was pulled mid-fade
-        var selectionAfterFadeEnd = 0.0 /// negative: the selection landed inside the fade
-        var contentSwapAfterSelection = 0.0
-        var switched = false
-        var trackingDuration = 0.0      /// open → performClick returned; ≈3000 means the backstop fired
-        var keysPosted = false
-        var buttonTitleAfter = ""
-    }
-
-    static func pickerDismissalScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "picker-dismissal")
-        coordinator.importFilms(reportsCorpus())
-        let appState = AppState(persistentContainer: coordinator.persistentContainer, dataCoordinator: coordinator)
-        let state = ReportsState.shared
-        state.selectCategory(.costTracker, persist: false)
-
-        let window = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 1148, height: 760),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.title = "picker-dismissal harness"
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        let sampler = MenuFadeSampler()
-        sampler.start()
-        defer { sampler.cancel() }
-
-        func popUp(in view: NSView) -> NSPopUpButton? {
-            if let p = view as? NSPopUpButton { return p }
-            for sub in view.subviews { if let p = popUp(in: sub) { return p } }
-            return nil
-        }
-        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
-
-        /// Observation callbacks fire on willSet, on the mutating (main) thread.
-        func armMark(_ label: String, _ read: @escaping @MainActor () -> Void) {
-            withObservationTracking { read() } onChange: { sampler.mark(label) }
-        }
-
-        /// `load`: milliseconds of synchronous main-thread work attached to the selection
-        /// change itself (an observation callback, which fires inside the setter). It stands in
-        /// for what the real window's update pass does on a sub-tab change — the main menu's
-        /// Commands checkmarks, the status bar, the title glyph — which a bare ReportsView
-        /// host does not have. Wherever the control reports the choice, this lands.
-        func choose(_ target: ReportsCategory, load: Double) async -> FadeReading {
-            var reading = FadeReading()
-            let all = ReportsCategory.allCases
-            guard let button = window.contentView.flatMap(popUp(in:)),
-                  let from = all.firstIndex(of: state.selectedCategory),
-                  let to = all.firstIndex(of: target) else { return reading }
-            sampler.reset()
-            /// One callback, mark first: two separate callbacks run in no guaranteed order.
-            withObservationTracking { _ = state.selectedCategory } onChange: {
-                sampler.mark("selected")
-                let end = CACurrentMediaTime() + load / 1000
-                while CACurrentMediaTime() < end {}
-            }
-            armMark("displayed") { _ = state.displayedCategory }
-
-            let steps = to - from
-            let key: (code: UInt16, chars: String) = steps >= 0 ? (125, "\u{F701}") : (126, "\u{F700}")
-            let windowNumber = window.windowNumber
-            let poster = Timer(timeInterval: 0.35, repeats: false) { _ in MainActor.assumeIsolated {
-                sampler.mark("keys")
-                var events: [(UInt16, String)] = Array(repeating: (key.code, key.chars), count: abs(steps))
-                events.append((36, "\r"))
-                for (code, chars) in events {
-                    for type in [NSEvent.EventType.keyDown, .keyUp] {
-                        if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
-                                                    timestamp: ProcessInfo.processInfo.systemUptime,
-                                                    windowNumber: windowNumber, context: nil,
-                                                    characters: chars, charactersIgnoringModifiers: chars,
-                                                    isARepeat: false, keyCode: code) {
-                            NSApp.postEvent(e, atStart: false)
-                        }
-                    }
-                }
-            } }
-            /// Backstop: a menu that ignored the keys must not hang the run.
-            let backstop = Timer(timeInterval: 3, repeats: false) { _ in
-                MainActor.assumeIsolated { button.menu?.cancelTracking() }
-            }
-            /// Keys go in only once the menu is tracking (plus a settle for its open animation):
-            /// on a fixed timer from performClick, the first menu after a remount sometimes
-            /// began tracking late and lost them.
-            /// Timer is not Sendable; the observer runs on the main thread (menu tracking
-            /// posts it there), so handing the timer across is safe.
-            nonisolated(unsafe) let pendingPoster = poster
-            let began = NotificationCenter.default.addObserver(
-                forName: NSMenu.didBeginTrackingNotification, object: button.menu, queue: nil) { _ in
-                MainActor.assumeIsolated { unsafe RunLoop.main.add(pendingPoster, forMode: .common) }
-            }
-            RunLoop.main.add(backstop, forMode: .common)
-            sampler.mark("open")
-            button.performClick(nil)          /// runs the menu's tracking loop to completion
-            sampler.mark("tracking-returned")
-            NotificationCenter.default.removeObserver(began)
-            poster.invalidate()
-            backstop.invalidate()
-            reading.buttonTitleAfter = button.titleOfSelectedItem ?? ""
-            await settle(900)
-            reading.switched = state.displayedCategory == target
-
-            let (samples, marks) = sampler.snapshot()
-            func markTime(_ label: String) -> Double? { marks.first { $0.label == label }?.time }
-            if let open = markTime("open"), let returned = markTime("tracking-returned") {
-                reading.trackingDuration = returned - open
-            }
-            reading.keysPosted = markTime("keys") != nil
-            guard let keys = markTime("keys") else { return reading }
-            let after = samples.filter { $0.time >= keys }
-            guard let start = after.first(where: { ($0.alpha ?? 1) < 0.99 }) else { return reading }
-            let vanish = after.first { $0.time > start.time && $0.alpha == nil }
-            let zero = after.first { $0.time > start.time && ($0.alpha ?? 1) <= 0.005 }
-            let end = [zero?.time, vanish?.time].compactMap { $0 }.min() ?? start.time
-            let during = after.filter { $0.time >= start.time && $0.time <= end && $0.alpha != nil }
-            var lastChange = start.time
-            var lastAlpha = start.alpha ?? 1
-            var distinct = 1
-            for s in during.dropFirst() {
-                guard let a = s.alpha else { continue }
-                if abs(a - lastAlpha) > 0.001 {
-                    reading.longestStall = max(reading.longestStall, s.time - lastChange)
-                    lastChange = s.time; lastAlpha = a; distinct += 1
-                }
-            }
-            /// A window pulled before its alpha reached zero stalls from its last step until it
-            /// is removed. One ordered out after reaching zero, the normal case, does not stall.
-            if let vanish, zero == nil || vanish.time < zero!.time {
-                reading.longestStall = max(reading.longestStall, vanish.time - lastChange)
-                reading.lastAlphaBeforeVanish = samples.last { $0.time < vanish.time && $0.alpha != nil }?.alpha ?? 1
-            } else if zero != nil {
-                reading.lastAlphaBeforeVanish = 0
-            }
-            reading.fadeFrames = distinct
-            reading.fadeDuration = end - start.time
-            if let selected = markTime("selected") {
-                reading.selectionAfterFadeEnd = selected - end
-                if let displayed = markTime("displayed") { reading.contentSwapAfterSelection = displayed - selected }
-            }
-            return reading
-        }
-
-        let route: [ReportsCategory] = [.dataVisualizations, .hallOfFame, .priceTracker,
-                                        .releaseWishlist, .dataVisualizations, .costTracker]
-        /// (name, SwiftUI picker?, synthetic load in ms). Checks gate the AppKit legs only.
-        let legs: [(String, Bool, Double)] = [("swiftui", true, 0), ("swiftui-loaded", true, 120),
-                                              ("appkit", false, 0), ("appkit-loaded", false, 120)]
-        for (leg, swiftUI, load) in legs {
-            debugForcesSwiftUISubcategoryMenuPicker = swiftUI
-            state.selectCategory(.costTracker, persist: false)
-            let host = NSHostingView(rootView: ReportsHost(coordinator: coordinator, appState: appState))
-            window.contentView = host
-            await settle(1200)
-            let expectedClass = swiftUI ? "SwiftUIPopupButton" : "NSPopUpButton"
-            let buttonClass = window.contentView.flatMap(popUp(in:)).map { String(describing: type(of: $0)) } ?? "none"
-            r.check("\(leg)-control-class", buttonClass == expectedClass, buttonClass)
-
-            for target in route {
-                let from = state.selectedCategory
-                let reading = await choose(target, load: load)
-                let name = "\(leg)-\(from.rawValue)→\(target.rawValue)"
-                r.metric("\(name)-fade-frames", Double(reading.fadeFrames), "frames")
-                r.metric("\(name)-fade-duration", reading.fadeDuration, "ms")
-                r.metric("\(name)-longest-stall", reading.longestStall, "ms")
-                r.metric("\(name)-alpha-at-vanish", reading.lastAlphaBeforeVanish, "alpha")
-                r.metric("\(name)-selection-minus-fade-end", reading.selectionAfterFadeEnd, "ms")
-                r.metric("\(name)-swap-after-selection", reading.contentSwapAfterSelection, "ms")
-                r.metric("\(name)-switched", reading.switched ? 1 : 0, "bool")
-                if !swiftUI {
-                    r.check("\(name)-switched", reading.switched,
-                            "displayed \(state.displayedCategory.rawValue); button shows '\(reading.buttonTitleAfter)'; keys posted \(reading.keysPosted); tracking \(Int(reading.trackingDuration)) ms")
-                    let detail = "\(reading.fadeFrames) frames over \(Int(reading.fadeDuration)) ms, longest stall \(Int(reading.longestStall)) ms, alpha at vanish \(reading.lastAlphaBeforeVanish), selection \(Int(reading.selectionAfterFadeEnd)) ms after fade end"
-                    r.check("\(name)-fade-completes", reading.fadeFrames >= 6 && reading.lastAlphaBeforeVanish <= 0.02, detail)
-                    r.check("\(name)-fade-unstalled", reading.longestStall < 50, detail)
-                    r.check("\(name)-selection-after-fade", reading.selectionAfterFadeEnd >= -5, detail)
-                }
-            }
-            window.contentView = nil
-            await settle(300)
-        }
-        debugForcesSwiftUISubcategoryMenuPicker = false
-        window.close()
-        await settle(200)
-        return r
-    }
-}
-
-
-// MARK: - Reports tab switch cost
-///
-/// `reports-tab-perf` (opt-in, a measurement): what one Reports sub-tab switch costs the main
-/// thread, as the title-bar pop-up performs it (`selectCategory(_:immediate: true)`), on a
-/// library-sized corpus. The view is hosted in a window that is never ordered in and the app is
-/// never activated, so the scenario takes no focus. Per switch: the synchronous part (state
-/// write plus the hosting view's layout — the frame the new tab first appears in), then the
-/// main-thread CPU of the next two turns (the tabs' deferred reconcile, DataViz's second
-/// mount stage) and of the four after those. Every route is walked three times; first
-/// visits are reported apart from later ones, because several tabs seed from a cache after
-/// their first load.
-extension DebugHarness {
-
-    static func reportsTabPerfScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "reports-tab-perf")
-        coordinator.importFilms(reportsCorpus())
-        r.metric("films", Double(coordinator.totalFilmCount), "films")
-        let appState = AppState(persistentContainer: coordinator.persistentContainer, dataCoordinator: coordinator)
-        let state = ReportsState.shared
-        state.selectCategory(.costTracker, persist: false, immediate: true)
-
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1148, height: 760),
-                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let host = NSHostingView(rootView: ReportsHost(coordinator: coordinator, appState: appState))
-        host.frame = NSRect(x: 0, y: 0, width: 1148, height: 760)
-        window.contentView = host
-        host.layoutSubtreeIfNeeded()
-        for _ in 0..<10 { await oneRunLoopTurn() }
-        try? await Task.sleep(for: .milliseconds(300))
-
-        /// Every ordered pair (from → to), twice, after one warm-up lap that absorbs first-visit
-        /// costs. A switch's cost is the outgoing tab's teardown plus the incoming tab's mount;
-        /// the pair matrix separates the two (a row that is high whatever the destination is
-        /// teardown, a column that is high whatever the source is mount).
-        let all = ReportsCategory.allCases
-        func switchCost(to target: ReportsCategory) async -> Double {
-            let cpu1 = threadCPUMilliseconds()
-            state.selectCategory(target, persist: false, immediate: true)
-            host.layoutSubtreeIfNeeded()
-            await oneRunLoopTurn(); await oneRunLoopTurn()
-            host.layoutSubtreeIfNeeded()
-            for _ in 0..<4 { await oneRunLoopTurn() }
-            host.layoutSubtreeIfNeeded()
-            let cost = threadCPUMilliseconds() - cpu1
-            r.check("switched-\(target.rawValue)", state.displayedCategory == target, "")
-            /// Let background passes (DataViz recalculation, tracker reloads) land between
-            /// switches, as they would while a user reads the tab.
-            try? await Task.sleep(for: .milliseconds(350))
-            for _ in 0..<4 { await oneRunLoopTurn() }
-            return cost
-        }
-        for target in all.dropFirst() + [all[0]] {
-            r.metric("first-visit-\(target.rawValue)", await switchCost(to: target), "ms")
-        }
-        var pairs: [String: [Double]] = [:]
-        for _ in 0..<2 {
-            for from in all {
-                for to in all where to != from {
-                    if state.displayedCategory != from { _ = await switchCost(to: from) }
-                    pairs["\(from.rawValue)→\(to.rawValue)", default: []].append(await switchCost(to: to))
-                }
-            }
-        }
-        for from in all {
-            for to in all where to != from {
-                let key = "\(from.rawValue)→\(to.rawValue)"
-                r.metric(key, stats(pairs[key] ?? []).median, "ms")
-            }
-        }
-        window.contentView = nil
-        window.close()
-        await oneRunLoopTurn()
-        return r
-    }
-}
-
 // MARK: - Reports-shaped corpus
 
 extension DebugHarness {
@@ -2081,8 +1112,7 @@ extension DebugHarness {
 ///
 /// `reports-hitch` (opt-in, a measurement): the sub-tab switch as the user sees it, in the app's
 /// REAL main window (the harness runs after MainView is up) — so drawing, the right sidebar,
-/// the status bar and the CoreAnimation commit are all included, which `reports-tab-perf`'s
-/// never-ordered-in window leaves out. Launch with `open -g -n` so the window is shown without
+/// the status bar and the CoreAnimation commit are all included. Launch with `open -g -n` so the window is shown without
 /// activating the app. A run-loop observer ordered after CoreAnimation's commit records every
 /// busy stretch (after-waiting → before-waiting) of the main thread; per switch it reports the
 /// first stretch (the delay until the frame carrying the new content is committed), the total
@@ -2159,23 +1189,23 @@ extension DebugHarness {
         /// Reports: the four table tabs among themselves, then into and out of Visualizations.
         appState.navigate(to: .libraryItem(.reports))
         let reports = ReportsState.shared
-        reports.selectCategory(.costTracker, persist: false, immediate: true)
+        reports.selectCategory(.costTracker, immediate: true)
         await settle(1500)
         let tables: [ReportsCategory] = [.priceTracker, .hallOfFame, .releaseWishlist, .costTracker]
         for _ in 0..<3 {
-            for t in tables { await measure("reports-table→table") { reports.selectCategory(t, persist: false, immediate: true) } }
+            for t in tables { await measure("reports-table→table") { reports.selectCategory(t, immediate: true) } }
         }
         for _ in 0..<3 {
-            await measure("reports-table→dataviz") { reports.selectCategory(.dataVisualizations, persist: false, immediate: true) }
-            await measure("reports-dataviz→table") { reports.selectCategory(.hallOfFame, persist: false, immediate: true) }
+            await measure("reports-table→dataviz") { reports.selectCategory(.dataVisualizations, immediate: true) }
+            await measure("reports-dataviz→table") { reports.selectCategory(.hallOfFame, immediate: true) }
         }
 
         /// Recents: one mounted gallery, reloaded per category.
         appState.navigate(to: .libraryItem(.recents))
         await settle(1500)
         for _ in 0..<3 {
-            for c in RecentsCategory.allCases {
-                await measure("recents-category") { RecentsState.shared.selectCategory(c, persist: false, immediate: true) }
+            for c in RecentsCategory.sections {
+                await measure("recents-category") { RecentsState.shared.selectCategory(c, immediate: true) }
             }
         }
 
@@ -2237,7 +1267,7 @@ extension DebugHarness {
 
         // MARK: Cost tracker — selection, sort
         appState.navigate(to: .libraryItem(.reports))
-        reports.selectCategory(.costTracker, persist: false, immediate: true)
+        reports.selectCategory(.costTracker, immediate: true)
         await settle(1200)
         guard let (costTable, _) = reportTable(ReleaseData.self) else {
             r.check("cost-table-found", false, "no ReportTable<ReleaseData> in the window")
@@ -2283,7 +1313,7 @@ extension DebugHarness {
         selection.clearImmediate()
 
         // MARK: Hall of Fame — selection, reorder
-        reports.selectCategory(.hallOfFame, persist: false, immediate: true)
+        reports.selectCategory(.hallOfFame, immediate: true)
         await settle(800)
         guard let (hofTable, hofCoordinator) = reportTable(HallOfFameFilm.self) else {
             r.check("hof-table-found", false, "")
@@ -2330,329 +1360,12 @@ extension DebugHarness {
 
 
         // MARK: Wishlist — rows present
-        reports.selectCategory(.releaseWishlist, persist: false, immediate: true)
+        reports.selectCategory(.releaseWishlist, immediate: true)
         await settle(800)
         let wishRows = WishlistRelease.rows(pairs: coordinator.getWishlistReleases())
         let wish = reportTable(WishlistRelease.self)
         r.check("wishlist-row-count", wish?.0.numberOfRows == wishRows.count,
                 "\(String(describing: wish?.0.numberOfRows)) vs \(wishRows.count)")
-        return r
-    }
-}
-
-// MARK: - DataViz page measurements per mount
-///
-/// `dataviz-measure` (opt-in, diagnostic): opens Visualizations and Insights from a table tab in
-/// the real window and prints every width the page laid out at (`DVCanvasPageView.
-/// debugLayoutLog`) with its time relative to the switch, plus the run-loop busy stretches,
-/// then does the same for leaving the tab. Launch with `open -g -n`.
-extension DebugHarness {
-    static func dataVizMeasureScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "dataviz-measure")
-        coordinator.importFilms(reportsCorpus())
-        guard let appState = AppDelegate.appState else { return r }
-        let reports = ReportsState.shared
-        let recorder = RunLoopBusyRecorder()
-        recorder.start()
-        defer { recorder.stop() }
-        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
-        appState.navigate(to: .libraryItem(.reports))
-        reports.selectCategory(.costTracker, persist: false, immediate: true)
-        await settle(1200)
-        /// Warm: one visit so the cache-seeded path (the common one) is what gets measured.
-        DVCanvasPageView.debugLayoutLog.removeAll()
-        reports.selectCategory(.dataVisualizations, persist: false, immediate: true)
-        await settle(1500)
-        /// Every visit, the first included, lays the page out at one width: the page is sized
-        /// to its clip view, so with "Show scroll bars: Always" it never lays out full-width
-        /// first and squeezes by the scroller's width afterward.
-        func widths() -> Set<CGFloat> { Set(DVCanvasPageView.debugLayoutLog.map(\.width)) }
-        let firstVisit = widths()
-        r.check("first-visit-one-width", firstVisit.count == 1,
-                "\(firstVisit.sorted()) (scroller style \(NSScroller.preferredScrollerStyle == .legacy ? "legacy" : "overlay"))")
-        reports.selectCategory(.costTracker, persist: false, immediate: true)
-        await settle(1200)
-
-        for pass in 0..<2 {
-            DVCanvasPageView.debugLayoutLog.removeAll()
-            recorder.reset()
-            let t0 = CACurrentMediaTime()
-            reports.selectCategory(.dataVisualizations, persist: false, immediate: true)
-            await settle(1500)
-            r.check("open\(pass)-one-width", widths().count == 1, "\(widths().sorted())")
-            let stretches = recorder.reading(from: t0 * 1000, window: 1500)
-            r.metric("open\(pass)-first-stretch", stretches.first, "ms")
-            r.metric("open\(pass)-busy", stretches.busy, "ms")
-            r.metric("open\(pass)-longest", stretches.longest, "ms")
-            r.metric("open\(pass)-stretches", Double(stretches.stretches), "n")
-            r.check("open\(pass)-log", true, DVCanvasPageView.debugLayoutLog.map {
-                "+\(Fmt.fixed(($0.time - t0) * 1000, 0))ms w=\(Fmt.fixed($0.width, 0))"
-            }.joined(separator: " | "))
-
-            recorder.reset()
-            let t1 = CACurrentMediaTime()
-            reports.selectCategory(.costTracker, persist: false, immediate: true)
-            await settle(1200)
-            let closing = recorder.reading(from: t1 * 1000, window: 1200)
-            r.metric("close\(pass)-first-stretch", closing.first, "ms")
-            r.metric("close\(pass)-busy", closing.busy, "ms")
-        }
-        return r
-    }
-}
-
-// MARK: - Reports loop, for an external profiler
-///
-/// `reports-loop` (opt-in, no verdict): cycles the four Reports table tabs in the real window
-/// every 400 ms for ~20 s, so `sample <pid>` or Instruments can attach and profile the switch.
-/// Prints "REPORTS-LOOP START" to stdout when the cycling begins.
-extension DebugHarness {
-    static func reportsLoopScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "reports-loop")
-        coordinator.importFilms(reportsCorpus())
-        guard let appState = AppDelegate.appState else { return r }
-        appState.navigate(to: .libraryItem(.reports))
-        let reports = ReportsState.shared
-        /// `-FTDebugReportsLoop dataviz` alternates Cost Tracker ↔ Visualizations instead.
-        let dataviz = UserDefaults.standard.string(forKey: "FTDebugReportsLoop") == "dataviz"
-        let tables: [ReportsCategory] = dataviz ? [.costTracker, .dataVisualizations]
-                                                : [.costTracker, .priceTracker, .hallOfFame, .releaseWishlist]
-        for t in tables { reports.selectCategory(t, persist: false, immediate: true); try? await Task.sleep(for: .milliseconds(500)) }
-        print("REPORTS-LOOP START"); unsafe fflush(stdout)
-        var switches = 0
-        let end = ContinuousClock.now + .seconds(20)
-        while ContinuousClock.now < end {
-            for t in tables {
-                reports.selectCategory(t, persist: false, immediate: true)
-                switches += 1
-                try? await Task.sleep(for: .milliseconds(dataviz ? 900 : 400))
-            }
-        }
-        r.metric("switches", Double(switches), "n")
-        return r
-    }
-}
-
-// MARK: - Reports frames, as composited
-///
-/// `reports-frames` (opt-in, diagnostic): what actually reaches the screen after a sub-tab switch.
-/// A background thread grabs the real main window's composited image from the window server
-/// every ~4 ms for 400 ms and keeps each frame that differs from the one before; the distinct
-/// frames are written as PNGs (named by milliseconds after the switch) under
-/// `<sandbox>/reports-frames/<switch>/`. A switch that is visually one step produces one new
-/// frame; staged content (placeholder → rows, a second reload, a layout shift) produces several.
-/// Launch with `open -g -n`, like `reports-hitch`.
-extension DebugHarness {
-
-    /// `CGWindowListCreateImage` is obsoleted in the macOS 15 SDK but still answers for the
-    /// process's own windows; reached through dlsym so the harness can use it.
-    private typealias WindowImageFn = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-    nonisolated private static let windowImage: WindowImageFn? = {
-        guard let sym = unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
-        return unsafe unsafeBitCast(sym, to: WindowImageFn.self)
-    }()
-
-    private final class FrameGrabber: Thread, @unchecked Sendable {
-        let windowID: UInt32
-        let origin: Double
-        let duration: Double
-        private let lock = NSLock()
-        private var frames: [(time: Double, image: CGImage)] = []
-        private var grabCount = 0
-        /// Read under the lock: the harness reads it after a fixed settle, not a join, so a
-        /// slow last grab can still be counting.
-        var grabs: Int { lock.withLock { grabCount } }
-
-        init(windowID: UInt32, origin: Double, duration: Double) {
-            self.windowID = windowID; self.origin = origin; self.duration = duration
-        }
-
-        /// A coarse fingerprint: every 97th byte of the bitmap.
-        private static func fingerprint(_ image: CGImage) -> [UInt8] {
-            guard let data = image.dataProvider?.data, let bytes = unsafe CFDataGetBytePtr(data) else { return [] }
-            let n = CFDataGetLength(data)
-            return stride(from: 0, to: n, by: 97).map { unsafe bytes[$0] }
-        }
-
-        override func main() {
-            guard let grab = unsafe DebugHarness.windowImage else { return }
-            var last: [UInt8] = []
-            while CACurrentMediaTime() * 1000 - origin < duration {
-                /// listOption 8 = optionIncludingWindow; imageOption 1|16 = boundsIgnoreFraming|nominalResolution
-                if let image = unsafe grab(.null, 8, windowID, 1 | 16)?.takeRetainedValue() {
-                    lock.withLock { grabCount += 1 }
-                    let print = Self.fingerprint(image)
-                    if print != last {
-                        last = print
-                        let t = CACurrentMediaTime() * 1000 - origin
-                        lock.lock(); frames.append((t, image)); lock.unlock()
-                    }
-                }
-                usleep(4000)
-            }
-        }
-
-        func result() -> [(time: Double, image: CGImage)] { lock.lock(); defer { lock.unlock() }; return frames }
-    }
-
-    private static func writePNG(_ image: CGImage, to url: URL) {
-        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return }
-        CGImageDestinationAddImage(dest, image, nil)
-        CGImageDestinationFinalize(dest)
-    }
-
-    /// `dataviz-window` (opt-in, visual): Visualizations and Insights in the real main window,
-    /// captured to PNGs under `<sandbox>/dataviz-window/` at the top, scrolled, immediately
-    /// after and settled after a width change, in dark appearance, and after a scope click.
-    /// Launch with `open -g -n` (no focus needed); pass `-FTDebugDVCanvas YES` for the canvas.
-    static func dataVizWindowScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "dataviz-window")
-        coordinator.importFilms(reportsCorpus())
-        guard let appState = AppDelegate.appState,
-              let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) }),
-              let grab = unsafe windowImage,
-              let root = DebugSandbox.rootURL?.appendingPathComponent("dataviz-window") else {
-            r.check("setup", false, ""); return r
-        }
-        try? FileManager.default.removeItem(at: root)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
-        func shot(_ name: String) {
-            if let image = unsafe grab(.null, 8, UInt32(window.windowNumber), 1 | 16)?.takeRetainedValue() {
-                writePNG(image, to: root.appendingPathComponent("\(name).png"))
-            }
-        }
-        func views(_ v: NSView) -> [NSView] { [v] + v.subviews.flatMap(views) }
-        let startFrame = window.frame
-        window.setFrame(NSRect(x: startFrame.minX, y: startFrame.minY, width: 1320, height: 860), display: true)
-        appState.navigate(to: .libraryItem(.reports))
-        ReportsState.shared.selectCategory(.dataVisualizations, persist: false, immediate: true)
-        await settle(3000)
-        shot("1-top")
-        /// A left-opening popover's arrow tip must sit on the content's leading edge, which is
-        /// the window's trailing edge less its 1 pt margin. A gap of about 20 pt means the
-        /// hosting controller's size settled late.
-        if let page = views(window.contentView!).compactMap({ $0 as? DVCanvasPageView }).first,
-           let (popWindow, anchor) = page.debugShowFirstPopover() {
-            await settle(800)
-            r.check("popover-arrow-on-anchor", popWindow.frame.maxX <= anchor.minX + 0.5 && popWindow.frame.maxX >= anchor.minX - 2,
-                    "popover \(popWindow.frame), anchor \(anchor)")
-            shot("0-popover")
-            popWindow.close()
-            await settle(300)
-        } else {
-            r.check("popover-arrow-on-anchor", false, "no popover hotspot")
-        }
-        let scrollView = views(window.contentView!).compactMap { $0 as? NSScrollView }
-            .filter { $0.documentView != nil }.max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) }
-        r.check("page-scroll-view", scrollView != nil, "")
-        if let scrollView {
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: 1150))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-            await settle(40)
-            shot("2-scrolled-immediate")
-            await settle(500)
-            shot("3-scrolled")
-        }
-        var f = window.frame; f.size.width -= 360
-        window.setFrame(f, display: true)
-        shot("4-narrow-immediate")
-        await settle(600)
-        shot("5-narrow")
-        window.appearance = NSAppearance(named: .darkAqua)
-        await settle(600)
-        shot("6-dark")
-        if let seg = views(window.contentView!).compactMap({ $0 as? NSSegmentedControl }).first(where: { $0.label(forSegment: 0) == "This Year" }) {
-            seg.selectedSegment = 0
-            seg.sendAction(seg.action, to: seg.target)
-            await settle(600)
-            shot("7-this-year")
-            r.check("scope-segmented-found", true, "")
-        } else {
-            r.check("scope-segmented-found", false, "")
-        }
-        if let scrollView {
-            /// The lower sections, a screen at a time.
-            for (i, y) in [2300.0, 3000, 3700, 4400, 5100].enumerated() {
-                scrollView.contentView.scroll(to: NSPoint(x: 0, y: y))
-                scrollView.reflectScrolledClipView(scrollView.contentView)
-                await settle(400)
-                shot("7\(["a", "b", "c", "d", "e"][i])-lower-\(Int(y))")
-            }
-        }
-        window.appearance = NSAppearance(named: .aqua)
-        if let scrollView {
-            /// The Viewing History controls row sits just under its band.
-            scrollView.contentView.scroll(to: NSPoint(x: 0, y: 1010))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-        await settle(700)
-        shot("8-light-controls")
-        window.appearance = nil
-        window.setFrame(startFrame, display: true)
-        return r
-    }
-
-    static func reportsFramesScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "reports-frames")
-        coordinator.importFilms(reportsCorpus())
-        guard let appState = AppDelegate.appState,
-              let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) }),
-              let root = DebugSandbox.rootURL?.appendingPathComponent("reports-frames") else {
-            r.check("setup", false, "no app state, window or sandbox root")
-            return r
-        }
-        unsafe r.check("window-image-available", windowImage != nil, "")
-        try? FileManager.default.removeItem(at: root)
-        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
-
-        func capture(_ name: String, _ action: () -> Void) async {
-            await settle(700)
-            let origin = CACurrentMediaTime() * 1000
-            let grabber = FrameGrabber(windowID: UInt32(window.windowNumber), origin: origin, duration: 400)
-            grabber.start()
-            try? await Task.sleep(for: .milliseconds(30))   /// a baseline frame before the switch
-            let t0 = CACurrentMediaTime() * 1000 - origin
-            action()
-            await settle(450)
-            let frames = grabber.result()
-            let dir = root.appendingPathComponent(name)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            var times: [String] = []
-            for f in frames {
-                let rel = Int((f.time - t0).rounded())
-                times.append("\(rel)")
-                unsafe writePNG(f.image, to: dir.appendingPathComponent(String(format: "%+05d.png", rel)))
-            }
-            r.metric("\(name)-distinct-frames", Double(frames.count), "frames")
-            r.check("\(name)-frames", !frames.isEmpty, "grabs \(grabber.grabs); distinct frames at ms " + times.joined(separator: ", "))
-        }
-
-        appState.navigate(to: .libraryItem(.reports))
-        let reports = ReportsState.shared
-        reports.selectCategory(.costTracker, persist: false, immediate: true)
-        await settle(1500)
-        /// Warm every tab once so the captures show revisits, the common case.
-        for t in ReportsCategory.allCases.dropFirst() + [.costTracker] {
-            reports.selectCategory(t, persist: false, immediate: true); await settle(600)
-        }
-        await capture("reports-cost-to-price") { reports.selectCategory(.priceTracker, persist: false, immediate: true) }
-        await capture("reports-price-to-halloffame") { reports.selectCategory(.hallOfFame, persist: false, immediate: true) }
-        await capture("reports-halloffame-to-wishlist") { reports.selectCategory(.releaseWishlist, persist: false, immediate: true) }
-        await capture("reports-wishlist-to-cost") { reports.selectCategory(.costTracker, persist: false, immediate: true) }
-
-        appState.navigate(to: .libraryItem(.recents))
-        await settle(1500)
-        let recents = RecentsCategory.allCases
-        await capture("recents-1") { RecentsState.shared.selectCategory(recents[1], persist: false, immediate: true) }
-        await capture("recents-2") { RecentsState.shared.selectCategory(recents[2], persist: false, immediate: true) }
-
-        if let parent = SmartListType.sidebarCases.first(where: { $0.familyVariants.count > 1 }) {
-            appState.navigate(to: .smartList(parent))
-            await settle(1500)
-            await capture("smartlist-variant") { SmartListVariantState.shared(for: parent).select(parent.familyVariants[1], immediate: true) }
-        }
-        r.metric("written-to-\(root.path)", 0, "path")
         return r
     }
 }
@@ -2714,7 +1427,7 @@ extension DebugHarness {
         let p = UUID()
         let fCombo = makeSnapshot(name: "Settle Combo", releases: [
             ReleaseSnapshot(id: p, format: uhd, independence: ReleaseIndependence.standalone,
-                            hasArtwork: "Yes", sortOrder: 0)])
+                            hasArtwork: ReleaseArtwork.standard, sortOrder: 0)])
 
         let q = UUID(), c = UUID()
         let fOrphan = makeSnapshot(name: "Settle Orphan", releases: [
@@ -2781,40 +1494,46 @@ extension DebugHarness {
                     "\(vm.displayNumbers)")
 
             /// confirmed-settle: edit the child so the downgrade must be confirmed.
-            let child = vm.model(created[0].id)!
-            child.notes = "edited"
-            vm.requestIndependenceChange(on: parent, to: ReleaseIndependence.multiPack)
-            r.check("confirmed-settle/not-written-before-confirm",
-                    parent.independence == ReleaseIndependence.comboPack, parent.independence)
-            /// The confirmation presents as a sheet on the key window (NSAlert presenter),
-            /// so one is supplied; it is answered through the alert's own completion handler.
+            /// The confirmation presents as a sheet on the key window (NSAlert presenter), so
+            /// one is supplied, and made key BEFORE the request, then waited for: late in a
+            /// long run, focus can take a moment to arrive. It is answered through the alert's
+            /// own completion handler.
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
                                   styleMask: [.titled], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            try? await Task.sleep(for: .milliseconds(250))
-            r.check("confirmed-settle/prompt-presented", vm.isConfirmationPresented,
-                    "attached sheet: \(window.attachedSheet != nil)")
-            if let alertSheet = window.attachedSheet {
-                /// First button == the confirm button ("Change and Remove").
-                window.endSheet(alertSheet, returnCode: .alertFirstButtonReturn)
-            } else if vm.isConfirmationPresented {
-                vm.confirmation.isPresented = false
-                vm.confirmation.resolve(confirmed: true)
+            if let reason = await keyWindowUnavailable(window) {
+                r.skip("confirmed-settle/window-key", reason)
+            } else {
+                let child = vm.model(created[0].id)!
+                child.notes = "edited"
+                vm.requestIndependenceChange(on: parent, to: ReleaseIndependence.multiPack)
+                r.check("confirmed-settle/not-written-before-confirm",
+                        parent.independence == ReleaseIndependence.comboPack, parent.independence)
+                for _ in 0..<40 where !vm.isConfirmationPresented || window.attachedSheet == nil {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                r.check("confirmed-settle/prompt-presented", vm.isConfirmationPresented,
+                        "attached sheet: \(window.attachedSheet != nil)")
+                if let alertSheet = window.attachedSheet {
+                    /// First button == the confirm button ("Change and Remove").
+                    window.endSheet(alertSheet, returnCode: .alertFirstButtonReturn)
+                } else if vm.isConfirmationPresented {
+                    vm.confirmation.isPresented = false
+                    vm.confirmation.resolve(confirmed: true)
+                }
+                r.check("confirmed-settle/answered-synchronously", !vm.isConfirmationPresented, "")
+                let after = vm.buildReleaseDeltas()      /// same turn as the confirmation
+                r.check("confirmed-settle/written-by-save",
+                        parent.independence == ReleaseIndependence.multiPack && parent.discMultiPack,
+                        parent.independence)
+                r.check("confirmed-settle/child-removed-by-save",
+                        parent.childReleaseIDs.isEmpty && vm.releases.map(\.id) == [p]
+                            && after.create.isEmpty,
+                        "\(vm.releases.count) releases, create \(after.create.count)")
+                try? await Task.sleep(for: .milliseconds(300))
+                r.check("confirmed-settle/deferred-write-inert",
+                        parent.independence == ReleaseIndependence.multiPack && vm.releases.count == 1, "")
             }
-            r.check("confirmed-settle/answered-synchronously", !vm.isConfirmationPresented, "")
-            let after = vm.buildReleaseDeltas()      /// same turn as the confirmation
-            r.check("confirmed-settle/written-by-save",
-                    parent.independence == ReleaseIndependence.multiPack && parent.discMultiPack,
-                    parent.independence)
-            r.check("confirmed-settle/child-removed-by-save",
-                    parent.childReleaseIDs.isEmpty && vm.releases.map(\.id) == [p]
-                        && after.create.isEmpty,
-                    "\(vm.releases.count) releases, create \(after.create.count)")
-            try? await Task.sleep(for: .milliseconds(300))
-            r.check("confirmed-settle/deferred-write-inert",
-                    parent.independence == ReleaseIndependence.multiPack && vm.releases.count == 1, "")
             window.close()
         }
 
@@ -3162,178 +1881,6 @@ extension DebugHarness {
 }
 
 
-// MARK: - Sheet hitch, in the real window
-///
-/// `sheet-hitch` (opt-in, a measurement): presents the List Manager and Settings over
-/// Visualizations and Insights, over a Reports table tab and over Recents, in the real main
-/// window, and counts the animation frames the window server actually showed. AppKit runs a
-/// sheet's slide inside one long run-loop pass, so run-loop stretches cannot see it; instead a
-/// background thread polls CGWindowListCopyWindowInfo every 2 ms for 700 ms and counts the
-/// distinct (bounds, alpha) states of the app's windows — each one is a frame that reached the
-/// screen. A smooth ~0.25 s slide shows tens; a stuttering one, a handful. Also reports the
-/// DataViz section body evaluations per presentation. The app is activated first: the stutter
-/// depends on the main window giving up key status to the sheet.
-extension DebugHarness {
-
-    private final class WindowStatePoller: Thread, @unchecked Sendable {
-        private let lock = NSLock()
-        private var states: [String] = []
-        private var times: [Double] = []
-        private var running = true
-        override func main() {
-            let pid = Int(ProcessInfo.processInfo.processIdentifier)
-            var last = ""
-            while lock.withLock({ running }) {
-                let info = (CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []
-                let mine = info.filter { ($0[kCGWindowOwnerPID as String] as? Int) == pid }
-                let key = mine.map { "\($0[kCGWindowNumber as String] ?? 0):\($0[kCGWindowBounds as String] ?? ""):\($0[kCGWindowAlpha as String] ?? "")" }
-                    .sorted().joined(separator: "|")
-                if key != last { let t = CACurrentMediaTime(); lock.withLock { states.append(key); times.append(t) }; last = key }
-                usleep(2000)
-            }
-        }
-        func finish() -> Int { lock.withLock { running = false; return states.count } }
-        /// The longest wait between two consecutive window states while the animation ran
-        /// (from the first change to the last), in ms: a frame the screen did not get.
-        func maxGapMs() -> Double {
-            lock.withLock {
-                guard times.count > 2 else { return 0 }
-                return zip(times.dropFirst(), times).map { ($0 - $1) * 1000 }.max() ?? 0
-            }
-        }
-        /// The wait from the request to the first changed window state: latency, not stutter.
-        func firstFrameMs() -> Double {
-            lock.withLock { times.count > 1 ? (times[1] - times[0]) * 1000 : 0 }
-        }
-        /// The longest wait between window states once the first change has shown: the
-        /// stutter inside the animation itself.
-        func maxGapAfterFirstMs() -> Double {
-            lock.withLock {
-                guard times.count > 3 else { return 0 }
-                let later = Array(times.dropFirst())
-                return zip(later.dropFirst(), later).map { ($0 - $1) * 1000 }.max() ?? 0
-            }
-        }
-    }
-
-    /// The main thread's CPU time so far, in ms. Called on the main thread.
-    private static func mainThreadCPUms() -> Double {
-        var info = thread_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<thread_basic_info>.size / MemoryLayout<integer_t>.size)
-        let port = mach_thread_self()
-        defer { unsafe mach_port_deallocate(mach_task_self_, port) }
-        let kr = unsafe withUnsafeMutablePointer(to: &info) {
-            unsafe $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { unsafe thread_info(port, thread_flavor_t(THREAD_BASIC_INFO), $0, &count) }
-        }
-        guard kr == KERN_SUCCESS else { return 0 }
-        return Double(info.user_time.seconds + info.system_time.seconds) * 1000
-            + Double(info.user_time.microseconds + info.system_time.microseconds) / 1000
-    }
-
-    static func sheetHitchScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "sheet-hitch")
-        coordinator.importFilms(reportsCorpus())
-        guard let appState = AppDelegate.appState else { r.check("app-state", false, ""); return r }
-        NSApp.activate()
-        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
-        await settle(800)
-        let window = NSApp.windows.first { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) }
-        r.check("real-window-key", window?.isKeyWindow == true, "key \(String(describing: window?.isKeyWindow))")
-        let sheets = appState.sheetCoordinator
-        let filmIDs = Set(coordinator.getAllFilms().prefix(40).map(\.id))
-
-        var frames: [String: [Int]] = [:]
-        var draws: [String: [Int]] = [:]
-        var cpu: [String: [Double]] = [:]
-        var gaps: [String: [Double]] = [:]
-        var firsts: [String: [Double]] = [:]
-        var inGaps: [String: [Double]] = [:]
-        DVCanvasPageView.drawCalls = 0
-        func timed(_ kind: String, _ action: () -> Void) async {
-            let poller = WindowStatePoller()
-            poller.start()
-            let d0 = DVCanvasPageView.drawCalls
-            let c0 = mainThreadCPUms()
-            action()
-            await settle(700)
-            cpu[kind, default: []].append(mainThreadCPUms() - c0)
-            frames[kind, default: []].append(poller.finish())
-            gaps[kind, default: []].append(poller.maxGapMs())
-            firsts[kind, default: []].append(poller.firstFrameMs())
-            inGaps[kind, default: []].append(poller.maxGapAfterFirstMs())
-            draws[kind, default: []].append(DVCanvasPageView.drawCalls - d0)
-        }
-        func present(_ kind: String, _ request: () -> Void) async {
-            await settle(600)
-            await timed("\(kind)-open", request)
-            await timed("\(kind)-close") { sheets.activeSheet = nil }
-            await settle(400)
-        }
-        func round(_ background: String) async {
-            for _ in 0..<3 {
-                await present("\(background)-list") {
-                    AppEventBus.shared.sendCommand(.showListCreationFromSelection(filmIDs: filmIDs, prefillName: "Probe"))
-                }
-                await present("\(background)-settings") { AppEventBus.shared.sendCommand(.openSettingsToTab(tab: .general)) }
-                /// The Needs Attention path: a popover (key while shown) closes in the same
-                /// turn the List Manager is requested, as DVAttentionPopover's button does.
-                guard let anchor = window?.contentView else { continue }
-                let popover = NSPopover()
-                popover.behavior = .transient
-                popover.contentViewController = NSHostingController(rootView: Text("Probe").frame(width: 300, height: 400))
-                popover.show(relativeTo: NSRect(x: anchor.bounds.midX, y: anchor.bounds.midY, width: 1, height: 1), of: anchor, preferredEdge: .maxY)
-                unsafe popover.contentViewController?.view.window?.makeKey()
-                await present("\(background)-popover-list") {
-                    AppEventBus.shared.sendCommand(.showListCreationFromSelection(filmIDs: filmIDs, prefillName: "Probe"))
-                    popover.performClose(nil)
-                }
-            }
-        }
-
-        let reports = ReportsState.shared
-        appState.navigate(to: .libraryItem(.reports))
-        reports.selectCategory(.dataVisualizations, persist: false, immediate: true)
-        await settle(2500)
-        if let loop = UserDefaults.standard.string(forKey: "FTDebugSheetLoop") {
-            if loop == "table" { reports.selectCategory(.costTracker, persist: false, immediate: true) }
-            if loop == "recents" { appState.navigate(to: .libraryItem(.recents)) }
-            await settle(1500)
-            print("SHEET-LOOP START"); unsafe fflush(stdout)
-            let end = ContinuousClock.now + .seconds(25)
-            while ContinuousClock.now < end {
-                await present("loop") {
-                    AppEventBus.shared.sendCommand(.showListCreationFromSelection(filmIDs: filmIDs, prefillName: "Probe"))
-                }
-            }
-            return r
-        }
-        let canvasDraws0 = DVCanvasPageView.drawCalls
-        await round("dataviz")
-        r.metric("dataviz-canvas-draw-calls-during-sheets", Double(DVCanvasPageView.drawCalls - canvasDraws0), "n")
-        reports.selectCategory(.costTracker, persist: false, immediate: true)
-        await settle(1500)
-        await round("table")
-        appState.navigate(to: .libraryItem(.recents))
-        await settle(1500)
-        await round("recents")
-
-        for (kind, counts) in frames.sorted(by: { $0.key < $1.key }) {
-            r.metric("\(kind)-main-cpu-median", stats(cpu[kind] ?? []).median, "ms")
-            r.metric("\(kind)-frames", counts.map(Double.init).sorted()[counts.count / 2], "n")
-            r.metric("\(kind)-max-frame-gap-median", stats(gaps[kind] ?? []).median, "ms")
-            r.metric("\(kind)-first-frame-median", stats(firsts[kind] ?? []).median, "ms")
-            r.metric("\(kind)-gap-in-animation-median", stats(inGaps[kind] ?? []).median, "ms")
-            r.check("\(kind)-frames-all", true, counts.map(String.init).joined(separator: ","))
-            /// The page draws nothing when a sheet or popover changes the window's key state.
-            if kind.hasPrefix("dataviz") {
-                r.check("\(kind)-page-draws-nothing", (draws[kind] ?? []).allSatisfy { $0 == 0 },
-                        (draws[kind] ?? []).map(String.init).joined(separator: ","))
-            }
-        }
-        return r
-    }
-}
-
 // MARK: - queue-add-confirm, tab-cycle, report-gutter-deselect, jump-menu-width
 ///
 /// queue-add-confirm: the "Add to Queue" menus' single entry point (FilmQueueAssignment.toggle)
@@ -3366,10 +1913,11 @@ extension DebugHarness {
         var flagged = makeSnapshot(name: "Queue Confirm Flagged")
         flagged.specialSorting = ["Ignore"]
         let plain = makeSnapshot(name: "Queue Confirm Plain")
-        coordinator.importFilms([flagged, plain])
         guard let window = mainHarnessWindow() else { r.check("main-window", false, ""); return r }
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if let reason = await keyWindowUnavailable(window) { r.skip("window-key", reason); return r }
+        /// Each case adds one film to "Up Next", which a real-library copy often has full.
+        let room = await makeRoom(coordinator, upNext: 1)
+        coordinator.importFilms([flagged, plain])
         try? await Task.sleep(for: .milliseconds(500))
         let saved = Preferences.confirmFilmQueueAdd
         defer { Preferences.confirmFilmQueueAdd = saved }
@@ -3421,6 +1969,7 @@ extension DebugHarness {
 
         try? await Task.sleep(for: .milliseconds(300))
         await coordinator.deleteFilms(withIDs: [flagged.id, plain.id]) {}
+        await restoreRoom(room, coordinator: coordinator)
         return r
     }
 
@@ -3712,19 +2261,20 @@ extension DebugHarness {
         guard let appState = AppDelegate.appState else { r.check("app-state", false, ""); return r }
         let savedItem = appState.selectedSidebarItem
 
-        /// Recents: five tabs, forward through all of them and back around.
+        /// Recents: seven tabs, forward from the first category through the rest and back around to the summary.
         let recents = RecentsState.shared
         appState.navigate(to: .libraryItem(.recents))
         try? await Task.sleep(for: .milliseconds(400))
         recents.selectCategory(.recentlyViewed)
         try? await Task.sleep(for: .milliseconds(200))
         var seen: [RecentsCategory] = []
-        for _ in 0..<5 { await postArrow(down: true); seen.append(recents.selectedCategory) }
+        for _ in 0..<7 { await postArrow(down: true); seen.append(recents.selectedCategory) }
         r.check("recents/down-steps-and-wraps",
-                seen == [.recentlyRotated, .recentlyAdded, .recentlyUpdated, .recentlyPurchased, .recentlyViewed],
+                seen == [.recentlyRotated, .recentlyAdded, .recentlyUpdated, .recentlyPurchased,
+                         .recentDiscRelease, .summary, .recentlyViewed],
                 seen.map { "\($0)" }.joined(separator: ","))
         await postArrow(down: false)
-        r.check("recents/up-wraps", recents.selectedCategory == .recentlyPurchased, "\(recents.selectedCategory)")
+        r.check("recents/up-wraps", recents.selectedCategory == .summary, "\(recents.selectedCategory)")
 
         /// Text editing owns Cmd+Up/Down (move to beginning/end of document).
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 80, height: 22))
@@ -3738,9 +2288,10 @@ extension DebugHarness {
         try? await Task.sleep(for: .milliseconds(200))
         r.check("recents/field-editing", window.firstResponder is NSTextView && window.isKeyWindow,
                 "responder \(String(describing: window.firstResponder.map { type(of: $0) })), key \(window.isKeyWindow)")
+        let beforeEditingKey = recents.selectedCategory
         await postArrow(down: true)
-        r.check("recents/text-editing-passes-through", recents.selectedCategory == .recentlyPurchased,
-                "\(recents.selectedCategory)")
+        r.check("recents/text-editing-passes-through", recents.selectedCategory == beforeEditingKey,
+                "\(beforeEditingKey) → \(recents.selectedCategory)")
         window.makeFirstResponder(nil)
         field.removeFromSuperview()
 
@@ -3801,10 +2352,9 @@ extension DebugHarness {
         await checkDigits("unwatched", .libraryItem(.unwatched), [UnwatchedCategory.unwatched, .notRated]) {
             UnwatchedState.shared.selectedCategory }
         await checkDigits("recents", .libraryItem(.recents),
-                          [RecentsCategory.recentlyViewed, .recentlyRotated, .recentlyAdded, .recentlyUpdated, .recentlyPurchased]) {
+                          RecentsCategory.allCases) {
             RecentsState.shared.selectedCategory }
-        await checkDigits("reports", .libraryItem(.reports),
-                          [ReportsCategory.costTracker, .priceTracker, .hallOfFame, .releaseWishlist, .dataVisualizations]) {
+        await checkDigits("reports", .libraryItem(.reports), ReportsCategory.allCases) {
             ReportsState.shared.selectedCategory }
         await checkDigits("imports", .libraryItem(.imports), [ImportsCategory.metadata, .ratings]) {
             ImportsState.shared.selectedCategory }
@@ -3873,8 +2423,10 @@ extension DebugHarness {
         let host = NSHostingView(rootView: table.frame(width: 500, height: 300))
         host.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
         window.contentView = host
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        /// Row clicks go through NSTableView's own tracking, which needs the window key.
+        if let reason = await keyWindowUnavailable(window) {
+            r.skip("window-key", reason); window.close(); return r
+        }
         for _ in 0..<6 { await oneRunLoopTurn() }
         host.layoutSubtreeIfNeeded()
         guard let tv = harnessViews(host).compactMap({ $0 as? ReportNSTableView }).first else {
@@ -3913,7 +2465,10 @@ extension DebugHarness {
         r.check("right-margin-clears", box.selection.isEmpty, "\(box.selection.count) selected")
 
         click(atTable: NSPoint(x: firstColumn.midX, y: tv.rect(ofRow: 4).midY))
-        try? await Task.sleep(for: .milliseconds(100))
+        /// The selection binding is written on a later turn; wait for it rather than a fixed time.
+        for _ in 0..<20 where box.selection != [rows[4].id] {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         r.check("row-click-still-selects", box.selection == [rows[4].id], "\(box.selection.count) selected")
 
         window.orderOut(nil)

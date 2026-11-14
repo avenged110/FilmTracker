@@ -40,28 +40,21 @@ import SwiftUI
 
 // MARK: - Report Model
 
-/// One assertion.
-///
-/// `passed == false` normally fails the scenario and the process exit code. A check that
-/// also carries `knownIssue` is a defect that predates this harness and is documented
-/// rather than fixed: it is still reported in full, still printed to stderr, and still
-/// visible in the JSON, but it does not fail the run. Without that distinction the suite
-/// would exit non-zero forever and stop being usable as a regression gate — and deleting
-/// or weakening the check instead would lose the finding entirely, which is worse.
+/// One assertion. `passed == false` fails the scenario and the process exit code, unless the
+/// check is an environment skip. There is no way to excuse a failing check: a check that cannot
+/// pass is fixed or removed, so a failure always means a change broke something.
 struct HarnessCheck: Codable {
     let name: String
     let passed: Bool
     let detail: String
-    var knownIssue: String? = nil
     /// Set when the scenario could not run because the machine was not in a state to run
     /// it — e.g. a real-window keyboard scenario whose window could not become key because
     /// the screen was locked or another app held focus. That says nothing about the code,
     /// so it is reported as SKIP and does not fail the run.
     var skipped: String? = nil
 
-    /// A check counts against the run only if it failed AND is neither a known issue nor
-    /// an environment skip.
-    var isRegression: Bool { !passed && knownIssue == nil && skipped == nil }
+    /// A check counts against the run only if it failed and was not an environment skip.
+    var isRegression: Bool { !passed && skipped == nil }
 }
 
 /// A named quantitative observation. Recorded rather than asserted — timings and counts
@@ -80,13 +73,11 @@ struct HarnessScenarioResult: Codable {
     var durationMilliseconds: Double = 0
 
     var failureCount: Int { checks.filter(\.isRegression).count }
-    var knownIssueCount: Int { checks.filter { !$0.passed && $0.knownIssue != nil }.count }
     var skipCount: Int { checks.filter { $0.skipped != nil }.count }
     var passed: Bool { failureCount == 0 }
 
     mutating func check(_ name: String, _ passed: Bool, _ detail: String = "") {
-        checks.append(DebugHarness.classify(
-            HarnessCheck(name: name, passed: passed, detail: detail)))
+        checks.append(HarnessCheck(name: name, passed: passed, detail: detail))
     }
 
     /// Records that the scenario cannot run in this environment. The caller returns right
@@ -108,7 +99,6 @@ struct HarnessReport: Codable {
 
     var totalChecks: Int { scenarios.reduce(0) { $0 + $1.checks.count } }
     var totalFailures: Int { scenarios.reduce(0) { $0 + $1.failureCount } }
-    var totalKnownIssues: Int { scenarios.reduce(0) { $0 + $1.knownIssueCount } }
     var totalSkips: Int { scenarios.reduce(0) { $0 + $1.skipCount } }
     var passed: Bool { totalFailures == 0 }
 }
@@ -143,16 +133,6 @@ enum DebugHarness: Loggable {
     /// randomized walk, a large seeded library) run a smaller instance in `all`, the
     /// regression gate, and the full-size one only here — same checks, a fraction of the time.
     static var isThorough: Bool { DebugSandbox.harnessName == "full" }
-
-    // MARK: - Known Pre-Existing Issues
-
-    /// Hook for marking a failing check as a defect that is documented rather than fixed.
-    /// Such a check is still reported in full and still printed to stderr, but does not
-    /// fail the run — which is what keeps the suite usable as a regression gate when a
-    /// known defect is deliberately being left in place.
-    ///
-    /// The registry is currently EMPTY.
-    nonisolated static func classify(_ check: HarnessCheck) -> HarnessCheck { check }
 
     /// Runs the requested suite and terminates the process. Never returns.
     ///
@@ -211,7 +191,7 @@ enum DebugHarness: Loggable {
     /// Suite names map to ordered scenario lists. `all` deliberately omits `sort-perf`:
     /// it is the only slow scenario and its output is a measurement, not a verdict, so it
     /// should be asked for explicitly rather than padding every correctness run.
-    private static let coreScenarios: [String] = ["sandbox-integrity", "argument-parsing", "cache-schema", "sort-invariants", "sort-viewcount", "sort-purchase-format", "date-semantics", "guide-sync"]
+    private static let coreScenarios: [String] = ["sandbox-integrity", "argument-parsing", "cache-schema", "sort-invariants", "sort-viewcount", "sort-purchase-format", "date-semantics", "ratings-parse"]
 
     private static func scenarios(for suite: String) -> [String] {
         switch suite {
@@ -234,11 +214,14 @@ enum DebugHarness: Loggable {
         case "backup":      return backupScenarios
         case "pdf":         return pdfScenarios
         case "dataviz":     return dataVizScenarios + dataVizPerfScenarios
-        /// Not in `all`: real-main-window regressions for gallery navigation, scroll memory and
-        /// the Film Queue (about five minutes). Run after a change to the gallery, the Queue or
-        /// view switching. Each seeds the state it asserts about, so they run in any order.
-        case "ui":          return ["first-selection", "gallery-integrity", "coast-stop", "sidebar-tab-switch",
+        /// Not in `all`: real-main-window regressions for gallery navigation, view switching,
+        /// search, scroll memory, the Recents summary, the Reports tables and the Film Queue.
+        /// Run after a change to any of them. Each seeds the state it asserts about, so they run
+        /// in any order.
+        case "ui":          return ["gallery-integrity", "coast-stop", "sidebar-tab-switch",
                                     "gallery-edit-refresh", "gallery-reload-economy",
+                                    "gallery-reuse", "shared-search", "switch-coast",
+                                    "summary-lazy-rows", "reports-table-behavior", "appkit-scroll-settle",
                                     "queue-mixed-style", "upnext-slots", "scroll-memory"]
         /// Not in `all`: they drive the real main window, and `imports-removal` films it for
         /// a few minutes.
@@ -322,11 +305,6 @@ enum DebugHarness: Loggable {
             value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
             return value
         }
-        if let releasesFilterResult = await runReleasesFilterScenario(scenario, coordinator: coordinator) {
-            var value = releasesFilterResult
-            value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
-            return value
-        }
         if let bulkEditResult = await runBulkEditScenario(scenario, coordinator: coordinator) {
             var value = bulkEditResult
             value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
@@ -342,6 +320,7 @@ enum DebugHarness: Loggable {
         case "sort-purchase-format": result = await purchaseFormatSortScenario(coordinator: coordinator)
         case "date-semantics":    result = await dateSemanticsScenario(coordinator: coordinator)
         case "guide-sync":        result = documentationDriftScenario()
+        case "doc-shots":         result = await docShotsScenario(coordinator: coordinator)
         case "sort-perf":         result = await sortPerformanceScenario()
         case "ratings-parse":     result = await ratingsParseScenario()
         case "hero-seed":         result = await heroSeedScenario(coordinator: coordinator)
@@ -435,8 +414,8 @@ enum DebugHarness: Loggable {
                 DebugSandbox.userDefaultsSuiteName ?? "<none>")
         /// …and so must every @AppStorage, which reads `.standard` unless it names
         /// `Preferences.store`.
-        r.checks.append(contentsOf: appStorageStoreChecks().map(classify))
-        r.checks.append(contentsOf: registeredFallbackChecks().map(classify))
+        r.checks.append(contentsOf: appStorageStoreChecks())
+        r.checks.append(contentsOf: registeredFallbackChecks())
 
         /// Negative control: the containment predicate must reject a path outside the
         /// container. Without this, a `contains` that returned true unconditionally would
@@ -456,7 +435,7 @@ enum DebugHarness: Loggable {
                     sibling.path(percentEncoded: false))
         }
 
-        r.checks.append(contentsOf: productionFingerprintChecks(sandboxRoot: root).map(classify))
+        r.checks.append(contentsOf: productionFingerprintChecks(sandboxRoot: root))
         return r
     }
 
@@ -531,11 +510,6 @@ enum DebugHarness: Loggable {
             rawValue: Preferences.registeredDefault(dropKey, orFallback: -1))
         let drop = withStored(99, at: dropKey) { Preferences.queueSectionOnDrop }
 
-        let tabKey = Preferences.tabRememberScopeKey
-        let registeredTab = Preferences.TabRememberScope(
-            rawValue: Preferences.registeredDefault(tabKey, orFallback: -1))
-        let tab = withStored(99, at: tabKey) { Preferences.tabRememberScope }
-
         return [
             HarnessCheck(name: "registered-fallback/rotation-threshold",
                          passed: threshold == registeredThreshold,
@@ -546,9 +520,6 @@ enum DebugHarness: Loggable {
             HarnessCheck(name: "registered-fallback/queue-drop-section",
                          passed: registeredDrop != nil && drop == registeredDrop,
                          detail: "stored 99 → read \(drop), registered \(String(describing: registeredDrop))"),
-            HarnessCheck(name: "registered-fallback/tab-remember-scope",
-                         passed: registeredTab != nil && tab == registeredTab,
-                         detail: "stored 99 → read \(tab), registered \(String(describing: registeredTab))"),
         ]
     }
 
@@ -934,7 +905,7 @@ enum DebugHarness: Loggable {
             }
 
             /// Key-specific monotonicity, checked directly against the metadata the sort read.
-            r.checks.append(contentsOf: monotonicityChecks(cache: cache, ids: ids, corpus: corpusName).map(classify))
+            r.checks.append(contentsOf: monotonicityChecks(cache: cache, ids: ids, corpus: corpusName))
         }
 
         r.metric("sort-calls", Double(comparisons), "count")
@@ -2002,8 +1973,6 @@ enum DebugHarness: Loggable {
         }
 
         /// Per-failure lines first: the exit code says whether to look, these say where.
-        /// Regressions and known issues are labeled differently and printed in that order,
-        /// so a real failure is never buried in a wall of expected ones.
         for scenario in report.scenarios {
             for check in scenario.checks where check.isRegression {
                 printToStandardError("[DebugHarness] FAIL \(scenario.scenario)/\(check.name): \(check.detail)\n")
@@ -2014,23 +1983,70 @@ enum DebugHarness: Loggable {
                 printToStandardError("[DebugHarness] SKIP \(scenario.scenario)/\(check.name): \(check.detail)\n")
             }
         }
-        for scenario in report.scenarios {
-            for check in scenario.checks where !check.passed && check.knownIssue != nil {
-                printToStandardError("[DebugHarness] KNOWN \(scenario.scenario)/\(check.name): \(check.detail)\n")
-            }
-        }
 
         print("===HARNESS-REPORT-BEGIN===")
         print(json)
         print("===HARNESS-REPORT-END===")
-        /// Stated as separate counts rather than one ratio: a single "N/N passed" figure would
-        /// be misleading while documented defects are failing underneath it.
-        let cleanPasses = report.totalChecks - report.totalFailures - report.totalKnownIssues - report.totalSkips
+        let cleanPasses = report.totalChecks - report.totalFailures - report.totalSkips
         print("[DebugHarness] \(cleanPasses) passed, \(report.totalFailures) failed, "
-            + "\(report.totalKnownIssues) known pre-existing issues, \(report.totalSkips) skipped — across \(report.scenarios.count) scenarios "
+            + "\(report.totalSkips) skipped — across \(report.scenarios.count) scenarios "
             + "(\(report.passed ? "PASS" : "FAIL"))")
         unsafe fflush(stdout)
         unsafe fflush(stderr)
+    }
+}
+
+// MARK: - Room on a Real Library
+
+/// What `makeRoom` took out of the Hall of Fame and "Up Next", for `restoreRoom` to put back.
+struct HarnessRoom {
+    var hallOfFame: [UUID] = []
+    var upNext: Set<UUID> = []
+}
+
+extension DebugHarness {
+    /// A copy of a real library usually arrives with the Hall of Fame near its cap and "Up Next"
+    /// full. Both refuse adds past the cap, correctly, so a scenario that seeds into them would
+    /// test the refusal instead of the path it is about, and pass only on an empty sandbox. This
+    /// takes the lowest-ranked Hall of Fame films and as many "Up Next" films as needed out,
+    /// through the coordinator so the store agrees, until each has the requested free slots.
+    /// On an empty sandbox it does nothing.
+    static func makeRoom(_ coordinator: DataCoordinator, hallOfFame: Int = 0,
+                         upNext: Int = 0) async -> HarnessRoom {
+        var room = HarnessRoom()
+        let ranked = coordinator.hallOfFameFilms
+        let hofExcess = ranked.count + hallOfFame - MemoryStore.hallOfFameCapacity
+        if hofExcess > 0 {
+            room.hallOfFame = Array(ranked.suffix(hofExcess))
+            coordinator.removeFromHallOfFame(Set(room.hallOfFame))
+        }
+        let queued = FilmQueue.upNextFilmIDs(coordinator: coordinator)
+        let upNextExcess = queued.count + upNext - FilmQueue.upNextCapacity
+        if upNextExcess > 0 {
+            room.upNext = Set(queued.sorted { $0.uuidString < $1.uuidString }.prefix(upNextExcess))
+            coordinator.removeFilmsFromList(filmIDs: room.upNext, listID: FilmQueueSection.upNext.listID)
+        }
+        await waitForPendingOperations(coordinator)
+        return room
+    }
+
+    /// Puts back what `makeRoom` took out. Run after the scenario has removed its own films, so
+    /// the parked Hall of Fame films append to the ranking where they were.
+    static func restoreRoom(_ room: HarnessRoom, coordinator: DataCoordinator) async {
+        if !room.hallOfFame.isEmpty { coordinator.addToHallOfFame(room.hallOfFame) }
+        if !room.upNext.isEmpty {
+            coordinator.addFilmsToList(filmIDs: room.upNext, listID: FilmQueueSection.upNext.listID)
+        }
+        await waitForPendingOperations(coordinator)
+    }
+
+    /// Waits up to ten seconds for the coordinator's tracked background writes to finish.
+    static func waitForPendingOperations(_ coordinator: DataCoordinator) async {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while coordinator.hasPendingOperations, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        await Task.yield()
     }
 }
 

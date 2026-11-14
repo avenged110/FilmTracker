@@ -57,10 +57,18 @@ struct DVGraphics {
 /// Shape paths from SwiftUI's own shapes, so corners are continuous like the rest of the app (RoundedRectangle's default style). Cached by size and radius.
 @MainActor
 enum DVShapes {
-    private static var cache: [String: CGPath] = [:]
+    /// A struct key rather than an interpolated string: every rounded fill and clip looks a shape up, and formatting three
+    /// CGFloats into a String cost more than the lookup it keyed.
+    private struct Key: Hashable {
+        let topOnly: Bool
+        let width: CGFloat
+        let height: CGFloat
+        let radius: CGFloat
+    }
+    private static var cache: [Key: CGPath] = [:]
 
     static func rounded(_ rect: CGRect, _ radius: CGFloat) -> CGPath {
-        let key = "r\(rect.width)x\(rect.height)r\(radius)"
+        let key = Key(topOnly: false, width: rect.width, height: rect.height, radius: radius)
         let base: CGPath
         if let hit = cache[key] {
             base = hit
@@ -80,7 +88,7 @@ enum DVShapes {
     }
 
     static func topRounded(_ rect: CGRect, _ radius: CGFloat) -> CGPath {
-        let key = "t\(rect.width)x\(rect.height)r\(radius)"
+        let key = Key(topOnly: true, width: rect.width, height: rect.height, radius: radius)
         let base: CGPath
         if let hit = cache[key] {
             base = hit
@@ -178,10 +186,16 @@ final class DVLine {
         self.rawWidth = CGFloat(CTLineGetTypographicBounds(ctLine, nil, nil, nil))
     }
 
-    private static var cache: [String: DVLine] = [:]
+    /// Keyed by the font and string themselves. Every text node's measure and draw looks its line up, so an interpolated
+    /// key (two CGFloats formatted, then the string copied) cost more than the hit it found.
+    private struct Key: Hashable {
+        let font: DVFont
+        let string: String
+    }
+    private static var cache: [Key: DVLine] = [:]
 
     static func plain(_ string: String, _ font: DVFont) -> DVLine {
-        let key = "\(font.size)|\(font.weight.rawValue)|\(font.mono)|\(string)"
+        let key = Key(font: font, string: string)
         if let hit = cache[key] { return hit }
         let attr = NSAttributedString(string: string, attributes: [
             .font: font.nsFont,
@@ -268,12 +282,24 @@ final class DVParagraph {
 
     private init(lines: [CTLine], widths: [CGFloat]) { self.lines = lines; self.widths = widths }
 
-    private static var cache: [String: DVParagraph] = [:]
+    /// Keyed by value, not by an interpolated string, for the reason given at DVLine's key. Every multi-line text node's height
+    /// query lands here, hit or miss.
+    private struct Key: Hashable {
+        let font: DVFont
+        let width: CGFloat
+        let lineLimit: Int
+        let text: String
+    }
+    private static var cache: [Key: DVParagraph] = [:]
 
     static func layout(_ runs: [DVRun], _ font: DVFont, width: CGFloat, lineLimit: Int?) -> DVParagraph {
-        let text = runs.map(\.string).joined()
-        let key = "\(font.size)|\(font.weight.rawValue)|\(font.mono)|\(width)|\(lineLimit ?? 0)|\(text)"
-        let multicolor = Set(runs.map { "\($0.paint.color)\($0.paint.opacity)" }).count > 1
+        let text = runs.count == 1 ? runs[0].string : runs.map(\.string).joined()
+        let key = Key(font: font, width: width, lineLimit: lineLimit ?? 0, text: text)
+        /// Runs that differ in color or opacity. Compared directly: formatting each run's NSColor into a string, as this once did,
+        /// cost more than the cache hit it gated.
+        let multicolor = runs.dropFirst().contains {
+            $0.paint.opacity != runs[0].paint.opacity || !$0.paint.color.isEqual(runs[0].paint.color)
+        }
         if !multicolor, let hit = cache[key] { return hit }
         let attr = NSMutableAttributedString()
         for run in runs {
@@ -444,22 +470,32 @@ struct DVText: DVNode {
     var minimumScale: CGFloat? = nil
     var scale: CGFloat = 2
     private let ideal = DVOnce<CGFloat>()
+    /// The wrapped height at the last width asked. A parent's height, baseline and placement queries each ask again, and each
+    /// answer otherwise went back through the paragraph cache's key building.
+    private let wrappedHeight = DVMemo<CGFloat>()
+    /// The runs joined, kept once: every measure, height and draw reads it.
+    let string: String
+    private let hasNewline: Bool
 
     init(_ string: String, _ font: DVFont, _ paint: DVPaint = .primary, lineLimit: Int? = 1, minimumScale: CGFloat? = nil) {
         self.runs = [DVRun(string: string, paint: paint)]
         self.font = font
         self.lineLimit = lineLimit
         self.minimumScale = minimumScale
+        self.string = string
+        self.hasNewline = string.contains("\n")
     }
 
     init(runs: [DVRun], _ font: DVFont, lineLimit: Int? = 1) {
         self.runs = runs
         self.font = font
         self.lineLimit = lineLimit
+        let string = runs.map(\.string).joined()
+        self.string = string
+        self.hasNewline = string.contains("\n")
     }
 
-    var string: String { runs.map(\.string).joined() }
-    private var isSingleLine: Bool { lineLimit == 1 && !string.contains("\n") }
+    private var isSingleLine: Bool { lineLimit == 1 && !hasNewline }
 
     /// The widest line unwrapped (what SwiftUI answers for an unconstrained proposal).
     var idealWidth: CGFloat { ideal.get(computeIdealWidth) }
@@ -475,8 +511,10 @@ struct DVText: DVNode {
     func height(_ width: CGFloat) -> CGFloat {
         if string.isEmpty { return font.lineHeight }
         if isSingleLine { return font.lineHeight }
-        let p = DVParagraph.layout(runs, font, width: width, lineLimit: lineLimit)
-        return CGFloat(max(1, p.lines.count)) * font.lineHeight
+        return wrappedHeight.get(width) {
+            let p = DVParagraph.layout(runs, font, width: width, lineLimit: lineLimit)
+            return CGFloat(max(1, p.lines.count)) * font.lineHeight
+        }
     }
 
     func firstBaseline(_ width: CGFloat) -> CGFloat? { font.baseline }
@@ -548,9 +586,15 @@ struct DVSymbol: DVNode {
     var paint: DVPaint = .secondary
     var opacity: CGFloat = 1
 
-    private static var images: [String: NSImage] = [:]
+    /// Keyed by value: `size` (asked by every sizing and height query) and `draw` both look the image up.
+    private struct Key: Hashable {
+        let name: String
+        let pointSize: CGFloat
+        let weight: CGFloat
+    }
+    private static var images: [Key: NSImage] = [:]
     private var image: NSImage? {
-        let key = "\(name)|\(pointSize)|\(weight.rawValue)"
+        let key = Key(name: name, pointSize: pointSize, weight: weight.rawValue)
         if let hit = Self.images[key] { return hit }
         let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
         let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
@@ -760,30 +804,59 @@ struct DVHStack: DVContainer {
         return DVSizing(min: s.reduce(0) { $0 + $1.min } + gaps, max: maxW)
     }
 
-    func widths(_ total: CGFloat) -> [CGFloat] {
+    /// Everything `widths` needs that does not depend on the width: the children's sizings and, per priority group
+    /// (highest first), its members in the order they are offered space, its spacers, the minimum the lower groups hold
+    /// back, and its members' summed maximums and spacers' summed minimums. Built once; the split itself is then a
+    /// short loop with no allocation beyond its result, run for every row at every width a resize passes through.
+    private struct WidthPlan {
+        struct Group {
+            let members: [Int]
+            let spacers: [Int]
+            let lowerMin: CGFloat
+            let membersMax: CGFloat
+            let spacersMin: CGFloat
+        }
+        let sizings: [DVSizing]
+        let groups: [Group]
+    }
+    private let widthPlanOnce = DVOnce<WidthPlan>()
+
+    private func makeWidthPlan() -> WidthPlan {
         let n = children.count
-        guard n > 0 else { return [] }
         let sizings = children.map(\.sizing)
-        var result = [CGFloat](repeating: 0, count: n)
-        var remaining = total - spacing * CGFloat(n - 1)
         let prio = priorities.isEmpty ? [Double](repeating: 0, count: n) : priorities
-        let groups = Set(prio).sorted(by: >)
+        let priorityOrder = Set(prio).sorted(by: >)
         var minByPriority: [Double: CGFloat] = [:]
         for i in 0..<n { minByPriority[prio[i], default: 0] += sizings[i].min }
-        for (gi, p) in groups.enumerated() {
+        let isSpacer = (0..<n).map { children[$0] is DVSpacer }
+        let groups = priorityOrder.enumerated().map { gi, p -> WidthPlan.Group in
             var lowerMin: CGFloat = 0
-            for q in groups[(gi + 1)...] { lowerMin += minByPriority[q] ?? 0 }
-            var available = remaining - lowerMin
-            /// Spacers go last and take what the others leave. Until then, only their minimum lengths are held back.
-            let isSpacer = (0..<n).map { children[$0] is DVSpacer }
+            for q in priorityOrder[(gi + 1)...] { lowerMin += minByPriority[q] ?? 0 }
             var members = (0..<n).filter { prio[$0] == p && !isSpacer[$0] }
             members.sort { (sizings[$0].max - sizings[$0].min) < (sizings[$1].max - sizings[$1].min) }
             let spacers = (0..<n).filter { prio[$0] == p && isSpacer[$0] }
-            var spacerMin = spacers.reduce(CGFloat(0)) { $0 + sizings[$1].min }
+            return WidthPlan.Group(members: members, spacers: spacers, lowerMin: lowerMin,
+                                   membersMax: members.reduce(CGFloat(0)) { $0 + sizings[$1].max },
+                                   spacersMin: spacers.reduce(CGFloat(0)) { $0 + sizings[$1].min })
+        }
+        return WidthPlan(sizings: sizings, groups: groups)
+    }
+
+    func widths(_ total: CGFloat) -> [CGFloat] {
+        let n = children.count
+        guard n > 0 else { return [] }
+        let plan = widthPlanOnce.get(makeWidthPlan)
+        let sizings = plan.sizings
+        var result = [CGFloat](repeating: 0, count: n)
+        var remaining = total - spacing * CGFloat(n - 1)
+        for group in plan.groups {
+            var available = remaining - group.lowerMin
+            /// Spacers go last and take what the others leave. Until then, only their minimum lengths are held back.
+            var spacerMin = group.spacersMin
             /// If every member fits at its widest, each takes that. An even split would shortchange a wide member while a narrow one left room unused.
-            let allFit = members.reduce(CGFloat(0)) { $0 + sizings[$1].max } <= available - spacerMin + 0.001
-            var left = members.count
-            for i in members {
+            let allFit = group.membersMax <= available - spacerMin + 0.001
+            var left = group.members.count
+            for i in group.members {
                 let offer = allFit ? sizings[i].max : max(0, (available - spacerMin) / CGFloat(left))
                 let w = sizings[i].take(offer)
                 result[i] = w
@@ -791,8 +864,8 @@ struct DVHStack: DVContainer {
                 remaining -= w
                 left -= 1
             }
-            left = spacers.count
-            for i in spacers {
+            left = group.spacers.count
+            for i in group.spacers {
                 spacerMin -= sizings[i].min
                 let w = sizings[i].take(max(0, available / CGFloat(left)))
                 result[i] = w
@@ -1240,7 +1313,7 @@ enum DVK {
         return DVVStack(spacing: 6, rows.map { row in
             barRow(label: row.label,
                    fraction: scaleToMax ? Double(row.count) / Double(maxCount) : Double(row.percent ?? 0) / 100,
-                   color: color, count: DVFormat.count(row.count),
+                   color: color, count: Fmt.count(row.count),
                    percent: showPercent ? row.percent.map { "\($0)%" } : nil, labelWidth: labelWidth)
         })
     }
@@ -1269,8 +1342,8 @@ enum DVK {
         let items: [any DVNode] = segments.map { s in
             var text = s.label
             if showCounts {
-                let pct = denominator > 0 ? " (\(DVFormat.percent(s.count, of: denominator))%)" : ""
-                text = "\(s.label): \(DVFormat.count(s.count))\(pct)"
+                let pct = denominator > 0 ? " (\(Fmt.percent(s.count, of: denominator))%)" : ""
+                text = "\(s.label): \(Fmt.count(s.count))\(pct)"
             }
             return DVHStack(spacing: 5, [
                 DVBox(width: 10, height: 10) { g, r in g.fill(r, DVPaint(color: s.color, opacity: s.fillOpacity), radius: 2) },
@@ -1370,7 +1443,7 @@ enum DVK {
                 let paint = paints[i % paints.count], alt = altPaints[i % altPaints.count]
                 if striped { stripes(g, band, paint, alt) } else { g.fill(band, paint) }
                 guard band.height >= 14 else { continue }
-                let line = DVLine.plain(DVFormat.count(n), label)
+                let line = DVLine.plain(Fmt.count(n), label)
                 let w = min(rect.width, line.width(scale: g.scale))
                 g.draw(line, at: CGPoint(x: g.snap(rect.midX - w / 2), y: band.minY + 2), width: w, paint: DVPaint(color: .white, opacity: 0.55))
             }
@@ -1410,7 +1483,7 @@ enum DVK {
             if let ghost = bar.ghost, ghostH > 0 {
                 monthBar(g, g.snap(CGRect(x: ghostX, y: col.maxY - ghostH, width: half, height: ghostH)),
                          value: ghost, bands: bar.ghostBands, paints: priorPaints, altPaints: paints, striped: bar.dimmed)
-                valueLabel(g, DVFormat.count(ghost), x: ghostX, width: half, top: col.maxY - ghostH, paint: .tertiary)
+                valueLabel(g, Fmt.count(ghost), x: ghostX, width: half, top: col.maxY - ghostH, paint: .tertiary)
             }
         }, labels: bars.map(\.label))
     }
@@ -1479,7 +1552,7 @@ enum DVK {
             DVBox(width: 8, height: 8) { g, r in g.ctx.setFillColor(DVPaint(color: tint).cgColor); g.ctx.fillEllipse(in: r) },
             DVText(label, .system(12), .primary),
             DVSpacer(minLength: 8),
-            DVFrame(child: DVText(DVFormat.count(count), .mono(11, .semibold), .primary), width: 32, hAlign: .trailing),
+            DVFrame(child: DVText(Fmt.count(count), .mono(11, .semibold), .primary), width: 32, hAlign: .trailing),
             DVFrame(child: DVSymbol(name: "chevron.right", pointSize: 10, weight: .semibold, paint: .secondary,
                                     opacity: action != nil ? 1 : 0), width: 18, hAlign: .trailing),
         ], priorities: [0, 0, 0, 1, 0])
@@ -1493,7 +1566,7 @@ enum DVK {
         let row = DVHStack(spacing: 8, [
             DVBox(width: 8, height: 8) { g, r in g.ctx.setFillColor(DVPaint(color: tint).cgColor); g.ctx.fillEllipse(in: r) },
             DVFrame(child: DVText(label, .system(12), .primary, lineLimit: 2), maxInfinity: true, hAlign: .leading),
-            DVText(DVFormat.count(count), .mono(11, .semibold), .primary),
+            DVText(Fmt.count(count), .mono(11, .semibold), .primary),
             DVSymbol(name: "info.circle", pointSize: 11, weight: .semibold, paint: .secondary),
         ], priorities: [0, 0, 1, 0])
         return DVDecorated(child: row, insets: NSEdgeInsets(top: 5, left: 8, bottom: 5, right: 8),
@@ -1709,7 +1782,7 @@ struct DVYearBars: DVNode {
             let r = barRect(i, rect, peak: peak, scale: g.scale)
             if radius > 0 { g.fillPath(DVShapes.topRounded(r, radius), paint) } else { g.fill(r, paint) }
             guard let countFont else { continue }
-            let line = DVLine.plain(DVFormat.count(values[i].count), countFont)
+            let line = DVLine.plain(Fmt.count(values[i].count), countFont)
             let w = line.width(scale: g.scale)
             let fits = r.height >= countFont.lineHeight + 2
             g.draw(line, at: CGPoint(x: r.midX - w / 2, y: fits ? r.minY + 1 : r.minY - countFont.lineHeight - 0.5),
@@ -1750,7 +1823,7 @@ struct DVYearBars: DVNode {
             let v = values[i]
             var bar = me.barRect(i, rect, peak: peak, scale: 2)
             if bar.height == 0 { bar = CGRect(x: bar.minX, y: plot.maxY - 1, width: bar.width, height: 1) }
-            return ("\(v.year): \(DVFormat.count(v.count)) film\(v.count == 1 ? "" : "s")", bar)
+            return ("\(v.year): \(Fmt.count(v.count, "film"))", bar)
         }, pointer: false))
     }
 }

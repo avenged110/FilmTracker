@@ -71,7 +71,7 @@ struct Metadata: View {
                     || !film.screenwriters.isEmpty
                     || !film.composer.isEmpty
                     || !film.studio.isEmpty
-                if hasAnyCrewField && !RSBProfileFlags.noCrewBlock {
+                if hasAnyCrewField {
                     /// The header is inside the gate, so a film with no credits shows no stray title or divider.
                     RSBHelpers.moduleHeader("Cast and Crewmen")
                     if !film.cast.isEmpty {
@@ -83,48 +83,42 @@ struct Metadata: View {
                     }
                     if !film.directors.isEmpty {
                         RSBHelpers.searchableItemSection(
-                            title: RSBHelpers.pluralizedTitle("Director", "Directors",
-                                count: film.directors.count),
+                            title: Fmt.noun(film.directors.count, "Director", plural: "Directors"),
                             items: film.directors,
                             field: .directors,
                             glyph: gatedGlyph("movieclapper"), glyphColor: glyphTint)
                     }
                     if !film.producers.isEmpty {
                         RSBHelpers.searchableItemSection(
-                            title: RSBHelpers.pluralizedTitle("Producer", "Producers",
-                                count: film.producers.count),
+                            title: Fmt.noun(film.producers.count, "Producer", plural: "Producers"),
                             items: film.producers,
                             field: .producer,
                             glyph: gatedGlyph("megaphone"), glyphColor: glyphTint)
                     }
                     if !film.executiveProducers.isEmpty {
                         RSBHelpers.searchableItemSection(
-                            title: RSBHelpers.pluralizedTitle("Executive Producer", "Executive Producers",
-                                count: film.executiveProducers.count),
+                            title: Fmt.noun(film.executiveProducers.count, "Executive Producer", plural: "Executive Producers"),
                             items: film.executiveProducers,
                             field: .executiveProducer,
                             glyph: gatedGlyph("chair"), glyphColor: glyphTint)
                     }
                     if !film.screenwriters.isEmpty {
                         RSBHelpers.searchableItemSection(
-                            title: RSBHelpers.pluralizedTitle("Screenwriter", "Screenwriters",
-                                count: film.screenwriters.count),
+                            title: Fmt.noun(film.screenwriters.count, "Screenwriter", plural: "Screenwriters"),
                             items: film.screenwriters,
                             field: .screenwriter,
                             glyph: gatedGlyph("book.pages"), glyphColor: glyphTint)
                     }
                     if !film.composer.isEmpty {
                         RSBHelpers.searchableItemSection(
-                            title: RSBHelpers.pluralizedTitle("Composer", "Composers",
-                                count: film.composer.count),
+                            title: Fmt.noun(film.composer.count, "Composer", plural: "Composers"),
                             items: film.composer,
                             field: .composer,
                             glyph: gatedGlyph("music.quarternote.3"), glyphColor: glyphTint)
                     }
                     if !film.studio.isEmpty {
                         RSBHelpers.searchableItemSection(
-                            title: RSBHelpers.pluralizedTitle("Studio", "Studios",
-                                count: film.studio.count),
+                            title: Fmt.noun(film.studio.count, "Studio", plural: "Studios"),
                             items: film.studio,
                             field: .studio,
                             glyph: gatedGlyph("building.columns"), glyphColor: glyphTint)
@@ -175,27 +169,22 @@ struct Metadata: View {
                         title: "Library Version", value: libraryVersionText,
                         glyph: gatedGlyph("film.stack"), glyphColor: glyphTint)
                 }
-                /// Subtitles and Aspect Ratio share a row. Hidden when both are empty.
+                /// Subtitles and Aspect Ratio share a row: two columns, or one when either is empty.
+                /// Hidden when both are empty.
                 let hasSubtitles   = !film.subtitles.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 let hasAspectRatio = !film.aspectRatio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 if hasSubtitles || hasAspectRatio {
-                    if hasSubtitles && hasAspectRatio {
-                        HStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        if hasSubtitles {
                             RSBHelpers.textSection(
                                 title: "Subtitles", value: film.subtitles,
                                 glyph: gatedGlyph("captions.bubble"), glyphColor: glyphTint)
+                        }
+                        if hasAspectRatio {
                             RSBHelpers.textSection(
                                 title: "Aspect Ratio", value: film.aspectRatio,
                                 glyph: gatedGlyph("aspectratio"), glyphColor: glyphTint)
                         }
-                    } else if hasSubtitles {
-                        RSBHelpers.textSection(
-                            title: "Subtitles", value: film.subtitles,
-                                glyph: gatedGlyph("captions.bubble"), glyphColor: glyphTint)
-                    } else {
-                        RSBHelpers.textSection(
-                            title: "Aspect Ratio", value: film.aspectRatio,
-                                glyph: gatedGlyph("aspectratio"), glyphColor: glyphTint)
                     }
                 }
                 /// Frame Rate, HB RF Value, and Color. Color is always present. The numeric fields hide
@@ -205,62 +194,23 @@ struct Metadata: View {
                 let hasFrameRate = !frameRateStr.isEmpty
                 let hasHBRF      = !hbRFStr.isEmpty
                 /// Color always shows, since it is a Yes/No value.
-                if hasFrameRate && hasHBRF {
-                    /// All three visible — three-column layout.
-                    HStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    if hasFrameRate {
                         RSBHelpers.textSection(
                             title: "Frame Rate",
                             displayValue: frameRateStr,
                             isPlaceholder: false,
                             glyph: gatedGlyph("forward.frame"),
                             glyphColor: glyphTint)
+                    }
+                    if hasHBRF {
                         RSBHelpers.textSection(
                             title: "HB RF Value",
                             displayValue: hbRFStr,
                             isPlaceholder: false,
                             glyph: gatedGlyph("rectangle.compress.vertical"),
                             glyphColor: glyphTint)
-                        RSBHelpers.textSection(
-                            title: "Color",
-                            displayValue: film.color ? "Yes" : "No",
-                            isPlaceholder: false,
-                            glyph: gatedGlyph("camera.filters"),
-                            glyphColor: glyphTint)
                     }
-                } else if hasFrameRate {
-                    /// HB RF Value absent — two-column layout.
-                    HStack(spacing: 12) {
-                        RSBHelpers.textSection(
-                            title: "Frame Rate",
-                            displayValue: frameRateStr,
-                            isPlaceholder: false,
-                            glyph: gatedGlyph("forward.frame"),
-                            glyphColor: glyphTint)
-                        RSBHelpers.textSection(
-                            title: "Color",
-                            displayValue: film.color ? "Yes" : "No",
-                            isPlaceholder: false,
-                            glyph: gatedGlyph("camera.filters"),
-                            glyphColor: glyphTint)
-                    }
-                } else if hasHBRF {
-                    /// Frame Rate absent — two-column layout.
-                    HStack(spacing: 12) {
-                        RSBHelpers.textSection(
-                            title: "HB RF Value",
-                            displayValue: hbRFStr,
-                            isPlaceholder: false,
-                            glyph: gatedGlyph("rectangle.compress.vertical"),
-                            glyphColor: glyphTint)
-                        RSBHelpers.textSection(
-                            title: "Color",
-                            displayValue: film.color ? "Yes" : "No",
-                            isPlaceholder: false,
-                            glyph: gatedGlyph("camera.filters"),
-                            glyphColor: glyphTint)
-                    }
-                } else {
-                    /// Both numeric fields absent: Color alone.
                     RSBHelpers.textSection(
                         title: "Color",
                         displayValue: film.color ? "Yes" : "No",
@@ -270,8 +220,7 @@ struct Metadata: View {
                 }
                 /// Single column section: "Encoding Tool(s)".
                 RSBHelpers.textSectionList(
-                    title: RSBHelpers.pluralizedTitle("Encoding Tool", "Encoding Tools",
-                        count: film.encodingTool.count),
+                    title: Fmt.noun(film.encodingTool.count, "Encoding Tool", plural: "Encoding Tools"),
                     values: film.encodingTool,
                     glyph: gatedGlyph("hammer"),
                     glyphColor: film.encodingTool.isEmpty
@@ -298,8 +247,7 @@ struct Metadata: View {
                 /// Single column section: "Alternate Title(s)" (conditional).
                 if !film.alternateTitle.isEmpty {
                     RSBHelpers.textSectionList(
-                        title: RSBHelpers.pluralizedTitle("Alternate Title", "Alternate Titles",
-                            count: film.alternateTitle.count),
+                        title: Fmt.noun(film.alternateTitle.count, "Alternate Title", plural: "Alternate Titles"),
                         values: film.alternateTitle,
                         glyph: gatedGlyph("text.page.badge.magnifyingglass"), glyphColor: glyphTint)
                 }

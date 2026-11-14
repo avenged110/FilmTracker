@@ -301,19 +301,6 @@ struct ReleaseCardView: View {
     /// from the band than the 8 pt used between every other control on the card.
     private static let purchasedRowTrim: CGFloat = 1
 
-    /// Format tints. All three are opaque and dark enough for white lettering, so the same
-    /// palette reads at home in both appearances the way `Preferences.darkGreen` and
-    /// `.darkRed` do on the sidebar. The 4K band is deliberately darker than the card's own
-    /// fill in dark mode (`controlBackgroundColor` sits near 0.12 there); the DVD band is the
-    /// light end of the set, but still well below the gray that would wash out white text.
-    /// The values live in `ReleaseFormatPalette`, which the Release Wishlist's format badges
-    /// read as well, so the two cannot drift apart.
-    private static let tint4K     = Color(nsColor: ReleaseFormatPalette.tint4K)
-    private static let tintBluRay = Color(nsColor: ReleaseFormatPalette.tintBluRay)
-    private static let tintDVD    = Color(nsColor: ReleaseFormatPalette.tintDVD)
-    /// A format string this build does not recognize: the sidebar's neutral badge gray.
-    private static let tintUnknown = Preferences.darkGray
-
     /// Format-badge plate and lettering, fixed rather than appearance-adaptive for the same
     /// reason as RSBCardChrome's: the badge has to read identically on every band and the
     /// band must never show through the glyphs. `Color.primary` on `windowBackgroundColor`
@@ -331,14 +318,14 @@ struct ReleaseCardView: View {
         return style
     }()
 
-    private var bandTint: Color {
-        switch ReleaseFormat(rawValue: badgeFormat) {
-        case .uhd4K:  return Self.tint4K
-        case .bluRay: return Self.tintBluRay
-        case .dvd:    return Self.tintDVD
-        case nil:     return Self.tintUnknown
-        }
-    }
+    /// The format band tint. All three tints are opaque and dark enough for white lettering, so the same
+    /// palette reads at home in both appearances the way `Preferences.darkGreen` and
+    /// `.darkRed` do on the sidebar. The 4K band is deliberately darker than the card's own
+    /// fill in dark mode (`controlBackgroundColor` sits near 0.12 there); the DVD band is the
+    /// light end of the set, but still well below the gray that would wash out white text.
+    /// The values and the format lookup live in `ReleaseFormatPalette`, which the sidebar's
+    /// card stack and the Release Wishlist's format badges read as well, so none can drift apart.
+    private var bandTint: Color { ReleaseFormatPalette.color(for: badgeFormat) }
 
     // MARK: - Body
     /// Thin shell — each row is a named computed property or an isolated struct. This body
@@ -772,8 +759,8 @@ private struct _DiscCount: View {
         .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .center)
     }
 
-    /// How far the centered unit sits left of the base-year Stepper. Measured with the `card-perf`
-    /// harness scenario and `-FTDebugCardPerfFrames`; re-measure if the Stepper padding changes.
+    /// How far the centered unit sits left of the base-year Stepper, measured from the hosted card's
+    /// frames; re-measure if the Stepper padding changes.
     private static let alignmentShift: CGFloat = 6
 }
 
@@ -903,8 +890,8 @@ private struct _ReleaseYearRow: View {
 
     /// Space between the base-year Stepper and the help button, chosen so the button sits
     /// the distance from that Stepper it did before the release date became a full date —
-    /// 4 pt between the Stepper's chrome and the button's NSButton frame, measured with
-    /// `card-perf -FTDebugCardPerfFrames`. Larger than that 4 pt because the NSButton
+    /// 4 pt between the Stepper's chrome and the button's NSButton frame, measured from the
+    /// hosted card's frames. Larger than that 4 pt because the NSButton
     /// reaches about 5 pt past the leading edge of the SwiftUI frame it is laid out in.
     private static let helpButtonGap: CGFloat = 9
 
@@ -1143,20 +1130,23 @@ private struct _TypeVersionsRow: View {
         if model.is4K || model.independence == ReleaseIndependence.comboPack {
             items.append(.option(tag: ReleaseIndependence.comboPack, title: "Combo-pack"))
         }
+        /// The two combo-pack variants' titles capitalize their parenthetical, as every other menu item
+        /// does. Display only: the stored tags stay ReleaseIndependence's lowercase spellings.
+        ///
         /// Dual-Blu-ray combo packs are a property of the 4K master, so the option is offered
         /// on 4K UHD cards only. The second disjunct is the tag-set guarantee, not a feature: a
         /// Blu-ray or DVD can only hold this value by way of a hand-edited or corrupt backup,
         /// but if one does, keeping the row lets the card display it and the user pick out of it.
         if model.is4K || model.independence == ReleaseIndependence.comboPackDualBD {
             items.append(.option(tag: ReleaseIndependence.comboPackDualBD,
-                                 title: "Combo-pack (dual BD)"))
+                                 title: "Combo-pack (Dual BD)"))
         }
         /// A combo pack sold inside a multi-pack: structurally a plain combo pack (one bundled
         /// Blu-ray), offered on 4K UHD cards only for the same reason. Kept for any other
         /// card already holding it, per the same tag-set guarantee.
         if model.is4K || model.independence == ReleaseIndependence.comboPackMultiPack {
             items.append(.option(tag: ReleaseIndependence.comboPackMultiPack,
-                                 title: "Combo-pack (multi-pack)"))
+                                 title: "Combo-pack (Multi-pack)"))
         }
         items.append(.option(tag: ReleaseIndependence.multiPack, title: "Multi-pack"))
         return items
@@ -1252,6 +1242,7 @@ private struct _PurchaseRows: View {
                 // MARK: Artwork is cleared except where it stays valid
                 ///
                 /// Steelbook is offered under every purchased state and type (see _ArtworkPicker), so it is kept.
+                /// DigiBook/DigiPack is offered only once purchased, so it is cleared with the rest.
                 /// The independence cascade (FSTabReleases.commitIndependence) follows the same rule through
                 /// `stayedWithinComboForms`: a value is retracted only when the new vocabulary cannot express it.
                 if model.hasArtwork != ReleaseArtwork.steelbook {
@@ -1830,58 +1821,97 @@ private struct _ConditionPicker: View {
 // MARK: - Artwork Picker (Observation Isolation)
 /// Isolated so hasArtwork/independence/purchased subscriptions register here rather than
 /// on ReleaseCardView.body.
+///
+/// Unpurchased, the control is a picker offering "Steelbook" alone. Purchased, it is a
+/// pull-down with two internally exclusive sections, laid out like _MarketAvailabilityPicker:
+/// the kind (Steelbook, the type's present kinds — Standard, Combo-pack, Multi-pack —
+/// DigiBook/DigiPack, and Missing)
+/// above the divider and a detail (Reversible, Inner print, Incorrect release, Custom) below it.
+/// The details are enabled only while a present kind is selected, and choosing anything else in
+/// the top section clears the detail. The stored
+/// value is composed from the two by ReleaseArtwork.composed; see ReleaseArtwork for the format.
+///
+/// "Steelbook" is offered under every type and purchased state. That is what the purchased
+/// and independence cascades' Steelbook exemptions assert, and it is named through
+/// `ReleaseArtwork.steelbook`, so every reader shares one definition.
+///
+/// A combo-pack child mirrors its parent's artwork and is disabled. Its menu shows the synced
+/// value as its label whatever it is, so a child of a "Combo-pack (multi-pack)" parent, whose own
+/// type is plain "Combo-pack", still reads "Multi-pack".
 private struct _ArtworkPicker: View {
     @Bindable var model: ReleaseCardModel
 
-    /// Tags beyond the universal placeholder and "Steelbook", which depend on BOTH the
-    /// Purchased control and the Type picker. Both combo-pack forms share one vocabulary — how
-    /// many Blu-rays a pack bundles has no bearing on whether its artwork is correct — so
-    /// moving between them preserves the selection.
-    ///
-    /// The unconditional seed below is load-bearing beyond this control: it is what makes
-    /// "Steelbook" valid under every type and purchased state, and therefore what the purchased
-    /// and independence cascades' Steelbook exemptions assert. It is named through
-    /// `ReleaseArtwork.steelbook`, so every reader shares one definition.
-    ///
-    /// "Combo-pack (multi-pack)" offers both pack-qualified "Yes" tags. Its bundled Blu-ray
-    /// child carries plain "Combo-pack" but mirrors the parent's artwork, so a child is given
-    /// that superset too: its picker is disabled, but it must still list the synced value.
-    ///
-    /// Five fixed lists, chosen between per render rather than assembled per render.
     private static let steelbookOnly: [ReleaseOption] = [ReleaseOption(ReleaseArtwork.steelbook)]
-    private static let comboPackArtwork: [ReleaseOption] =
-        steelbookOnly + ReleaseArtwork.comboPackOptions.map { ReleaseOption($0) }
-    private static let comboMultiPackArtwork: [ReleaseOption] =
-        steelbookOnly + ReleaseArtwork.comboMultiPackOptions.map { ReleaseOption($0) }
-    private static let multiPackArtwork: [ReleaseOption] =
-        steelbookOnly + ReleaseArtwork.multiPackOptions.map { ReleaseOption($0) }
-    private static let standaloneArtwork: [ReleaseOption] =
-        steelbookOnly + ReleaseArtwork.standaloneOptions.map { ReleaseOption($0) }
-
-    private var options: [ReleaseOption] {
-        guard model.purchased, !model.independence.isEmpty else { return Self.steelbookOnly }
-        switch model.independence {
-        case ReleaseIndependence.comboPack, ReleaseIndependence.comboPackDualBD:
-            return model.isComboChild ? Self.comboMultiPackArtwork : Self.comboPackArtwork
-        case ReleaseIndependence.comboPackMultiPack:
-            return Self.comboMultiPackArtwork
-        case ReleaseIndependence.multiPack:
-            return Self.multiPackArtwork
-        default: /// Standalone
-            return Self.standaloneArtwork
-        }
-    }
 
     var body: some View {
-        /// Bound straight to model.hasArtwork. TaggedPicker derives its fallback from the same `options` this
-        /// body computes, so there is no second source to fall out of step.
-        ///
         /// Artwork reset on a type change is handled by FSTabReleases.commitIndependence;
         /// combo-pack children take the parent's value via syncComboChildFields.
-        TaggedPicker(selection: $model.hasArtwork,
-                     options: options,
-                     placeholder: "Select Artwork…")
+        Group {
+            if model.purchased && !model.independence.isEmpty {
+                splitMenu
+            } else {
+                TaggedPicker(selection: $model.hasArtwork,
+                             options: Self.steelbookOnly,
+                             placeholder: "Select Artwork…")
+            }
+        }
         .disabled(model.isComboChild)
+    }
+
+    private var splitMenu: some View {
+        typealias RA = ReleaseArtwork
+        let value = model.hasArtwork
+        let kinds = RA.kinds(forIndependence: model.independence)
+        /// A value this type's menu cannot show (another type's kind, or a value outside the
+        /// vocabulary) selects nothing in either section. It stays visible in its own section
+        /// until replaced.
+        let parts = RA.parse(value).flatMap { kinds.contains($0.kind) ? $0 : nil }
+        let unrecognized = value.isEmpty || parts != nil ? nil : value
+        let kind = parts?.kind
+        let detail = parts?.detail
+        let detailLocked = !(kind.map(RA.isPresentKind) ?? false)
+
+        /// One write per selection: the whole value is rebuilt from its components.
+        func commit(kind: String?, detail: String?) {
+            let next = kind.map { RA.composed(kind: $0, detail: detail) } ?? ""
+            if next != model.hasArtwork { model.hasArtwork = next }
+        }
+
+        return Menu {
+            ForEach(kinds, id: \.self) { option in
+                Toggle(isOn: Binding(
+                    get: { kind == option },
+                    /// Moving between two present kinds keeps the detail. Anything else clears it.
+                    set: { isOn in
+                        let keepsDetail = isOn && RA.isPresentKind(option)
+                        commit(kind: isOn ? option : nil, detail: keepsDetail ? detail : nil)
+                    }
+                )) { Text(option) }
+            }
+            Divider()
+            ForEach(RA.details, id: \.self) { option in
+                Toggle(isOn: Binding(
+                    get: { detail == option },
+                    set: { isOn in commit(kind: kind, detail: isOn ? option : nil) }
+                )) { Text(option) }
+                .disabled(detailLocked)
+            }
+            /// A value neither section recognizes, kept visible so it can be removed.
+            if let unrecognized {
+                Divider()
+                Toggle(isOn: Binding(
+                    get: { true },
+                    set: { _ in model.hasArtwork = "" }
+                )) { Text(unrecognized) }
+            }
+        } label: {
+            Text(value.isEmpty ? "Select Artwork…" : value)
+                .foregroundStyle(value.isEmpty ? .secondary : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
     }
 }
 
@@ -2034,23 +2064,17 @@ struct ReleaseOptionVocabulary: Sendable {
     /// Menu display order. Also the canonical storage order.
     let options: [String]
     private let rank: [String: Int]
-    /// Former spellings of an option, mapped to the current one. A record written under the
-    /// old name (or restored from a backup that carries it) is folded into the current
-    /// option on canonicalization instead of surviving as an unrecognized value.
-    private let aliases: [String: String]
 
-    private init(_ options: [String], aliases: [String: String] = [:]) {
+    private init(_ options: [String]) {
         self.options = options
         var dict = [String: Int](minimumCapacity: options.count)
         for (i, option) in options.enumerated() { dict[option] = i }
         self.rank = dict
-        self.aliases = aliases
     }
 
     /// Whether `value` is one of this vocabulary's options. False for an unrecognized value
-    /// the stored array carries through (see `canonicalized`). Stored arrays are canonicalized
-    /// on load and on every commit, so a former spelling has already become its current
-    /// option by the time anything asks.
+    /// the stored array carries through (see `canonicalized`). A former spelling never gets
+    /// here: releases are converted to the current names as they load (LegacyReleaseValues).
     func isKnown(_ value: String) -> Bool { rank[value] != nil }
 
     /// Rebuilds `values` in canonical order, removing duplicates. Accepts any
@@ -2059,8 +2083,7 @@ struct ReleaseOptionVocabulary: Sendable {
         var seen = Set<String>()
         var known: [(rank: Int, value: String)] = []
         var unknown: [String] = []
-        for raw in values {
-            let value = aliases[raw] ?? raw
+        for value in values {
             guard seen.insert(value).inserted else { continue }
             if let r = rank[value] { known.append((r, value)) } else { unknown.append(value) }
         }
@@ -2073,11 +2096,9 @@ struct ReleaseOptionVocabulary: Sendable {
     /// `Film.digitalVersion`. Both enumerate ViewingVersion, so neither menu can list an
     /// option the other lacks; the canonical ORDER is that enum's case order.
     ///
-    static let includedVersions = ReleaseOptionVocabulary(
-        ViewingVersion.selectableNames,
-        /// Former names, renamed 2026-09-11, fold into the current ones.
-        aliases: ["Television Edit": ViewingVersion.televisionEdit.displayName,
-                  "International": ViewingVersion.international.displayName])
+    /// Former names (renamed 2026-09-11) never reach it: they are converted as releases load
+    /// (see LegacyReleaseValues).
+    static let includedVersions = ReleaseOptionVocabulary(ViewingVersion.selectableNames)
 
     /// Shared with the FilmSheet's Metadata tab, which offers the identical tag set for
     /// `Film.aspectRatio`. The canonical ORDER comes from there too — this vocabulary's
@@ -2161,4 +2182,20 @@ enum ReleaseFormatPalette {
         case nil:     return tintUnknown
         }
     }
+
+    /// The same band tint for SwiftUI. Each Color is built once, so a view body that reads
+    /// it allocates nothing.
+    static func color(for format: String) -> Color {
+        switch ReleaseFormat(rawValue: format) {
+        case .uhd4K:  return color4K
+        case .bluRay: return colorBluRay
+        case .dvd:    return colorDVD
+        case nil:     return colorUnknown
+        }
+    }
+
+    private static let color4K     = Color(nsColor: tint4K)
+    private static let colorBluRay = Color(nsColor: tintBluRay)
+    private static let colorDVD    = Color(nsColor: tintDVD)
+    private static let colorUnknown = Preferences.darkGray
 }

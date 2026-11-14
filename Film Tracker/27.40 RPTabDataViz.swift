@@ -58,6 +58,8 @@ struct DataVisualizationsView: View {
     /// and its inputs let the next pass detect that nothing changed.
     @State private var dataset: DVDataset? = nil
     @State private var period: ViewingPeriodStatistics? = nil
+    /// What `period` was built from. A rebuild asked for with the same key changes nothing on the page, so it neither rebuilds nor redraws it.
+    @State private var periodKey: ReportsState.PeriodKey? = nil
     @State private var selectedYear: Int = AppCalendar.current.component(.year, from: Date())
     @State private var yearToDate = true
     @State private var compareWithPriorYear = true
@@ -85,7 +87,7 @@ struct DataVisualizationsView: View {
         ZStack {
             if dataCoordinator.totalFilmCount == 0 {
                 StandardPlaceholder(
-                    glyph: "chart.bar.fill",
+                    glyph: ReportsCategory.dataVisualizations.glyph,
                     title: "No Films in Library",
                     message: "Add films to your library to view statistics and visualizations."
                 )
@@ -213,6 +215,8 @@ struct DataVisualizationsView: View {
         if !comparable.contains(compareYear) {
             compareYear = comparable.contains(selectedYear - 1) ? selectedYear - 1 : (comparable.last ?? selectedYear - 1)
         }
+        /// A new dataset always rebuilds. Clearing the key also keeps rebuildPeriod's same-key test from comparing two different film arrays element by element.
+        periodKey = nil
         rebuildPeriod()
     }
 
@@ -225,6 +229,10 @@ struct DataVisualizationsView: View {
                                    compareYear: compareYear,
                                    day: AppCalendar.current.startOfDay(for: today))
         }
+        /// Already on screen. When `apply` moves the stepper's year or comparison year, their onChange handlers ask again for the
+        /// period `apply` just built, and each bump of the revision rebuilt and redrew the whole page a second time.
+        if let key, key == periodKey, period != nil { return }
+        periodKey = key
         if let key, let cached = ReportsState.shared.cachedPeriod(for: key) {
             pageRevision += 1
             period = cached

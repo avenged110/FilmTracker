@@ -422,10 +422,12 @@ nonisolated enum SearchSuggestionRanker {
         func consider(_ candidate: Candidate) -> Bool {
             considered += 1
             if considered % 1024 == 0, Task.isCancelled { return false }
-            /// A value holding "#" would read as a new token once it is in the field.
-            guard !candidate.display.contains("#"), !present.contains(candidate.key),
-                  let quality = matchQuality(key: candidate.key, initials: candidate.initials,
-                                                      typed: typed, words: typedWords) else { return true }
+            /// The match first: it turns away most candidates once anything is typed, so the
+            /// other two tests run only on the few that match. A value holding "#" would read
+            /// as a new token once it is in the field.
+            guard let quality = matchQuality(key: candidate.key, initials: candidate.initials,
+                                             typed: typed, words: typedWords),
+                  !present.contains(candidate.key), !candidate.display.contains("#") else { return true }
             var related = 0.0
             if !contextFilms.isEmpty && !candidate.films.isEmpty {
                 let sum = candidate.films.reduce(0.0) { $0 + (contextFilms[$1] ?? 0) }
@@ -469,11 +471,14 @@ nonisolated enum SearchSuggestionRanker {
                                          taste: 0, films: [], group: 0, prefix: "")) else { return [] }
             }
         }
-        scored.sort {
-            if $0.candidate.group != $1.candidate.group { return $0.candidate.group < $1.candidate.group }
-            if $0.score != $1.score { return $0.score > $1.score }
-            return $0.candidate.key < $1.candidate.key
+        /// Keys are unique within a request, so this is a total order and the rows below are
+        /// the same however the leading entries are found.
+        func precedes(_ a: (candidate: Candidate, score: Double), _ b: (candidate: Candidate, score: Double)) -> Bool {
+            if a.candidate.group != b.candidate.group { return a.candidate.group < b.candidate.group }
+            if a.score != b.score { return a.score > b.score }
+            return a.candidate.key < b.candidate.key
         }
+        scored = leading(scored, distinctBy: \.candidate.display, count: limit, by: precedes)
         /// Two films can share a title, and a value can be learned under a spelling the
         /// library also holds; one row per shown value.
         var shown: Set<String> = []
@@ -535,13 +540,66 @@ nonisolated enum SearchSuggestionRanker {
                 let weight = value.weight / max(1, log10(Double(term.films.count)))
                 for film in term.films { mark(film, weight) }
             } else {
-                /// Freeform text points at the films whose titles hold it.
-                for (index, title) in vocabulary.titleKeys.enumerated() where title.contains(value.key) {
+                /// Freeform text points at the films whose titles hold it. Both are keys, so
+                /// SearchText.contains gives the answer `contains` does, by a byte search.
+                for (index, title) in vocabulary.titleKeys.enumerated() where SearchText.contains(title, value.key) {
                     mark(Int32(index), value.weight)
                 }
             }
         }
         return films
+    }
+
+    /// The entries a full sort of `items` by `precedes` would put first, in that order: enough
+    /// to hold `count` distinct `distinctBy` values, or every entry, sorted, when there are
+    /// not that many. The rows taken from the front of either are the rows a full sort gives.
+    ///
+    /// A request can score every name in a field (fourteen thousand for Crew, before anything
+    /// is typed), and only the first `count` distinct values are shown. So the best
+    /// `2 × count` are kept in a bounded heap rather than all of them sorted. Those are
+    /// exactly the front of the full order; should they hold fewer than `count` distinct
+    /// values (titles shared by many films), everything is sorted after all.
+    private static func leading<T>(_ items: [T], distinctBy value: (T) -> String, count: Int,
+                                   by precedes: (T, T) -> Bool) -> [T] {
+        let bound = count * 2
+        guard items.count > bound else { return items.sorted(by: precedes) }
+        /// A max-heap under `precedes`: the root is the entry kept that sorts last.
+        var heap: [T] = []
+        heap.reserveCapacity(bound)
+        func siftUp(_ start: Int) {
+            var child = start
+            while child > 0 {
+                let parent = (child - 1) / 2
+                guard precedes(heap[parent], heap[child]) else { return }
+                heap.swapAt(parent, child)
+                child = parent
+            }
+        }
+        func siftDown(_ start: Int) {
+            var parent = start
+            while true {
+                let left = 2 * parent + 1
+                guard left < heap.count else { return }
+                var last = left
+                if left + 1 < heap.count, precedes(heap[left], heap[left + 1]) { last = left + 1 }
+                guard precedes(heap[parent], heap[last]) else { return }
+                heap.swapAt(parent, last)
+                parent = last
+            }
+        }
+        for item in items {
+            if heap.count < bound {
+                heap.append(item)
+                siftUp(heap.count - 1)
+            } else if precedes(item, heap[0]) {
+                heap[0] = item
+                siftDown(0)
+            }
+        }
+        let kept = heap.sorted(by: precedes)
+        var seen: Set<String> = []
+        for item in kept where seen.insert(value(item)).inserted && seen.count == count { return kept }
+        return items.sorted(by: precedes)
     }
 
     private static func prefix(for kind: SearchListCatalog.Kind) -> String {

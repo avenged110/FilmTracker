@@ -302,7 +302,7 @@ nonisolated enum FilmFlag: CaseIterable {
         return tests.isEmpty ? nil : tests
     }
 
-    /// An Is value being typed, split at its last comma: the finished terms before it
+    /// An Is or Release value being typed, split at its last comma: the finished terms before it
     /// (with the comma and one space, or "" when there are none), the "!" typed ahead of
     /// the term in progress, and that term. Suggestions complete only the last term.
     static func splitLast(_ value: String) -> (head: String, negation: String, term: String) {
@@ -418,7 +418,16 @@ nonisolated enum SearchText {
     }
 
     /// Where `query` first starts in `text`, in UTF-8 bytes (nil: not found), when both are
-    /// ASCII and an empty query is not asked about; nil (the outer one) otherwise.
+    /// ASCII and an empty query is not asked about; nil (the outer one) otherwise. A text
+    /// that is not ASCII is still answered "not found" when the bytes do not match.
+    ///
+    /// The text is checked for ASCII only once its bytes match, so the films that do not
+    /// match (nearly all of them, for most queries) cost one byte search and not a scan
+    /// beforehand as well. The "not found" answer holds whatever the text is: a Character
+    /// equal to an ASCII one is that ASCII scalar, so an ASCII query found by a Character
+    /// search always has its bytes, in order, in the text. A match in a text that is not
+    /// ASCII still falls back, since the bytes there can split a Character (an ASCII letter
+    /// followed by a combining mark) and the byte offset is not a Character offset.
     static func offset(of query: String, in text: String) -> Int?? {
         if query.isEmpty { return .some(0) }
         var text = text
@@ -426,11 +435,11 @@ nonisolated enum SearchText {
         return query.withUTF8 { needle -> Int?? in
             guard unsafe isASCII(needle) else { return nil }
             return text.withUTF8 { haystack -> Int?? in
-                guard unsafe isASCII(haystack) else { return nil }
                 guard needle.count <= haystack.count,
                       let base = haystack.baseAddress,
                       let found = unsafe memmem(base, haystack.count, needle.baseAddress, needle.count)
                 else { return .some(nil) }
+                guard unsafe isASCII(haystack) else { return nil }
                 return .some(unsafe UnsafeRawPointer(base).distance(to: found))
             }
         }

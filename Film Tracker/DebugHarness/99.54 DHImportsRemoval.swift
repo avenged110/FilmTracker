@@ -47,7 +47,6 @@ extension DebugHarness {
                                           coordinator: DataCoordinator) async -> HarnessScenarioResult? {
         switch scenario {
         case "imports-removal": return await importsRemovalScenario(coordinator: coordinator)
-        case "imports-seed": return importsSeedScenario(coordinator: coordinator)
         default: return nil
         }
     }
@@ -702,30 +701,6 @@ extension DebugHarness {
     }
 
     // MARK: Seed for hand-testing
-
-    /// `imports-seed` (opt-in): replaces the container's ImportSessions with 110 metadata and
-    /// 12 ratings sessions — some canceled, some with errors — and leaves them there, so the
-    /// same container can then be opened without `-FTDebugHarness` and cleared by hand.
-    private static func importsSeedScenario(coordinator: DataCoordinator) -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "imports-seed")
-        let context = coordinator.persistentContainer.viewContext
-        for s in (try? context.fetch(ImportSession.request())) ?? [] { context.delete(s) }
-        let now = Date()
-        func add(_ i: Int, type: String, canceled: Bool = false, errors: Int = 0) {
-            let total = 12 + i * 5
-            context.insert(ImportSession(
-                sessionDate: now.addingTimeInterval(-Double(i) * 86_400 - 600), importType: type,
-                totalItems: total, successCount: canceled ? 0 : total - errors, errorCount: errors,
-                errorFileNames: (0..<errors).map { "Broken File \($0 + 1).m4v" },
-                addedTitles: canceled ? [] : (0..<(total - errors)).map { "Seeded Film \(i)-\($0 + 1)" },
-                isCompleted: !canceled, isCanceled: canceled))
-        }
-        for i in 0..<110 { add(i, type: "metadata", canceled: i % 9 == 3, errors: i % 7 == 5 ? 2 : 0) }
-        for i in 0..<12 { add(i, type: "ratings", canceled: i % 5 == 2) }
-        r.check("seeded", (try? context.save()) != nil,
-                "\((try? context.count(for: ImportSession.request())) ?? -1) sessions")
-        return r
-    }
 
     // MARK: Film strip
 

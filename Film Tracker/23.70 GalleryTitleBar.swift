@@ -20,9 +20,15 @@ struct GalleryTitleBar: View {
     @Environment(DataCoordinator.self) private var coordinator
     @Environment(SelectionState.self) private var selectionState
 
+    /// The view's glyph, or for the Queue, its selected tab's: the Queue's tabs share one ViewIdentifier.
+    private var titleGlyph: String {
+        if case .filmQueue = viewIdentifier { return FilmQueueFilterState.shared.selectedFilter.glyph.filled }
+        return viewIdentifier.glyph
+    }
+
     var body: some View {
         GenericTitleBar(
-            glyph: viewIdentifier.glyph,
+            glyph: titleGlyph,
             leadingContent: { leadingPicker },
             trailingButtons: {
                 buttonSection

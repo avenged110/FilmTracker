@@ -189,56 +189,17 @@ struct DVSpendingYear: Equatable {
 // MARK: - Formatting Helpers
 
 enum DVFormat {
-    static let currency: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .currency
-        f.locale = Locale(identifier: "en_US")
-        f.maximumFractionDigits = 2
-        return f
-    }()
-
-    static let wholeCurrency: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .currency
-        f.locale = Locale(identifier: "en_US")
-        f.maximumFractionDigits = 0
-        return f
-    }()
-
-    static let grouped: NumberFormatter = {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.locale = Locale(identifier: "en_US")
-        return f
-    }()
-
-    static func money(_ value: Double) -> String {
-        currency.string(from: NSNumber(value: value)) ?? Fmt.dollars(value)
-    }
-
-    static func wholeMoney(_ value: Double) -> String {
-        wholeCurrency.string(from: NSNumber(value: value)) ?? "$\(Fmt.fixed(value, 0))"
-    }
-
-    static func count(_ value: Int) -> String {
-        grouped.string(from: NSNumber(value: value)) ?? String(value)
-    }
-
     /// "1,027h 14m", "71h", "48m".
     static func hours(_ minutes: Int) -> String {
         let h = minutes / 60, m = minutes % 60
         if h == 0 { return "\(m)m" }
-        if m == 0 { return "\(count(h))h" }
-        return "\(count(h))h \(m)m"
+        if m == 0 { return "\(Fmt.count(h))h" }
+        return "\(Fmt.count(h))h \(m)m"
     }
 
     /// "1h 56m" style runtime: both units always shown ("2h 0m", "0h 48m").
     static func hoursMinutes(_ minutes: Int) -> String {
         "\(minutes / 60)h \(minutes % 60)m"
-    }
-
-    static func percent(_ numerator: Int, of denominator: Int) -> Int {
-        denominator > 0 ? Int((Double(numerator) / Double(denominator) * 100).rounded()) : 0
     }
 
     static let shortMonthDay: DateFormatter = {
@@ -762,7 +723,7 @@ struct LibraryInsights {
         comingUpNextMonthItems = nextMonthItems
         medianGapMonths = DVFormat.median(gaps)
         medianThreshold = DVFormat.median(thresholds).map { Int($0.rounded()) }
-        lastGapWithinThresholdPercent = lastGapMeasured > 0 ? DVFormat.percent(lastGapWithin, of: lastGapMeasured) : nil
+        lastGapWithinThresholdPercent = lastGapMeasured > 0 ? Fmt.percent(lastGapWithin, of: lastGapMeasured) : nil
         thresholdOverrides = overrides
         autoAddToQueueEnabled = autoAdd
         thresholdOverrideItems = overrideItems
@@ -1151,7 +1112,7 @@ struct LibraryInsights {
         medianCostByFormat = (DVFormat.median(bucketCosts.fourK), DVFormat.median(bucketCosts.bluRay), DVFormat.median(bucketCosts.dvd))
         usedShareByYearTrend = costByYear.keys.sorted().suffix(3).compactMap { y in
             guard let row = costByYear[y], row.total > 0 else { return nil }
-            return (year: y, percent: DVFormat.percent(row.used, of: row.total))
+            return (year: y, percent: Fmt.percent(row.used, of: row.total))
         }
         hdrOnPurchased4K = [ReleaseHDR.dolbyVision, ReleaseHDR.hdr10Plus, ReleaseHDR.hdr10, ReleaseHDR.noneTag]
             .map { DVTally($0, hdr[$0] ?? 0, of: purchased4K) }
@@ -1260,7 +1221,7 @@ struct LibraryInsights {
                 .map { entry in
                     let avg = entry.value.rated > 0 ? Fmt.fixed(Double(entry.value.ratingSum) / Double(entry.value.rated), 1) : "—"
                     let views = Fmt.fixed(Double(entry.value.views) / Double(entry.value.n), 1)
-                    return DVRank(name: entry.key, value: String(entry.value.n), extras: [avg, views])
+                    return DVRank(name: entry.key, value: Fmt.count(entry.value.n), extras: [avg, views])
                 }
         }
         directors = people(directorStats)
@@ -1276,11 +1237,11 @@ struct LibraryInsights {
                 /// is unchanged everywhere else in the app, but it is the longest of the
                 /// seven fixed genres and truncates first in this card's narrow name column.
                 let name = entry.key == "Action and Adventure" ? "Action and Adv." : entry.key
-                return DVRank(name: name, value: String(entry.value.n), extras: [avg, String(DVFormat.percent(entry.value.n, of: genreTotal))])
+                return DVRank(name: name, value: Fmt.count(entry.value.n), extras: [avg, String(Fmt.percent(entry.value.n, of: genreTotal))])
             }
         let otherGenres = genreTotal - genreRows.reduce(0) { $0 + (Int($1.value) ?? 0) }
         if otherGenres > 0 {
-            genreRows.append(DVRank(name: "Other", value: String(otherGenres), extras: ["", String(DVFormat.percent(otherGenres, of: genreTotal))]))
+            genreRows.append(DVRank(name: "Other", value: Fmt.count(otherGenres), extras: ["", String(Fmt.percent(otherGenres, of: genreTotal))]))
         }
         genres = genreRows
         let ratingTotal = contentRatings.values.reduce(0, +)
@@ -1394,7 +1355,7 @@ struct LibraryInsights {
         var rows = sorted.prefix(top).map { DVTally(label($0.key), $0.value, of: total) }
         let rest = sorted.dropFirst(top)
         let restCount = rest.reduce(0) { $0 + $1.value }
-        if restCount > 0 { rows.append(DVTally("Other (\(rest.count))", restCount, of: total)) }
+        if restCount > 0 { rows.append(DVTally("Other (\(Fmt.count(rest.count)))", restCount, of: total)) }
         return rows
     }
 
@@ -1617,11 +1578,10 @@ enum DVSpendingTrends {
         return result
     }
 
-    private static func money(_ v: Double) -> String { DVFormat.wholeMoney(v) }
-    private static func plural(_ n: Int, _ word: String) -> String { "\(DVFormat.count(n)) \(word)\(n == 1 ? "" : "s")" }
+    private static func money(_ v: Double) -> String { Fmt.wholeDollars(v) }
     private static func number(_ n: Int) -> String {
         let words = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
-        return words.indices.contains(n) ? words[n] : DVFormat.count(n)
+        return words.indices.contains(n) ? words[n] : Fmt.count(n)
     }
 
     /// This year's projected total: the spend so far, plus the rest of the year. With history, the rest is the last three
@@ -1652,20 +1612,20 @@ enum DVSpendingTrends {
             let comparison = abs(diff) < 0.5
                 ? "the same as by this date in \(prior.year)"
                 : "\(money(abs(diff))) \(diff > 0 ? "more" : "less") than by this date in \(prior.year)"
-            headline = "You've spent \(money(spent)) on \(plural(current.purchasesByThisDate, "release")) so far in \(current.year), \(comparison)."
+            headline = "You've spent \(money(spent)) on \(Fmt.count(current.purchasesByThisDate, "release")) so far in \(current.year), \(comparison)."
             let beaten = earlier.filter { $0.spentByThisDate < spent - 0.005 }.count
             if earlier.count >= 2, beaten == earlier.count {
                 detail.append("Your biggest start to a year yet.")
             } else if earlier.count >= 2, beaten == 0, earlier.allSatisfy({ $0.spentByThisDate > spent + 0.005 }) {
                 detail.append("Your smallest start to a year since \(earlier[0].year).")
             } else {
-                detail.append("More than by this date in \(beaten) of \(plural(earlier.count, "earlier year")).")
+                detail.append("More than by this date in \(beaten) of \(Fmt.count(earlier.count, "earlier year")).")
             }
             if let projected = projectedYearEnd(current, earlier, yearElapsed: insights.yearElapsedFraction) {
                 detail.append("At this pace, \(current.year) is projected to end with a total spend around \(money(projected)).")
             }
         } else {
-            headline = "You've spent \(money(spent)) on \(plural(current.purchasesByThisDate, "release")) so far in \(current.year)."
+            headline = "You've spent \(money(spent)) on \(Fmt.count(current.purchasesByThisDate, "release")) so far in \(current.year)."
             detail.append("Your first year of dated purchases; comparisons start next year.")
         }
         detail.append("Bars compare each year-to-date.")
@@ -1689,7 +1649,7 @@ enum DVSpendingTrends {
         let span = last.year == current.year ? "so far in \(last.year)" : "in \(last.year)"
         guard priced.count >= 2 else {
             return DVHighlight(kicker: "AVERAGE PRICE (YEAR-OVER-YEAR)",
-                               headline: "Your average purchase price \(span) is \(DVFormat.money(lastAverage)).",
+                               headline: "Your average purchase price \(span) is \(Fmt.dollars(lastAverage)).",
                                detail: "Year-over-year comparisons start once a second year has priced purchases.",
                                tint: .green, chart: .bars(bars))
         }
@@ -1709,12 +1669,12 @@ enum DVSpendingTrends {
             let consecutive = chain.last!.year - chain.first!.year == chain.count - 1
             headline = "Your average purchase price has \(direction > 0 ? "risen" : "fallen") "
                 + (consecutive || run > 3 ? "\(number(run)) years running" : "\(number(run)) times in a row")
-                + ": " + chain.compactMap { $0.averageCost.map(DVFormat.money) }.joined(separator: " → ") + "."
+                + ": " + chain.compactMap { $0.averageCost.map(Fmt.dollars) }.joined(separator: " → ") + "."
         } else {
             let prior = previous.averageCost ?? 0
             let change = prior > 0 ? Int(((lastAverage - prior) / prior * 100).rounded()) : 0
             let movement = change == 0 ? "level with" : "\(change > 0 ? "up" : "down") \(abs(change))% from"
-            headline = "Your average purchase price \(span) is \(DVFormat.money(lastAverage)), \(movement) \(DVFormat.money(prior)) in \(previous.year)."
+            headline = "Your average purchase price \(span) is \(Fmt.dollars(lastAverage)), \(movement) \(Fmt.dollars(prior)) in \(previous.year)."
         }
         var detail = "All-time average: \(stats.averageCost)."
         let shares = Dictionary(stats.purchaseYearTable.map { ($0.year, Int($0.atOrBelowAveragePercentOfYear.rounded())) },
@@ -1729,7 +1689,7 @@ enum DVSpendingTrends {
     private static func longTerm(_ years: [DVSpendingYear], _ complete: [DVSpendingYear]) -> DVHighlight {
         let total = years.reduce(0) { $0 + $1.spent }
         let bought = years.reduce(0) { $0 + $1.purchases }
-        var headline = "Across \(plural(years.count, "year")) of dated purchases you've spent \(money(total)) on \(plural(bought, "release"))."
+        var headline = "Across \(Fmt.count(years.count, "year")) of dated purchases you've spent \(money(total)) on \(Fmt.count(bought, "release"))."
         let recent = complete.suffix(3), before = complete.dropLast(3).suffix(3)
         let recentBought = recent.reduce(0) { $0 + $1.purchases }, beforeBought = before.reduce(0) { $0 + $1.purchases }
         if before.count == 3, recentBought > 0, beforeBought > 0 {
@@ -1744,8 +1704,8 @@ enum DVSpendingTrends {
             var pricePhrase = ""
             if let ra = average(recent), let ba = average(before) {
                 pricePhrase = abs(ra - ba) <= ba * 0.05
-                    ? " and paid about the same for each (\(DVFormat.money(ra)))"
-                    : " and paid \(ra > ba ? "more" : "less") for each (\(DVFormat.money(ra)) vs. \(DVFormat.money(ba)))"
+                    ? " and paid about the same for each (\(Fmt.dollars(ra)))"
+                    : " and paid \(ra > ba ? "more" : "less") for each (\(Fmt.dollars(ra)) vs. \(Fmt.dollars(ba)))"
             }
             headline = "Over the last three years, you've purchased \(countPhrase)\(pricePhrase), compared with the three years prior."
         }
@@ -1772,16 +1732,16 @@ enum DVSpendingTrends {
         let fresh = insights.newFourKForOwnedBelowFourK
         let entered = insights.ownedBelowFourKWithFourKEntered
         let headline = fresh > 0
-            ? "\(plural(fresh, "film")) you own on Blu-ray or DVD gained a 4K release in the last 90 days."
+            ? "\(Fmt.count(fresh, "film")) you own on Blu-ray or DVD gained a 4K release in the last 90 days."
             : "No 4K release was entered in the last 90 days for a film you own on Blu-ray or DVD."
-        var detail = "\(DVFormat.count(entered)) of the \(plural(owned, "film")) you own only on Blu-ray or DVD have a 4K release entered, but not purchased"
+        var detail = "\(Fmt.count(entered)) of the \(Fmt.count(owned, "film")) you own only on Blu-ray or DVD have a 4K release entered, but not purchased"
         if fresh > 0, insights.newFourKForOwnedBelowFourKCost > 0 {
             detail += "; the newly entered ones come to \(money(insights.newFourKForOwnedBelowFourKCost)) at their cheapest entered prices."
         } else {
             detail += "."
         }
         return DVHighlight(kicker: "NEW 4K RELEASES AVAILABLE AS UPGRADES", headline: headline, detail: detail, tint: .indigo,
-                           chart: .share(part: entered, whole: owned, caption: "\(DVFormat.count(entered)) of \(DVFormat.count(owned)) have a 4K release entered"))
+                           chart: .share(part: entered, whole: owned, caption: "\(Fmt.count(entered)) of \(Fmt.count(owned)) have a 4K release entered"))
     }
 }
 
@@ -1795,7 +1755,7 @@ struct DVHabits {
         let firstTime: Int
         let rewatches: Int
         var total: Int { firstTime + rewatches }
-        var rewatchPercent: Int { DVFormat.percent(rewatches, of: total) }
+        var rewatchPercent: Int { Fmt.percent(rewatches, of: total) }
     }
     /// Years from the first well-recorded one on (`trackedFrom`), oldest first, at most
     /// `maxViewingYears` of them (the latest).
@@ -1922,7 +1882,7 @@ struct DVHabits {
         averagePaidByMonth = (0..<12).map { paidCountByMonth[$0] > 0 ? paidByMonth[$0] / Double(paidCountByMonth[$0]) : nil }
         datedPurchases = dated
         averagePaidByRating = (0..<10).map { paidCountByRating[$0] > 0 ? paidByRating[$0] / Double(paidCountByRating[$0]) : nil }
-        fourKShareByRating = (0..<10).map { ratedFilms[$0] > 0 ? DVFormat.percent(fourKFilms[$0], of: ratedFilms[$0]) : nil }
+        fourKShareByRating = (0..<10).map { ratedFilms[$0] > 0 ? Fmt.percent(fourKFilms[$0], of: ratedFilms[$0]) : nil }
         filmsByRating = ratedFilms
         fourKFilmsByRating = fourKFilms
         pricedByRating = paidCountByRating
@@ -1934,12 +1894,12 @@ struct DVHabits {
     var busiestMonthSentence: String? {
         guard datedPurchases > 0, let m = (0..<12).max(by: { purchasesByMonth[$0] < purchasesByMonth[$1] }), purchasesByMonth[m] > 0 else { return nil }
         let name = AppCalendar.current.monthSymbols[m]
-        var text = "\(name) accounts for \(DVFormat.percent(purchasesByMonth[m], of: datedPurchases))% of dated purchases"
+        var text = "\(name) accounts for \(Fmt.percent(purchasesByMonth[m], of: datedPurchases))% of dated purchases"
         let rest = (0..<12).filter { $0 != m }
         let restCount = rest.reduce(0) { $0 + pricedByMonth[$1] }
         let restSum = rest.reduce(0.0) { $0 + paidSumByMonth[$1] }
         if let here = averagePaidByMonth[m], restCount > 0 {
-            text += ", averaging \(DVFormat.money(here)) a release against \(DVFormat.money(restSum / Double(restCount))) the rest of the year"
+            text += ", averaging \(Fmt.dollars(here)) a release against \(Fmt.dollars(restSum / Double(restCount))) the rest of the year"
         }
         return text + "."
     }
@@ -1951,6 +1911,6 @@ struct DVHabits {
         let n = idx.reduce(0) { $0 + pricedByRating[$1] }
         let sum = idx.reduce(0.0) { $0 + (averagePaidByRating[$1] ?? 0) * Double(pricedByRating[$1]) }
         let films = idx.reduce(0) { $0 + filmsByRating[$1] }, fourK = idx.reduce(0) { $0 + fourKFilmsByRating[$1] }
-        return (n > 0 ? sum / Double(n) : nil, films > 0 ? DVFormat.percent(fourK, of: films) : nil)
+        return (n > 0 ? sum / Double(n) : nil, films > 0 ? Fmt.percent(fourK, of: films) : nil)
     }
 }

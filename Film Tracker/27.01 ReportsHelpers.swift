@@ -94,29 +94,6 @@ struct ReportsEmptyStateWrapper<Content: View>: View {
     }
 }
 
-// MARK: - Reports Status Bar Inset Modifier
-
-/// Applies the standard `.safeAreaInset(edge: .bottom)` spacer, so report content does not scroll under the StatusBar when it is visible.
-struct ReportsStatusBarInset: ViewModifier {
-    @AppStorage(preference: Preferences.showStatusBarKey) private var showStatusBar: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if showStatusBar {
-                    Color.clear.frame(height: StatusBar.height)
-                }
-            }
-    }
-}
-
-extension View {
-    /// Reserves space at the bottom for the StatusBar when it is visible.
-    func reportsStatusBarInset() -> some View {
-        modifier(ReportsStatusBarInset())
-    }
-}
-
 // MARK: - Reports Ranked List View
 
 /// The ranked list used by Hall of Fame and Release Wishlist. It is a headerless `ReportTable` whose first two columns are always the
@@ -160,7 +137,7 @@ struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID =
     var body: some View {
         ReportTable(rows: items, columns: columns, selection: $selection,
                     showsHeader: false, rowHeight: Self.rowHeight, onMove: onMove, topInset: 5)
-            .reportsStatusBarInset()
+            .statusBarInset()
             .onChange(of: selection) { _, newSelection in
                 onSelectionChange(newSelection)
             }
@@ -519,6 +496,11 @@ final class ReportNSTableView: NSTableView {
 
     func hideDropIndicator() { dropIndicator?.isHidden = true }
 
+    /// Modifier keys must not narrow the reorder drag's .move-only mask. AppKit would otherwise cut it to .copy
+    /// under Option, .generic under ⌘ and .link under Control. None of those includes .move, the only operation
+    /// validateDrop offers, so the reorder would be refused. Only reorderable tables start drags at all.
+    override func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
+
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         super.draggingExited(sender)
         hideDropIndicator()
@@ -581,7 +563,7 @@ final class ReportDropIndicatorView: NSView {
 }
 
 /// A report table cell. It draws its own text, badge, or rating, rather than hosting an NSTextField. A Reports tab switch builds every visible
-/// cell at once, and per-cell text fields cost a large share of that (`reports-loop` profile). Cells never edit or take focus, and the text is exposed as a static text element.
+/// cell at once, and per-cell text fields cost a large share of that (measured with a profiler). Cells never edit or take focus, and the text is exposed as a static text element.
 final class ReportTableCellView: NSTableCellView {
     private enum Drawn { case text(String), runs([ReportTextRun]), badge(ReportBadge), rating(Int) }
     private var drawn: Drawn = .text("")

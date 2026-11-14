@@ -1223,21 +1223,10 @@ final class PDFDocumentBuilder {
         self.producedOn = Self.stamp(producedAt)
     }
 
-    /// "Report produced on September 4, 2026 at 3:05 PM".
-    ///
-    /// Pinned to en_US_POSIX so the month name and the AM/PM marker are stable regardless
-    /// of the reader's locale — this string is part of the document's identity, not a piece
-    /// of localized UI.
-    private static let stampFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone.current
-        f.dateFormat = "MMMM d, yyyy 'at' h:mm a"
-        return f
-    }()
-
+    /// "Report produced on September 4, 2026, at 3:05 PM", through the shared `formatTimestamp(_:)`,
+    /// which is US English and 12-hour whatever the reader's locale.
     static func stamp(_ date: Date) -> String {
-        "Report produced on \(stampFormatter.string(from: date))"
+        "Report produced on \(formatTimestamp(date))"
     }
 
     func add(_ section: PDFTableSection, geometry: PDFPageGeometry) {

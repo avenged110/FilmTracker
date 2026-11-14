@@ -42,7 +42,7 @@ struct ReleaseWishlistView: View {
     @State private var loadGeneration = 0
 
     private static let emptyStateConfig = EmptyStateConfig(
-        glyph: "gift.fill",
+        glyph: ReportsCategory.releaseWishlist.glyph,
         noFilmsMessage: "Add films to your library to build your release wishlist.",
         noDataMessage: "Add releases of films to your wishlist to see them collated here."
     )

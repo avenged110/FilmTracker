@@ -172,7 +172,7 @@ private final class ListScrollView: NSScrollView, Loggable {
     /// Keyboard-focus claim for the search-exit handoff. Mirrors
     /// WidthObservingScrollView.resolvePendingKeyboardFocus — see there for why it is independent of the
     /// scroll resolution and deferred one turn.
-    private func resolvePendingKeyboardFocus() {
+    fileprivate func resolvePendingKeyboardFocus() {
         guard pendingKeyboardFocus, let window = unsafe window, let target = documentView else { return }
         pendingKeyboardFocus = false
         DispatchQueue.main.async { [weak window, weak target] in
@@ -280,9 +280,6 @@ private final class ListScrollView: NSScrollView, Loggable {
     }
 }
 
-/// StatusBar overlay height.
-private let kListStatusBarHeight: CGFloat = StatusBar.height
-
 // MARK: - GalleryListView
 
 struct GalleryListView: View {
@@ -304,10 +301,13 @@ struct GalleryListView: View {
     /// GallerySubview. It reaches the Coordinator before the `films` assignment, whose didSet rebuilds the
     /// row model, so bands appear or disappear in place.
     let showSectionDividers: Bool
+    /// The StatusBar's height, 0 when hidden (StatusBarLayout.height, from GalleryView), as for GallerySubview.
+    let statusBarHeight: CGFloat
+    /// True for the one GalleryView shared across sidebar items (GalleryReuse). See DraggableListView.updateNSView.
+    var isSharedHost = false
 
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
-    @AppStorage(preference: Preferences.showStatusBarKey) private var showStatusBar: Bool
     /// maintainScrollPositionOnViewSwitch is not read here. ViewStateManager.prepareScrollHandoff checks the
     /// preference at each switch and arms nothing when it is off, so this layer has no decision to make.
     /// GallerySubview removed its read for the same reason.
@@ -320,11 +320,12 @@ struct GalleryListView: View {
             /// section-divider computation.
             dataCoordinator: dataCoordinator,
             selectionState: selectionState,
-            showStatusBar: showStatusBar,
+            statusBarHeight: statusBarHeight,
             showSectionDividers: showSectionDividers,
             activeViewID: activeViewID,
             scrollRequest: scrollRequest,
-            subtitleProvider: subtitleProvider
+            subtitleProvider: subtitleProvider,
+            isSharedHost: isSharedHost
         )
     }
 }
@@ -339,11 +340,12 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
     let films: [FilmSnapshot]
     let dataCoordinator: DataCoordinator
     let selectionState: SelectionState
-    let showStatusBar: Bool
+    let statusBarHeight: CGFloat
     let showSectionDividers: Bool
     let activeViewID: ViewIdentifier
     let scrollRequest: FilmScrollRequest?
     let subtitleProvider: GallerySubtitleProvider?
+    let isSharedHost: Bool
 
     // MARK: - NSViewRepresentable
 
@@ -499,12 +501,11 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         /// document's bottom edge, so the last row can scroll above the StatusBar without adding a phantom
         /// row. scrollerInsets keeps the thumb above the overlay. automaticallyAdjustsContentInsets must be
         /// false, set in makeNSView, so macOS does not overwrite the insets.
-        let bottomInset: CGFloat = showStatusBar ? kListStatusBarHeight : 0
-        if scrollView.contentInsets.bottom != bottomInset {
-            scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
+        if scrollView.contentInsets.bottom != statusBarHeight {
+            scrollView.contentInsets = NSEdgeInsets(top: 0, left: 0, bottom: statusBarHeight, right: 0)
         }
-        if scrollView.scrollerInsets.bottom != bottomInset {
-            scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
+        if scrollView.scrollerInsets.bottom != statusBarHeight {
+            scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: statusBarHeight, right: 0)
         }
 
         /// Stale-pass guard. GalleryListView's body reads dataCoordinator.films, so SwiftUI also runs this
@@ -554,6 +555,21 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                                             subTab: coordinator.lastFilmQueueFilter?.rawValue))
             }
             coordinator.prevViewID = coordinator.currentViewID
+            /// Mirrors GallerySubview.updateNSView: the shared gallery re-registers at each view switch, since it is
+            /// not remounted to do so.
+            if isSharedHost {
+                ViewStateManager.shared.registerScrollPositionProvider(coordinator)
+            }
+
+            /// Mirrors GallerySubview.updateNSView: a search exit's destination is this same instance, so the
+            /// keyboard-focus handoff is claimed here.
+            if isSharedHost,
+               let focusScrollView = scrollView as? ListScrollView,
+               GalleryFocusIntent.shared.consume(ifTargeting: activeViewID) {
+                focusScrollView.pendingKeyboardFocus = true
+                focusScrollView.resolvePendingKeyboardFocus()
+                Self.log("Keyboard-focus handoff armed on reuse path (view: \(activeViewID))")
+            }
         }
 
         /// The Film Queue's segment filter narrows the same view, so viewIdentityChanged cannot see a switch
@@ -581,6 +597,12 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         /// position under the key all four share. FilmQueueFilterState.selectFilter banks each tab's position
         /// with explicit keys, before the filter flips.
         let isViewSwitch = viewIdentityChanged || filmQueueFilterChanged
+
+        /// A coast in flight belongs to the view being left, whose position is banked above. Stopped before the reload and the
+        /// placement below, or it would go on scrolling the incoming view. See GallerySubview.Coordinator.stopCoastForViewSwitch.
+        if isViewSwitch {
+            coordinator.stopCoastForViewSwitch()
+        }
 
         let newFilms = films
         let oldFilms = coordinator.films
@@ -726,8 +748,7 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             /// it up. Nothing is armed while the preference is off.
             ///
             /// The pendingScrollFilmID == nil check keeps the search-exit and style-toggle film handoff
-            /// authoritative. A reuse-path film handoff outranks the origin restore and is claimed first. It
-            /// is only a ShowInListNavigation redirect to a smart-list sub-variant (see
+            /// authoritative. A reuse-path film handoff outranks the origin restore and is claimed first (see
             /// GalleryScrollIntent.consumableOnReuse). This mirrors Priority 0 in GallerySubview.updateNSView.
             if let handoffFilmID = GalleryScrollIntent.shared.consumeOnReuse(ifTargeting: coordinator.currentViewID) {
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
@@ -771,6 +792,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         coordinator.lastScrollRequest = scrollRequest
 
         coordinator.syncSelectionToView()
+
+        coordinator.noteViewportSettledForSwitch()
     }
 
     static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
@@ -885,7 +908,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         /// stale value cannot leak into a later drag.
         var pendingDragSourceRow: Int? = nil
 
-        /// Drag engine — owns the native drag preview and NSDraggingSource state.
+        /// Drag engine. On this list path it owns the flyback-window preview and the drag-session bookkeeping. The
+        /// table itself is the NSDraggingSource (see DraggableListTableView).
         lazy var dragEngine = GalleryDragEngine()
 
         init(selectionState: SelectionState) {
@@ -1204,6 +1228,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                     switch event {
                     case .selectAllFilms:
                         guard let tv = self.tableView, !self.films.isEmpty else { return }
+                        /// Not while the gallery is hidden under search's token-entry cover. See
+                        /// GalleryReuse.isHiddenForTokenEntry.
+                        guard !GalleryReuse.isHiddenForTokenEntry else { return }
                         /// Sets isUpdatingSelection before changing the table, so tableViewSelectionDidChange
                         /// does not run. This follows GallerySubview.selectAll(): the visual selection changes
                         /// here, not through the observation round-trip.
@@ -1266,15 +1293,49 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
             coastStopper.install(on: scrollView)
         }
 
-        /// Lets Cmd+L stop a trackpad coast in flight. The grid's identical member (23.20) explains it;
+        /// Lets Cmd+L and view switches stop a trackpad coast in flight. The grid's identical member (23.20) explains it;
         /// installed and removed with the scroll-origin recorder.
         private let coastStopper = CoastingScrollStopper()
+
+        /// The view-switch coast stop. Mirrors GallerySubview.Coordinator's members of the same names.
+        private var isStoppingCoastForSwitch = false
+        private var switchSettledOrigin: CGPoint?
+
+        fileprivate func stopCoastForViewSwitch() {
+            isStoppingCoastForSwitch = true
+            switchSettledOrigin = nil
+            let stopped = coastStopper.stopCoastForViewSwitch { [weak self] endedLater in
+                guard let self else { return }
+                self.isStoppingCoastForSwitch = false
+                guard endedLater else { return }
+                self.restoreSwitchSettledOrigin()
+            }
+            if !stopped { isStoppingCoastForSwitch = false }
+        }
+
+        fileprivate func noteViewportSettledForSwitch() {
+            guard isStoppingCoastForSwitch, let scrollView else { return }
+            switchSettledOrigin = scrollView.contentView.bounds.origin
+        }
+
+        private func restoreSwitchSettledOrigin() {
+            defer { switchSettledOrigin = nil }
+            guard let origin = switchSettledOrigin, let scrollView, !coastStopper.isLive,
+                  scrollView.contentView.bounds.origin != origin else { return }
+            appViewportMove {
+                scrollView.contentView.setBoundsOrigin(origin)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+            DraggableListView.log("Restored the switch's viewport after the stopped coast's last write: \(origin)")
+        }
 
         /// Removes the live-scroll observer. Idempotent. Called from cancelSubscriptions().
         private func removeScrollOriginRecorder() {
             NotificationCenter.default.removeObserver(
                 self, name: NSScrollView.didEndLiveScrollNotification, object: nil)
             coastStopper.remove()
+            isStoppingCoastForSwitch = false
+            switchSettledOrigin = nil
         }
 
         #if DEBUG
@@ -1296,6 +1357,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
 
         @objc private func handleLiveScrollEnded(_ notification: Notification) {
             guard let scrollView else { return }
+            /// The end of a coast stopped for a view switch. See GallerySubview.Coordinator's identical guard.
+            guard !isStoppingCoastForSwitch else { return }
             /// The user has taken the viewport over by hand. Retired BEFORE the save for the reason spelled
             /// out in GallerySubview.Coordinator's identical recorder: bankScrollOrigin refuses to overwrite a
             /// key with an outstanding restore.
@@ -1686,6 +1749,7 @@ final class DraggableListTableView: NSTableView {
     /// NSTableView already conforms to NSDraggingSource. We override here to:
     ///   sourceOperationMaskFor — restrict the allowed operations to .copy only.
     ///   movedTo               — keep the flyback window in sync with the cursor.
+    ///   ignoreModifierKeys    — keep modifier keys from narrowing that mask.
     /// Begin/end are handled via NSTableViewDelegate callbacks in Coordinator.
 
     override func draggingSession(_ session: NSDraggingSession,
@@ -1696,24 +1760,30 @@ final class DraggableListTableView: NSTableView {
     override func draggingSession(_ session: NSDraggingSession, movedTo screenPoint: NSPoint) {
         coordinator?.dragEngine.dragMoved(to: screenPoint)
     }
+
+    /// As GalleryDragEngine's: modifier keys must not narrow the copy-only mask, or ⌘ held from a ⌘-click
+    /// would make every drop target refuse the drag.
+    override func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
 }
 
 // MARK: - ListRowHostCell
 
-/// The NSView subclass that hosts a GalleryListRow through NSHostingView. NSTableView reuses it through its
-/// cell queue. Like GalleryItem, it tracks each rendered field, so rootView is reassigned only when something
-/// visible changes.
-private final class ListRowHostCell: NSView {
+/// A film row's cell. NSTableView reuses it through its cell queue. Like GalleryItem, it tracks each rendered
+/// field, so the row is redrawn only when something visible changes.
+///
+/// The row is drawn in AppKit by ListRowView, laid out exactly as the SwiftUI row it replaced. A SwiftUI host
+/// per row cost a SwiftUI graph per row: about 85% of the time a list took to build its rows on a view switch.
+private final class ListRowHostCell: NSTableCellView {
 
-    private var hostingView: NSHostingView<GalleryListRow>?
+    private var rowView: ListRowView?
 
-    /// Change tracking covers every field GalleryListRow renders: posterUID (poster), name, hasPurchased (disc
+    /// Change tracking covers every field the row renders: posterUID (poster), name, hasPurchased (disc
     /// badge), durationParts, userRating, releaseYear, and subtitle (Recents only). Tracking all of them keeps
     /// in-place edits visible even when the film's sort position and the table's count and endpoints have not
     /// changed.
     ///
     /// The derived fields are tracked by rendered value, not by their raw sources. A release edit that does
-    /// not change the displayed result correctly skips the reassignment. Both are computed once and passed to
+    /// not change the displayed result correctly skips the update. Both are computed once and passed to
     /// the row, so the comparison and the render always agree.
     private var currentFilmID: UUID?
     private var currentPosterUID: String?
@@ -1735,6 +1805,12 @@ private final class ListRowHostCell: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The row view sets this on its cells: .emphasized while the row is selected in a key table. The labels follow
+    /// it on their own; the glyphs are told.
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { rowView?.isEmphasized = backgroundStyle == .emphasized }
+    }
+
     func update(film: FilmSnapshot, subtitle: String?) {
         /// Derived once, up front: used for both the change comparison and the render.
         let hasPurchased = GalleryListRow.hasPurchasedRelease(film)
@@ -1749,7 +1825,7 @@ private final class ListRowHostCell: NSView {
                           currentReleaseYear  != film.releaseYear ||
                           currentSubtitle     != .some(subtitle)
 
-        /// Update all tracking fields before the (conditional) hosting-view update so the next call has the
+        /// Update all tracking fields before the (conditional) row update so the next call has the
         /// correct baseline regardless of whether we render.
         currentFilmID        = film.id
         currentPosterUID     = film.posterUID
@@ -1760,37 +1836,400 @@ private final class ListRowHostCell: NSView {
         currentReleaseYear   = film.releaseYear
         currentSubtitle      = .some(subtitle)
 
-        let rootView = GalleryListRow(film: film,
-                                      hasPurchasedRelease: hasPurchased,
-                                      durationParts: durationParts,
-                                      subtitle: subtitle)
-
-        if let host = hostingView {
-            /// Skip the rootView assignment entirely when nothing displayed changed. SwiftUI still diffs on
-            /// assignment even when the value is identical, so avoiding the assignment is the only way to
-            /// guarantee zero CPU cost.
-            if needsUpdate {
-                #if DEBUG
-                GalleryRefreshProbe.listRowRootViewAssignments += 1
-                #endif
-                host.rootView = rootView
-            }
+        if let rowView {
+            /// Nothing displayed changed: no layout, no redraw.
+            guard needsUpdate else { return }
+            #if DEBUG
+            GalleryRefreshProbe.listRowRootViewAssignments += 1
+            #endif
+            rowView.configure(film: film, hasPurchased: hasPurchased, durationParts: durationParts, subtitle: subtitle)
         } else {
-            let host = NSHostingView(rootView: rootView)
-            host.translatesAutoresizingMaskIntoConstraints = false
-            /// Disable SwiftUI intrinsic-size participation. The hosting view is fully constraint-driven
-            /// (pinned to all four edges below), so Auto Layout must never invoke a SwiftUI layout pass to
-            /// satisfy its size. Without this, NSHostingView performs a full SwiftUI layout on every cell
-            /// recycle during scrolling. Matches GalleryItem behavior.
-            host.sizingOptions = []
-            addSubview(host)
-            NSLayoutConstraint.activate([
-                host.leadingAnchor.constraint(equalTo: leadingAnchor),
-                host.trailingAnchor.constraint(equalTo: trailingAnchor),
-                host.topAnchor.constraint(equalTo: topAnchor),
-                host.bottomAnchor.constraint(equalTo: bottomAnchor)
-            ])
-            hostingView = host
+            let row = ListRowView(frame: bounds)
+            row.autoresizingMask = [.width, .height]
+            row.isEmphasized = backgroundStyle == .emphasized
+            /// NSTableRowView starts the divider it draws between two selected rows at its cell's text field
+            /// (otherwise at the last label it finds). The SwiftUI row had none, so the divider ran the full row
+            /// width; an empty field at the leading edge keeps it there.
+            let anchor = NSTextField(labelWithString: "")
+            anchor.frame = NSRect(x: 0, y: 0, width: 0, height: bounds.height)
+            anchor.setAccessibilityElement(false)
+            addSubview(anchor)
+            unsafe textField = anchor
+            addSubview(row)
+            row.configure(film: film, hasPurchased: hasPurchased, durationParts: durationParts, subtitle: subtitle)
+            rowView = row
+        }
+    }
+}
+
+// MARK: - ListRowView
+
+/// A film row in AppKit: poster thumbnail, title (and Recents by-line), then four fixed-width trailing columns
+/// (purchased badge, duration, rating, year). Each part sits exactly where SwiftUI placed it in the SwiftUI row this replaced:
+/// an HStack (spacing 10) of the 8 pt-inset poster, the text, a Spacer (min 8) and the fixed columns, every
+/// child centered vertically in the 44 pt row, origins rounded to the device pixel, half up. Text heights and
+/// baselines are SwiftUI's own, measured once per font and display scale (SwiftUIVerticalMetrics).
+private final class ListRowView: NSView {
+    private static let columnGap: CGFloat = 16
+    private static let discToDurationGap: CGFloat = 8
+    private static let discColumnWidth: CGFloat = 18
+    private static let hoursBoxWidth: CGFloat = 30
+    private static let minutesBoxWidth: CGFloat = 40
+    private static let durationInnerGap: CGFloat = 4
+    private static let ratingColumnWidth: CGFloat = 28
+    private static let yearColumnWidth: CGFloat = 30
+    private static let thumbnail = CGSize(width: 24, height: 36)
+    /// The trailing block: the columns, their gaps, and the trailing inset.
+    private static let trailingWidth: CGFloat = discColumnWidth + discToDurationGap + hoursBoxWidth
+        + durationInnerGap + minutesBoxWidth + columnGap + ratingColumnWidth + columnGap + yearColumnWidth
+        + GalleryListRow.contentInset
+
+    private static let titleFont = NSFont.systemFont(ofSize: 12)
+    private static let subtitleFont = NSFont.systemFont(ofSize: 10)
+    private static let durationFont = NSFont.systemFont(ofSize: 11)
+    private static let yearFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+
+    private let poster = ListPosterThumbnail(size: thumbnail)
+    private let title = ListRowView.makeLabel(titleFont, .labelColor)
+    private let subtitle = ListRowView.makeLabel(subtitleFont, .secondaryLabelColor)
+    private let hours = ListRowView.makeLabel(durationFont, .secondaryLabelColor)
+    private let minutes = ListRowView.makeLabel(durationFont, .secondaryLabelColor)
+    private let rating = ListRowView.makeLabel(titleFont, .secondaryLabelColor)
+    private let year = ListRowView.makeLabel(yearFont, .secondaryLabelColor)
+    private let disc = ListSymbolView(symbol: ContentGlyphs.disc, pointSize: 15)
+    private let star = ListSymbolView(symbol: "star.fill", pointSize: 10)
+
+    override var isFlipped: Bool { true }
+
+    /// The selected-row glyph tint (see ListSymbolView.isEmphasized).
+    var isEmphasized = false {
+        didSet {
+            disc.isEmphasized = isEmphasized
+            star.isEmphasized = isEmphasized
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        for view in [poster, title, subtitle, hours, minutes, rating, year, disc, star] as [NSView] {
+            addSubview(view)
+        }
+        title.lineBreakMode = .byTruncatingTail
+        subtitle.lineBreakMode = .byTruncatingTail
+        disc.setAccessibilityLabel("Purchased")
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private static func makeLabel(_ font: NSFont, _ color: NSColor) -> NSTextField {
+        let label = NSTextField(labelWithString: "")
+        label.font = font
+        label.textColor = color
+        label.maximumNumberOfLines = 1
+        label.lineBreakMode = .byClipping
+        label.cell?.truncatesLastVisibleLine = true
+        return label
+    }
+
+    func configure(film: FilmSnapshot, hasPurchased: Bool, durationParts: DurationParts, subtitle sub: String?) {
+        poster.posterUID = film.posterUID
+        title.stringValue = film.name
+        subtitle.stringValue = sub ?? ""
+        subtitle.isHidden = sub == nil
+        hours.stringValue = durationParts.hours
+        minutes.stringValue = durationParts.minutes
+        disc.isHidden = !hasPurchased
+        disc.setAccessibilityElement(hasPurchased)
+        let rated = film.userRating > 0
+        star.isHidden = !rated
+        rating.isHidden = !rated
+        rating.stringValue = rated ? "\(film.userRating)" : ""
+        year.stringValue = film.releaseYear
+        needsLayout = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        needsLayout = true
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsLayout = true
+    }
+
+    /// The layout reads the window's scale (SwiftUI's metrics differ between 1x and 2x).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        let scale = unsafe window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        /// Rounded to the device pixel, half up, as SwiftUI rounds. Row-local: rows sit on whole points in the
+        /// table, so this is the window's pixel grid at any scroll position.
+        func pixelY(_ v: CGFloat) -> CGFloat { (v * scale + 0.5).rounded(.down) / scale }
+        func pixelX(_ v: CGFloat) -> CGFloat { (v * scale + 0.5).rounded(.down) / scale }
+        func textWidth(_ label: NSTextField) -> CGFloat {
+            (label.attributedStringValue.size().width * scale).rounded(.up) / scale
+        }
+        let height = bounds.height
+        let inset = GalleryListRow.contentInset
+
+        /// Places a one-line label whose SwiftUI frame is (x, top, width): NSTextField draws its text 2 pt in from
+        /// each side, and its baseline is moved onto SwiftUI's.
+        func place(_ label: NSTextField, x: CGFloat, top: CGFloat, width: CGFloat, metrics: SwiftUIVerticalMetrics) {
+            let baseline = top + metrics.baseline
+            label.frame = NSRect(x: x - 2, y: baseline - label.firstBaselineOffsetFromTop,
+                                 width: width + 4, height: label.intrinsicContentSize.height)
+        }
+
+        /// Poster: 8 pt in, centered.
+        poster.frame = NSRect(x: pixelX(inset), y: pixelY((height - Self.thumbnail.height) / 2),
+                              width: Self.thumbnail.width, height: Self.thumbnail.height)
+
+        /// Trailing block, right-anchored.
+        let blockX = bounds.width - Self.trailingWidth
+        var x = blockX
+        let discFrame = NSRect(x: x, y: 0, width: Self.discColumnWidth, height: height)
+        x += Self.discColumnWidth + Self.discToDurationGap
+        let hoursBox = x
+        x += Self.hoursBoxWidth + Self.durationInnerGap
+        let minutesBox = x
+        x += Self.minutesBoxWidth + Self.columnGap
+        let ratingBox = x
+        x += Self.ratingColumnWidth + Self.columnGap
+        let yearBox = x
+
+        disc.frame = discFrame
+        let durationMetrics = Self.metrics(.duration, scale: scale)
+        let durationTop = pixelY((height - durationMetrics.height) / 2)
+        for (label, box, boxWidth) in [(hours, hoursBox, Self.hoursBoxWidth), (minutes, minutesBox, Self.minutesBoxWidth)] {
+            let w = min(textWidth(label), boxWidth)
+            place(label, x: pixelX(box + boxWidth - w), top: durationTop, width: w, metrics: durationMetrics)
+        }
+
+        /// Rating: the star and the number, an HStack (spacing 2) centered vertically on each other, leading in its box.
+        let titleMetrics = Self.metrics(.title, scale: scale)
+        if !rating.isHidden {
+            let starSize = star.layoutSize(scale: scale)
+            let numberWidth = textWidth(rating)
+            let pairHeight = max(starSize.height, titleMetrics.height)
+            let pairTop = pixelY((height - pairHeight) / 2)
+            star.frame = NSRect(x: pixelX(ratingBox), y: pixelY(pairTop + (pairHeight - starSize.height) / 2),
+                                width: starSize.width, height: starSize.height)
+            place(rating, x: pixelX(ratingBox + starSize.width + 2),
+                  top: pixelY(pairTop + (pairHeight - titleMetrics.height) / 2), width: numberWidth, metrics: titleMetrics)
+        }
+
+        let yearMetrics = Self.metrics(.year, scale: scale)
+        let yearWidth = min(textWidth(year), Self.yearColumnWidth)
+        place(year, x: pixelX(yearBox + Self.yearColumnWidth - yearWidth), top: pixelY((height - yearMetrics.height) / 2),
+              width: yearWidth, metrics: yearMetrics)
+
+        /// Title and by-line: a VStack (spacing 2), leading, after the poster and the HStack's 10 pt gap. It takes
+        /// what the trailing block and the Spacer's 8 pt minimum leave, and truncates within it.
+        let textX = inset + Self.thumbnail.width + 10
+        let available = max(0, blockX - 10 - 8 - 10 - textX)
+        let titleWidth = min(textWidth(title), available)
+        let subtitleMetrics = Self.metrics(.subtitle, scale: scale)
+        let hasSubtitle = !subtitle.isHidden
+        let stackWidth = hasSubtitle ? max(titleWidth, min(textWidth(subtitle), available)) : titleWidth
+        let stackHeight = titleMetrics.height + (hasSubtitle ? 2 + subtitleMetrics.height : 0)
+        let stackTop = pixelY((height - stackHeight) / 2)
+        let stackX = pixelX(textX)
+        place(title, x: stackX, top: stackTop, width: titleWidth, metrics: titleMetrics)
+        if hasSubtitle {
+            place(subtitle, x: stackX, top: pixelY(stackTop + titleMetrics.height + 2),
+                  width: min(textWidth(subtitle), stackWidth), metrics: subtitleMetrics)
+        }
+    }
+
+    // MARK: SwiftUI text metrics
+
+    private enum TextRole: Hashable { case title, subtitle, duration, year }
+    private static var metricsCache: [String: SwiftUIVerticalMetrics] = [:]
+
+    private static func metrics(_ role: TextRole, scale: CGFloat) -> SwiftUIVerticalMetrics {
+        let key = "\(role)@\(scale)"
+        if let cached = metricsCache[key] { return cached }
+        let font: Font
+        switch role {
+        case .title: font = .system(size: 12)
+        case .subtitle: font = .system(size: 10)
+        case .duration: font = .system(size: 11)
+        case .year: font = .system(size: 12, design: .monospaced)
+        }
+        let measured = SwiftUIVerticalMetrics.measure(Text("Ag").font(font).lineLimit(1), scale: scale)
+        metricsCache[key] = measured
+        return measured
+    }
+}
+
+// MARK: - ListSymbolView
+
+/// A list row's SF Symbol at a fixed point size, secondary, placed as SwiftUI places an Image in a frame: the
+/// alignment rectangle's width centered horizontally; vertically, SwiftUI's own layout box (height and baseline)
+/// centered, with the image's baseline on that box's baseline; origin on the device pixel.
+private final class ListSymbolView: NSView {
+    private static var images: [String: NSImage] = [:]
+    private static var layouts: [String: SwiftUIVerticalMetrics] = [:]
+    private let symbol: String
+    private let pointSize: CGFloat
+    private let image: NSImage?
+
+    init(symbol: String, pointSize: CGFloat) {
+        self.symbol = symbol
+        self.pointSize = pointSize
+        let key = "\(symbol)@\(pointSize)"
+        if let cached = Self.images[key] {
+            image = cached
+        } else {
+            image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: pointSize, weight: .regular))
+            Self.images[key] = image
+        }
+        super.init(frame: .zero)
+        setAccessibilityElement(false)
+        setAccessibilityRole(.image)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var isFlipped: Bool { true }
+
+    /// SwiftUI's layout of the symbol (width, height and baseline), measured once per display scale.
+    func layout(scale: CGFloat) -> SwiftUIVerticalMetrics {
+        let key = "\(symbol)@\(pointSize)@\(scale)"
+        if let cached = Self.layouts[key] { return cached }
+        let metrics = SwiftUIVerticalMetrics.measure(Image(systemName: symbol).font(.system(size: pointSize)), scale: scale)
+        Self.layouts[key] = metrics
+        return metrics
+    }
+
+    func layoutSize(scale: CGFloat) -> CGSize {
+        let metrics = layout(scale: scale)
+        return CGSize(width: metrics.width, height: metrics.height)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let image else { return }
+        let scale = unsafe window?.backingScaleFactor ?? 2
+        func pixel(_ v: CGFloat) -> CGFloat { (v * scale + 0.5).rounded(.down) / scale }
+        let size = image.size
+        let align = image.alignmentRect
+        let metrics = layout(scale: scale)
+        /// The image's ascent (its top to its baseline, the alignment rectangle's bottom) sits on SwiftUI's baseline.
+        let top = (bounds.height - metrics.height) / 2 + metrics.baseline - (size.height - align.minY)
+        let rect = NSRect(x: pixel((bounds.width - align.width) / 2) - align.minX, y: pixel(top),
+                          width: size.width, height: size.height)
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        (isEmphasized ? Self.emphasizedTint : NSColor.secondaryLabelColor).set()
+        rect.fill(using: .sourceIn)
+    }
+
+    /// True on a selected row of a key table, where SwiftUI's `.secondary` draws a light tint over the accent
+    /// selection. The color is SwiftUI's, read off light and dark captures of the SwiftUI row this replaced.
+    var isEmphasized = false { didSet { if isEmphasized != oldValue { needsDisplay = true } } }
+    private static let emphasizedTint = NSColor(srgbRed: 238 / 255, green: 250 / 255, blue: 1, alpha: 0.72)
+}
+
+// MARK: - ListPosterThumbnail
+
+/// The row's 24 x 36 poster: scaled to fill, clipped to a 2 pt continuous corner, the list's edge sheen over it,
+/// and a soft shadow (black 35%, SwiftUI radius 2, 1 pt down). With no poster, a tinted placeholder with a film
+/// glyph. The poster is read from PosterCache when the row is configured, as the SwiftUI row read it in its body.
+/// The layers mirror the ones SwiftUI built for the replaced SwiftUI row's poster, so the pixels are the same.
+private final class ListPosterThumbnail: NSView {
+    /// Casts the shadow. Its only content is `clip`, so the shadow takes the rounded poster's shape. (A view
+    /// with a shadow does not clip, so the two jobs need two views.)
+    private let shadowHost = NSView()
+    private let clip = NSView()
+    private let imageLayer = CALayer()
+    private let sheen = PosterEdgeSheen.makeView(profile: .list)
+    private let placeholderGlyph = ListSymbolView(symbol: "film", pointSize: 9)
+    private let placeholderFill = CALayer()
+    private let size: CGSize
+
+    var posterUID: String? {
+        didSet {
+            guard posterUID != oldValue else { return }
+            refresh()
+        }
+    }
+
+    init(size: CGSize) {
+        self.size = size
+        super.init(frame: NSRect(origin: .zero, size: size))
+        wantsLayer = true
+        let bounds = NSRect(origin: .zero, size: size)
+        shadowHost.wantsLayer = true
+        shadowHost.frame = bounds
+        clip.wantsLayer = true
+        clip.frame = bounds
+        /// As in SwiftUI's layers, the image and the sheen each round their own corners; the clip only crops an
+        /// image whose aspect is not the thumbnail's.
+        clip.layer?.masksToBounds = true
+        for layer in [imageLayer, sheen.layer].compactMap({ $0 }) {
+            layer.cornerRadius = 2
+            layer.cornerCurve = .continuous
+            layer.masksToBounds = true
+        }
+        /// SwiftUI's own poster layer, read off the SwiftUI row this replaced: the full-size image, resized
+        /// by Core Animation's "box" minification filter (what `.interpolation(.high)` sets), linear magnification.
+        imageLayer.contentsGravity = .resize
+        imageLayer.minificationFilter = CALayerContentsFilter(rawValue: "box")
+        imageLayer.magnificationFilter = .linear
+        imageLayer.frame = bounds
+        imageLayer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        clip.layer?.addSublayer(imageLayer)
+        sheen.frame = bounds
+        clip.addSubview(sheen)
+        shadowHost.addSubview(clip)
+        addSubview(shadowHost)
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
+        /// NSShadow's blur is twice SwiftUI's shadow radius; AppKit's y runs up, so 1 pt down is -1.
+        shadow.shadowBlurRadius = 2
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        shadowHost.shadow = shadow
+        placeholderFill.frame = bounds
+        placeholderFill.cornerRadius = 2
+        placeholderFill.cornerCurve = .continuous
+        placeholderFill.actions = ["backgroundColor": NSNull(), "hidden": NSNull()]
+        layer?.addSublayer(placeholderFill)
+        placeholderGlyph.frame = bounds
+        addSubview(placeholderGlyph)
+        setAccessibilityElement(false)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var isFlipped: Bool { true }
+    override var wantsUpdateLayer: Bool { true }
+
+    private func refresh() {
+        let image = posterUID.flatMap { $0.isEmpty ? nil : PosterCache.shared.getImageWithFallback(for: $0) }
+        let cgImage = unsafe image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        imageLayer.contents = cgImage
+        /// Aspect fill, centered, cropped by the clip (`scaledToFill` then `.clipped()`).
+        if let cgImage, cgImage.width > 0, cgImage.height > 0 {
+            let fill = max(size.width / CGFloat(cgImage.width), size.height / CGFloat(cgImage.height))
+            let drawn = CGSize(width: CGFloat(cgImage.width) * fill, height: CGFloat(cgImage.height) * fill)
+            imageLayer.frame = CGRect(x: (size.width - drawn.width) / 2, y: (size.height - drawn.height) / 2,
+                                      width: drawn.width, height: drawn.height)
+        }
+        shadowHost.isHidden = cgImage == nil
+        placeholderFill.isHidden = cgImage != nil
+        placeholderGlyph.isHidden = cgImage != nil
+        needsDisplay = true
+    }
+
+    override func updateLayer() {
+        super.updateLayer()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            placeholderFill.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.4).cgColor
         }
     }
 }
@@ -1918,166 +2357,18 @@ private struct GalleryListSectionDivider: View {
 
 // MARK: - GalleryListRow
 
-/// One film row: poster thumbnail, title, then four fixed-width trailing columns (purchased badge, duration,
-/// rating, and year).
-///
-/// Columns have fixed widths, so they line up down the table, and each row's layout is simple arithmetic with
-/// no measuring pass. The title is the only flexible element. It truncates when the window is narrow, so no
-/// column clips or wraps.
-struct GalleryListRow: View {
-    let film: FilmSnapshot
-    /// Precomputed by ListRowHostCell so the same value drives both its change tracking and this render — see
-    /// that type's tracking comment.
-    let hasPurchasedRelease: Bool
-    /// Precomputed abbreviated runtime, split into separately aligned components. Either or both may be empty
-    /// (no runtime recorded, or a whole number of hours/minutes).
-    let durationParts: DurationParts
-    /// Optional by-line under the title -- the same string the grid shows beneath the poster (a Recents
-    /// date), nil everywhere the grid shows none. Resolved once by the Coordinator so the host cell's change
-    /// tracking and this render agree.
-    let subtitle: String?
-
+/// The list row's shared measures and derived column values, used by ListRowView, the section divider and the
+/// Up Next slots so they line up with the film rows.
+enum GalleryListRow {
     /// The row's symmetric horizontal content inset. Applied as the poster's leading padding and as the
     /// metadata block's trailing padding, so the space between the content and the view's edge is identical
     /// on both sides. The left side is the reference: this is the poster's 8 pt leading inset, named here.
     static let contentInset: CGFloat = 8
 
-    /// Fixed trailing-column geometry.
-    ///
-    /// Each column's box fits its own content, and all visible separation comes from `columnGap`. Slack inside
-    /// a box shows up as a gap on whichever side the alignment pushes it, so unused box width makes one
-    /// separator look wider than the others.
-    ///
-    ///   discColumnWidth   -- the 15 pt symbol, centered.
-    ///   hoursBoxWidth     -- "12 hr." at 11 pt, right-aligned, sized for two digits.
-    ///   minutesBoxWidth   -- "59 min." at 11 pt, right-aligned.
-    ///   durationInnerGap  -- the gap between hours and minutes, smaller than columnGap because the two halves read as one value.
-    ///   ratingColumnWidth -- the star and a two-digit rating.
-    ///   yearColumnWidth   -- four 12 pt monospaced digits.
-    private static let columnGap: CGFloat = 16
-    /// The gap after the disc badge is half of columnGap. The hours box is right-aligned and sized for two
-    /// digits, so a one-digit runtime leaves empty box on the leading side. Trimming this gap compensates, so
-    /// the separator still reads as the others.
-    private static let discToDurationGap: CGFloat = 8
-    private static let discColumnWidth: CGFloat = 18
-    private static let hoursBoxWidth: CGFloat = 30
-    private static let minutesBoxWidth: CGFloat = 40
-    private static let durationInnerGap: CGFloat = 4
-    private static let ratingColumnWidth: CGFloat = 28
-    private static let yearColumnWidth: CGFloat = 30
-
-    var body: some View {
-        HStack(spacing: 10) {
-            PosterThumbnailView(posterUID: film.posterUID)
-                .padding(.leading, Self.contentInset)
-
-            /// The title, with the subtitle beneath it when there is one. Each line truncates on its own, and
-            /// both are leading-aligned. They fit in the 44 pt row with the same vertical centering as a lone
-            /// title.
-            VStack(alignment: .leading, spacing: 2) {
-                Text(film.name)
-                    .font(.system(size: 12))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            }
-
-            /// minLength 8 guarantees a visible gap between a truncated title and the metadata columns instead
-            /// of the two running together.
-            Spacer(minLength: 8)
-
-            /// spacing is 0 and each boundary carries its own explicit leading padding: the disc -> duration
-            /// gap has to differ from the other two (see discToDurationGap), which a single uniform HStack
-            /// spacing cannot express.
-            HStack(spacing: 0) {
-                /// Purchased badge: shown when ANY associated release is marked purchased, regardless of
-                /// format. Rendered as a fixed-width slot in both states (a 1pt-tall clear filler when absent)
-                /// so the columns to its right hold the same x-position on every row whether or not the badge
-                /// is present.
-                Group {
-                    if hasPurchasedRelease {
-                        Image(systemName: ContentGlyphs.disc)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Color.clear.frame(height: 1)
-                    }
-                }
-                .frame(width: Self.discColumnWidth, alignment: .center)
-                /// The glyph alone doesn't convey its meaning, so name it; the empty placeholder state is
-                /// hidden from assistive technology entirely rather than announced as a blank element.
-                .accessibilityLabel(Text("Purchased"))
-                .accessibilityHidden(!hasPurchasedRelease)
-
-                /// Hours and minutes each get their own fixed-width box, right-aligned. So each right edge
-                /// stays on one vertical line, and the gap between them is set by durationInnerGap, not by the
-                /// values. The boxes are sized to their content, so no leftover slack adds to the gap.
-                HStack(spacing: Self.durationInnerGap) {
-                    Text(durationParts.hours)
-                        .lineLimit(1)
-                        .frame(width: Self.hoursBoxWidth, alignment: .trailing)
-
-                    Text(durationParts.minutes)
-                        .lineLimit(1)
-                        .frame(width: Self.minutesBoxWidth, alignment: .trailing)
-                }
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .padding(.leading, Self.discToDurationGap)
-
-                HStack(spacing: 2) {
-                    if film.userRating > 0 {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                        Text("\(film.userRating)")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            /// Belt-and-suspenders against the double-digit wrap: the column is sized
-                            /// snugly to "star + 10", so this keeps a two-digit rating on one line
-                            /// even if the fit is marginal.
-                            .lineLimit(1)
-                            .fixedSize()
-                    } else {
-                        Color.clear.frame(height: 1)
-                    }
-                }
-                .frame(width: Self.ratingColumnWidth, alignment: .leading)
-                .padding(.leading, Self.columnGap)
-
-                /// Trailing-aligned, and now sized to its own content: the alignment puts the year's right
-                /// edge exactly `contentInset` from the view's right edge (matching the poster's left inset),
-                /// and the tight width means there is no surplus left over to pile up on its leading side as a
-                /// false gap.
-                Text(film.releaseYear)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(width: Self.yearColumnWidth, alignment: .trailing)
-                    .padding(.leading, Self.columnGap)
-            }
-            /// The trailing columns are fixed-size and must never be the element that gives way when the row
-            /// is narrow — the title is. Without this, SwiftUI is free to compress the fixed frames instead of
-            /// truncating the Text.
-            .layoutPriority(1)
-            /// Mirrors the poster's leading inset exactly, so the gap between the year's right edge and the
-            /// view's right edge equals the gap between the poster's left edge and the view's left edge. Both
-            /// read from GalleryListRow.contentInset, so the two sides cannot drift apart.
-            .padding(.trailing, Self.contentInset)
-        }
-        .frame(height: kListRowHeight)
-    }
-
     // MARK: - Derived Column Values
     ///
     /// Static and `nonisolated` so ListRowHostCell can compute them once and use the results for both its
-    /// change comparison and this row's rendered content, which is what guarantees the two can never disagree
+    /// change comparison and the row's rendered content, which is what guarantees the two can never disagree
     /// about what is on screen.
 
     /// True when at least one associated release is marked purchased, in any format. Uses `contains(where:)`
@@ -2115,53 +2406,6 @@ struct GalleryListRow: View {
 struct DurationParts: Equatable {
     let hours: String
     let minutes: String
-}
-
-// MARK: - PosterThumbnailView
-
-private struct PosterThumbnailView: View {
-    let posterUID: String
-
-    private let thumbnailWidth: CGFloat = 24
-    private let thumbnailHeight: CGFloat = 36
-
-    var body: some View {
-        if posterUID.isEmpty {
-            placeholderView
-        } else if let image = PosterCache.shared.getImageWithFallback(for: posterUID) {
-            Image(nsImage: image)
-                .resizable()
-                /// The full-resolution poster is drawn into a 24 by 36 pt slot, a large downscale. The default
-                /// interpolation point-samples at that ratio and produces harsh, aliased edges. .high
-                /// resamples with filtering, and .antialiased(true) smooths the shape's edge. Both are
-                /// draw-time flags on an image that is already cached, so they add no decode and no memory.
-                /// They apply before scaledToFill, so they govern that scaling.
-                .interpolation(.high)
-                .antialiased(true)
-                .scaledToFill()
-                .frame(width: thumbnailWidth, height: thumbnailHeight)
-                .clipped()
-                /// Soft inner-shadow band along the edges -- see PosterEdgeSheen in 23.50 GalleryItemView.swift.
-                .overlay { PosterEdgeSheen.overlay() }
-                /// `.continuous` matches every other poster site and the sheen's own corner profile; at a 2pt
-                /// radius it is indistinguishable from circular, so this is purely for consistency.
-                .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-                .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
-        } else {
-            placeholderView
-        }
-    }
-
-    private var placeholderView: some View {
-        RoundedRectangle(cornerRadius: 2, style: .continuous)
-            .fill(Color(NSColor.separatorColor).opacity(0.4))
-            .frame(width: thumbnailWidth, height: thumbnailHeight)
-            .overlay {
-                Image(systemName: "film")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-    }
 }
 
 // MARK: - UpNextResultsTable

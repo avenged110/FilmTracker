@@ -673,7 +673,7 @@ private struct DeleteContentsMessage: View {
             let truncatedName = truncateListName(listName, maxLength: 42)
             let isPlural = filmCount != 1
             Text("""
-                \(isPlural ? "All \(filmCount) films" : "The film") in "\(truncatedName)" \
+                \(isPlural ? "All \(Fmt.count(filmCount)) films" : "The film") in "\(truncatedName)" \
                 will be deleted from your library. \
                 This action cannot be undone.
                 """)
@@ -690,7 +690,7 @@ private struct ClearContentsMessage: View {
             let truncatedName = truncateListName(listName, maxLength: 42)
             let isPlural = filmCount != 1
             Text("""
-                \(isPlural ? "All \(filmCount) films" : "The film") will be removed \
+                \(isPlural ? "All \(Fmt.count(filmCount)) films" : "The film") will be removed \
                 from "\(truncatedName)". \
                 \(isPlural ? "They" : "It") will remain in your library.
                 """)
@@ -707,12 +707,12 @@ private struct RemoveFromListMessage: View {
         if let listName = listName {
             let truncatedName = truncateListName(listName, maxLength: 42)
             Text("""
-                \(filmCount) film\(isPlural ? "s" : "") will be removed \
+                \(Fmt.count(filmCount, "film")) will be removed \
                 from "\(truncatedName)". \(isPlural ? "They" : "It") \
                 will remain in your library.
                 """)
         } else {
-            Text("\(filmCount) film\(isPlural ? "s" : "") will be removed from the list. \(isPlural ? "They" : "It") will remain in your library.")
+            Text("\(Fmt.count(filmCount, "film")) will be removed from the list. \(isPlural ? "They" : "It") will remain in your library.")
         }
     }
 }
@@ -723,7 +723,7 @@ private struct RemoveFromAllListsMessage: View {
     var body: some View {
         let isPlural = filmCount != 1
         Text("""
-            \(filmCount) film\(isPlural ? "s" : "") will be removed \
+            \(Fmt.count(filmCount, "film")) will be removed \
             from all lists. \(isPlural ? "They" : "It") will remain in your library.
             """)
     }
@@ -733,9 +733,8 @@ private struct DeleteFromLibraryMessage: View {
     let filmCount: Int
 
     var body: some View {
-        let isPlural = filmCount != 1
         Text("""
-            \(filmCount) film\(isPlural ? "s" : "") will be deleted \
+            \(Fmt.count(filmCount, "film")) will be deleted \
             from your library. This action cannot be undone.
             """)
     }
@@ -747,7 +746,7 @@ private struct RemoveFromHallOfFameMessage: View {
     var body: some View {
         let isPlural = filmCount != 1
         Text("""
-            \(filmCount) film\(isPlural ? "s" : "") will be removed from the Hall of Fame. \
+            \(Fmt.count(filmCount, "film")) will be removed from the Hall of Fame. \
             \(isPlural ? "They" : "It") will remain in your library.
             """)
     }
@@ -759,7 +758,7 @@ private struct RemoveFromFilmQueueMessage: View {
     var body: some View {
         let isPlural = filmCount != 1
         Text("""
-            \(filmCount) film\(isPlural ? "s" : "") will be removed from the Queue. \
+            \(Fmt.count(filmCount, "film")) will be removed from the Queue. \
             \(isPlural ? "They" : "It") will remain in your library.
             """)
     }

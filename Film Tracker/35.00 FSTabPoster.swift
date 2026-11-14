@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 @Observable
-final class FSTabPoster {
+final class FSTabPoster: FilmSheetTabChangeTracking {
     weak var owner: FilmSheet?
 
     var posterUID: String = "" { didSet { checkForChanges() } }
@@ -97,17 +97,8 @@ final class FSTabPoster {
             return
         }
 
-        /// Compute the new value first so we can gate the write and the notifyChanges()
-        /// call on an actual delta — mirrors FSTabReleases.checkForChanges().
-        let newHasChanges = posterUID != originalPosterUID || pendingPosterURL != nil || posterDeletedByUser
-        if hasChanges != newHasChanges {
-            hasChanges = newHasChanges
-            /// Notify the owner of changes.
-            /// FilmSheet.notifyChanges() defers its writes to the next run loop so
-            /// they do not cascade into views that are still mid-render from this
-            /// tracked-property mutation.
-            owner.notifyChanges()
-        }
+        latchHasChanges(posterUID != originalPosterUID || pendingPosterURL != nil || posterDeletedByUser,
+                        notifying: owner)
     }
 
     func loadPosterIfNeeded() {

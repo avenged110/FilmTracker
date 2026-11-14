@@ -145,14 +145,7 @@ struct DuplicateSheet: View {
     
     // MARK: - Titlebar
     private var titleBar: some View {
-        ZStack {
-            Text("Find Duplicates")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-        }
-        .background(Color(NSColor.controlBackgroundColor))
-        .overlay(Divider(), alignment: .bottom)
+        SheetTitleBar("Find Duplicates")
     }
     
     // MARK: - Placeholder / Scanning View
@@ -188,7 +181,7 @@ struct DuplicateSheet: View {
                         .frame(width: 320)
                         .animation(nil, value: viewModel.scanProgress)
                     
-                    Text("\(viewModel.currentComparison) of \(viewModel.totalComparisons) comparisons")
+                    Text("\(Fmt.count(viewModel.currentComparison)) of \(Fmt.count(viewModel.totalComparisons, "comparison"))")
                         .font(.system(size: 11).monospacedDigit())
                         .foregroundStyle(.secondary)
                         .contentTransition(.identity)
@@ -290,9 +283,7 @@ struct DuplicateSheet: View {
                 Button {
                     sheetCoordinator.dismissSheet()
                 } label: {
-                    Text("Close")
-                        .padding(4)
-                        .font(.system(size: 12))
+                    Text("Close").sheetButtonLabel()
                 }
                 .keyboardShortcut(.cancelAction)
                 .focusable(false)
@@ -304,17 +295,13 @@ struct DuplicateSheet: View {
                     Button {
                         showingCancelConfirmation = true
                     } label: {
-                        Text("Cancel Scan")
-                            .padding(4)
-                            .font(.system(size: 12))
+                        Text("Cancel Scan").sheetButtonLabel()
                     }
                 } else {
                     Button {
                         viewModel.startScan()
                     } label: {
-                        Text(viewModel.scanButtonText)
-                            .padding(4)
-                            .font(.system(size: 12))
+                        Text(viewModel.scanButtonText).sheetButtonLabel()
                     }
                     .disabled(viewModel.isScanning)
                 }
@@ -322,7 +309,7 @@ struct DuplicateSheet: View {
             
             /// Duplicate counter centered in the entire sheet
             if !viewModel.duplicates.isEmpty && !viewModel.isScanning {
-                Text("\(viewModel.currentIndex + 1) of \(viewModel.duplicates.count)")
+                Text("\(Fmt.count(viewModel.currentIndex + 1)) of \(Fmt.count(viewModel.duplicates.count))")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
@@ -355,7 +342,7 @@ struct DuplicateCardView: View {
                 /// Confidence badge.
                 HStack {
                     Spacer()
-                    Text("\(Int(duplicate.confidence * 100))% Match")
+                    Text("\(Fmt.percentText(duplicate.confidence)) Match")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.black)
                         .padding(.horizontal, 8)

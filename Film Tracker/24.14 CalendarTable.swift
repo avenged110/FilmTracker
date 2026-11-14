@@ -129,7 +129,7 @@ func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry
         if index < sorted.count - 1 {
             let days = abs(calendar.dateComponents(
                 [.day], from: sorted[index + 1].date, to: item.date).day ?? 0)
-            daysSincePrior = "\(days) day" + (days == 1 ? "" : "s")
+            daysSincePrior = Fmt.count(days, "day")
         } else {
             daysSincePrior = ""
         }
@@ -248,7 +248,7 @@ struct ViewingHistoryDetailedTable: View {
 
         /// Less than 1 week → days.
         if daysDiff < 7 {
-            return "\(daysDiff) \(daysDiff == 1 ? "day" : "days") ago"
+            return "\(Fmt.count(daysDiff, "day")) ago"
         }
 
         /// Whole calendar months, from the components below.
@@ -258,7 +258,7 @@ struct ViewingHistoryDetailedTable: View {
         if totalMonths < 1 {
             /// Fewer than 1 calendar month elapsed — use weeks.
             let weeks = daysDiff / 7
-            return "\(weeks) \(weeks == 1 ? "week" : "weeks") ago"
+            return "\(Fmt.count(weeks, "week")) ago"
         }
 
         /// ≥ 1 month → decompose into years + months.
@@ -266,12 +266,12 @@ struct ViewingHistoryDetailedTable: View {
         let months = totalMonths % 12
 
         if years == 0 {
-            return "\(months) \(months == 1 ? "month" : "months") ago"
+            return "\(Fmt.count(months, "month")) ago"
         } else if months == 0 {
-            return "\(years) \(years == 1 ? "year" : "years") ago"
+            return "\(Fmt.count(years, "year")) ago"
         } else {
-            let yearPart = "\(years) \(years == 1 ? "year" : "years")"
-            let monthPart = "\(months) \(months == 1 ? "month" : "months")"
+            let yearPart = Fmt.count(years, "year")
+            let monthPart = Fmt.count(months, "month")
             return "\(yearPart), \(monthPart) ago"
         }
     }

@@ -700,7 +700,7 @@ final class DataCoordinator: Loggable {
         /// read-side fault into real data loss. Both tasks are idempotent and re-run on the
         /// next healthy launch, so nothing is permanently skipped by deferring them.
         guard !isLibraryStateUnreliable else {
-            Self.log("Skipping settings sync and market availability migration — library state is unreliable this session")
+            Self.log("Skipping settings sync and legacy release value migration — library state is unreliable this session")
             return
         }
 
@@ -714,20 +714,19 @@ final class DataCoordinator: Loggable {
             Self.log("Settings synced to database (background)")
         }
 
-        /// Memory is already in the new market-availability format; this rewrites the store
-        /// to match, and only when MemoryStore saw a legacy tag. Not routed through
+        /// Memory is already in the current formats (see LegacyReleaseValues); this rewrites
+        /// the store to match, and only when MemoryStore's store read saw an old value. Not routed through
         /// trackOperation — it is idempotent and safe to interrupt. Duplicate Release IDs
         /// need no pass here: Release.id is a uniqueness constraint, and StoreDeduplicator
         /// removes any repeats before the store is migrated to it.
         let dataManager = self.dataManager
-        let migrateAvailability = memoryStore.hasLegacyMarketAvailability
-        guard migrateAvailability else { return }
+        guard memoryStore.hasLegacyReleaseValues else { return }
         Task.detached(priority: .background) { [weak self] in
             guard let self, await !self.isShuttingDown else { return }
             do {
-                try await dataManager.migrateLegacyMarketAvailability()
+                try await dataManager.migrateLegacyReleaseValues()
             } catch {
-                Self.log("WARNING: Market availability migration failed: \(error)")
+                Self.log("WARNING: Legacy release value migration failed: \(error)")
             }
         }
     }
@@ -950,6 +949,19 @@ final class DataCoordinator: Loggable {
             loadedFilms = Self.upcomingReleasesOrder(loadedFilms)
         }
 
+        /// A Recents tab whose direction the user sets (Recent Disc Releases) is put in its category's order,
+        /// newest first, and reversed for Ascending. Done here, on both load paths, because a refresh arrives
+        /// sorted by the tab's placeholder sort option, and the full load's order is always newest first.
+        if case .recents(let category) = currentViewID, category.userSetsSortDirection {
+            if let recentsOrder, !recentsOrder.isEmpty {
+                /// A full load built the films from the category's own order, so only Ascending has work left.
+                if currentDirection == .ascending { loadedFilms.reverse() }
+            } else {
+                loadedFilms = Self.recentsOrder(loadedFilms, by: category.orderedFilmIDs(),
+                                                ascending: currentDirection == .ascending)
+            }
+        }
+
         /// Apply the Film Queue's single-section display filter, if one is active. The films
         /// are already section-grouped (Up Next → Soon → Later) by memoryStore.getFilms above,
         /// so filtering here simply narrows that ordered list down to the one selected section
@@ -991,6 +1003,16 @@ final class DataCoordinator: Loggable {
         case .set: membershipInfo = " (membership filtered)"
         }
         Self.log("Loaded \(filmCount) films for \(currentViewID.description)\(searchInfo)\(membershipInfo) in \(Fmt.fixed(duration * 1000, 1))ms") }
+
+    /// `films` in the order of `orderedIDs` (newest first), or the reverse. A film missing from it, which a
+    /// refresh can briefly hold, goes last.
+    static func recentsOrder(_ films: [FilmSnapshot], by orderedIDs: [UUID], ascending: Bool) -> [FilmSnapshot] {
+        let rank = Dictionary(orderedIDs.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let sorted = films.sorted { (rank[$0.id] ?? Int.max) < (rank[$1.id] ?? Int.max) }
+        guard ascending else { return sorted }
+        let known = sorted.prefix { rank[$0.id] != nil }
+        return known.reversed() + sorted.dropFirst(known.count)
+    }
 
     /// `films` ordered by each one's soonest upcoming release, earliest first, keeping the
     /// incoming order between films whose soonest releases fall on the same day. A film
@@ -1056,7 +1078,7 @@ final class DataCoordinator: Loggable {
         }
         /// The Recents tabs, under the names they show, with the same (capped, ordered) film
         /// IDs the tabs load, so a token matches exactly what the tab displays.
-        entries += RecentsCategory.allCases.map { category in
+        entries += RecentsCategory.sections.map { category in
             .init(name: category.displayName, kind: .recents, aliases: category.searchAliases) {
                 Set(category.orderedFilmIDs())
             }
@@ -1146,6 +1168,9 @@ final class DataCoordinator: Loggable {
             if let key = ViewIdentifier.savedSearch(id).persistenceKey {
                 Preferences.viewSortStates.removeValue(forKey: key)
             }
+            /// Before the navigation below, whose outgoing scroll save it then refuses. Without this the
+            /// in-memory state and any pending save outlived the deletion and could write the key back.
+            ViewStateManager.shared.forgetView(.savedSearch(id))
             if let appState = AppDelegate.appState, appState.selectedSidebarItem == .savedSearch(id) {
                 appState.navigate(to: .libraryItem(.allFilms))
             }
@@ -1157,15 +1182,22 @@ final class DataCoordinator: Loggable {
         }
     }
 
-    /// A saved search on screen resolves its films when it loads, so a list change made
-    /// beside it — a film dropped on a list, a list created, renamed or deleted — changes
-    /// what its `#list` tokens find without reloading it; the list views' own refreshes do
-    /// not reach it. Any saved search it names is reached through one of those tokens, so a
-    /// search with none is left alone.
-    private func reloadSavedSearchIfListDependent() {
-        guard case .savedSearch(let id) = currentViewID,
-              SavedSearchStore.shared.search(id)?.query.tokens.contains(where: { $0.field == .list }) == true
-        else { return }
+    /// A saved search on screen, or the search field's results, resolve their films when
+    /// they load, so a list change made beside them — a film dropped on a list, a list
+    /// created, renamed or deleted — changes what their `#list` tokens find without
+    /// reloading them; the list views' own refreshes do not reach them. Any saved search
+    /// they name is reached through one of those tokens, so a search with none is left
+    /// alone. Edits to films need nothing here: each one reloads whatever view is current.
+    private func reloadSearchIfListDependent() {
+        switch currentViewID {
+        case .savedSearch(let id):
+            guard SavedSearchStore.shared.search(id)?.query.tokens.contains(where: { $0.field == .list }) == true
+            else { return }
+        case .search:
+            guard SearchController.shared.dependsOnLists else { return }
+        default:
+            return
+        }
         reloadCurrentView()
     }
 
@@ -1630,7 +1662,7 @@ final class DataCoordinator: Loggable {
         let preFilmSnapshot: FilmSnapshot? = changeset.isNewFilm ? nil : memoryStore.getFilm(filmID)
 
         /// Step 1: Compute the final releases array for MemoryStore.
-        /// FilmSheet builds FilmSnapshot via the manual initializer (releases defaults to []).
+        /// FilmSheet builds FilmSnapshot via the memberwise initializer (releases defaults to []).
         /// The actual release state is derived from the current MemoryStore snapshot + deltas.
         let finalReleases: [ReleaseSnapshot]
         if changeset.isNewFilm {
@@ -2214,7 +2246,7 @@ final class DataCoordinator: Loggable {
             /// than move to its new section.
             refreshFilms()
         }
-        reloadSavedSearchIfListDependent()
+        reloadSearchIfListDependent()
 
         /// One tracked operation for the whole move: one background write, one rollback
         /// surface, and at most one persistence alert per user gesture.
@@ -2242,7 +2274,7 @@ final class DataCoordinator: Loggable {
             /// addFilmsToList for the same view.
             refreshFilms()
         }
-        reloadSavedSearchIfListDependent()
+        reloadSearchIfListDependent()
 
         /// Use DataManager for batch list operations (background processing)
         trackOperation(rollback: { [weak self] in
@@ -2259,7 +2291,7 @@ final class DataCoordinator: Loggable {
     func createList(name: String, displayOrder: Int) -> UUID {
         let listID = memoryStore.createList(name: name, displayOrder: displayOrder)
         syncListsCache()
-        reloadSavedSearchIfListDependent()
+        reloadSearchIfListDependent()
 
         trackOperation(rollback: { [weak self] in
             guard let self else { return }
@@ -2281,7 +2313,7 @@ final class DataCoordinator: Loggable {
         memoryStore.updateList(listID: listID, name: name, displayOrder: displayOrder,
             sortFilterOptions: sortFilterOptions)
         syncListsCache()
-        if name != nil { reloadSavedSearchIfListDependent() }
+        if name != nil { reloadSearchIfListDependent() }
 
         trackOperation(rollback: { [weak self] in
             guard let self, let preList else { return }
@@ -2317,7 +2349,7 @@ final class DataCoordinator: Loggable {
         if case .list(let currentList) = currentViewID, currentList == listID {
             currentViewID = .allFilms
             refreshFilms() }
-        reloadSavedSearchIfListDependent()
+        reloadSearchIfListDependent()
 
         trackOperation(rollback: { [weak self] in
             guard let self else { return }
@@ -2475,13 +2507,6 @@ final class DataCoordinator: Loggable {
         var preSnapshots: [UUID: FilmSnapshot] = [:]
         var finalSnapshots: [FilmSnapshot] = []
         var fields: Set<FilmField> = [.lastModified]
-        #if DEBUG
-        var phase = ContinuousClock.now
-        func mark(_ name: String) {
-            BulkSaveProbe.record("fields/\(name)", since: phase)
-            phase = ContinuousClock.now
-        }
-        #endif
 
         for id in filmIDs {
             guard let current = memoryStore.getFilm(id) else { continue }
@@ -2507,14 +2532,8 @@ final class DataCoordinator: Loggable {
         let snapshotsToPersist = finalSnapshots
         let rollbackSnapshots = preSnapshots
         let changedIDs = finalSnapshots.map(\.id)
-        #if DEBUG
-        mark("apply")
-        #endif
         /// One batch, so the derived state is repaired once rather than per film.
         memoryStore.updateFilms(finalSnapshots)
-        #if DEBUG
-        mark("memory")
-        #endif
 
         explicitQueueChangeFilmIDs.formUnion(explicitQueueFilmIDs)
         /// In reverse: the gallery keeps the film of the turn's LAST update event in view
@@ -2525,13 +2544,7 @@ final class DataCoordinator: Loggable {
             AppEventBus.shared.send(.film(.updated(filmID: id)))
         }
         explicitQueueChangeFilmIDs.subtract(explicitQueueFilmIDs)
-        #if DEBUG
-        mark("events")
-        #endif
         reloadCurrentView()
-        #if DEBUG
-        mark("reload")
-        #endif
 
         trackOperation(rollback: { [weak self] in
             guard let self else { return }

@@ -1,8 +1,9 @@
 // MARK: - SheetHostView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// Defines the application's sheet types and their coordinator, and the invisible host
-/// view that presents the active sheet.
+/// Defines the application's sheet types and their coordinator, the invisible host
+/// view that presents the active sheet, and the chrome every sheet draws (title bar,
+/// tab-header band, button labels, empty-state placeholder).
 
 import SwiftUI
 
@@ -569,5 +570,65 @@ struct SheetHostView: View, Loggable {
         /// Case B: Settings is not open. Open it on the Restore tab carrying the URL.
         /// SettingsSheet.onAppear picks up backupURL and calls loadBackupFile(_:).
         present(.settings(selectedTab: .restore, backupURL: file))
+    }
+}
+
+// MARK: - Sheet Chrome
+
+/// A sheet's custom title bar: the centered rounded-semibold title on the control
+/// background, with a rule beneath. Every app sheet draws the same one.
+struct SheetTitleBar: View {
+    let title: String
+
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color(NSColor.controlBackgroundColor))
+            .overlay(Divider(), alignment: .bottom)
+    }
+}
+
+extension View {
+    /// Places a sheet's tab header (a CustomTabHeader, or a view that wraps one) in the band
+    /// under the title bar, as the FilmSheet, the MultiFilmSheet and Settings place theirs.
+    func sheetTabHeaderBand() -> some View {
+        self
+            .padding(.horizontal, 4)
+            .padding(.top, -1)
+            .padding(.bottom, 1)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .focusEffectDisabled()
+            .overlay(Divider(), alignment: .bottom)
+            .zIndex(1)
+    }
+}
+
+extension Text {
+    /// The label style of a sheet's bottom-bar buttons (Close, Cancel, the confirm action).
+    func sheetButtonLabel() -> some View {
+        self
+            .padding(4)
+            .font(.system(size: 12))
+    }
+}
+
+/// A centered secondary-text message filling a sheet's results area while it has nothing
+/// to list.
+struct SheetPlaceholder: View {
+    let text: String
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 40)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

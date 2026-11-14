@@ -152,6 +152,8 @@ enum GallerySectioning: Loggable {
     /// On those tabs `loadedSortOption` is a placeholder, and for "Recently Come Up for Rotation"
     /// it does not describe the real ordering. See `GallerySectionKey`.
     private static func orderingKey(for coordinator: DataCoordinator) -> GallerySectionKey? {
+        /// The Recents summary tab draws its own sections (RecentsSummaryView), and its films have no one order.
+        if coordinator.loadedRecentsCategory == .summary { return nil }
         if let category = coordinator.loadedRecentsCategory { return .recentsDate(category) }
         if coordinator.loadedUpcomingReleasesOrder { return .upcomingRelease }
         guard let sort = coordinator.loadedSortOption else { return nil }
@@ -338,6 +340,8 @@ enum GallerySectioning: Loggable {
     private static func recentsSection(for data: FilmMetadata, category: RecentsCategory,
                                        context: SectionContext) -> GallerySection? {
         switch category.dateType {
+        case nil:
+            return nil
         case .dateAdded:
             return dateSection(data.dateAddedParsed, prefix: "dateAdded",
                                undatedLabel: "No Date Added", context: context)
@@ -354,6 +358,10 @@ enum GallerySectioning: Loggable {
             return dateSection(data.mostRecentPurchaseDate ?? .distantPast,
                                prefix: "purchaseDate",
                                undatedLabel: "No Purchase Date", context: context)
+        case .discReleaseDate:
+            return dateSection(data.latestDiscRelease(onOrBefore: context.today) ?? .distantPast,
+                               prefix: "discReleaseDate",
+                               undatedLabel: "No Release Date", context: context)
         }
     }
 
@@ -388,7 +396,7 @@ enum GallerySectioning: Loggable {
         case .viewCount:
             let count = max(0, data.viewCount)
             let label = count == 0 ? "No Recorded Viewings"
-                                   : "\(count) Viewing\(count == 1 ? "" : "s")"
+                                   : Fmt.count(count, "Viewing")
             return GallerySection(id: "viewCount.\(count)", displayName: label)
 
         case .rating:

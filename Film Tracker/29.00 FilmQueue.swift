@@ -142,7 +142,7 @@ enum FilmQueue {
     /// MultiFilmSheet's Queue Membership picker.
     static func addConfirmationMessage(adding: Int, flagged: Int) -> String {
         let isPluralFlagged = flagged != 1
-        return "\(flagged) of the \(adding) films selected " +
+        return "\(Fmt.count(flagged)) of the \(Fmt.count(adding)) films selected " +
             "\(isPluralFlagged ? "are" : "is") flagged with a special sorting parameter."
     }
 }
@@ -202,11 +202,10 @@ extension FilmQueue {
     static func upNextFullDropOfferMessage(_ filmIDs: Set<UUID>, coordinator: DataCoordinator) -> String {
         let adding = filmIDs.subtracting(upNextFilmIDs(coordinator: coordinator)).count
         let vacancies = upNextVacancies(coordinator: coordinator)
-        let isPlural = adding != 1
         let reason = vacancies == 0
             ? "Your \"Up Next\" Queue already contains the maximum of eight films."
             : "Your \"Up Next\" Queue can hold a maximum of eight films and only has room for \(vacancies) more."
-        return reason + " \(adding) film\(isPlural ? "s" : "") will be added to the \"Soon\" Queue instead."
+        return reason + " \(Fmt.count(adding, "film")) will be added to the \"Soon\" Queue instead."
     }
 
     /// The refusal message for adding `adding` new films when `vacancies` slots are open.
@@ -384,7 +383,8 @@ enum FilmQueueFilter: String, CaseIterable, Hashable, Sendable {
     case soon = "Soon"
     case later = "Later"
 
-    var displayName: String { rawValue }
+    /// A section tab is named as its section is (FilmQueueSection.displayName).
+    var displayName: String { section?.displayName ?? "All" }
 
     /// The token that distinguishes this tab's persisted ViewState slot from its
     /// siblings', or nil for `.all`.
@@ -406,7 +406,17 @@ enum FilmQueueFilter: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// The single section this filter isolates, or nil for `.all` (no restriction).
+    /// The glyph of this tab's sidebar row. The All tab is the Queue's own row.
+    var glyph: ViewGlyphs.Glyph {
+        switch self {
+        case .all:    return ViewGlyphs.filmQueue
+        case .upNext: return ViewGlyphs.queueUpNext
+        case .soon:   return ViewGlyphs.queueSoon
+        case .later:  return ViewGlyphs.queueLater
+        }
+    }
+
+        /// The single section this filter isolates, or nil for `.all` (no restriction).
     var section: FilmQueueSection? {
         switch self {
         case .all:    return nil
@@ -433,6 +443,14 @@ final class FilmQueueFilterState {
 
     private init() {}
 
+    /// Sets the tab while the Queue is not on screen, just before navigating to it (LibraryTab.open). Nothing of
+    /// the Queue is showing, so there is no selection, scroll position or state to hand off and nothing to
+    /// reload: the navigation keys its state and scroll restore on the live filter and loads this tab once.
+    /// selectFilter, called after arriving, loaded the previous tab first and this one a turn later.
+    func preselect(_ filter: FilmQueueFilter) {
+        selectedFilter = filter
+    }
+
     func selectFilter(_ filter: FilmQueueFilter) {
         guard selectedFilter != filter else { return }
 
@@ -440,7 +458,7 @@ final class FilmQueueFilterState {
         /// for every other sub-tab transition (Recents categories, rotation/alternate
         /// variants, Filtered Library sorting variants). The Film Queue's three sections
         /// deliberately share a single ViewIdentifier, so performSwitch itself is never
-        /// invoked here and MainView.handleViewChange never fires either — without this
+        /// invoked here and AppState.navigate(to:) never runs either — without this
         /// explicit clear, a selected film would silently survive into an unrelated Queue
         /// section whenever the same film ID happens to also appear there.
         SelectionState.shared.clearImmediate()

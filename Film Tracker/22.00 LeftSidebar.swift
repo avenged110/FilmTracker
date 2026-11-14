@@ -19,7 +19,7 @@ struct LeftSidebar: View, Loggable {
     @State private var importsGlyphState: ImportsGlyphState = .normal
     
     /// Local selection state - isolates the List binding from AppState
-    @State private var localSelection: SidebarItem = .libraryItem(.allFilms)
+    @State private var localSelection: SidebarRow = .item(.libraryItem(.allFilms))
     
     /// Monitor Preferences.smartLists for real-time updates
     @AppStorage(preference: Preferences.smartListsKey) private var smartListsEnabled: Bool
@@ -57,12 +57,24 @@ struct LeftSidebar: View, Loggable {
             localSelection: $localSelection,
             onUserSelection: { oldValue, newValue in
                 Self.log("User selection: \(String(describing: oldValue)) → \(String(describing: newValue))")
-                if case .smartList(let type) = newValue {
+                switch newValue {
+                case .item(.smartList(let type)):
                     selectSmartList(type)
-                } else {
-                    appState.navigate(to: newValue)
+                case .item(let item):
+                    /// The row of a family with a primary tab is that tab, as a smart list
+                    /// family's row is its parent variant.
+                    if let primary = SidebarLibraryFamily(item)?.primaryTab {
+                        primary.open(appState: appState, immediate: true)
+                    } else {
+                        appState.navigate(to: item)
+                        handleSelectionChange(newValue: item)
+                    }
+                case .tab(let tab):
+                    /// Selected exactly as its title-bar picker selects it. From another view the tab
+                    /// loads first (LibraryTab.open), as selectSmartList's variants do. Immediate: a
+                    /// sidebar click has no menu fade to wait out.
+                    tab.open(appState: appState, immediate: true)
                 }
-                handleSelectionChange(newValue: newValue)
             }))
         .onChange(of: smartListsEnabled) { _, isEnabled in
             /// If smart lists are disabled and we're viewing one, switch to All Films
@@ -210,14 +222,197 @@ struct LeftSidebar: View, Loggable {
     }
 }
 
+// MARK: - Sidebar Row
+/// A sidebar row's selection tag. Every row is a SidebarItem except a library family's tab
+/// rows, which exist only here: AppState holds the family's own item whatever tab is showing.
+private enum SidebarRow: Hashable {
+    case item(SidebarItem)
+    case tab(LibraryTab)
+}
+
+// MARK: - Library Families
+/// The Library rows with tabs of their own, each shown as a disclosure row over those tabs.
+/// Internal, not private, only so Preferences can store which are expanded.
+enum SidebarLibraryFamily: String, CaseIterable, Sendable {
+    case unwatched
+    case recents
+    case reports
+    /// Listed after Imports, and drawn on its own (LibrarySection), since its row is also a drop target.
+    case queue
+
+    /// The families LibrarySection draws together, in order. The Queue follows Imports.
+    static let grouped: [SidebarLibraryFamily] = [.unwatched, .recents, .reports]
+}
+
+extension SidebarLibraryFamily {
+    init?(_ item: SidebarItem) {
+        switch item {
+        case .libraryItem(.unwatched): self = .unwatched
+        case .libraryItem(.recents):   self = .recents
+        case .libraryItem(.reports):   self = .reports
+        case .libraryItem(.filmQueue): self = .queue
+        default: return nil
+        }
+    }
+
+    var sidebarItem: SidebarItem {
+        switch self {
+        case .unwatched: return .libraryItem(.unwatched)
+        case .recents:   return .libraryItem(.recents)
+        case .reports:   return .libraryItem(.reports)
+        case .queue:     return .libraryItem(.filmQueue)
+        }
+    }
+
+    /// The tab the family's own row is, as a smart list family's row is its parent variant:
+    /// clicking the row opens this tab, and the row is highlighted only while it is showing.
+    /// Recents' is its summary tab, which shows a row of each of the others. The Queue's is All.
+    var primaryTab: LibraryTab {
+        switch self {
+        case .unwatched: return .unwatched(.unwatched)
+        case .recents:   return .recents(.summary)
+        case .reports:   return .reports(.primary)
+        case .queue:     return .queue(.all)
+        }
+    }
+
+    /// The row's title. The Queue's row is the Queue itself; the others' rows are their primary tabs.
+    var title: String { self == .queue ? LibraryItem.filmQueue.title : primaryTab.title }
+
+    var glyph: String { primaryTab.glyph }
+
+    /// Every tab, in the title-bar picker's order (allCases, which the Cmd+<digit> tab
+    /// shortcuts follow too).
+    var tabs: [LibraryTab] {
+        switch self {
+        case .unwatched: return UnwatchedCategory.allCases.map(LibraryTab.unwatched)
+        case .recents:   return RecentsCategory.allCases.map(LibraryTab.recents)
+        case .reports:   return ReportsCategory.allCases.map(LibraryTab.reports)
+        case .queue:     return FilmQueueFilter.allCases.map(LibraryTab.queue)
+        }
+    }
+
+    /// The tabs shown as child rows: all but the primary, which is the family's own row.
+    var childTabs: [LibraryTab] { tabs.filter { $0 != primaryTab } }
+
+    /// The tab the family's state has selected: the one on screen while the family is.
+    @MainActor
+    var currentTab: LibraryTab {
+        switch self {
+        case .unwatched: return .unwatched(UnwatchedState.shared.selectedCategory)
+        case .recents:   return .recents(RecentsState.shared.selectedCategory)
+        case .reports:   return .reports(ReportsState.shared.selectedCategory)
+        case .queue:     return .queue(FilmQueueFilterState.shared.selectedFilter)
+        }
+    }
+}
+
+/// One tab of a library family: its sidebar row, its Left Sidebar menu item, and the one way to open it.
+enum LibraryTab: Hashable {
+    case unwatched(UnwatchedCategory)
+    case recents(RecentsCategory)
+    case reports(ReportsCategory)
+    case queue(FilmQueueFilter)
+
+    var family: SidebarLibraryFamily {
+        switch self {
+        case .unwatched: return .unwatched
+        case .recents:   return .recents
+        case .reports:   return .reports
+        case .queue:     return .queue
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .unwatched(let category): return category.displayName
+        case .recents(let category):   return category.displayName
+        case .reports(let category):   return category.displayName
+        case .queue(let filter):       return filter.displayName
+        }
+    }
+
+    /// The outline of the glyph the title bar shows for this tab.
+    var glyph: String {
+        switch self {
+        case .unwatched(let category): return category.symbol.outline
+        case .recents(let category):   return category.symbol.outline
+        case .reports(let category):   return category.symbol.outline
+        case .queue(let filter):       return filter.glyph.outline
+        }
+    }
+
+    /// Selects this tab through its state's own path, the one the title-bar picker takes.
+    /// - Parameter immediate: Switch in this turn rather than after a menu's fade (see
+    ///   SubcategoryNavigation.performSwitch). The Queue's tab switch always defers.
+    @MainActor
+    func select(immediate: Bool) {
+        switch self {
+        case .unwatched(let category):
+            UnwatchedState.shared.selectCategory(category, immediate: immediate)
+        case .recents(let category):
+            RecentsState.shared.selectCategory(category, immediate: immediate)
+        case .reports(let category):
+            ReportsState.shared.selectCategory(category, immediate: immediate)
+        case .queue(let filter):
+            FilmQueueFilterState.shared.selectFilter(filter)
+        }
+    }
+
+    /// Shows this tab, from anywhere: the LeftSidebar's rows, the Left Sidebar menu, and the Cmd+<digit>
+    /// shortcuts all come here.
+    ///
+    /// From another view the tab is chosen first, in this turn, and the navigation then loads it once. Choosing
+    /// it after arriving loaded the family's previous tab on the way (for Reports, built it), then the chosen
+    /// one. Within the family it is the title-bar picker's switch, deferred past a menu's fade unless
+    /// `immediate`.
+    @MainActor
+    func open(appState: AppState, immediate: Bool) {
+        let item = family.sidebarItem
+        guard appState.selectedSidebarItem != item else {
+            select(immediate: immediate)
+            return
+        }
+        if case .queue(let filter) = self {
+            /// The Queue's tabs share one view, whose state and scroll keys follow the live filter, so setting
+            /// it before the navigation is all the switch needs.
+            FilmQueueFilterState.shared.preselect(filter)
+        } else {
+            select(immediate: true)
+        }
+        appState.navigate(to: item)
+    }
+}
+
+/// Which library families are expanded. Remembered across launches
+/// (Preferences.expandedLibraryFamilies).
+@MainActor
+@Observable
+private final class LibraryFamilyExpansion {
+    static let shared = LibraryFamilyExpansion()
+
+    private var expanded: Set<SidebarLibraryFamily> = Preferences.expandedLibraryFamilies
+
+    private init() {}
+
+    func isExpanded(_ family: SidebarLibraryFamily) -> Binding<Bool> {
+        Binding(
+            get: { self.expanded.contains(family) },
+            set: { isExpanded in
+                if isExpanded { self.expanded.insert(family) } else { self.expanded.remove(family) }
+                Preferences.expandedLibraryFamilies = self.expanded
+            })
+    }
+}
+
 // MARK: - Sidebar Selection Sync
 /// Keeps the List's local selection and AppState in step, in both directions. A modifier of
 /// its own so that the selection it reads invalidates only this, not LeftSidebar's body.
 private struct SidebarSelectionSync: ViewModifier {
     @Environment(AppState.self) private var appState
-    @Binding var localSelection: SidebarItem
+    @Binding var localSelection: SidebarRow
     /// A user click: the selection moved away from what AppState displays.
-    let onUserSelection: (SidebarItem, SidebarItem) -> Void
+    let onUserSelection: (SidebarRow, SidebarRow) -> Void
 
     func body(content: Content) -> some View {
         content
@@ -231,6 +426,11 @@ private struct SidebarSelectionSync: ViewModifier {
             .onChange(of: localSelection) { oldValue, newValue in
                 if displayedSelection != newValue {
                     onUserSelection(oldValue, newValue)
+                    /// A click that changes nothing on screen leaves the highlight where it was:
+                    /// the row of an expanded library family already showing stays on its tab.
+                    if localSelection != displayedSelection {
+                        localSelection = displayedSelection
+                    }
                 }
             }
             .onAppear {
@@ -242,11 +442,19 @@ private struct SidebarSelectionSync: ViewModifier {
     /// The row the sidebar highlights. AppState holds only a smart list family's parent, so the
     /// displayed variant is read from SmartListVariantState. A variant inside a collapsed family
     /// is hidden, so nothing is highlighted until the family expands.
-    private var displayedSelection: SidebarItem {
-        if case .smartList(let parent) = appState.selectedSidebarItem {
-            return .smartList(SmartListVariantState.shared(for: parent).selected)
+    ///
+    /// Unwatched, Recents and Reports follow the smart lists: the family's row is its primary tab,
+    /// and any other tab is its own row, unhighlighted while the family is collapsed.
+    private var displayedSelection: SidebarRow {
+        let item = appState.selectedSidebarItem
+        if case .smartList(let parent) = item {
+            return .item(.smartList(SmartListVariantState.shared(for: parent).selected))
         }
-        return appState.selectedSidebarItem
+        if let family = SidebarLibraryFamily(item) {
+            let current = family.currentTab
+            return current == family.primaryTab ? .item(item) : .tab(current)
+        }
+        return .item(item)
     }
 }
 
@@ -395,17 +603,21 @@ private struct LibrarySection: View {
 
     var body: some View {
         Section("Library") {
-            Label("All Films", systemImage: ViewGlyphs.allFilms.outline)
-                .tag(SidebarItem.libraryItem(.allFilms))
-            Label("Unwatched", systemImage: ViewGlyphs.unwatched.outline)
-                .tag(SidebarItem.libraryItem(.unwatched))
-            Label("Recents", systemImage: ViewGlyphs.recents.outline)
-                .tag(SidebarItem.libraryItem(.recents))
-            Label("Reports", systemImage: ViewGlyphs.reports.outline)
-                .tag(SidebarItem.libraryItem(.reports))
+            Label(LibraryItem.allFilms.title, systemImage: ViewGlyphs.allFilms.outline)
+                .tag(SidebarRow.item(.libraryItem(.allFilms)))
+            /// Unwatched, Recents and Reports, each a disclosure row over its own tabs, as the
+            /// smart list families are. See SidebarLibraryFamily. The Queue is one too, below.
+            ForEach(SidebarLibraryFamily.grouped, id: \.self) { family in
+                DisclosureGroup(isExpanded: LibraryFamilyExpansion.shared.isExpanded(family)) {
+                    childRows(of: family)
+                } label: {
+                    Label(family.title, systemImage: family.glyph)
+                        .tag(SidebarRow.item(family.sidebarItem))
+                }
+            }
             HStack {
                 Label {
-                    Text("Imports")
+                    Text(LibraryItem.imports.title)
                 } icon: {
                     Image(systemName: importsGlyph)
                         .contentTransition(.symbolEffect(.replace))
@@ -418,42 +630,55 @@ private struct LibrarySection: View {
                         .transition(.opacity)
                 }
             }
-            .tag(SidebarItem.libraryItem(.imports))
+            .tag(SidebarRow.item(.libraryItem(.imports)))
             .animation(.easeInOut(duration: 0.2), value: importProgress.isImporting)
 
-            Label {
-                Text("Queue")
-            } icon: {
-                Image(systemName: showQueueCompletionGlyph
-                    ? ViewGlyphs.rowCompletion.outline
-                    : ViewGlyphs.filmQueue.outline)
-                    .contentTransition(.symbolEffect(.replace))
+            /// The Queue's row is its All tab. Its three sections are child rows, as Recents' tabs are.
+            DisclosureGroup(isExpanded: LibraryFamilyExpansion.shared.isExpanded(.queue)) {
+                childRows(of: .queue)
+            } label: {
+                Label {
+                    Text(SidebarLibraryFamily.queue.title)
+                } icon: {
+                    Image(systemName: showQueueCompletionGlyph
+                        ? ViewGlyphs.rowCompletion.outline
+                        : ViewGlyphs.filmQueue.outline)
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                    .tag(SidebarRow.item(.libraryItem(.filmQueue)))
+                    /// The shared row modifier targets the Film Queue section chosen in
+                    /// Preferences.queueSectionOnDrop. With queueIsDropTarget off, isEnabled is false
+                    /// and no proxy or highlight is installed.
+                    .modifier(ListRowDropHighlight(
+                        listID: queueDropSection.filmQueueSection.listID,
+                        listName: queueDropSection.filmQueueSection.displayName,
+                        dataCoordinator: dataCoordinator,
+                        isEnabled: queueIsDropTarget,
+                        isDropTargeted: $isQueueDropTargeted,
+                        isHovered: $isQueueHovered
+                    ))
+                    .onReceive(AppEventBus.shared.listEvents) { event in
+                        guard case .queueAdditionCompleted = event else { return }
+
+                        /// Only show the completion glyph when the user is NOT currently
+                        /// viewing the Film Queue — if they are, the change is self-evident.
+                        /// Mirrors ListRowActivityStore's identical guard.
+                        guard appState.selectedSidebarItem != .libraryItem(.filmQueue) else { return }
+
+                        MomentaryGlyph.show($showQueueCompletionGlyph, task: $queueCompletionTask)
+                    }
+                    .onDisappear {
+                        queueCompletionTask?.cancel()
+                    }
             }
-                .tag(SidebarItem.libraryItem(.filmQueue))
-                /// The shared row modifier targets the Film Queue section chosen in
-                /// Preferences.queueSectionOnDrop. With queueIsDropTarget off, isEnabled is false
-                /// and no proxy or highlight is installed.
-                .modifier(ListRowDropHighlight(
-                    listID: queueDropSection.filmQueueSection.listID,
-                    listName: queueDropSection.filmQueueSection.displayName,
-                    dataCoordinator: dataCoordinator,
-                    isEnabled: queueIsDropTarget,
-                    isDropTargeted: $isQueueDropTargeted,
-                    isHovered: $isQueueHovered
-                ))
-                .onReceive(AppEventBus.shared.listEvents) { event in
-                    guard case .queueAdditionCompleted = event else { return }
+        }
+    }
 
-                    /// Only show the completion glyph when the user is NOT currently
-                    /// viewing the Film Queue — if they are, the change is self-evident.
-                    /// Mirrors ListRowActivityStore's identical guard.
-                    guard appState.selectedSidebarItem != .libraryItem(.filmQueue) else { return }
-
-                    MomentaryGlyph.show($showQueueCompletionGlyph, task: $queueCompletionTask)
-                }
-                .onDisappear {
-                    queueCompletionTask?.cancel()
-                }
+    /// A family's tab rows, under its own row.
+    private func childRows(of family: SidebarLibraryFamily) -> some View {
+        ForEach(family.childTabs, id: \.self) { tab in
+            Label(tab.title, systemImage: tab.glyph)
+                .tag(SidebarRow.tab(tab))
         }
     }
 }
@@ -495,7 +720,7 @@ private struct SmartListsSection: View {
         } icon: {
             Image(systemName: type.icon)
         }
-        .tag(SidebarItem.smartList(type))
+        .tag(SidebarRow.item(.smartList(type)))
     }
 
     private func isExpanded(_ parent: SmartListType) -> Binding<Bool> {
@@ -540,9 +765,8 @@ private struct ListRow: View {
     /// This row's spinner and completion glyph, driven by ListRowActivityStore's shared subscription.
     private var activity: ListRowActivity { ListRowActivityStore.shared.activity(for: listInfo.listID) }
 
-    /// Hover / ellipsis button state
+    /// Hover state, which shows the options button.
     @State private var isHovered = false
-    @State private var isEllipsisPressed = false
 
     /// Drag-and-drop state
     @State private var isDropTargeted = false
@@ -558,45 +782,12 @@ private struct ListRow: View {
             ProgressView()
                 .controlSize(.small)
                 .scaleEffect(0.7)
-                .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
+                .frame(width: RowAccessory.slotWidth, height: RowAccessory.slotWidth)
                 .transition(.opacity)
         } else if isHovered {
-            /// Chromeless ellipsis button, shown only while hovering this row.
-            ///
-            /// The glyph is a plain Image — so it inherits the List row's automatic
-            /// selection/focus emphasis coloring like the row's text. An invisible,
-            /// identically-sized Menu sits on top to catch the click and present the
-            /// contextual menu.
-            Image(systemName: "ellipsis.circle")
-                .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
-                /// Dims the glyph on mouse-down and restores it on release.
-                .opacity(isEllipsisPressed ? 0.4 : 1.0)
-                .animation(.easeOut(duration: 0.08), value: isEllipsisPressed)
-                .overlay {
-                    Menu {
-                        contextMenuItems()
-                    } label: {
-                        Color.clear
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
-                    .focusable(false)
-                    .focusEffectDisabled()
-                }
-                /// Simultaneous gesture drives opacity feedback only; does not consume the
-                /// tap, so the Menu overlay still receives the click.
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { _ in isEllipsisPressed = true }
-                        .onEnded   { _ in isEllipsisPressed = false }
-                )
-                .help("List Options")
+            RowOptionsButton(help: "List Options") { contextMenuItems() }
         }
     }
-
-    /// Width of the trailing accessory slot.
-    private static let accessorySlotWidth: CGFloat = 18
 
     /// True while the trailing slot is occupied. The title's trailing inset follows this, so
     /// the title runs the full row width until an accessory appears and truncates further
@@ -617,21 +808,17 @@ private struct ListRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, isAccessoryShowing ? Self.accessorySlotWidth + 4 : 0)
+                .padding(.trailing, isAccessoryShowing ? RowAccessory.slotWidth + 4 : 0)
                 .animation(nil, value: isAccessoryShowing)
                 .overlay(alignment: .trailing) { trailingAccessory }
         } icon: {
             Image(systemName: activity.showCompletionGlyph ? ViewGlyphs.rowCompletion.outline : ViewGlyphs.userList.outline)
                 .contentTransition(.symbolEffect(.replace))
         }
-        .tag(SidebarItem.list(listInfo.listID))
+        .tag(SidebarRow.item(.list(listInfo.listID)))
         /// Secondary-click anywhere on the row opens the same menu as the ellipsis button.
         .contextMenu {
             contextMenuItems()
-        }
-        /// Clears press state when the cursor leaves the row, so the glyph does not stay dim.
-        .onChange(of: isHovered) { _, hovering in
-            if !hovering, isEllipsisPressed { isEllipsisPressed = false }
         }
         /// ListRowDropTarget is a zero-size anchor. It installs a RowDragProxyView on the
         /// NSTableRowView, covering the full row. That proxy supplies hover state and drag
@@ -677,6 +864,47 @@ private struct ListRow: View {
     }
 }
 
+// MARK: - Row Accessory
+/// The trailing accessory slot ListRow and SavedSearchRow share: the options button, or ListRow's spinner.
+private enum RowAccessory {
+    static let slotWidth: CGFloat = 18
+}
+
+// MARK: - Row Options Button
+/// The chromeless ellipsis a hovered ListRow or SavedSearchRow shows in its trailing slot. The glyph is a
+/// plain Image, so it takes the row's selection and focus coloring like the row's text. An invisible,
+/// identically sized Menu on top catches the click and presents the row's menu.
+///
+/// The row shows this only while hovered, so the press state is dropped with it when the cursor leaves.
+private struct RowOptionsButton<Items: View>: View {
+    let help: String
+    @ViewBuilder let items: () -> Items
+
+    @State private var isPressed = false
+
+    var body: some View {
+        Image(systemName: "ellipsis.circle")
+            .frame(width: RowAccessory.slotWidth, height: RowAccessory.slotWidth)
+            /// Dims the glyph on mouse-down and restores it on release.
+            .opacity(isPressed ? 0.4 : 1.0)
+            .animation(.easeOut(duration: 0.08), value: isPressed)
+            .overlay {
+                Menu { items() } label: { Color.clear }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(width: RowAccessory.slotWidth, height: RowAccessory.slotWidth)
+                    .focusable(false)
+                    .focusEffectDisabled()
+            }
+            /// Drives the opacity feedback only. It does not consume the tap, so the Menu still gets the click.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in isPressed = true }
+                    .onEnded { _ in isPressed = false })
+            .help(help)
+    }
+}
+
 // MARK: - Saved Search Row Animation Key
 private struct SavedSearchRowKey: Equatable {
     let id: UUID
@@ -712,13 +940,10 @@ private struct SavedSearchRow: View {
 
     @Environment(DataCoordinator.self) private var dataCoordinator
 
-    /// Hover / ellipsis button state, as ListRow's.
+    /// Hover state, which shows the options button, as ListRow's.
     @State private var isHovered = false
-    @State private var isEllipsisPressed = false
     /// Required by the row proxy's interface; a saved search row never becomes a drop target.
     @State private var isDropTargeted = false
-
-    private static let accessorySlotWidth: CGFloat = 18
 
     var body: some View {
         /// Laid out as ListRow is — the ellipsis an overlay on the title, reserved for by a
@@ -728,47 +953,23 @@ private struct SavedSearchRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, isHovered ? Self.accessorySlotWidth + 4 : 0)
+                .padding(.trailing, isHovered ? RowAccessory.slotWidth + 4 : 0)
                 .animation(nil, value: isHovered)
-                .overlay(alignment: .trailing) { ellipsis }
+                .overlay(alignment: .trailing) {
+                    if isHovered {
+                        RowOptionsButton(help: "Saved Search Options") { menuItems() }
+                    }
+                }
         } icon: {
             Image(systemName: ViewGlyphs.savedSearch.outline)
         }
-        .tag(SidebarItem.savedSearch(search.id))
+        .tag(SidebarRow.item(.savedSearch(search.id)))
         .contextMenu { menuItems() }
-        .onChange(of: isHovered) { _, hovering in
-            if !hovering, isEllipsisPressed { isEllipsisPressed = false }
-        }
         /// The list rows' full-row hover tracking (see ListRow), with drops turned off.
         .overlay(
             ListRowDropTarget(listID: search.id, listName: search.name, dataCoordinator: dataCoordinator,
                               isDropTargeted: $isDropTargeted, isHovered: $isHovered, acceptsDrops: false)
                 .frame(width: 0, height: 0))
-    }
-
-    /// ListRow's hover ellipsis: a plain glyph that takes the row's selection coloring, under
-    /// an invisible Menu that catches the click.
-    @ViewBuilder
-    private var ellipsis: some View {
-        if isHovered {
-            Image(systemName: "ellipsis.circle")
-                .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
-                .opacity(isEllipsisPressed ? 0.4 : 1.0)
-                .animation(.easeOut(duration: 0.08), value: isEllipsisPressed)
-                .overlay {
-                    Menu { menuItems() } label: { Color.clear }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .frame(width: Self.accessorySlotWidth, height: Self.accessorySlotWidth)
-                        .focusable(false)
-                        .focusEffectDisabled()
-                }
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { _ in isEllipsisPressed = true }
-                        .onEnded { _ in isEllipsisPressed = false })
-                .help("Saved Search Options")
-        }
     }
 
     /// Shared by the context menu and the ellipsis, as ListRow's are.
@@ -929,9 +1130,6 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         proxy.listID = listID
         proxy.listName = listName
         proxy.dataCoordinator = dataCoordinator
-        /// onHoverChanged closure captures a Binding; re-seat it so identity stays
-        /// consistent if SwiftUI re-evaluates the parent view with new binding storage.
-        proxy.onHoverChanged = nsView.onHoverChanged
     }
     
     // MARK: - Anchor View
@@ -1064,12 +1262,20 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             onTargetChanged = anchor.onTargetChanged
             onHoverChanged = anchor.onHoverChanged
             if anchor.acceptsDrops { registerForDraggedTypes([.filmIDs]) } else { unregisterDraggedTypes() }
+            /// A drag already over this proxy now targets the arriving row, so the highlight moves to it,
+            /// or ends when that row takes no drops.
+            if isDropTargetReported {
+                if anchor.acceptsDrops { reportTarget(true) } else { isDropTargetReported = false }
+            }
             reconcileHover()
         }
 
         /// Clears the departing row's state so the proxy reports nothing for it.
         func deactivate() {
             setHovered(false)
+            /// The departing row loses any drop highlight a drag over this proxy gave it. Otherwise it
+            /// stays lit, since the drag's exit and end callbacks reach only the next owner.
+            if isDropTargetReported { reportTarget(false) }
             owner = nil
             Self.activeProxies.remove(self)
             onTargetChanged = nil
@@ -1231,48 +1437,76 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
 
         // MARK: - NSDraggingDestination
 
+        /// True while this proxy has reported a drag over it as a drop target to its owner. It lets the
+        /// highlight follow the proxy when its row view is lent to another row mid-drag (see activate and
+        /// deactivate), and keeps a proxy whose new row takes no drops from accepting one.
+        private var isDropTargetReported = false
+
+        /// Reports the drop-target state to the current owner. The write is deferred one turn, because
+        /// activate and deactivate run while the outline view moves row views, which can be inside a
+        /// SwiftUI update, where a synchronous state write is not allowed.
+        private func reportTarget(_ isTargeted: Bool) {
+            isDropTargetReported = isTargeted
+            guard let onTargetChanged else { return }
+            DispatchQueue.main.async { onTargetChanged(isTargeted) }
+        }
+
         override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
             guard sender.draggingPasteboard.availableType(from: [.filmIDs]) != nil else {
                 return []
             }
+            isDropTargetReported = true
             onTargetChanged?(true)
             return .copy
         }
 
         override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-            return .copy
+            isDropTargetReported ? .copy : []
         }
 
         override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+            isDropTargetReported = false
             onTargetChanged?(false)
         }
 
         override func draggingEnded(_ sender: any NSDraggingInfo) {
+            isDropTargetReported = false
             onTargetChanged?(false)
         }
 
         override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-            return sender.draggingPasteboard.availableType(from: [.filmIDs]) != nil
+            isDropTargetReported && sender.draggingPasteboard.availableType(from: [.filmIDs]) != nil
         }
 
         override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-            /// Decodes through the shared FilmDragDecoder, which adds the JSON-pasteboard fallback and logging.
+            /// Decodes through the shared FilmDragDecoder, which adds logging.
             guard let filmIDs = FilmDragDecoder.decode(from: sender),
-                  !filmIDs.isEmpty else {
+                  !filmIDs.isEmpty,
+                  let coordinator = dataCoordinator,
+                  let list = coordinator.getList(listID) else {
                 return false
             }
-            guard let coordinator = dataCoordinator else { return false }
+
+            /// Only the films not already in this list. The rest are where the user dropped them, so they
+            /// take no part in the capacity check, the confirmation, or the add. A drop with none is
+            /// refused, so the preview flies back and the row shows no completion glyph, as an "Up Next"
+            /// slot does (UpNextSlots.performDrop).
+            let newcomers = filmIDs.subtracting(list.filmIDs)
+            guard !newcomers.isEmpty else {
+                log("Refused drop of \(filmIDs.count) film(s) on '\(listName)' — all already in it")
+                return false
+            }
 
             /// "Up Next" holds at most eight films. A drop that would overflow is not added there. The
             /// alert offers "Soon" instead. The drop is still accepted, so the preview does not fly back.
             if listID == FilmQueueSection.upNext.listID,
-               FilmQueue.upNextOverflow(adding: filmIDs, coordinator: coordinator) > 0 {
-                log("Drop of \(filmIDs.count) film(s) on '\(listName)' would overflow it — offering 'Soon'")
-                /// Only the films not already in "Up Next": the rest are where the user
-                /// dropped them, and adding them to "Soon" would move them out of it.
+               FilmQueue.upNextOverflow(adding: newcomers, coordinator: coordinator) > 0 {
+                log("Drop of \(newcomers.count) film(s) on '\(listName)' would overflow it — offering 'Soon'")
+                /// Adding films already in "Up Next" to "Soon" would move them out of it, so only the
+                /// newcomers are offered.
                 AppEventBus.shared.sendAlert(.offerSoonForFullUpNextDrop(
-                    filmIDs: filmIDs.subtracting(FilmQueue.upNextFilmIDs(coordinator: coordinator)),
-                    message: FilmQueue.upNextFullDropOfferMessage(filmIDs, coordinator: coordinator)))
+                    filmIDs: newcomers,
+                    message: FilmQueue.upNextFullDropOfferMessage(newcomers, coordinator: coordinator)))
                 return true
             }
 
@@ -1281,27 +1515,28 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             /// a specialSorting value, the add waits for AlertHostView's confirmation. Canceling drops the
             /// whole drop, and confirming adds the full set.
             if FilmQueue.isInternalList(listID),
-               FilmQueue.addNeedsConfirmation(filmIDs, coordinator: coordinator) {
-                log("Deferring add of \(filmIDs.count) film(s) to list '\(listName)' pending special-sorting confirmation")
+               FilmQueue.addNeedsConfirmation(newcomers, coordinator: coordinator) {
+                log("Deferring add of \(newcomers.count) film(s) to list '\(listName)' pending special-sorting confirmation")
                 /// Sent synchronously, on the same call stack as the drop. AlertHostView stashes the payload and
                 /// freezes the message at drop time. It presents the alert only when the .dragSessionDidEnd notice
                 /// arrives. AppKit defers that callback past its drag-completion pass, so the alert animates without
                 /// contention. Presenting here would drop frames, and sending now ensures the stash exists in time.
-                AppEventBus.shared.sendAlert(.confirmFilmQueueAddOnDrop(filmIDs: filmIDs, listID: listID))
+                AppEventBus.shared.sendAlert(.confirmFilmQueueAddOnDrop(filmIDs: newcomers, listID: listID))
                 return true
             }
 
-            log("Adding \(filmIDs.count) film(s) to list '\(listName)'")
+            log("Adding \(newcomers.count) film(s) to list '\(listName)'")
 
             /// Called synchronously, not in Task { ... }. performDragOperation runs inside the drag session's
             /// event-tracking loop, which defers main-actor continuations until the session ends. A Task would
             /// run only after AppKit's completion pass, roughly a second later. A synchronous call lets the
             /// membership change and its events post before teardown begins.
-            FilmManager.addFilmsToList(filmIDs, listID: listID, coordinator: coordinator)
+            FilmManager.addFilmsToList(newcomers, listID: listID, coordinator: coordinator)
             return true
         }
 
         override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+            isDropTargetReported = false
             onTargetChanged?(false)
             /// Dismisses the drag-preview flyback window in step with the highlight clearing. AppKit defers
             /// the endedAt callback past its completion pass, which would leave a visible lag. GalleryDragEngine
@@ -1312,7 +1547,7 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
 }
 
 // MARK: - Event Setup Extension
-/// With isolated binding, no special transaction handling needed
+/// LeftSidebar's event and import-progress handlers.
 @MainActor
 private extension View {
     func setupEvents(appState: AppState,

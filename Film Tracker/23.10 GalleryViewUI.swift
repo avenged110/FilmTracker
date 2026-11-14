@@ -33,6 +33,9 @@ final class GalleryCollectionView: NSCollectionView {
     /// Supplies the contextual menu for the item at a given index path, via GallerySubview.Coordinator.
     /// contextMenu(forItemAt:). That method resolves the target films and may adjust the selection. Returning nil suppresses the menu.
     var getContextMenu: ((IndexPath) -> NSMenu?)?
+    /// Offered a press on empty space before the grid's own marquee starts. Returning true takes the whole
+    /// gesture. A row of RecentsSummaryView sets it, since that view runs one marquee across all its rows.
+    var onEmptySpaceMouseDown: ((NSEvent) -> Bool)?
 
     private weak var clipView: NSClipView?
     private var isMarqueeDragging = false
@@ -47,7 +50,8 @@ final class GalleryCollectionView: NSCollectionView {
     /// mouseUp for that case only (see mouseDown(with:)).
     private var pendingPlainClickCollapse: IndexPath?
 
-    /// GalleryDragEngine handles the flyback window and NSDraggingSource protocol.
+    /// GalleryDragEngine runs the drag session (as its NSDraggingSource) with the native drag preview. The grid never
+    /// uses the list path's flyback window.
     private lazy var dragEngine: GalleryDragEngine = {
         let engine = GalleryDragEngine()
         engine.sourceView = self
@@ -165,6 +169,11 @@ final class GalleryCollectionView: NSCollectionView {
         pendingPlainClickCollapse = nil
 
         guard let hitPath else {
+            if let onEmptySpaceMouseDown, onEmptySpaceMouseDown(event) {
+                isMarqueeDragging = false
+                clickedOnItem = false
+                return
+            }
             /// Start marquee selection — unchanged.
             isMarqueeDragging = true
             clickedOnItem = false
@@ -519,20 +528,23 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
 final class SmoothResizingGridLayout: NSCollectionViewLayout {
     /// Fixed layout constants. They are `let`, since nothing configures them. GallerySubview reads them from the layout
     /// for its scroll math, so the two cannot drift apart.
-    let edgeInset: CGFloat = 16
-    let itemSpacing: CGFloat = 16
-    let lineSpacing: CGFloat = 16
+    let edgeInset: CGFloat = SmoothResizingGridLayout.edgeInset
+    let itemSpacing: CGFloat = SmoothResizingGridLayout.itemSpacing
+    let lineSpacing: CGFloat = SmoothResizingGridLayout.lineSpacing
+    /// The same values for a caller with no layout instance: RecentsSummaryView, whose rows match this grid's
+    /// cells and bands.
+    static let edgeInset: CGFloat = 16
+    static let itemSpacing: CGFloat = 16
+    static let lineSpacing: CGFloat = 16
     /// Extra bottom padding for StatusBar. updateNSView rewrites it when the StatusBar is shown or hidden.
     var bottomInset: CGFloat = 0
 
     /// Configurable by Coordinator when settings change.
     var hasSubtitles: Bool = false
 
-    /// Grid computation constants.
-    private let minItemWidth: CGFloat = Preferences.galleryMinItemWidth
+    /// Grid computation constants. The minimum item width and maximum grid width are read in columnMetrics.
     /// Set by GallerySubview from the largeGalleryGrid preference. The default is 7 columns; true gives 6.
     var maxColumns: Int = Preferences.galleryMaxColumns
-    private let maxGridWidth: CGFloat = Preferences.galleryMaxGridWidth
 
     /// Computed layout state — populated during prepare(), readable externally.
     private(set) var containerWidth: CGFloat = 0
@@ -590,7 +602,8 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     /// exactly the way any row's position moves during a resize — rather than the label
     /// appearing to "jump" within a stretching band. `let` for the same reason as the
     /// spacing constants above: nothing outside this class has ever assigned it.
-    let dividerHeight: CGFloat = 46
+    let dividerHeight: CGFloat = SmoothResizingGridLayout.dividerHeight
+    static let dividerHeight: CGFloat = 46
 
     /// True when at least one section-divider band is currently laid out. Read by arrow-key
     /// navigation to choose between
@@ -700,30 +713,12 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
 
         containerWidth = scrollWidth
 
-        /// Column count, in points.
-        let availableWidth = scrollWidth - (edgeInset * 2)
-        let theoreticalColumns = Int(floor((availableWidth + itemSpacing) / (minItemWidth + itemSpacing)))
-        columnsPerRow = min(max(1, theoreticalColumns), maxColumns)
-
-        /// Converts fixed spacings to backing pixels.
-        let edgePx = Int(edgeInset * scale)
-        let spacingPx = Int(itemSpacing * scale)
-
-        /// Total backing pixels, and the fixed and flexible portions.
-        let totalPx = Int(round(scrollWidth * scale))
-        let fixedPx = 2 * edgePx + max(0, columnsPerRow - 1) * spacingPx
-        var itemTotalPx = max(columnsPerRow, totalPx - fixedPx)
-        var computedGridOffsetPx = 0
-
-        /// Applies the maximum grid width.
-        let maxGridPx = Int(maxGridWidth * scale)
-        let uncappedGridPx = fixedPx + itemTotalPx
-
-        if uncappedGridPx > maxGridPx {
-            itemTotalPx = max(columnsPerRow, maxGridPx - fixedPx)
-            let actualGridPx = fixedPx + itemTotalPx
-            computedGridOffsetPx = (totalPx - actualGridPx) / 2
-        }
+        let metrics = Self.columnMetrics(scrollWidth: scrollWidth, scale: scale, maxColumns: maxColumns)
+        columnsPerRow = metrics.columnsPerRow
+        let edgePx = metrics.edgePx
+        let spacingPx = metrics.spacingPx
+        let itemTotalPx = metrics.itemTotalPx
+        let computedGridOffsetPx = metrics.gridOffsetPx
 
         /// Bresenham distribution: the first `remainder` columns get one extra pixel.
         let baseItemPx = itemTotalPx / columnsPerRow
@@ -744,14 +739,11 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
             xAccum += w + spacingPx
         }
 
-        gridOffsetX = CGFloat(computedGridOffsetPx) / scale
-        effectiveGridWidth = CGFloat(fixedPx + itemTotalPx) / scale
+        gridOffsetX = metrics.gridOffsetX
+        effectiveGridWidth = metrics.gridWidth
 
         /// Vertical: exact fractional math from the precise average item width.
-        let exactItemPts = CGFloat(itemTotalPx) / (CGFloat(columnsPerRow) * scale)
-        let posterHeight = exactItemPts * GalleryTileGeometry.posterHeightMultiplier
-        let subtitleHeight: CGFloat = hasSubtitles ? 20 : 0
-        itemHeight = posterHeight + subtitleHeight
+        itemHeight = metrics.itemHeight(hasSubtitles: hasSubtitles)
 
         /// Stores geometry for on-demand attribute synthesis.
         itemCount = count
@@ -785,6 +777,66 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
 
         prevColumnsPerRow = columnsPerRow
         prevItemHeight = itemHeight
+    }
+
+    /// The grid's horizontal geometry for a scroll view `scrollWidth` points wide, in backing pixels. prepare()
+    /// computes its columns from this, and RecentsSummaryView sizes its rows' cells with it, so a row there
+    /// lines up with a row here.
+    struct ColumnMetrics {
+        let scale: CGFloat
+        let columnsPerRow: Int
+        /// The edge inset and item spacing, in backing pixels.
+        let edgePx: Int
+        let spacingPx: Int
+        /// The insets and spacings together, and the width left for the items themselves.
+        let fixedPx: Int
+        let itemTotalPx: Int
+        /// The grid's leading offset once the maximum grid width centers it. Zero below that width.
+        let gridOffsetPx: Int
+
+        var gridOffsetX: CGFloat { CGFloat(gridOffsetPx) / scale }
+        var gridWidth: CGFloat { CGFloat(fixedPx + itemTotalPx) / scale }
+        /// The narrowest column's width. Columns differ by at most one backing pixel.
+        var baseItemWidth: CGFloat { CGFloat(itemTotalPx / columnsPerRow) / scale }
+
+        /// The cell height: the poster's, from the exact average column width, plus the subtitle line.
+        func itemHeight(hasSubtitles: Bool) -> CGFloat {
+            let exactItemPts = CGFloat(itemTotalPx) / (CGFloat(columnsPerRow) * scale)
+            return exactItemPts * GalleryTileGeometry.posterHeightMultiplier + (hasSubtitles ? 20 : 0)
+        }
+    }
+
+    /// RecentsSummaryView takes its cell size from this too, ignoring `gridOffsetX`: its rows reach the window's
+    /// edges at any width, but their cells stop growing where the grid's do.
+    static func columnMetrics(scrollWidth: CGFloat, scale: CGFloat, maxColumns: Int) -> ColumnMetrics {
+        /// Column count, in points.
+        let availableWidth = scrollWidth - (edgeInset * 2)
+        let theoreticalColumns = Int(floor((availableWidth + itemSpacing)
+                                           / (Preferences.galleryMinItemWidth + itemSpacing)))
+        let columnsPerRow = min(max(1, theoreticalColumns), maxColumns)
+
+        /// Converts fixed spacings to backing pixels.
+        let edgePx = Int(edgeInset * scale)
+        let spacingPx = Int(itemSpacing * scale)
+
+        /// Total backing pixels, and the fixed and flexible portions.
+        let totalPx = Int(round(scrollWidth * scale))
+        let fixedPx = 2 * edgePx + max(0, columnsPerRow - 1) * spacingPx
+        var itemTotalPx = max(columnsPerRow, totalPx - fixedPx)
+        var gridOffsetPx = 0
+
+        /// Applies the maximum grid width.
+        let maxGridPx = Int(Preferences.galleryMaxGridWidth * scale)
+        let uncappedGridPx = fixedPx + itemTotalPx
+
+        if uncappedGridPx > maxGridPx {
+            itemTotalPx = max(columnsPerRow, maxGridPx - fixedPx)
+            let actualGridPx = fixedPx + itemTotalPx
+            gridOffsetPx = (totalPx - actualGridPx) / 2
+        }
+
+        return ColumnMetrics(scale: scale, columnsPerRow: columnsPerRow, edgePx: edgePx, spacingPx: spacingPx,
+                             fixedPx: fixedPx, itemTotalPx: itemTotalPx, gridOffsetPx: gridOffsetPx)
     }
 
     /// Clears all geometry to the empty state, so no stale segments or divider bands remain once the view is empty.

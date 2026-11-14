@@ -20,9 +20,9 @@ struct MainView: View, Loggable {
     @Environment(SelectionState.self) private var selectionState
 
     @State private var columnVisibility = NavigationSplitViewVisibility.all
-    @State private var searchController = SearchController.shared
-    var keyboardManager = KeyboardManager.shared
-    
+    private let searchController = SearchController.shared
+    private let keyboardManager = KeyboardManager.shared
+
     /// Track the sidebar item before entering search view
     @State private var previousSidebarItem: SidebarItem = .libraryItem(.allFilms)
 
@@ -85,9 +85,10 @@ struct MainView: View, Loggable {
             .modifier(SidebarChangeModifier { oldItem, newItem in
                 handleViewChange(from: oldItem, to: newItem)
             })
-            .onChange(of: searchController.hasContent) { _, hasContent in
+            /// The same again for the search field's hasContent, which flips on entering and leaving search.
+            .modifier(SearchContentChangeModifier { hasContent in
                 handleSearchContentChange(hasContent)
-            }
+            })
             .task(priority: .userInitiated) { await initialize() }
             .onAppear {
                 /// Setup global keyboard event manager.
@@ -103,29 +104,13 @@ struct MainView: View, Loggable {
                     handleActivateTokenSearch(field: field, value: value)
                 case .openSavedSearchInField(let id):
                     handleOpenSavedSearchInField(id)
-                case .navigateToImportsMetadata: navigateToImports(.metadata)
-                case .navigateToImportsRatings: navigateToImports(.ratings)
+                case .navigateToImportsMetadata: ImportsState.shared.open(.metadata, appState: appState)
+                case .navigateToImportsRatings: ImportsState.shared.open(.ratings, appState: appState)
                 default: break
                 }
             }
         }
     }
-
-    /// Switches to the Imports view and selects `category`'s tab. It deliberately stops
-    /// there: arriving at the Imports view NEVER opens a file picker on its own, however
-    /// the user got here. Starting an import is always a second, explicit act — the title
-    /// bar's "Select Files" button, or pressing the same shortcut again once this view
-    /// holds it.
-    ///
-    /// ImportsState is a singleton mutated directly here (rather than via an AppEventBus
-    /// round-trip) so the tab selection is guaranteed to be applied before ImportsView's
-    /// next render, regardless of whether the view already exists or is about to be
-    /// created by the sidebar-item switch above.
-    private func navigateToImports(_ category: ImportsCategory) {
-        appState.navigate(to: .libraryItem(.imports))
-        ImportsState.shared.requestCategory(category)
-    }
-
 
     // MARK: - Main Content Area
     private var mainContentArea: some View {
@@ -151,12 +136,8 @@ struct MainView: View, Loggable {
     }
 
     // MARK: - Initialization
-    @MainActor
+    /// Data loading is DataCoordinator's (FilmTrackerApp.initializeApp). This only attaches the import services.
     private func initialize() async {
-        /// Removed redundant database probe and loadFilmsImmediate()
-        /// DataCoordinator.initializeMemoryStore() already handles all data loading
-        /// in FilmTrackerApp.initializeApp()
-        
         ImportProgress.shared.attachContext(modelContext)
         ImportProgress.shared.attachCoordinator(dataCoordinator)
         /// Loads the Imports view's session index in the background, so the first visit
@@ -193,19 +174,12 @@ struct MainView: View, Loggable {
         ///
         /// NOTE: Do NOT guard on searchController.hasContent here. When the user manually
         /// navigates away from search while content is present, hasContent is still true —
-        /// but clearSearch() must still fire to reset the field. The searchAlreadyRestarted
+        /// but clearSearch() must still fire to reset the field. The restarted-search
         /// check alone is the correct and sufficient guard for the race scenario above,
         /// because in that race selectedSidebarItem is already back to .search by the time
         /// this deferred block runs (step 3 above happens before step 4).
-        if case .libraryItem(.search) = oldItem, newItem != oldItem {
-            let searchAlreadyRestarted: Bool
-            if case .libraryItem(.search) = appState.selectedSidebarItem {
-                searchAlreadyRestarted = true
-            } else {
-                searchAlreadyRestarted = false
-            }
-            
-            if searchAlreadyRestarted {
+        if oldItem == .libraryItem(.search), newItem != oldItem {
+            if appState.selectedSidebarItem == .libraryItem(.search) {
                 Self.log("Skipping clearSearch() — new search began before deferred handler fired")
             } else {
                 Self.log("User switched away from search - clearing search query")
@@ -219,53 +193,19 @@ struct MainView: View, Loggable {
     private func handleSearchContentChange(_ hasContent: Bool) {
         if hasContent {
             /// Already in search view — do not overwrite previousSidebarItem.
-            if case .libraryItem(.search) = appState.selectedSidebarItem {
+            if appState.selectedSidebarItem == .libraryItem(.search) {
                 return
             }
             
-            /// Save the current view as the return destination. The guard above has
-            /// already returned for `.search`, so `current` can never be search here —
-            /// which is what keeps rapid clear/re-enter cycles returning to the true prior
-            /// destination rather than to search itself.
+            /// The guard above has already returned for `.search`, so the exit destination saved
+            /// here can never be search itself, which keeps rapid clear/re-enter cycles returning
+            /// to the true prior view.
             let current = appState.selectedSidebarItem
-            previousSidebarItem = current
-            Self.log("Search content entered - switching to search view (previous: \(previousSidebarItem))")
-
-            /// A new search session invalidates any unconsumed scroll intent from a
-            /// previous session — a search-exit handoff whose destination was never
-            /// rendered, or a grid⟷list toggle handoff addressed to the view being
-            /// left for search. Neither can legitimately resolve once search is
-            /// entered, since GalleryView.handleSidebarChange won't fire again until exit.
-            GalleryScrollIntent.shared.clear()
-            GalleryFocusIntent.shared.clear()
-
-            appState.navigate(to: .libraryItem(.search))
-            
-            /// Eagerly promote ViewStateManager to the search view in the same run-loop tick
-            /// that selectedSidebarItem is set.
-            ///
-            /// Without this, ViewStateManager.activeView remains on the prior view until the
-            /// GalleryView embedded inside InlineSearchView fires its onAppear callback (which
-            /// happens in a subsequent SwiftUI layout pass — asynchronously). During that gap,
-            /// SearchController's debounced triggerSearch() Task can fire and call
-            /// updateSearchQuery(), which guards `activeView.isSearch` and silently drops the
-            /// query — leaving the search view present but empty with no results.
-            ///
-            /// By calling switchToViewSync(.search) here, activeView becomes .search
-            /// immediately. The debounce Task's updateSearchQuery() call always finds
-            /// activeView.isSearch == true and writes the query correctly.
-            /// The subsequent onAppear-triggered switchToViewSync(.search) from the embedded
-            /// GalleryView becomes a complete no-op: isViewChange is false (activeView is
-            /// already .search), the state is identical, so no reload or AppEventBus post fires.
-            ///
-            /// matchingStyleOf: current seeds the search session's initial grid/list style
-            /// from the view being left, so results appear in the same style as the
-            /// destination the user will return to on search exit (see
-            /// switchToViewSync's doc comment for the full rationale).
-            ViewStateManager.shared.switchToViewSync(.search, matchingStyleOf: viewIdentifier(for: current))
+            Self.log("Search content entered - switching to search view (previous: \(current))")
+            showSearch(from: current)
         } else {
             /// Search cleared - return to previous view only if still in search.
-            if case .libraryItem(.search) = appState.selectedSidebarItem {
+            if appState.selectedSidebarItem == .libraryItem(.search) {
                 /// Resolve the destination first. previousSidebarItem is captured at search entry and can become invalid
                 /// while search is open, for example if the user deletes the list they searched from. LeftSidebar redirects
                 /// only the displayed item, which is never the search view, so the stale value must be checked here.
@@ -298,7 +238,7 @@ struct MainView: View, Loggable {
                     ? selectionState.selectedFilmID
                     : nil
 
-                let destinationViewID = viewIdentifier(for: destination)
+                let destinationViewID = ViewIdentifier.from(destination)
                 GalleryScrollIntent.shared.clear()
                 GalleryFocusIntent.shared.clear()
                 ViewStateManager.shared.switchToViewSync(destinationViewID)
@@ -326,11 +266,15 @@ struct MainView: View, Loggable {
                     /// ViewIdentifier so no stale instance can consume it. Both gallery styles
                     /// resolve the scroll in viewWillDraw(), so the first painted frame is already
                     /// positioned. The film moves to the top of the viewport, as with Cmd+L.
+                    /// The destination is the same mounted gallery, so its update pass, not a fresh makeNSView,
+                    /// claims the intent.
                     GalleryScrollIntent.shared.set(filmID: selectedFilmID,
-                                                   targetViewID: destinationViewID)
-                    /// Also hands over keyboard focus. The destination is a fresh instance that
-                    /// would otherwise never become first responder, leaving the arrow keys dead
-                    /// until Tab is pressed. Addressed like the scroll intent, under the same gate.
+                                                   targetViewID: destinationViewID,
+                                                   consumableOnReuse: GalleryReuse.isSharedHostItem(destination))
+                    /// Also hands over keyboard focus. Leaving search resigns the gallery
+                    /// (GalleryView.resetForReuse), so it would otherwise not be first responder, leaving
+                    /// the arrow keys dead until Tab is pressed. Addressed like the scroll intent, under the
+                    /// same gate.
                     GalleryFocusIntent.shared.set(targetViewID: destinationViewID)
                 } else {
                     /// No preservation on this exit. Clears any preserve ID left by an earlier,
@@ -344,13 +288,6 @@ struct MainView: View, Loggable {
     }
 
     // MARK: - Search-Exit Helpers
-
-    /// Converts a SidebarItem to its corresponding ViewIdentifier.
-    /// Delegates to the canonical ViewIdentifier.from(_:) so that the translation
-    /// logic lives in exactly one place across the entire codebase.
-    private func viewIdentifier(for item: SidebarItem) -> ViewIdentifier {
-        ViewIdentifier.from(item)
-    }
 
     /// Checks that `previousSidebarItem` is still valid at search exit. It is captured on entry
     /// and not updated during the search, so the list may have been deleted since.
@@ -374,72 +311,60 @@ struct MainView: View, Loggable {
         }
     }
 
-    // MARK: - Saved Search Editing
+    // MARK: - Search Entry
 
-    /// Opens a saved search in the field. It promotes to the search view eagerly, as
-    /// handleActivateTokenSearch does. The view being left becomes the exit destination.
-    /// "Update Saved Search…" in the title bar goes to the saved search's own view instead.
-    private func handleOpenSavedSearchInField(_ id: UUID) {
-        guard let search = SavedSearchStore.shared.search(id) else { return }
-        let current = appState.selectedSidebarItem
-        let isAlreadyInSearch = current == .libraryItem(.search)
-        ViewStateManager.shared.switchToViewSync(
-            .search, matchingStyleOf: isAlreadyInSearch ? nil : viewIdentifier(for: current))
-        searchController.applySavedSearch(search)
-        /// Focuses the field with the caret after the query, once the search view has settled.
-        DispatchQueue.main.async {
-            guard let item = NSApp.keyWindow?.toolbar?.items.lazy
-                    .compactMap({ $0 as? NSSearchToolbarItem }).first else { return }
-            item.beginSearchInteraction()
-            if let editor = item.searchField.currentEditor() {
-                editor.selectedRange = NSRange(location: (editor.string as NSString).length, length: 0)
-            }
+    /// Shows the search view for the query the field already holds. The one entry path for typing
+    /// (handleSearchContentChange), the sidebar "Search" buttons, and opening a saved search in the field.
+    ///
+    /// From another view, `current` becomes the exit destination and seeds the results' grid or list style,
+    /// so they appear in the style of the view the user returns to (see switchToViewSync). Already in search,
+    /// the seed is ignored, the session's sort and filters reset as for a new search, and its style is kept.
+    ///
+    /// The field must be filled first. switchToViewSync injects its query, so the switch loads the results
+    /// once; switching first loaded the unfiltered library, then the results. The switch also runs before the
+    /// flip, so activeView is .search by the time the debounced triggerSearch() calls updateSearchQuery(),
+    /// which drops a query outside search. navigate(to:)'s own pre-switch is then a no-op.
+    private func showSearch(from current: SidebarItem) {
+        if current != .libraryItem(.search) {
+            previousSidebarItem = current
+            /// A new search session invalidates any unconsumed scroll or focus handoff from the last one,
+            /// including one addressed to search itself, which navigate(to:) would keep.
+            GalleryScrollIntent.shared.clear()
+            GalleryFocusIntent.shared.clear()
         }
+        ViewStateManager.shared.switchToViewSync(.search, matchingStyleOf: ViewIdentifier.from(current))
+        appState.navigate(to: .libraryItem(.search))
     }
 
-    // MARK: - Token Search Activation
-    
-    /// Handles the .activateTokenSearch command from the sidebar "Search" buttons. It saves the
-    /// current view as the return destination, then runs a token search with instant results.
-    private func handleActivateTokenSearch(field: SearchField, value: String) {
-        /// Save the current sidebar item as the return destination, matching the
-        /// same guard used in handleSearchContentChange to prevent search→search cycles.
+    /// Opens a saved search in the field, from its menus or the field's drop-down. The view being left
+    /// becomes the exit destination. "Update Saved Search…" in the title bar goes to the saved search's own
+    /// view instead.
+    private func handleOpenSavedSearchInField(_ id: UUID) {
+        /// A saved query is never empty (the builder refuses to save one). An empty one would leave the
+        /// search view with nothing to show and no content change to return from.
+        guard let search = SavedSearchStore.shared.search(id), !search.query.isEmpty else { return }
         let current = appState.selectedSidebarItem
-        let isAlreadyInSearch: Bool
-        if case .libraryItem(.search) = current {
-            /// Already in search view — skip saving previousSidebarItem, just replace query.
-            isAlreadyInSearch = true
-        } else {
-            isAlreadyInSearch = false
-            previousSidebarItem = current
-        }
+        searchController.applySavedSearch(search)
+        showSearch(from: current)
+        /// Focuses the field with the caret after the query, once the search view has settled.
+        DispatchQueue.main.async { SearchController.focusFieldAtEnd() }
+    }
 
-        /// Switches to the search view before the token is applied, so triggerSearchImmediate()
-        /// finds an active search context (as in handleSearchContentChange). It also suppresses
-        /// the selection clear in handleViewChange, since the selected film stays in the results.
-        ///
-        /// The suppression flag is set only when this call causes a sidebar transition. Otherwise
-        /// it would stay armed and skip the selection clear on the next real view change.
-        if !isAlreadyInSearch {
+    /// Handles the .activateTokenSearch command from the sidebar "Search" buttons: a single-token search
+    /// with instant results.
+    private func handleActivateTokenSearch(field: SearchField, value: String) {
+        let current = appState.selectedSidebarItem
+        /// The selected film is guaranteed to be in the results, so the selection clear in
+        /// AppState.navigate(to:) is suppressed. Armed only when this call changes the sidebar item:
+        /// otherwise it would stay armed and skip the clear on the next real view change.
+        if current != .libraryItem(.search) {
             appState.armTokenSearchSelectionPreservation()
         }
-        /// matchingStyleOf seeds the search's grid or list style from the view being left, as in
-        /// handleSearchContentChange (see switchToViewSync). Already in search, no seed is passed.
-        ViewStateManager.shared.switchToViewSync(
-            .search,
-            matchingStyleOf: isAlreadyInSearch ? nil : viewIdentifier(for: current))
-
-        /// Applies the token and runs the search. This sets hasContent, which calls
-        /// handleSearchContentChange. That handler does not overwrite previousSidebarItem here.
         searchController.programmaticTokenSearch(field: field, value: value)
-
-        /// The sidebar item is switched last, so the search state is complete before the search
-        /// view appears.
-        appState.navigate(to: .libraryItem(.search))
-        
+        showSearch(from: current)
         Self.log("Activated token search: \(field.displayName) = \"\(value)\"")
     }
-    
+
     // MARK: - Sidebar Toggle
     
     private func toggleSidebarVisibility() {
@@ -476,7 +401,7 @@ private struct AddNewToolbarButton: View {
 /// Top-level toolbar Menu button offering the two import types. Selecting either
 /// option navigates to ImportsView and selects the matching tab; it does not open
 /// that tab's filesystem picker, which is always a separate, explicit act — see
-/// MainView.navigateToImports(_:).
+/// ImportsState.open(_:appState:).
 @MainActor
 private struct ImportToolbarMenu: View {
     var importsState = ImportsState.shared
@@ -496,7 +421,7 @@ private struct ImportToolbarMenu: View {
             }
             .disabled(importsState.isViewingImports && importsState.selectedCategory == .ratings)
         } label: {
-            Image(systemName: "arrow.down.document")
+            Image(systemName: ViewGlyphs.imports.outline)
         }
         .help("Import metadata and ratings")
     }
@@ -554,33 +479,31 @@ private struct ScanDuplicatesToolbarButton: View {
 @MainActor
 private struct MainContentSwitcher: View {
     @Environment(AppState.self) private var appState
-    @AppStorage(preference: Preferences.showStatusBarKey) private var showStatusBar: Bool
+    /// Whether the StatusBar shows here, and in which form (StatusBar.swift).
+    @CurrentStatusBar private var statusBar
 
     var body: some View {
         let selectedItem = appState.selectedSidebarItem
         
-        /// The sidebar and status bar share this visibility rule. See
+        /// The right sidebar's visibility rule, which StatusBarLayout also applies. See
         /// ViewCapabilities.showsGalleryChrome (ViewState.swift) for the per-view rules.
         let showsChrome = selectedItem.capabilities.showsGalleryChrome
+        /// Resolved once per pass: the overlay below and the gallery's bottom inset both come from it.
+        let statusBar = self.statusBar
         
         /// Single, stable layout structure that persists across view switches
         HStack(spacing: 0) {
             /// Main content area with status bar overlay
             ZStack(alignment: .bottom) {
                 /// Content switcher with stable identities
-                contentView(for: selectedItem)
+                contentView(for: selectedItem, statusBarHeight: statusBar.height)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
                 
-                /// StatusBar as overlay - doesn't affect layout of content above
-                /// Only show if preference is enabled and view supports it
-                if showStatusBar && showsChrome {
-                    VStack(spacing: 0) {
-                        StatusBar()
-                            .frame(height: StatusBar.height)
-                            .background(Color(NSColor.controlBackgroundColor))
-                            .overlay(Divider(), alignment: .top)
-                    }
+                /// StatusBar as overlay - doesn't affect layout of content above. StatusBarLayout decides whether it
+                /// shows (the preference and showsChrome) and its form; the bar sizes and draws its own chrome.
+                if statusBar.isVisible {
+                    StatusBar(layout: statusBar)
                 }
             }
             /// Lower layout priority allows gallery to compress first
@@ -591,14 +514,12 @@ private struct MainContentSwitcher: View {
             /// RightSidebar, discarding all of its @State. RightSidebar resolves its content only
             /// on selection change, not on mount, so a selection that survived the flip would
             /// show as "Nothing Selected". Both flipping paths clear the selection first: a view
-            /// switch (handleViewChange) and a Reports category change (ReportsView). Any future
+            /// switch (AppState.navigate(to:)) and a Reports category change (ReportsView). Any future
             /// view that toggles this flag must clear the selection too, or add a mount-time resolve.
             if showsChrome {
                 Divider()
                 
-                Group {
-                    if RSBProfileFlags.noSidebar { Color.clear } else { RightSidebar() }
-                }
+                RightSidebar()
                     .frame(width: 300)
                     .background(Color(NSColor.controlBackgroundColor))
                     .layoutPriority(1)
@@ -615,19 +536,15 @@ private struct MainContentSwitcher: View {
 
     /// Returns the appropriate content view with stable identity.
     ///
-    /// Only three sidebar items render something other than the gallery. The other six are a plain
-    /// `GalleryView(sidebarItem:)` that differ only in the item, which also gives each a stable `.id`.
-    /// They share one branch, so a gallery modifier is added once. The switch has no `default`,
-    /// so a new SidebarItem case is a compile error until it is placed.
+    /// Only Reports and Imports render something other than the gallery. The other eight share one branch,
+    /// and so one mounted `GalleryView`; that branch must list exactly the items GalleryReuse.isSharedHostItem
+    /// accepts. The switch has no `default`, so a new SidebarItem case is a compile error until it is placed.
     ///
-    /// The Film Queue is one of the six. It uses the standard gallery pipeline, and its section
-    /// dividers come from GallerySubview and the layout.
+    /// The Film Queue is one of the eight. It uses the standard gallery pipeline, and its section dividers come
+    /// from GallerySubview and the layout.
     @ViewBuilder
-    private func contentView(for item: SidebarItem) -> some View {
+    private func contentView(for item: SidebarItem, statusBarHeight: CGFloat) -> some View {
         switch item {
-        case .libraryItem(.search):
-            InlineSearchView()
-                .id("search")
         case .libraryItem(.reports):
             ReportsView()
                 .id("reports")
@@ -635,52 +552,38 @@ private struct MainContentSwitcher: View {
             ImportsView()
                 .id("imports")
         case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
-             .libraryItem(.filmQueue), .smartList, .list, .savedSearch:
-            /// `item` is the identity. Each sidebar item is distinct, including per smart-list
-            /// type and per list UUID. Navigating between two gallery views must mount a fresh
-            /// GalleryView, which the scroll handoff relies on (see GalleryScrollIntent.consumableOnReuse).
-            GalleryView(sidebarItem: item)
-                .id(item)
+             .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch:
+            /// One GalleryView for all eight. A move between them is an in-place view switch, the same path a
+            /// Recents tab or smart-list variant takes. See GalleryReuse.
+            GalleryView(sidebarItem: item, statusBarHeight: statusBarHeight)
+                .modifier(SearchTokenEntryCover(item: item))
         }
     }
 }
 
-// MARK: - Inline Search View
-/// Shows placeholder when entering token, otherwise displays GalleryView with search results.
-@MainActor
-private struct InlineSearchView: View {
-    @Environment(DataCoordinator.self) private var dataCoordinator
-    @State private var searchController = SearchController.shared
-    
-    var body: some View {
-        ZStack {
-            /// Show placeholder only when entering the first token (no confirmed tokens yet)
-            if searchController.isEnteringToken && searchController.currentTokens.isEmpty {
-                tokenEntryPlaceholder
+// MARK: - Search Token Entry Cover
+/// While the first search token is being entered, hides the shared gallery and shows a placeholder over it,
+/// rather than removing the gallery, so it stays mounted. A modifier of its own so the search state it reads
+/// invalidates only this.
+private struct SearchTokenEntryCover: ViewModifier {
+    let item: SidebarItem
+
+    func body(content: Content) -> some View {
+        /// Reads SearchController's token state only for search, so other items take no dependency on it.
+        let covers = GalleryReuse.hidesForTokenEntry(item)
+        content
+            .opacity(covers ? 0 : 1)
+            .allowsHitTesting(!covers)
+            .accessibilityHidden(covers)
+            .overlay {
+                if covers {
+                    StandardPlaceholder(
+                        glyph: ViewGlyphs.search.outline,
+                        title: "Enter Search Token",
+                        message: "Type a value after the field name, then press Return."
+                    )
+                }
             }
-            /// Show GalleryView with search results when search is active
-            /// PosterCache is now @Observable — read isReady directly; no wrapper class needed.
-            else if dataCoordinator.isInitialized && PosterCache.shared.isReady {
-                GalleryView(sidebarItem: .libraryItem(.search))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            
-            /// Loading indicator
-            if !dataCoordinator.isInitialized || !PosterCache.shared.isReady {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-            }
-        }
-    }
-    
-    /// Token entry placeholder.
-    private var tokenEntryPlaceholder: some View {
-        StandardPlaceholder(
-            glyph: "magnifyingglass",
-            title: "Enter Search Token",
-            message: "Type a value after the field name, then press Return."
-        )
     }
 }
 
@@ -700,20 +603,10 @@ private struct NavigationTitleModifier: ViewModifier {
 
     private var titleText: String {
         switch appState.selectedSidebarItem {
-        case .libraryItem(.allFilms):
-            return "All Films"
         case .libraryItem(.search):
             return "Searching Library…"
-        case .libraryItem(.unwatched):
-            return "Unwatched"
-        case .libraryItem(.recents):
-            return "Recents"
-        case .libraryItem(.reports):
-            return "Reports"
-        case .libraryItem(.imports):
-            return "Imports"
-        case .libraryItem(.filmQueue):
-            return "Queue"
+        case .libraryItem(let item):
+            return item.title
         case .smartList(let type):
             return type.rawValue
         case .list(let uuid):
@@ -731,9 +624,8 @@ private struct SidebarChangeModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.onChange(of: appState.selectedSidebarItem) { oldItem, newItem in
-                /// Defers the handler to the next run loop. selectionState.clearImmediate() is an
-            /// @Observable mutation and must not run during SwiftUI's render, which would produce
-            /// "Publishing changes from within view updates" errors.
+            /// Defers the handler to the next run loop, clear of the view update that draws the
+            /// switch: clearing the search field writes the toolbar field's bound text.
             ///
             /// DispatchQueue.main.async is used instead of Task { @MainActor in }. onChange runs at
             /// User-Interactive QoS, and a bare Task defaults to a lower QoS, which triggers a
@@ -741,6 +633,19 @@ private struct SidebarChangeModifier: ViewModifier {
             DispatchQueue.main.async {
                 action(oldItem, newItem)
             }
+        }
+    }
+}
+
+/// MainView's search-content onChange, in a modifier of its own for the same reason as
+/// SidebarChangeModifier. Runs synchronously: the entry and exit it drives clear the selection
+/// in navigate(to:), which must land in the same frame as the switch.
+private struct SearchContentChangeModifier: ViewModifier {
+    let action: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        content.onChange(of: SearchController.shared.hasContent) { _, hasContent in
+            action(hasContent)
         }
     }
 }
@@ -831,9 +736,7 @@ private struct SearchFieldSuggestions: View {
                 .selectionDisabled()
             ForEach(saved) { search in
                 Button {
-                    if !SavedSearchActions.reviewInsteadOfOpening(search.id) {
-                        searchController.applySavedSearch(search)
-                    }
+                    SavedSearchActions.openInSearchField(search.id)
                 } label: {
                     Text(search.name)
                         .lineLimit(1)
@@ -879,22 +782,20 @@ private struct SearchFieldSuggestions: View {
         let isOrMode = searchController.isOrMode
         let isInvertedMode = searchController.isInvertedMode
 
-        if !suggestedFields.isEmpty {
-            ForEach(suggestedFields, id: \.self) { field in
-                Button {
-                    searchController.insertField(field)
-                } label: {
-                    HStack(spacing: 4) {
-                        if isOrMode {
-                            Text("Or")
-                                .foregroundStyle(.green)
-                        }
-                        if isInvertedMode {
-                            Text("Not")
-                                .foregroundStyle(.red)
-                        }
-                        Text(field.displayName)
+        ForEach(suggestedFields, id: \.self) { field in
+            Button {
+                searchController.insertField(field)
+            } label: {
+                HStack(spacing: 4) {
+                    if isOrMode {
+                        Text("Or")
+                            .foregroundStyle(.green)
                     }
+                    if isInvertedMode {
+                        Text("Not")
+                            .foregroundStyle(.red)
+                    }
+                    Text(field.displayName)
                 }
             }
         }

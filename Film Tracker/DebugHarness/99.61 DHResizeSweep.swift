@@ -5,11 +5,10 @@
 /// Opt-in (`-FTDebugHarness resize-perf`); not part of `all`, because its output is a
 /// measurement rather than a verdict.
 ///
-/// Complements DHResizeProfiler (99.60), which observes a REAL drag and answers "is the app
-/// the bottleneck?". A synthetic sweep cannot answer that (see the long note at the top of
-/// 99.60), but it CAN answer the narrower question this file exists for: how much
-/// main-thread work does one width step cost, and how does that cost differ between the two
-/// geometric regimes the grid has?
+/// A synthetic sweep cannot say whether the app limits a real drag's frame rate (AppKit's live
+/// resize runs its own tracking loop and the window server sets the cadence), but it CAN answer
+/// the narrower question this file exists for: how much main-thread work does one width step
+/// cost, and how does that cost differ between the two geometric regimes the grid has?
 ///
 ///   • RESIZE regime  -- window narrower than the grid's maximum width: every tile changes
 ///     size on every step.
@@ -19,7 +18,7 @@
 /// The real grid (GallerySubview -> NSCollectionView -> GalleryItem cells) is hosted in a
 /// window whose content size is stepped 2pt at a time through each regime; per step the
 /// synchronous layout wall time plus main-thread CPU over the following run-loop turns is
-/// recorded, exactly as card-perf measures. Posters are synthesized into the sandbox's poster
+/// recorded. Posters are synthesized into the sandbox's poster
 /// folder so cells carry real image layers, not placeholders.
 ///
 /// In the TRANSLATE regime no per-cell layout runs: prepare() runs once per step, and
@@ -44,7 +43,9 @@ extension DebugHarness {
         let coordinator: DataCoordinator
         var body: some View {
             GallerySubview(scrollRequest: nil, activeViewID: .allFilms,
-                           subtitleProvider: nil, showSectionDividers: false)
+                           subtitleProvider: nil, showSectionDividers: false,
+                           statusBarHeight: StatusBarLayout.resolve(for: .libraryItem(.allFilms),
+                                                                    showStatusBar: Preferences.showStatusBar).height)
                 .environment(coordinator)
                 .environment(SelectionState.shared)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -1,41 +1,27 @@
 // MARK: - DragDropSupport.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// Drag-and-drop support for gallery items. It uses standard pasteboard types, so no Info.plist registration is needed.
+/// Drag-and-drop support for gallery items. Film IDs travel on one app-private pasteboard type, which needs no
+/// Info.plist registration, since drags never leave the app (see the sources' operation masks).
 
 import AppKit
-import SwiftUI
-import UniformTypeIdentifiers
 
 // MARK: - Pasteboard Type
 
 extension NSPasteboard.PasteboardType {
-    /// Custom pasteboard type for FilmTracker film ID drags.
-    /// This is a simple string identifier - no UTType registration needed.
+    /// Custom pasteboard type for FilmTracker film ID drags. Every film drop target registers for this type alone.
     static let filmIDs = NSPasteboard.PasteboardType("com.filmTracker.filmIDs")
 }
 
 // MARK: - Film Drag Payload
 
-/// Codable payload for dragged film IDs.
-/// Conforms to Transferable for SwiftUI drop destinations.
-struct FilmDragPayload: Codable, Transferable, Sendable {
+/// Codable payload for dragged film IDs, written to the pasteboard as JSON under `.filmIDs`.
+struct FilmDragPayload: Codable, Sendable {
     /// The UUIDs of the films being dragged.
     let filmIDs: [UUID]
-    
+
     init(filmIDs: Set<UUID>) {
         self.filmIDs = Array(filmIDs)
-    }
-    
-    /// Returns the film IDs as a Set for efficient operations.
-    var filmIDSet: Set<UUID> {
-        Set(filmIDs)
-    }
-    
-    // MARK: - Transferable
-    
-    static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .json)
     }
 }
 
@@ -56,12 +42,11 @@ final class FilmDragPasteboardWriter: NSObject, NSPasteboardWriting, Loggable {
     // MARK: - NSPasteboardWriting
     
     func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        /// Provide both our custom type and a standard JSON type for SwiftUI Transferable
-        return [.filmIDs, .init(UTType.json.identifier)]
+        [.filmIDs]
     }
-    
+
     func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        /// Encode the payload as JSON for both types
+        guard type == .filmIDs else { return nil }
         do {
             let encoder = JSONEncoder()
             return try encoder.encode(payload)
@@ -79,33 +64,16 @@ final class FilmDragPasteboardWriter: NSObject, NSPasteboardWriting, Loggable {
 struct FilmDragDecoder: Loggable {
     nonisolated static let logTag = "[FilmDragDecoder]"
     
-    /// Decodes film IDs from an NSPasteboard.
-    static func decode(from pasteboard: NSPasteboard) -> Set<UUID>? {
-        /// Try our custom type first
-        if let data = pasteboard.data(forType: .filmIDs) {
-            return decodeData(data)
-        }
-        
-        /// Fall back to JSON type (for SwiftUI Transferable compatibility)
-        if let data = pasteboard.data(forType: .init(UTType.json.identifier)) {
-            return decodeData(data)
-        }
-        
-        log("No film drag data found on pasteboard")
-        return nil
-    }
-    
-    /// Decodes film IDs from NSDraggingInfo.
+    /// Decodes film IDs from a drag's pasteboard.
     static func decode(from draggingInfo: any NSDraggingInfo) -> Set<UUID>? {
-        return decode(from: draggingInfo.draggingPasteboard)
-    }
-    
-    private static func decodeData(_ data: Data) -> Set<UUID>? {
+        guard let data = draggingInfo.draggingPasteboard.data(forType: .filmIDs) else {
+            log("No film drag data found on pasteboard")
+            return nil
+        }
         do {
-            let decoder = JSONDecoder()
-            let payload = try decoder.decode(FilmDragPayload.self, from: data)
+            let payload = try JSONDecoder().decode(FilmDragPayload.self, from: data)
             log("Decoded \(payload.filmIDs.count) film ID(s)")
-            return payload.filmIDSet
+            return Set(payload.filmIDs)
         } catch {
             log("ERROR: Failed to decode drag payload: \(error)")
             return nil
@@ -158,12 +126,13 @@ struct FilmDragImageProvider {
         /// Create clipping path for rounded corners (continuous, like the gallery's posters)
         let clipPath = NSBezierPath(cgPath: CGPath.continuousRoundedRect(insetRect, cornerRadius: cornerRadius))
         
-        if let poster = posterImage {
-            /// Draw poster with semi-transparency (ghost effect)
+        if let poster = posterImage, poster.size.width > 0, poster.size.height > 0 {
+            /// Draw poster with semi-transparency (ghost effect). It is aspect-filled, as the gallery's
+            /// tiles and list rows show it: the box (44 × 68) is not 2:3, so a plain stretch would squash it.
             NSGraphicsContext.saveGraphicsState()
             clipPath.addClip()
             poster.draw(in: insetRect,
-                       from: NSRect(origin: .zero, size: poster.size),
+                       from: aspectFillSourceRect(for: poster.size, filling: insetRect.size),
                        operation: .sourceOver,
                        fraction: 0.8)  /// Semi-transparent ghost effect
             NSGraphicsContext.restoreGraphicsState()
@@ -206,10 +175,25 @@ struct FilmDragImageProvider {
         return image
     }
     
+    /// The centered part of an image of `imageSize` that has `target`'s aspect ratio: the source rect for an
+    /// aspect-fill draw into a box of that size, matching `.resizeAspectFill` and SwiftUI's `scaledToFill`.
+    private static func aspectFillSourceRect(for imageSize: NSSize, filling target: NSSize) -> NSRect {
+        guard target.width > 0, target.height > 0 else { return NSRect(origin: .zero, size: imageSize) }
+        let targetAspect = target.width / target.height
+        if imageSize.width / imageSize.height > targetAspect {
+            /// Wider than the box: crop the sides.
+            let width = imageSize.height * targetAspect
+            return NSRect(x: (imageSize.width - width) / 2, y: 0, width: width, height: imageSize.height)
+        }
+        /// Taller than (or as tall as) the box: crop the top and bottom.
+        let height = imageSize.width / targetAspect
+        return NSRect(x: 0, y: (imageSize.height - height) / 2, width: imageSize.width, height: height)
+    }
+
     /// Draws a count badge at the bottom-right corner of the content area.
     /// The badge hangs partially inside and partially outside the content bounds.
     private static func drawCountBadge(count: Int, contentRect: NSRect) {
-        let badgeText = "\(count)"
+        let badgeText = Fmt.count(count)
         let badgeFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
         let badgeAttributes: [NSAttributedString.Key: Any] = [
             .font: badgeFont,
@@ -464,7 +448,7 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         let dist = sqrt(dx * dx + dy * dy)
         guard dist >= 4 else { return false }
         isDragInitiated = true
-        startManualDrag(with: mouseDownEvent ?? event, currentLocationInView: locationInView)
+        startManualDrag(with: mouseDownEvent ?? event)
         return true
     }
 
@@ -483,11 +467,17 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
 
     // MARK: - Drag Initiation
 
-    /// - Parameter currentLocationInView: the live cursor position when the drag threshold was
-    ///   crossed. It sets only the preview's visual starting point, never which films are dragged.
-    ///   Identity comes from `potentialDragStart`, the mouseDown position. Even a few points of
-    ///   drift could land `indexPathForItem(at:)` on a neighboring cell and swap in another film.
-    private func startManualDrag(with event: NSEvent, currentLocationInView: NSPoint) {
+    /// Which films are dragged comes from `potentialDragStart`, the mouseDown position. Even a few
+    /// points of drift could land `indexPathForItem(at:)` on a neighboring cell and swap in another film.
+    ///
+    /// The preview is anchored at `event`'s own location, the one AppKit is handed. AppKit holds the
+    /// dragging image at a fixed offset from that event's location for the whole session, so a frame
+    /// built around any other point carries the difference with it. It used to be built around the
+    /// cursor at the moment the 4-point threshold was crossed. That is normally a few points from the
+    /// mouseDown, but when the main thread was busy after mouseDown (the RightSidebar's content build for
+    /// the new selection), the first mouseDragged arrived late and far away, and the preview trailed the
+    /// cursor by that distance — often around 50 points.
+    private func startManualDrag(with event: NSEvent) {
         guard let sourceView,
               let getDragFilmIDs else {
             return
@@ -508,7 +498,7 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
         let preview = Self.nativeDragPreview(
             filmCount: filmIDs.count,
             posterImage: posterImage,
-            cursorLocationInView: currentLocationInView,
+            cursorLocationInView: sourceView.convert(event.locationInWindow, from: nil),
             in: sourceView
         )
         pasteboardItem.setDraggingFrame(preview.frame, contents: preview.image)
@@ -573,6 +563,11 @@ final class GalleryDragEngine: NSObject, NSDraggingSource {
                          sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         context == .withinApplication ? .copy : []
     }
+
+    /// Modifier keys must not narrow the mask. AppKit would otherwise cut it to .generic while ⌘ is held
+    /// (often still down from the ⌘-click that built the selection) and to .link under Control. Neither
+    /// includes .copy, the only operation the drop targets offer, so the drop would be refused.
+    func ignoreModifierKeys(for session: NSDraggingSession) -> Bool { true }
 
     func draggingSession(_ session: NSDraggingSession,
                          endedAt screenPoint: NSPoint, operation: NSDragOperation) {

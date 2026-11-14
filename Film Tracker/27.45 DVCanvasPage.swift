@@ -8,11 +8,9 @@
 ///
 /// Why not hosted SwiftUI: an NSHostingView of ~1,000 leaves re-resolves every Text and re-renders
 /// every drawing group whenever the window's key state flips, which every sheet, popover, and window
-/// switch causes. Inside AppKit's sheet animation that stepped from the main thread and stuttered
-/// (`sheet-hitch` in 99.50). Drawn here, nothing on the page redraws on a key change, and a scroll
-/// step only moves drawn strips. `dataviz-render`
-/// (99.40) renders the page; `dataviz-canvas` (99.40) measures it; `dataviz-window` (99.50) captures the
-/// real window.
+/// switch causes. Inside AppKit's sheet animation that stepped from the main thread and stuttered.
+/// Drawn here, nothing on the page redraws on a key change, and a scroll step only moves drawn
+/// strips. `dataviz-render` (99.40) renders the page; `dataviz-canvas` (99.40) measures it.
 
 import AppKit
 import SwiftUI
@@ -163,8 +161,6 @@ final class DVCanvasPageView: NSView {
     static var layoutMs: Double = 0
     /// Page rebuilds (a new model or a scope switch), for the `dataviz-tab` scenario.
     static var rebuilds = 0
-    /// Every width the page was laid out at, with the time (`dataviz-measure`).
-    static var debugLayoutLog: [(time: Double, width: CGFloat)] = []
     #endif
 
     override init(frame: NSRect) {
@@ -501,7 +497,6 @@ final class DVCanvasPageView: NSView {
         guard bounds.width != laidOutWidth else { return }
         #if DEBUG
         let t0 = CACurrentMediaTime()
-        Self.debugLayoutLog.append((t0, bounds.width))
         defer { Self.layoutMs += (CACurrentMediaTime() - t0) * 1000 }
         #endif
         laidOutWidth = bounds.width
@@ -550,6 +545,8 @@ final class DVCanvasPageView: NSView {
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
         refreshVisibleTiles()
+        /// resetCursorRects adds none mid-drag; this puts them back for the final width.
+        unsafe window?.invalidateCursorRects(for: self)
     }
 
     override func viewDidChangeBackingProperties() {
@@ -558,6 +555,12 @@ final class DVCanvasPageView: NSView {
     }
 
     override func resetCursorRects() {
+        /// Every resize step moves the page and invalidates its cursor rects, and gathering them walks the whole tree
+        /// for its hotspots. The pointer is on the window's edge then, over none of them; viewDidEndLiveResize restores them.
+        guard !inLiveResize else { return }
+        #if DEBUG
+        guard !Self.debugLiveResize else { return }
+        #endif
         for spot in hotspots where spot.pointer { addCursorRect(spot.rect, cursor: .pointingHand) }
     }
 
@@ -892,10 +895,10 @@ enum DVGrowthCard {
             lines.append("Since: \(DVFormat.monthYear.string(from: first))")
         }
         if g.undatedPurchases > 0 {
-            lines.append("\(DVFormat.count(g.undatedPurchases)) release\(g.undatedPurchases == 1 ? "" : "s") containing no purchase date were omitted.")
+            lines.append("\(Fmt.count(g.undatedPurchases, "release")) containing no purchase date were omitted.")
         }
         if g.undatedFilms > 0 {
-            lines.append("\(DVFormat.count(g.undatedFilms)) film\(g.undatedFilms == 1 ? "" : "s") with no Date Added omitted.")
+            lines.append("\(Fmt.count(g.undatedFilms, "film")) with no Date Added omitted.")
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
@@ -988,7 +991,7 @@ enum DVCanvasSections {
         let rows: [any DVNode]
     }
 
-    private static func films(_ n: Int) -> String { "\(DVFormat.count(n)) film\(n == 1 ? "" : "s")" }
+    private static func films(_ n: Int) -> String { Fmt.count(n, "film") }
     private static func pct(_ n: Int) -> String { "\(n)%" }
 
     static func sections(_ m: DVCanvasModel, _ b: DVBuild) -> [Section] {
@@ -1034,23 +1037,23 @@ enum DVCanvasSections {
 
     static func overview(_ m: DVCanvasModel, _ b: DVBuild) -> Section {
         let stats = m.stats, insights = m.insights
-        var viewingsFootnote = "\(DVFormat.count(insights.totalViewings)) viewings recorded"
+        var viewingsFootnote = Fmt.count(insights.totalViewings, "viewing") + " recorded"
         if let year = insights.firstViewingYear { viewingsFootnote += " since \(year)" }
         let backlogFootnote: String = {
             if let date = insights.backlogClearDate { return "Cleared by \(DVFormat.monthYear.string(from: date)) at the current pace" }
             return insights.unwatchedFilms == 0 ? "Nothing left unwatched" : "No first-time viewings in the last year from which to project"
         }()
         let tiles = DVFlow(minColumnWidth: DVStyle.minWideTileWidth, spacing: DVStyle.tileGap, maxColumns: 5, [
-            DVK.statTile(title: "Total Films", value: DVFormat.count(stats.totalFilms), color: .systemBlue,
+            DVK.statTile(title: "Total Films", value: Fmt.count(stats.totalFilms), color: .systemBlue,
                          footnote: "\(DVFormat.hours(insights.totalRuntimeMinutes)) total runtime"),
             DVK.statTile(title: "Average Rating", value: stats.averageRating, color: .systemPurple,
-                         footnote: "\(DVFormat.count(stats.totalFilms - stats.notYetRatedFilms)) rated\n\(stats.notYetRatedFilms) not yet rated"),
-            DVK.statTile(title: "Watched", value: DVFormat.count(insights.watchedFilms), color: .systemPurple,
-                         trailing: pct(DVFormat.percent(insights.watchedFilms, of: stats.totalFilms)), footnote: viewingsFootnote),
-            DVK.statTile(title: "Unwatched Backlog", value: DVFormat.count(insights.unwatchedFilms), color: .systemRed,
-                         trailing: "\(pct(DVFormat.percent(insights.unwatchedFilms, of: stats.totalFilms))) (\(DVFormat.hours(insights.unwatchedRuntimeMinutes)))",
+                         footnote: "\(Fmt.count(stats.totalFilms - stats.notYetRatedFilms)) rated\n\(Fmt.count(stats.notYetRatedFilms)) not yet rated"),
+            DVK.statTile(title: "Watched", value: Fmt.count(insights.watchedFilms), color: .systemPurple,
+                         trailing: pct(Fmt.percent(insights.watchedFilms, of: stats.totalFilms)), footnote: viewingsFootnote),
+            DVK.statTile(title: "Unwatched Backlog", value: Fmt.count(insights.unwatchedFilms), color: .systemRed,
+                         trailing: "\(pct(Fmt.percent(insights.unwatchedFilms, of: stats.totalFilms))) (\(DVFormat.hours(insights.unwatchedRuntimeMinutes)))",
                          footnote: backlogFootnote, action: m.navigation.unwatched(.unwatched)),
-            DVK.statTile(title: "Hall of Fame", value: DVFormat.count(insights.hallOfFameFilms), color: .systemYellow,
+            DVK.statTile(title: "Hall of Fame", value: Fmt.count(insights.hallOfFameFilms), color: .systemYellow,
                          trailing: insights.hallOfFameFilms > 0 ? "avg. rating: \(insights.hallOfFameAverageRating)" : nil,
                          footnote: insights.hallOfFameFilms > 0
                              ? "\(insights.hallOfFameNotOnDisc) unpurchased\n\(insights.hallOfFameUnwatchedOverYear) unwatched in over a year"
@@ -1074,8 +1077,8 @@ enum DVCanvasSections {
                 DVText(s.label, .system(12), .primary),
                 notes[i].isEmpty ? nil : DVText(notes[i], .system(10), .secondary),
                 DVSpacer(minLength: 8),
-                DVFrame(child: DVText(DVFormat.count(s.count), .mono(11, .semibold), .primary), width: 44, hAlign: .trailing),
-                DVFrame(child: DVText(pct(DVFormat.percent(s.count, of: stats.totalFilms)), .system(10), .secondary), width: 34, hAlign: .trailing),
+                DVFrame(child: DVText(Fmt.count(s.count), .mono(11, .semibold), .primary), width: 44, hAlign: .trailing),
+                DVFrame(child: DVText(pct(Fmt.percent(s.count, of: stats.totalFilms)), .system(10), .secondary), width: 34, hAlign: .trailing),
             ], priorities: [0, 1, -1, 0, 0, 0]),
                         insets: NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8), background: DVK.rowPaint, radius: 4)
         })
@@ -1086,20 +1089,20 @@ enum DVCanvasSections {
 
         /// Catalog Health
         let healthSubtitle = insights.emptiestField.map { e -> String in
-            e.blank > 0 ? "Emptiest metadata field: \(e.name) (\(DVFormat.count(e.blank)) blank)" : "Every metadata field is filled on every film"
+            e.blank > 0 ? "Emptiest metadata field: \(e.name) (\(Fmt.count(e.blank)) blank)" : "Every metadata field is filled on every film"
         } ?? "Every metadata field is filled on every film"
         func health(_ label: String, _ percent: Int, _ color: NSColor, _ count: Int) -> any DVNode {
-            DVK.barRow(label: label, fraction: Double(percent) / 100, color: color, count: DVFormat.count(count),
+            DVK.barRow(label: label, fraction: Double(percent) / 100, color: color, count: Fmt.count(count),
                        percent: pct(percent), labelWidth: 150, barHeight: 12)
         }
         var healthRows: [any DVNode] = []
         if m.showInfoComplete { healthRows.append(health("Info complete", stats.infoCompletePercent, .systemGreen, stats.infoComplete)) }
         healthRows += [
             health("Edited films", stats.editedPercent, .systemBlue, stats.editedFilms),
-            health("Alternate versions owned", DVFormat.percent(insights.alternateVersionFilms, of: stats.totalFilms), .systemBlue, insights.alternateVersionFilms),
+            health("Alternate versions owned", Fmt.percent(insights.alternateVersionFilms, of: stats.totalFilms), .systemBlue, insights.alternateVersionFilms),
             health("Not yet rated", stats.notYetRatedPercent, .systemRed, stats.notYetRatedFilms),
             health("Missing poster", stats.missingArtworkPercent, .systemRed, stats.missingArtwork),
-            health("Waiting for edit", DVFormat.percent(insights.waitingForEdit, of: stats.totalFilms), .systemOrange, insights.waitingForEdit),
+            health("Waiting for edit", Fmt.percent(insights.waitingForEdit, of: stats.totalFilms), .systemOrange, insights.waitingForEdit),
         ]
         let catalog = DVK.card(title: "Catalog Health", subtitle: healthSubtitle, [DVVStack(spacing: 6, healthRows)])
 
@@ -1108,11 +1111,11 @@ enum DVCanvasSections {
         let bars = stats.ratingsBreakdown.map { item in
             DVKBar(label: "\(item.rating)", value: Double(item.count),
                    color: NSColor.systemBlue.withAlphaComponent(0.3 + CGFloat(item.rating) / 10.0 * 0.7),
-                   valueLabel: DVFormat.count(item.count))
+                   valueLabel: Fmt.count(item.count))
         }
         let eightPlus = stats.ratingsBreakdown.filter { $0.rating >= 8 }.reduce(0) { $0 + $1.count }
         let ratings = DVK.card(title: "Ratings Breakdown", trailing: "\(films(rated)) rated",
-                               subtitle: rated > 0 ? "\(pct(DVFormat.percent(eightPlus, of: rated))) of rated films have been given an 8 or higher" : "No ratings yet",
+                               subtitle: rated > 0 ? "\(pct(Fmt.percent(eightPlus, of: rated))) of rated films have been given an 8 or higher" : "No ratings yet",
                                bottomAligned: true, [DVK.verticalBars(bars, height: 300, spacing: 6)])
 
         let cards = DVFlow(minColumnWidth: DVStyle.minWideCardWidth, weights: [2, 1], [
@@ -1189,17 +1192,17 @@ enum DVCanvasSections {
 
         /// Tiles.
         let tiles = DVFlow(minColumnWidth: DVStyle.minTileWidth, spacing: DVStyle.tileGap, maxColumns: 6, [
-            DVK.statTile(title: "Viewings", value: DVFormat.count(p.viewings), color: .systemPurple,
+            DVK.statTile(title: "Viewings", value: Fmt.count(p.viewings), color: .systemPurple,
                          delta: compare ? DVDelta(current: p.viewings, prior: p.priorViewings) : nil,
                          footnote: p.projectedYearEnd.map { "On pace for \($0) by year end" }),
-            DVK.statTile(title: "Distinct Films", value: DVFormat.count(p.distinctFilms), color: .systemPurple,
+            DVK.statTile(title: "Distinct Films", value: Fmt.count(p.distinctFilms), color: .systemPurple,
                          delta: compare ? DVDelta(current: p.distinctFilms, prior: p.priorDistinctFilms) : nil),
-            DVK.statTile(title: "First-time Viewings", value: DVFormat.count(p.firstTimeWatches), color: .systemBlue,
+            DVK.statTile(title: "First-time Viewings", value: Fmt.count(p.firstTimeWatches), color: .systemBlue,
                          delta: compare ? DVDelta(current: p.firstTimeWatches, prior: p.priorFirstTimeWatches) : nil,
-                         footnote: p.viewings > 0 ? "\(pct(DVFormat.percent(p.firstTimeWatches, of: p.viewings))) of viewings" : nil),
-            DVK.statTile(title: "Rewatches", value: DVFormat.count(p.rewatches), color: .systemBlue,
+                         footnote: p.viewings > 0 ? "\(pct(Fmt.percent(p.firstTimeWatches, of: p.viewings))) of viewings" : nil),
+            DVK.statTile(title: "Rewatches", value: Fmt.count(p.rewatches), color: .systemBlue,
                          delta: compare ? DVDelta(current: p.rewatches, prior: p.priorRewatches) : nil),
-            DVK.statTile(title: "Hours Watched", value: DVFormat.count(p.hoursWatchedMinutes / 60), color: .systemOrange,
+            DVK.statTile(title: "Hours Watched", value: Fmt.count(p.hoursWatchedMinutes / 60), color: .systemOrange,
                          delta: compare ? DVDelta(current: p.hoursWatchedMinutes / 60, prior: p.priorHoursWatchedMinutes / 60, suffix: " h") : nil,
                          footnote: p.timedViewings > 0 ? "\(DVFormat.hoursMinutes(p.hoursWatchedMinutes / p.timedViewings)) average runtime" : nil),
             DVK.statTile(title: "Average Rating", value: p.averageRating.map { Fmt.fixed($0, 1) } ?? "—", color: .systemPurple,
@@ -1260,7 +1263,7 @@ enum DVCanvasSections {
             DVKBar(label: veryShort[i], value: insights.seasonality[i], color: .systemOrange, dimmed: peak > 0 && insights.seasonality[i] < peak)
         }
         let yearsCount = insights.viewingYears.count
-        var seasonalityFootnote = "Average viewings per calendar month across \(yearsCount) recorded year\(yearsCount == 1 ? "" : "s")."
+        var seasonalityFootnote = "Average viewings per calendar month across \(Fmt.count(yearsCount, "recorded year"))."
         if let leader = insights.seasonalityLeader { seasonalityFootnote += " \(leader) leads." }
         let details = DVFlow(minColumnWidth: DVStyle.minCardWidth, maxColumns: 4, [
             DVK.card(title: "Versions Watched", subtitle: "Untagged entries are assumed to be Theatrical versions and counted as such.",
@@ -1445,7 +1448,7 @@ enum DVCanvasSections {
             DVK.stackedBar(segments),
             DVVStack(spacing: 4, [
                 DVK.attentionRowCompact(label: "Overdue", count: insights.overdue, tint: .systemRed, action: m.navigation.upForRotation),
-                DVK.factRow(label: "More than 6 months overdue", value: DVFormat.count(insights.overdueOverSixMonths), valueColor: .secondaryLabelColor,
+                DVK.factRow(label: "More than 6 months overdue", value: Fmt.count(insights.overdueOverSixMonths), valueColor: .secondaryLabelColor,
                             indented: true, indentWidth: 24, reserveChevronSpace: true, compactLabel: "More than 6 mo overdue"),
                 DVK.attentionRowCompact(label: "Due within 30 days", count: insights.dueWithin30Days, tint: .systemOrange),
                 DVK.attentionRowCompact(label: "Due within 90 days", count: insights.dueWithin90Days, tint: .systemYellow),
@@ -1487,10 +1490,10 @@ enum DVCanvasSections {
                 DVK.factRow(label: "Median threshold", value: insights.medianThreshold.map { "\($0) months" } ?? "—", reserveInfoSpace: true),
                 DVK.factRow(label: "Last gap within threshold", value: insights.lastGapWithinThresholdPercent.map { pct($0) } ?? "—",
                             reserveInfoSpace: true),
-                DVK.factRow(label: "Overrides", value: DVFormat.count(insights.thresholdOverrides), popoverID: overridesPopoverID),
-                DVK.factRow(label: "\"Auto-add to Queue\" enabled", value: DVFormat.count(insights.autoAddToQueueEnabled), popoverID: autoAddPopoverID),
-                DVK.factRow(label: "Last viewed over one year ago", value: DVFormat.count(insights.viewedOverOneYearAgo), popoverID: staleYearPopoverID),
-                DVK.factRow(label: "Unwatched", value: DVFormat.count(insights.neverViewed), popoverID: neverViewedPopoverID),
+                DVK.factRow(label: "Overrides", value: Fmt.count(insights.thresholdOverrides), popoverID: overridesPopoverID),
+                DVK.factRow(label: "\"Auto-add to Queue\" enabled", value: Fmt.count(insights.autoAddToQueueEnabled), popoverID: autoAddPopoverID),
+                DVK.factRow(label: "Last viewed over one year ago", value: Fmt.count(insights.viewedOverOneYearAgo), popoverID: staleYearPopoverID),
+                DVK.factRow(label: "Unwatched", value: Fmt.count(insights.neverViewed), popoverID: neverViewedPopoverID),
             ]),
         ])
         /// "24 months" reads "2 years", as the threshold does everywhere else it is shown.
@@ -1507,7 +1510,7 @@ enum DVCanvasSections {
             DVBox(width: 10, height: 10) { g, r in g.fill(r, DVPaint(color: s.color, opacity: s.fillOpacity), radius: 2) },
             DVText(s.label, labelFont, .primary),
             DVSpacer(minLength: 8),
-            DVFrame(child: DVText(DVFormat.count(count), .mono(11, .semibold), .primary), width: 44, hAlign: .trailing),
+            DVFrame(child: DVText(Fmt.count(count), .mono(11, .semibold), .primary), width: 44, hAlign: .trailing),
             DVFrame(child: DVText(pct(percent), .system(10), .secondary), width: 34, hAlign: .trailing),
         ]), insets: NSEdgeInsets(top: vertical, left: 8, bottom: vertical, right: 8), background: DVK.rowPaint, radius: 4)
     }
@@ -1529,7 +1532,7 @@ enum DVCanvasSections {
     static func purchases(_ m: DVCanvasModel, _ b: DVBuild) -> Section {
         let stats = m.stats, insights = m.insights
         let title = "Purchases and Spending"
-        let detail = "\(DVFormat.count(stats.totalPurchasedReleases)) purchased releases across \(films(stats.filmsOnDisc))"
+        let detail = "\(Fmt.count(stats.totalPurchasedReleases)) purchased releases across \(films(stats.filmsOnDisc))"
         guard stats.hasPurchaseData else {
             return Section(title: title, detail: detail,
                            rows: [DVK.card([DVK.footnote("No purchased releases yet. Mark a release as purchased to see spending and format statistics.")])])
@@ -1545,18 +1548,18 @@ enum DVCanvasSections {
         ]), insets: DVK.cardInsets, background: DVK.cardPaint,
             radius: DVStyle.cardRadius, fillsHeight: true)
         let tiles = DVFlow(minColumnWidth: DVStyle.minWideTileWidth, spacing: DVStyle.tileGap, maxColumns: 6, [
-            DVK.statTile(title: "Purchased Releases", value: DVFormat.count(stats.totalPurchasedReleases), color: .systemPurple,
-                         footnote: "\(DVFormat.count(insights.physicalDiscs)) physical discs\n\(insights.comboPacks) combo-packs"),
-            DVK.statTile(title: "Total Spent", value: DVFormat.wholeMoney(insights.totalSpent), color: .systemBlue,
-                         footnote: stats.filmsOnDisc > 0 ? "\(DVFormat.money(insights.totalSpent / Double(stats.filmsOnDisc))) per film on disc" : nil),
-            DVK.statTile(title: "Spent This Year", value: DVFormat.wholeMoney(insights.spentThisYear), color: .systemBlue,
+            DVK.statTile(title: "Purchased Releases", value: Fmt.count(stats.totalPurchasedReleases), color: .systemPurple,
+                         footnote: "\(Fmt.count(insights.physicalDiscs)) physical discs\n\(insights.comboPacks) combo-packs"),
+            DVK.statTile(title: "Total Spent", value: Fmt.wholeDollars(insights.totalSpent), color: .systemBlue,
+                         footnote: stats.filmsOnDisc > 0 ? "\(Fmt.dollars(insights.totalSpent / Double(stats.filmsOnDisc))) per film on disc" : nil),
+            DVK.statTile(title: "Spent This Year", value: Fmt.wholeDollars(insights.spentThisYear), color: .systemBlue,
                          delta: DVDelta.money(current: insights.spentThisYear, prior: insights.spentPriorYearSameSpan),
                          footnote: "Versus the same span last year"),
             DVK.statTile(title: "Average Cost", value: stats.averageCost, color: .systemBlue,
-                         footnote: insights.medianCost.map { "Median \(DVFormat.money($0))" }),
+                         footnote: insights.medianCost.map { "Median \(Fmt.dollars($0))" }),
             condition,
-            DVK.statTile(title: "Recordable Discs", value: DVFormat.count(insights.recordableAll), color: .systemBlue,
-                         footnote: "\(DVFormat.count(insights.recordable)) of these have been purchased.",
+            DVK.statTile(title: "Recordable Discs", value: Fmt.count(insights.recordableAll), color: .systemBlue,
+                         footnote: "\(Fmt.count(insights.recordable)) of these have been purchased.",
                          popoverID: recordablePopoverID),
         ])
 
@@ -1580,11 +1583,11 @@ enum DVCanvasSections {
             DVDecorated(child: DVHStack(spacing: 8, [
                 DVBox(width: 10, height: 10) { g, r in if let color { g.fill(r, DVPaint(color: color), radius: 2) } },
                 DVFrame(child: DVText(label, .system(12), color == nil ? .secondary : .primary), maxInfinity: true, hAlign: .leading),
-                DVFrame(child: DVText(DVFormat.count(count), .mono(11, .semibold), .primary), width: 44, hAlign: .trailing),
+                DVFrame(child: DVText(Fmt.count(count), .mono(11, .semibold), .primary), width: 44, hAlign: .trailing),
                 DVFrame(child: DVText("\(Int(percent.rounded()))%", .system(10), .secondary), width: 40, hAlign: .trailing),
                 DVFrame(child: DVText(avg, .mono(11, .semibold), .primary), width: 64, hAlign: .trailing),
                 DVFrame(child: DVText(median, .mono(11), .secondary), width: 64, hAlign: .trailing),
-                DVFrame(child: DVText(unpurchased > 0 ? DVFormat.count(unpurchased) : "—", .mono(11), .secondary),
+                DVFrame(child: DVText(unpurchased > 0 ? Fmt.count(unpurchased) : "—", .mono(11), .secondary),
                         width: 76, hAlign: .trailing),
             ]), insets: NSEdgeInsets(top: 5, left: 8, bottom: 5, right: 8), background: DVK.rowPaint, radius: 4)
         }
@@ -1593,14 +1596,14 @@ enum DVCanvasSections {
             let row = stats.formatBreakdown[i]
             let unpurchased = i < stats.unpurchasedFormatBreakdown.count ? stats.unpurchasedFormatBreakdown[i].count : 0
             formatRows.append(formatRow(colors[i], labels[i], row.count, row.percent, row.avgCost,
-                                        medians[i].map(DVFormat.money) ?? "—", unpurchased))
+                                        medians[i].map(Fmt.dollars) ?? "—", unpurchased))
         }
         formatRows.append(DVBox(height: 1) { g, r in g.fill(g.snap(r), DVK.separator) })
         formatRows.append(formatRow(nil, "All", stats.filmsOnDisc, 100, stats.averageCost,
-                                    insights.medianCost.map(DVFormat.money) ?? "—", stats.unpurchasedOnDisc))
+                                    insights.medianCost.map(Fmt.dollars) ?? "—", stats.unpurchasedOnDisc))
         /// The rows open up to fill the card's height (DVSpread) but never set it.
         let formats = DVK.card(title: "Formats", trailing: "Per-film",
-                               subtitle: "\(DVFormat.count(insights.unpurchasedOutOfPrint)) of the unpurchased films are out-of-print.",
+                               subtitle: "\(Fmt.count(insights.unpurchasedOutOfPrint)) of the unpurchased films are out-of-print.",
                                [DVSpread(minSpacing: 2, formatRows)])
 
         /// 4K UHD and HDR: every 4K release, or the purchased ones.
@@ -1620,12 +1623,12 @@ enum DVCanvasSections {
                 DVK.subheading("Master type"),
                 DVVStack(spacing: 6, [
                     DVK.barRow(label: allTab ? "4K release available to buy" : "Purchased 4K release", fraction: Double(rootPercent) / 100,
-                               color: .systemIndigo, count: DVFormat.count(rootCount), percent: pct(rootPercent), labelWidth: 170, barHeight: 12),
-                    DVK.barRow(label: "    Native 4K", fraction: Double(DVFormat.percent(nativeCount, of: rootCount)) / 100, color: .systemBlue,
-                               count: DVFormat.count(nativeCount), percent: pct(DVFormat.percent(nativeCount, of: rootCount)),
+                               color: .systemIndigo, count: Fmt.count(rootCount), percent: pct(rootPercent), labelWidth: 170, barHeight: 12),
+                    DVK.barRow(label: "    Native 4K", fraction: Double(Fmt.percent(nativeCount, of: rootCount)) / 100, color: .systemBlue,
+                               count: Fmt.count(nativeCount), percent: pct(Fmt.percent(nativeCount, of: rootCount)),
                                labelWidth: 170, barHeight: 12, fillOpacity: 0.5),
-                    DVK.barRow(label: "    Upscaled", fraction: Double(DVFormat.percent(upscaledCount, of: rootCount)) / 100, color: .systemPurple,
-                               count: DVFormat.count(upscaledCount), percent: pct(DVFormat.percent(upscaledCount, of: rootCount)),
+                    DVK.barRow(label: "    Upscaled", fraction: Double(Fmt.percent(upscaledCount, of: rootCount)) / 100, color: .systemPurple,
+                               count: Fmt.count(upscaledCount), percent: pct(Fmt.percent(upscaledCount, of: rootCount)),
                                labelWidth: 170, barHeight: 12, fillOpacity: 0.5),
                 ]),
                 subheadingTop("HDR format"),
@@ -1652,18 +1655,18 @@ enum DVCanvasSections {
         }
         var facts: [any DVNode] = []
         if let busiest = insights.busiestYear {
-            facts.append(DVK.factRow(label: "Busiest year", value: "\(busiest.year) (\(busiest.count) for \(DVFormat.wholeMoney(busiest.spent)))"))
+            facts.append(DVK.factRow(label: "Busiest year", value: "\(busiest.year) (\(Fmt.count(busiest.count)) for \(Fmt.wholeDollars(busiest.spent)))"))
         }
-        if let mo = insights.busiestMonth { facts.append(DVK.factRow(label: "Busiest month", value: "\(mo.label) (\(mo.count))")) }
+        if let mo = insights.busiestMonth { facts.append(DVK.factRow(label: "Busiest month", value: "\(mo.label) (\(Fmt.count(mo.count)))")) }
         facts.append(DVK.factRow(label: "Avg. per month, trailing 12", value: Fmt.fixed(insights.averagePurchasesPerMonthTrailing12, 1)))
         if let g = insights.longestPurchaseGap { facts.append(DVK.factRow(label: "Longest gap", value: "\(g.days) days (\(g.year))")) }
         if insights.usedShareByYearTrend.count >= 2 {
             facts.append(DVK.factRow(label: "Used share by year", value: insights.usedShareByYearTrend.map { "\($0.percent)%" }.joined(separator: " → ")))
         }
         facts.append(DVK.factRow(label: "Paid above lowest recorded price",
-                                 value: insights.paidAboveLowest.count > 0 ? "\(insights.paidAboveLowest.count) (\(DVFormat.wholeMoney(insights.paidAboveLowest.over)) over)" : "0",
+                                 value: insights.paidAboveLowest.count > 0 ? "\(Fmt.count(insights.paidAboveLowest.count)) (\(Fmt.wholeDollars(insights.paidAboveLowest.over)) over)" : "0",
                                  valueColor: insights.paidAboveLowest.count > 0 ? .systemRed : .labelColor))
-        facts.append(DVK.factRow(label: "Purchased at lowest recorded price", value: DVFormat.count(insights.boughtAtLowest),
+        facts.append(DVK.factRow(label: "Purchased at lowest recorded price", value: Fmt.count(insights.boughtAtLowest),
                                  valueColor: insights.boughtAtLowest > 0 ? .systemGreen : .labelColor))
         let yearFacts = DVK.card(title: "Purchase Facts", trailing: "All time", [DVVStack(spacing: 4, facts)])
 
@@ -1679,39 +1682,39 @@ enum DVCanvasSections {
                                  subtitle: "Releases must have a recorded purchase date to be counted here.", bottomAligned: true, [
             DVK.verticalBars(insights.purchaseToFirstViewing.enumerated().map { i, t in
                 DVKBar(label: t.label, value: Double(t.count), color: Self.purchaseToViewingColors[i],
-                       valueLabel: DVFormat.count(t.count))
+                       valueLabel: Fmt.count(t.count))
             }, height: 96),
         ])
-        var value: [any DVNode] = [DVK.factRow(label: "Cost per viewing since purchase", value: insights.costPerViewing.map(DVFormat.money) ?? "—")]
+        var value: [any DVNode] = [DVK.factRow(label: "Cost per viewing since purchase", value: insights.costPerViewing.map(Fmt.dollars) ?? "—")]
         /// Film names go on an indented sub-row so a long title can never squeeze the figure
         /// beside it; the release year follows the name, as in Most Rewatched.
         if let best = insights.bestValue {
-            value.append(DVK.factRow(label: "Best value (lowest cost per viewing)", value: DVFormat.money(best.perViewing)))
+            value.append(DVK.factRow(label: "Best value (lowest cost per viewing)", value: Fmt.dollars(best.perViewing)))
             value.append(DVK.factRow(label: best.name, year: best.year, value: "", valueColor: .secondaryLabelColor, indented: true))
         }
         if let priciest = insights.mostExpensiveUnwatchedSincePurchase {
-            value.append(DVK.factRow(label: "Priciest unwatched since purchase", value: DVFormat.money(priciest.cost)))
+            value.append(DVK.factRow(label: "Priciest unwatched since purchase", value: Fmt.dollars(priciest.cost)))
             value.append(DVK.factRow(label: priciest.name, year: priciest.year, value: "", valueColor: .secondaryLabelColor, indented: true))
         }
-        value.append(DVK.factRow(label: "Spent, never watched since purchase", value: DVFormat.wholeMoney(insights.spentNeverWatchedSincePurchase),
+        value.append(DVK.factRow(label: "Spent, never watched since purchase", value: Fmt.wholeDollars(insights.spentNeverWatchedSincePurchase),
                                  valueColor: insights.spentNeverWatchedSincePurchase > 0 ? .systemRed : .labelColor))
         value.append(DVK.factRow(label: "Spent on duplicative copies",
-                                 value: "\(DVFormat.wholeMoney(insights.spentOnSecondCopies.amount)) (\(films(insights.spentOnSecondCopies.films)))",
-                                 compactValue: "\(DVFormat.wholeMoney(insights.spentOnSecondCopies.amount)) (\(DVFormat.count(insights.spentOnSecondCopies.films)))"))
+                                 value: "\(Fmt.wholeDollars(insights.spentOnSecondCopies.amount)) (\(films(insights.spentOnSecondCopies.films)))",
+                                 compactValue: "\(Fmt.wholeDollars(insights.spentOnSecondCopies.amount)) (\(Fmt.count(insights.spentOnSecondCopies.films)))"))
         let valueCard = DVK.card(title: "Value Realized",
                                  subtitle: "Viewings counted from each release's most recent purchase date forward.",
                                  [DVVStack(spacing: 4, value)])
         /// Opens the Release Wishlist report, where the ranked list is.
         let wishlist = DVK.card(title: "Wishlist", action: m.navigation.releaseWishlist, [
             DVVStack(spacing: 4, [
-                DVK.factRow(label: "Items", value: DVFormat.count(insights.wishlistItems)),
-                DVK.factRow(label: "Cost at entered prices", value: DVFormat.wholeMoney(insights.wishlistEstimatedCost)),
+                DVK.factRow(label: "Items", value: Fmt.count(insights.wishlistItems)),
+                DVK.factRow(label: "Cost at entered prices", value: Fmt.wholeDollars(insights.wishlistEstimatedCost)),
                 DVK.factRow(label: "By format (4K, Blu-ray, DVD)",
                             value: "\(insights.wishlistByFormat.fourK), \(insights.wishlistByFormat.bluRay), \(insights.wishlistByFormat.dvd)"),
-                DVK.factRow(label: "Out-of-print or import only", value: DVFormat.count(insights.wishlistOutOfPrintOrImport),
+                DVK.factRow(label: "Out-of-print or import only", value: Fmt.count(insights.wishlistOutOfPrintOrImport),
                             valueColor: insights.wishlistOutOfPrintOrImport > 0 ? .systemOrange : .labelColor),
-                DVK.factRow(label: "Temporarily unavailable", value: DVFormat.count(insights.wishlistTemporarilyUnavailable)),
-                DVK.factRow(label: "Added in the last 90 days", value: DVFormat.count(insights.wishlistAddedLast90Days)),
+                DVK.factRow(label: "Temporarily unavailable", value: Fmt.count(insights.wishlistTemporarilyUnavailable)),
+                DVK.factRow(label: "Added in the last 90 days", value: Fmt.count(insights.wishlistAddedLast90Days)),
             ]),
         ])
 
@@ -1758,11 +1761,11 @@ enum DVCanvasSections {
                 if newRect.height > 0 { g.fillPath(DVShapes.topRounded(newRect, 3), DVPaint(color: .systemGreen, opacity: DVStyle.fillOpacity)) }
                 /// Each band's own count inside it, as the Viewings by Month bars do.
                 for (band, n) in [(newRect, row.newCount), (usedRect, row.usedCount), (otherRect, other)] where n > 0 && band.height >= 14 {
-                    let line = DVLine.plain(DVFormat.count(n), .mono(8))
+                    let line = DVLine.plain(Fmt.count(n), .mono(8))
                     let w = min(band.width, line.width(scale: g.scale))
                     g.draw(line, at: CGPoint(x: g.snap(band.midX - w / 2), y: band.minY + 2), width: w, paint: DVPaint(color: .white, opacity: 0.55))
                 }
-                let count = DVLine.plain(DVFormat.count(row.count), .mono(10))
+                let count = DVLine.plain(Fmt.count(row.count), .mono(10))
                 let cw = min(colW, count.width(scale: g.scale))
                 g.draw(count, at: CGPoint(x: g.snap(x + colW / 2 - cw / 2), y: g.snap(y - 3 - labelHeight)), width: cw,
                        paint: .secondary, scaleToFit: 0.6)
@@ -1787,15 +1790,15 @@ enum DVCanvasSections {
                                   subtitle: "\"Available\" means a release of that format has been entered for the film, but not yet purchased.", [
             DVVStack(spacing: 4, [
                 DVK.factRow(label: "Owned in more than one format",
-                            value: "\(DVFormat.count(insights.multiFormatFilms)) (\(pct(DVFormat.percent(insights.multiFormatFilms, of: stats.filmsOnDisc))))"),
-                DVK.factRow(label: "Releases with 2+ copies", value: DVFormat.count(insights.multiCopyReleases)),
+                            value: "\(Fmt.count(insights.multiFormatFilms)) (\(pct(Fmt.percent(insights.multiFormatFilms, of: stats.filmsOnDisc))))"),
+                DVK.factRow(label: "Releases with 2+ copies", value: Fmt.count(insights.multiCopyReleases)),
                 DVK.factRow(label: "DVD only, upgrade available", value: "\(insights.dvdOnlyWithUpgradeAvailable) of \(insights.dvdOnlyFilms)",
                             valueColor: insights.dvdOnlyWithUpgradeAvailable > 0 ? .systemOrange : .labelColor),
                 DVK.factRow(label: "Blu-ray only, 4K available", value: "\(insights.bluRayOnlyWith4KAvailable) of \(insights.bluRayOnlyFilms)"),
-                DVK.factRow(label: "Discs marked as remastered", value: "\(DVFormat.count(insights.remasteredReleases))"),
+                DVK.factRow(label: "Discs marked as remastered", value: "\(Fmt.count(insights.remasteredReleases))"),
                 DVK.factRow(label: "Owned, now out-of-print",
-                            value: "\(DVFormat.count(insights.ownedOutOfPrint)) (\(pct(DVFormat.percent(insights.ownedOutOfPrint, of: stats.totalPurchasedReleases))))"),
-                DVK.factRow(label: "Steelbooks", value: DVFormat.count(insights.steelbooks)),
+                            value: "\(Fmt.count(insights.ownedOutOfPrint)) (\(pct(Fmt.percent(insights.ownedOutOfPrint, of: stats.totalPurchasedReleases))))"),
+                DVK.factRow(label: "Steelbooks", value: Fmt.count(insights.steelbooks)),
                 DVK.factRow(label: "Discs per film on disc",
                             value: stats.filmsOnDisc > 0 ? Fmt.fixed(Double(insights.physicalDiscs) / Double(stats.filmsOnDisc), 2) : "—"),
             ]),
@@ -1844,7 +1847,7 @@ enum DVCanvasSections {
             stats.filmsByDecade.isEmpty
                 ? DVK.footnote("No release years recorded")
                 : DVK.verticalBars(stats.filmsByDecade.map {
-                    DVKBar(label: $0.decade, value: Double($0.count), color: .systemBlue, valueLabel: DVFormat.count($0.count))
+                    DVKBar(label: $0.decade, value: Double($0.count), color: .systemBlue, valueLabel: Fmt.count($0.count))
                 }, height: 150, spacing: 6),
         ])
         var lines: [String] = []
@@ -1858,7 +1861,7 @@ enum DVCanvasSections {
         let runtime = DVK.card(title: "Runtime", trailing: insights.averageRuntimeMinutes.map { "Average length: \(DVFormat.hours($0))" },
                                subtitle: lines.joined(separator: "\n"), bottomAligned: true, [
             DVK.verticalBars(insights.runtimeBuckets.map {
-                DVKBar(label: $0.label, value: Double($0.count), color: .systemOrange, valueLabel: DVFormat.count($0.count))
+                DVKBar(label: $0.label, value: Double($0.count), color: .systemOrange, valueLabel: Fmt.count($0.count))
             }, height: 150, spacing: 6),
         ])
         func ratioColor(_ c: String) -> NSColor {
@@ -1889,7 +1892,7 @@ enum DVCanvasSections {
         let pictureCard = DVK.card(title: "Picture", subtitle: "Releases marked as open-matte share their bare ratio's band.", picture)
         let peakYear = stats.filmsByYear.max { $0.count < $1.count }
         let yearsCard = DVK.card(title: "Films by Release Year", trailing: span,
-                                 subtitle: peakYear.map { "Most films from one year: \(DVFormat.count($0.count)), in \(String($0.year))." }, [
+                                 subtitle: peakYear.map { "Most films from one year: \(Fmt.count($0.count)), in \(String($0.year))." }, [
             stats.filmsByYear.isEmpty
                 ? DVK.footnote("No release years recorded")
                 : DVYearBars(values: stats.filmsByYear, chartHeight: 150),
@@ -1935,7 +1938,7 @@ enum DVCanvasSections {
         let old = h.viewingAgeBuckets.suffix(2).reduce(0) { $0 + $1.count }
         var subtitle = "Years between a film's release and each viewing."
         if total > 0 {
-            subtitle += " \(DVFormat.percent(old, of: total))% of viewings are of films over 30 years old; \(DVFormat.percent(new, of: total))% are of films within one year of their release."
+            subtitle += " \(Fmt.percent(old, of: total))% of viewings are of films over 30 years old; \(Fmt.percent(new, of: total))% are of films within one year of their release."
         }
         return DVK.card(title: "Film Age at Viewing", trailing: h.medianViewingAge.map { "Median: \($0) years" }, subtitle: subtitle,
                         bottomAligned: true, [
@@ -1957,7 +1960,7 @@ enum DVCanvasSections {
                 ? DVK.footnote("No purchase has a purchase date yet")
                 : DVK.verticalBars((0..<12).map { i in
                     DVKBar(label: letters[i], value: Double(h.purchasesByMonth[i]), color: .systemGreen,
-                           dimmed: h.purchasesByMonth[i] < peak, valueLabel: DVFormat.count(h.purchasesByMonth[i]))
+                           dimmed: h.purchasesByMonth[i] < peak, valueLabel: Fmt.count(h.purchasesByMonth[i]))
                 }, height: 120, spacing: 4),
         ])
     }
@@ -1967,11 +1970,11 @@ enum DVCanvasSections {
         let top = h.ratingBand(9...10), low = h.ratingBand(1...5)
         var subtitle = "By your rating of the film."
         if let a = top.averagePaid, let b = low.averagePaid, let x = top.fourKPercent, let y = low.fourKPercent {
-            subtitle = "Films rated 9–10 average \(DVFormat.money(a)) per release and \(x)% 4K ownership, versus \(DVFormat.money(b)) and \(y)% for those rated 1–5."
+            subtitle = "Films rated 9–10 average \(Fmt.dollars(a)) per release and \(x)% 4K ownership, versus \(Fmt.dollars(b)) and \(y)% for those rated 1–5."
         }
         let price = DVK.verticalBars((0..<10).map { i in
             DVKBar(label: "\(i + 1)", value: h.averagePaidByRating[i] ?? 0, color: .systemGreen,
-                   valueLabel: h.averagePaidByRating[i].map { DVFormat.wholeMoney($0) })
+                   valueLabel: h.averagePaidByRating[i].map { Fmt.wholeDollars($0) })
         }, height: 70, spacing: 4)
         let share = DVK.verticalBars((0..<10).map { i in
             DVKBar(label: "\(i + 1)", value: Double(h.fourKShareByRating[i] ?? 0), color: .systemIndigo,
@@ -2017,7 +2020,7 @@ enum DVCanvasSections {
                 ? DVK.footnote("No decade has \(LibraryInsights.minimumRatedFilmsPerDecadeWords) rated films yet")
                 : DVK.verticalBars(i.decadesByRating.map {
                     DVKBar(label: $0.label, value: $0.average, color: .systemYellow, dimmed: $0.average < (peak ?? 0),
-                           valueLabel: Fmt.fixed($0.average, 1), insideLabel: DVFormat.count($0.rated))
+                           valueLabel: Fmt.fixed($0.average, 1), insideLabel: Fmt.count($0.rated))
                 }, height: 100, spacing: 6),
         ])
     }
@@ -2029,8 +2032,8 @@ enum DVCanvasSections {
             h.ownershipByDecade.isEmpty
                 ? DVK.footnote("No release years recorded")
                 : DVK.verticalBars(h.ownershipByDecade.map {
-                    let p = DVFormat.percent($0.owned, of: $0.films)
-                    return DVKBar(label: $0.decade, value: Double(p), color: .systemGreen, valueLabel: "\(p)%", insideLabel: DVFormat.count($0.films))
+                    let p = Fmt.percent($0.owned, of: $0.films)
+                    return DVKBar(label: $0.decade, value: Double(p), color: .systemGreen, valueLabel: "\(p)%", insideLabel: Fmt.count($0.films))
                 }, height: 100, spacing: 6),
         ])
     }
@@ -2110,7 +2113,7 @@ enum DVCanvasSections {
                 DVDecorated(child: DVHStack(spacing: 6, [
                     DVText(tag.label, .system(11), .primary),
                     DVSpacer(minLength: 4),
-                    DVText(DVFormat.count(tag.count), .mono(11), .secondary),
+                    DVText(Fmt.count(tag.count), .mono(11), .secondary),
                 ]), insets: NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8), background: DVK.rowPaint, radius: 4)
             }))
         }
@@ -2124,17 +2127,18 @@ enum DVCanvasSections {
 
     // MARK: 8. Audio, Sources, and Technical
 
-    /// A hue per tier of the source ladder — cyan for Blu-ray rips, green for DVD rips, orange
-    /// for the better downloads, red below 540p. Each source has its own shade (a remastered rip
-    /// is deeper than a plain one), so no two neighboring bands share a color. Colors are keyed by
-    /// decoded value rather than row position, so a tier the ladder gains cannot shift every color below it.
+    /// A hue per tier of the source ladder — cyan for Blu-ray rips, gray for DVD rips (the
+    /// ReleaseCard's DVD band), green for 4K and remastered 1080p downloads, orange for the other
+    /// downloads, red below 540p. Each source has its own shade (a remastered rip is set apart from
+    /// a plain one), so no two neighboring bands share a color. Colors are keyed by decoded value
+    /// rather than row position, so a tier the ladder gains cannot shift every color below it.
     private static func sourceTint(_ stored: String) -> (NSColor, CGFloat) {
         let (source, remastered) = FilmDigitalSource.decompose(stored)
         switch source {
         case FilmDigitalSource.blurayDisc: return (.systemCyan, remastered ? 0.9 : 0.65)
-        case FilmDigitalSource.dvd: return (.systemGreen, remastered ? 0.8 : 0.55)
-        case FilmDigitalSource.download4K: return (.systemOrange, 0.95)
-        case FilmDigitalSource.download1080p: return (.systemOrange, 0.75)
+        case FilmDigitalSource.dvd: return remastered ? (.systemGray, 1) : (ReleaseFormatPalette.tintDVD, 1)
+        case FilmDigitalSource.download4K: return (.systemGreen, 0.95)
+        case FilmDigitalSource.download1080p: return remastered ? (.systemGreen, 0.6) : (.systemOrange, 0.75)
         case FilmDigitalSource.download720p: return (.systemOrange, 0.55)
         case FilmDigitalSource.download540p: return (.systemOrange, 0.38)
         case FilmDigitalSource.download480p: return (.systemRed, 0.85)
@@ -2162,9 +2166,9 @@ enum DVCanvasSections {
             let t = sourceTint(r.0)
             return DVKSegment(label: r.0, count: r.1, color: t.0, fillOpacity: t.1)
         }
-        let sources = DVK.card(title: "Digital Sources", subtitle: "\(DVFormat.count(stats.totalFilms - total)) films have no source recorded.", [
+        let sources = DVK.card(title: "Digital Sources", subtitle: "\(Fmt.count(stats.totalFilms - total)) films have no source recorded.", [
             DVK.stackedBar(sourceSegments),
-            DVVStack(spacing: 2, sourceSegments.map { swatchRow($0, .system(11), count: $0.count, percent: DVFormat.percent($0.count, of: total), vertical: 3) }),
+            DVVStack(spacing: 2, sourceSegments.map { swatchRow($0, .system(11), count: $0.count, percent: Fmt.percent($0.count, of: total), vertical: 3) }),
         ])
 
         /// The Audio card in either scope, or (`widest`) with every codec's legend entry at
@@ -2180,11 +2184,11 @@ enum DVCanvasSections {
                 DVKSegment(label: t.label, count: widest ? widestCount : t.count, color: codecTints[i].0, fillOpacity: codecTints[i].1)
             }
             return DVK.card(title: "Audio", trailingNode: trailing,
-                            subtitle: "\(DVFormat.count(stats.lossyBDAudio)) (\(pct(stats.lossyBDAudioPercent))) of \(films(insights.filmsOnBDOr4K)) contain only lossy audio on Blu-ray.", [
+                            subtitle: "\(Fmt.count(stats.lossyBDAudio)) (\(pct(stats.lossyBDAudioPercent))) of \(films(insights.filmsOnBDOr4K)) contain only lossy audio on Blu-ray.", [
                 DVK.subheading("Channels by class"),
                 DVVStack(spacing: 6, channelRows.map { row in
-                    DVK.barRow(label: row.0, fraction: Double(DVFormat.percent(row.1, of: channelDenominator)) / 100, color: .systemPurple,
-                               count: DVFormat.count(row.1), percent: pct(DVFormat.percent(row.1, of: channelDenominator)), labelWidth: 100)
+                    DVK.barRow(label: row.0, fraction: Double(Fmt.percent(row.1, of: channelDenominator)) / 100, color: .systemPurple,
+                               count: Fmt.count(row.1), percent: pct(Fmt.percent(row.1, of: channelDenominator)), labelWidth: 100)
                 }),
                 subheadingTop("Codecs"),
                 DVK.stackedBar(codecSegments, height: 14),
@@ -2221,7 +2225,7 @@ enum DVCanvasSections {
                 disc += [subheadingTop("HandBrake \"RF\" value"), DVK.stackedBar(rf, height: 14), DVK.legend(rf)]
             }
             if let notOnBluRay = stats.notAvailableOnBluRay {
-                disc.append(DVDecorated(child: DVK.factRow(label: "Not available on Blu-ray or 4K", value: DVFormat.count(notOnBluRay)),
+                disc.append(DVDecorated(child: DVK.factRow(label: "Not available on Blu-ray or 4K", value: Fmt.count(notOnBluRay)),
                                         insets: NSEdgeInsets(top: 4, left: 0, bottom: 0, right: 0)))
             }
             return DVK.card(title: "Subtitles and Encoding", trailingNode: trailing, disc)

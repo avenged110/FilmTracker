@@ -48,7 +48,7 @@ struct DVDelta: Equatable {
     init(current: Int, prior: Int, suffix: String = "") {
         let diff = current - prior
         direction = diff > 0 ? .up : (diff < 0 ? .down : .flat)
-        text = (diff > 0 ? "▲ " : (diff < 0 ? "▼ " : "▬ ")) + DVFormat.count(abs(diff)) + suffix
+        text = (diff > 0 ? "▲ " : (diff < 0 ? "▼ " : "▬ ")) + Fmt.count(abs(diff)) + suffix
     }
 
     /// A preformatted delta, e.g. money.
@@ -61,7 +61,7 @@ struct DVDelta: Equatable {
         let diff = current - prior
         let dir: Direction = diff > 0.005 ? .up : (diff < -0.005 ? .down : .flat)
         let arrow = dir == .up ? "▲ " : (dir == .down ? "▼ " : "▬ ")
-        return DVDelta(text: arrow + DVFormat.wholeMoney(abs(diff)), direction: dir)
+        return DVDelta(text: arrow + Fmt.wholeDollars(abs(diff)), direction: dir)
     }
 
     static func decimal(current: Double?, prior: Double?) -> DVDelta? {
@@ -168,6 +168,15 @@ struct DVLineChartSpec {
     struct Series {
         let values: [Double]
         let color: NSColor
+        /// The largest value, found once: `top` reads it on every gridline, tick label and path, and a scan of every
+        /// value there was a measurable part of a resize step.
+        let peak: Double
+
+        init(values: [Double], color: NSColor) {
+            self.values = values
+            self.color = color
+            self.peak = values.max() ?? 0
+        }
     }
     /// A label under the axis at a point's index. `value` orders thinning, so years that are multiples of the step survive.
     struct Mark {
@@ -208,7 +217,7 @@ struct DVLineChartSpec {
 
     /// The scale's top: the largest value rounded up to 1, 2, 2.5 or 5 of its power of ten.
     var top: Double {
-        let peak = series.flatMap(\.values).max() ?? 0
+        let peak = series.map(\.peak).max() ?? 0
         if let step = tickStep, step > 0 { return max(1, (peak / step).rounded(.up)) * step }
         guard peak > 0 else { return 1 }
         let power = pow(10, floor(log10(peak)))
@@ -225,7 +234,7 @@ struct DVLineChartSpec {
     }
 
     func tickText(_ value: Double) -> String {
-        tickStyle == .money ? DVFormat.wholeMoney(value) : DVFormat.count(Int(value.rounded()))
+        tickStyle == .money ? Fmt.wholeDollars(value) : Fmt.count(Int(value.rounded()))
     }
 
     /// The tick labels' column: monospaced digits, so its width follows from the longest.
@@ -244,18 +253,26 @@ struct DVLineChartSpec {
                       width: max(0, rect.width - gutter - trail), height: max(0, rect.height - head - bottom))
     }
 
-    func x(_ index: Int, in plot: CGRect) -> CGFloat {
-        pointCount > 1 ? plot.minX + plot.width * CGFloat(index) / CGFloat(pointCount - 1) : plot.midX
+    func x(_ index: Int, in plot: CGRect) -> CGFloat { x(index, in: plot, count: pointCount) }
+
+    func y(_ value: Double, in plot: CGRect) -> CGFloat { y(value, in: plot, top: top) }
+
+    /// `x` and `y` with the point count and scale top passed in. Both are derived from every value of every series, so a path
+    /// reads them once rather than once per point: per point, the scan made drawing the Collection Growth card quadratic in its
+    /// months, and that card was most of every strip drawn during a live resize.
+    private func x(_ index: Int, in plot: CGRect, count: Int) -> CGFloat {
+        count > 1 ? plot.minX + plot.width * CGFloat(index) / CGFloat(count - 1) : plot.midX
     }
 
-    func y(_ value: Double, in plot: CGRect) -> CGFloat {
+    private func y(_ value: Double, in plot: CGRect, top: Double) -> CGFloat {
         plot.maxY - plot.height * CGFloat(max(0, value) / top)
     }
 
     func line(_ s: Series, in plot: CGRect) -> CGPath {
         let path = CGMutablePath()
+        let count = pointCount, top = top
         for (i, v) in s.values.enumerated() {
-            let p = CGPoint(x: x(i, in: plot), y: y(v, in: plot))
+            let p = CGPoint(x: x(i, in: plot, count: count), y: y(v, in: plot, top: top))
             if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
         }
         return path
@@ -264,9 +281,12 @@ struct DVLineChartSpec {
     func area(_ s: Series, in plot: CGRect) -> CGPath {
         let path = CGMutablePath()
         guard !s.values.isEmpty else { return path }
-        path.move(to: CGPoint(x: x(0, in: plot), y: plot.maxY))
-        for (i, v) in s.values.enumerated() { path.addLine(to: CGPoint(x: x(i, in: plot), y: y(v, in: plot))) }
-        path.addLine(to: CGPoint(x: x(s.values.count - 1, in: plot), y: plot.maxY))
+        let count = pointCount, top = top
+        path.move(to: CGPoint(x: x(0, in: plot, count: count), y: plot.maxY))
+        for (i, v) in s.values.enumerated() {
+            path.addLine(to: CGPoint(x: x(i, in: plot, count: count), y: y(v, in: plot, top: top)))
+        }
+        path.addLine(to: CGPoint(x: x(s.values.count - 1, in: plot, count: count), y: plot.maxY))
         path.closeSubpath()
         return path
     }

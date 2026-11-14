@@ -41,7 +41,7 @@ Reviewed and left as is, with reasons:
 - **Harness, `full` on an empty sandbox (before the fixes above):** 2,938 passed, 2 failed (both known).
 - **Harness, data-layer scenarios only (after the fixes), with concurrency assertions on:**
   - Empty sandbox: 1,460 passed, 2 failed (the known export check, and `bulk-edit-check`, which needs a real library).
-  - Copy of the restored real library: 1,564 passed, 3 failed (all in HARNESS-KNOWN-FAILURES.md).
+  - Copy of the restored real library: 1,564 passed, 3 failed (all pre-existing harness setup problems, fixed in the 2026-11-14 harness audit).
 - **Launch swap probes:**
   - A damaged staged store with a healthy library: the library is kept and the marker is cleared.
   - A damaged staged store with no library and an older rollback present: the rollback is left alone and an empty library opens.

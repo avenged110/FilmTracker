@@ -102,7 +102,10 @@
 /// rootView replacement is deferred during willStartLiveScroll…didEndLiveScroll
 /// phases to prevent SwiftUI re-renders from competing with in-flight momentum
 /// scroll frames — the primary source of scroll jitter in the SwiftUI ScrollView
-/// model. Pending updates flush immediately when the live-scroll phase ends.
+/// model. Pending updates flush once the scroll has settled: `kAppKitScrollSettleDelay`
+/// after the live-scroll phase ends, unless another scroll begins first. A flush re-measures
+/// the whole hosted tree, and deferring it keeps that work out of the gap between two quick
+/// gestures in a row.
 ///
 /// Programmatic scrolling
 /// ──────────────────────
@@ -568,6 +571,13 @@ enum AppKitScrollHandoffProbe {
 }
 #endif
 
+// MARK: - Settle Delay
+
+/// How long after a live scroll ends a buffered content hand-off waits before it is applied.
+/// Long enough to span the pause between two quick gestures, short enough that an update which
+/// arrived mid-scroll still shows as soon as the person stops. See `Coordinator.scrollDidEnd`.
+private let kAppKitScrollSettleDelay: TimeInterval = 0.15
+
 // MARK: - DampedSpring
 
 /// SwiftUI's `.spring(response:dampingFraction:)` as a damped oscillator — unit mass,
@@ -827,6 +837,13 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
         var isLiveScrolling = false
 
+        /// True from the end of a live scroll until `kAppKitScrollSettleDelay` later. Hand-offs
+        /// stay buffered meanwhile, as during the scroll itself. See `scrollDidEnd`.
+        private var isSettling = false
+        /// Bumped on every scroll start and end, so a settle timer from an earlier scroll does
+        /// nothing once another has begun.
+        private var settleGeneration = 0
+
         /// Mirrors the representable's `isActive`. Content updates that arrive while
         /// this is `false` are buffered into `pendingRootView` and applied when the
         /// view becomes active again, for the same reason they are buffered during a
@@ -950,7 +967,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         /// Whether an update may be handed to the hosting view right now. Both
         /// conditions suppress the same operation — the `rootView` assignment and the
         /// Auto Layout re-measure it forces — so they share one gate.
-        private var canApplyRootView: Bool { !isLiveScrolling && isActive }
+        private var canApplyRootView: Bool { !isLiveScrolling && !isSettling && isActive }
 
         func applyRootView(_ view: AppKitScrollContentWrapper<Content, Modifier>) {
             if canApplyRootView {
@@ -976,15 +993,37 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
             pendingRootView = nil
         }
 
+        /// Drops a pending settle timer; for teardown.
+        func cancelSettle() {
+            isSettling = false
+            settleGeneration &+= 1
+        }
+
         func scrollWillStart() {
             isLiveScrolling = true
+            isSettling = false
+            settleGeneration &+= 1
             onScrollWillStart?()
             if wiredProxy?.tracksViewport == true { wiredProxy?.liveScrollHandler?(true) }
         }
 
+        /// Applies anything buffered during the scroll once the scroll has settled, not at its
+        /// end. A hand-off re-measures the whole hosted tree (about 100 ms on a heavy one), and
+        /// gentle scrolling is often a run of short gestures: flushed at once, that work would
+        /// land just as the next gesture starts. A scroll that begins within the delay cancels
+        /// the flush and carries the buffer through to its own end.
         func scrollDidEnd() {
             isLiveScrolling = false
-            flushPendingRootViewIfPossible()
+            isSettling = true
+            settleGeneration &+= 1
+            let generation = settleGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + kAppKitScrollSettleDelay) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.settleGeneration == generation else { return }
+                    self.isSettling = false
+                    self.flushPendingRootViewIfPossible()
+                }
+            }
             if wiredProxy?.tracksViewport == true { wiredProxy?.liveScrollHandler?(false) }
         }
 
@@ -1173,6 +1212,12 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         /// here: the width is pinned to the clip view by the container, and the height is
         /// exactly the content's (see the constraints below).
         hostingView.sizingOptions = [.intrinsicContentSize]
+        /// Inherit no safe area from the window. Defensive: content in a scroll view never needs
+        /// the window's titlebar or toolbar insets, and none should reach it as it scrolls beneath
+        /// them. Measured on macOS 15 (Film Tracker harness `appkit-scroll-settle`), a hosting view
+        /// in a clip view already receives none under the default (.all), so this changes nothing
+        /// today; it pins that behavior. A `.safeAreaInset` inside the content works either way.
+        hostingView.safeAreaRegions = []
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.wantsLayer = true
         hostingView.layerContentsRedrawPolicy = .onSetNeedsDisplay
@@ -1388,6 +1433,7 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
         coordinator.wiredProxy?.viewportRequestHandler = nil
         coordinator.wiredProxy = nil
         coordinator.endShrinkHold()
+        coordinator.cancelSettle()
         /// Release strong references so the hosting view's SwiftUI subtree and
         /// the scroll view's AppKit hierarchy are both eligible for deallocation.
         /// pendingRootView is cleared first in case dismantleNSView fires while an

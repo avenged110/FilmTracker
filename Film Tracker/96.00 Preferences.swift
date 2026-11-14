@@ -40,8 +40,17 @@ struct Preferences: Loggable {
         resolved = UserDefaults.standard
         #endif
         resolved.register(defaults: registered.values)
+        for key in retiredKeys { resolved.removeObject(forKey: key) }
         return resolved
     }())
+
+    /// Keys of preferences that no longer exist, cleared from UserDefaults on first access so an
+    /// older install leaves nothing behind. The remembered-tab preference for Recents and Insights
+    /// went in 1.1.0: the expandable sidebar rows open each tab directly.
+    private static let retiredKeys = [
+        "preferences.rememberTabSelection", "preferences.tabRememberScope",
+        "preferences.lastRecentsCategory", "preferences.lastReportsCategory",
+    ]
 
     /// The registered defaults, held for `registeredDefault(_:orFallback:)` as well as
     /// registration.
@@ -245,6 +254,9 @@ struct Preferences: Loggable {
         /// Internal state, not a user-facing preference. See the accessor below.
         static let expandedSmartListFamilies =
             "preferences.expandedSmartListFamilies"
+        /// Internal state, not a user-facing preference. See the accessor below.
+        static let expandedLibraryFamilies =
+            "preferences.expandedLibraryFamilies"
         static let queueIsDropTarget =
             "preferences.queueIsDropTarget"
         static let queueSectionOnDrop =
@@ -269,14 +281,6 @@ struct Preferences: Loggable {
             "preferences.maintainSelectionOnSearchExit"
         static let maintainScrollPositionOnViewSwitch =
             "preferences.maintainScrollPositionOnViewSwitch"
-        static let rememberTabSelection =
-            "preferences.rememberTabSelection"
-        static let tabRememberScope =
-            "preferences.tabRememberScope"
-        static let lastRecentsCategory =
-            "preferences.lastRecentsCategory"
-        static let lastReportsCategory =
-            "preferences.lastReportsCategory"
         static let rememberImportsTab =
             "preferences.rememberImportsTab"
         static let lastImportsCategory =
@@ -365,8 +369,6 @@ struct Preferences: Loggable {
     static let showRecentSearchesKey                 = Keys.showRecentSearches
     static let maintainSelectionOnSearchExitKey      = Keys.maintainSelectionOnSearchExit
     static let maintainScrollPositionOnViewSwitchKey = Keys.maintainScrollPositionOnViewSwitch
-    static let rememberTabSelectionKey               = Keys.rememberTabSelection
-    static let tabRememberScopeKey                   = Keys.tabRememberScope
     static let rememberSortFilterSelectionsKey       = Keys.rememberSortFilterSelections
     static let performBackupAtLaunchKey              = Keys.performBackupAtLaunch
     static let importScanSubfoldersKey               = Keys.importScanSubfolders
@@ -424,8 +426,6 @@ struct Preferences: Loggable {
             Keys.showRecentSearches: true,
             Keys.maintainSelectionOnSearchExit: true,
             Keys.maintainScrollPositionOnViewSwitch: false,
-            Keys.rememberTabSelection: false,
-            Keys.tabRememberScope: TabRememberScope.both.rawValue,
             Keys.rememberImportsTab: false,
             Keys.rememberSortFilterSelections: true,
             Keys.selectedSortOptions: [String: [String]](),
@@ -668,6 +668,19 @@ struct Preferences: Loggable {
         }
     }
 
+    // MARK: - Expanded Library Families
+    /// Which of the left sidebar's Unwatched, Recents and Reports rows are expanded. Internal
+    /// state on the same terms as expandedSmartListFamilies above.
+    static var expandedLibraryFamilies: Set<SidebarLibraryFamily> {
+        get {
+            let raw = defaults.array(forKey: Keys.expandedLibraryFamilies) as? [String] ?? []
+            return Set(raw.compactMap(SidebarLibraryFamily.init(rawValue:)))
+        }
+        set {
+            defaults.set(newValue.map(\.rawValue).sorted(), forKey: Keys.expandedLibraryFamilies)
+        }
+    }
+
     /// Governs whether the "Film Queue" sidebar item accepts film drops. When true,
     /// dragging a selection of films onto the sidebar's "Film Queue" row adds them to
     /// whichever of the three internal Film Queue lists is selected via
@@ -774,106 +787,29 @@ struct Preferences: Loggable {
             setIfChanged(newValue, forKey: Keys.maintainScrollPositionOnViewSwitch,
                 logMessage: "maintainScrollPositionOnViewSwitch set to \(newValue)") } }
 
-    // MARK: - Tab Remember Scope
-    /// Governs which tab(s) — Recents, Reports, or both — have their last-selected
-    /// sub-tab remembered across sessions. Mirrors the confirmListEdits/ListEditScope
-    /// design: rememberTabSelection is the master on/off switch, and tabRememberScope
-    /// refines which tab(s) it applies to when enabled. Turning rememberTabSelection
-    /// off has no effect on which scope is remembered — it merely stops applying
-    /// whichever scope is currently selected, without disturbing that selection.
-    enum TabRememberScope: Int {
-        case recents = 0   /// Remember Recents' last-selected sub-tab only
-        case reports = 1   /// Remember Reports' last-selected sub-tab only
-        case both    = 2   /// Remember both (default)
-    }
-
-    static var rememberTabSelection: Bool {
-        get { return defaults.bool(forKey: Keys.rememberTabSelection) }
-        set {
-            setIfChanged(newValue, forKey: Keys.rememberTabSelection,
-                logMessage: "rememberTabSelection set to \(newValue)") } }
-
-    static var tabRememberScope: TabRememberScope {
-        get {
-            let raw = defaults.integer(forKey: Keys.tabRememberScope)
-            return TabRememberScope(rawValue: raw) ?? registeredCase(Keys.tabRememberScope)
+    /// Writes a remembered-tab category (lastImportsCategory) straight to UserDefaults, without firing postPreferenceChangedEvent.
+    /// These are high-frequency UI state values (one write per tab switch) that no other
+    /// subsystem reacts to; each is only read back at the next launch. Routing one through
+    /// setIfChanged would defer the write until the background SettingsManager sync
+    /// completes, and the value could be lost if the user quits first.
+    ///
+    /// synchronize() forces an immediate flush of the UserDefaults in-memory state
+    /// to the backing plist file. Without it, macOS batches the write lazily and
+    /// may not flush before the user quits, reproducing the same lost-on-quit
+    /// symptom. synchronize() is technically deprecated for general use (the OS
+    /// handles flushing automatically in most cases), but it is the correct and
+    /// intentional tool when quit-safe persistence is required — exactly this scenario.
+    private static func setQuitSafe(_ value: String?, forKey key: String, name: String) {
+        if let value {
+            guard defaults.string(forKey: key) != value else { return }
+            defaults.set(value, forKey: key)
+            defaults.synchronize()
+            log("\(name) set to \(value)")
+        } else {
+            defaults.removeObject(forKey: key)
+            defaults.synchronize()
         }
-        set {
-            setIfChanged(newValue.rawValue, forKey: Keys.tabRememberScope,
-                logMessage: "tabRememberScope set to \(newValue.rawValue)") } }
-
-    /// Convenience per-tab accessors, derived from the consolidated pair above.
-    /// Preserved so existing call sites (RecentsView, ReportsView, and the
-    /// SettingsManager restore path) can keep reading/writing per-tab granularity
-    /// as a plain Bool without needing to know about the combined representation.
-    /// Setting one tab's Bool only ever adjusts the scope enough to reflect the
-    /// requested state for that tab, leaving the other tab's current state intact.
-    static var rememberRecentsTab: Bool {
-        get { rememberTabSelection && (tabRememberScope == .recents || tabRememberScope == .both) }
-        set {
-            if newValue {
-                rememberTabSelection = true
-                if tabRememberScope == .reports { tabRememberScope = .both }
-            } else {
-                switch tabRememberScope {
-                case .recents: rememberTabSelection = false
-                case .both:    tabRememberScope = .reports
-                case .reports: break /// Recents wasn't enabled; nothing to change
-                }
-            } } }
-
-    static var lastRecentsCategory: String? {
-        get { return defaults.string(forKey: Keys.lastRecentsCategory) }
-        set {
-            /// Written directly to UserDefaults without firing postPreferenceChangedEvent.
-            /// This is a high-frequency UI state value (fires on every tab switch) that no
-            /// other subsystem needs to react to; it is only read back at the next launch.
-            /// Routing it through setIfChanged would defer the write until the background
-            /// SettingsManager sync completes, and the value could be lost if the user quits first.
-            ///
-            /// synchronize() forces an immediate flush of the UserDefaults in-memory state
-            /// to the backing plist file. Without it, macOS batches the write lazily and
-            /// may not flush before the user quits, reproducing the same lost-on-quit
-            /// symptom. synchronize() is technically deprecated for general use (the OS
-            /// handles flushing automatically in most cases), but it is the correct and
-            /// intentional tool when quit-safe persistence is required — exactly this scenario.
-            if let value = newValue {
-                guard defaults.string(forKey: Keys.lastRecentsCategory) != value else { return }
-                defaults.set(value, forKey: Keys.lastRecentsCategory)
-                defaults.synchronize()
-                log("lastRecentsCategory set to \(value)")
-            } else {
-                defaults.removeObject(forKey: Keys.lastRecentsCategory)
-                defaults.synchronize() } } }
-
-    static var rememberReportsTab: Bool {
-        get { rememberTabSelection && (tabRememberScope == .reports || tabRememberScope == .both) }
-        set {
-            if newValue {
-                rememberTabSelection = true
-                if tabRememberScope == .recents { tabRememberScope = .both }
-            } else {
-                switch tabRememberScope {
-                case .reports: rememberTabSelection = false
-                case .both:    tabRememberScope = .recents
-                case .recents: break /// Reports wasn't enabled; nothing to change
-                }
-            } } }
-
-    static var lastReportsCategory: String? {
-        get { return defaults.string(forKey: Keys.lastReportsCategory) }
-        set {
-            /// Written directly to UserDefaults without firing postPreferenceChangedEvent.
-            /// Same rationale as lastRecentsCategory: high-frequency UI state, no downstream
-            /// subscribers, and delay-free persistence is required for correct quit behavior.
-            if let value = newValue {
-                guard defaults.string(forKey: Keys.lastReportsCategory) != value else { return }
-                defaults.set(value, forKey: Keys.lastReportsCategory)
-                defaults.synchronize()
-                log("lastReportsCategory set to \(value)")
-            } else {
-                defaults.removeObject(forKey: Keys.lastReportsCategory)
-                defaults.synchronize() } } }
+    }
 
     static var rememberImportsTab: Bool {
         get { return defaults.bool(forKey: Keys.rememberImportsTab) }
@@ -883,17 +819,7 @@ struct Preferences: Loggable {
     
     static var lastImportsCategory: String? {
         get { return defaults.string(forKey: Keys.lastImportsCategory) }
-        set {
-            /// Written directly to UserDefaults without firing postPreferenceChangedEvent.
-            /// Same rationale as lastRecentsCategory and lastReportsCategory.
-            if let value = newValue {
-                guard defaults.string(forKey: Keys.lastImportsCategory) != value else { return }
-                defaults.set(value, forKey: Keys.lastImportsCategory)
-                defaults.synchronize()
-                log("lastImportsCategory set to \(value)")
-            } else {
-                defaults.removeObject(forKey: Keys.lastImportsCategory)
-                defaults.synchronize() } } }
+        set { setQuitSafe(newValue, forKey: Keys.lastImportsCategory, name: "lastImportsCategory") } }
 
     // MARK: - Remember Sort/Filter Selections
     /// Controls whether user-selected sort and filter options for the All Films, Recents,

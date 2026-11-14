@@ -161,6 +161,21 @@ enum ViewingVersion: String, CaseIterable, Hashable {
     /// The display names of `selectable`, in the same order — what the release card's
     /// multi-select vocabulary stores and canonicalizes by.
     static let selectableNames: [String] = selectable.map(\.displayName)
+
+    /// Display names stored by earlier builds, and what each became. Renamed 2026-09-11.
+    private static let formerNames: [String: String] = [
+        "Television Edit": televisionEdit.displayName,
+        "International": international.displayName,
+    ]
+
+    /// A release's stored `includedVersions` with every former name replaced by its current
+    /// one. A version listed under both names is kept once, where it first appears. Returns
+    /// `names` itself when it holds no former name. Called only by LegacyReleaseValues.
+    static func migratedNames(_ names: [String]) -> [String] {
+        guard names.contains(where: { formerNames[$0] != nil }) else { return names }
+        var seen = Set<String>()
+        return names.map { formerNames[$0] ?? $0 }.filter { seen.insert($0).inserted }
+    }
 }
 
 // MARK: - Current Year
@@ -533,6 +548,28 @@ private let monthYearStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"
     .month(.wide)
     .year(.defaultDigits)
 
+/// Output format style for a date with its weekday ("Friday, November 14, 2026"), used by formatWeekdayDate(_:).
+private let weekdayDateStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: AppCalendar.gregorian)
+    .weekday(.wide)
+    .month(.wide)
+    .day(.defaultDigits)
+    .year(.defaultDigits)
+
+/// Output format style for month and day without a year ("November 14"), used by formatMonthDay(_:).
+private let monthDayStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: AppCalendar.gregorian)
+    .month(.wide)
+    .day(.defaultDigits)
+
+/// Output format style for a weekday name ("Friday"), used by formatWeekday(_:).
+private let weekdayStyle = Date.FormatStyle(locale: Locale(identifier: "en_US"), calendar: AppCalendar.gregorian)
+    .weekday(.wide)
+
+/// Output format style for a time of day ("2:46 PM"), used by formatTime(_:). A verbatim pattern rather than a
+/// `.hour()` field, so the clock is always 12-hour: the app shows 12-hour times whatever the system's 24-hour setting.
+private let timeOfDayStyle = Date.VerbatimFormatStyle(
+    format: "\(hour: .defaultDigits(clock: .twelveHour, hourCycle: .oneBased)):\(minute: .twoDigits) \(dayPeriod: .standard(.abbreviated))",
+    locale: Locale(identifier: "en_US"), timeZone: .autoupdatingCurrent, calendar: AppCalendar.gregorian)
+
 /// Strips trailing dot characters from a date string.
 /// Handles malformed dates like "2026.01.24." that carry a spurious trailing dot.
 /// This logic is shared by `extractDatePortion(from:)` and `extractVersionCode(from:)`.
@@ -707,8 +744,8 @@ func timeAgo(from dateString: String?) -> String {
     }
 
     var parts: [String] = []
-    if years > 0 { parts.append("\(years) year" + (years == 1 ? "" : "s")) }
-    if months > 0 { parts.append("\(months) month" + (months == 1 ? "" : "s")) }
+    if years > 0 { parts.append(Fmt.count(years, "year")) }
+    if months > 0 { parts.append(Fmt.count(months, "month")) }
     if parts.isEmpty { return "Less than a month ago" }
 
     return parts.joined(separator: " ") + " ago"
@@ -808,6 +845,36 @@ func monthYearLabel(for date: Date) -> String {
     monthYearStyle.format(date)
 }
 
+// MARK: - Display Dates and Times
+/// Every user-facing date and time is US English with a 12-hour clock, and goes through `formatDate(_:)`,
+/// `monthYearLabel(for:)`, or one of the functions below. A "Month Day, Year" date takes a comma after the year
+/// whenever more of the phrase follows it ("November 4, 2025, at 2:46 PM").
+
+/// "Friday, November 14, 2026".
+func formatWeekdayDate(_ date: Date) -> String {
+    weekdayDateStyle.format(date)
+}
+
+/// "November 14", for a date in the current year.
+func formatMonthDay(_ date: Date) -> String {
+    monthDayStyle.format(date)
+}
+
+/// "Friday".
+func formatWeekday(_ date: Date) -> String {
+    weekdayStyle.format(date)
+}
+
+/// "2:46 PM", always on a 12-hour clock.
+func formatTime(_ date: Date) -> String {
+    timeOfDayStyle.format(date)
+}
+
+/// "November 4, 2025, at 2:46 PM".
+func formatTimestamp(_ date: Date) -> String {
+    "\(formatDate(date)), at \(formatTime(date))"
+}
+
 /// Calculates the time distance from now to a future date, formatted with smart
 /// granularity: "x year/s away", "x year/s y month/s away", "x month/s away",
 /// "x week/s away" (for < 1 month), or "x day/s away" (for < 1 week).
@@ -871,7 +938,7 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
 
     /// ── Tier 1: Days (< 7) — exact, no rounding. ─────────────────────────────
     if dayDiff < 7 {
-        return "\(dayDiff) day" + (dayDiff == 1 ? "" : "s") + " away"
+        return Fmt.count(dayDiff, "day") + " away"
     }
 
     /// ── Tier 2: Weeks (7–27) — round-half-up at 3.5 days (ceiling → 4). ─────
@@ -880,7 +947,7 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
     /// exactly one calendar month and cleanly abuts the months tier.
     if dayDiff < 28 {
         let weeks = (dayDiff + 3) / 7
-        return "\(weeks) week" + (weeks == 1 ? "" : "s") + " away"
+        return Fmt.count(weeks, "week") + " away"
     }
 
     /// ── Tier 3: Months (≥ 28) — real calendar year/month decomposition, ─────
@@ -908,8 +975,8 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
     }
 
     var parts: [String] = []
-    if years  > 0 { parts.append("\(years) year"  + (years  == 1 ? "" : "s")) }
-    if months > 0 { parts.append("\(months) month" + (months == 1 ? "" : "s")) }
+    if years  > 0 { parts.append(Fmt.count(years, "year")) }
+    if months > 0 { parts.append(Fmt.count(months, "month")) }
 
     /// dayDiff >= 28 should always yield at least one whole month once rounded;
     /// this fallback only guards a theoretical Calendar edge case.
@@ -1043,7 +1110,7 @@ struct SubcategoryPicker<Value: Hashable & Sendable, Style: PickerStyle>: View {
     /// Because the action arrives after the fade, the menu-style wrappers ask their state
     /// objects to switch immediately (`immediate: true`) rather than two run-loop turns later.
     var body: some View {
-        if style is MenuPickerStyle && !Self.forcesSwiftUIMenuPicker {
+        if style is MenuPickerStyle {
             SheetPopUpButton(
                 selection: Binding(get: { selection }, set: onSelect),
                 items: options.map { .option(tag: $0, title: title($0)) },
@@ -1053,16 +1120,6 @@ struct SubcategoryPicker<Value: Hashable & Sendable, Style: PickerStyle>: View {
         } else {
             swiftUIPicker
         }
-    }
-
-    /// The `picker-dismissal` harness scenario's A/B switch (99.50): true restores the SwiftUI
-    /// Picker for menu styles so the same run can measure the old control beside the new one.
-    private static var forcesSwiftUIMenuPicker: Bool {
-        #if DEBUG
-        debugForcesSwiftUISubcategoryMenuPicker
-        #else
-        false
-        #endif
     }
 
     private var swiftUIPicker: some View {
@@ -1075,11 +1132,6 @@ struct SubcategoryPicker<Value: Hashable & Sendable, Style: PickerStyle>: View {
         .labelsHidden()
     }
 }
-
-#if DEBUG
-/// See `SubcategoryPicker.forcesSwiftUIMenuPicker`. Written only by the harness.
-@MainActor var debugForcesSwiftUISubcategoryMenuPicker = false
-#endif
 
 // MARK: - Extensible GenericTitleBar Utility
 struct GenericTitleBar<LeadingContent: View, TrailingButtons: View>: View {
@@ -1771,7 +1823,12 @@ enum SubcategoryNavigation {
         if immediate {
             ViewStateManager.shared.switchToViewSync(viewID)
         } else {
+            /// The switch belongs to the section on screen now. Keystrokes queued while the app is busy can
+            /// navigate elsewhere before the deferral ends (Cmd+Down, then Cmd+1), and switching then would load
+            /// this tab under another sidebar item, where clicking that item again is a no-op. So it is dropped.
+            let scheduledItem = AppDelegate.appState?.selectedSidebarItem
             deferPastMenuDismissal {
+                guard AppDelegate.appState?.selectedSidebarItem == scheduledItem else { return }
                 ViewStateManager.shared.switchToViewSync(viewID)
             }
         }
@@ -1896,6 +1953,12 @@ enum ShowInListNavigation: Loggable {
         /// mount (so the scroll intent must be consumable on the reuse path), and the
         /// sidebar assignment itself must be skipped.
         let isSidebarChange = appState.selectedSidebarItem != sidebarItem
+        /// A move from one gallery-backed item to another, search included, keeps the gallery on
+        /// screen, so the destination is that same instance's update pass, not a fresh makeNSView.
+        /// The destination (a list or smart list) is always a shared item; the source may not be.
+        /// From Reports or Imports this stays false: the gallery mounts fresh and its makeNSView
+        /// claims the intent.
+        let landsInSharedGallery = GalleryReuse.isSharedHostItem(appState.selectedSidebarItem)
 
         /// Step 2 — pre-load the destination's films. Any intent left over from an earlier,
         /// abandoned transition is discarded first so it cannot outrank this one.
@@ -1914,7 +1977,7 @@ enum ShowInListNavigation: Loggable {
             /// feature — and, unlike the search-exit handoff, never gated by a preference.
             GalleryScrollIntent.shared.set(filmID: filmID,
                                            targetViewID: targetViewID,
-                                           consumableOnReuse: !isSidebarChange)
+                                           consumableOnReuse: !isSidebarChange || landsInSharedGallery)
             Self.log("Navigating to \(targetViewID) with film \(filmID) preserved and pinned to top")
         } else {
             Self.log("NOTE: film \(filmID) is not present in \(targetViewID) after load — navigating without preservation")
@@ -2016,21 +2079,64 @@ nonisolated extension URL {
 /// bits. Here the specifier and the Swift parameter type are fixed together, which is what
 /// makes the one `unsafe` call inside each safe to call from anywhere. Output is
 /// byte-identical to the `String(format:)` calls they replace: same C formatting, no locale.
+///
+/// The exception is the dollar helpers, the app's one currency format. They are grouped en-US
+/// currency ("$11,310.14"), built on a Sendable FormatStyle rather than printf, so they are safe
+/// from any thread and need no `unsafe`.
 nonisolated enum Fmt {
     /// `%.<places>f` — e.g. `fixed(2.345, 2)` → "2.35" (C rounding of the binary value).
     static func fixed(_ value: Double, _ places: Int) -> String {
         unsafe String(format: "%.\(places)f", value)
     }
 
-    /// `$%.2f` — a dollar amount to the cent.
+    /// A dollar amount to the cent, thousands grouped: "$11,310.14", "$0.00", "-$5.00". Every
+    /// displayed amount (tables, sidebars, status bar, Insights, PDF) uses it or `wholeDollars`.
     static func dollars(_ value: Double) -> String {
-        "$" + fixed(value, 2)
+        value.formatted(dollarStyle)
     }
 
-    /// `%d` — an integer, with the argument held to `Int`.
+    /// A dollar amount rounded to the whole dollar, thousands grouped: "$11,310".
+    static func wholeDollars(_ value: Double) -> String {
+        value.formatted(wholeDollarStyle)
+    }
+
+    /// The locale is pinned, as the app's prose and labels are fixed American English.
+    private static let dollarStyle = FloatingPointFormatStyle<Double>.Currency(code: "USD",
+                                                                                locale: Locale(identifier: "en_US"))
+    private static let wholeDollarStyle = dollarStyle.precision(.fractionLength(0))
+
+    /// `%d` — an integer, with the argument held to `Int`. Ungrouped, for logs and fixed formats. A count shown
+    /// to the user goes through `count(_:)` instead.
     static func int(_ value: Int) -> String {
         String(value)
     }
+
+    /// A count shown to the user, thousands grouped: "1,234".
+    static func count(_ value: Int) -> String {
+        value.formatted(countStyle)
+    }
+
+    /// A count with its noun, thousands grouped: "1,234 films", "1 film". `plural` defaults to the singular plus "s".
+    static func count(_ value: Int, _ singular: String, plural: String? = nil) -> String {
+        "\(count(value)) \(value == 1 ? singular : (plural ?? singular + "s"))"
+    }
+
+    /// The noun alone for a count: "film" or "films". `plural` defaults to the singular plus "s".
+    static func noun(_ value: Int, _ singular: String, plural: String? = nil) -> String {
+        value == 1 ? singular : (plural ?? singular + "s")
+    }
+
+    /// A share as a whole percentage, rounded: 3 of 8 → 38. 0 when `denominator` is 0.
+    static func percent(_ numerator: Int, of denominator: Int) -> Int {
+        denominator > 0 ? Int((Double(numerator) / Double(denominator) * 100).rounded()) : 0
+    }
+
+    /// A fraction shown as a whole percentage, rounded: 0.996 → "100%".
+    static func percentText(_ fraction: Double) -> String {
+        "\(count(Int((fraction * 100).rounded())))%"
+    }
+
+    private static let countStyle = IntegerFormatStyle<Int>(locale: Locale(identifier: "en_US"))
 
     /// `%0<width>d` — an integer left-padded with zeros to `width` characters.
     ///

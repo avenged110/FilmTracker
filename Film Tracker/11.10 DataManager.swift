@@ -207,25 +207,21 @@ actor DataManager: Loggable {
         let listID: UUID
     }
 
-    /// Rewrites every Release still holding a legacy single-element `marketAvailability` tag
-    /// ("OOP (cheap)") in the two-component format. See ReleaseMarketAvailability.
+    /// Rewrites every Release still holding a value in an old format (see LegacyReleaseValues).
     ///
-    /// Memory never sees the legacy tags — ReleaseSnapshot migrates them on conversion, and
-    /// MemoryStore declines a snapshot cache that still holds one — so this only brings the
-    /// store itself into line. DataCoordinator calls it once at startup, and only when
-    /// MemoryStore saw a legacy tag during load, since the fetch materializes every Release.
-    /// Film.lastModified is not touched, so the snapshot-cache fingerprint is unaffected.
-    func migrateLegacyMarketAvailability() async throws {
+    /// Memory never sees the old values — ReleaseSnapshot converts them on the way in — so this
+    /// only brings the store itself into line. DataCoordinator calls it once at startup, and
+    /// only when MemoryStore's store read saw an old value, since the fetch materializes every
+    /// Release. Film.lastModified is not touched, so the snapshot-cache fingerprint is unaffected.
+    func migrateLegacyReleaseValues() async throws {
         let allReleases = try context.fetch(Release.request())
         var count = 0
-        for release in allReleases
-        where ReleaseMarketAvailability.needsMigration(release.marketAvailability) {
-            release.marketAvailability = ReleaseMarketAvailability.migrated(release.marketAvailability)
+        for release in allReleases where LegacyReleaseValues.migrate(release) {
             count += 1
         }
         guard count > 0 else { return }
         try commit()
-        log("Migrated market availability on \(count) release(s)")
+        log("Migrated legacy values on \(count) release(s)")
     }
 
     /// Removes ListMembership records that are structurally meaningless: those whose
@@ -457,10 +453,6 @@ actor DataManager: Loggable {
     /// value differs between films (tags added to each film's own list), an array field
     /// (transformable, which a batch update can't write), or a field with no attribute of its name.
     private static func batchValues(_ fields: Set<FilmField>, _ snapshots: [FilmSnapshot]) -> [String: Any]? {
-        #if DEBUG
-        /// `-FTBulkEditObjectPath`: the object-graph write, for A/B runs.
-        if ProcessInfo.processInfo.arguments.contains("-FTBulkEditObjectPath") { return nil }
-        #endif
         guard let first = snapshots.first else { return nil }
         let attributes = LibraryModel.shared.entity(Film.entityName).attributesByName
         var values: [String: Any] = [:]

@@ -65,12 +65,7 @@ struct SavedSearchSheet: View, Loggable {
         /// the note and Save read it.
         let problem = saveProblem
         VStack(spacing: 0) {
-            Text(title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Color(NSColor.controlBackgroundColor))
-                .overlay(Divider(), alignment: .bottom)
+            SheetTitleBar(title)
 
             builder
                 .background(Color(nsColor: .windowBackgroundColor))
@@ -242,7 +237,7 @@ struct SavedSearchSheet: View, Loggable {
                     .font(.system(size: 12))
                 Spacer()
                 if resultsReady, rules.problem == nil, !rules.query.isEmpty {
-                    Text(results.count == 1 ? "1 film" : "\(results.count) films")
+                    Text(Fmt.count(results.count, "film"))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -255,9 +250,9 @@ struct SavedSearchSheet: View, Loggable {
             /// filled shape.
             Group {
                 if rules.query.isEmpty || rules.problem != nil {
-                    placeholder("Configure rules above to see the live results here.")
+                    SheetPlaceholder("Configure rules above to see the live results here.")
                 } else if resultsReady && results.isEmpty {
-                    placeholder("No results.")
+                    SheetPlaceholder("No results.")
                 } else {
                     /// Read-only: nothing acts on a result here.
                     UpNextResultsTable(films: results)
@@ -269,15 +264,6 @@ struct SavedSearchSheet: View, Loggable {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-    }
-
-    private func placeholder(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 13))
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 40)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Runs the rules once they hold still, in title order — the same engine the saved
@@ -488,8 +474,8 @@ struct ListChoiceGroup: Identifiable, Hashable {
 
     static func groups(_ catalog: SearchListCatalog, excluding excluded: String?) -> [ListChoiceGroup] {
         let order: [(SearchListCatalog.Kind, String)] = [
-            (.user, "Lists"), (.saved, "Saved Searches"), (.queue, "Queue"), (.smart, "Smart Lists"),
-            (.recents, "Recents"), (.report, "Reports")]
+            (.user, "Lists"), (.saved, "Saved Searches"), (.queue, LibraryItem.filmQueue.title), (.smart, "Smart Lists"),
+            (.recents, LibraryItem.recents.title), (.report, LibraryItem.reports.title)]
         return order.compactMap { kind, title in
             let names = catalog.entries.filter { $0.kind == kind && $0.name != excluded }.map(\.name)
             return names.isEmpty ? nil : ListChoiceGroup(title: title, names: names)
@@ -703,7 +689,7 @@ private struct RuleRow: View {
         case .releaseKeyword:
             choiceWithOther(selection: $rule.text,
                             groups: Self.releaseGroups,
-                            placeholder: "e.g. criterion, 2027, >2026")
+                            placeholder: "e.g. purchased, criterion")
         case .rotationValue:
             choiceWithOther(selection: $rule.text,
                             groups: [("", RuleValues.rotationValues)],

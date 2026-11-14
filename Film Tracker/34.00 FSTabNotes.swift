@@ -7,7 +7,7 @@ import SwiftUI
 
 @MainActor
 @Observable
-final class FSTabNotes {
+final class FSTabNotes: FilmSheetTabChangeTracking {
     weak var owner: FilmSheet?
 
     /// Note fields.
@@ -135,15 +135,7 @@ final class FSTabNotes {
         ///     time component, differing despite displaying and saving identically.
         let changed = collectFilmFields() != orig
 
-        /// Only write hasChanges — and only call owner.notifyChanges() — when the
-        /// aggregated result actually differs from the last known value. Skipping
-        /// the no-op path keeps every keystroke in edit mode from waking FilmSheet
-        /// once hasChanges has already latched to its steady-state value.
-        /// Mirrors the identical pattern in FSTabReleases.checkForChanges().
-        if hasChanges != changed {
-            hasChanges = changed
-            owner.notifyChanges()
-        }
+        latchHasChanges(changed, notifying: owner)
     }
 
     // MARK: - DTO Support

@@ -64,9 +64,9 @@ enum UpNextSlots: Loggable {
     /// its capacity ("3 of 8 films"); every other section a plain count.
     static func sectionCountText(section: GallerySection, filmCount: Int) -> String {
         if section == FilmQueueSection.upNext.gallerySection {
-            return "\(filmCount) of \(FilmQueue.upNextCapacity) films"
+            return "\(Fmt.count(filmCount)) of \(Fmt.count(FilmQueue.upNextCapacity, "film"))"
         }
-        return "\(filmCount) film\(filmCount == 1 ? "" : "s")"
+        return Fmt.count(filmCount, "film")
     }
 
     /// True while "Up Next" really has a vacancy at slot `number` (1-based) — read from its
@@ -439,14 +439,7 @@ struct UpNextSlotSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                Text("Add Film to \"Up Next\" Queue")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-            }
-            .background(Color(NSColor.controlBackgroundColor))
-            .overlay(Divider(), alignment: .bottom)
+            SheetTitleBar("Add Film to \"Up Next\" Queue")
 
             UpNextSlotSearchField(onChange: { model.setQuery($0) },
                                   onMove: { model.moveSelection(by: $0) },
@@ -466,9 +459,7 @@ struct UpNextSlotSheet: View {
                 Button {
                     sheetCoordinator.dismissSheet()
                 } label: {
-                    Text("Close")
-                        .padding(4)
-                        .font(.system(size: 12))
+                    Text("Close").sheetButtonLabel()
                 }
                 .keyboardShortcut(.cancelAction)
                 .focusable(false)
@@ -478,9 +469,7 @@ struct UpNextSlotSheet: View {
                 Button {
                     addSelected()
                 } label: {
-                    Text("Add to \"Up Next\"")
-                        .padding(4)
-                        .font(.system(size: 12))
+                    Text("Add to \"Up Next\"").sheetButtonLabel()
                 }
                 /// The default action, as the FilmSheet's: highlighted and bound to Return,
                 /// but only while a result is selected.
@@ -518,9 +507,9 @@ struct UpNextSlotSheet: View {
     private var results: some View {
         Group {
             if !model.hasQuery {
-                placeholder("Search for films to add to your \"Up Next\" Queue.")
+                SheetPlaceholder("Search for films to add to your \"Up Next\" Queue.")
             } else if model.results.isEmpty {
-                placeholder("No results.")
+                SheetPlaceholder("No results.")
             } else {
                 UpNextResultsTable(films: model.results,
                                    selectedID: model.selectedFilmID,
@@ -533,15 +522,6 @@ struct UpNextSlotSheet: View {
         /// The search field's inset, so the box lines up with it.
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-    }
-
-    private func placeholder(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 13))
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .padding(.horizontal, 40)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func addSelected() {

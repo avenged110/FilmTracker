@@ -20,7 +20,7 @@ struct ReportsView: View {
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         /// Switching Reports tabs swaps the whole content view, but SelectionState is one shared instance that persists across the swap.
         /// Without this clear, a selection would survive into a tab where nothing is highlighted, and reappear later. This matches the clear on full
-        /// view switches (see MainView's handleViewChange). It fires on selectedCategory, not the deferred displayedCategory, so it clears on request from any source.
+        /// view switches (see AppState.navigate(to:)). It fires on selectedCategory, not the deferred displayedCategory, so it clears on request from any source.
         .onChange(of: reportsState.selectedCategory) { _, _ in
             selectionState.clearImmediate()
         }
@@ -51,7 +51,7 @@ private struct ReportsTitleBar: View {
                             .frame(width: ReportsTitleBar.buttonWidth)
                     }
                     .fixedSize()
-                    .help("Export Reports…")
+                    .help("Export Insights…")
                 }
                 .focusable(false)
                 .padding(.trailing, 18)
@@ -67,7 +67,7 @@ private struct ReportsCategoryPicker: View {
 
     var body: some View {
         SubcategoryPicker(
-            label: "Reports Category",
+            label: "Insights Category",
             style: .menu,
             options: ReportsCategory.allCases,
             selection: reportsState.selectedCategory,
@@ -113,11 +113,13 @@ private struct ReportsContentSwitcher: View {
 final class ReportsState {
     static let shared = ReportsState()
     
-    var selectedCategory: ReportsCategory = .costTracker
+    var selectedCategory: ReportsCategory = .primary
     /// The category mounted in ReportsContentSwitcher. It trails `selectedCategory` by two run-loop cycles on user-driven switches,
     /// so the heavy swap does not compete with the Picker's fade (see selectCategory). Labels read `selectedCategory` and stay instant.
-    private(set) var displayedCategory: ReportsCategory = .costTracker
+    private(set) var displayedCategory: ReportsCategory = .primary
     var visibleItemCount: Int = 0
+    /// The Purchase Tracker's column totals, for the StatusBar's summary row. Rebuilt with the tab's rows in updateData.
+    private(set) var purchaseTotals = PurchaseTotals()
     
     /// Export data storage per category
     private var costTrackerData: [ReleaseData] = []
@@ -227,29 +229,16 @@ final class ReportsState {
     }
     
     init() {
-        /// Load saved category if preference is enabled
-        if Preferences.rememberReportsTab,
-           let savedRawValue = Preferences.lastReportsCategory,
-           let saved = ReportsCategory(rawValue: savedRawValue) {
-            selectedCategory = saved
-        }
-        /// The displayed content must match the restored selection at launch.
+        /// The displayed content must match the selection at launch.
         displayedCategory = selectedCategory
     }
     
-    /// - Parameter persist: True for a deliberate tab choice, which is remembered across sessions. Navigation into Reports must not overwrite it.
-    ///   See RecentsState.selectCategory.
     /// - Parameter immediate: Swap the content now, rather than two run-loop turns later. The title-bar pop-up passes true. Its NSPopUpButton
     ///   sends the action only after the menu fade (see SubcategoryPicker), so deferring would gain nothing. Menu commands and shortcuts defer.
-    func selectCategory(_ category: ReportsCategory, persist: Bool = true, immediate: Bool = false) {
+    func selectCategory(_ category: ReportsCategory, immediate: Bool = false) {
         /// Don't skip if it's the same category - we might need to reload
         selectedCategory = category
 
-        /// Save if preference is enabled
-        if persist && Preferences.rememberReportsTab {
-            Preferences.lastReportsCategory = category.rawValue
-        }
-        
         /// The content swap (displayedCategory) and the item count are deferred two run-loop cycles. The Picker's binding setter runs inside the
         /// menu action, so an immediate swap would build the new tab in the same transaction that commits the menu fade, which stutters the fade.
         /// A single async hop still lands before that commit. A second hop lands after it, so the fade runs out of process. DispatchQueue.main.async
@@ -284,6 +273,9 @@ final class ReportsState {
         case .costTracker:
             costTrackerData = data
             loadedCategories.insert(.costTracker)
+            /// Change-guarded: updateData runs more than once per load (see CostTrackerView.applyPurchasedReleases), and each write would redraw the bar.
+            let totals = PurchaseTotals(rows: data)
+            if purchaseTotals != totals { purchaseTotals = totals }
         case .priceTracker:
             priceTrackerData = data
             loadedCategories.insert(.priceTracker)
@@ -388,6 +380,30 @@ final class ReportsState {
     }
 }
 
+// MARK: - Purchase Totals
+/// The Purchase Tracker's Cost and Spent column figures, shown in the StatusBar's summary row.
+struct PurchaseTotals: Equatable {
+    var totalCost: Double = 0
+    var totalSpent: Double = 0
+    /// The mean of the Cost column's filled cells. A release with no cost shows "—" there and is left out. Nil when no row has a cost.
+    var averageCost: Double? = nil
+    /// Total spent as a percentage of total cost. Nil when the total cost is zero.
+    var spentToCostPercent: Double? = nil
+
+    init() {}
+
+    init(rows: [ReleaseData]) {
+        var costCount = 0
+        for row in rows {
+            totalCost += row.cost
+            totalSpent += row.amountSpent
+            if row.cost > 0 { costCount += 1 }
+        }
+        if costCount > 0 { averageCost = totalCost / Double(costCount) }
+        if totalCost > 0 { spentToCostPercent = totalSpent / totalCost * 100 }
+    }
+}
+
 // MARK: - Reports Export Data
 /// The payload one report tab contributes to the whole-library PDF.
 ///
@@ -401,30 +417,40 @@ struct ReportsExportData {
 }
 
 // MARK: - Reports Category
+/// DECLARATION ORDER IS TAB ORDER: the title-bar picker, the sidebar's tab rows, and the
+/// Cmd+Up/Down cycle all follow allCases. The first case is the primary tab: the sidebar's
+/// Reports row is that tab itself, and the other tabs are its children.
 enum ReportsCategory: String, CaseIterable, Codable, Sendable {
+    case dataVisualizations
     case costTracker
     case priceTracker
     case hallOfFame
     case releaseWishlist
-    case dataVisualizations
-    
+
+    /// The primary tab. See the declaration-order note above.
+    static let primary: ReportsCategory = .dataVisualizations
+
     var displayName: String {
         switch self {
-        case .costTracker: return "Purchase and Expense Tracker"
+        case .dataVisualizations: return "Insights"
+        case .costTracker: return "Purchase Tracker"
         case .priceTracker: return "Price Tracker"
         case .hallOfFame: return "Hall of Fame"
         case .releaseWishlist: return "Release Wishlist"
-        case .dataVisualizations: return "Visualizations and Insights"
         }
     }
-    
-    var glyph: String {
+
+    /// The tab's symbol pair: `.outline` for its sidebar row, `.filled` for the title bar.
+    var symbol: ViewGlyphs.Glyph {
         switch self {
-        case .costTracker: return "chart.pie.fill"
-        case .priceTracker: return "cart.fill"
-        case .hallOfFame: return "trophy.fill"
-        case .releaseWishlist: return "gift.fill"
-        case .dataVisualizations: return "chart.bar.fill"
+        case .dataVisualizations: return ViewGlyphs.insights
+        case .costTracker: return ViewGlyphs.costTracker
+        case .priceTracker: return ViewGlyphs.priceTracker
+        case .hallOfFame: return ViewGlyphs.hallOfFame
+        case .releaseWishlist: return ViewGlyphs.releaseWishlist
         }
     }
+
+    /// The title bar's glyph.
+    var glyph: String { symbol.filled }
 }

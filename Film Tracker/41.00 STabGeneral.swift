@@ -67,10 +67,6 @@ struct GeneralSettingsView: View, Loggable {
         private var showReleasesSummaryTable: Bool
     @AppStorage(preference: Preferences.maintainScrollPositionOnViewSwitchKey)
         private var maintainScrollPositionOnViewSwitch: Bool
-    @AppStorage(preference: Preferences.rememberTabSelectionKey)
-        private var rememberTabSelection: Bool
-    @AppStorage(preference: Preferences.tabRememberScopeKey)
-        private var tabRememberScopeRaw: Int
     @AppStorage(preference: Preferences.rememberSortFilterSelectionsKey)
         private var rememberSortFilterSelections: Bool
     @AppStorage(preference: Preferences.performBackupAtLaunchKey)
@@ -244,11 +240,11 @@ struct GeneralSettingsView: View, Loggable {
             /// with the checkbox, matching the confirmListEdits/ListEditScope pattern below.
             Toggle(isOn: $queueIsDropTarget) {
                 HStack(spacing: 4) {
-                    Text("When dragging films onto the Queue, add them to the")
+                    Text("When dragging films onto the \(LibraryItem.filmQueue.title), add them to the")
                     Picker("", selection: $queueSectionOnDropRaw) {
-                        Text("\"Up Next\"").tag(Preferences.QueueDropSection.upNext.rawValue)
-                        Text("\"Soon\"").tag(Preferences.QueueDropSection.soon.rawValue)
-                        Text("\"Later\"").tag(Preferences.QueueDropSection.later.rawValue)
+                        ForEach(Preferences.QueueDropSection.allCases, id: \.self) { section in
+                            Text("\u{201C}\(section.filmQueueSection.displayName)\u{201D}").tag(section.rawValue)
+                        }
                     }
                     .labelsHidden()
                     .frame(width: 110)
@@ -305,25 +301,6 @@ struct GeneralSettingsView: View, Loggable {
 
             Toggle(isOn: $maintainScrollPositionOnViewSwitch) {
                 Text("Remember prior scroll positions across view changes") }
-
-            /// Master checkbox + scope Picker, matching the confirmListEdits/
-            /// ListEditScope design above. rememberTabSelection is the on/off switch;
-            /// tabRememberScopeRaw refines which tab(s) it applies to when enabled.
-            Toggle(isOn: $rememberTabSelection) {
-                HStack(spacing: 4) {
-                    Text("Remember the last-selected tab in")
-                    Picker("", selection: $tabRememberScopeRaw) {
-                        Text("Recents").tag(Preferences.TabRememberScope.recents.rawValue)
-                        Text("Reports").tag(Preferences.TabRememberScope.reports.rawValue)
-                        Text("Recents and Reports").tag(Preferences.TabRememberScope.both.rawValue)
-                    }
-                    .labelsHidden()
-                    .frame(width: 170)
-                    .disabled(!rememberTabSelection)
-                    Text("across sessions")
-                }
-                .padding(.vertical, -2)
-            }
 
             SettingsDescribedToggle("Remember the last-selected view options across sessions",
                 description: "Independently persist sorting, filtering, and view style selections on a per-view basis. This does not apply to search results as their view options are reset with each query, nor does it apply to user-generated lists as their view options are always persisted, regardless.",

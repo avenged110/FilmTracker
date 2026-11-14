@@ -104,13 +104,6 @@ struct UnifiedViewingPopover: View, Loggable {
         self._selectedCalendar = State(initialValue: initialEntry?.selectedCalendar)
     }
     
-    /// Cached DateFormatter for end time display (avoids per-evaluation allocation).
-    private static let endTimeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter
-    }()
-
     /// Base-date (no version code) format for comparing against film.calendarTable entries and
     /// extractDatePortion(from:) results. It is StorageDateFormatters.dot, shared with the other
     /// viewing-date code, so the "yyyy.MM.dd" strings match exactly.
@@ -362,7 +355,7 @@ struct UnifiedViewingPopover: View, Loggable {
         }
         
         /// Format end time without seconds
-        return Self.endTimeFormatter.string(from: endDate)
+        return formatTime(endDate)
     }
     
     // MARK: - Authorization Management

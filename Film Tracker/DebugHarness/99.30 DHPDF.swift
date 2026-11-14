@@ -695,13 +695,13 @@ extension DebugHarness {
                             format: ReleaseFormat.uhd4K.rawValue,
                             audioFormat: ReleaseAudioFormat.dtsHDMA,
                             audioChannels: ReleaseAudioChannels.surround71,
-                            hasArtwork: "No",
+                            hasArtwork: ReleaseArtwork.missing,
                             cost: 30, purchaseDate: "2024-03-02"),
             ReleaseSnapshot(purchased: true,
                             format: ReleaseFormat.bluRay.rawValue,
                             audioFormat: ReleaseAudioFormat.dolbyDigital,
                             audioChannels: ReleaseAudioChannels.surround51,
-                            hasArtwork: "Yes",
+                            hasArtwork: ReleaseArtwork.standard,
                             cost: 0, purchaseDate: "2024-03-02",
                             parentReleaseID: comboParentID),
         ])
@@ -712,7 +712,7 @@ extension DebugHarness {
             ReleaseSnapshot(purchased: true, format: ReleaseFormat.bluRay.rawValue,
                             audioFormat: ReleaseAudioFormat.dtsHDMA,
                             audioChannels: ReleaseAudioChannels.surround51,
-                            hasArtwork: "Yes", cost: 20, purchaseDate: "2024-03-02"),
+                            hasArtwork: ReleaseArtwork.standard, cost: 20, purchaseDate: "2024-03-02"),
             /// Carries a channel tag of its own, which is what makes the audio-tagged
             /// population (4) differ from the purchased top-level population (3). Without
             /// that divergence the two denominators coincide and the check below would pass
@@ -720,7 +720,7 @@ extension DebugHarness {
             ReleaseSnapshot(purchased: true, format: ReleaseFormat.dvd.rawValue,
                             audioFormat: ReleaseAudioFormat.dolbyDigital,
                             audioChannels: ReleaseAudioChannels.stereo20,
-                            hasArtwork: "Yes", cost: 10, purchaseDate: "2024-07-09"),
+                            hasArtwork: ReleaseArtwork.standard, cost: 10, purchaseDate: "2024-07-09"),
         ])
 
         /// A purchase with no cost recorded. It counts as a purchase everywhere, but must be
@@ -730,7 +730,7 @@ extension DebugHarness {
             ReleaseSnapshot(purchased: true, format: ReleaseFormat.bluRay.rawValue,
                             audioFormat: ReleaseAudioFormat.dtsHDMA,
                             audioChannels: ReleaseAudioChannels.surround71,
-                            hasArtwork: "Yes", cost: 0, purchaseDate: "2024-07-09"),
+                            hasArtwork: ReleaseArtwork.standard, cost: 0, purchaseDate: "2024-07-09"),
         ])
 
         /// No releases at all: present in `totalFilms`, absent from every purchase-side
@@ -1443,7 +1443,7 @@ extension DebugHarness {
             film: film("PDF Notes Missing Artwork") {
                 $0.releases = [ReleaseSnapshot(purchased: true,
                                                format: ReleaseFormat.bluRay.rawValue,
-                                               hasArtwork: ReleaseArtwork.no)]
+                                               hasArtwork: ReleaseArtwork.missing)]
             },
             cells: [(.notes, PDFCell("Missing artwork", fill: PDFPalette.green))]))
 

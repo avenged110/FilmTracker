@@ -14,7 +14,11 @@ import CoreData
 ///
 /// Version 3: `ReleaseSnapshot.releaseYear` became `releaseDate`.
 /// Version 4: the payload is JSON rather than a binary plist (see `MemoryStoreCacheCoding`).
-private let currentCacheFormatVersion = 4
+/// Version 5: release values are in the current artwork format. Snapshots are always current
+///            (see LegacyReleaseValues), so a cache never needs scanning for old values; a
+///            change to a stored value's format bumps this instead, as a layout change does.
+/// Version 6: market availability is respelled for each release's type and origin as it loads.
+private let currentCacheFormatVersion = 6
 
 /// The payload's JSON encoder and decoder. JSON was chosen over a binary plist for faster decode and
 /// encode on a 1,400-film library, at a modest cost in file size. Non-finite Doubles, which JSON cannot

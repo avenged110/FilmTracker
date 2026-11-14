@@ -329,8 +329,6 @@ struct FilmTrackerApp: App, Loggable {
                 libraryStateUnreliable: coordinator.isLibraryStateUnreliable
             )
         }
-        DebugLiveResizeProfiler.shared.installIfNeeded()
-        DebugFocusProbe.shared.installIfNeeded()
         #endif
 
         /// Yield so SwiftUI can render the full UI, including the sidebar's user lists, before the
@@ -862,6 +860,20 @@ enum LibraryItem: Hashable {
     case imports
     case filmQueue
     case search
+
+    /// The section's name: the window title while it shows, its LeftSidebar row where the row is the section
+    /// itself, and its Left Sidebar menu item. Its tabs name themselves (each category's displayName).
+    var title: String {
+        switch self {
+        case .allFilms:  return "All Films"
+        case .unwatched: return "Unwatched"
+        case .recents:   return "Recents"
+        case .reports:   return "Insights"
+        case .imports:   return "Imports"
+        case .filmQueue: return "Queue"
+        case .search:    return "Search"
+        }
+    }
 }
 
 enum SidebarItem: Hashable {
@@ -978,17 +990,12 @@ final class AppState: Loggable {
         /// ViewStateManager.bankDisplayedScrollPosition.
         ViewStateManager.shared.bankDisplayedScrollPosition()
 
-        /// Switch, then flip, for each destination that MainContentSwitcher renders with a fresh GalleryView, so
-        /// its first pass already holds the destination's films and style (see GalleryView.preSwitchBeforeSidebarFlip).
-        /// Search, Reports and Imports keep their own paths. Before initialization, GalleryView's handleReadyState does the first load.
-        if dataCoordinator?.isInitialized == true {
-            switch newItem {
-            case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
-                 .libraryItem(.filmQueue), .smartList, .list, .savedSearch:
-                GalleryView.preSwitchBeforeSidebarFlip(from: oldItem, to: newItem)
-            case .libraryItem(.search), .libraryItem(.reports), .libraryItem(.imports):
-                break
-            }
+        /// Switch, then flip, for each destination the shared GalleryView draws (GalleryReuse), so the pass that
+        /// draws it already holds the destination's films and style (see GalleryView.preSwitchBeforeSidebarFlip).
+        /// Search arrives already switched, with its seeded style (MainView.showSearch), so its pre-switch is a
+        /// no-op. Reports and Imports keep their own paths. Before initialization, GalleryView's handleReadyState does the first load.
+        if dataCoordinator?.isInitialized == true, GalleryReuse.isSharedHostItem(newItem) {
+            GalleryView.preSwitchBeforeSidebarFlip(from: oldItem, to: newItem)
         }
 
         selectedSidebarItem = newItem
@@ -1215,8 +1222,6 @@ enum LaunchTimeline: Loggable {
 enum LaunchExperiment {
     #if DEBUG
     private static let arguments = ProcessInfo.processInfo.arguments
-    /// `-FTExpNoMenuGate`: the menu bar refreshes with the library load.
-    static let noMenuGate = arguments.contains("-FTExpNoMenuGate")
     /// `-FTExpNoLeftSidebar`: no left sidebar at all (measurement only).
     static let noLeftSidebar = arguments.contains("-FTExpNoLeftSidebar")
     private static let outPath = ProcessInfo.processInfo.environment["FT_LAUNCH_OUT"]
@@ -1224,7 +1229,6 @@ enum LaunchExperiment {
     private static let exitsAfterRecord = exitValue != nil
     #else
     private static let exitValue: String? = nil
-    static let noMenuGate = false
     static let noLeftSidebar = false
     private static let outPath: String? = nil
     private static let exitsAfterRecord = false
@@ -1235,7 +1239,7 @@ enum LaunchExperiment {
     static func writeRecord(marks: [(name: String, ms: Double)], busy: [(start: Double, end: Double)]) {
         guard let outPath else { return }
         #if DEBUG
-        let flags = arguments.filter { $0.hasPrefix("-FTExp") || $0.hasPrefix("-FTRSB") }
+        let flags = arguments.filter { $0.hasPrefix("-FTExp") }
         #else
         let flags: [String] = []
         #endif

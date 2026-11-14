@@ -101,6 +101,15 @@ final class SearchController: Loggable {
     
     /// Last confirmed search state (used during token entry to maintain previous results)
     private var lastConfirmedTokens: [SearchToken] = []
+
+    /// Whether the results on screen depend on list membership: the search filtering them
+    /// (the confirmed one, during token entry) has a #list token. A #list token can name a
+    /// user list, a smart list, the Film Queue, a report or a saved search, so a membership
+    /// change made beside the results can add films to them or remove films from them.
+    var dependsOnLists: Bool {
+        guard hasContent else { return false }
+        return (isActive ? currentTokens : lastConfirmedTokens).contains { $0.field == .list }
+    }
     private var lastConfirmedText: String = ""
     
     // MARK: - Private State
@@ -529,8 +538,9 @@ final class SearchController: Loggable {
             return text.isEmpty ? nil : (nil, text)
         }
         guard let (field, value) = tokenValueInput() else { return nil }
-        /// An Is value is suggested for one term at a time: the one after the last comma.
-        if field == .flags { return (field, FilmFlag.splitLast(value).term) }
+        /// An Is or Release value is suggested for one term at a time: the one after the
+        /// last comma.
+        if field == .flags || field == .releases { return (field, FilmFlag.splitLast(value).term) }
         return (field, value)
     }
 
@@ -607,6 +617,14 @@ final class SearchController: Loggable {
             if fragment.isInverted { prefix += "!" }
             searchText = fragment.beforeHash + "#" + prefix + (SearchField.flags.aliases.first ?? "is") + " "
                 + head + negation + suggestion.value
+            suppressSuggestions()
+            return
+        }
+        /// A Release value's terms all describe one release. Picking a keyword after a comma
+        /// completes the last term and commits the whole value, as picking one does without a comma.
+        if suggestion.field == .releases, let (_, value) = tokenValueInput(), value.contains(",") {
+            let (head, negation, _) = FilmFlag.splitLast(value)
+            insertTokenValue(.releases, value: head + negation + suggestion.value)
             suppressSuggestions()
             return
         }
@@ -775,10 +793,23 @@ final class SearchController: Loggable {
     /// with the field's own `currentEditor()`, not through `NSText.delegate`, an
     /// `unowned(unsafe)` reference strict memory safety flags.
     private static var searchFieldHoldsKeyboard: Bool {
-        guard let window = NSApp.keyWindow, let responder = window.firstResponder,
-              let item = window.toolbar?.items.lazy.compactMap({ $0 as? NSSearchToolbarItem }).first,
-              let editor = item.searchField.currentEditor() else { return false }
+        guard let responder = NSApp.keyWindow?.firstResponder,
+              let editor = toolbarSearchItem?.searchField.currentEditor() else { return false }
         return responder === editor
+    }
+
+    /// The key window's toolbar search field.
+    private static var toolbarSearchItem: NSSearchToolbarItem? {
+        NSApp.keyWindow?.toolbar?.items.lazy.compactMap { $0 as? NSSearchToolbarItem }.first
+    }
+
+    /// Focuses the toolbar search field with the caret after its contents.
+    static func focusFieldAtEnd() {
+        guard let item = toolbarSearchItem else { return }
+        item.beginSearchInteraction()
+        if let editor = item.searchField.currentEditor() {
+            editor.selectedRange = NSRange(location: editor.string.utf16.count, length: 0)
+        }
     }
 
     // MARK: - Saved Searches
@@ -2075,141 +2106,194 @@ final class SearchController: Loggable {
         }
     }
 
+    /// The Release token: films with at least one release that has the property the value names.
+    ///
+    /// A value of several comma-separated terms asks for ONE release that meets them all:
+    /// "purchased, criterion" is a purchased Criterion disc, where two separate Release tokens
+    /// could be met by two different discs. A term prefixed with "!" asks for a release that
+    /// does not have the property ("!purchased, criterion, 4k"). A value that is wholly a
+    /// release date is one term, so a date that contains a comma is never split.
     private func filterByReleases(_ films: [FilmSnapshot], query: String) -> [FilmSnapshot] {
-        let q = query.lowercased().trimmingCharacters(in: .whitespaces)
+        let terms = releaseTerms(query)
 
+        /// One plain studio term, the commonest case, uses the precomputed studio keys rather
+        /// than normalizing every release's studio. An empty key matches any release (see
+        /// FilmTextSearchKeys), so it finds every film that has releases.
+        if terms.count == 1, !terms[0].negated, case .studio(let studioKey) = terms[0].kind {
+            return films.filter { film in
+                guard let keys = MetadataCache.shared.getTextSearchKeys(for: film.id) else {
+                    return film.releases.contains { fuzzyMatchOptimized($0.studio, query: studioKey) }
+                }
+                if studioKey.isEmpty { return !film.releases.isEmpty }
+                return fuzzyMatchCore(keys.releaseStudios, query: studioKey)
+            }
+        }
+
+        let tests = terms.map { term in
+            let test = releaseTest(term.kind)
+            return { (release: ReleaseSnapshot) in test(release) != term.negated }
+        }
+        return films.filter { film in
+            film.releases.contains { release in tests.allSatisfy { $0(release) } }
+        }
+    }
+
+    /// What one term of a Release value asks about a release.
+    private enum ReleaseTermKind {
+        /// A release date form or a keyword, as its test (see releaseKeywordTest).
+        case test((ReleaseSnapshot) -> Bool)
+        /// Anything else: a studio name, in `SearchText.key` form.
+        case studio(String)
+    }
+
+    /// The terms of a Release value. The whole value is one term when it is a release date;
+    /// otherwise it splits at commas, each segment taking any number of leading "!" (an odd
+    /// number negates), and two neighboring segments that together make a date ("March,
+    /// 2027") stay one term. Empty segments are skipped, so a trailing comma changes nothing. A
+    /// value with no terms at all is the empty studio term, which matches any release.
+    private func releaseTerms(_ value: String) -> [(kind: ReleaseTermKind, negated: Bool)] {
+        /// Read through StorageDateFormatters, as the "upcoming" forms always were.
+        let today = StorageDateFormatters.calendar.startOfDay(for: Date())
+        let whole = value.lowercased().trimmingCharacters(in: .whitespaces)
+        if let test = releaseDateTest(whole) { return [(.test(test), false)] }
+        var terms: [(kind: ReleaseTermKind, negated: Bool)] = []
+        let segments = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        var index = 0
+        while index < segments.count {
+            var text = segments[index]
+            index += 1
+            var negated = false
+            while text.hasPrefix("!") {
+                negated.toggle()
+                text = String(text.dropFirst()).trimmingCharacters(in: .whitespaces)
+            }
+            guard !text.isEmpty else { continue }
+            /// A date whose own spelling has a comma ("March, 2027") arrives as two segments.
+            /// They are read as one term when together they make a date.
+            if index < segments.count {
+                let joined = text + ", " + segments[index]
+                if let test = releaseDateTest(joined.lowercased()) {
+                    terms.append((.test(test), negated))
+                    index += 1
+                    continue
+                }
+            }
+            let q = text.lowercased()
+            if let test = releaseDateTest(q) ?? Self.releaseKeywordTest(q, today: today) {
+                terms.append((.test(test), negated))
+            } else {
+                terms.append((.studio(SearchText.key(text)), negated))
+            }
+        }
+        return terms.isEmpty ? [(.studio(""), false)] : terms
+    }
+
+    /// A release date form (see releaseDateMatcher) as a test on one release, or nil when
+    /// `q` is not one. Tested before the keyword forms, none of which starts with a digit or
+    /// an operator or names a month and year.
+    private func releaseDateTest(_ q: String) -> ((ReleaseSnapshot) -> Bool)? {
+        guard let matches = Self.releaseDateMatcher(q, parseMonthYear: parseMonthYear) else { return nil }
+        return { release in
+            guard let date = ReleaseDateValue(release.releaseDate, format: release.format) else { return false }
+            return matches(date)
+        }
+    }
+
+    /// The test one term makes of one release.
+    private func releaseTest(_ kind: ReleaseTermKind) -> (ReleaseSnapshot) -> Bool {
+        switch kind {
+        case .test(let test):
+            return test
+        case .studio(let studioKey):
+            /// An empty key matches any release (see FilmTextSearchKeys).
+            return { [self] release in studioKey.isEmpty || fuzzyMatchOptimized(release.studio, query: studioKey) }
+        }
+    }
+
+    /// A keyword form (`q` lowercased and trimmed) as a test on one release, or nil when `q`
+    /// is not a keyword, in which case the term is a studio name.
+    ///
+    /// The branches run in a fixed order, and the order matters: master type ("native 4k")
+    /// is checked with exact equality BEFORE the format branch, since "native 4k" contains
+    /// "4k" and would otherwise be read as the format.
+    private static func releaseKeywordTest(_ q: String, today: Date) -> ((ReleaseSnapshot) -> Bool)? {
         /// Upcoming: a release whose date is still ahead (ReleaseDateValue.isUpcoming), the
         /// same rule as the "Upcoming Releases" smart list and the release card's badge.
         if q == "upcoming" || q == "unreleased" || q == "preorder" || q == "pre-order" {
-            let today = StorageDateFormatters.calendar.startOfDay(for: Date())
-            return films.filter { film in
-                film.releases.contains {
-                    ReleaseDateValue($0.releaseDate, format: $0.format)?.isUpcoming(today: today) ?? false
-                }
-            }
+            return { ReleaseDateValue($0.releaseDate, format: $0.format)?.isUpcoming(today: today) ?? false }
         }
 
-        /// A release date: "2027", "2020-2027", ">2026", "<2020.06.01", "March 2027",
-        /// "2027.03.14" — see releaseDateMatcher. Tested before the keyword forms below, none
-        /// of which starts with a digit or an operator or names a month and year.
-        if let matches = Self.releaseDateMatcher(q, parseMonthYear: parseMonthYear) {
-            return films.filter { film in
-                film.releases.contains {
-                    guard let date = ReleaseDateValue($0.releaseDate, format: $0.format) else { return false }
-                    return matches(date)
-                }
-            }
-        }
-
-        /// Each branch only needs to know whether a release of a given kind EXISTS, so it
-        /// uses releases.contains { … } directly. The FilmSnapshot convenience properties
-        /// this once went through (purchasedReleases / releases4K / releases2K / releasesSD,
-        /// since deleted) built a filtered, sorted copy of the array on every access; testing
-        /// their .isEmpty paid for an allocation and an O(R log R) sort whose result is
-        /// immediately discarded. contains is O(R), allocation-free, and behavior-identical.
         /// Wishlist: only releases actually on the Release Wishlist. A child of a combo pack
         /// mirrors its parent's position, so `wishlist > 0` on any release is the same test
         /// the Release Wishlist report makes for the pack.
         if q.contains("wishlist") || q == "wanted" {
-            return films.filter { film in film.releases.contains { $0.wishlist > 0 } }
-        }
-        if q == "unpurchased" {
-            return films.filter { film in film.releases.contains { !$0.purchased } }
+            return { $0.wishlist > 0 }
         }
         /// Exact words: a substring test read "unowned" and "owned 4k" as "owned".
-        if q == "unowned" || q == "not owned" {
-            return films.filter { film in film.releases.contains { !$0.purchased } }
+        if q == "unpurchased" || q == "unowned" || q == "not owned" {
+            return { !$0.purchased }
         }
         if q == "purchased" || q == "owned" {
-            return films.filter { film in film.releases.contains { $0.purchased } }
+            return { $0.purchased }
         }
 
-        /// Master type ("native 4k"/"native"/"upscaled"/"upscale") is checked with exact
-        /// equality BEFORE the general 4K/UHD format branch below, since "native 4k"
-        /// contains "4k" as a substring and would otherwise be swallowed by that branch's
-        /// .contains("4k") check and answer the wrong question (format vs. master type).
         if q == "native 4k" || q == "native" {
-            return films.filter { film in film.releases.contains { $0.masterType == ReleaseMasterType.nativeFourK } }
+            return { $0.masterType == ReleaseMasterType.nativeFourK }
         }
         if q == "upscaled" || q == "upscale" {
-            return films.filter { film in film.releases.contains { $0.masterType == ReleaseMasterType.upscaled } }
+            return { $0.masterType == ReleaseMasterType.upscaled }
         }
 
         if q.contains("4k") || q.contains("uhd") {
-            return films.filter { film in film.releases.contains { $0.format == ReleaseFormat.uhd4K.rawValue } }
+            return { $0.format == ReleaseFormat.uhd4K.rawValue }
         }
         if q.contains("2k") || q.contains("bluray") || q.contains("blu-ray") {
-            return films.filter { film in film.releases.contains { $0.format == ReleaseFormat.bluRay.rawValue } }
+            return { $0.format == ReleaseFormat.bluRay.rawValue }
         }
         if q.contains("dvd") {
-            return films.filter { film in film.releases.contains { $0.format == ReleaseFormat.dvd.rawValue } }
+            return { $0.format == ReleaseFormat.dvd.rawValue }
         }
 
         /// Imported vs. domestic: any release whose nationalOrigin is set to something
         /// other than the domestic one — `ReleaseOrigin.isImport`, which also holds the
         /// rule that an unset (empty) origin is neither.
         if q == "imported" || q == "foreign" {
-            return films.filter { film in
-                film.releases.contains { ReleaseOrigin.isImport($0.nationalOrigin) }
-            }
+            return { ReleaseOrigin.isImport($0.nationalOrigin) }
         }
 
         /// Region lock. Periods are stripped before matching so "reg. a"/"reg. free"/etc.
         /// collapse onto the same forms as "reg a"/"reg free" without listing every
         /// period-bearing variant separately.
-        let regionQuery = q.replacingOccurrences(of: ".", with: "")
-        if let regionTags = Self.regionLockTags(forQuery: regionQuery) {
+        if let regionTags = regionLockTags(forQuery: q.replacingOccurrences(of: ".", with: "")) {
             let tagSet = Set(regionTags)
-            return films.filter { film in film.releases.contains { tagSet.contains($0.regionLock) } }
+            return { tagSet.contains($0.regionLock) }
         }
 
-        /// Remastered
         if q == "remastered" || q == "remaster" || q == "rem" {
-            return films.filter { film in film.releases.contains { $0.remastered } }
+            return { $0.remastered }
         }
 
         /// HDR. Exact-match on the finite hasHDR vocabulary, so no ordering concerns
         /// arise between e.g. "hdr10" and "hdr10+" the way substring checks would have.
         /// The tags and the "which of these count as HDR" question both come from
         /// ReleaseHDR, so these filters cannot drift from the picker that writes the field.
-        if q == "hdr" {
-            return films.filter { film in film.releases.contains { ReleaseHDR.isCapable($0.hasHDR) } }
-        }
-        if q == "dolby vision" || q == "dv" {
-            return films.filter { film in film.releases.contains { $0.hasHDR == ReleaseHDR.dolbyVision } }
-        }
-        if q == "hdr10" {
-            return films.filter { film in film.releases.contains { ReleaseHDR.isHDR10Family($0.hasHDR) } }
-        }
-        if q == "hdr10+" || q == "hdrplus" || q == "hdr+" {
-            return films.filter { film in film.releases.contains { $0.hasHDR == ReleaseHDR.hdr10Plus } }
-        }
+        if q == "hdr" { return { ReleaseHDR.isCapable($0.hasHDR) } }
+        if q == "dolby vision" || q == "dv" { return { $0.hasHDR == ReleaseHDR.dolbyVision } }
+        if q == "hdr10" { return { ReleaseHDR.isHDR10Family($0.hasHDR) } }
+        if q == "hdr10+" || q == "hdrplus" || q == "hdr+" { return { $0.hasHDR == ReleaseHDR.hdr10Plus } }
 
-        /// Independence (pack type). "combo-pack"/"combopack"/"combo" cover both combo-pack
-        /// forms via the same ReleaseIndependence.isComboPack(_:) predicate the model itself
-        /// uses, so this stays in lockstep with any future combo-pack variant. The other two
-        /// independence values are exposed by the same logical extension.
+        /// Independence (pack type). "combo-pack"/"combopack"/"combo" cover every combo-pack
+        /// form via the same ReleaseIndependence.isComboPack(_:) predicate the model itself
+        /// uses, so this stays in lockstep with any future combo-pack variant.
         if q == "combo-pack" || q == "combopack" || q == "combo" {
-            return films.filter { film in film.releases.contains { ReleaseIndependence.isComboPack($0.independence) } }
+            return { ReleaseIndependence.isComboPack($0.independence) }
         }
-        if q == "standalone" {
-            return films.filter { film in film.releases.contains { $0.independence == ReleaseIndependence.standalone } }
-        }
+        if q == "standalone" { return { $0.independence == ReleaseIndependence.standalone } }
         if q == "multi-pack" || q == "multipack" || q == "multi" {
-            return films.filter { film in film.releases.contains { $0.independence == ReleaseIndependence.multiPack } }
+            return { $0.independence == ReleaseIndependence.multiPack }
         }
 
-        /// Normalized like every other text token, so punctuation and accents in the
-        /// query match the studio name either way.
-        let studioKey = SearchText.key(query)
-        return films.filter { film in
-            guard let keys = MetadataCache.shared.getTextSearchKeys(for: film.id) else {
-                return film.releases.contains { fuzzyMatchOptimized($0.studio, query: studioKey) }
-            }
-            /// An empty key matches any release (see FilmTextSearchKeys).
-            if studioKey.isEmpty { return !film.releases.isEmpty }
-            return fuzzyMatchCore(keys.releaseStudios, query: studioKey)
-        }
+        return nil
     }
 
     /// The release-date forms of the releases token, as a test on one release's date, or nil

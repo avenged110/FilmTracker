@@ -27,7 +27,8 @@ import CoreData
 /// combo pack that is itself sold as part of a multi-pack. Structurally it IS `comboPack`
 /// — one bundled Blu-ray child, the same locks and cascades — and differs only in what it
 /// offers the user: its artwork picker carries both the combo-pack and the multi-pack
-/// "Yes" tags (see `ReleaseArtwork.comboMultiPackOptions`). Like `comboPackDualBD` it is a
+/// artwork kinds (see `ReleaseArtwork.presentKinds(forIndependence:)`), and its market availability
+/// takes the multi-pack spellings (`ReleaseMarketAvailability.Kind`). Like `comboPackDualBD` it is a
 /// 4K-only parent value; its child carries plain `comboPack`.
 enum ReleaseIndependence {
     static let standalone         = "Standalone"
@@ -240,79 +241,179 @@ enum ReleaseStudio {
 }
 
 // MARK: - Artwork Vocabulary
-/// The stored vocabulary for `Release.hasArtwork`, plus the per-independence option lists
-/// the card's artwork picker offers.
+/// The stored vocabulary for `Release.hasArtwork`, plus the rules the card's artwork menu and
+/// every reader of the field share.
 ///
 /// Open vocabulary, as everywhere else here: the tags are persisted verbatim and read back
-/// with no membership check (see the pickers' tag-set guarantees), so the stored set is
-/// open by design and a closed Swift type would misdescribe it.
+/// with no membership check, so the stored set is open by design and a closed Swift type
+/// would misdescribe it.
 ///
-/// The releases table, the right sidebar's `artworkNote`, and the picker that writes them all read
-/// one vocabulary.
+/// # Two components
 ///
-/// `steelbook` keeps its own note because it carries a rule the others do not: it is the
-/// sole tag offered under EVERY combination of purchased state and independence type,
-/// which makes it the one value the card's cascades have to reason about. Two cascades
-/// once did so against two separate literals — and they disagreed, so a type change
-/// discarded a steelbook the purchase cascade had been written to preserve.
+/// A purchased release's value is a KIND and an optional DETAIL, mirroring the card's
+/// two-section menu:
+///
+///     kind     Steelbook · Standard · Combo-pack · Multi-pack · DigiBook/DigiPack · Missing
+///              (the pack kinds per type)
+///     detail   Reversible · Inner print · Incorrect release · Custom  (only beside a present kind)
+///
+/// The value is the kind alone, or the kind and the lowercased detail joined by ", ":
+/// "Standard", "Combo-pack, reversible", "Standard, incorrect release". `composed` writes it
+/// and `parse` reads it back. A value `parse` cannot read is kept verbatim and shown as it is.
+///
+/// # The legacy format
+///
+/// Earlier builds stored every kind of present artwork as a qualified "Yes": "Yes",
+/// "Yes (Combo-pack)", "Yes (Reversible)", "Yes (Multi-pack, inner print)", and the
+/// unofferable "No (Combo-pack)" / "No (Multi-pack)"; and absent artwork as "No". `migrated`
+/// rewrites those to the current form. It is called only by LegacyReleaseValues, so nothing
+/// else needs to know the old spellings.
+///
+/// `steelbook` carries a rule the others do not: it is the sole kind offered under EVERY
+/// combination of purchased state and independence type, which makes it the one value the
+/// card's cascades have to reason about. Two cascades once did so against two separate
+/// literals — and they disagreed, so a type change discarded a steelbook the purchase
+/// cascade had been written to preserve.
+///
+/// `digiBook` is the other packaging kind: offered under every type, but only once the
+/// release is purchased, so the independence cascade keeps it and the purchase cascade
+/// does not. `keptOnTypeChange` names the two for that cascade.
 enum ReleaseArtwork {
     /// A steelbook case. Offered regardless of purchased state and independence type, so
     /// no cascade may retract it on the grounds that a vocabulary changed underneath it.
     static let steelbook = "Steelbook"
+    /// A book- or card-style case. Offered under every type once the release is purchased.
+    /// Like Steelbook it describes the case, so it takes no detail.
+    static let digiBook  = "DigiBook/DigiPack"
 
-    // MARK: Standalone tags
-    static let yes                  = "Yes"
-    static let no                   = "No"
-    static let yesIncorrectRelease  = "Yes (Incorrect release)"
-    static let yesCustom            = "Yes (Custom)"
+    // MARK: Kinds
+    /// Artwork present, in the release's own case.
+    static let standard  = "Standard"
+    static let comboPack = "Combo-pack"
+    static let multiPack = "Multi-pack"
+    /// No artwork.
+    static let missing   = "Missing"
 
-    // MARK: Pack-qualified tags
-    static let yesComboPack = "Yes (Combo-pack)"
-    static let yesMultiPack = "Yes (Multi-pack)"
+    // MARK: Details
+    static let reversible       = "Reversible"
+    static let innerPrint       = "Inner print"
+    static let incorrectRelease = "Incorrect release"
+    static let custom           = "Custom"
 
-    /// The negative pack-qualified forms. NOT offered by the picker — both pack types
-    /// offer a plain `no` — but records carrying them exist (legacy data, or a restore
-    /// from an older backup), and both the releases table and the sidebar recognize them.
-    /// Declared here so those two agree on the spelling of a tag neither can produce.
-    static let noComboPack = "No (Combo-pack)"
-    static let noMultiPack = "No (Multi-pack)"
+    /// The detail section of the menu, in order.
+    static let details: [String] = [reversible, innerPrint, incorrectRelease, custom]
 
-    // MARK: Picker option lists
-    ///
-    /// Each list is what the card offers ON TOP OF `steelbook`, which is seeded
-    /// unconditionally. Selected by the release's independence value.
+    // MARK: Menu sections
 
-    static let standaloneOptions     = [yes, yesIncorrectRelease, yesCustom, no]
-    static let comboPackOptions      = [yesComboPack, no]
-    static let multiPackOptions      = [yesMultiPack, no]
-    /// "Combo-pack (multi-pack)": a combo pack sold inside a multi-pack, whose artwork may
-    /// be either the pack's own or the multi-pack's. A superset of `comboPackOptions`.
-    static let comboMultiPackOptions = [yesComboPack, yesMultiPack, no]
-
-    /// The tags (beyond `steelbook`) the artwork picker offers under `independence`,
-    /// ignoring purchased state. Read by the picker and by the independence cascade, so
-    /// both agree on what a type can express.
-    static func options(forIndependence independence: String) -> [String] {
+    /// The kinds of present artwork offered under `independence`. "Combo-pack (multi-pack)"
+    /// is a combo pack sold inside a multi-pack, whose artwork may be either the pack's own
+    /// or the multi-pack's, so it offers both.
+    static func presentKinds(forIndependence independence: String) -> [String] {
         switch independence {
         case ReleaseIndependence.comboPack, ReleaseIndependence.comboPackDualBD:
-            return comboPackOptions
+            return [comboPack]
         case ReleaseIndependence.comboPackMultiPack:
-            return comboMultiPackOptions
+            return [comboPack, multiPack]
         case ReleaseIndependence.multiPack:
-            return multiPackOptions
+            return [multiPack]
         default: /// Standalone
-            return standaloneOptions
+            return [standard]
         }
     }
 
-    /// The tags that answer "yes, artwork is present", including the pack-qualified forms
-    /// and the unofferable negative forms' counterparts. `steelbook` is deliberately
-    /// absent: it is affirmative too, but both readers give it its own presentation
-    /// (a distinct glyph, a distinct note) before consulting this.
-    static let affirmativeTags: Set<String> = [yes, yesMultiPack, yesComboPack]
+    /// The menu's top section for a purchased release of `independence`, in order.
+    static func kinds(forIndependence independence: String) -> [String] {
+        [steelbook] + presentKinds(forIndependence: independence) + [digiBook, missing]
+    }
 
-    /// The tags that answer "no artwork", including the two the picker cannot produce.
-    static let negativeTags: Set<String> = [no, noMultiPack, noComboPack]
+    /// The kinds every type's purchased menu offers, which a type change therefore never
+    /// makes invalid. Read by the independence cascade (FSTabReleases.commitIndependence).
+    static let keptOnTypeChange: Set<String> = [steelbook, digiBook]
+
+    // MARK: Composing and reading
+
+    /// A stored value split into the menu's two components.
+    struct Parts: Equatable {
+        /// One of the kinds.
+        let kind: String
+        /// One of `details`, or nil. Only ever set beside a present kind.
+        let detail: String?
+    }
+
+    private static let presentKindSet: Set<String> = [standard, comboPack, multiPack]
+    private static let allKinds: Set<String> = presentKindSet.union([steelbook, digiBook, missing])
+
+    /// True for a kind of present artwork (Standard, Combo-pack, Multi-pack). Steelbook and
+    /// DigiBook/DigiPack are present too, but every reader gives them their own presentation,
+    /// and they take no detail, so they are not among these.
+    static func isPresentKind(_ kind: String) -> Bool { presentKindSet.contains(kind) }
+
+    /// The value for a kind and an optional detail. A detail beside anything but a present
+    /// kind is dropped: the menu disables the detail section there.
+    static func composed(kind: String, detail: String?) -> String {
+        guard let detail, isPresentKind(kind) else { return kind }
+        return "\(kind), \(detail.lowercased())"
+    }
+
+    /// `value` split into its components, or nil for "" and for any value outside the
+    /// vocabulary. The detail is matched without regard to case.
+    static func parse(_ value: String) -> Parts? {
+        let pieces = value.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard allKinds.contains(pieces[0]) else { return nil }
+        guard pieces.count == 2 else { return Parts(kind: pieces[0], detail: nil) }
+        guard isPresentKind(pieces[0]),
+              let detail = details.first(where: { $0.caseInsensitiveCompare(pieces[1]) == .orderedSame })
+        else { return nil }
+        return Parts(kind: pieces[0], detail: detail)
+    }
+
+    /// True when the menu for a purchased release of `independence` can show `value`: unset,
+    /// or composed from a kind that independence offers. Read by the independence cascade,
+    /// which retracts a value only when the new type cannot express it.
+    static func isExpressible(_ value: String, forIndependence independence: String) -> Bool {
+        if value.isEmpty { return true }
+        guard let parts = parse(value) else { return false }
+        return kinds(forIndependence: independence).contains(parts.kind)
+    }
+
+    // MARK: Questions consumers ask
+
+    /// True when the release has no artwork.
+    static func isMissing(_ value: String) -> Bool { value == missing }
+
+    // MARK: Legacy migration
+
+    /// The legacy kinds and the pack qualifiers that could follow "Yes (".
+    private static let legacyKinds: [String: String] = [
+        "Yes": standard, "Yes (Combo-pack)": comboPack, "Yes (Multi-pack)": multiPack,
+        "No": missing, "No (Combo-pack)": missing, "No (Multi-pack)": missing,
+    ]
+    private static let legacyPacks: [String: String] = ["combo-pack": comboPack, "multi-pack": multiPack]
+
+    /// `value` in the current format. Returns `value` itself when it is not a legacy value,
+    /// including a legacy-looking value with an unknown qualifier, which is kept verbatim.
+    static func migrated(_ value: String) -> String {
+        if let kind = legacyKinds[value] { return kind }
+        guard value.hasPrefix("Yes ("), value.hasSuffix(")") else { return value }
+        let pieces = value.dropFirst(5).dropLast()
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        func detail(_ text: String) -> String? {
+            details.first { $0.caseInsensitiveCompare(text) == .orderedSame }
+        }
+        switch pieces.count {
+        case 1:
+            if let pack = legacyPacks[pieces[0].lowercased()] { return pack }
+            return detail(pieces[0]).map { composed(kind: standard, detail: $0) } ?? value
+        case 2:
+            guard let pack = legacyPacks[pieces[0].lowercased()], let d = detail(pieces[1]) else { return value }
+            return composed(kind: pack, detail: d)
+        default:
+            return value
+        }
+    }
+
 }
 
 // MARK: - Condition Vocabulary
@@ -439,8 +540,8 @@ enum ReleaseScanningMethod {
 ///
 /// ONE stored tag, two user-facing spellings. The release card labels the trait
 /// "Recordable (BD-R)" on Blu-ray and "Recordable (DVD-R)" on DVD, but both write
-/// `recordable`; only the label differs, and the suffix shown in the sidebar and the
-/// releases table is likewise a presentation choice made at those sites. Nothing may
+/// `recordable`; only the label differs, and the suffix shown in the sidebar is likewise
+/// a presentation choice made at those sites. Nothing may
 /// branch on the disc-type spelling when reading this field.
 enum ReleaseReplicationType {
     /// Factory-pressed. The "off" state of the card's recordable trait — written
@@ -511,7 +612,8 @@ enum ReleaseVideoFormat {
 ///     import + multi-pack   Imported multi-pack available   Imported multi-pack out-of-print
 ///
 /// An import is a release whose national origin is set to a country other than the United
-/// States; a multi-pack is one whose independence is exactly `ReleaseIndependence.multiPack`.
+/// States; a multi-pack is one whose independence is `ReleaseIndependence.multiPack` or
+/// `ReleaseIndependence.comboPackMultiPack` (a combo pack sold inside a multi-pack).
 /// The spellings are distinct stored tags, so reports can count them without consulting
 /// either field. The release card's nationalOrigin cascade and FSTabReleases'
 /// commitIndependence respell a stored status when either field changes
@@ -520,11 +622,10 @@ enum ReleaseVideoFormat {
 /// # The legacy single-element format
 ///
 /// Earlier builds stored ONE abbreviated tag that folded both components together ("OOP
-/// (cheap)", "Temp. N/A", "Import only (OOP)"). `migrated` rewrites those to the current form;
-/// it runs wherever stored values enter the app — the model-to-snapshot conversion, the
-/// startup store pass (DataManager.migrateLegacyMarketAvailability) and DBRestorer — so no
-/// other code needs to know the old spellings. Like every vocabulary in this file the field is
-/// open: a value matching neither list (a hand-edited backup) is kept untouched.
+/// (cheap)", "Temp. N/A", "Import only (OOP)"). `migrated` rewrites those to the current form.
+/// It is called only by LegacyReleaseValues, so no other code needs to know the old spellings.
+/// Like every vocabulary in this file the field is open: a value matching neither list (a
+/// hand-edited backup) is kept untouched.
 enum ReleaseMarketAvailability {
     /// The locked value carried by a non-4K release inside a combo pack. A status, stored
     /// alone.
@@ -556,10 +657,13 @@ enum ReleaseMarketAvailability {
         var isMultiPack: Bool
 
         /// The kind for a release's national origin and independence. An unset origin is
-        /// not an import.
+        /// not an import. "Combo-pack (multi-pack)" is a multi-pack here: the 4K parent is
+        /// bought as part of the multi-pack. Its Blu-ray child never reaches this, being
+        /// locked to `comboPackOnly`.
         init(nationalOrigin: String, independence: String) {
             isImport = !nationalOrigin.isEmpty && nationalOrigin != ReleaseOrigin.domestic
             isMultiPack = independence == ReleaseIndependence.multiPack
+                || independence == ReleaseIndependence.comboPackMultiPack
         }
 
         /// This kind's (available, out-of-print) pair.
@@ -636,6 +740,19 @@ enum ReleaseMarketAvailability {
         }
     }
 
+    /// The array with its status respelled for the release it belongs to, as the card's
+    /// cascades respell it when the release's origin or type changes. Applied as releases load
+    /// (LegacyReleaseValues), so a value stored before a spelling rule existed, or before a
+    /// type gained one, reads the way the card would write it now.
+    ///
+    /// An unset origin says nothing about whether the release is an import, so the stored
+    /// status keeps its own import wording there; only a set origin decides it.
+    static func respelled(_ tags: [String], nationalOrigin: String, independence: String) -> [String] {
+        var kind = Kind(nationalOrigin: nationalOrigin, independence: independence)
+        if nationalOrigin.isEmpty, let s = status(tags) { kind.isImport = importSpellings.contains(s) }
+        return retargeted(tags, for: kind)
+    }
+
     /// The one-line form shown everywhere a value is displayed: "Available (cheap)",
     /// "Unavailable", "Reasonable". Unrecognized values follow, comma-separated.
     static func displayText(_ tags: [String]) -> String {
@@ -686,7 +803,7 @@ enum ReleaseMarketAvailability {
     ]
 
     /// True when `tags` holds any legacy tag.
-    static func needsMigration(_ tags: [String]) -> Bool {
+    private static func needsMigration(_ tags: [String]) -> Bool {
         tags.contains { legacy[$0] != nil }
     }
 
@@ -696,6 +813,84 @@ enum ReleaseMarketAvailability {
         let expanded = tags.flatMap { legacy[$0] ?? [$0] }
         return composed(status: status(expanded), price: price(expanded),
                         unrecognized: unrecognized(expanded))
+    }
+}
+
+// MARK: - Legacy Release Values
+/// The release fields whose stored format has changed since earlier builds, and the one place
+/// that brings a stored release into the current format. Each field's own vocabulary owns its
+/// old spellings (`ReleaseArtwork.migrated`, `ReleaseMarketAvailability.migrated`,
+/// `ViewingVersion.migratedNames`); this decides where they are applied.
+///
+/// Market availability is also respelled for the release's type and origin
+/// (`ReleaseMarketAvailability.respelled`): which spelling is current depends on the release,
+/// so the conversion reads `independence` and `nationalOrigin` too, without changing them.
+///
+/// # Where it runs
+///
+/// In two places, and only these:
+///   • `ReleaseSnapshot.init(from:)` converts every stored release on its way into memory, so
+///     nothing past it ever sees an old value. That includes a restored backup, which DBRestorer
+///     writes to the store as the backup has it and which the next load reads back through here.
+///   • `DataManager.migrateLegacyReleaseValues` rewrites the store itself, once, at the startup
+///     after a store read saw an old value (`isLegacy`), so the store and the backups exported
+///     from it catch up. It is tidiness, not correctness: memory is current either way.
+///
+/// The snapshot cache needs neither. It is written from memory, which is always current, and a
+/// cache from a build that wrote older values is refused by its format version (MemStoreCache).
+///
+/// # Adding a field
+///
+/// Give its vocabulary a `migrated` function, add the field to `Values`, `values(of:)` and
+/// `current(_:independence:nationalOrigin:)`, and assign it in `migrate(_:)` and
+/// `ReleaseSnapshot.init(from:)`.
+enum LegacyReleaseValues {
+    /// The format-changed fields of one release.
+    struct Values: Equatable {
+        var hasArtwork: String
+        var marketAvailability: [String]
+        var includedVersions: [String]
+    }
+
+    /// `values` in the current format, for a release of `independence` from `nationalOrigin`.
+    /// Values already current come back unchanged.
+    static func current(_ values: Values, independence: String, nationalOrigin: String) -> Values {
+        Values(hasArtwork: ReleaseArtwork.migrated(values.hasArtwork),
+               marketAvailability: ReleaseMarketAvailability.respelled(
+                   ReleaseMarketAvailability.migrated(values.marketAvailability),
+                   nationalOrigin: nationalOrigin, independence: independence),
+               includedVersions: ViewingVersion.migratedNames(values.includedVersions))
+    }
+
+    /// A stored release's format-changed fields, as stored.
+    static func values(of release: Release) -> Values {
+        Values(hasArtwork: release.hasArtwork,
+               marketAvailability: release.marketAvailability,
+               includedVersions: release.includedVersions)
+    }
+
+    /// A stored release's format-changed fields in the current format.
+    static func current(of release: Release) -> Values {
+        current(values(of: release), independence: release.independence, nationalOrigin: release.nationalOrigin)
+    }
+
+    /// True when a stored release holds a value in an old format.
+    static func isLegacy(_ release: Release) -> Bool { current(of: release) != values(of: release) }
+
+    /// Rewrites a stored release's old values in place. Returns whether anything changed;
+    /// a field already current is not written, so it does not dirty the object.
+    static func migrate(_ release: Release) -> Bool {
+        let stored = values(of: release)
+        let updated = current(of: release)
+        guard updated != stored else { return false }
+        if updated.hasArtwork != stored.hasArtwork { release.hasArtwork = updated.hasArtwork }
+        if updated.marketAvailability != stored.marketAvailability {
+            release.marketAvailability = updated.marketAvailability
+        }
+        if updated.includedVersions != stored.includedVersions {
+            release.includedVersions = updated.includedVersions
+        }
+        return true
     }
 }
 

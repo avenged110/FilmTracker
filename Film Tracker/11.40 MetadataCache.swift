@@ -45,6 +45,13 @@ struct FilmMetadata: Codable {
     let mostRecentPurchaseDateByFormat: [String: Date]
     let purchasedFormats: Set<String>
 
+    /// The days this film's releases came out or come out, latest first, once each: full release dates only,
+    /// since a year-only value names no day (ReleaseDateValue.day). Upcoming days are kept, because the entries
+    /// are persisted and trusted at startup: readers judge each day against today (latestDiscRelease(onOrBefore:)).
+    let discReleaseDays: [Date]
+    /// `discReleaseDays`, formatted for display, in the same order.
+    let discReleaseDaysFormatted: [String]
+
     /// Pre-formatted date strings for display
     let dateAddedFormatted: String
     let lastWatchedFormatted: String
@@ -140,6 +147,12 @@ struct FilmMetadata: Codable {
         self.mostRecentPurchaseDateByFormat = mostRecentByFormat
         self.purchasedFormats = formats
         self.purchaseDateFormatted = mostRecent.map { Self.formatDate($0, includeDay: true) }
+
+        /// Release days, for Recent Disc Releases.
+        let days = Set(snapshot.releases.compactMap { ReleaseDateValue($0.releaseDate, format: $0.format)?.day })
+            .sorted(by: >)
+        self.discReleaseDays = days
+        self.discReleaseDaysFormatted = days.map { Self.formatDate($0, includeDay: true) }
         
         /// Search Cache Data — precomputed so a keystroke never re-normalizes the library.
         self.nameSearchKey = SearchText.key(snapshot.name)
@@ -162,6 +175,19 @@ struct FilmMetadata: Codable {
     func hasPurchasedReleases(in format: ReleaseFormat?) -> Bool {
         guard let format else { return hasPurchasedReleases }
         return purchasedFormats.contains(format.rawValue)
+    }
+
+    // MARK: - Disc Release Access
+
+    /// The index in `discReleaseDays` of the latest release day on or before `now`, or nil when no release has
+    /// come out yet. A release out today counts, since its day starts at midnight.
+    func latestDiscReleaseIndex(onOrBefore now: Date) -> Int? {
+        discReleaseDays.firstIndex { $0 <= now }
+    }
+
+    /// The latest release day on or before `now`. See latestDiscReleaseIndex(onOrBefore:).
+    func latestDiscRelease(onOrBefore now: Date) -> Date? {
+        latestDiscReleaseIndex(onOrBefore: now).map { discReleaseDays[$0] }
     }
 
     // MARK: - Private Helpers
@@ -218,26 +244,10 @@ struct FilmMetadata: Codable {
         return result
     }
     
-    /// Reusable formatters (created once per call, not per film)
-    private static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "MMMM d, yyyy"
-        return formatter
-    }()
-    
-    private static let monthFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter
-    }()
-    
+    /// "November 4, 2025", or "November 2025" without the day, through the app's shared display formats.
     private static func formatDate(_ date: Date, includeDay: Bool) -> String {
         guard date > Date.distantPast else { return "" }
-        return includeDay ? dayFormatter.string(from: date) : monthFormatter.string(from: date)
+        return includeDay ? Film_Tracker.formatDate(date) : monthYearLabel(for: date)
     }
     
     /// Delegates to the shared parseDate(from:) in GlobalUtilities, so formats are handled consistently.
@@ -265,7 +275,8 @@ extension FilmMetadata {
     static let nonSortFieldNames: Set<String> = [
         "duration", "dateAddedRaw", "lastWatchedRaw", "lastModifiedRaw", "rotationDate",
         "dateAddedFormatted", "lastWatchedFormatted", "lastModifiedFormatted",
-        "rotationDateFormatted", "purchaseDateFormatted", "nameSearchKey",
+        "rotationDateFormatted", "purchaseDateFormatted", "discReleaseDays", "discReleaseDaysFormatted",
+        "nameSearchKey",
         "alternateTitleSearchKeys", "synopsisSearchKey", "textSearchKeys",
     ]
 
@@ -309,7 +320,8 @@ struct FilmMetadataCacheFile: Codable {
     /// articles case-insensitively. v6 adds `mostRecentPurchaseDateByFormat` and `purchasedFormats`. v7: search keys
     /// use `SearchText.key` forms. v8 adds `synopsisSearchKey`. v9: `rotationDate` is computed in the Gregorian calendar,
     /// and the file gains `libraryOrders`. v10 adds `textSearchKeys`.
-    static let currentSchemaVersion = 10
+    /// v11 adds `discReleaseDays` and `discReleaseDaysFormatted`.
+    static let currentSchemaVersion = 11
 
     let schemaVersion: Int
     let entries: [UUID: FilmMetadata]
@@ -402,6 +414,8 @@ final class MetadataCache: Loggable {
     
     private let maxFilmsPerSection = 200
     private let purchaseWindowDays = 90
+    /// Days back from now that Recent Disc Releases covers.
+    private let discReleaseWindowDays = 180
     /// Days back from now that the Recently Come Up for Rotation list covers. This is the only place that cutoff is set.
     private let recentlyRotatedWindowDays = 60
 
@@ -1335,6 +1349,15 @@ final class MetadataCache: Loggable {
 
         let result: [UUID]
         switch category {
+        case .summary:
+            /// The films the summary tab's rows show, once each, in category order: the first `summaryRowLimit` of
+            /// every category. This is that tab's membership, so its film count and Select All match its rows.
+            /// The rows take their own order from each category (see RecentsSummaryView).
+            var seen = Set<UUID>()
+            result = RecentsCategory.sections
+                .flatMap { recentFilmIDs(for: $0).prefix(RecentsCategory.summaryRowLimit) }
+                .filter { seen.insert($0).inserted }
+
         case .recentlyAdded:
             result = newestFirst { $0.dateAddedParsed > .distantPast ? $0.dateAddedParsed : nil }
 
@@ -1368,6 +1391,16 @@ final class MetadataCache: Loggable {
             result = newestFirst { data in
                 data.mostRecentPurchaseDate.flatMap { $0 >= cutoff ? $0 : nil }
             }
+
+        case .recentDiscRelease:
+            /// Each film's latest release day that has arrived, within the window. A film whose only recent
+            /// release is still to come is not here (Upcoming Releases lists those).
+            guard let cutoff = AppCalendar.current.date(byAdding: .day,
+                                                     value: -discReleaseWindowDays,
+                                                     to: AppCalendar.current.startOfDay(for: now)) else { return [] }
+            result = newestFirst { data in
+                data.latestDiscRelease(onOrBefore: now).flatMap { $0 >= cutoff ? $0 : nil }
+            }
         }
 
         recentsCategoryCache[category] = result
@@ -1399,6 +1432,7 @@ final class MetadataCache: Loggable {
         case lastModified
         case rotationDate
         case purchaseDate
+        case discReleaseDate
     }
     
     func getFormattedDate(for filmID: UUID, type: DateType) -> String? {
@@ -1415,6 +1449,8 @@ final class MetadataCache: Loggable {
             return data.rotationDateFormatted
         case .purchaseDate:
             return data.purchaseDateFormatted
+        case .discReleaseDate:
+            return data.latestDiscReleaseIndex(onOrBefore: Date()).map { data.discReleaseDaysFormatted[$0] }
         }
     }
     
@@ -1455,7 +1491,7 @@ final class MetadataCache: Loggable {
         switch type {
         case .dateAdded: date = data.dateAddedParsed
         case .lastWatched: date = data.lastWatchedParsed
-        case .lastModified, .rotationDate, .purchaseDate: return nil
+        case .lastModified, .rotationDate, .purchaseDate, .discReleaseDate: return nil
         }
         return .some(date == .distantPast ? nil : date)
     }

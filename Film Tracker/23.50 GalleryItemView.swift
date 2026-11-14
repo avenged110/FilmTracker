@@ -480,7 +480,7 @@ final class GalleryTileContentView: NSView {
 ///
 /// All of the effect lives in this section. Each call site is one line. To remove the
 /// effect, delete this section and the call sites (GalleryTileContentView,
-/// PosterThumbnailView, the header, and the Film Sheet poster tab).
+/// ListPosterThumbnail, the header, and the Film Sheet poster tab).
 
 @MainActor
 enum PosterEdgeSheen {
@@ -499,7 +499,7 @@ enum PosterEdgeSheen {
 
         /// Gallery grid tile (GalleryTileContentView) and the FilmSheet Poster tab preview.
         static let grid = Profile(cornerRadius: Preferences.cornerRadius, inset: 6, opacity: 0.55)
-        /// Gallery list 24x36 thumbnail (PosterThumbnailView).
+        /// Gallery list 24x36 thumbnail (ListPosterThumbnail).
         static let list = Profile(cornerRadius: 2, inset: 3, opacity: 0.55)
         /// Right-sidebar Header 55x82 thumbnail (6pt corners).
         static let header = Profile(cornerRadius: 6, inset: 4, opacity: 0.55)

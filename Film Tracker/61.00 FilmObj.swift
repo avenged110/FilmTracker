@@ -286,121 +286,16 @@ final class Film: LibraryObject {
     /// Every default; see LibraryObject.init(detached:).
     convenience init() { self.init(id: UUID()) }
 
-    convenience init(
-        id: UUID = UUID(),
-        posterUID: String = "",
-        name: String = "",
-        releaseYear: String = "",
-        userRating: Int = 0,
-        lastWatched: String = "",
-        rotationThresholdOverride: Int? = nil,
-        duration: String = "",
-        viewCount: Int = 0,
-        calendarTable: [String] = [],
-        autoAddToQueueOnRotation: Int? = nil,
-        digitalSource: String = "",
-        digitalVersion: String = "",
-        subtitles: String = "",
-        notes: String = "",
-        numberOfDiscs: String = "",
-        aspectRatio: String = "",
-        color: Bool = true,
-        edited: Bool = false,
-        editedDuration: String = "",
-        frameRate: Double = 0.0,
-        tags: [String] = [],
-        externalIdentifiers: [String] = [],
-        dateAdded: String = "",
-        lastModified: String = "",
-        watched: Bool = true,
-        specialSorting: [String] = [],
-        alternateTitle: [String] = [],
-        hofPosition: Int = 0,
-        infoComplete: Bool = false,
-        comments: String = "",
-        genre: String = "",
-        releaseDate: String = "",
-        descriptionText: String = "",
-        rating: String = "",
-        studio: [String] = [],
-        cast: [String] = [],
-        directors: [String] = [],
-        producers: [String] = [],
-        executiveProducers: [String] = [],
-        screenwriters: [String] = [],
-        encodingTool: [String] = [],
-        libraryHBRFValue: Int = 0,
-        composer: [String] = [],
-        sortName: String = "",
-        releaseUsed: String = "",
-        tools: [String] = [],
-        editedHBRFValue: Int = 0,
-        editDate: String = "",
-        warning: [String] = [],
-        descriptionNotes: String = "",
-        notesOnAudioTiming: [String] = [],
-        specialAudioNotes: [String] = [],
-        notesArray: [String] = [],
-        handbrakeFrames: [String] = [],
-        correspondingTimecodes: [String] = []
-    ) {
+    /// A new film with every field at its default. The model gives each attribute its type's
+    /// empty value ("", 0, false, [], nil), and Core Data applies those to a detached object too;
+    /// the two fields that start true are set here. Callers then write the fields they have —
+    /// FilmSnapshot.toFilm() and DataManager through FilmField, DBRestorer one by one.
+    convenience init(id: UUID) {
         self.init(detached: ())
         self.id = id
-        self.posterUID = posterUID
-        self.name = name
-        self.releaseYear = releaseYear
-        self.userRating = userRating
-        self.lastWatched = lastWatched
-        self.rotationThresholdOverride = rotationThresholdOverride
-        self.duration = duration
-        self.viewCount = viewCount
-        self.calendarTable = calendarTable
-        self.autoAddToQueueOnRotation = autoAddToQueueOnRotation
-        self.digitalSource = digitalSource
-        self.digitalVersion = digitalVersion
-        self.subtitles = subtitles
-        self.notes = notes
-        self.numberOfDiscs = numberOfDiscs
-        self.aspectRatio = aspectRatio
-        self.color = color
-        self.edited = edited
-        self.editedDuration = editedDuration
-        self.frameRate = frameRate
-        self.tags = tags
-        self.externalIdentifiers = externalIdentifiers
-        self.dateAdded = dateAdded
-        self.lastModified = lastModified
-        self.watched = watched
-        self.specialSorting = specialSorting
-        self.alternateTitle = alternateTitle
-        self.hofPosition = hofPosition
-        self.infoComplete = infoComplete
-        self.comments = comments
-        self.genre = genre
-        self.releaseDate = releaseDate
-        self.descriptionText = descriptionText
-        self.rating = rating
-        self.studio = studio
-        self.cast = cast
-        self.directors = directors
-        self.producers = producers
-        self.executiveProducers = executiveProducers
-        self.screenwriters = screenwriters
-        self.encodingTool = encodingTool
-        self.libraryHBRFValue = libraryHBRFValue
-        self.composer = composer
-        self.sortName = sortName
-        self.releaseUsed = releaseUsed
-        self.tools = tools
-        self.editedHBRFValue = editedHBRFValue
-        self.editDate = editDate
-        self.warning = warning
-        self.descriptionNotes = descriptionNotes
-        self.notesOnAudioTiming = notesOnAudioTiming
-        self.specialAudioNotes = specialAudioNotes
-        self.notesArray = notesArray
-        self.handbrakeFrames = handbrakeFrames
-        self.correspondingTimecodes = correspondingTimecodes }
+        self.color = true
+        self.watched = true
+    }
 }
 
 // MARK: - ExportableModel Conformance for Film

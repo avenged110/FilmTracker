@@ -9,20 +9,68 @@ import SwiftUI
 import Combine
 import os
 
+/// The eight gallery-backed sidebar items (All Films, Unwatched, Recents, the Film Queue, search, smart
+/// lists, user lists and saved searches) share one mounted GalleryView. A move between them is an in-place
+/// view switch, the path a Recents tab or smart-list variant takes: the representable sees a new
+/// activeViewID, banks the outgoing origin, reloads, and restores the incoming one. No title bar, scroll
+/// view, collection or table view, cells or window layout is rebuilt. Reports and Imports are separate
+/// branches and mount their own views.
+///
+/// A remount would reset a few things the shared instance keeps. GalleryView puts them back on each
+/// sidebar change (see resetForReuse) or on the switch itself:
+///  • keyboard focus: a removed gallery took first-responder status with it;
+///  • a post-edit scroll target noted in the outgoing view's last turn;
+///  • the grid's prune flag, which belongs to the outgoing item's selection. The grid drops it when the
+///    sidebar item changes (see GallerySubview.Coordinator.forgetPrunedSelection).
+///  • scroll-position provider registration, which each makeNSView renewed. The shared gallery renews it at
+///    each view switch (isSharedHost in GallerySubview and GalleryListView).
+/// "Show in List" to another sidebar item marks its scroll intent consumable on reuse when the
+/// destination will be this same instance (see ShowInListNavigation.navigate).
+enum GalleryReuse {
+    /// Whether the shared gallery is on screen but hidden under search's token-entry placeholder: the first token
+    /// is being typed, so there are no results to show. Anything that finds the gallery by walking the window
+    /// (KeyboardManager's Tab route) must treat it as absent.
+    @MainActor
+    static func hidesForTokenEntry(_ item: SidebarItem) -> Bool {
+        let search = SearchController.shared
+        return item == .libraryItem(.search) && search.isEnteringToken && search.currentTokens.isEmpty
+    }
+
+    /// hidesForTokenEntry for the sidebar item on screen. The hidden gallery stays mounted and holds the
+    /// unfiltered results, so Select All checks this: it must not select films the user cannot see.
+    @MainActor
+    static var isHiddenForTokenEntry: Bool {
+        guard let item = AppDelegate.appState?.selectedSidebarItem else { return false }
+        return hidesForTokenEntry(item)
+    }
+
+    /// Whether `item` is drawn by the shared GalleryView.
+    static func isSharedHostItem(_ item: SidebarItem) -> Bool {
+        switch item {
+        case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
+             .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch:
+            return true
+        case .libraryItem(.reports), .libraryItem(.imports):
+            return false
+        }
+    }
+}
+
 struct GalleryView: View, Loggable {
     nonisolated static let logTag = "[GalleryView]"
 
     @Environment(AppState.self) private var appState
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
-
-    /// The sidebar item this instance was mounted for. SwiftUI gives the outgoing instance one more
-    /// update pass after a sidebar change, so isOutgoing skips rendering on that pass.
+    /// The sidebar item MainView last passed in. isOutgoing compares it with the live selection.
     let sidebarItem: SidebarItem
+    /// The StatusBar's height, 0 when hidden (StatusBarLayout.height). MainView resolves it and passes it in, and this view
+    /// hands it to the grid, list, and Recents summary as their bottom inset. It is not resolved here: resolving reads the
+    /// view's capabilities, which read RecentsState.selectedCategory. That would invalidate this body inside the Recents
+    /// picker's menu-fade transaction, which RecentsState.selectCategory defers the switch to avoid.
+    let statusBarHeight: CGFloat
 
-    /// The list being viewed, or nil in a non-list view. Used by the loading and placeholder logic.
-    /// Removal commands resolve the active list through FilmRemoval instead.
-    @State private var cachedListID: UUID?
+    /// Identifies this instance in the log.
     @State private var viewID = UUID()
     @State private var hasInitialized = false
     @State private var hasLoadedInitialView = false  /// Prevents duplicate loads
@@ -49,15 +97,23 @@ struct GalleryView: View, Loggable {
                 if !isOutgoing && !dataCoordinator.films.isEmpty && PosterCache.shared.isReady && !shouldShowLoading {
                     /// showSectionDividers is read here, from `shown`, so the style and the dividers always come from
                     /// the same tab. Passing it down makes a change an ordinary value change on the representable.
-                    if shown.isListView {
+                    ///
+                    /// The Recents summary tab has its own layout, a row per category, and no list style.
+                    if viewStateManager.activeView == .recents(.summary) {
+                        RecentsSummaryView(statusBarHeight: statusBarHeight)
+                            .environment(dataCoordinator)
+                            .environment(selectionState)
+                    } else if shown.isListView {
                         GalleryListView(activeViewID: viewStateManager.activeView,
                                         scrollRequest: scrollRequest,
                                         subtitleProvider: subtitleProvider,
-                                        showSectionDividers: shown.showSectionDividers)
+                                        showSectionDividers: shown.showSectionDividers,
+                                        statusBarHeight: statusBarHeight,
+                                        isSharedHost: true)
                             .environment(dataCoordinator)
                             .environment(selectionState)
                     } else {
-                        GallerySubview(scrollRequest: scrollRequest, activeViewID: viewStateManager.activeView, subtitleProvider: subtitleProvider, showSectionDividers: shown.showSectionDividers)
+                        GallerySubview(scrollRequest: scrollRequest, activeViewID: viewStateManager.activeView, subtitleProvider: subtitleProvider, showSectionDividers: shown.showSectionDividers, statusBarHeight: statusBarHeight, isSharedHost: true)
                             .environment(dataCoordinator)
                             .environment(selectionState)
                     }
@@ -105,9 +161,22 @@ struct GalleryView: View, Loggable {
     
     // MARK: - Computed Properties
 
+    /// The user list on screen, or nil. Used by the loading and placeholder logic; removal commands resolve
+    /// the active list through FilmRemoval instead. Derived from the sidebar item rather than cached in onChange,
+    /// which runs after the body that first draws the new item.
+    private var listID: UUID? {
+        if case .list(let id) = appState.selectedSidebarItem, dataCoordinator.getList(id) != nil {
+            return id
+        }
+        return nil
+    }
+
     /// True for the one update pass after the sidebar has moved to another item, just before SwiftUI
     /// removes this instance. The destination's state is already in place, so this pass renders nothing.
     /// dismantleNSView still saves the outgoing scroll origin.
+    ///
+    /// MainView hands the shared instance (GalleryReuse) the current item on every pass it makes. This guards
+    /// only a pass of the gallery's own, should one land after the sidebar moves to Reports or Imports.
     private var isOutgoing: Bool {
         appState.selectedSidebarItem != sidebarItem
     }
@@ -120,9 +189,8 @@ struct GalleryView: View, Loggable {
     /// allocation is cheap, and the closure runs only during cell configuration.
     private var subtitleProvider: GallerySubtitleProvider? {
         guard case .libraryItem(.recents) = appState.selectedSidebarItem,
-              let category = viewStateManager.activeView.recentsCategory else { return nil }
+              let dateType = viewStateManager.activeView.recentsCategory?.dateType else { return nil }
 
-        let dateType = category.dateType
         return GallerySubtitleProvider(kind: dateType.rawValue) { filmID in
             MetadataCache.shared.getFormattedDate(for: filmID, type: dateType)
         }
@@ -142,7 +210,7 @@ struct GalleryView: View, Loggable {
             return true
         }
 
-        return !dataCoordinator.hasDatabaseFilms || isNarrowed || cachedListID != nil
+        return !dataCoordinator.hasDatabaseFilms || isNarrowed || listID != nil
     }
 
     /// True while a search query, search tokens, or a filter could explain an empty result. The spinner
@@ -170,7 +238,7 @@ struct GalleryView: View, Loggable {
         /// after an OR token is confirmed.
         guard !isNarrowed else { return false }
 
-        if let listID = cachedListID {
+        if let listID {
             return dataCoordinator.getList(listID)?.filmIDs.isEmpty == false
         }
         return dataCoordinator.hasDatabaseFilms
@@ -182,7 +250,7 @@ struct GalleryView: View, Loggable {
     private var placeholderView: some View {
         let hasFilters = !viewStateManager.activeState.filterOptions.isEmpty
         let hasSearchQuery = hasSearchContent
-        let isListView = cachedListID != nil
+        let isListView = listID != nil
         
         /// A saved search stored with rules this version cannot read shows no films until
         /// it is saved again (SavedSearchStore.needsReview) — this, not a "No Results", is
@@ -198,7 +266,13 @@ struct GalleryView: View, Loggable {
         } else if case .savedSearch(let id) = viewStateManager.activeView {
             savedSearchPlaceholder(for: id, hasFilters: hasFilters)
         } else if case .recents(let category) = viewStateManager.activeView {
-            recentsCategoryPlaceholder(for: category)
+            /// Filters that hide every film the tab has: clearing them helps, so say that. An empty tab is empty
+            /// whatever the filters.
+            if hasFilters && !category.orderedFilmIDs().isEmpty {
+                filtersPlaceholder
+            } else {
+                recentsCategoryPlaceholder(for: category)
+            }
         } else if case .unwatched(let category) = viewStateManager.activeView {
             unwatchedCategoryPlaceholder(for: category)
         } else if case .smartList(let type) = viewStateManager.activeView {
@@ -272,14 +346,14 @@ struct GalleryView: View, Loggable {
         if selectedFilter == .all || dataCoordinator.getFilmQueueFilmIDs().isEmpty {
             /// The queue as a whole has nothing assigned yet.
             StandardPlaceholder(
-                glyph: ViewGlyphs.filmQueue.outline,
+                glyph: selectedFilter.glyph.filled,
                 title: "Your Queue Is Empty",
                 message: "Assign films to the Up Next, Soon, or Later section from a film's Details tab to build your queue."
             )
         } else {
             /// The queue has films overall, but none in this section.
             StandardPlaceholder(
-                glyph: ViewGlyphs.filmQueue.outline,
+                glyph: selectedFilter.glyph.filled,
                 title: "\(selectedFilter.displayName) Is Empty",
                 message: "No films are currently assigned to the \(selectedFilter.displayName) section. Select \u{201C}All\u{201D} to see the rest of your queue.",
                 actionTitle: "Show All",
@@ -288,58 +362,16 @@ struct GalleryView: View, Loggable {
         }
     }
     
-    @ViewBuilder
+    /// A Recents or Unwatched tab with no films: its title-bar glyph over its own copy (each category's
+    /// emptyState), as smartListPlaceholder does for the smart lists.
     private func recentsCategoryPlaceholder(for category: RecentsCategory) -> some View {
-        switch category {
-        case .recentlyViewed:
-            StandardPlaceholder(
-                glyph: ViewGlyphs.recentlyViewed.outline,
-                title: "Nothing Viewed Recently",
-                message: "Add a viewing event or a past viewing date to get started."
-            )
-        case .recentlyRotated:
-            StandardPlaceholder(
-                glyph: ViewGlyphs.recentlyRotated.outline,
-                title: "Nothing Came Up for Rotation Recently",
-                message: "Wait a while or change the rotation threshold preference."
-            )
-        case .recentlyAdded:
-            StandardPlaceholder(
-                glyph: ViewGlyphs.recentlyAdded.outline,
-                title: "Nothing Added Recently",
-                message: "Import more films or add them manually."
-            )
-        case .recentlyUpdated:
-            StandardPlaceholder(
-                glyph: ViewGlyphs.recentlyUpdated.outline,
-                title: "Nothing Updated Recently",
-                message: "Edit a film to see it here."
-            )
-        case .recentlyPurchased:
-            StandardPlaceholder(
-                glyph: ViewGlyphs.recentlyPurchased.filled,
-                title: "Nothing Purchased Recently",
-                message: "Add releases with purchase dates to films."
-            )
-        }
+        let copy = category.emptyState
+        return StandardPlaceholder(glyph: category.glyph, title: copy.title, message: copy.message)
     }
-    
-    @ViewBuilder
+
     private func unwatchedCategoryPlaceholder(for category: UnwatchedCategory) -> some View {
-        switch category {
-        case .unwatched:
-            StandardPlaceholder(
-                glyph: ViewGlyphs.unwatched.filled,
-                title: "No Unwatched Films",
-                message: "Every film in your library is marked as watched."
-            )
-        case .notRated:
-            StandardPlaceholder(
-                glyph: ViewGlyphs.unwatched.filled,
-                title: "No Unrated Films",
-                message: "Every film in your library has a rating."
-            )
-        }
+        let copy = category.emptyState
+        return StandardPlaceholder(glyph: category.glyph, title: copy.title, message: copy.message)
     }
     
     /// Empty-state placeholder for any smart list. The per-list copy is on `SmartListType.emptyState`, so
@@ -367,8 +399,6 @@ struct GalleryView: View, Loggable {
         /// No singleton registration is needed here. The sub-category state singletons reach the shared
         /// SelectionState and AppState directly, through SubcategoryNavigation.
 
-        updateListInfo()
-        
         /// Only load if both caches ready and we haven't loaded yet
         if PosterCache.shared.isReady && dataCoordinator.isInitialized && !hasLoadedInitialView {
             Self.log("Cache ready on appear - loading view immediately")
@@ -394,7 +424,6 @@ struct GalleryView: View, Loggable {
         
         Self.log("DataCoordinator and cache ready - loading initial view")
         hasLoadedInitialView = true
-        updateListInfo()
         ViewStateManager.shared.switchToViewSync(viewIDFromSidebar())
     }
     
@@ -420,7 +449,7 @@ struct GalleryView: View, Loggable {
                 switch event {
                 case .updated(let filmID):
                     /// Edits also ask the gallery to keep the edited film in view.
-                    handler.pendingScrollTarget = filmID
+                    handler.notePendingScrollTarget(filmID)
                 case .added:
                     break
                 case .deleted:
@@ -444,6 +473,8 @@ struct GalleryView: View, Loggable {
                 guard let dataCoordinator else { return }
                 switch ViewStateManager.shared.activeView {
                 case .smartList, .savedSearch: break
+                /// Search results that name a smart list through #list.
+                case .search where SearchController.shared.dependsOnLists: break
                 default: return
                 }
                 Self.log("Smart lists recalculated - refreshing active membership view")
@@ -480,15 +511,15 @@ struct GalleryView: View, Loggable {
         
         Self.log("Sidebar selection changed: \(String(describing: newItem))")
 
+        resetForReuse()
+
         /// For a gallery-backed destination, AppState.navigate(to:) has already run this preparation before the
         /// flip. Here every step re-applies a result already in place, so it is a no-op. It is the path for every
         /// other destination.
         let isSubcategoryView = Self.prepareSidebarTransition(from: oldItem, to: newItem)
 
-        /// Selection clearing is handled by MainView.handleViewChange(), which covers every view switch.
-        
-        updateListInfo()
-        
+        /// Selection clearing is handled by AppState.navigate(to:), which covers every view switch.
+
         /// switchToViewSync runs only for views that are not subcategory tabs. Those handle their own switch.
         if !isSubcategoryView {
             ViewStateManager.shared.switchToViewSync(viewIDFromSidebar())
@@ -551,25 +582,31 @@ struct GalleryView: View, Loggable {
     /// Promotes ViewStateManager, and so dataCoordinator.films, to a gallery view BEFORE AppState flips
     /// selectedSidebarItem. Called only from AppState.navigate(to:).
     ///
-    /// MainContentSwitcher keys GalleryView on the sidebar item, so the flip mounts a fresh GalleryView. Its first
-    /// body reads whatever view is active at that moment. Switching first makes that first pass the only reload, in
-    /// the correct style. The switch is unconditional. For a subcategory tab it is a no-op re-entry after the first switch.
+    /// The pass that draws the flip reads whatever view is active at that moment. Switching first makes it the only
+    /// reload, in the correct style. The switch is unconditional. For a subcategory tab it is a no-op re-entry after the first switch.
     static func preSwitchBeforeSidebarFlip(from oldItem: SidebarItem, to newItem: SidebarItem) {
         _ = prepareSidebarTransition(from: oldItem, to: newItem)
         ViewStateManager.shared.switchToViewSync(ViewIdentifier.from(newItem))
     }
 
-    private func viewIDFromSidebar() -> ViewIdentifier {
-        ViewIdentifier.from(appState.selectedSidebarItem)
+    /// Puts back what a remount used to reset (see GalleryReuse). Runs from the
+    /// sidebar onChange, in the update that draws the destination, before its frame commits. The outgoing
+    /// view's pending flush is dropped by SubscriptionHolder itself, since it can land before this runs.
+    private func resetForReuse() {
+        /// A removed gallery took first-responder status with it, leaving the window itself as first
+        /// responder. A kept one would stay focused, so arrow keys would move a cursor the old setting
+        /// never had. Only the gallery's own grid or table is resigned; focus anywhere else is left alone.
+        /// Looked up by its first responder rather than as NSApp.mainWindow, which is nil while the app is
+        /// inactive, as it is when a menu item or a harness run navigates. Sheets are skipped: no navigation
+        /// happens while one is up, and none of them hosts this gallery.
+        for window in NSApp.windows where window.sheetParent == nil
+            && (window.firstResponder is GalleryCollectionView || window.firstResponder is DraggableListTableView) {
+            window.makeFirstResponder(nil)
+        }
     }
 
-    private func updateListInfo() {
-        if case .list(let listID) = appState.selectedSidebarItem,
-           let list = dataCoordinator.getList(listID) {
-            cachedListID = list.listID
-        } else {
-            cachedListID = nil
-        }
+    private func viewIDFromSidebar() -> ViewIdentifier {
+        ViewIdentifier.from(appState.selectedSidebarItem)
     }
 
     private func clearFiltersAndSearch() {
@@ -596,9 +633,13 @@ private final class SubscriptionHolder {
     var cancellables = Set<AnyCancellable>()
 
     /// The film the latest edit in this turn asked to keep in view.
-    var pendingScrollTarget: UUID?
+    private var pendingScrollTarget: UUID?
     /// DataCoordinator.fullLoadGeneration when the latest change of this turn arrived.
     private var generationAtLatestChange: Int?
+    /// The sidebar item on screen when the scroll target and the latest change were noted. The shared gallery
+    /// outlives a sidebar change (see performFlush).
+    private var scrollTargetItem: SidebarItem?
+    private var latestChangeItem: SidebarItem?
     private weak var coordinator: DataCoordinator?
     private var flush: ((_ reload: Bool, _ scrollTarget: UUID?) -> Void)?
     private var isFlushScheduled = false
@@ -613,6 +654,7 @@ private final class SubscriptionHolder {
     func noteChange(coordinator: DataCoordinator,
                     flush: @escaping (_ reload: Bool, _ scrollTarget: UUID?) -> Void) {
         generationAtLatestChange = coordinator.fullLoadGeneration
+        latestChangeItem = AppDelegate.appState?.selectedSidebarItem
         self.coordinator = coordinator
         self.flush = flush
         guard !isFlushScheduled else { return }
@@ -625,13 +667,28 @@ private final class SubscriptionHolder {
         flushRequests.send()
     }
 
+    /// Records the film an edit asked to keep in view, for the turn's flush. noteChange follows.
+    func notePendingScrollTarget(_ filmID: UUID) {
+        pendingScrollTarget = filmID
+        scrollTargetItem = AppDelegate.appState?.selectedSidebarItem
+    }
+
     private func performFlush() {
         isFlushScheduled = false
-        let reload = generationAtLatestChange != nil
+        var reload = generationAtLatestChange != nil
             && generationAtLatestChange == coordinator?.fullLoadGeneration
-        let target = pendingScrollTarget
+        var target = pendingScrollTarget
+        /// The shared gallery's holder can outlive a sidebar change made in the same turn as the change it
+        /// noted. A remounted gallery would have canceled that flush with its subscriptions, so the parts noted
+        /// under another item are dropped: the destination's own load already covers the reload, and the
+        /// target names a film in the view just left.
+        let current = AppDelegate.appState?.selectedSidebarItem
+        if latestChangeItem != current { reload = false }
+        if scrollTargetItem != current { target = nil }
         generationAtLatestChange = nil
         pendingScrollTarget = nil
+        scrollTargetItem = nil
+        latestChangeItem = nil
         flush?(reload, target)
     }
 
@@ -642,6 +699,8 @@ private final class SubscriptionHolder {
         isFlushScheduled = false
         generationAtLatestChange = nil
         pendingScrollTarget = nil
+        scrollTargetItem = nil
+        latestChangeItem = nil
         flush = nil
     }
 }
@@ -679,7 +738,7 @@ final class LaunchReveal {
 
     /// False until the launch's gallery (or its placeholder) is on screen. MenuBar holds its library-derived refresh
     /// until then, so the rebuild runs after the first frame. Nobody can open a menu before the window is visible.
-    private(set) var menuRefreshAllowed = LaunchExperiment.noMenuGate
+    private(set) var menuRefreshAllowed = false
 
     /// Flips `menuRefreshAllowed` on a later main-queue turn than the one that shows the window, so the window's commit
     /// is not held behind menu work. It runs from every path that ends the reveal, and from showHeldWindow. The backstop
@@ -704,7 +763,7 @@ final class LaunchReveal {
     /// builds its costliest submenus (View > Left Sidebar and Sort By) only after this, so a warm launch builds them
     /// after its first frame. Neither has a shortcut the menu delivers, because KeyboardManager's key monitor handles
     /// those keys first.
-    private(set) var menuContentAllowed = LaunchExperiment.noMenuGate
+    private(set) var menuContentAllowed = false
 
     private func allowMenuContent() {
         guard !menuContentAllowed else { return }

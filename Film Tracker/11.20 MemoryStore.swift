@@ -107,9 +107,10 @@ final class MemoryStore: Loggable {
     /// whether to write a fresh snapshot cache.
     private var snapshotCacheNeedsRebuild = false
 
-    /// True when Phase 1 found a legacy single-element market availability tag, in the snapshot
-    /// cache or the store. DataCoordinator then runs DataManager's one-time store rewrite.
-    private(set) var hasLegacyMarketAvailability = false
+    /// True when Phase 1's store read found a release value in an old format (see
+    /// LegacyReleaseValues). DataCoordinator then runs DataManager's one-time store rewrite.
+    /// A cache hit never sets it: the cache is written from memory, which is always current.
+    private(set) var hasLegacyReleaseValues = false
     
     /// Direct film count without array allocation.
     var totalFilmCount: Int { films.count }
@@ -155,18 +156,7 @@ final class MemoryStore: Loggable {
         /// as JSON, validated by a fingerprint derived from the store.
         /// On a cache hit the entire store fetch + snapshot conversion is skipped —
         /// reducing Phase 1 from O(N × relationships) to a single JSON decode.
-        var cacheResult = await MemoryStoreCache.shared.load(dataManager: dataManager)
-
-        /// A cache written by a build that predates the two-component market availability
-        /// format still holds legacy tags. Read the store instead: ReleaseSnapshot migrates
-        /// them on conversion, and the rebuilt cache is written in the new format.
-        if case .hit(let cachedFilms, _, _) = cacheResult,
-           cachedFilms.values.contains(where: { $0.releases.contains {
-               ReleaseMarketAvailability.needsMigration($0.marketAvailability) } }) {
-            Self.log("Snapshot cache holds legacy market availability tags — reading the store")
-            hasLegacyMarketAvailability = true
-            cacheResult = .miss
-        }
+        let cacheResult = await MemoryStoreCache.shared.load(dataManager: dataManager)
 
         switch cacheResult {
         case .hit(let films, let lists, let filmToLists):
@@ -297,12 +287,10 @@ final class MemoryStore: Loggable {
 
             var filmDict: [UUID: FilmSnapshot] = [:]
             filmDict.reserveCapacity(allFilms.count)
-            var sawLegacyMarketAvailability = false
+            var sawLegacyValues = false
             for film in allFilms {
-                if !sawLegacyMarketAvailability,
-                   film.releases.contains(where: {
-                       ReleaseMarketAvailability.needsMigration($0.marketAvailability) }) {
-                    sawLegacyMarketAvailability = true
+                if !sawLegacyValues, film.releases.contains(where: LegacyReleaseValues.isLegacy) {
+                    sawLegacyValues = true
                 }
                 filmDict[film.id] = FilmSnapshot(from: film)
             }
@@ -336,9 +324,9 @@ final class MemoryStore: Loggable {
             }
 
             return (LoadedData(films: filmDict, lists: listDict, filmToLists: filmToListsDict),
-                    sawLegacyMarketAvailability)
+                    sawLegacyValues)
         }
-        if loaded.1 { hasLegacyMarketAvailability = true }
+        if loaded.1 { hasLegacyReleaseValues = true }
         return loaded.0
     }
 
@@ -464,10 +452,18 @@ final class MemoryStore: Loggable {
             return []
         }
 
-        /// A saved search's base is the whole library in the requested order — exactly All
-        /// Films' array — so it shares that cache entry rather than holding one copy per search.
+        /// Every whole-library view (a saved search, a smart list, Unwatched, Recents, Search) builds exactly All
+        /// Films' array for the same sort, direction and filters: the whole library, sorted the same way. Its
+        /// membership is applied afterward, by DataCoordinator. So each shares All Films' entry instead of
+        /// sorting the library again on its first visit and holding a copy of its own. A smart list scoped to
+        /// one release format sorts Date Last Purchased by that format's purchases only, so it keeps its own.
         let cacheViewID: ViewIdentifier
-        if case .savedSearch = viewID { cacheViewID = .allFilms } else { cacheViewID = viewID }
+        switch viewID {
+        case .savedSearch, .smartList, .unwatched, .recents, .reports, .search:
+            cacheViewID = viewID.purchaseFormatScope == nil ? .allFilms : viewID
+        case .allFilms, .list, .filmQueue, .imports:
+            cacheViewID = viewID
+        }
         let cacheKey = CacheKey(viewID: cacheViewID, sortOption: sortOption, direction: direction,
                                filterOptions: filterOptions)
         

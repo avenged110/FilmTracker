@@ -4,7 +4,7 @@
 /// What the MultiFilmSheet changes, as one value, and the pure rules that turn it into each
 /// film's new fields, the list and Hall of Fame changes, and the capacity checks. Nothing
 /// here reads app state: callers hand in what a rule needs, so the rules run without the
-/// app (Staging/BulkEdit/Rig).
+/// app.
 
 import Foundation
 

@@ -4,7 +4,9 @@ Run: `./run.sh` (standalone; touches no data). Added 2026-09-27 with the Strict 
 Safety pass. Pass/fail on both parts; re-run if `Fmt` or any ISO 8601 style changes.
 
 - **`Fmt`** (90.00 GlobalUtilities) produces the same bytes as the `String(format:)` calls it
-  replaced — values including NaN, ±infinity, −0.0 and binary halfway cases.
+  replaced — values including NaN, ±infinity, −0.0 and binary halfway cases. Since
+  2026-11-14 `Fmt.dollars` is grouped en-US currency ("$11,310.14") by design, so the
+  `dollars` check here covers only the retired `$%.2f` form.
 - **`Date.ISO8601FormatStyle`** replaced the eight `ISO8601DateFormatter` statics
   (StorageDateFormatters.timestamp, MetadataCache ×2, STabRestore ×2, BackupFilename,
   DBReader, DBRestorer). Formatting differs only by truncating where the formatter rounded:

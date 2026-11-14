@@ -160,6 +160,17 @@ struct MenuBar: Commands {
             CommandGroup(replacing: .printItem) { EmptyView() }
             
             // MARK: - "Edit" Menu: Customize
+            /// Cut, Copy, Paste and Select All are always enabled and route through the responder chain.
+            ///
+            /// They used to be disabled unless a text field held first responder. That test read AppKit state
+            /// SwiftUI does not observe, so it ran only when this Commands body happened to re-render, and a click
+            /// into a selectable field (the RightSidebar's value rows) does not cause one. The items stayed
+            /// disabled, Cmd+C copied nothing, and they recovered only when a window activation re-rendered
+            /// the menu. Re-rendering on every focus change would rebuild the whole menu bar each time.
+            ///
+            /// No responder outside text controls implements cut:, copy: or paste:, so with no text focused
+            /// the action reaches nothing and the item does nothing. KeyboardManager still consumes these
+            /// shortcuts inside a sheet with no text field focused, and handleSelectAll picks its own scope.
             CommandGroup(replacing: .pasteboard) {
                 Button("Undo") {
                     NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) }
@@ -174,28 +185,21 @@ struct MenuBar: Commands {
                 Button("Cut") {
                     NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil) }
                 .keyboardShortcut("x", modifiers: .command)
-                /// Enable when sheet is active (let responder chain handle) OR text field focused
-                .disabled(!canUseTextEditing())
                 
                 Button("Copy") {
                     NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
                 .keyboardShortcut("c", modifiers: .command)
-                /// Enable when sheet is active (let responder chain handle) OR text field focused
-                .disabled(!canUseTextEditing())
                 
                 Button("Paste") {
                     NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
                 .keyboardShortcut("v", modifiers: .command)
-                /// Enable when sheet is active (let responder chain handle) OR text field focused
-                .disabled(!canUseTextEditing())
                 
                 Divider()
                 
                 /// Scope-aware "Select All".
                 Button("Select All") {
                     handleSelectAll() }
-                .keyboardShortcut("a", modifiers: .command)
-                .disabled(!canUseSelectAll()) } }
+                .keyboardShortcut("a", modifiers: .command) } }
 
         Group {
             // MARK: - "Film" Menu: Create
@@ -392,32 +396,6 @@ struct MenuBar: Commands {
         TextInputFocus.isActive(in: window)
     }
     
-    /// Verify if Select All should be enabled (for menu item state only)
-    @MainActor
-    private func canUseSelectAll() -> Bool {
-        /// Sheet active: always enable and let the responder chain handle it.
-        if isSheetActive { return true }
-        /// Text field focused in main window: allow native text selection.
-        if isTextFieldFocused() { return true }
-        /// Gallery-style view with at least one film: allow multi-select.
-        return appState.selectedSidebarItem.capabilities.supportsMultiSelection && filmCount > 0
-    }
-    
-    /// Verify if text editing operations (Cut/Copy/Paste) should be enabled
-    /// Uses the same sheet-aware logic as Select All - when sheets are active,
-    /// always enable and let the responder chain handle availability.
-    @MainActor
-    private func canUseTextEditing() -> Bool {
-        /// If a sheet is active, always enable and let responder chain handle it
-        /// This ensures Cut/Copy/Paste work reliably in sheet and popover text fields
-        if isSheetActive {
-            return true
-        }
-        
-        /// No sheet active - only enable if we detect a focused text field
-        return isTextFieldFocused()
-    }
-    
     /// Handle Select All menu item click (keyboard shortcut handled in KeyboardManager)
     @MainActor
     private func handleSelectAll() {
@@ -594,7 +572,8 @@ struct SortByMenu: View {
 
     var body: some View {
         Group {
-            if isMenuNotApplicable {
+            /// Also the Recents summary tab, where every item would be locked (ViewIdentifier.sortMenuUnavailable).
+            if isMenuNotApplicable || inputs.menuUnavailable {
                 /// A disabled plain item, not a disabled Menu. In menu-bar Commands SwiftUI does
                 /// not carry `.disabled` onto a Menu's own NSMenuItem — only into its children —
                 /// so a sealed "Sort By" still opened, onto a submenu of locked items with the
@@ -701,7 +680,7 @@ struct FilterItemsMenu: View {
                 /// carry `.disabled` onto a Menu's own item, so the submenu still opened.
                 /// Also wherever GalleryTitleBar disables its Filter button outright (an
                 /// empty view with no filters to clear, initial loading), and behind a sheet.
-                Button("Filter") {}
+                Button(inputs.menuTitle) {}
                     .disabled(true)
             } else {
                 filterMenu
@@ -715,7 +694,7 @@ struct FilterItemsMenu: View {
     }
 
     private var filterMenu: some View {
-        Menu("Filter") {
+        Menu(inputs.menuTitle) {
             FilterMenuContent(
                 currentFilters: inputs.filters,
                 isDisabled: isMenuDisabled,
@@ -798,31 +777,20 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
         case .allFilms:
             appState.navigate(to: .libraryItem(.allFilms))
 
+        /// Each family opens through LibraryTab.open, which picks the tab before navigating so the view loads once.
         case .unwatched:
-            appState.navigate(to: .libraryItem(.unwatched))
-            UnwatchedState.shared.selectCategory(.unwatched)
+            LibraryTab.unwatched(.unwatched).open(appState: appState, immediate: false)
 
-        /// Recents and Reports can remember their last tab (Preferences.rememberTabSelection). Navigating into them
-        /// is not a tab choice, so it must neither force the first tab nor save anything. Clicking the sidebar row
-        /// takes a different path, through GalleryView.handleSidebarChange. When the preference is off, the view
-        /// resets to its first tab.
+        /// Recents and Insights open on their first tab (Recents' summary, Insights' Insights tab), the tab each
+        /// sidebar row stands for.
         case .recents:
-            appState.navigate(to: .libraryItem(.recents))
-            RecentsState.shared.selectCategory(
-                Preferences.rememberRecentsTab ? RecentsState.shared.selectedCategory
-                                               : .recentlyViewed,
-                persist: false)
+            LibraryTab.recents(.summary).open(appState: appState, immediate: false)
 
         case .reports:
-            appState.navigate(to: .libraryItem(.reports))
-            ReportsState.shared.selectCategory(
-                Preferences.rememberReportsTab ? ReportsState.shared.selectedCategory
-                                               : .costTracker,
-                persist: false)
+            LibraryTab.reports(.primary).open(appState: appState, immediate: false)
 
         case .filmQueue:
-            appState.navigate(to: .libraryItem(.filmQueue))
-            FilmQueueFilterState.shared.selectFilter(.all)
+            LibraryTab.queue(.all).open(appState: appState, immediate: false)
 
         /// All five smart lists take the identical three steps and differ only in the type,
         /// which `smartListType` already holds — so they share one arm rather than five
@@ -846,134 +814,49 @@ struct LeftSidebarMenu: View {
 
     var body: some View {
         Menu("Left Sidebar") {
-            /// All Films
-            Toggle("All Films", isOn: Binding(
-                get: { isItemActive(.allFilms) },
-                set: { if $0 { TopLevelSidebarShortcut.allFilms.activate(appState: appState) } }))
-            .keyboardShortcut(TopLevelSidebarShortcut.allFilms.keyEquivalent, modifiers: .command)
-            .disabled(isSheetActive)
-            
-            Divider()
-            
-            /// Unwatched Tabs
-            /// Cmd+2 navigates to the Unwatched view (Unwatched tab).
-            /// Opt+Cmd+1–2 switch tabs within Unwatched, but only when already there.
-            Toggle("Unwatched", isOn: Binding(
-                get: { isItemActive(.unwatched(.unwatched)) },
-                set: { if $0 { TopLevelSidebarShortcut.unwatched.activate(appState: appState) } }))
-            .keyboardShortcut(TopLevelSidebarShortcut.unwatched.keyEquivalent, modifiers: .command)
-            .disabled(isSheetActive)
-            
-            Toggle("Not Rated", isOn: Binding(
-                get: { isItemActive(.unwatched(.notRated)) },
-                set: { if $0 { selectUnwatched(.notRated) } }))
-            .disabled(isSheetActive)
-            
-            Divider()
-            
-            /// Recents Categories
-            /// Cmd+3 navigates to the Recents view (Most Recently Viewed tab).
-            /// Opt+Cmd+1–5 switch tabs within Recents, but only when already in Recents.
-            Toggle("Most Recently Viewed", isOn: Binding(
-                get: { isItemActive(.recents(.recentlyViewed)) },
-                set: { if $0 { TopLevelSidebarShortcut.recents.activate(appState: appState) } }))
-            .keyboardShortcut(TopLevelSidebarShortcut.recents.keyEquivalent, modifiers: .command)
-            .disabled(isSheetActive)
-            
-            Toggle("Recently Come Up for Rotation", isOn: Binding(
-                get: { isItemActive(.recents(.recentlyRotated)) },
-                set: { if $0 { selectRecents(.recentlyRotated) } }))
-            .disabled(isSheetActive)
-            
-            Toggle("Recently Added", isOn: Binding(
-                get: { isItemActive(.recents(.recentlyAdded)) },
-                set: { if $0 { selectRecents(.recentlyAdded) } }))
-            .disabled(isSheetActive)
-            
-            Toggle("Recently Updated", isOn: Binding(
-                get: { isItemActive(.recents(.recentlyUpdated)) },
-                set: { if $0 { selectRecents(.recentlyUpdated) } }))
-            .disabled(isSheetActive)
-            
-            Toggle("Recently Purchased", isOn: Binding(
-                get: { isItemActive(.recents(.recentlyPurchased)) },
-                set: { if $0 { selectRecents(.recentlyPurchased) } }))
-            .disabled(isSheetActive)
-            
-            Divider()
-            
-            /// Reports Categories
-            /// Cmd+4 navigates to Reports (Purchase and Expense Tracker tab).
-            /// Opt+Cmd+1–5 switch tabs within Reports, but only when already in Reports.
-            Toggle("Purchase and Expense Tracker", isOn: Binding(
-                get: { isItemActive(.reports(.costTracker)) },
-                set: { if $0 { TopLevelSidebarShortcut.reports.activate(appState: appState) } }))
-            .keyboardShortcut(TopLevelSidebarShortcut.reports.keyEquivalent, modifiers: .command)
-            .disabled(isSheetActive)
-            
-            Toggle("Price Tracker", isOn: Binding(
-                get: { isItemActive(.reports(.priceTracker)) },
-                set: { if $0 { selectReports(.priceTracker) } }))
-            .disabled(isSheetActive)
-            
-            Toggle("Hall of Fame", isOn: Binding(
-                get: { isItemActive(.reports(.hallOfFame)) },
-                set: { if $0 { selectReports(.hallOfFame) } }))
-            .disabled(isSheetActive)
-
-            Toggle("Release Wishlist", isOn: Binding(
-                get: { isItemActive(.reports(.releaseWishlist)) },
-                set: { if $0 { selectReports(.releaseWishlist) } }))
-            .disabled(isSheetActive)
-            
-            Toggle("Visualizations and Insights", isOn: Binding(
-                get: { isItemActive(.reports(.dataVisualizations)) },
-                set: { if $0 { selectReports(.dataVisualizations) } }))
-            .disabled(isSheetActive)
-            
-            Divider()
-            
-            /// Imports Categories
-            /// Imports has no top-level Cmd+# shortcut.
-            /// Opt+Cmd+1–2 switch tabs within Imports (handled by KeyboardManager):
-            ///   Opt+Cmd+1 → Metadata, Opt+Cmd+2 → Ratings.
-            Toggle("Import Metadata", isOn: Binding(
-                get: { isItemActive(.imports(.metadata)) },
-                set: { if $0 { selectImports(.metadata) } }))
-            .disabled(isSheetActive)
-
-            Toggle("Import Ratings", isOn: Binding(
-                get: { isItemActive(.imports(.ratings)) },
-                set: { if $0 { selectImports(.ratings) } }))
-            .disabled(isSheetActive)
+            /// Every Library item and tab below takes its title from its own type (LibraryItem.title and each
+            /// category's displayName) and is listed from that type's allCases, the order the title-bar pickers
+            /// and the Opt+Cmd+<digit> tab shortcuts follow. A new tab appears here with no edit to this menu.
+            /// Each family's first item carries its Cmd+<digit> shortcut (TopLevelSidebarShortcut), which
+            /// performs that shortcut's own navigation.
+            tabToggle(LibraryItem.allFilms.title, item: .allFilms, shortcut: .allFilms) {}
 
             Divider()
 
-            /// Film Queue — the internal, application-owned viewing queue.
-            /// Cmd+5 navigates here. The smart-list shortcuts below follow, from Up for Rotation (Cmd+6) to Filtered Library (Cmd+0).
-            /// "Queue" itself is equivalent to the segmented picker's "All" section;
-            /// "Up Next"/"Soon"/"Later" map to the same picker's other three sections.
-            /// Opt+Cmd+1–4 switch tabs within the Film Queue, but only when already there.
-            Toggle("Queue", isOn: Binding(
-                get: { isItemActive(.filmQueue) },
-                set: { if $0 { TopLevelSidebarShortcut.filmQueue.activate(appState: appState) } }))
-            .keyboardShortcut(TopLevelSidebarShortcut.filmQueue.keyEquivalent, modifiers: .command)
-            .disabled(isSheetActive)
-            
-            Toggle("Up Next", isOn: Binding(
-                get: { isItemActive(.filmQueueSection(.upNext)) },
-                set: { if $0 { selectFilmQueueSection(.upNext) } }))
-            .disabled(isSheetActive)
-            
-            Toggle("Soon", isOn: Binding(
-                get: { isItemActive(.filmQueueSection(.soon)) },
-                set: { if $0 { selectFilmQueueSection(.soon) } }))
-            .disabled(isSheetActive)
-            
-            Toggle("Later", isOn: Binding(
-                get: { isItemActive(.filmQueueSection(.later)) },
-                set: { if $0 { selectFilmQueueSection(.later) } }))
-            .disabled(isSheetActive)
+            ForEach(UnwatchedCategory.allCases, id: \.self) { category in
+                tabToggle(category.displayName, item: .unwatched(category),
+                          shortcut: category == .unwatched ? .unwatched : nil) { selectUnwatched(category) }
+            }
+
+            Divider()
+
+            ForEach(RecentsCategory.allCases, id: \.self) { category in
+                tabToggle(category.displayName, item: .recents(category),
+                          shortcut: category == .summary ? .recents : nil) { selectRecents(category) }
+            }
+
+            Divider()
+
+            ForEach(ReportsCategory.allCases, id: \.self) { category in
+                tabToggle(category.displayName, item: .reports(category),
+                          shortcut: category == .primary ? .reports : nil) { selectReports(category) }
+            }
+
+            Divider()
+
+            /// Imports has no top-level Cmd+<digit> shortcut.
+            ForEach(ImportsCategory.allCases, id: \.self) { category in
+                tabToggle("Import \(category.displayName)", item: .imports(category)) { selectImports(category) }
+            }
+
+            Divider()
+
+            /// The Film Queue. Its All tab is the Queue itself, titled as the section is.
+            ForEach(FilmQueueFilter.allCases, id: \.self) { filter in
+                tabToggle(filter == .all ? LibraryItem.filmQueue.title : filter.displayName,
+                          item: .filmQueueSection(filter),
+                          shortcut: filter == .all ? .filmQueue : nil) { selectFilmQueueSection(filter) }
+            }
             
             if smartListsEnabled {
                 Divider()
@@ -1026,7 +909,6 @@ struct LeftSidebarMenu: View {
         case recents(RecentsCategory)
         case reports(ReportsCategory)
         case imports(ImportsCategory)
-        case filmQueue
         case filmQueueSection(FilmQueueFilter)
         case smartList(SmartListType)
     }
@@ -1075,14 +957,7 @@ struct LeftSidebarMenu: View {
             }
             return ImportsState.shared.selectedCategory == category
             
-        case .filmQueue:
-            /// "Queue" represents the segmented picker's "All" section specifically, so
-            /// it stays mutually exclusive with the three named sections below.
-            guard appState.selectedSidebarItem == .libraryItem(.filmQueue) else {
-                return false
-            }
-            return FilmQueueFilterState.shared.selectedFilter == .all
-            
+        /// The Queue's own item is its All tab, so it is exclusive with the three sections.
         case .filmQueueSection(let filter):
             guard appState.selectedSidebarItem == .libraryItem(.filmQueue) else {
                 return false
@@ -1097,50 +972,52 @@ struct LeftSidebarMenu: View {
         }
     }
     
-    // MARK: - Navigation Helpers
-    
-    /// Select an Unwatched view tab
+    // MARK: - Tab Toggles
+
+    /// One Library item or tab: checked while it is showing. Choosing it runs `shortcut`'s navigation when it
+    /// has one (the family's first item), else `select`.
     @MainActor
-    private func selectUnwatched(_ category: UnwatchedCategory) {
-        /// Update sidebar selection to the Unwatched view
-        appState.navigate(to: .libraryItem(.unwatched))
-        /// Update UnwatchedState to the selected tab
-        UnwatchedState.shared.selectCategory(category)
-    }
-    
-    /// Select a recents category
-    @MainActor
-    private func selectRecents(_ category: RecentsCategory) {
-        /// Update sidebar selection to Recents
-        appState.navigate(to: .libraryItem(.recents))
-        /// Update RecentsState to the selected category
-        RecentsState.shared.selectCategory(category)
-    }
-    
-    /// Select a reports category
-    @MainActor
-    private func selectReports(_ category: ReportsCategory) {
-        /// Update sidebar selection to Reports
-        appState.navigate(to: .libraryItem(.reports))
-        /// Update ReportsState to the selected category
-        ReportsState.shared.selectCategory(category)
-    }
-    
-    /// Select an imports category
-    @MainActor
-    private func selectImports(_ category: ImportsCategory) {
-        /// Update sidebar selection to Imports
-        appState.navigate(to: .libraryItem(.imports))
-        /// Update ImportsState to the selected category
-        ImportsState.shared.selectCategory(category)
+    private func tabToggle(_ title: String, item: MenuItem, shortcut: TopLevelSidebarShortcut? = nil,
+                           select: @escaping @MainActor () -> Void) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { isItemActive(item) },
+            set: { isOn in
+                guard isOn else { return }
+                if let shortcut { shortcut.activate(appState: appState) } else { select() }
+            }))
+        .keyboardShortcut(shortcut.map { KeyboardShortcut($0.keyEquivalent, modifiers: .command) })
+        .disabled(isSheetActive)
     }
 
-    /// Select a specific Film Queue section — equivalent to choosing "Up Next",
-    /// "Soon", or "Later" in the segmented picker in GalleryTitleBar.
+    // MARK: - Navigation Helpers
+    /// The family tabs open through LibraryTab.open (LeftSidebar), as their sidebar rows do, deferred past the
+    /// menu's fade when the family is already on screen.
+    
+    @MainActor
+    private func selectUnwatched(_ category: UnwatchedCategory) {
+        LibraryTab.unwatched(category).open(appState: appState, immediate: false)
+    }
+    
+    @MainActor
+    private func selectRecents(_ category: RecentsCategory) {
+        LibraryTab.recents(category).open(appState: appState, immediate: false)
+    }
+    
+    @MainActor
+    private func selectReports(_ category: ReportsCategory) {
+        LibraryTab.reports(category).open(appState: appState, immediate: false)
+    }
+    
+    /// Select an imports category. The item names its tab, so it lands there even while an import of
+    /// the other kind runs (see ImportsState.categoryRequestedByName).
+    @MainActor
+    private func selectImports(_ category: ImportsCategory) {
+        ImportsState.shared.open(category, appState: appState)
+    }
+
     @MainActor
     private func selectFilmQueueSection(_ filter: FilmQueueFilter) {
-        appState.navigate(to: .libraryItem(.filmQueue))
-        FilmQueueFilterState.shared.selectFilter(filter)
+        LibraryTab.queue(filter).open(appState: appState, immediate: false)
     }
     
     /// Select a smart list (updates both ViewStateManager and AppState)

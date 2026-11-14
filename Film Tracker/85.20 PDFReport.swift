@@ -5,7 +5,7 @@
 ///
 /// Layer three of the PDF stack described at the top of PDFCore.swift (85.00). This file
 /// owns the table's MEANING: which columns exist, what each cell says about a film, and
-/// which fill each state earns. It draws nothing itself; `LibraryPDFExporter` (43.10) hands
+/// which fill each state earns. It draws nothing itself; `LibraryPDFExporter` (85.40) hands
 /// the section it produces to `PDFTableRenderer` (85.10).
 ///
 /// Every measurement the table depends on lives in `LibraryTableLayout` below, in one block,
@@ -659,7 +659,7 @@ enum LibraryPDFReport {
         /// Artwork is a property of the package, so like the steelbook tag it has no
         /// technical column of its own.
         if film.releases.contains(where: {
-            $0.purchased && ReleaseArtwork.negativeTags.contains($0.hasArtwork)
+            $0.purchased && ReleaseArtwork.isMissing($0.hasArtwork)
         }) {
             items.append(PDFNoteList.Item("missing artwork"))
         }
@@ -961,7 +961,7 @@ enum LibraryPDFReport {
         let total = film.releases
             .filter { $0.purchased && $0.isTopLevel }
             .reduce(0) { $0 + $1.numberOfDiscs }
-        return PDFCell(total > 0 ? "\(total)" : "", fill: fill)
+        return PDFCell(total > 0 ? Fmt.count(total) : "", fill: fill)
     }
 
     // MARK: HandBrake RF

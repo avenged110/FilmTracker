@@ -355,11 +355,10 @@ struct DurationStepper: View {
     @Binding var hours: Int
     @Binding var minutes: Int
     @Binding var hasValue: Bool
-    /// Optional closure called when the Delete key is pressed while either
-    /// sub-stepper holds the AppKit focus ring. When provided, the stepper
-    /// is bridged through ClearableStepperView so the key event is intercepted
-    /// at the NSStepper level before it reaches the responder chain.
-    var onDelete: (() -> Void)? = nil
+    /// Called when the Delete key is pressed while either sub-stepper holds the AppKit
+    /// focus ring. Both sub-steppers are bridged through ClearableStepperView, so the key
+    /// event is intercepted at the NSStepper level before it reaches the responder chain.
+    var onDelete: () -> Void
 
     /// @State mirror of the SwiftUI isEnabled environment value — see TimeStepper
     /// and CustomDateStepper for the full rationale. Reading @Environment(\.isEnabled)
@@ -399,126 +398,10 @@ struct DurationStepper: View {
     
     var body: some View {
         HStack(spacing: 4) {
-            /// Hours stepper (0-9)
-            if let onDelete {
-                /// ClearableStepperView intercepts Delete at the NSStepper level.
-                /// The label Text views are kept as SwiftUI siblings in the HStack,
-                /// matching the visual layout of the standard Stepper alternative below.
-                HStack(spacing: 4) {
-                    Text("\(hours)")
-                        .font(.system(size: 14))
-                        .foregroundStyle(textColor)
-                        .frame(width: 10, alignment: .trailing)
-                        .monospacedDigit()
-                    Text(hours == 1 ? "hour" : "hours")
-                        .font(.system(size: 14))
-                        .foregroundStyle(textColor)
-                        .frame(width: 38, alignment: .leading)
-                    ClearableStepperView(
-                        value: $hours,
-                        range: 0...9,
-                        onIncrement: {
-                            if shouldActivateInsteadOfIncrement(isHoursComponent: true) { return }
-                            hours = hours >= 9 ? 0 : hours + 1
-                            hoursSetByUser = hours > 0
-                            applyAutoMinuteRule()
-                        },
-                        onDecrement: {
-                            if shouldActivateInsteadOfIncrement(isHoursComponent: true) { return }
-                            hours = hours <= 0 ? 9 : hours - 1
-                            hoursSetByUser = hours > 0
-                            applyAutoMinuteRule()
-                        },
-                        onDelete: onDelete
-                    )
-                }
-            } else {
-                Stepper(
-                    onIncrement: {
-                        if shouldActivateInsteadOfIncrement(isHoursComponent: true) { return }
-                        hours = hours >= 9 ? 0 : hours + 1
-                        hoursSetByUser = hours > 0
-                        applyAutoMinuteRule()
-                    },
-                    onDecrement: {
-                        if shouldActivateInsteadOfIncrement(isHoursComponent: true) { return }
-                        hours = hours <= 0 ? 9 : hours - 1
-                        hoursSetByUser = hours > 0
-                        applyAutoMinuteRule()
-                    }
-                ) {
-                    HStack(spacing: 4) {
-                        Text("\(hours)")
-                            .font(.system(size: 14))
-                            .foregroundStyle(textColor)
-                            .frame(width: 10, alignment: .trailing)
-                            .monospacedDigit()
-                        Text(hours == 1 ? "hour" : "hours")
-                            .font(.system(size: 14))
-                            .foregroundStyle(textColor)
-                            .frame(width: 38, alignment: .leading)
-                    }
-                }
-            }
-            
-            /// Minutes stepper (0-59)
-            if let onDelete {
-                HStack(spacing: 4) {
-                    Text("\(minutes)")
-                        .font(.system(size: 14))
-                        .foregroundStyle(textColor)
-                        .frame(width: 20, alignment: .trailing)
-                        .monospacedDigit()
-                    Text(minutes == 1 ? "minute" : "minutes")
-                        .font(.system(size: 14))
-                        .foregroundStyle(textColor)
-                        .frame(width: 52, alignment: .leading)
-                    ClearableStepperView(
-                        value: $minutes,
-                        range: 0...59,
-                        onIncrement: {
-                            if shouldActivateInsteadOfIncrement(isHoursComponent: false) { return }
-                            minutes = minutes >= 59 ? 0 : minutes + 1
-                            minutesSetByUser = minutes > 0
-                            applyAutoHourRule()
-                        },
-                        onDecrement: {
-                            if shouldActivateInsteadOfIncrement(isHoursComponent: false) { return }
-                            minutes = minutes <= 0 ? 59 : minutes - 1
-                            minutesSetByUser = minutes > 0
-                            applyAutoHourRule()
-                        },
-                        onDelete: onDelete
-                    )
-                }
-            } else {
-                Stepper(
-                    onIncrement: {
-                        if shouldActivateInsteadOfIncrement(isHoursComponent: false) { return }
-                        minutes = minutes >= 59 ? 0 : minutes + 1
-                        minutesSetByUser = minutes > 0
-                        applyAutoHourRule()
-                    },
-                    onDecrement: {
-                        if shouldActivateInsteadOfIncrement(isHoursComponent: false) { return }
-                        minutes = minutes <= 0 ? 59 : minutes - 1
-                        minutesSetByUser = minutes > 0
-                        applyAutoHourRule()
-                    }
-                ) {
-                    HStack(spacing: 4) {
-                        Text("\(minutes)")
-                            .font(.system(size: 14))
-                            .foregroundStyle(textColor)
-                            .frame(width: 20, alignment: .trailing)
-                            .monospacedDigit()
-                        Text(minutes == 1 ? "minute" : "minutes")
-                            .font(.system(size: 14))
-                            .foregroundStyle(textColor)
-                            .frame(width: 52, alignment: .leading)
-                    }
-                }
-            }
+            component(value: $hours, range: 0...9, numberWidth: 10,
+                      unit: hours == 1 ? "hour" : "hours", unitWidth: 38, isHours: true)
+            component(value: $minutes, range: 0...59, numberWidth: 20,
+                      unit: minutes == 1 ? "minute" : "minutes", unitWidth: 52, isHours: false)
         }
         /// Padding matches CustomDateStepper.
         .padding(.leading, 7)
@@ -570,8 +453,50 @@ struct DurationStepper: View {
         }
     }
     
+    // MARK: - Components
+
+    /// One component: its number and unit as text, then its stepper. The hours component
+    /// steps 0–9 and the minutes component 0–59, each wrapping at its ends.
+    private func component(value: Binding<Int>, range: ClosedRange<Int>, numberWidth: CGFloat,
+                           unit: String, unitWidth: CGFloat, isHours: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text("\(value.wrappedValue)")
+                .font(.system(size: 14))
+                .foregroundStyle(textColor)
+                .frame(width: numberWidth, alignment: .trailing)
+                .monospacedDigit()
+            Text(unit)
+                .font(.system(size: 14))
+                .foregroundStyle(textColor)
+                .frame(width: unitWidth, alignment: .leading)
+            ClearableStepperView(
+                value: value,
+                range: range,
+                onIncrement: { step(isHours: isHours, up: true) },
+                onDecrement: { step(isHours: isHours, up: false) },
+                onDelete: onDelete
+            )
+        }
+    }
+
+    /// One click of a component's stepper: the first click on an empty field activates it
+    /// instead; otherwise the component wraps one step, records whether the user left it
+    /// non-zero, and lets the other component's auto rule run.
+    private func step(isHours: Bool, up: Bool) {
+        if shouldActivateInsteadOfIncrement(isHoursComponent: isHours) { return }
+        if isHours {
+            hours = up ? (hours >= 9 ? 0 : hours + 1) : (hours <= 0 ? 9 : hours - 1)
+            hoursSetByUser = hours > 0
+            applyAutoMinuteRule()
+        } else {
+            minutes = up ? (minutes >= 59 ? 0 : minutes + 1) : (minutes <= 0 ? 59 : minutes - 1)
+            minutesSetByUser = minutes > 0
+            applyAutoHourRule()
+        }
+    }
+
     // MARK: - Computed Properties
-    
+
     /// Determines the text color based on whether the field has a value and if user is interacting
     private var textColor: Color {
         (hasValue || isInteracting) ? .primary : tertiaryLabelColor
@@ -2396,8 +2321,8 @@ private final class DigitOnlyFormatter: StringFormatter, @unchecked Sendable {
 /// The one text-input test, shared by `KeyboardManager.isTextInputActive(in:)`,
 /// `MenuBar`'s `isTextFieldFocusedInWindow`, and the Return-key monitor in `SettingsSheet`.
 ///
-/// The call sites decide different things: whether to consume a shortcut, whether to enable
-/// Cut/Copy/Paste, whether Return dismisses. They all ask the identical question, and they
+/// The call sites decide different things: whether to consume a shortcut, where Select All
+/// applies, whether Return dismisses. They all ask the identical question, and they
 /// must never disagree about the answer, so the test lives in one place.
 ///
 /// **Why the type-name test exists at all.** The fast path covers the AppKit classes

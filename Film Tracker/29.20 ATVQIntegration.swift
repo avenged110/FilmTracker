@@ -617,6 +617,14 @@ final class ATVQClient: Loggable {
         case unreadable
     }
 
+    /// How long deliver() waits for each target's reply.
+    ///
+    /// A dispatch that works completes consistently in about 3 s, discovery included, and one
+    /// that has not been answered by then will not be. 6 s leaves room for a slow network while
+    /// letting a failed dispatch be reported, and tried again, quickly. It was 20 s for the relay
+    /// and 10 s for ATVQ, which kept a failed dispatch waiting over 20 s.
+    private nonisolated static let dispatchReplyTimeout: TimeInterval = 6
+
     /// Sends to every target at once and returns as soon as one accepts, or once all have
     /// answered otherwise. Nothing is cancelled early: a stale advertisement (a sleeping
     /// Apple TV still listed by the network's sleep proxy) can't hold up the result, and an
@@ -627,10 +635,8 @@ final class ATVQClient: Loggable {
             collector.arm(continuation)
             for target in targets {
                 Task.detached(priority: .userInitiated) {
-                    /// The relay is on a wired, always-on Mac and answers on receipt; ATVQ may be
-                    /// waking or busy decoding, so it gets a little longer.
                     let attempt = await send(body, to: target.endpoint, label: target.label,
-                                             timeout: target.isRelay ? 20 : 10)
+                                             timeout: dispatchReplyTimeout)
                     collector.add(attempt)
                 }
             }
@@ -876,10 +882,10 @@ private struct ATVQDispatchButtonContent: View {
     }
 
     /// "today at 2:46 PM", "yesterday at 5:10 PM", "Tuesday at 1:11 AM" within the past
-    /// week, then "October 5 at 4:04 PM" (with the year when it isn't this one).
+    /// week, then "October 5 at 4:04 PM", or "October 5, 2025, at 4:04 PM" when it isn't this year.
+    /// Through the app's shared display formats (US English, 12-hour clock).
     private static func relativeTimestamp(_ date: Date, now: Date = Date()) -> String {
         let calendar = AppCalendar.current
-        let time = date.formatted(date: .omitted, time: .shortened)
         let day: String
         if calendar.isDateInToday(date) {
             day = "today"
@@ -888,13 +894,13 @@ private struct ATVQDispatchButtonContent: View {
         } else if let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date),
                                                      to: calendar.startOfDay(for: now)).day,
                   days < 7 {
-            day = date.formatted(Date.FormatStyle(calendar: calendar).weekday(.wide))
+            day = formatWeekday(date)
         } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
-            day = date.formatted(Date.FormatStyle(calendar: calendar).month(.wide).day())
+            day = formatMonthDay(date)
         } else {
-            day = date.formatted(Date.FormatStyle(calendar: calendar).month(.wide).day().year())
+            return formatTimestamp(date)
         }
-        return "\(day) at \(time)"
+        return "\(day) at \(formatTime(date))"
     }
 
     private func click() {

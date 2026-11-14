@@ -289,7 +289,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
         self.filmIDs = films.map(\.id)
         let count = films.count
         /// Singular only if films were deleted between the selection and the open.
-        let noun = count == 1 ? "1 Film" : "\(count) Films"
+        let noun = Fmt.count(count, "Film")
         windowTitle = "Edit \(noun)"
         confirmButtonTitle = "Update \(noun)"
 
@@ -413,10 +413,10 @@ final class MultiFilmSheet: Identifiable, Loggable {
     var gutterNote: String {
         let edit = edit
         if edit.isEmpty { return "Change a field to update every selected film." }
-        let fields = edit.changeCount == 1 ? "1 field" : "\(edit.changeCount) fields"
+        let fields = Fmt.count(edit.changeCount, "field")
         let over = filmsOverTagLimit(edit)
         if over > 0 {
-            let films = over == 1 ? "1 film has" : "\(over) films have"
+            let films = "\(Fmt.count(over, "film")) \(over == 1 ? "has" : "have")"
             return "\(fields) will change. \(films) too many tags to take them all."
         }
         return "\(fields) will change."
@@ -514,14 +514,6 @@ final class MultiFilmSheet: Identifiable, Loggable {
         let hallOfFame = edit.hallOfFameChanges(filmIDs: ids, positions: positions)
         Self.log("Saving \(edit.changeCount) field(s) for \(ids.count) film(s): \(memberships.additions.count) list add(s), \(memberships.removals.count) list removal(s), queue \(memberships.queueAddition.map { "\($0.films.count) → \($0.section.displayName)" } ?? "unchanged"), Hall of Fame +\(hallOfFame.add.count)/−\(hallOfFame.remove.count)")
 
-        #if DEBUG
-        var phase = ContinuousClock.now
-        func mark(_ name: String) {
-            BulkSaveProbe.record("save/\(name)", since: phase)
-            phase = ContinuousClock.now
-        }
-        mark("prepare")
-        #endif
 
         /// ── Memberships ─────────────────────────────────────────────────────────────
         for (listID, films) in memberships.additions {
@@ -534,17 +526,11 @@ final class MultiFilmSheet: Identifiable, Loggable {
             FilmManager.removeFilmsFromLists(memberships.removals, coordinator: coordinator)
         }
 
-        #if DEBUG
-        mark("memberships")
-        #endif
 
         /// ── Hall of Fame ────────────────────────────────────────────────────────────
         if !hallOfFame.remove.isEmpty { coordinator.removeFromHallOfFame(hallOfFame.remove) }
         if !hallOfFame.add.isEmpty { coordinator.addToHallOfFame(hallOfFame.add) }
 
-        #if DEBUG
-        mark("hallOfFame")
-        #endif
 
         /// ── Fields ──────────────────────────────────────────────────────────────────
         /// Every film the edit touches is stamped modified, as a FilmSheet save stamps its
@@ -553,9 +539,6 @@ final class MultiFilmSheet: Identifiable, Loggable {
         coordinator.applyBulkFieldEdit(edit, filmIDs: ids, alsoTouched: touched,
                                        explicitQueueFilmIDs: memberships.queueFilms(queueListIDs: queueIDs))
 
-        #if DEBUG
-        mark("fields")
-        #endif
 
         dismissHandler?()
     }
@@ -564,27 +547,14 @@ final class MultiFilmSheet: Identifiable, Loggable {
         if vacancies == 0 {
             return "The Hall of Fame may only contain at most 200 films. You must first remove an existing entry before you can add more."
         }
-        return "The Hall of Fame may only contain at most 200 films and only has room for \(vacancies) more, but \(incoming) of the selected films are not in it. Select fewer films, or remove some entries first."
+        return "The Hall of Fame may only contain at most 200 films and only has room for \(vacancies) more, but \(Fmt.count(incoming)) of the selected films are not in it. Select fewer films, or remove some entries first."
     }
 
     static func upNextBlockedMessage(incoming: Int, vacancies: Int) -> String {
         if vacancies == 0 {
             return "Your \"Up Next\" Queue contains the maximum of eight films. You must remove one or more films from it before you can add another."
         }
-        let room = vacancies == 1 ? "1 more film" : "\(vacancies) more films"
-        return "Your \"Up Next\" Queue has room for \(room), but \(incoming) of the selected films are not in it. Select fewer films, or remove some from \"Up Next\" first."
+        let room = Fmt.count(vacancies, "more film", plural: "more films")
+        return "Your \"Up Next\" Queue has room for \(room), but \(Fmt.count(incoming)) of the selected films are not in it. Select fewer films, or remove some from \"Up Next\" first."
     }
 }
-
-#if DEBUG
-/// Phase timings of the last MultiFilmSheet save, read by the `bulk-edit-perf` harness
-/// scenario (DHBulkEdit), which empties it before each save.
-@MainActor
-enum BulkSaveProbe {
-    static var phases: [(name: String, milliseconds: Double)] = []
-
-    static func record(_ name: String, since start: ContinuousClock.Instant) {
-        phases.append((name, DebugHarness.milliseconds(ContinuousClock.now - start)))
-    }
-}
-#endif

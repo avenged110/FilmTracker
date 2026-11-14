@@ -125,14 +125,7 @@ struct FilmSheetView: View {
             /// Custom titlebar — windowTitle is resolved once in FilmSheet.init (from
             /// isEditMode and, in edit mode, the film's name at open time), so it never
             /// changes after init. The Text node is stable.
-            ZStack {
-                Text(owner.windowTitle)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-            }
-            .background(Color(NSColor.controlBackgroundColor))
-            .overlay(Divider(), alignment: .bottom)
+            SheetTitleBar(owner.windowTitle)
 
             /// Custom tab header — depends only on selectedTab.
             CustomTabHeader(
@@ -141,13 +134,7 @@ struct FilmSheetView: View {
                 showIcons: true,
                 onTabSelect: { owner.selectedTab = $0 }
             )
-            .padding(.horizontal, 4)
-            .padding(.top, -1)
-            .padding(.bottom, 1)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .focusEffectDisabled()
-            .overlay(Divider(), alignment: .bottom)
-            .zIndex(1)
+            .sheetTabHeaderBand()
 
             /// Scrollable tab content.
             /// Isolated in a child view that holds no reference to `owner` — only the
@@ -217,9 +204,7 @@ private struct FilmSheetButtonBar: View {
             Button {
                 owner.cancel()
             } label: {
-                Text("Cancel")
-                    .padding(4)
-                    .font(.system(size: 12))
+                Text("Cancel").sheetButtonLabel()
             }
             .keyboardShortcut(.cancelAction)
             .disabled(owner.isConfirming)
@@ -241,9 +226,7 @@ private struct FilmSheetButtonBar: View {
             Button {
                 owner.confirm()
             } label: {
-                Text(owner.confirmButtonTitle)
-                    .padding(4)
-                    .font(.system(size: 12))
+                Text(owner.confirmButtonTitle).sheetButtonLabel()
             }
             .keyboardShortcut(.defaultAction)
             .disabled(!owner.canConfirm || owner.isConfirming)

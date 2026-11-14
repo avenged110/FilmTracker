@@ -20,6 +20,25 @@ enum UnwatchedCategory: String, CaseIterable, Codable, Sendable {
         case .notRated: return "Not Rated"
         }
     }
+
+    /// The tab's symbol pair: `.outline` for its sidebar row, `.filled` for the title bar.
+    var symbol: ViewGlyphs.Glyph {
+        switch self {
+        case .unwatched: return ViewGlyphs.unwatched
+        case .notRated: return ViewGlyphs.notRated
+        }
+    }
+
+    /// The title bar's glyph, which the tab's empty placeholder shows too.
+    var glyph: String { symbol.filled }
+
+    /// The tab's empty placeholder copy (GalleryView), as SmartListType.emptyState is a smart list's.
+    var emptyState: (title: String, message: String) {
+        switch self {
+        case .unwatched: return ("No Unwatched Films", "Every film in your library is marked as watched.")
+        case .notRated:  return ("No Unrated Films", "Every film in your library has a rating.")
+        }
+    }
 }
 
 // MARK: - Unwatched State
@@ -53,7 +72,8 @@ final class UnwatchedState: SubcategoryViewState {
         hasInitializedView = false
     }
 
-    func selectCategory(_ category: UnwatchedCategory) {
+    /// - Parameter immediate: Switch views in this turn. See SubcategoryNavigation.performSwitch.
+    func selectCategory(_ category: UnwatchedCategory, immediate: Bool = false) {
         /// Don't skip a repeated category, since it may need a reload.
         let categoryChanged = category != selectedCategory
         /// selectedCategory updates synchronously, so the segmented control shows the new choice at once.
@@ -62,6 +82,7 @@ final class UnwatchedState: SubcategoryViewState {
         /// No parent sidebar item is passed, since selectedSidebarItem is already .libraryItem(.unwatched) for every tab, as in RecentsState.
         SubcategoryNavigation.performSwitch(
             clearingSelection: categoryChanged,
-            to: .unwatched(category))
+            to: .unwatched(category),
+            immediate: immediate)
     }
 }

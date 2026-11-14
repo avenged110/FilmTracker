@@ -154,19 +154,33 @@ enum FilterOption: String, CaseIterable, Hashable, Codable, Sendable {
 
 // MARK: - Recents Category
 enum RecentsCategory: String, CaseIterable, Codable, Sendable {
+    /// The "Recents" tab (the summary): one horizontally scrolling row per category in `sections`, each with a Show All button
+    /// that opens that category's own tab (RecentsSummaryView). It is first, so it is the family's sidebar row.
+    case summary
     case recentlyViewed
     case recentlyRotated
     case recentlyAdded
     case recentlyUpdated
     case recentlyPurchased
+    case recentDiscRelease
+
+    /// The six categories with films of their own, in display order: every tab but `summary`, and the rows
+    /// that tab shows.
+    static let sections: [RecentsCategory] = allCases.filter { $0 != .summary }
+
+    /// The most films one row of the summary tab shows, and so how many of each category the tab loads. A
+    /// category's own tab shows more (see MetadataCache.recentFilmIDs).
+    static let summaryRowLimit = 50
 
     var displayName: String {
         switch self {
+        case .summary: return "Recents"
         case .recentlyViewed: return "Most Recently Viewed"
         case .recentlyRotated: return "Recently Come Up for Rotation"
         case .recentlyAdded: return "Recently Added"
         case .recentlyUpdated: return "Recently Updated"
         case .recentlyPurchased: return "Recently Purchased"
+        case .recentDiscRelease: return "Recent Disc Releases"
         }
     }
 
@@ -175,17 +189,45 @@ enum RecentsCategory: String, CaseIterable, Codable, Sendable {
         switch self {
         case .recentlyViewed: return ["Most Recently Watched", "Recently Watched", "Recently Viewed"]
         case .recentlyRotated: return ["Recently Up for Rotation"]
-        case .recentlyAdded, .recentlyUpdated, .recentlyPurchased: return []
+        case .summary, .recentlyAdded, .recentlyUpdated, .recentlyPurchased, .recentDiscRelease: return []
         }
     }
 
-    var glyph: String {
+    /// The tab's symbol pair: `.outline` for its sidebar row, `.filled` for the title bar.
+    /// Only Recently Purchased and Recent Disc Releases have a distinct filled variant; the rest are uniform.
+    var symbol: ViewGlyphs.Glyph {
         switch self {
-        case .recentlyViewed: return ViewGlyphs.recentlyViewed.outline
-        case .recentlyRotated: return ViewGlyphs.recentlyRotated.outline
-        case .recentlyAdded: return ViewGlyphs.recentlyAdded.outline
-        case .recentlyUpdated: return ViewGlyphs.recentlyUpdated.outline
-        case .recentlyPurchased: return ViewGlyphs.recentlyPurchased.filled
+        case .summary: return ViewGlyphs.recents
+        case .recentlyViewed: return ViewGlyphs.recentlyViewed
+        case .recentlyRotated: return ViewGlyphs.recentlyRotated
+        case .recentlyAdded: return ViewGlyphs.recentlyAdded
+        case .recentlyUpdated: return ViewGlyphs.recentlyUpdated
+        case .recentlyPurchased: return ViewGlyphs.recentlyPurchased
+        case .recentDiscRelease: return ViewGlyphs.recentDiscRelease
+        }
+    }
+
+    /// The title bar's glyph, which the tab's empty placeholder shows too.
+    var glyph: String { symbol.filled }
+
+    /// The tab's empty placeholder copy (GalleryView), as SmartListType.emptyState is a smart list's.
+    var emptyState: (title: String, message: String) {
+        switch self {
+        case .summary:
+            return ("Nothing Recent",
+                    "Films you view, add, update, or purchase will appear here, with those that come up for rotation.")
+        case .recentlyViewed:
+            return ("Nothing Viewed Recently", "Add a viewing event or a past viewing date to get started.")
+        case .recentlyRotated:
+            return ("Nothing Came Up for Rotation Recently", "Wait a while or change the rotation threshold preference.")
+        case .recentlyAdded:
+            return ("Nothing Added Recently", "Import more films or add them manually.")
+        case .recentlyUpdated:
+            return ("Nothing Updated Recently", "Edit a film to see it here.")
+        case .recentlyPurchased:
+            return ("Nothing Purchased Recently", "Add releases with purchase dates to films.")
+        case .recentDiscRelease:
+            return ("No Recent Disc Releases", "Add releases with full release dates to films.")
         }
     }
 
@@ -196,26 +238,39 @@ enum RecentsCategory: String, CaseIterable, Codable, Sendable {
     /// Recently Purchased orders by the most recent purchase of any format, which is exactly Date Last
     /// Purchased with no format scope. Recently Come Up for Rotation orders by rotation eligibility date,
     /// which no option expresses: `.dateAdded` there is only a placeholder, and the Sort menu shows no
-    /// checkmark for that tab (SortMenuInputs.displayedSortOption).
+    /// checkmark for that tab (SortMenuInputs.displayedSortOption). Recent Disc Releases orders by release date,
+    /// which no option expresses either, and takes the same placeholder. The summary tab has no single order either,
+    /// since each of its rows has its own, so it takes the same placeholder and shows no checkmark.
     var sortOption: SortOption {
         switch self {
+        case .summary: return .dateAdded /// Placeholder; see above
         case .recentlyViewed: return .lastViewed
         case .recentlyRotated: return .dateAdded /// Placeholder; see above
         case .recentlyAdded: return .dateAdded
         case .recentlyUpdated: return .dateModified
         case .recentlyPurchased: return .datePurchased
+        case .recentDiscRelease: return .dateAdded /// Placeholder; see above
         }
     }
 
-    var dateType: MetadataCache.DateType {
+    /// The date this tab orders by and shows under each poster. nil for the summary tab, whose rows each use
+    /// their own category's.
+    var dateType: MetadataCache.DateType? {
         switch self {
+        case .summary: return nil
         case .recentlyViewed: return .lastWatched
         case .recentlyRotated: return .rotationDate
         case .recentlyAdded: return .dateAdded
         case .recentlyUpdated: return .lastModified
         case .recentlyPurchased: return .purchaseDate
+        case .recentDiscRelease: return .discReleaseDate
         }
     }
+
+    /// True for the one tab whose direction is the user's to set: Recent Disc Releases, ordered by release date
+    /// either way. Its sort options stay locked (SortMenuInputs.disabledSortOptions), but the direction pair
+    /// does not, so it is not a fixed-sort view (ViewIdentifier.hasFixedSort). Every other tab is newest first.
+    var userSetsSortDirection: Bool { self == .recentDiscRelease }
 
     /// The pre-sorted, category-ordered film ID list for this category, straight from MetadataCache. This is
     /// the single authoritative dispatch point from a category to its MetadataCache accessor — used by
@@ -385,15 +440,20 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     }
 
     /// True for the views whose order is part of what they are, so their Sort menu's options and direction
-    /// are locked: every Recents tab, and "Upcoming Releases", which lists the soonest release first
+    /// are locked: every Recents tab but Recent Disc Releases (see RecentsCategory.userSetsSortDirection), and
+    /// "Upcoming Releases", which lists the soonest release first
     /// (DataCoordinator.performLoad). Filters, style and section dividers stay the user's to set.
     var hasFixedSort: Bool {
         switch self {
-        case .recents: return true
+        case .recents(let category): return !category.userSetsSortDirection
         case .smartList(let type): return type == .upcomingReleases
         default: return false
         }
     }
+
+    /// True where nothing in the Sort menu applies, so both hosts disable the menu itself rather than its items:
+    /// the Recents summary tab, whose rows each keep their own order and whose sections are fixed.
+    var sortMenuUnavailable: Bool { self == .recents(.summary) }
 
     /// The release format that this view's Date Last Purchased sort and section bands read purchases from.
     /// nil means every format. It is set only on the Purchased 4K, Blu-ray, and DVD lists, where a purchase
@@ -401,7 +461,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     /// Past Year in Purchased 4K when its 4K copy was bought in 2020.
     var purchaseFormatScope: ReleaseFormat? { smartListType?.purchaseFormat }
 
-    /// The SF Symbol for the GalleryTitleBar glyph of this view. Recents uses its active category's glyph.
+    /// The SF Symbol for the GalleryTitleBar glyph of this view. Recents and Unwatched use their active tab's glyph.
     /// Reports and Imports never show this glyph, but the switch is exhaustive, and the compiler checks it.
     var glyph: String {
         switch self {
@@ -411,8 +471,9 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .search: return ViewGlyphs.search.outline
         case .savedSearch: return ViewGlyphs.savedSearch.outline
         case .recents(let category): return category.glyph
-        case .filmQueue: return ViewGlyphs.filmQueue.outline
-        case .unwatched: return ViewGlyphs.unwatched.filled
+        /// The Queue's tabs share this one identifier; GalleryTitleBar swaps in the selected tab's glyph.
+        case .filmQueue: return ViewGlyphs.filmQueue.filled
+        case .unwatched(let category): return category.glyph
         case .reports: return ViewGlyphs.reports.filled
         case .imports: return ViewGlyphs.importsTitleBarFallback.outline
         }
@@ -548,16 +609,18 @@ struct ViewStateKey: Hashable, Sendable {
     }
 
     /// Whether the Section Dividers Show and Hide pair is fixed for the tab this key names. It is true for
-    /// one tab only, the Film Queue's unnarrowed All tab. Its three Up Next, Soon, and Later bands describe
+    /// two tabs. One is the Film Queue's unnarrowed All tab. Its three Up Next, Soon, and Later bands describe
     /// the view's structure, and GallerySectioning.displayedSectionBreaks always draws them, so no Show or
-    /// Hide choice could remove them. Locking the pair On keeps the menu accurate. Every other tab, including
-    /// the Queue's three section tabs, keeps the pair free.
+    /// Hide choice could remove them. The other is the Recents summary tab, whose sections are its rows
+    /// (RecentsSummaryView). Locking the pair On keeps the menu accurate. Every other tab, including the
+    /// Queue's three section tabs, keeps the pair free.
     ///
     /// Two places enforce the lock and must agree. loadStateSync forces the stored value On for this key, and
     /// updateShowSectionDividers refuses any change to it. The menu reads the same property, so the display
     /// and the manager follow one rule.
     var lockedSectionDividers: Bool {
         if case .filmQueue = viewID { return subTab == nil }
+        if case .recents(.summary) = viewID { return true }
         return false
     }
 }
@@ -567,13 +630,16 @@ struct ViewStateKey: Hashable, Sendable {
 /// Centralizes every question of the form "does this view support X". Before this, the answers were spread
 /// across hand-synced switches in MainView, MenuBar, KeyboardManager, and GalleryView. Now one exhaustive
 /// switch, below, defines them, and the consumers read the precomputed flags. Each flag asks a distinct
-/// question. Several happen to agree today, but they stay separate so a future view can differ on one without
-/// affecting the others. coincidence, and collapsing them would silently reintroduce the same
+/// question. Several happen to agree today, but that is coincidence: they stay separate so a future view can differ
+/// on one without affecting the others, and collapsing them would silently reintroduce the same
 /// one-flag-serves-two-purposes coupling this type exists to avoid.
 struct ViewCapabilities: Sendable {
     /// Whether the RightSidebar and StatusBar chrome is shown beside this view's content. Reports hides it
     /// while its Data Visualizations tab is displayed, and Imports never shows it.
     var showsGalleryChrome: Bool = true
+    /// The StatusBar rows this view shows when the bar is visible: the classic count row, a summary row, or both
+    /// stacked (summary on top). Only the Reports Purchase Tracker tab shows a summary today. See StatusBar.swift.
+    var statusBar: StatusBarContent = .classic
     /// Whether this view can be a destination for search-exit selection preservation
     /// (MainView.handleSearchContentChange). It must be a gallery-backed view whose membership can be checked
     /// directly. Search, Reports, and Imports are excluded.
@@ -624,12 +690,16 @@ extension SidebarItem {
             return ViewCapabilities()
 
         case .libraryItem(.recents):
+            /// The summary tab has one layout, a row per category, so it has no list style.
             return ViewCapabilities(
+                supportsListGridToggle: RecentsState.shared.selectedCategory != .summary,
                 sortMenuFullyDisabled: true)
 
         case .libraryItem(.reports):
             return ViewCapabilities(
                 showsGalleryChrome: ReportsState.shared.displayedCategory != .dataVisualizations,
+                statusBar: ReportsState.shared.displayedCategory == .costTracker
+                    ? .summaryAndClassic(.purchaseTotals) : .classic,
                 isValidSearchExitDestination: false,
                 supportsListGridToggle: false,
                 sortMenuFullyDisabled: true,
@@ -842,11 +912,9 @@ enum PendingScrollBehavior: Sendable {
 ///   • The grid-list toggle (ViewStateManager.updateListViewStyle), set just before isListView flips.
 ///   • Show in List (ShowInListNavigation) and the Film Queue's post-move scroll.
 ///
-/// The targetViewID address is essential. During a search exit, the still-mounted search gallery can update
-/// with the full library before MainView's handler runs, and an unaddressed intent would be consumed by that
-/// wrong instance. Matching by film ID alone works only in All Films, where the two film sets happen to match
-/// without the address. Consumption passes the film ID to the destination's scroll view, which
-/// resolves it in its own viewWillDraw() once geometry exists.
+/// The targetViewID address is essential: a pass rendering any other view, such as one that lands before the
+/// switch, must not consume the intent. Consumption passes the film ID to the destination's scroll view, which
+/// resolves it once geometry exists: in viewWillDraw() after a fresh mount, at once on the reuse path.
 @MainActor
 final class GalleryScrollIntent {
     static let shared = GalleryScrollIntent()
@@ -855,15 +923,14 @@ final class GalleryScrollIntent {
     /// Whether an already-mounted gallery's updateNSView may consume this intent, rather than only a fresh
     /// makeNSView.
     ///
-    /// It is false for producers that navigate between sidebar items, such as search exit and the grid-list
-    /// toggle. Each destination gets a fresh gallery, and the outgoing gallery can still get one update
-    /// carrying the destination's activeViewID. That instance must not consume the intent (see
-    /// GallerySubview.updateNSView).
+    /// It is false for the grid-list toggle, whose destination style mounts a fresh grid or list, and for
+    /// Show in List from Reports or Imports, where the gallery mounts fresh.
     ///
-    /// It is true for two producers, where no navigation happens. The single mounted gallery is the
-    /// destination, so no other instance can claim the intent:
+    /// It is true wherever the one shared gallery (GalleryReuse) stays mounted and is the destination:
     ///
-    ///   • ShowInListNavigation redirecting to a smart-list sub-variant of the parent being viewed, such as Purchased to Purchased 4K.
+    ///   • Search exit with a preserved selection. Search is drawn by the shared gallery too.
+    ///   • ShowInListNavigation between gallery-backed items, or to a smart-list sub-variant of the parent being
+    ///     viewed, such as Purchased to Purchased 4K.
     ///   • FilmQueueAssignment.toggle, which places films back in view after a section move reorders the gallery underneath.
     private(set) var consumableOnReuse: Bool = false
     private init() {}
@@ -907,7 +974,7 @@ final class GalleryScrollIntent {
     /// with the destination of a genuine navigation: a stale intent addressed elsewhere (e.g. a view-style
     /// toggle whose destination style never mounted) is invalidated, while an intent addressed to the
     /// destination itself — the search-exit handoff, set immediately before the sidebar flip that triggers
-    /// that handler — survives to be consumed by the destination gallery's makeNSView.
+    /// that handler — survives to be consumed by the destination's update pass or makeNSView.
     func clear(unlessTargeting viewID: ViewIdentifier) {
         guard targetViewID != viewID else { return }
         clear()
@@ -920,21 +987,20 @@ final class GalleryScrollIntent {
 /// One producer: search exit with a preserved selection (MainView.handleSearchContentChange). Before the
 /// search the user was navigating the gallery with the keyboard; the search results are a gallery too, and
 /// the film they settled on is carried back into the destination as its selection. To the user the gallery
-/// never lost focus — a film is highlighted in it — yet the destination is a FRESH gallery instance, and
-/// nothing made it first responder: focus stayed wherever the exit left it (the toolbar search field,
-/// usually), so the arrow keys did nothing until a Tab press moved focus to where it already appeared to be.
-/// This closes that gap: the destination claims focus itself, from the same pre-draw hook that positions its
-/// scroll, so keyboard navigation works without any further ado.
+/// never lost focus — a film is highlighted in it — yet the switch resigns it (GalleryView.resetForReuse), and
+/// focus stays wherever the exit left it (the toolbar search field, usually), so the arrow keys did nothing
+/// until a Tab press moved focus to where it already appeared to be. This closes that gap: the destination
+/// claims focus itself, so keyboard navigation works without any further ado.
 ///
 /// Deliberately separate from `GalleryScrollIntent` rather than a flag on it: the scroll intent has producers
 /// that must not move focus (the grid⟷list toggle, Show in List, the Film Queue's post-move scroll), and its
 /// reuse path is consumed by an already-mounted gallery's update pass, which must never claim first
-/// responder. It is addressed to a ViewIdentifier for the same reason the scroll intent is — the outgoing
-/// search gallery can still receive an update pass carrying the destination's activeViewID, and must not be
-/// the instance that claims it.
+/// responder except through this intent. It is addressed to a ViewIdentifier for the same reason the scroll
+/// intent is: only a pass rendering the destination may claim it.
 ///
-/// Consumed by the destination's makeNSView (grid or list, whichever style is active) and honored by that
-/// scroll view's viewWillDraw(), once it has a window. Cleared at search entry and on the non-preserving exit
+/// Consumed by the shared gallery's update pass for the view switch (grid or list, whichever style is active),
+/// or by makeNSView when the destination style mounts fresh, and honored once the scroll view has a window,
+/// one turn later so it lands after resetForReuse. Cleared at search entry and on the non-preserving exit
 /// path exactly as the scroll intent is, and invalidated by GalleryView.handleSidebarChange for any
 /// navigation it is not addressed to, so a request whose destination never mounted cannot steal focus on a
 /// later visit.
@@ -1039,20 +1105,32 @@ final class ViewStateManager: Loggable {
                 return listID
             }
             .sink { [weak self] listID in
-                guard let self else { return }
-                let viewID = ViewIdentifier.list(listID)
-                /// savedScrollOrigins is keyed by GalleryScrollKey; a user list never has a sub-tab, so this
-                /// removes the single entry that can exist for it while remaining correct if a future view
-                /// gains sub-tabs.
-                self.savedScrollOrigins = self.savedScrollOrigins.filter { $0.key.viewID != viewID }
-                if self.pendingOriginRestore?.key.viewID == viewID {
-                    self.pendingOriginRestore = nil
-                }
-                /// viewStates is keyed by ViewStateKey; a user list never has a sub-tab, so this removes the
-                /// single entry that can exist for it while remaining correct if a future view gains sub-tabs.
-                self.viewStates = self.viewStates.filter { $0.key.viewID != viewID }
+                self?.forgetView(.list(listID))
             }
             .store(in: &cancellables)
+    }
+
+    /// Views whose list or saved search was deleted this session. bankScrollOrigin refuses them. The
+    /// purge below runs as the deletion is announced, but the gallery that was showing the view saves its
+    /// position again on the way out (AppState.navigate's bank, the reused gallery's outgoing save), which
+    /// put the entry straight back.
+    @ObservationIgnored private var retiredViews: Set<ViewIdentifier> = []
+
+    /// Drops everything kept for a view that no longer exists: a deleted user list or saved search. Their
+    /// ViewIdentifiers name a UUID, so the slots could never be used again. A pending debounced save is
+    /// canceled too, so it cannot write a deleted saved search's state back to Preferences, and
+    /// snapshotAllViewSortStates no longer finds it to write back.
+    func forgetView(_ viewID: ViewIdentifier) {
+        retiredViews.insert(viewID)
+        savedScrollOrigins = savedScrollOrigins.filter { $0.key.viewID != viewID }
+        if pendingOriginRestore?.key.viewID == viewID {
+            pendingOriginRestore = nil
+        }
+        viewStates = viewStates.filter { $0.key.viewID != viewID }
+        for (key, task) in saveTasks where key.viewID == viewID {
+            task.cancel()
+            saveTasks[key] = nil
+        }
     }
 
     // MARK: - Public API
@@ -1118,6 +1196,7 @@ final class ViewStateManager: Loggable {
     /// assignment it replaced.
     private func bankScrollOrigin(_ position: GalleryScrollPosition, under key: GalleryScrollKey) {
         guard !key.viewID.isSearch else { return }
+        guard !retiredViews.contains(key.viewID) else { return }
         guard pendingOriginRestore?.key != key else { return }
         savedScrollOrigins[key] = position
     }
@@ -1748,7 +1827,8 @@ final class ViewStateManager: Loggable {
             }
 
         case .recents(let category):
-            /// Recents views have fixed sorting (per-category sortOption, always descending). However, filter
+            /// Recents views have fixed sorting (per-category sortOption, descending except where the category lets
+            /// the user set the direction; see RecentsCategory.userSetsSortDirection). However, filter
             /// selections and the list view style ARE user-configurable and must survive re-launches. Load
             /// persisted options for this category from the consolidated view-sort-states dictionary, but
             /// always enforce the fixed sort option and direction so stored data can never overwrite them.
@@ -1764,6 +1844,7 @@ final class ViewStateManager: Loggable {
                 state.filterOptions = parsed.filterOptions
                 state.isListView = parsed.isListView
                 state.showSectionDividers = parsed.showSectionDividers
+                if category.userSetsSortDirection { state.sortDirection = parsed.sortDirection }
             }
             return state
 

@@ -87,7 +87,8 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
     // MARK: - Release Snapshots
     /// Snapshot of every Release associated with this Film.
     /// Updated by DataCoordinator after any release mutation commits to viewContext.
-    var releases: [ReleaseSnapshot]
+    /// Empty by default in the memberwise initializer; populate separately when known.
+    var releases: [ReleaseSnapshot] = []
 
     // MARK: - Computed Properties
 
@@ -128,7 +129,14 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
         !handbrakeFrames.isEmpty      ||
         !correspondingTimecodes.isEmpty
     }
+}
 
+// MARK: - FilmSnapshot Construction and Persistence
+/// In an extension so the struct keeps Swift's synthesized memberwise initializer: every stored
+/// property in declaration order, with `releases` defaulting to empty. FilmSheet.confirm() and the
+/// metadata importer build snapshots through it without a live Film. Declaring any initializer in
+/// the struct body would suppress it.
+extension FilmSnapshot {
     // MARK: - Initialization from Film
     /// Creates a snapshot from a Film model object, capturing all scalar properties
     /// and converting its Release relationships to ReleaseSnapshot value types.
@@ -194,129 +202,6 @@ struct FilmSnapshot: Sendable, Codable, Equatable {
         /// side of the hierarchy rebuilt from the authoritative child→parent pointers.
         /// See ReleaseSnapshot.reconcilingHierarchy(_:).
         self.releases = ReleaseSnapshot.reconcilingHierarchy(Array(film.releases))
-    }
-
-    // MARK: - Manual Initialization
-    /// Creates a snapshot from individual values. Used by FilmSheet.confirm() to build a
-    /// FilmChangeset from tab form data without requiring a live Film managed object.
-    /// All parameters match Film model properties exactly.
-    /// `releases` defaults to empty; populate separately when known.
-    init(
-        id: UUID,
-        posterUID: String,
-        name: String,
-        releaseYear: String,
-        userRating: Int,
-        lastWatched: String,
-        rotationThresholdOverride: Int?,
-        duration: String,
-        viewCount: Int,
-        calendarTable: [String],
-        autoAddToQueueOnRotation: Int?,
-        digitalSource: String,
-        digitalVersion: String,
-        subtitles: String,
-        notes: String,
-        numberOfDiscs: String,
-        aspectRatio: String,
-        color: Bool,
-        edited: Bool,
-        editedDuration: String,
-        frameRate: Double,
-        tags: [String],
-        externalIdentifiers: [String],
-        dateAdded: String,
-        lastModified: String,
-        watched: Bool,
-        specialSorting: [String],
-        alternateTitle: [String],
-        hofPosition: Int,
-        infoComplete: Bool,
-        comments: String,
-        genre: String,
-        releaseDate: String,
-        descriptionText: String,
-        rating: String,
-        studio: [String],
-        cast: [String],
-        directors: [String],
-        producers: [String],
-        executiveProducers: [String],
-        screenwriters: [String],
-        encodingTool: [String],
-        libraryHBRFValue: Int,
-        composer: [String],
-        sortName: String,
-        releaseUsed: String,
-        tools: [String],
-        editedHBRFValue: Int,
-        editDate: String,
-        warning: [String],
-        descriptionNotes: String,
-        notesOnAudioTiming: [String],
-        specialAudioNotes: [String],
-        notesArray: [String],
-        handbrakeFrames: [String],
-        correspondingTimecodes: [String],
-        releases: [ReleaseSnapshot] = []
-    ) {
-        self.id = id
-        self.posterUID = posterUID
-        self.name = name
-        self.releaseYear = releaseYear
-        self.userRating = userRating
-        self.lastWatched = lastWatched
-        self.rotationThresholdOverride = rotationThresholdOverride
-        self.duration = duration
-        self.viewCount = viewCount
-        self.calendarTable = calendarTable
-        self.autoAddToQueueOnRotation = autoAddToQueueOnRotation
-        self.digitalSource = digitalSource
-        self.digitalVersion = digitalVersion
-        self.subtitles = subtitles
-        self.notes = notes
-        self.numberOfDiscs = numberOfDiscs
-        self.aspectRatio = aspectRatio
-        self.color = color
-        self.edited = edited
-        self.editedDuration = editedDuration
-        self.frameRate = frameRate
-        self.tags = tags
-        self.externalIdentifiers = externalIdentifiers
-        self.dateAdded = dateAdded
-        self.lastModified = lastModified
-        self.watched = watched
-        self.specialSorting = specialSorting
-        self.alternateTitle = alternateTitle
-        self.hofPosition = hofPosition
-        self.infoComplete = infoComplete
-        self.comments = comments
-        self.genre = genre
-        self.releaseDate = releaseDate
-        self.descriptionText = descriptionText
-        self.rating = rating
-        self.studio = studio
-        self.cast = cast
-        self.directors = directors
-        self.producers = producers
-        self.executiveProducers = executiveProducers
-        self.screenwriters = screenwriters
-        self.encodingTool = encodingTool
-        self.libraryHBRFValue = libraryHBRFValue
-        self.composer = composer
-        self.sortName = sortName
-        self.releaseUsed = releaseUsed
-        self.tools = tools
-        self.editedHBRFValue = editedHBRFValue
-        self.editDate = editDate
-        self.warning = warning
-        self.descriptionNotes = descriptionNotes
-        self.notesOnAudioTiming = notesOnAudioTiming
-        self.specialAudioNotes = specialAudioNotes
-        self.notesArray = notesArray
-        self.handbrakeFrames = handbrakeFrames
-        self.correspondingTimecodes = correspondingTimecodes
-        self.releases = releases
     }
 
     // MARK: - Apply to Film
@@ -578,7 +463,10 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         self.purchased = release.purchased
         self.wishlist = release.wishlist
         self.format = release.format
-        self.includedVersions = release.includedVersions
+        /// Values whose stored format has changed are converted on the way in, so memory never
+        /// holds an old one. See LegacyReleaseValues.
+        let current = LegacyReleaseValues.current(of: release)
+        self.includedVersions = current.includedVersions
         self.independence = release.independence
         self.videoFormat = release.videoFormat
         self.releaseAspectRatio = release.releaseAspectRatio
@@ -588,7 +476,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         self.hasSubtitles = release.hasSubtitles
         self.numberOfDiscs = release.numberOfDiscs
         self.discMultiPack = release.discMultiPack
-        self.hasArtwork = release.hasArtwork
+        self.hasArtwork = current.hasArtwork
         self.remastered = release.remastered
         self.nationalOrigin = release.nationalOrigin
         self.replicationType = release.replicationType
@@ -597,9 +485,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
         self.masterType = release.masterType
         self.regionLock = release.regionLock
         self.regionLockBypass = release.regionLockBypass
-        /// Migrated on the way in, so a store not yet rewritten by
-        /// DataManager.migrateLegacyMarketAvailability never shows a legacy tag.
-        self.marketAvailability = ReleaseMarketAvailability.migrated(release.marketAvailability)
+        self.marketAvailability = current.marketAvailability
         self.numberOfCopies = release.numberOfCopies
         self.cost = release.cost
         self.amountSpent = release.amountSpent
@@ -749,45 +635,9 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// Used by DataCoordinator (view context) and DataManager (background context) to
     /// materialize a new release into whatever context they're operating in.
     func toRelease(film: Film) -> Release {
-        return Release(
-            id: id,
-            studio: studio,
-            releaseDate: releaseDate,
-            baseReleaseYear: baseReleaseYear,
-            purchased: purchased,
-            wishlist: wishlist,
-            format: format,
-            includedVersions: includedVersions,
-            independence: independence,
-            videoFormat: videoFormat,
-            releaseAspectRatio: releaseAspectRatio,
-            scanningMethod: scanningMethod,
-            audioFormat: audioFormat,
-            audioChannels: audioChannels,
-            hasSubtitles: hasSubtitles,
-            numberOfDiscs: numberOfDiscs,
-            discMultiPack: discMultiPack,
-            hasArtwork: hasArtwork,
-            remastered: remastered,
-            nationalOrigin: nationalOrigin,
-            replicationType: replicationType,
-            discCapacity: discCapacity,
-            hasHDR: hasHDR,
-            masterType: masterType,
-            regionLock: regionLock,
-            regionLockBypass: regionLockBypass,
-            marketAvailability: marketAvailability,
-            numberOfCopies: numberOfCopies,
-            cost: cost,
-            amountSpent: amountSpent,
-            purchaseDate: purchaseDate,
-            lowestPrice: lowestPrice,
-            lowestPriceDate: lowestPriceDate,
-            condition: condition,
-            notes: notes,
-            dateAdded: dateAdded,
-            sortOrder: sortOrder,
-            film: film)
+        let release = Release(id: id, independence: independence, film: film)
+        apply(to: release)
+        return release
     }
 }
 
@@ -1158,10 +1008,6 @@ struct SettingsSnapshot: Sendable, Equatable {
 
     // MARK: - UI State Preferences
     let maintainScrollPositionOnViewSwitch: Bool?
-    let rememberTabSelection: Bool?
-    let tabRememberScope: Int?
-    let lastRecentsCategory: String?
-    let lastReportsCategory: String?
     let rememberImportsTab: Bool?
     let lastImportsCategory: String?
     let rememberSortFilterSelections: Bool?
@@ -1216,10 +1062,6 @@ struct SettingsSnapshot: Sendable, Equatable {
          prunePosterImages: Bool? = nil,
          exportUserSettings: Bool? = nil,
          maintainScrollPositionOnViewSwitch: Bool? = nil,
-         rememberTabSelection: Bool? = nil,
-         tabRememberScope: Int? = nil,
-         lastRecentsCategory: String? = nil,
-         lastReportsCategory: String? = nil,
          rememberImportsTab: Bool? = nil,
          lastImportsCategory: String? = nil,
          rememberSortFilterSelections: Bool? = nil,
@@ -1268,10 +1110,6 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.prunePosterImages = prunePosterImages
         self.exportUserSettings = exportUserSettings
         self.maintainScrollPositionOnViewSwitch = maintainScrollPositionOnViewSwitch
-        self.rememberTabSelection = rememberTabSelection
-        self.tabRememberScope = tabRememberScope
-        self.lastRecentsCategory = lastRecentsCategory
-        self.lastReportsCategory = lastReportsCategory
         self.rememberImportsTab = rememberImportsTab
         self.lastImportsCategory = lastImportsCategory
         self.rememberSortFilterSelections = rememberSortFilterSelections
@@ -1325,10 +1163,6 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.prunePosterImages = object.prunePosterImages
         self.exportUserSettings = object.exportUserSettings
         self.maintainScrollPositionOnViewSwitch = object.maintainScrollPositionOnViewSwitch
-        self.rememberTabSelection = object.rememberTabSelection
-        self.tabRememberScope = object.tabRememberScope
-        self.lastRecentsCategory = object.lastRecentsCategory
-        self.lastReportsCategory = object.lastReportsCategory
         self.rememberImportsTab = object.rememberImportsTab
         self.lastImportsCategory = object.lastImportsCategory
         self.rememberSortFilterSelections = object.rememberSortFilterSelections
@@ -1382,10 +1216,6 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.prunePosterImages = prunePosterImages
         object.exportUserSettings = exportUserSettings
         object.maintainScrollPositionOnViewSwitch = maintainScrollPositionOnViewSwitch
-        object.rememberTabSelection = rememberTabSelection
-        object.tabRememberScope = tabRememberScope
-        object.lastRecentsCategory = lastRecentsCategory
-        object.lastReportsCategory = lastReportsCategory
         object.rememberImportsTab = rememberImportsTab
         object.lastImportsCategory = lastImportsCategory
         object.rememberSortFilterSelections = rememberSortFilterSelections

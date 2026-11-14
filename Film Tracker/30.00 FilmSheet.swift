@@ -669,3 +669,26 @@ final class FilmSheet: Identifiable, Loggable {
         return (add: add, remove: remove)
     }
 }
+
+// MARK: - Tab Change Latch
+
+/// A FilmSheet tab's view model: the five tabs each report their own unsaved changes.
+@MainActor
+protocol FilmSheetTabChangeTracking: AnyObject {
+    var hasChanges: Bool { get set }
+}
+
+extension FilmSheetTabChangeTracking {
+    /// Records a change check's result. `hasChanges` is written, and `owner.notifyChanges()`
+    /// called, only when the result differs from the last known value: writing an unchanged
+    /// value would still fire an observation invalidation, and once `hasChanges` has latched
+    /// to its steady state, every further keystroke (or the Releases tab's 150 ms debounce
+    /// tick) would wake FilmSheet for nothing. Returns whether the value changed.
+    @discardableResult
+    func latchHasChanges(_ changed: Bool, notifying owner: FilmSheet) -> Bool {
+        guard hasChanges != changed else { return false }
+        hasChanges = changed
+        owner.notifyChanges()
+        return true
+    }
+}

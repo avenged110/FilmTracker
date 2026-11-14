@@ -7,7 +7,7 @@ import SwiftUI
 
 @MainActor
 @Observable
-final class FSTabMetadata {
+final class FSTabMetadata: FilmSheetTabChangeTracking {
     weak var owner: FilmSheet?
 
     /// Metadata Fields
@@ -258,15 +258,7 @@ final class FSTabMetadata {
         /// of. Comparing the collected value keeps that correct without a special case.
         let changed = collectFilmFields() != orig
 
-        /// Only write hasChanges — and only call owner.notifyChanges() — when the
-        /// aggregated result actually differs from the last known value. Skipping
-        /// the no-op path keeps every keystroke in edit mode from waking FilmSheet
-        /// once hasChanges has already latched to its steady-state value.
-        /// Mirrors the identical pattern in FSTabReleases.checkForChanges().
-        if hasChanges != changed {
-            hasChanges = changed
-            owner.notifyChanges()
-        }
+        latchHasChanges(changed, notifying: owner)
     }
 
     // MARK: - DTO Support

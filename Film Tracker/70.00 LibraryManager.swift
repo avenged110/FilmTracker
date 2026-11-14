@@ -660,8 +660,7 @@ struct ListManagerSheet: View, Loggable {
             /// Show selection count when creating from selection
             if mode == .create, let filmIDs = filmIDs, !filmIDs.isEmpty {
                 let count = filmIDs.count
-                let itemText = count == 1 ? "Item" : "Items"
-                Text("Containing \(count) Selected \(itemText)")
+                Text("Containing \(Fmt.count(count)) Selected \(Fmt.noun(count, "Item"))")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 16)
@@ -693,9 +692,7 @@ struct ListManagerSheet: View, Loggable {
                 Button {
                     dismiss()
                 } label: {
-                    Text("Cancel")
-                        .padding(4)
-                        .font(.system(size: 12))
+                    Text("Cancel").sheetButtonLabel()
                 }
                 .keyboardShortcut(.cancelAction)
                 .disabled(isSaving)
@@ -705,9 +702,7 @@ struct ListManagerSheet: View, Loggable {
                 Button {
                     saveList()
                 } label: {
-                    Text(mode == .create ? "Create" : "Save")
-                        .padding(4)
-                        .font(.system(size: 12))
+                    Text(mode == .create ? "Create" : "Save").sheetButtonLabel()
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)

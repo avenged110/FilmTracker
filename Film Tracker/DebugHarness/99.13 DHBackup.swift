@@ -89,10 +89,15 @@ extension DebugHarness {
     // MARK: - Store Ownership Helpers
 
     /// The full model set, read from LibraryModel. Must match `DBExporter.allModelTypes`;
-    /// `schemaCoverageScenario` asserts it.
+    /// `schemaCoverageScenario` asserts it. Retired settings columns
+    /// (LibraryModel.retiredSettingsObjectAttributes) are left out: they stay in the schema
+    /// only so older stores open, and backups deliberately omit them.
     static var backupHarnessSchema: HarnessSchema {
-        HarnessSchema(entities: LibraryModel.shared.model.entities.map {
-            HarnessSchema.Entity(name: $0.name ?? "", attributes: Array($0.attributesByName.values))
+        let retired = Set(LibraryModel.retiredSettingsObjectAttributes.map(\.0))
+        return HarnessSchema(entities: LibraryModel.shared.model.entities.map { entity in
+            HarnessSchema.Entity(name: entity.name ?? "", attributes: entity.attributesByName.values.filter {
+                entity.name != "SettingsObject" || !retired.contains($0.name)
+            })
         })
     }
 
@@ -550,7 +555,6 @@ extension DebugHarness {
          ("prunePosterImages", \.prunePosterImages),
          ("exportUserSettings", \.exportUserSettings),
          ("maintainScrollPositionOnViewSwitch", \.maintainScrollPositionOnViewSwitch),
-         ("rememberTabSelection", \.rememberTabSelection),
          ("rememberImportsTab", \.rememberImportsTab),
          ("rememberSortFilterSelections", \.rememberSortFilterSelections),
          ("confirmFilmQueueAdd", \.confirmFilmQueueAdd),
@@ -566,14 +570,11 @@ extension DebugHarness {
     static var settingsIntFields: [(String, ReferenceWritableKeyPath<SettingsObject, Int?>)] {
         [("listEditScope", \.listEditScope),
          ("defaultRotationThreshold", \.defaultRotationThreshold),
-         ("tabRememberScope", \.tabRememberScope),
          ("queueSectionOnDrop", \.queueSectionOnDrop)]
     }
 
     static var settingsStringFields: [(String, ReferenceWritableKeyPath<SettingsObject, String?>)] {
-        [("lastRecentsCategory", \.lastRecentsCategory),
-         ("lastReportsCategory", \.lastReportsCategory),
-         ("lastImportsCategory", \.lastImportsCategory),
+        [("lastImportsCategory", \.lastImportsCategory),
          ("selectedSortOptionsJSON", \.selectedSortOptionsJSON),
          ("ignoredDuplicatePairsJSON", \.ignoredDuplicatePairsJSON)]
     }
@@ -2117,13 +2118,16 @@ extension DebugHarness {
             let xmlURL = package.appendingPathComponent("backup.xml")
             let written = try Data(contentsOf: xmlURL)
             let reparsed = try await DBImporter().parseBackupFile(at: xmlURL)
-            let expectedObjects = 2 + 2 + 3 + 4 + 1 + 1  /// films, lists, memberships, releases, session, settings
+            /// films, lists, memberships, releases, session, saved search, settings — the shape
+            /// `seedFullGraph` writes.
+            let expectedObjects = 2 + 2 + 3 + 4 + 1 + 1 + 1
             r.check("export-verification:written-file-describes-the-library",
                     reparsed.objects.count == expectedObjects,
                     "the produced file re-parses to \(reparsed.objects.count) object(s), expected \(expectedObjects)")
             r.check("export-verification:manifest-survives-the-round-trip",
                     reparsed.manifest["Film"] == 2 && reparsed.manifest["Release"] == 4
-                        && reparsed.manifest["ListMembership"] == 3,
+                        && reparsed.manifest["ListMembership"] == 3
+                        && reparsed.manifest["SavedSearchObject"] == 1,
                     "manifest \(reparsed.manifest.sorted { $0.key < $1.key })")
             r.metric("verify-probe-xml-size", Double(written.count), "bytes")
         } catch {

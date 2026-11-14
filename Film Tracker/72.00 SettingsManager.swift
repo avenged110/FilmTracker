@@ -231,10 +231,6 @@ final class SettingsManager: Loggable {
             exportUserSettings: Preferences.exportUserSettings,
             /// UI State Preferences
             maintainScrollPositionOnViewSwitch: Preferences.maintainScrollPositionOnViewSwitch,
-            rememberTabSelection: Preferences.rememberTabSelection,
-            tabRememberScope: Preferences.tabRememberScope.rawValue,
-            lastRecentsCategory: Preferences.lastRecentsCategory,
-            lastReportsCategory: Preferences.lastReportsCategory,
             rememberImportsTab: Preferences.rememberImportsTab,
             lastImportsCategory: Preferences.lastImportsCategory,
             rememberSortFilterSelections: Preferences.rememberSortFilterSelections,
@@ -260,9 +256,8 @@ final class SettingsManager: Loggable {
     /// (UserDefaults). A nil field — a key the backup predates — leaves the current value
     /// alone; defaults come from Preferences' registered list and nowhere else.
     ///
-    /// Order is kept deliberately: the setters post change events and some interact
-    /// (rememberTabSelection / tabRememberScope), so they run in the same sequence the
-    /// restore always used.
+    /// Order is kept deliberately: the setters post change events, so they run in the same
+    /// sequence the restore always used.
     ///
     /// Static: it runs at launch, from PendingRestore, once a restored library has been
     /// swapped in and before any SettingsManager exists. Applied any earlier, a swap that
@@ -341,26 +336,6 @@ final class SettingsManager: Loggable {
         /// UI State Preferences
         apply(snapshot.maintainScrollPositionOnViewSwitch) { Preferences.maintainScrollPositionOnViewSwitch = $0 }
 
-        /// Tab-remember consolidated fields. A backup exported prior to this
-        /// preference's consolidation simply won't contain these keys, in which case
-        /// both are nil here and this is a no-op — the current in-app values are left
-        /// untouched (see the "aside from not restoring those now-removed keys"
-        /// behavior this is intentionally designed to accept).
-        apply(snapshot.rememberTabSelection) { Preferences.rememberTabSelection = $0 }
-
-        if let raw = snapshot.tabRememberScope,
-           let scope = Preferences.TabRememberScope(rawValue: raw) {
-            Preferences.tabRememberScope = scope
-        }
-        
-        if let val = snapshot.lastRecentsCategory {
-            Preferences.lastRecentsCategory = val
-        }
-        
-        if let val = snapshot.lastReportsCategory {
-            Preferences.lastReportsCategory = val
-        }
-        
         apply(snapshot.rememberImportsTab) { Preferences.rememberImportsTab = $0 }
         
         if let val = snapshot.lastImportsCategory {

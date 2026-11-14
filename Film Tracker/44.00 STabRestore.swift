@@ -63,14 +63,14 @@ private struct BackupInfoBox: View {
                         Spacer(minLength: 0)
                     }
                     HStack(spacing: 16) {
-                        item("Films:", "\(info.filmCount)")
-                        item("Lists:", "\(info.listCount)")
-                        item("Saved Searches:", "\(info.savedSearchCount)")
-                        item("Releases:", "\(info.releaseCount)")
+                        item("Films:", Fmt.count(info.filmCount))
+                        item("Lists:", Fmt.count(info.listCount))
+                        item("Saved Searches:", Fmt.count(info.savedSearchCount))
+                        item("Releases:", Fmt.count(info.releaseCount))
                         Spacer(minLength: 0)
                     }
                     HStack(spacing: 16) {
-                        item("Poster Images:", "\(info.posterCount)")
+                        item("Poster Images:", Fmt.count(info.posterCount))
                         item("Includes User Settings:", info.hasSettings ? "Yes" : "No")
                         Spacer(minLength: 0)
                     }
@@ -311,12 +311,6 @@ final class RestoreViewModel: Loggable {
         ///
         private static let isoParser = Date.ISO8601FormatStyle(timeZoneSeparator: .colon, includingFractionalSeconds: true)
         private static let isoParserNoFrac = Date.ISO8601FormatStyle(timeZoneSeparator: .colon)
-        private static let displayFormatter: DateFormatter = {
-            let f = DateFormatter()
-            f.dateFormat = "MMMM d, yyyy"
-            f.locale = Locale(identifier: "en_US_POSIX")
-            return f
-        }()
 
         var formattedCreationDate: String? {
             /// Try with fractional seconds first, then without, to handle both
@@ -324,7 +318,7 @@ final class RestoreViewModel: Loggable {
             /// Leading whitespace is skipped.
             let trimmed = String(created.drop(while: \.isWhitespace))
             let date = (try? Self.isoParser.parse(trimmed)) ?? (try? Self.isoParserNoFrac.parse(trimmed))
-            return date.map { Self.displayFormatter.string(from: $0) }
+            return date.map(formatDate)
         }
     }
     

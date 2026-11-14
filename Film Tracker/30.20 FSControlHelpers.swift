@@ -1968,19 +1968,11 @@ struct ViewingDatesTable: View, Loggable {
 
     /// Shared formatters, reused across calls rather than rebuilt each time.
     ///
-    /// displayFormatter is local: "MMMM d, yyyy" is this table's own presentation and
-    /// is written nowhere. databaseFormatter is the one that matters — it writes the
+    /// Rows display through the app's shared `formatDate(_:)`. databaseFormatter writes the
     /// persisted "yyyy.MM.dd" values in calendarTable, which WatchDetails and
-    /// CalendarPopover read back and compare as plain strings — so it is the shared
-    /// StorageDateFormatters.dot rather than a fourth copy of that configuration kept in
-    /// step with the other three by hand.
-    nonisolated static let displayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone.current
-        f.dateFormat = "MMMM d, yyyy"
-        return f
-    }()
+    /// CalendarPopover read back and compare as plain strings, so it is the shared
+    /// StorageDateFormatters.dot rather than a copy of that configuration kept in
+    /// step with the others by hand.
     nonisolated static let databaseFormatter = StorageDateFormatters.dot
 
     @Binding var isTableExpanded: Bool
@@ -2418,7 +2410,7 @@ private struct ViewingDatesTableContent: View {
             .map { item in
                 ViewingDateRow(
                     dateString: item.original,
-                    formattedDate: ViewingDatesTable.displayFormatter.string(from: item.date),
+                    formattedDate: formatDate(item.date),
                     version: extractVersionCode(from: item.original).displayName
                 )
             }
@@ -2600,7 +2592,7 @@ struct SheetCheckbox: NSViewRepresentable {
 ///
 // MARK: Why not the SwiftUI Picker
 ///
-/// The `card-perf` harness scenario (99.50) shows that a SwiftUI menu Picker's cost to mount
+/// Measured on the release card, a SwiftUI menu Picker's cost to mount
 /// and to re-evaluate grows with its item count. A release card carries eight or nine pickers
 /// with about 70 items between them, which is a large share of the time it takes to mount a
 /// card, and therefore of the turn between an arrow press and the first frame of the navigation
@@ -2646,8 +2638,8 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
     ///
     /// 20, not the 25 pt the NSPopUpButton's frame measures: SwiftUI lays the control out by
     /// its alignment rect and lets the bezel overhang it, as it does for its own
-    /// `Picker(.menu)`, whose layout height is 20 with a 25 pt frame. Measured by the
-    /// `card-perf` harness scenario's frame dump.
+    /// `Picker(.menu)`, whose layout height is 20 with a 25 pt frame (measured from the
+    /// hosted card's frames).
     nonisolated static var layoutHeight: CGFloat { 20 }
 
     @Binding var selection: Value
@@ -2819,8 +2811,8 @@ struct SheetMenuPicker<Value: Hashable>: View {
 ///
 // MARK: Why not the SwiftUI Picker
 ///
-/// The same reason as `SheetPopUpButton`, at a smaller scale. The `card-perf` probe table puts
-/// a two-segment SwiftUI segmented Picker at ~6 ms to mount and eight NSViews, against ~1 ms
+/// The same reason as `SheetPopUpButton`, at a smaller scale. Measured on the release card,
+/// a two-segment SwiftUI segmented Picker took ~6 ms to mount and eight NSViews, against ~1 ms
 /// and one view for the `NSSegmentedControl` it wraps: SwiftUI's adaptor hosts a private
 /// `SwiftUISegmentedControl` inside a `PlatformViewHost` and builds a view per segment label
 /// on the way. The sheet carries at most four, so this is a few milliseconds per card mount —

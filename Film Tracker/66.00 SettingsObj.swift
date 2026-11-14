@@ -144,16 +144,6 @@ final class SettingsObject: LibraryObject {
         get { optionalBool("maintainScrollPositionOnViewSwitch") }
         set { setOptionalBool(newValue, "maintainScrollPositionOnViewSwitch") }
     }
-    var rememberTabSelection: Bool? {
-        get { optionalBool("rememberTabSelection") }
-        set { setOptionalBool(newValue, "rememberTabSelection") }
-    }
-    var tabRememberScope: Int? {
-        get { optionalInt("tabRememberScope") }
-        set { setOptionalInt(newValue, "tabRememberScope") }
-    }
-    @NSManaged var lastRecentsCategory: String?
-    @NSManaged var lastReportsCategory: String?
     var rememberImportsTab: Bool? {
         get { optionalBool("rememberImportsTab") }
         set { setOptionalBool(newValue, "rememberImportsTab") }
@@ -230,7 +220,13 @@ extension SettingsObject: ExportableModel {
         return snapshotID.uuidString
     }
     
-    /// Exports every property explicitly; an unset optional is left out.
+    /// Exports the metadata, then every preference column the model declares
+    /// (`LibraryModel.settingsObjectAttributes`), so a preference added to the model is backed up
+    /// with no change here. An unset optional is left out.
+    ///
+    /// Each value is read through the accessor for its kind, never as the raw stored NSNumber:
+    /// the backup writer tests `as? Bool` before `as? Int`, and an NSNumber holding an Int 0 or 1
+    /// would pass the Bool test and be written as a Bool.
     func extractExportValues() -> (properties: [String: Any], relationships: [String: [Any]]) {
         var props: [String: Any] = [:]
         
@@ -239,66 +235,16 @@ extension SettingsObject: ExportableModel {
         props["version"] = version
         props["lastSyncDate"] = lastSyncDate
         
-        /// General Preferences - explicitly check each optional
-        if let val = confirmGalleryDelete { props["confirmGalleryDelete"] = val }
-        if let val = confirmListEdits { props["confirmListEdits"] = val }
-        if let val = listEditScope { props["listEditScope"] = val }
-        if let val = confirmReleaseDelete { props["confirmReleaseDelete"] = val }
-        if let val = largeGalleryGrid { props["largeGalleryGrid"] = val }
-        if let val = showStatusBar { props["showStatusBar"] = val }
-        if let val = rememberRightSidebarTab { props["rememberRightSidebarTab"] = val }
-        if let val = rememberRightSidebarReleasesFilter { props["rememberRightSidebarReleasesFilter"] = val }
-        if let val = autoExpandRightSidebarTables { props["autoExpandRightSidebarTables"] = val }
-        if let val = additionalCalTableDetails { props["additionalCalTableDetails"] = val }
-        if let val = showReleasesSummaryTable { props["showReleasesSummaryTable"] = val }
-        if let val = iCalIntegration { props["iCalIntegration"] = val }
-        if let val = manualExtQuery { props["manualExtQuery"] = val }
-        if let val = smartLists { props["smartLists"] = val }
-        if let val = excludeQueuedFromUpForRotation { props["excludeQueuedFromUpForRotation"] = val }
-        if let val = maintainSelectionOnSearchExit { props["maintainSelectionOnSearchExit"] = val }
-        if let val = showSearchSuggestions { props["showSearchSuggestions"] = val }
-        if let val = showRecentSearches { props["showRecentSearches"] = val }
-        if let val = showInfoComplete { props["showInfoComplete"] = val }
-        if let val = performBackupAtLaunch { props["performBackupAtLaunch"] = val }
-        if let val = defaultRotationThreshold { props["defaultRotationThreshold"] = val }
-        
-        /// Import Preferences
-        if let val = importScanSubfolders { props["importScanSubfolders"] = val }
-        if let val = fuzzyImportMatching { props["fuzzyImportMatching"] = val }
-        if let val = fuzzyImportYearMatching { props["fuzzyImportYearMatching"] = val }
-        if let val = overrideSortNameField { props["overrideSortNameField"] = val }
-        if let val = allowUpdatesForDuplicateImports { props["allowUpdatesForDuplicateImports"] = val }
-        if let val = allowUpdatesForDuplicateRatings { props["allowUpdatesForDuplicateRatings"] = val }
-        
-        /// Export Preferences
-        if let val = exportPosterImages { props["exportPosterImages"] = val }
-        if let val = prunePosterImages { props["prunePosterImages"] = val }
-        if let val = exportUserSettings { props["exportUserSettings"] = val }
-        
-        /// UI State Preferences
-        if let val = maintainScrollPositionOnViewSwitch { props["maintainScrollPositionOnViewSwitch"] = val }
-        if let val = rememberTabSelection { props["rememberTabSelection"] = val }
-        if let val = tabRememberScope { props["tabRememberScope"] = val }
-        if let val = lastRecentsCategory { props["lastRecentsCategory"] = val }
-        if let val = lastReportsCategory { props["lastReportsCategory"] = val }
-        if let val = rememberImportsTab { props["rememberImportsTab"] = val }
-        if let val = lastImportsCategory { props["lastImportsCategory"] = val }
-        if let val = rememberSortFilterSelections { props["rememberSortFilterSelections"] = val }
-        if let val = confirmFilmQueueAdd { props["confirmFilmQueueAdd"] = val }
-        if let val = notifyAboutNewReleases { props["notifyAboutNewReleases"] = val }
-        if let val = onlyNotifyForWishlisted { props["onlyNotifyForWishlisted"] = val }
-        if let val = queueIsDropTarget { props["queueIsDropTarget"] = val }
-        if let val = queueSectionOnDrop { props["queueSectionOnDrop"] = val }
-        if let val = strictFramesTableChecking { props["strictFramesTableChecking"] = val }
-        if let val = showWatchDetailsAnnotationGlyphs { props["showWatchDetailsAnnotationGlyphs"] = val }
-        if let val = atvq { props["atvq"] = val }
-        
-        /// Advanced Preferences
-        if let val = loggingEnabled { props["loggingEnabled"] = val }
-        
-        /// Complex Preferences (JSON strings)
-        if let val = selectedSortOptionsJSON { props["selectedSortOptionsJSON"] = val }
-        if let val = ignoredDuplicatePairsJSON { props["ignoredDuplicatePairsJSON"] = val }
+        /// Preferences: every attribute of an optional kind. The three metadata columns above
+        /// are the only others.
+        for (name, kind) in LibraryModel.settingsObjectAttributes {
+            switch kind {
+            case .optionalBool:   if let val = optionalBool(name) { props[name] = val }
+            case .optionalInt:    if let val = optionalInt(name) { props[name] = val }
+            case .optionalString: if let val = value(forKey: name) as? String { props[name] = val }
+            case .string, .int, .bool, .double, .date, .uuid, .strings: break
+            }
+        }
         
         /// No relationships for SettingsObject
         return (props, [:])

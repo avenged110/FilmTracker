@@ -112,7 +112,7 @@ private struct RTabReleasesContent: View {
                         if !groups.isEmpty {
                             summaryBlock(narrowedFilm)
                         }
-                        RSBCardStack(groups: RSBProfileFlags.noReleaseCards ? [] : groups,
+                        RSBCardStack(groups: groups,
                                      today: CurrentDay.shared.today)
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -139,14 +139,6 @@ private struct RTabReleasesContent: View {
         .onChange(of: purchaseFilterBinding.wrappedValue) { _, value in
             if purchaseFilter != value { RSBHelpers.withoutAnimation { purchaseFilter = value } }
         }
-        #if DEBUG
-        /// The `releases-filter` harness scenario (99.56) switches the filter through this.
-        .onAppear {
-            let filter = $purchaseFilter
-            ReleasesFilterProbe.select = { filter.wrappedValue = RSBPurchaseFilter(rawValue: $0) ?? .all }
-        }
-        .onDisappear { ReleasesFilterProbe.select = nil }
-        #endif
         /// No refresh handler. The groups are derived, and RightSidebar refreshes the environment
         /// snapshot on .updated and .releaseChanged before children observe them, so no AppEventBus
         /// subscription is needed.
@@ -158,8 +150,7 @@ private struct RTabReleasesContent: View {
         /// Scrolls with the cards, as a sibling in the same VStack. Callers gate it on a non-empty
         /// group set, so the section's own placeholder cannot duplicate the tab's.
         if showReleasesSummaryTable {
-            RSBReleasesSection(releasesExpanded: releasesSummaryExpanded,
-                               mode: .releaseCard)
+            RSBReleasesSection(releasesExpanded: releasesSummaryExpanded)
                 .environment(\.sidebarFilm, narrowedFilm)
                 /// 12 = the Details stack's 4 pt spacing plus the 8 pt padding of RSBHelpers.sectionDivider.
                 /// That helper assumes the Details stack's 4 pt spacing on each side, which this spacing-0 stack
@@ -352,8 +343,7 @@ private struct RSBReleaseCard: Identifiable, Equatable {
     let isWishlisted: Bool
 
     /// User-authored notes, empty when none. `syncComboChildFields` does not copy notes, so a child's notes
-    /// are its own. The summary table shows an empty child's cell as "–", pointing to the parent row. The card
-    /// draws no notes line instead.
+    /// are its own. An empty child's card draws no notes line.
     let notes: String
 }
 
@@ -453,7 +443,6 @@ private enum RSBReleaseCardBuilder {
             /// only runs for a 4K card — so it carries `parentReleaseID == nil` while its
             /// currency fields are locked and zeroed all the same. `isChild` is kept as a
             /// disjunct anyway so the invariant is stated rather than left incidental.
-            /// The summary table already suppresses exactly this case, printing "–".
             ///
             /// Scope is the spend line alone: purchase date and condition are NOT locked
             /// for such a release, so `purchaseLine` below reports real values.
@@ -569,24 +558,34 @@ private enum RSBReleaseCardBuilder {
         value == ReleaseHDR.noneTag ? "No HDR" : value
     }
 
-    /// Artwork as a note, shown only when it departs from the default. Plain "Yes" and the unset "" return "" and draw no line.
-    /// The cases are the `hasArtwork` picker's tag values verbatim (see `ReleaseCard`), so the two cannot drift apart.
-    /// Unknown values fall through to the raw stored value.
+    /// Artwork as a note. Plain "Standard" and "Combo-pack" draw no line, nor does the unset "": a release shown as a
+    /// combo pack plainly has combo-pack artwork, as any other has its standard artwork. Every other value is noted.
+    /// The value is read through `ReleaseArtwork.parse`, the same rules the card's artwork menu writes with, so the two
+    /// cannot drift apart. The kind gives the noun ("Multi-pack artwork") and a detail its adjective ("Reversible
+    /// artwork"). When both are special and the detail is Inner print, the detail follows instead: "Multi-pack artwork
+    /// with inner print". Unknown values fall through to the raw stored value.
     private static func artworkNote(for value: String) -> String {
-        switch value {
-        /// "Yes (Combo-pack)" is unstated too. It describes the pack, which the parent's line already covers.
-        case "", ReleaseArtwork.yes, ReleaseArtwork.yesComboPack: return ""
-        case ReleaseArtwork.steelbook:  return "Steelbook"
-        case ReleaseArtwork.yesIncorrectRelease: return "Release-mismatched artwork"
-        case ReleaseArtwork.yesCustom:  return "Custom artwork"
-        case ReleaseArtwork.yesMultiPack: return "Multi-pack artwork"
-        /// "No (Combo-pack)" and "No (Multi-pack)" are not offered in the picker, but the table
-        /// still recognizes them, so legacy or restored records may carry them. Phrasing them here
-        /// keeps both views consistent.
-        case _ where ReleaseArtwork.negativeTags.contains(value):
-                                        return "Missing artwork"
-        default:                        return value
+        guard let parts = ReleaseArtwork.parse(value) else { return value }
+        let noun: String
+        switch parts.kind {
+        case ReleaseArtwork.steelbook: return "Steelbook"
+        case ReleaseArtwork.digiBook:  return "DigiBook/DigiPack"
+        case ReleaseArtwork.missing:   return "Missing artwork"
+        case ReleaseArtwork.multiPack: noun = "multi-pack artwork"
+        default:                       noun = "artwork"   /// Standard and Combo-pack
         }
+        let note: String
+        switch parts.detail {
+        case nil:                                                    note = noun
+        case ReleaseArtwork.innerPrint where noun != "artwork":      note = "\(noun) with inner print"
+        case ReleaseArtwork.innerPrint:                              note = "inner-print \(noun)"
+        case ReleaseArtwork.reversible:                              note = "reversible \(noun)"
+        case ReleaseArtwork.incorrectRelease:                        note = "release-mismatched \(noun)"
+        default:                                                     note = "custom \(noun)"
+        }
+        /// "artwork" alone is the unremarkable case: nothing to say.
+        guard note != "artwork" else { return "" }
+        return note.prefix(1).uppercased() + note.dropFirst()
     }
 }
 
@@ -594,16 +593,6 @@ private enum RSBReleaseCardBuilder {
 /// Fills, inks, and shadow values shared by the card body and its badges, kept together
 /// so the header band, the format badge, and the year badge cannot drift apart.
 enum RSBCardChrome {
-
-    /// Format header tints — `ReleaseFormatPalette`'s, the same ones `ReleaseCardView` bands
-    /// its FilmSheet cards with (33_20).
-    /// Purchase status no longer tints the header at all; it lives entirely in the
-    /// trailing glyph now, so these three are keyed on format alone.
-    static let tint4K     = Color(nsColor: ReleaseFormatPalette.tint4K)
-    static let tintBluRay = Color(nsColor: ReleaseFormatPalette.tintBluRay)
-    static let tintDVD    = Color(nsColor: ReleaseFormatPalette.tintDVD)
-    /// A format string this build does not recognize: the sidebar's neutral badge gray.
-    static let tintUnknown = Preferences.darkGray
 
     /// Purchase-glyph color for "purchased", matching the table's checkmark badge (`GlyphBadge` in ReleasesTable.swift).
     /// The "not purchased" dashed-circle glyph stays white.
@@ -688,16 +677,6 @@ fileprivate struct RSBReleaseCardBody {
     /// White on the dark band. Only parent halves read it, since a child names its parent instead of a studio.
     fileprivate var titleColor: Color {
         model.studio.isEmpty ? Color.white.opacity(0.55) : .white
-    }
-
-    /// Same lookup as `ReleaseCardView.bandTint` (33.20). `model.format` holds the full format name it is keyed on.
-    fileprivate var bandTint: Color {
-        switch ReleaseFormat(rawValue: model.format) {
-        case .uhd4K:  return RSBCardChrome.tint4K
-        case .bluRay: return RSBCardChrome.tintBluRay
-        case .dvd:    return RSBCardChrome.tintDVD
-        case nil:     return RSBCardChrome.tintUnknown
-        }
     }
 
     /// The rows above the acquisition block.
@@ -895,9 +874,6 @@ final class RSBGlyphRowListView: NSView {
 
     func update(rows specs: [RSBGlyphRowSpec]) {
         while rows.count < specs.count {
-            #if DEBUG
-            CardRowsProbe.rowsCreated += 1
-            #endif
             let row = RSBGlyphRowView()
             /// Framed by layout(), not constraints. Constraints would add every row to Auto Layout, which the hosting view walks on each film change.
             row.translatesAutoresizingMaskIntoConstraints = false
@@ -927,10 +903,6 @@ final class RSBGlyphRowListView: NSView {
     }
 
     override func layout() {
-        #if DEBUG
-        let t0 = CACurrentMediaTime()
-        defer { CardRowsProbe.layouts += 1; CardRowsProbe.layoutTime += CACurrentMediaTime() - t0 }
-        #endif
         super.layout()
         let scale = unsafe window?.backingScaleFactor ?? 2
         let windowHeight = unsafe window?.contentView?.bounds.height ?? 0
@@ -981,15 +953,6 @@ final class RSBGlyphRowView: NSView {
     }
 
     override func layout() {
-        #if DEBUG
-        let t0 = CACurrentMediaTime()
-        let labelsBefore = columns.map(\.label.frame)
-        defer {
-            CardRowsProbe.rowLayouts += 1
-            CardRowsProbe.rowLayoutTime += CACurrentMediaTime() - t0
-            if columns.map(\.label.frame) != labelsBefore { CardRowsProbe.labelMoves += 1 }
-        }
-        #endif
         super.layout()
         let scale = unsafe window?.backingScaleFactor ?? 2
         let widths = columnWidths(bounds.width)
@@ -1175,6 +1138,8 @@ struct SwiftUIVerticalMetrics {
     var baseline: CGFloat
     /// The step from one line to the next, for text.
     var lineHeight: CGFloat = 0
+    /// The width SwiftUI gives the view, unrounded.
+    var width: CGFloat = 0
 
     static let zero = SwiftUIVerticalMetrics(height: 0, baseline: 0)
 
@@ -1193,7 +1158,7 @@ struct SwiftUIVerticalMetrics {
         func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
             guard let view = subviews.first else { return .zero }
             let d = view.dimensions(in: .unspecified)
-            sink.metrics = SwiftUIVerticalMetrics(height: d.height, baseline: d[.firstTextBaseline])
+            sink.metrics = SwiftUIVerticalMetrics(height: d.height, baseline: d[.firstTextBaseline], width: d.width)
             return CGSize(width: d.width, height: d.height)
         }
         func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -1216,19 +1181,6 @@ struct SwiftUIVerticalMetrics {
         return metrics
     }
 }
-
-#if DEBUG
-/// What RSBGlyphRowListView does per card build, for `rsb-cards` (99.20): layout passes, time spent in them, and rows made.
-@MainActor enum CardRowsProbe {
-    static var layouts = 0, rowsCreated = 0
-    static var layoutTime: CFTimeInterval = 0
-    static var rowLayouts = 0, labelMoves = 0
-    static var rowLayoutTime: CFTimeInterval = 0
-    static func reset() {
-        layouts = 0; rowsCreated = 0; rowLayouts = 0; labelMoves = 0; rowLayoutTime = 0; layoutTime = 0
-    }
-}
-#endif
 
 // MARK: - Card Stack
 ///
@@ -1415,7 +1367,7 @@ final class RSBCardStackView: NSView {
     /// The filter's spring. SwiftUI's `.smooth(duration: 0.3)` is a spring with a 0.3 s perceptual duration and no bounce, which this initializer takes.
     ///
     /// Started two display frames late. Core Animation times an animation from the frame it is shown in, while SwiftUI times it from its update,
-    /// which reaches the screen two frames later. Without the delay, the AppKit cards led SwiftUI's on the same curve (`releases-filter` checks this).
+    /// which reaches the screen two frames later. Without the delay, the AppKit cards led SwiftUI's on the same curve.
     private func spring(_ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
         let animation = CASpringAnimation(perceptualDuration: 0.3, bounce: 0)
         animation.keyPath = keyPath
@@ -1427,15 +1379,6 @@ final class RSBCardStackView: NSView {
         animation.fillMode = .backwards
         return animation
     }
-
-    #if DEBUG
-    /// For `releases-filter`'s burst checks (99.56): cards shown, cards fading out, the lowest opacity a shown card is drawn at, and shown cards that are hidden or transparent.
-    var debugState: (shown: Int, leaving: Int, minOpacity: Float, drawnHidden: Int) {
-        let opacities = visible.map { $0.view.layer?.presentation()?.opacity ?? $0.view.layer?.opacity ?? 1 }
-        let hidden = visible.filter { $0.view.isHidden || $0.view.alphaValue < 1 }.count
-        return (visible.count, leaving.count, opacities.min() ?? 1, hidden)
-    }
-    #endif
 
     func height(forWidth width: CGFloat) -> CGFloat {
         let heights = visible.map { $0.view.height(forWidth: width) }
@@ -1947,7 +1890,8 @@ fileprivate final class RSBCardBodyView: NSView {
         guard let body else { return }
         effectiveAppearance.performAsCurrentDrawingAppearance {
             wash.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(RSBCardChrome.childWashOpacity).cgColor
-            band.layer?.backgroundColor = NSColor(body.bandTint).cgColor
+            /// The band tint `ReleaseCardView` bands its FilmSheet cards with (33.20), keyed on the full format name.
+            band.layer?.backgroundColor = ReleaseFormatPalette.tint(for: body.model.format).cgColor
             for d in [topDivider, detailsDivider, acquisitionDivider] {
                 d.layer?.backgroundColor = NSColor.separatorColor.cgColor
             }

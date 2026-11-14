@@ -15,7 +15,7 @@ struct HallOfFameView: View {
     @State private var selection: Set<UUID> = []
 
     private static let emptyStateConfig = EmptyStateConfig(
-        glyph: "trophy.fill",
+        glyph: ReportsCategory.hallOfFame.glyph,
         noFilmsMessage: "Add films to your library to create a Hall of Fame.",
         noDataMessage: "Set Hall of Fame positions for films to create your personal ranking."
     )

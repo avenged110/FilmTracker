@@ -839,9 +839,9 @@ public enum SettingsMainMenu {
         dispatchPrecondition(condition: .onQueue(.main))
         menu.removeAllItems()
         menu.addItem(NSMenuItem(title: "Undo",
-                                action: Selector(("undo:")), keyEquivalent: "z"))
+                                action: #selector(SettingsKitUndoActions.undo(_:)), keyEquivalent: "z"))
         menu.addItem(NSMenuItem(title: "Redo",
-                                action: Selector(("redo:")), keyEquivalent: "Z"))
+                                action: #selector(SettingsKitUndoActions.redo(_:)), keyEquivalent: "Z"))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Cut",
                                 action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
@@ -1486,4 +1486,15 @@ public struct SettingsDescribedToggle: View {
                     leading: .checkbox($isOn),
                     isEnabled: isEnabled)
     }
+}
+// MARK: - Undo Actions
+
+/// Declares the responder-chain actions `undo:` and `redo:` so the Edit menu can name them
+/// with `#selector`, which the compiler checks, instead of building a `Selector` from a
+/// string. AppKit implements them (on NSResponder subclasses and the window's undo
+/// manager) without exposing them to Swift. Never instantiated; it only spells
+/// the selectors.
+private final class SettingsKitUndoActions: NSObject {
+    @objc func undo(_ sender: Any?) {}
+    @objc func redo(_ sender: Any?) {}
 }

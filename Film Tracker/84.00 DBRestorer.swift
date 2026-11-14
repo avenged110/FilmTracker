@@ -666,64 +666,62 @@ final class DBRestorer: Loggable {
         let rawLastWatched = parser.parseString("lastWatched")
         let cleanedLastWatched = extractDatePortion(from: rawLastWatched) ?? rawLastWatched
         
-        let film = Film(
-            id: try parser.parseRequiredUUID("id"),
-            posterUID: parser.parseString("posterUID"),
-            name: parser.parseString("name"),
-            releaseYear: parser.parseString("releaseYear"),
-            userRating: parser.parseInt("userRating"),
-            lastWatched: cleanedLastWatched,
-            rotationThresholdOverride: parser.parseOptionalInt("rotationThresholdOverride"),
-            duration: parser.parseString("duration"),
-            viewCount: parser.parseInt("viewCount"),
-            calendarTable: parser.parseStringArray("calendarTable"),
-            autoAddToQueueOnRotation: parser.parseOptionalInt("autoAddToQueueOnRotation"),
-            digitalSource: parser.parseString("digitalSource"),
-            digitalVersion: parser.parseString("digitalVersion"),
-            subtitles: parser.parseString("subtitles"),
-            notes: parser.parseString("notes"),
-            numberOfDiscs: parser.parseString("numberOfDiscs"),
-            aspectRatio: parser.parseString("aspectRatio"),
-            color: parser.parseBool("color", default: true),
-            edited: parser.parseBool("edited"),
-            editedDuration: parser.parseString("editedDuration"),
-            frameRate: parser.parseDouble("frameRate"),
-            tags: parser.parseStringArray("tags"),
-            externalIdentifiers: parser.parseStringArray("externalIdentifiers"),
-            dateAdded: parser.parseString("dateAdded"),
-            lastModified: parser.parseString("lastModified"),
-            watched: parser.parseBool("watched", default: true),
-            specialSorting: parser.parseStringArray("specialSorting"),
-            alternateTitle: parser.parseStringArray("alternateTitle"),
-            hofPosition: parser.parseInt("hofPosition"),
-            infoComplete: parser.parseBool("infoComplete"),
-            comments: parser.parseString("comments"),
-            genre: parser.parseString("genre"),
-            releaseDate: parser.parseString("releaseDate"),
-            descriptionText: parser.parseString("descriptionText"),
-            rating: parser.parseString("rating"),
-            studio: parser.parseStringArray("studio"),
-            cast: parser.parseStringArray("cast"),
-            directors: parser.parseStringArray("directors"),
-            producers: parser.parseStringArray("producers"),
-            executiveProducers: parser.parseStringArray("executiveProducers"),
-            screenwriters: parser.parseStringArray("screenwriters"),
-            encodingTool: parser.parseStringArray("encodingTool"),
-            libraryHBRFValue: parser.parseInt("libraryHBRFValue"),
-            composer: parser.parseStringArray("composer"),
-            sortName: parser.parseString("sortName"),
-            releaseUsed: parser.parseString("releaseUsed"),
-            tools: parser.parseStringArray("tools"),
-            editedHBRFValue: parser.parseInt("editedHBRFValue"),
-            editDate: parser.parseString("editDate"),
-            warning: parser.parseStringArray("warning"),
-            descriptionNotes: parser.parseString("descriptionNotes"),
-            notesOnAudioTiming: parser.parseStringArray("notesOnAudioTiming"),
-            specialAudioNotes: parser.parseStringArray("specialAudioNotes"),
-            notesArray: parser.parseStringArray("notesArray"),
-            handbrakeFrames: parser.parseStringArray("handbrakeFrames"),
-            correspondingTimecodes: parser.parseStringArray("correspondingTimecodes")
-        )
+        let film = Film(id: try parser.parseRequiredUUID("id"))
+        film.posterUID = parser.parseString("posterUID")
+        film.name = parser.parseString("name")
+        film.releaseYear = parser.parseString("releaseYear")
+        film.userRating = parser.parseInt("userRating")
+        film.lastWatched = cleanedLastWatched
+        film.rotationThresholdOverride = parser.parseOptionalInt("rotationThresholdOverride")
+        film.duration = parser.parseString("duration")
+        film.viewCount = parser.parseInt("viewCount")
+        film.calendarTable = parser.parseStringArray("calendarTable")
+        film.autoAddToQueueOnRotation = parser.parseOptionalInt("autoAddToQueueOnRotation")
+        film.digitalSource = parser.parseString("digitalSource")
+        film.digitalVersion = parser.parseString("digitalVersion")
+        film.subtitles = parser.parseString("subtitles")
+        film.notes = parser.parseString("notes")
+        film.numberOfDiscs = parser.parseString("numberOfDiscs")
+        film.aspectRatio = parser.parseString("aspectRatio")
+        film.color = parser.parseBool("color", default: true)
+        film.edited = parser.parseBool("edited")
+        film.editedDuration = parser.parseString("editedDuration")
+        film.frameRate = parser.parseDouble("frameRate")
+        film.tags = parser.parseStringArray("tags")
+        film.externalIdentifiers = parser.parseStringArray("externalIdentifiers")
+        film.dateAdded = parser.parseString("dateAdded")
+        film.lastModified = parser.parseString("lastModified")
+        film.watched = parser.parseBool("watched", default: true)
+        film.specialSorting = parser.parseStringArray("specialSorting")
+        film.alternateTitle = parser.parseStringArray("alternateTitle")
+        film.hofPosition = parser.parseInt("hofPosition")
+        film.infoComplete = parser.parseBool("infoComplete")
+        film.comments = parser.parseString("comments")
+        film.genre = parser.parseString("genre")
+        film.releaseDate = parser.parseString("releaseDate")
+        film.descriptionText = parser.parseString("descriptionText")
+        film.rating = parser.parseString("rating")
+        film.studio = parser.parseStringArray("studio")
+        film.cast = parser.parseStringArray("cast")
+        film.directors = parser.parseStringArray("directors")
+        film.producers = parser.parseStringArray("producers")
+        film.executiveProducers = parser.parseStringArray("executiveProducers")
+        film.screenwriters = parser.parseStringArray("screenwriters")
+        film.encodingTool = parser.parseStringArray("encodingTool")
+        film.libraryHBRFValue = parser.parseInt("libraryHBRFValue")
+        film.composer = parser.parseStringArray("composer")
+        film.sortName = parser.parseString("sortName")
+        film.releaseUsed = parser.parseString("releaseUsed")
+        film.tools = parser.parseStringArray("tools")
+        film.editedHBRFValue = parser.parseInt("editedHBRFValue")
+        film.editDate = parser.parseString("editDate")
+        film.warning = parser.parseStringArray("warning")
+        film.descriptionNotes = parser.parseString("descriptionNotes")
+        film.notesOnAudioTiming = parser.parseStringArray("notesOnAudioTiming")
+        film.specialAudioNotes = parser.parseStringArray("specialAudioNotes")
+        film.notesArray = parser.parseStringArray("notesArray")
+        film.handbrakeFrames = parser.parseStringArray("handbrakeFrames")
+        film.correspondingTimecodes = parser.parseStringArray("correspondingTimecodes")
 
         context.insert(film)
 
@@ -963,71 +961,20 @@ final class DBRestorer: Loggable {
             lastSyncDate: Date()  /// Use current date for restoration
         )
         
-        /// GENERAL PREFERENCES
-        settings.confirmGalleryDelete = parser.parseOptionalBool("confirmGalleryDelete")
-        settings.confirmListEdits = parser.parseOptionalBool("confirmListEdits")
-        settings.listEditScope = parser.parseOptionalInt("listEditScope")
-        settings.confirmReleaseDelete = parser.parseOptionalBool("confirmReleaseDelete")
-        settings.largeGalleryGrid = parser.parseOptionalBool("largeGalleryGrid")
-        settings.showStatusBar = parser.parseOptionalBool("showStatusBar")
-        settings.rememberRightSidebarTab = parser.parseOptionalBool("rememberRightSidebarTab")
-        settings.rememberRightSidebarReleasesFilter = parser.parseOptionalBool("rememberRightSidebarReleasesFilter")
-        settings.autoExpandRightSidebarTables = parser.parseOptionalBool("autoExpandRightSidebarTables")
-        settings.additionalCalTableDetails = parser.parseOptionalBool("additionalCalTableDetails")
-        settings.showReleasesSummaryTable = parser.parseOptionalBool("showReleasesSummaryTable")
-        settings.iCalIntegration = parser.parseOptionalBool("iCalIntegration")
-        settings.manualExtQuery = parser.parseOptionalBool("manualExtQuery")
-        settings.smartLists = parser.parseOptionalBool("smartLists")
-        settings.excludeQueuedFromUpForRotation = parser.parseOptionalBool("excludeQueuedFromUpForRotation")
-        settings.maintainSelectionOnSearchExit = parser.parseOptionalBool("maintainSelectionOnSearchExit")
-        settings.showSearchSuggestions = parser.parseOptionalBool("showSearchSuggestions")
-        settings.showRecentSearches = parser.parseOptionalBool("showRecentSearches")
-        settings.showInfoComplete = parser.parseOptionalBool("showInfoComplete")
-        settings.performBackupAtLaunch = parser.parseOptionalBool("performBackupAtLaunch")
-        settings.defaultRotationThreshold = parser.parseOptionalInt("defaultRotationThreshold")
-        
-        /// IMPORT PREFERENCES
-        settings.importScanSubfolders = parser.parseOptionalBool("importScanSubfolders")
-        settings.fuzzyImportMatching = parser.parseOptionalBool("fuzzyImportMatching")
-        settings.fuzzyImportYearMatching = parser.parseOptionalBool("fuzzyImportYearMatching")
-        settings.overrideSortNameField = parser.parseOptionalBool("overrideSortNameField")
-        settings.allowUpdatesForDuplicateImports = parser.parseOptionalBool("allowUpdatesForDuplicateImports")
-        settings.allowUpdatesForDuplicateRatings = parser.parseOptionalBool("allowUpdatesForDuplicateRatings")
-        
-        /// EXPORT PREFERENCES
-        settings.exportPosterImages = parser.parseOptionalBool("exportPosterImages")
-        settings.prunePosterImages = parser.parseOptionalBool("prunePosterImages")
-        settings.exportUserSettings = parser.parseOptionalBool("exportUserSettings")
-        
-        /// UI STATE PREFERENCES
-        settings.maintainScrollPositionOnViewSwitch = parser.parseOptionalBool("maintainScrollPositionOnViewSwitch")
-        settings.rememberTabSelection = parser.parseOptionalBool("rememberTabSelection")
-        settings.tabRememberScope = parser.parseOptionalInt("tabRememberScope")
-        /// Note: "rememberRecentsTab" and "rememberReportsTab" are intentionally not
-        /// restored; rememberTabSelection/tabRememberScope above replace them. A backup
-        /// containing these keys is read without error, and the keys are ignored.
-        settings.lastRecentsCategory = parser.parseOptionalString("lastRecentsCategory")
-        settings.lastReportsCategory = parser.parseOptionalString("lastReportsCategory")
-        settings.rememberImportsTab = parser.parseOptionalBool("rememberImportsTab")
-        settings.lastImportsCategory = parser.parseOptionalString("lastImportsCategory")
-        settings.rememberSortFilterSelections = parser.parseOptionalBool("rememberSortFilterSelections")
-        settings.confirmFilmQueueAdd = parser.parseOptionalBool("confirmFilmQueueAdd")
-        settings.notifyAboutNewReleases = parser.parseOptionalBool("notifyAboutNewReleases")
-        settings.onlyNotifyForWishlisted = parser.parseOptionalBool("onlyNotifyForWishlisted")
-        settings.queueIsDropTarget = parser.parseOptionalBool("queueIsDropTarget")
-        settings.queueSectionOnDrop = parser.parseOptionalInt("queueSectionOnDrop")
-        settings.strictFramesTableChecking = parser.parseOptionalBool("strictFramesTableChecking")
-        settings.showWatchDetailsAnnotationGlyphs = parser.parseOptionalBool("showWatchDetailsAnnotationGlyphs")
-        settings.atvq = parser.parseOptionalBool("atvq")
-        /// Note: "rememberWindowDimensions" is intentionally not restored; no preference of
-        /// that name exists. A backup containing the key is read without error, and the key is ignored.
-        
-        /// ADVANCED PREFERENCES
-        settings.loggingEnabled = parser.parseOptionalBool("loggingEnabled")
-        
-        /// COMPLEX PREFERENCES (JSON)
-        settings.selectedSortOptionsJSON = parser.parseOptionalString("selectedSortOptionsJSON")
-        settings.ignoredDuplicatePairsJSON = parser.parseOptionalString("ignoredDuplicatePairsJSON")
+        /// Every preference column the model declares (`LibraryModel.settingsObjectAttributes`),
+        /// parsed by its kind, so a preference added to the model is restored with no change here.
+        /// Keys a backup holds that the model does not are read without error and ignored —
+        /// "rememberRecentsTab", "rememberReportsTab", "rememberWindowDimensions", and the retired
+        /// remembered-tab columns (LibraryModel.retiredSettingsObjectAttributes) among them.
+        for (name, kind) in LibraryModel.settingsObjectAttributes {
+            switch kind {
+            case .optionalBool:   settings.setOptionalBool(parser.parseOptionalBool(name), name)
+            case .optionalInt:    settings.setOptionalInt(parser.parseOptionalInt(name), name)
+            case .optionalString: settings.setValue(parser.parseOptionalString(name), forKey: name)
+            /// The metadata columns, set by the initializer above.
+            case .string, .int, .bool, .double, .date, .uuid, .strings: break
+            }
+        }
         
         context.insert(settings)
         return settings
@@ -1186,6 +1133,9 @@ final class DBRestorer: Loggable {
             purchased: parser.parseBool("purchased"),
             wishlist: parser.parseInt("wishlist", default: 0),
             format: parsedFormat,
+            /// includedVersions, hasArtwork and marketAvailability are written as the backup has
+            /// them, old formats included: the next load converts them on the way into memory and
+            /// rewrites the store (see LegacyReleaseValues).
             includedVersions: parser.parseStringArray("includedVersions"),
             independence: parser.parseString("independence"),
             videoFormat: parser.parseString("videoFormat"),
@@ -1205,9 +1155,7 @@ final class DBRestorer: Loggable {
             masterType: parser.parseString("masterType"),
             regionLock: parser.parseString("regionLock"),
             regionLockBypass: parser.parseBool("regionLockBypass"),
-            /// Older backups hold a single legacy tag, which `migrated` converts.
-            marketAvailability: ReleaseMarketAvailability.migrated(
-                parser.parseStringArray("marketAvailability")),
+            marketAvailability: parser.parseStringArray("marketAvailability"),
             numberOfCopies: parser.parseInt("numberOfCopies"),
             cost: parser.parseDouble("cost"),
             amountSpent: parser.parseDouble("amountSpent"),

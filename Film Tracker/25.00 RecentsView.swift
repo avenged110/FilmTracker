@@ -1,7 +1,8 @@
 // MARK: - RecentsView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// Displays recents categories (viewed, rotated, added, purchased) using standard GalleryView.
+/// Displays recents categories (viewed, rotated, added, updated, purchased) using standard GalleryView, behind a
+/// summary tab that shows a row of each (RecentsSummaryView).
 /// Uses category picker in GalleryTitleBar and date subtitles via GallerySubtitleProvider.
 
 import SwiftUI
@@ -14,21 +15,12 @@ import SwiftUI
 final class RecentsState: SubcategoryViewState {
     static let shared = RecentsState()
     
-    var selectedCategory: RecentsCategory = .recentlyViewed
+    var selectedCategory: RecentsCategory = .summary
     
     private var hasInitializedView = false
 
     /// See SubcategoryViewState.
     var scopedSidebarItem: SidebarItem { .libraryItem(.recents) }
-
-    init() {
-        /// Load saved category if preference is enabled
-        if Preferences.rememberRecentsTab,
-           let savedRawValue = Preferences.lastRecentsCategory,
-           let saved = RecentsCategory(rawValue: savedRawValue) {
-            selectedCategory = saved
-        }
-    }
 
     /// Called when RecentsView first appears to ensure initial category is loaded
     func ensureInitialViewLoad() {
@@ -43,21 +35,13 @@ final class RecentsState: SubcategoryViewState {
         hasInitializedView = false
     }
     
-    /// - Parameter persist: True for a deliberate tab choice, which is remembered across sessions. That covers the gallery Picker,
-    ///   the Recents tab menu, and the Opt+Cmd+# shortcuts. False for navigation into Recents (Cmd+3 or the Go menu). That only
-    ///   needs a category to show, and must not overwrite the remembered choice. Passing true there once reset it to the first tab.
     /// - Parameter immediate: Switch views in this turn. See SubcategoryNavigation.performSwitch.
-    func selectCategory(_ category: RecentsCategory, persist: Bool = true, immediate: Bool = false) {
+    func selectCategory(_ category: RecentsCategory, immediate: Bool = false) {
         /// Don't skip if it's the same category - we might need to reload
         let categoryChanged = category != selectedCategory
         /// selectedCategory updates synchronously so the picker label reflects the new
         /// choice immediately with no visual flicker.
         selectedCategory = category
-
-        /// Save if preference is enabled
-        if persist && Preferences.rememberRecentsTab {
-            Preferences.lastRecentsCategory = category.rawValue
-        }
 
         /// Standard sub-category switch. The selection clears only when the category changed, so repeating a shortcut does not
         /// clear a selection. The view switch waits for the menu dismissal animation. No parent sidebar item is passed, since

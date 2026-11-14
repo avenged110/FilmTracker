@@ -2681,7 +2681,7 @@ private struct PairedFramesImportPopover: View {
                     /// so when the two lists have different limits the red says
                     /// "one of these does not fit" rather than naming which; the
                     /// paragraph above carries both numbers.
-                    Text(rows == 1 ? "1 row detected" : "\(rows) rows detected")
+                    Text(Fmt.count(rows, "row") + " detected")
                         .font(.system(size: Self.footnoteSize))
                         .foregroundStyle(isOverflowing
                                          ? Color(nsColor: .systemRed)

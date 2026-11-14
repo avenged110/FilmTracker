@@ -3,7 +3,7 @@
 A macOS 15 application for metadata management regarding your personal film library.
 
 - Track the films in your library, information about them, viewing rotation schedules, and your watch history.
-- Create lists, search the database, queue titles for viewing.
+- Create lists, search the database, and queue titles for viewing.
 - Catalog disc-based releases and your purchase history.
 - View detailed statistics about your library over time.
 - Export full backups of your database (automatically or manually) and produce PDF-based reports for sharing.

@@ -1,23 +1,14 @@
 // MARK: - DHBulkEdit.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// DEBUG-only scenarios for the MultiFilmSheet (52.00–52.20), the bulk editor. None is in a
-/// suite; run them by name, on a sandbox copy of a real library.
+/// DEBUG-only scenario for the MultiFilmSheet (52.00–52.20), the bulk editor. In the data-layer
+/// suites (`all`, `store`).
 ///
-/// `bulk-edit-shots` renders the sheet offscreen — both tabs, and the Details tab's fields at
-/// full height — for a mixed selection, a selection that shares its values, an edited sheet,
-/// a blacklisting one and a 300-film one, plus the FilmSheet's Details tab, to PNGs in
-/// `harness-reports/bulk-edit-shots/`. It asserts nothing; view the images.
-///
-/// `bulk-edit-check` drives real edits on four films through the sheet's own confirm():
-/// every field, the shared-value prefill, the mixed checkbox cycle, list membership, the
-/// Queue, the Hall of Fame, both capacity refusals, the blacklist cascade and clearing
-/// shared notes — checking memory and a fresh NSManagedObjectContext read of the store after each.
-///
-/// `bulk-edit-perf` times the sheet on the whole library, first topping it up to 1,600 films
-/// with copies (no releases, posters or identifiers) when it has fewer: opening the sheet,
-/// laying out both tabs, the per-keystroke gutter work, and saving each kind of edit, split
-/// into the synchronous part (what the user waits on) and the background write.
+/// `bulk-edit-check` drives real edits on five films it seeds itself through the sheet's own
+/// confirm(): every field, the shared-value prefill, the mixed checkbox cycle, list membership,
+/// the Queue, the Hall of Fame, both capacity refusals (when the library leaves less room than
+/// the edit needs), the blacklist cascade and clearing shared notes — checking memory and a
+/// fresh NSManagedObjectContext read of the store after each. It deletes its films at the end.
 
 #if DEBUG
 
@@ -30,117 +21,9 @@ extension DebugHarness {
     static func runBulkEditScenario(_ scenario: String,
                                     coordinator: DataCoordinator) async -> HarnessScenarioResult? {
         switch scenario {
-        case "bulk-edit-shots": return await bulkEditShotsScenario(coordinator: coordinator)
         case "bulk-edit-check": return await bulkEditCheckScenario(coordinator: coordinator)
-        case "bulk-edit-perf":  return await bulkEditPerfScenario(coordinator: coordinator)
         default: return nil
         }
-    }
-
-    // MARK: Shared
-
-    private static func filmsByName(_ coordinator: DataCoordinator) -> [FilmSnapshot] {
-        coordinator.getAllFilms().sorted { $0.name.englishStandardCompare($1.name) == .orderedAscending }
-    }
-
-    /// A borderless offscreen window hosting `view` at `size`, laid out and drawn once.
-    private static func host(_ view: some View, size: NSSize) -> (NSWindow, NSView) {
-        let host = NSHostingView(rootView: view)
-        host.frame = NSRect(origin: .zero, size: size)
-        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.appearance = NSApp.effectiveAppearance
-        window.contentView = host
-        window.setFrameOrigin(NSPoint(x: -4000, y: -4000))
-        window.orderFrontRegardless()
-        return (window, host)
-    }
-
-    private static func render(_ view: some View, size: NSSize, to url: URL,
-                               configure: (@MainActor () -> Void)? = nil) async {
-        let (window, host) = host(view, size: size)
-        try? await Task.sleep(for: .seconds(1))
-        if let configure {
-            configure()
-            try? await Task.sleep(for: .seconds(0.6))
-        }
-        if let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
-            host.cacheDisplay(in: host.bounds, to: rep)
-            try? rep.representation(using: .png, properties: [:])?.write(to: url)
-        }
-        window.orderOut(nil)
-    }
-
-    // MARK: bulk-edit-shots
-
-    private static func bulkEditShotsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "bulk-edit-shots")
-        guard let dir = DebugSandbox.rootURL?.appendingPathComponent("harness-reports/bulk-edit-shots", isDirectory: true) else {
-            r.check("bulk-edit-shots/sandbox", false, "no sandbox root")
-            return r
-        }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let byName = filmsByName(coordinator)
-        let five = Array(byName.prefix(5)).map(\.id)
-        let sheetSize = NSSize(width: 600, height: 600)
-        let fieldsSize = NSSize(width: 600, height: 1060)
-        func fields(_ sheet: MultiFilmSheet) -> some View {
-            MultiFilmSheetView.fieldsForHarness(sheet)
-                .frame(width: 600, height: 1060, alignment: .topLeading)
-                .background(Color(nsColor: .windowBackgroundColor))
-        }
-        func shoot(_ sheet: MultiFilmSheet, _ name: String) async {
-            await render(MultiFilmSheetView(owner: sheet), size: sheetSize, to: dir.appendingPathComponent("\(name)-details.png"))
-            await render(fields(sheet), size: fieldsSize, to: dir.appendingPathComponent("\(name)-fields.png"))
-            let other = sheet
-            await render(MultiFilmSheetView(owner: sheet), size: sheetSize,
-                         to: dir.appendingPathComponent("\(name)-films.png")) { other.selectedTab = .films }
-            other.selectedTab = .details
-        }
-
-        await shoot(MultiFilmSheet(coordinator: coordinator, filmIDs: five), "mixed")
-
-        /// Films that share a genre, MPAA rating, Watched, Edited and special sorting, so the
-        /// sheet opens to their values.
-        let groups = Dictionary(grouping: byName) { film in
-            "\(film.genre)|\(film.rating)|\(film.watched)|\(film.edited)|\(film.specialSorting.sorted())|\(film.rotationThresholdOverride ?? 0)"
-        }
-        let sharing = groups.values.filter { $0.count >= 4 && !$0[0].genre.isEmpty }
-            .max { $0.count < $1.count }
-        if let sharing {
-            let sheet = MultiFilmSheet(coordinator: coordinator, filmIDs: sharing.prefix(4).map(\.id))
-            await shoot(sheet, "shared")
-            r.check("bulk-edit-shots/shared-genre", sheet.shared.genre == .same(sharing[0].genre))
-        }
-
-        let set = MultiFilmSheet(coordinator: coordinator, filmIDs: five)
-        set.genre = .set("Drama")
-        set.queueSection = .set(.soon)
-        set.autoAddToQueueOnRotation = .set(1)
-        set.userListIDs = .set(Set(coordinator.getAllLists().prefix(1).map(\.listID)))
-        set.watched = .set(false)
-        set.inHallOfFame = .set(true)
-        set.specialSorting = .set([FilmSpecialSorting.waitingForEdit])
-        set.rotationThresholdOverride = .set(24)
-        set.notes = "Replaced for every film."
-        set.tags = ["Noir", "Heist"]
-        await shoot(set, "set")
-
-        let blacklist = MultiFilmSheet(coordinator: coordinator, filmIDs: five)
-        blacklist.rotationThresholdOverride = .set(24)
-        blacklist.specialSorting = .set([FilmSpecialSorting.blacklisted])
-        await render(fields(blacklist), size: fieldsSize, to: dir.appendingPathComponent("blacklist-fields.png"))
-
-        let many = byName.filter { $0.hofPosition == 0 }.prefix(300).map(\.id)
-        await shoot(MultiFilmSheet(coordinator: coordinator, filmIDs: Array(many)), "blocked")
-
-        /// The FilmSheet's Details tab, on the shared controls, with automatic queueing on.
-        if let queued = byName.first(where: { $0.autoAddToQueueOnRotation != nil }) ?? byName.first {
-            let filmSheet = FilmSheet(coordinator: coordinator, filmID: queued.id)
-            await render(FilmSheetView(owner: filmSheet), size: sheetSize, to: dir.appendingPathComponent("filmsheet-details.png"))
-        }
-        r.check("bulk-edit-shots/written", true, dir.path)
-        return r
     }
 
     // MARK: bulk-edit-check
@@ -152,13 +35,17 @@ extension DebugHarness {
         let blacklisted = FilmSpecialSorting.blacklisted
         let waiting = FilmSpecialSorting.waitingForEdit
 
-        let candidates = filmsByName(coordinator)
-            .filter { $0.hofPosition == 0 && coordinator.filmQueueListIDs(forFilm: $0.id).isEmpty
-                && !$0.specialSorting.contains(blacklisted) }
-        guard candidates.count >= 4 else {
-            check(false, "four films outside the Queue and Hall of Fame")
-            return r
+        /// Its own films, outside the Queue and the Hall of Fame, so it runs the same on an empty
+        /// sandbox and a real-library copy and leaves either as found. The fifth carries notes,
+        /// for the mixed-notes check.
+        let candidates = (1...5).map { n -> FilmSnapshot in
+            var film = makeSnapshot(name: "Bulk Check \(n)", calendarTable: n.isMultiple(of: 2) ? ["2020.01.01"] : [])
+            film.tags = n == 1 ? ["Existing"] : []
+            film.notes = n == 5 ? "Other notes" : ""
+            return film
         }
+        coordinator.importFilms(candidates)
+        await coordinator.commitPendingWritesForExport()
         let ids = candidates.prefix(4).map(\.id)
         let originals = Dictionary(uniqueKeysWithValues: ids.compactMap { id in coordinator.getFilm(id).map { (id, $0) } })
 
@@ -346,6 +233,7 @@ extension DebugHarness {
 
         coordinator.deleteList(listID: listA)
         coordinator.deleteList(listID: listB)
+        await coordinator.deleteFilms(withIDs: Set(candidates.map(\.id)))
         await coordinator.commitPendingWritesForExport()
         return r
     }
@@ -374,155 +262,6 @@ extension DebugHarness {
             if !same || stored != coordinator.getListIDs(forFilm: film.id) { mismatched.append(film.name) }
         }
         check(mismatched.isEmpty, "store matches memory for \(ids.count) film(s)\(mismatched.isEmpty ? "" : ": " + mismatched.prefix(5).joined(separator: ", "))")
-    }
-
-    // MARK: bulk-edit-perf
-
-    private static func bulkEditPerfScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
-        var r = HarnessScenarioResult(scenario: "bulk-edit-perf")
-        let clock = ContinuousClock()
-        func ms(_ start: ContinuousClock.Instant) -> Double { milliseconds(clock.now - start) }
-
-        /// Top the library up to 1,600 films.
-        let target = 1600
-        let existing = filmsByName(coordinator)
-        if existing.count < target, !existing.isEmpty {
-            let copies = (0..<(target - existing.count)).map { i in
-                perfCopy(of: existing[i % existing.count], number: i + 1)
-            }
-            let start = clock.now
-            coordinator.importFilms(copies)
-            await coordinator.commitPendingWritesForExport()
-            r.metric("seed/copies", Double(copies.count), "films")
-            r.metric("seed/import", ms(start), "ms")
-        }
-        let films = filmsByName(coordinator)
-        let ids = films.map(\.id)
-        r.metric("films", Double(ids.count), "films")
-        r.check("bulk-edit-perf/1500-plus", ids.count >= 1500, "\(ids.count) films")
-
-        /// Opening: the model, then both tabs laid out in a window.
-        var start = clock.now
-        let sheet = MultiFilmSheet(coordinator: coordinator, filmIDs: ids)
-        r.metric("open/model", ms(start), "ms")
-        start = clock.now
-        let (window, view) = host(MultiFilmSheetView(owner: sheet), size: NSSize(width: 600, height: 600))
-        view.layoutSubtreeIfNeeded()
-        view.displayIfNeeded()
-        r.metric("open/details-layout", ms(start), "ms")
-        try? await Task.sleep(for: .milliseconds(300))
-        start = clock.now
-        sheet.selectedTab = .films
-        await Task.yield()
-        view.layoutSubtreeIfNeeded()
-        view.displayIfNeeded()
-        r.metric("open/films-tab-layout", ms(start), "ms")
-        sheet.selectedTab = .details
-        await Task.yield()
-
-        /// Per keystroke: what the gutter and Update button re-read, with tags to append.
-        sheet.tags = ["BulkPerfTag"]
-        start = clock.now
-        for _ in 0..<20 { _ = sheet.gutterNote; _ = sheet.canConfirm }
-        r.metric("keystroke/gutter+canConfirm", ms(start) / 20, "ms")
-        sheet.tags = []
-        window.orderOut(nil)
-
-        /// One save: the synchronous confirm(), then the background write.
-        func timeSave(_ name: String, _ configure: (MultiFilmSheet) -> Void) async {
-            let s = MultiFilmSheet(coordinator: coordinator, filmIDs: ids)
-            var dismissed = false
-            s.dismissHandler = { dismissed = true }
-            configure(s)
-            BulkSaveProbe.phases = []
-            let start = clock.now
-            s.confirm()
-            switch s.pendingAlert {
-            case .replaceNotes?, .clearNotes?: s.confirmNotesReplacement()
-            default: break
-            }
-            let sync = ms(start)
-            let writeStart = clock.now
-            await coordinator.commitPendingWritesForExport()
-            let write = ms(writeStart)
-            /// Let the main queue drain whatever the save scheduled (deferred reloads, events).
-            let drainStart = clock.now
-            for _ in 0..<5 { await Task.yield() }
-            try? await Task.sleep(for: .milliseconds(50))
-            r.metric("save/\(name)/sync", sync, "ms")
-            for phase in BulkSaveProbe.phases {
-                r.metric("save/\(name)/sync/\(phase.name)", phase.milliseconds, "ms")
-            }
-            r.metric("save/\(name)/write", write, "ms")
-            r.metric("save/\(name)/drain", ms(drainStart) - 50, "ms")
-            r.check("bulk-edit-perf/\(name)/saved", dismissed, s.pendingAlert.map { "alert: \($0.id)" } ?? "")
-        }
-
-        let mixedWatched = films.contains { $0.watched } && films.contains { !$0.watched }
-        await timeSave("flags") { s in
-            s.watched = .set(true)
-            s.infoComplete = .set(true)
-        }
-        await timeSave("genre") { s in s.genre = .set("Drama") }
-        await timeSave("notes") { s in s.notes = "Bulk performance notes" }
-        await timeSave("tags") { s in s.tags = ["BulkPerfTag"] }
-        await timeSave("blacklist") { s in s.specialSorting = .set([FilmSpecialSorting.blacklisted]) }
-        await timeSave("unblacklist") { s in s.specialSorting = .set([]) }
-        let list = coordinator.createList(name: "Bulk Perf \(Int.random(in: 1000...9999))", displayOrder: 90_010)
-        await coordinator.commitPendingWritesForExport()
-        await timeSave("list-add") { s in s.userListIDs = .set([list]) }
-        await timeSave("list-clear") { s in s.userListIDs = .set([]) }
-        await timeSave("queue-soon") { s in s.queueSection = .set(.soon) }
-        await timeSave("queue-none") { s in s.queueSection = .set(nil) }
-        await timeSave("everything") { s in
-            s.genre = .set("Comedy")
-            s.rating = .set("PG")
-            s.watched = .set(false)
-            s.edited = .set(true)
-            s.specialSorting = .set([FilmSpecialSorting.waitingForEdit])
-            s.rotationThresholdOverride = .set(36)
-            s.autoAddToQueueOnRotation = .set(1)
-            s.notes = "Everything at once"
-            s.tags = ["BulkPerfTagTwo"]
-            s.userListIDs = .set([list])
-            s.queueSection = .set(.later)
-        }
-        r.check("bulk-edit-perf/watched-was-mixed", true, mixedWatched ? "mixed" : "shared")
-
-        /// The store agrees with memory after all of it.
-        let start2 = clock.now
-        compareStore(ids, coordinator) { ok, what in r.check("bulk-edit-perf/store/\(what)", ok) }
-        r.metric("verify/store-compare", ms(start2), "ms")
-        coordinator.deleteList(listID: list)
-        await coordinator.commitPendingWritesForExport()
-        return r
-    }
-
-    /// A copy of `film` for the perf library: a new identity, and nothing that belongs to the
-    /// original alone — releases, poster, identifiers, Hall of Fame rank.
-    private static func perfCopy(of film: FilmSnapshot, number: Int) -> FilmSnapshot {
-        FilmSnapshot(
-            id: UUID(), posterUID: "", name: "\(film.name) (Bulk Copy \(number))",
-            releaseYear: film.releaseYear, userRating: film.userRating, lastWatched: film.lastWatched,
-            rotationThresholdOverride: film.rotationThresholdOverride, duration: film.duration,
-            viewCount: film.viewCount, calendarTable: film.calendarTable,
-            autoAddToQueueOnRotation: film.autoAddToQueueOnRotation, digitalSource: film.digitalSource,
-            digitalVersion: film.digitalVersion, subtitles: film.subtitles, notes: film.notes,
-            numberOfDiscs: film.numberOfDiscs, aspectRatio: film.aspectRatio, color: film.color,
-            edited: film.edited, editedDuration: film.editedDuration, frameRate: film.frameRate,
-            tags: film.tags, externalIdentifiers: [], dateAdded: film.dateAdded,
-            lastModified: film.lastModified, watched: film.watched, specialSorting: film.specialSorting,
-            alternateTitle: film.alternateTitle, hofPosition: 0, infoComplete: film.infoComplete,
-            comments: film.comments, genre: film.genre, releaseDate: film.releaseDate,
-            descriptionText: film.descriptionText, rating: film.rating, studio: film.studio,
-            cast: film.cast, directors: film.directors, producers: film.producers,
-            executiveProducers: film.executiveProducers, screenwriters: film.screenwriters,
-            encodingTool: film.encodingTool, libraryHBRFValue: film.libraryHBRFValue,
-            composer: film.composer, sortName: "", releaseUsed: film.releaseUsed, tools: film.tools,
-            editedHBRFValue: film.editedHBRFValue, editDate: film.editDate, warning: film.warning,
-            descriptionNotes: film.descriptionNotes, notesOnAudioTiming: film.notesOnAudioTiming,
-            specialAudioNotes: film.specialAudioNotes, notesArray: film.notesArray,
-            handbrakeFrames: film.handbrakeFrames, correspondingTimecodes: film.correspondingTimecodes)
     }
 }
 

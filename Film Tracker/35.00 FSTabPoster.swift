@@ -83,19 +83,10 @@ final class FSTabPoster: FilmSheetTabChangeTracking {
         /// Don't track changes during initial data load.
         guard !isLoadingData else { return }
 
-        /// In add mode, hasChanges is intentionally always false and notifyChanges()
-        /// is intentionally not called. FilmSheet.performCanConfirmUpdate() does not
-        /// consult posterTab.hasChanges when computing canConfirm in add mode — it
-        /// only requires detailsTab.isValid. Posters selected in add mode are handled
-        /// by processPendingPoster() at confirm time regardless of this flag.
-        /// If future logic needs posterTab.hasChanges in add mode, this guard must
-        /// be revisited.
-        guard let owner = owner, owner.isEditMode else {
-            /// In add mode, hasChanges is intentionally always false. Guard the write
-            /// so no observation invalidation fires when it is already false.
-            if hasChanges { hasChanges = false }
-            return
-        }
+        /// In add mode, hasChanges stays false and notifyChanges() is not called:
+        /// canConfirm there needs only detailsTab.isValid, and a poster selected in add
+        /// mode is handled by processPendingPoster() at confirm time regardless.
+        guard let owner, owner.isEditMode else { return }
 
         latchHasChanges(posterUID != originalPosterUID || pendingPosterURL != nil || posterDeletedByUser,
                         notifying: owner)
@@ -174,7 +165,9 @@ final class FSTabPoster: FilmSheetTabChangeTracking {
                     let errorDescription = error.localizedDescription
                     let selectedPath = selectedURL.path(percentEncoded: false)
                     await MainActor.run { [weak self] in
-                        guard let self = self, self.pendingPosterURL == selectedURL else { return }
+                        guard let self = self else { return }
+                        if self.dropStagedSelection(selectedURL, restoring: previousPendingURL) { return }
+                        guard self.pendingPosterURL == selectedURL else { return }
                         /// The user's selection did not produce a valid preview. Revert to
                         /// the selection it was replacing (nil when there was none), so the
                         /// pending URL again matches the preview and posterUID on screen.
@@ -191,7 +184,9 @@ final class FSTabPoster: FilmSheetTabChangeTracking {
                 guard let previewImage = NSImage(data: imageData) else {
                     let selectedPath = selectedURL.path(percentEncoded: false)
                     await MainActor.run { [weak self] in
-                        guard let self = self, self.pendingPosterURL == selectedURL else { return }
+                        guard let self = self else { return }
+                        if self.dropStagedSelection(selectedURL, restoring: previousPendingURL) { return }
+                        guard self.pendingPosterURL == selectedURL else { return }
                         self.pendingPosterURL = previousPendingURL
                         self.owner?.log("ERROR: Selected poster image could not be decoded (unsupported or corrupted file): \(selectedPath)")
                     }
@@ -199,7 +194,16 @@ final class FSTabPoster: FilmSheetTabChangeTracking {
                 }
 
                 await MainActor.run { [weak self] in
-                    guard let self = self, self.pendingPosterURL == selectedURL else { return }
+                    guard let self = self else { return }
+                    /// Deleted before its preview landed: Undo Delete restores this selection's
+                    /// pending URL, so it must also restore this preview and a temporary UID,
+                    /// not the poster that was on screen before the selection.
+                    if self.posterDeletedByUser, self.pendingPosterURLBeforeDelete == selectedURL {
+                        self.posterImageBeforeDelete = previewImage
+                        self.posterUIDBeforeDelete = UUID().uuidString
+                        return
+                    }
+                    guard self.pendingPosterURL == selectedURL else { return }
 
                     /// Only now — a decoded preview is actually going to replace the
                     /// current state — clear any pending delete the user had staged.
@@ -220,6 +224,15 @@ final class FSTabPoster: FilmSheetTabChangeTracking {
                 }
             }
         }
+    }
+
+    /// A selection whose read or decode failed after Delete Poster staged it: Undo Delete
+    /// must bring back the selection it replaced, not one that never produced a preview.
+    /// Returns whether `url` was that staged selection.
+    private func dropStagedSelection(_ url: URL, restoring previous: URL?) -> Bool {
+        guard posterDeletedByUser, pendingPosterURLBeforeDelete == url else { return false }
+        pendingPosterURLBeforeDelete = previous
+        return true
     }
 
     // MARK: - Delete / Undo Delete

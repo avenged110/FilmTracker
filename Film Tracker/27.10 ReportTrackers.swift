@@ -336,6 +336,7 @@ struct ReportsReleaseTableView: View, Loggable {
     }
 
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
+        ReportsState.shared.selectedReleaseRowIDs = newSelection
         /// Handle no selection (cleared)
         if newSelection.isEmpty {
             selectionState.clearImmediate()

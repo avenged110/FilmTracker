@@ -111,9 +111,7 @@ final class KeyboardManager {
         ///    sheetParent is the main window, not itself a sheet) from the nested case
         ///    (a nested alert's sheetParent is FilmSheet's window, which is a sheet).
         if modifiers == [] && event.keyCode == 36 {
-            if let keyWindow = NSApp.keyWindow, keyWindow.isSheet,
-               keyWindow.sheetParent?.isSheet != true,
-               !hasVisibleChildWindow(on: keyWindow),
+            if let keyWindow = uncoveredKeySheet(),
                let activeSheet = appState?.sheetCoordinator.activeSheet,
                let confirm = Self.returnConfirmAction(for: activeSheet) {
                 /// Pass through whenever ANY text is being edited — the first responder is
@@ -296,23 +294,40 @@ final class KeyboardManager {
             return false
         }
         
-        /// Opt+Cmd+N - Add a 4K UHD release, when a FilmSheet is open on the Releases tab.
+        /// Film > Add New Release - Cmd+N Blu-ray, Opt+Cmd+N 4K UHD, Shift+Opt+Cmd+N DVD, and
+        /// Cmd+D Duplicate This Release, whenever a FilmSheet is open, on any tab. The
+        /// bindings are AddReleaseRequest's, the same ones the menu items show, and the action
+        /// is the one those items take, so a shortcut does what its item does and only when
+        /// the item is enabled.
         ///
-        /// Deliberately scoped to that one context and NOT consumed otherwise: Opt+Cmd+N is
-        /// "Duplicate List" in the File menu, which is only offered when a list is selected
-        /// and is disabled while any sheet is active. Falling through when the condition
-        /// does not hold leaves that binding exactly as it was.
+        /// Consumed whenever a FilmSheet is open, available or not. Cmd+N and Opt+Cmd+N are
+        /// also File menu shortcuts (Create New List…, Duplicate List), which the sheet disables,
+        /// so none of these may fall through to act behind it.
         ///
-        /// ORDERING: like Cmd+N below, the Releases intercept is evaluated BEFORE
-        /// textInputActive — see the long note there for why a stale first responder would
-        /// otherwise break the shortcut for the rest of the session.
-        if modifiers == [.option, .command] && char == "n" {
-            if let filmSheet = activeFilmSheet(showing: .releases) {
-                guard filmSheet.releasesTab?.canAddRelease() == true else { return true }
-                AppEventBus.shared.sendCommand(
-                    .addReleaseToActiveSheet(format: ReleaseFormat.uhd4K.rawValue))
-                return true /// Consumed
+        /// Outside a FilmSheet nothing matches here. Cmd+N and Opt+Cmd+N continue to their own
+        /// branches below, and the other two are not bound anywhere else.
+        ///
+        /// ORDERING: evaluated BEFORE textInputActive. After interacting with pickers,
+        /// checkboxes or text fields, the first responder can stay a view that
+        /// isTextInputActiveAnywhere() matches, and checking text input first would pass the
+        /// shortcut through until focus moves. None of these keys has a text-editing meaning in
+        /// any AppKit control, so intercepting them never disrupts text entry.
+        if let request = AddReleaseRequest.matching(key: char, modifiers: modifiers),
+           let filmSheet = activeFilmSheet() {
+            /// A held key adds once. Without this, auto-repeat added another card each time the
+            /// previous one finished animating in, for as long as the key stayed down.
+            if event.isARepeat { return true }
+            /// Only from the sheet itself: not while a popover is open over it (its own key
+            /// window, or a child window of the sheet's) or a nested alert is up, the same
+            /// three cases the Return intercept above tells apart. Switching tabs under an open
+            /// popover would leave it pointing at a tab no longer on screen. Nor while an
+            /// app-level alert is up, which disables the menu bar's submenu too.
+            if uncoveredKeySheet() != nil,
+               appState?.isDatabaseErrorAlertActive != true,
+               appState?.isHostAlertActive != true {
+                filmSheet.requestAddRelease(request)
             }
+            return true /// Consumed
         }
 
         /// Opt+Cmd+E - Edit Film, opening the FilmSheet directly on its Metadata tab.
@@ -326,39 +341,18 @@ final class KeyboardManager {
             return handleEditFilmMetadata()
         }
         
-        /// Cmd+N - Create New List (with fallback handling)
-        /// Special case: when a FilmSheet is active and showing the Releases tab,
-        /// forward as addReleaseToActiveSheet(format: Blu-ray) instead of blocking the event.
-        ///
-        /// ORDERING: the Releases-tab intercept runs BEFORE the textInputActive check. After
-        /// interacting with pickers, checkboxes or text fields on another tab, the first responder
-        /// can stay a view that isTextInputActiveAnywhere() matches. Checking text input first
-        /// would then pass Cmd+N through until focus moves. Cmd+N has no text-editing meaning in
-        /// any AppKit control, so intercepting it never disrupts text entry.
+        /// Cmd+N - Create New List (with fallback handling). With a FilmSheet open, Cmd+N
+        /// adds a Blu-ray release and never reaches here (Add New Release, above).
         if modifiers == .command && char == "n" {
-            /// If a FilmSheet is open on the Releases tab, route Cmd+N to add a release
-            /// regardless of what currently holds first responder.
-            if let filmSheet = activeFilmSheet(showing: .releases) {
-                /// Only add if the carousel is under its ten-card cap.
-                ///
-                /// Asks the view model rather than counting here, so this gate and the menu's own
-                /// cannot disagree about what the cap counts (cards, not releases: a combo pack is
-                /// one card). A nil releasesTab has no room, so the event is consumed.
-                guard filmSheet.releasesTab?.canAddRelease() == true else { return true }
-                /// Cmd+N is the Blu-ray shortcut; Opt+Cmd+N above is the 4K one.
-                AppEventBus.shared.sendCommand(
-                    .addReleaseToActiveSheet(format: ReleaseFormat.bluRay.rawValue))
-                return true /// Consumed
-            }
             
-            /// If text field is focused (and not on the Releases tab), let native
-            /// handling work — pass through to the responder chain.
+            /// If text field is focused, let native handling work — pass through to the
+            /// responder chain.
             if textInputActive {
                 return false
             }
             
-            /// Sheet is active but not a Releases-tab FilmSheet — block the shortcut
-            /// to prevent triggering a background action.
+            /// A sheet other than a FilmSheet is active — block the shortcut to prevent
+            /// triggering a background action.
             if isInSheet {
                 return true
             }
@@ -854,7 +848,7 @@ final class KeyboardManager {
         switch sheet.content {
         case .film(_, let filmSheet):
             guard filmSheet.canConfirm, !filmSheet.isConfirming else { return nil }
-            return { filmSheet.confirm() }
+            return { filmSheet.requestConfirm() }
         case .multiFilm(let multiFilmSheet):
             guard multiFilmSheet.canConfirm else { return nil }
             return { multiFilmSheet.confirm() }
@@ -864,11 +858,23 @@ final class KeyboardManager {
     }
 
     /// The open FilmSheet, when one is on screen showing `tab`.
-    private func activeFilmSheet(showing tab: FilmTab) -> FilmSheet? {
+    /// The open FilmSheet, or nil. With `tab`, only while the sheet shows that tab.
+    private func activeFilmSheet(showing tab: FilmTab? = nil) -> FilmSheet? {
         guard let activeSheet = appState?.sheetCoordinator.activeSheet,
-              case .film(_, let filmSheet) = activeSheet.content,
-              filmSheet.selectedTab == tab else { return nil }
+              case .film(_, let filmSheet) = activeSheet.content else { return nil }
+        if let tab, filmSheet.selectedTab != tab { return nil }
         return filmSheet
+    }
+
+    /// The key window when it is a top-level sheet with nothing over it — not a popover that
+    /// took key status (isSheet false), not a sheet with a popover attached as a child window,
+    /// and not an alert nested on the sheet (whose own sheetParent is a sheet). Cases A–C of
+    /// the Return intercept; the Add New Release shortcuts apply the same test.
+    private func uncoveredKeySheet() -> NSWindow? {
+        guard let keyWindow = NSApp.keyWindow, keyWindow.isSheet,
+              keyWindow.sheetParent?.isSheet != true,
+              !hasVisibleChildWindow(on: keyWindow) else { return nil }
+        return keyWindow
     }
 
     /// Whether `window` has a visible child window, which is how a SwiftUI popover attaches.

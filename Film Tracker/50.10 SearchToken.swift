@@ -20,16 +20,16 @@ struct SearchToken: Identifiable, Hashable {
     let isInverted: Bool
     let isOr: Bool
     
+    /// The typed form of the OR ("/") and inversion ("!") marks, in that order — the order
+    /// the field reads them after "#".
+    static func prefix(isOr: Bool, isInverted: Bool) -> String {
+        (isOr ? "/" : "") + (isInverted ? "!" : "")
+    }
+
+    var prefix: String { Self.prefix(isOr: isOr, isInverted: isInverted) }
+
     /// Display name shown in the token pill
     var displayName: String {
-        var prefix = ""
-        if isOr {
-            prefix = "/"
-        }
-        if isInverted {
-            prefix += "!"
-        }
-        
         if value.isEmpty {
             return "\(prefix)\(field.tokenPillLabel)"
         }
@@ -89,6 +89,7 @@ enum SearchField: String, CaseIterable, Hashable {
     case composer = "composer"
     case genre = "genre"
     case studio = "studio"
+    case source = "source"
     case tags = "tags"
     case notes = "notes"
     case synopsis = "synopsis"
@@ -115,6 +116,7 @@ enum SearchField: String, CaseIterable, Hashable {
         case .composer: return "Composer"
         case .genre: return "Genre"
         case .studio: return "Studio"
+        case .source: return "Source"
         case .tags: return "Tags"
         case .notes: return "Notes"
         case .synopsis: return "Synopsis"
@@ -159,6 +161,7 @@ enum SearchField: String, CaseIterable, Hashable {
         case .composer: return ["composer", "composers", "comp", "music"]
         case .genre: return ["genre", "genres"]
         case .studio: return ["studio", "company", "group"]
+        case .source: return ["source", "digitalsource", "rip"]
         case .tags: return ["tag", "tags"]
         case .notes: return ["note", "notes"]
         case .synopsis: return ["synopsis", "plot", "description"]
@@ -221,7 +224,7 @@ enum SearchField: String, CaseIterable, Hashable {
 /// These are tests on the film itself, not on smart-list membership, so none carries a
 /// smart list's side conditions: "unsorted" is only "no special sorting", where the
 /// Filtered Library list also requires the film to be watched.
-nonisolated enum FilmFlag: CaseIterable {
+nonisolated enum FilmFlag {
     case edited, watched, rated, complete
     case sorted, waitingForEdit, onHold, temporarilyOnHold, indefinitelyOnHold, ignored, blacklisted
     case owned, owned4K, ownedBluray, ownedDVD, unowned, noReleases, wishlisted, upcoming

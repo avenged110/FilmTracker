@@ -56,7 +56,8 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
     /// Duration
     case durationAtLeast, durationLonger, durationShorter, durationBetween
     /// Rating
-    case ratingIs, ratingAtLeast, ratingAtMost, ratingBetween, ratingUnrated, ratingRated
+    /// "Is Unrated" (0) and "is not Unrated" stand for having no rating and having one.
+    case ratingIs, ratingIsNot, ratingAtLeast, ratingAtMost, ratingBetween
     /// Dates
     case inTheLast, notInTheLast, moreThanAgo, aboutAgo, dateAfter, dateBefore, dateOn, dateInYear,
          noDate, hasDate
@@ -74,6 +75,8 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
     /// What the operator's values are edited with.
     enum Editor: Hashable, Sendable {
         case text, number, numberRange, amountUnit, day, year, none
+        /// A rating, or a pair of them: menus of the ten ratings, never typed.
+        case rating, ratingRange
         case listName, genreName, flagTerm, releaseKeyword, rotationValue, raw
 
         /// Edited with a menu, so a new row's value starts unchosen ("Select…").
@@ -90,7 +93,7 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
         case .contains: return "contains"
         case .doesNotContain: return "does not contain"
         case .yearIs, .ratingIs, .rotationIs, .flagIs, .genreIs, .inList: return "is"
-        case .yearIsNot, .rotationIsNot, .flagIsNot, .genreIsNot, .notInList: return "is not"
+        case .yearIsNot, .ratingIsNot, .rotationIsNot, .flagIsNot, .genreIsNot, .notInList: return "is not"
         case .yearAfter: return "is after"
         case .yearBefore: return "is before"
         case .yearBetween, .durationBetween, .ratingBetween: return "is between"
@@ -100,8 +103,6 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
         case .durationShorter: return "is shorter than"
         case .ratingAtLeast: return "is at least"
         case .ratingAtMost: return "is at most"
-        case .ratingUnrated: return "is not rated"
-        case .ratingRated: return "is rated"
         case .inTheLast: return "is in the last"
         case .notInTheLast: return "is not in the last"
         case .moreThanAgo: return "is more than"
@@ -122,7 +123,8 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
     /// The token this operator writes is inverted ("#!field").
     var isInverted: Bool {
         switch self {
-        case .doesNotContain, .genreIsNot, .yearIsNot, .yearNotBetween, .ratingRated, .notInTheLast, .hasDate,
+        case .doesNotContain, .genreIsNot, .yearIsNot, .yearNotBetween, .ratingIsNot, .notInTheLast,
+             .hasDate,
              .notInList, .flagIsNot, .hasNoRelease, .rotationIsNot, .doesNotMatch:
             return true
         default:
@@ -134,10 +136,12 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
         switch self {
         case .contains, .doesNotContain: return .text
         case .yearIs, .yearIsNot, .yearAfter, .yearBefore, .durationAtLeast, .durationLonger,
-             .durationShorter, .ratingIs, .ratingAtLeast, .ratingAtMost:
+             .durationShorter:
             return .number
-        case .yearBetween, .yearNotBetween, .durationBetween, .ratingBetween: return .numberRange
-        case .ratingUnrated, .ratingRated, .noDate, .hasDate: return .none
+        case .yearBetween, .yearNotBetween, .durationBetween: return .numberRange
+        case .ratingIs, .ratingIsNot, .ratingAtLeast, .ratingAtMost: return .rating
+        case .ratingBetween: return .ratingRange
+        case .noDate, .hasDate: return .none
         case .inTheLast, .notInTheLast, .moreThanAgo, .aboutAgo: return .amountUnit
         case .dateAfter, .dateBefore, .dateOn: return .day
         case .dateInYear: return .year
@@ -150,35 +154,44 @@ enum RuleOperator: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// The operators a field offers, in menu order. Every field ends with matches / does
-    /// not match, the way to type anything the structured operators do not cover.
+    /// The operators a field offers, in menu order.
+    ///
+    /// Matches / does not match (a value exactly as typed after "#field ") is offered only
+    /// where the search field accepts values no other condition can write: the
+    /// natural-language dates ("last weekend", "since march", "2010s"), and several Status
+    /// terms in one rule (an OR rule of two terms needs a film to have both). Everywhere else
+    /// it would only repeat a condition the field already has — a text field's "contains", a
+    /// number's "is", a genre (one of seven fixed names, none inside another), the "Other…"
+    /// box of a list, release or rotation menu — so it is left out. A token the builder cannot read
+    /// still opens as "matches"; the sheet keeps that operator in the row's menu (see
+    /// RuleRow.operatorItems).
     static func options(for field: SearchField) -> [RuleOperator] {
-        let specific: [RuleOperator]
         switch field {
         case .title, .crew, .cast, .directors, .producer, .executiveProducer, .screenwriter,
-             .composer, .studio, .tags, .notes, .synopsis:
-            specific = [.contains, .doesNotContain]
+             .composer, .studio, .source, .tags, .notes, .synopsis:
+            return [.contains, .doesNotContain]
         case .genre:
-            specific = [.genreIs, .genreIsNot]
+            return [.genreIs, .genreIsNot]
         case .year:
-            specific = [.yearIs, .yearIsNot, .yearAfter, .yearBefore, .yearBetween, .yearNotBetween]
+            return [.yearIs, .yearIsNot, .yearAfter, .yearBefore, .yearBetween, .yearNotBetween]
         case .duration:
-            specific = [.durationAtLeast, .durationLonger, .durationShorter, .durationBetween]
+            return [.durationAtLeast, .durationLonger, .durationShorter, .durationBetween]
         case .rating:
-            specific = [.ratingIs, .ratingAtLeast, .ratingAtMost, .ratingBetween, .ratingUnrated, .ratingRated]
+            /// Having no rating, or any rating, is "is" / "is not" Unrated: the value menu
+            /// offers Unrated (0) under those two (RuleRow.ratingMenu).
+            return [.ratingIs, .ratingIsNot, .ratingAtLeast, .ratingAtMost, .ratingBetween]
         case .lastWatched, .dateAdded:
-            specific = [.inTheLast, .notInTheLast, .moreThanAgo, .aboutAgo, .dateAfter, .dateBefore,
-                        .dateOn, .dateInYear, .noDate, .hasDate]
+            return [.inTheLast, .notInTheLast, .moreThanAgo, .aboutAgo, .dateAfter, .dateBefore,
+                    .dateOn, .dateInYear, .hasDate, .noDate, .matches, .doesNotMatch]
         case .list:
-            specific = [.inList, .notInList]
+            return [.inList, .notInList]
         case .flags:
-            specific = [.flagIs, .flagIsNot]
+            return [.flagIs, .flagIsNot, .matches, .doesNotMatch]
         case .releases:
-            specific = [.hasRelease, .hasNoRelease]
+            return [.hasRelease, .hasNoRelease]
         case .rotationThreshold:
-            specific = [.rotationIs, .rotationIsNot]
+            return [.rotationIs, .rotationIsNot]
         }
-        return specific + [.matches, .doesNotMatch]
     }
 }
 
@@ -330,13 +343,12 @@ struct QueryRule: Identifiable, Hashable, Sendable {
         case .contains, .doesNotContain, .genreIs, .genreIsNot, .inList, .notInList, .flagIs, .flagIsNot, .hasRelease,
              .hasNoRelease, .rotationIs, .rotationIsNot, .matches, .doesNotMatch:
             return text.trimmingCharacters(in: .whitespaces)
-        case .yearIs, .yearIsNot, .durationAtLeast, .ratingIs: return "\(a)"
+        case .yearIs, .yearIsNot, .durationAtLeast, .ratingIs, .ratingIsNot: return "\(a)"
         case .yearAfter, .durationLonger: return ">\(a)"
         case .yearBefore, .durationShorter: return "<\(a)"
         case .yearBetween, .yearNotBetween, .durationBetween, .ratingBetween: return "\(a)-\(b)"
         case .ratingAtLeast: return "\(a)+"
         case .ratingAtMost: return "\(a)-"
-        case .ratingUnrated, .ratingRated: return "0"
         case .inTheLast, .notInTheLast: return "last \(a) \(unit.label(a))"
         case .moreThanAgo: return "more than \(a) \(unit.label(a)) ago"
         case .aboutAgo: return "\(a) \(unit.label(a)) ago"
@@ -363,13 +375,13 @@ struct QueryRule: Identifiable, Hashable, Sendable {
         case .text, .raw, .listName, .genreName, .releaseKeyword, .rotationValue, .flagTerm:
             return text.trimmingCharacters(in: .whitespaces).isEmpty
                 ? "\(field.displayName): Enter a value." : nil
-        case .numberRange:
+        case .numberRange, .ratingRange:
             return a > b ? "\(field.displayName): The first number must not be larger than the second." : nil
         case .number:
             return a < 0 ? "\(field.displayName): Enter a number of zero or more." : nil
         case .amountUnit:
             return a < 1 ? "\(field.displayName): Enter an amount of one or more." : nil
-        case .year, .day, .none:
+        case .year, .day, .none, .rating:
             return nil
         }
     }
@@ -388,7 +400,7 @@ struct QueryRule: Identifiable, Hashable, Sendable {
 
         switch token.field {
         case .title, .crew, .cast, .directors, .producer, .executiveProducer, .screenwriter,
-             .composer, .studio, .tags, .notes, .synopsis:
+             .composer, .studio, .source, .tags, .notes, .synopsis:
             op = inv ? .doesNotContain : .contains
 
         case .genre:
@@ -423,8 +435,8 @@ struct QueryRule: Identifiable, Hashable, Sendable {
             else if let (x, y) = Self.range(v) { op = .durationBetween; a = x; b = y }
 
         case .rating:
-            if v == "0" { op = inv ? .ratingRated : .ratingUnrated }
-            else if !inv, let n = Self.int(v) { op = .ratingIs; a = n }
+            /// "0" (not rated) included: it is "is Unrated", or "is not Unrated".
+            if let n = Self.int(v) { op = inv ? .ratingIsNot : .ratingIs; a = n }
             else if !inv, let n = Self.int(v, suffix: "+") { op = .ratingAtLeast; a = n }
             else if !inv, let n = Self.int(v, suffix: "-") { op = .ratingAtMost; a = n }
             else if !inv, let (x, y) = Self.range(v) { op = .ratingBetween; a = x; b = y }
@@ -488,6 +500,8 @@ enum RuleValues {
         ("Format", ["4k", "blu-ray", "dvd"]),
         ("4K master", ["native 4k", "upscaled"]),
         ("HDR", ["hdr", "dolby vision", "hdr10", "hdr10+"]),
+        ("Availability", ["available", "out of print", "temporarily unavailable", "unavailable"]),
+        ("Price", ["cheap", "reasonable", "exorbitant"]),
         ("Region", ["region a", "region b", "region free", "region 1", "region 2", "region 3", "region 4", "region 5"]),
         ("Other", ["imported", "remastered", "combo-pack", "standalone", "multi-pack"]),
     ].flatMap { group, words in words.map { ReleaseKeyword(keyword: $0, group: group) } }

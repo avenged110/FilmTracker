@@ -781,8 +781,19 @@ enum PDFTableRenderer {
     /// the context was created with) is what allows one document to hold both the landscape
     /// library table and the portrait report sheets that follow it.
     private static func beginPage(_ context: CGContext, geometry: PDFPageGeometry) {
-        var box = CGRect(origin: .zero, size: geometry.pageSize)
-        let boxData = unsafe Data(bytes: &box, count: MemoryLayout<CGRect>.size) as CFData
+        let box = CGRect(origin: .zero, size: geometry.pageSize)
+        /// The CGRect's four CGFloats in memory order, native (little-endian) bytes. A plain loop,
+        /// not map closures, so no runtime main-thread check is attached to this path.
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(MemoryLayout<CGRect>.size)
+        for value in [box.origin.x, box.origin.y, box.size.width, box.size.height] {
+            var bits = value.bitPattern
+            for _ in 0..<MemoryLayout<CGFloat>.size {
+                bytes.append(UInt8(truncatingIfNeeded: bits))
+                bits >>= 8
+            }
+        }
+        let boxData = Data(bytes) as CFData
         context.beginPDFPage([kCGPDFContextMediaBox as String: boxData] as CFDictionary)
     }
 

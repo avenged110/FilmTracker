@@ -17,6 +17,7 @@
 		8DEE0C7CB2A20E44A3DF7CBF /* COPYING in Resources */ = {isa = PBXBuildFile; fileRef = 2317EABA733A9F7CD5E801C9 /* COPYING */; };
 		A71200000000000000000002 /* 70.10 ReleaseNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */; };
 		B0E0ED0000000000000000D2 /* 99.57 DHBulkEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */; };
+		B0E0ED0000000000000000F2 /* 99.58 DHReleaseDuplicate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED0000000000000000F1 /* 99.58 DHReleaseDuplicate.swift */; };
 		B0E0ED000000000000000101 /* 30.25 FSSharedFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000001 /* 30.25 FSSharedFields.swift */; };
 		B0E0ED000000000000000102 /* 52.00 MultiFilmSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */; };
 		B0E0ED000000000000000103 /* 52.10 MFSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000003 /* 52.10 MFSView.swift */; };
@@ -181,6 +182,7 @@
 		B0E0ED000000000000000003 /* 52.10 MFSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.10 MFSView.swift"; sourceTree = "<group>"; };
 		B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.20 BulkFilmEdit.swift"; sourceTree = "<group>"; };
 		B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.57 DHBulkEdit.swift"; sourceTree = "<group>"; };
+		B0E0ED0000000000000000F1 /* 99.58 DHReleaseDuplicate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.58 DHReleaseDuplicate.swift"; sourceTree = "<group>"; };
 		C0DA7A000000000000000001 /* 11.05 LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.05 LibraryStore.swift"; sourceTree = "<group>"; };
 		CCF2D4EABC0E20861B227B83 /* 29.20 ATVQIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.20 ATVQIntegration.swift"; sourceTree = "<group>"; };
 		CE0EAE942ED44979005C6F4D /* 23.71 SortFilterMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.71 SortFilterMenu.swift"; sourceTree = "<group>"; };
@@ -523,6 +525,7 @@
 				CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */,
 				CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */,
 				B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */,
+				B0E0ED0000000000000000F1 /* 99.58 DHReleaseDuplicate.swift */,
 				CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */,
 			);
 			path = DebugHarness;
@@ -724,6 +727,7 @@
 				CEFE00000000000000000B41 /* 99.54 DHImportsRemoval.swift in Sources */,
 				CEFE00000000000000000B51 /* 99.55 DHImportsSwitch.swift in Sources */,
 				B0E0ED0000000000000000D2 /* 99.57 DHBulkEdit.swift in Sources */,
+				B0E0ED0000000000000000F2 /* 99.58 DHReleaseDuplicate.swift in Sources */,
 				CEFE00000000000000000024 /* 99.50 DHCardProfile.swift in Sources */,
 				CEFE00000000000000000092 /* 99.52 DHCurrencyPlaceholder.swift in Sources */,
 				CE55EE0000000000000055AC /* 99.61 DHResizeSweep.swift in Sources */,
@@ -885,7 +889,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 103;
+				CURRENT_PROJECT_VERSION = 123;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -936,7 +940,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 103;
+				CURRENT_PROJECT_VERSION = 123;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;

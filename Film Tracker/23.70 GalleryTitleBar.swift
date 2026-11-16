@@ -386,6 +386,9 @@ private struct SelectionMenuButton: View, Loggable {
     /// and the placeholder branches below handle other cases.
     @State private var containingLists: [MemoryList] = []
     @State private var containingSmartLists: [SmartListType] = []
+    /// Set while a film-event reload is scheduled. A bulk edit posts one event per film, and each reload walks the
+    /// whole selection, so the events are coalesced to one reload per turn. Not read by `body`.
+    @State private var isFilmEventReloadScheduled = false
     /// Watched to drive `reload()` when the smart lists feature is switched on mid-session. The submenu's
     /// visibility is gated inside ShowInListMenuBody. @AppStorage alone only re-renders, so the memberships
     /// that were never computed while the feature was off still need loading.
@@ -466,7 +469,13 @@ private struct SelectionMenuButton: View, Loggable {
         .onFilmEvent { event in
             switch event {
             case .updated(let id), .releaseChanged(let id):
-                if filmIDs.contains(id) { reload() }
+                guard filmIDs.contains(id), !isFilmEventReloadScheduled else { return }
+                /// One turn later, so the edit's own follow-up work (its film reload) has landed first.
+                isFilmEventReloadScheduled = true
+                DispatchQueue.main.async {
+                    isFilmEventReloadScheduled = false
+                    reload()
+                }
             default:
                 break
             }

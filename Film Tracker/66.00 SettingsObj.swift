@@ -157,6 +157,14 @@ final class SettingsObject: LibraryObject {
         get { optionalBool("confirmFilmQueueAdd") }
         set { setOptionalBool(newValue, "confirmFilmQueueAdd") }
     }
+    var confirmSpecialSortingAddForQueued: Bool? {
+        get { optionalBool("confirmSpecialSortingAddForQueued") }
+        set { setOptionalBool(newValue, "confirmSpecialSortingAddForQueued") }
+    }
+    var confirmChangesBeforeDisappear: Bool? {
+        get { optionalBool("confirmChangesBeforeDisappear") }
+        set { setOptionalBool(newValue, "confirmChangesBeforeDisappear") }
+    }
     var notifyAboutNewReleases: Bool? {
         get { optionalBool("notifyAboutNewReleases") }
         set { setOptionalBool(newValue, "notifyAboutNewReleases") }

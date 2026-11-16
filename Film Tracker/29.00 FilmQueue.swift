@@ -118,13 +118,18 @@ enum FilmQueue {
 
     /// Whether adding `filmIDs` to the queue must be confirmed first: the preference is on
     /// and at least one of the films carries a special-sorting tag ("Ignore",
-    /// "Blacklisted", …). The rule behind the sidebar drop and the "Add to Queue" menus.
-    /// The FilmSheet picker applies the same test to the sheet's unsaved tags itself,
-    /// since those are not in the coordinator yet.
+    /// "Blacklisted", …) and is not in the Queue yet. A flagged film already in some
+    /// section is only changing sections, which is never confirmed: it was accepted when it
+    /// entered the Queue. The rule behind the sidebar drop, the "Up Next" slots and the
+    /// "Add to Queue" menus. The FilmSheet and MultiFilmSheet pickers apply the same test
+    /// to their unsaved tags themselves, since those are not in the coordinator yet.
     @MainActor
     static func addNeedsConfirmation(_ filmIDs: Set<UUID>, coordinator: DataCoordinator) -> Bool {
         Preferences.confirmFilmQueueAdd
-            && filmIDs.contains { !(coordinator.getFilm($0)?.specialSorting.isEmpty ?? true) }
+            && filmIDs.contains {
+                !(coordinator.getFilm($0)?.specialSorting.isEmpty ?? true)
+                    && coordinator.filmQueueListIDs(forFilm: $0).isEmpty
+            }
     }
 
     /// The confirmation message for adding one film that carries `tags`. Shared by the

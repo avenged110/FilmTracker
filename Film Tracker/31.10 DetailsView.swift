@@ -315,7 +315,7 @@ struct FSTabDetailsView: View {
                     /// unchecking it reduces the list by one on commit, and re-checking restores the
                     /// original state. Locking the checkbox as soon as an existing member is
                     /// unchecked, before any commit, would be wrong, because hallOfFameIsFull
-                    /// reflects the live count, which an uncommitted uncheck has not changed.
+                    /// reflects the count when the sheet opened, which an uncommitted uncheck has not changed.
                     let hofDisabled = viewModel.hallOfFameIsFull
                         && !viewModel.inHallOfFame
                         && !viewModel.wasOriginallyInHallOfFame
@@ -436,7 +436,12 @@ private struct FilmQueueRow: View {
                     DispatchQueue.main.async { showUpNextFullAlert = true }
                     return
                 }
+                /// Only a move INTO the Queue is confirmed. A film the picker already has
+                /// in a section is only changing sections: the user accepted its special
+                /// sorting when it entered the Queue (or when the tag was added to it
+                /// there), so it is not asked again until it leaves the Queue entirely.
                 if newValue != nil,
+                   viewModel.selectedFilmQueueSection == nil,
                    !viewModel.specialSorting.isEmpty,
                    confirmFilmQueueAdd {
                     /// Deferred via DispatchQueue.main.async: this setter executes inside
@@ -614,12 +619,54 @@ private struct SpecialSortingRow: View {
     @State private var thresholdBeforeBlacklist: Int?
     @State private var hasStashedThreshold = false
 
+    @AppStorage(preference: Preferences.confirmSpecialSortingAddForQueuedKey)
+        private var confirmSpecialSortingAddForQueued: Bool
+
+    /// Backing state for the "Add Special Sorting Parameter" alert. When the film has no
+    /// special sorting parameter and sits in the Queue (as the sheet's picker stands), the
+    /// first tag the user picks is held here rather than written, and the alert asks
+    /// whether to add it anyway or take the film out of the Queue. The reverse of
+    /// FilmQueueRow's "Add to Queue?" alert.
+    @State private var pendingTags: Set<String>?
+    @State private var showAddParameterAlert = false
+
+    /// The Special Sorting menu's binding: writes straight through, except a first tag on
+    /// an enqueued film while confirmSpecialSortingAddForQueued is on, which waits for the
+    /// alert. The get always reflects the committed value, so the menu does not show the
+    /// tag until the user confirms.
+    private var specialSortingBinding: Binding<Set<String>> {
+        Binding(
+            get: { viewModel.specialSorting },
+            set: { newValue in
+                if confirmSpecialSortingAddForQueued,
+                   viewModel.specialSorting.isEmpty, !newValue.isEmpty,
+                   viewModel.selectedFilmQueueSection != nil {
+                    /// Deferred past the menu's own event handling, as FilmQueueRow
+                    /// defers its alert (see filmQueueSectionBinding).
+                    DispatchQueue.main.async {
+                        pendingTags = newValue
+                        showAddParameterAlert = true
+                    }
+                } else {
+                    viewModel.specialSorting = newValue
+                }
+            }
+        )
+    }
+
+    /// The alert's message, naming the section the sheet's picker holds.
+    private var addParameterMessage: String {
+        let section = viewModel.selectedFilmQueueSection?.displayName ?? ""
+        return "The film is currently in the \"\(section)\" Queue. "
+            + "Would you like to add the parameter anyway or remove the film from the Queue?"
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: FSTabDetailsView.colSpacing) {
             FSTabDetailsView.label("Special Sorting:")
                 .padding(.top, 1)
             VStack(alignment: .leading, spacing: 4) {
-                SpecialSortingMenu(selectedTags: $viewModel.specialSorting)
+                SpecialSortingMenu(selectedTags: specialSortingBinding)
                     .frame(width: FSTabDetailsView.pickerWidth, alignment: .leading)
                     /// Blacklisting forces the rotation threshold to 60 and disables
                     /// the picker; un-blacklisting hands the field back.
@@ -659,6 +706,25 @@ private struct SpecialSortingRow: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        /// "Add Anyway" is declared first and takes the default action, so it sits
+        /// rightmost as the highlighted button (see the Save Error alert's note).
+        .alert("Add Special Sorting Parameter", isPresented: $showAddParameterAlert) {
+            Button("Add Anyway") {
+                if let pendingTags { viewModel.specialSorting = pendingTags }
+                pendingTags = nil
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Remove from Queue") {
+                viewModel.selectedFilmQueueSection = nil
+                if let pendingTags { viewModel.specialSorting = pendingTags }
+                pendingTags = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingTags = nil
+            }
+        } message: {
+            Text(addParameterMessage)
         }
     }
 }

@@ -66,9 +66,9 @@ public struct ExportPackage: Codable {
 
 /// Small wrapper to allow encoding heterogenous property values
 public struct AnyCodable: Codable {
-    public let value: Any
+    public let value: any Sendable
 
-    public init(_ value: Any) {
+    public init(_ value: any Sendable) {
         self.value = value
     }
 
@@ -116,9 +116,9 @@ public struct AnyCodable: Codable {
     }
 }
 
-/// AnyCodable holds `Any`, so its conformance is asserted: it only ever wraps the immutable
-/// scalars it encodes (Bool, Int, Double, String, Date). The containers are compiler-checked.
-extension AnyCodable: @unchecked Sendable {}
+/// AnyCodable holds `any Sendable` (the immutable scalars it encodes: Bool, Int, Double, String,
+/// Date), so its conformance and the containers' are compiler-checked.
+extension AnyCodable: Sendable {}
 extension ExportedObject: Sendable {}
 extension ExportPackage: Sendable {}
 
@@ -130,8 +130,8 @@ public protocol ExportableModel: AnyObject, SendableMetatype {
     ///
     /// Nonisolated and synchronous, so it runs wherever the context lives: on the
     /// MainActor for a manual export, on `BackgroundExportReader`'s own executor for the
-    /// automatic one. NSManagedObjectContext is not Sendable, so the caller must be the context's
-    /// own isolation — which a synchronous call from that isolation always is.
+    /// automatic one. The context must only be used on its own queue, so the caller must be the
+    /// context's own isolation — which a synchronous call from that isolation always is.
     static func fetchAll(in context: NSManagedObjectContext) throws -> [Self]
     /// Extract properties (scalars) and relationships (names -> [related objects]) for an instance.
     /// Conforming types can implement a custom extractor; a Mirror-based default extractor is provided.

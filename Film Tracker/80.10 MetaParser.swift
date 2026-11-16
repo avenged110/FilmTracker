@@ -146,7 +146,11 @@ final class MetaParser: Loggable {
                 let width = abs(size.width)
                 let height = abs(size.height)
                 
-                if width > 0 && height > 0 {
+                /// Bounded as well as positive: a malformed track (a zero pixel-aspect denominator,
+                /// an extreme transform) can report an infinite or enormous size, which passes
+                /// `> 0` and then traps in the Int conversions below and at the dimensions log.
+                /// Real video is under 100,000 px a side; infinity and NaN fail `<` too.
+                if width > 0 && height > 0 && width < 1e9 && height < 1e9 {
                     let ratio = width / height
                     /// Snap to master aspect ratio if within 0.01
                     parsed.aspectRatio = Self.snapToMasterAspectRatio(ratio)

@@ -146,8 +146,9 @@ final class FSTabDetails: FilmSheetTabChangeTracking {
     var externalIdentifiers: [String] = ["", ""] { didSet { checkForChanges() } }
     var infoComplete: Bool = false { didSet { checkForChanges() } }
     
-    /// Hall of Fame state
-    var hallOfFameIsFull: Bool = false
+    /// Whether the Hall of Fame was full when the sheet opened. Fixed for the sheet's life;
+    /// see init.
+    let hallOfFameIsFull: Bool
 
     /// `upNextIsFull` as the sheet opened, fixed for the sheet's lifetime: it disables the picker's
     /// "Up Next" segment and shows the "full" note beneath it, both from the first frame.
@@ -179,7 +180,13 @@ final class FSTabDetails: FilmSheetTabChangeTracking {
     /// box, because doing so won't exceed the 200-film limit — it will actually reduce
     /// it by one if saved. The lockout applies only to films that were *not* members
     /// at load time and therefore would consume a new slot on commit.
-    var wasOriginallyInHallOfFame: Bool { originalInHallOfFame }
+    ///
+    /// Also the change-detection baseline for Hall of Fame membership, kept apart from
+    /// `original` because `FilmDetailsFields` deliberately does not carry it:
+    /// `FilmSheet.confirm()` commits a HoF change through `addToHallOfFame` /
+    /// `removeFromHallOfFame`, not through the changeset. It is still a user edit, so change
+    /// detection has to see it.
+    private(set) var wasOriginallyInHallOfFame = false
 
     /// Baseline captured after the initial load in edit mode: the exact `FilmDetailsFields`
     /// value that `collectFilmFields()` produces. "Has anything changed?" is therefore a
@@ -199,14 +206,6 @@ final class FSTabDetails: FilmSheetTabChangeTracking {
     /// path rather than the changeset) and the two list-membership selections.
     private var original: FilmDetailsFields?
 
-    /// Hall of Fame membership as it stood when the sheet opened.
-    ///
-    /// Separate from `original` because `FilmDetailsFields` deliberately does not carry
-    /// it — `FilmSheet.confirm()` commits a HoF change through `addToHallOfFame` /
-    /// `removeFromHallOfFame`, not through the changeset, so it is not one of the fields
-    /// a save writes from this tab. It is still a user edit, so change detection has to
-    /// see it.
-    private var originalInHallOfFame: Bool = false
 
     /// Day-precision formatter for the Release Date field, used to build the canonical
     /// storage string on save. Change detection does not use it: the baseline holds the
@@ -309,7 +308,7 @@ final class FSTabDetails: FilmSheetTabChangeTracking {
     private func computeHasChanges() -> Bool {
         guard let orig = original else { return false }
         return collectFilmFields() != orig
-            || inHallOfFame != originalInHallOfFame
+            || inHallOfFame != wasOriginallyInHallOfFame
             || selectedListIDs != originalListIDs
             || selectedFilmQueueSection != originalFilmQueueSection
     }
@@ -474,10 +473,10 @@ final class FSTabDetails: FilmSheetTabChangeTracking {
     /// cannot fall out of step with `collectFilmFields()` — there is no second field list
     /// to update when a field is added. Hall of Fame is captured alongside it because it
     /// is committed by a different route and so is not one of the collected fields; see
-    /// `originalInHallOfFame`.
+    /// `wasOriginallyInHallOfFame`.
     private func captureOriginalValues() {
         original = collectFilmFields()
-        originalInHallOfFame = inHallOfFame
+        wasOriginallyInHallOfFame = inHallOfFame
     }
 
     // MARK: - Film Queue Delta

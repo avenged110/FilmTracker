@@ -1391,7 +1391,9 @@ enum DVK {
     static let monthPriorBlue = DVPaint(color: blend(.systemBlue, 0.4, .systemIndigo), opacity: DVStyle.fillOpacity * 0.5)
     static let monthPriorGray = DVPaint(color: blend(.systemGray, 0.25, .systemBlue), opacity: DVStyle.fillOpacity * 0.5)
 
-    static func blend(_ a: NSColor, _ fraction: CGFloat, _ b: NSColor) -> NSColor {
+    /// Nonisolated so the provider is too: AppKit may resolve a dynamic color on any thread, and a
+    /// provider inheriting the enum's main-actor isolation would trap there.
+    nonisolated static func blend(_ a: NSColor, _ fraction: CGFloat, _ b: NSColor) -> NSColor {
         NSColor(name: nil) { appearance in
             var result = a
             appearance.performAsCurrentDrawingAppearance {

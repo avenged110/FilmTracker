@@ -39,6 +39,15 @@ struct MenuBar: Commands {
         return film.hasNotesContent
     }
     
+    /// The FilmSheet on screen, or nil when no sheet is up or the sheet is another kind.
+    /// Shows the Film menu's "Add New Release" submenu.
+    @MainActor
+    private var activeFilmSheet: FilmSheet? {
+        guard let sheet = appState.sheetCoordinator.activeSheet,
+              case .film(_, let filmSheet) = sheet.content else { return nil }
+        return filmSheet
+    }
+
     /// True when a sheet or an AlertHostView alert (including database-error alerts) is presented.
     /// Menu items lock while either is up.
     @MainActor
@@ -173,11 +182,11 @@ struct MenuBar: Commands {
             /// shortcuts inside a sheet with no text field focused, and handleSelectAll picks its own scope.
             CommandGroup(replacing: .pasteboard) {
                 Button("Undo") {
-                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil) }
+                    NSApp.sendAction(#selector(UndoRedoActions.undo(_:)), to: nil, from: nil) }
                 .keyboardShortcut("z", modifiers: .command)
                 
                 Button("Redo") {
-                    NSApp.sendAction(Selector(("redo:")), to: nil, from: nil) }
+                    NSApp.sendAction(#selector(UndoRedoActions.redo(_:)), to: nil, from: nil) }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
                 
                 Divider()
@@ -204,6 +213,15 @@ struct MenuBar: Commands {
         Group {
             // MARK: - "Film" Menu: Create
             CommandMenu("Film") {
+                /// Present only while a FilmSheet is open, at the top of the menu. Its items are
+                /// the Releases tab's own "Add New Release" menu (AddReleaseMenuContent).
+                if let filmSheet = activeFilmSheet {
+                    AddReleaseMenuBarItem(filmSheet: filmSheet,
+                                          isAlertActive: appState.isDatabaseErrorAlertActive
+                                              || appState.isHostAlertActive)
+                    Divider()
+                }
+
                 /// Grouped so the "Film" menu stays comfortably inside ViewBuilder's
                 /// ten-child limit as items are added.
                 Group {
@@ -295,12 +313,7 @@ struct MenuBar: Commands {
             // MARK: - "Search" Menu: Create
             /// Declared after "Film", so it follows it in the menu bar.
             CommandMenu("Search") {
-                Button("Search Film Library") {
-                    if let toolbar = NSApp.keyWindow?.toolbar,
-                       let search = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "com.apple.SwiftUI.search" }) as? NSSearchToolbarItem {
-                        search.beginSearchInteraction()
-                    }
-                }
+                Button("Search Film Library") { SearchController.focusField() }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(isSheetActive)
                 SaveSearchMenuItem(isSheetActive: isSheetActive)
@@ -448,6 +461,21 @@ struct MenuBar: Commands {
     }
 }
 
+// MARK: - Undo Actions
+
+/// Spells the responder-chain actions `undo:` and `redo:` for `#selector`. AppKit implements them
+/// (text views, and windows through their undo manager) without exposing them to Swift. Nothing
+/// instantiates it; it only names the selectors. A class rather than an `@objc` protocol,
+/// which `#selector` would need written as `(any UndoRedoActions)`.
+///
+/// A string-built `Selector(("undo:"))` drew a warning in Release builds only: whole-module
+/// compilation also sees SettingsKit's private class that declares the same methods, so the
+/// compiler suggested `#selector`. A Debug build, and Xcode's live per-file check, did not.
+private final class UndoRedoActions: NSObject {
+    @objc func undo(_ sender: Any?) {}
+    @objc func redo(_ sender: Any?) {}
+}
+
 // MARK: - Save Search Menu Item
 /// "Search ▸ Save Search…". A view of its own because its enabled state reads the search
 /// field's text, which changes on every keystroke: read in MenuBar's body, that made each
@@ -517,6 +545,60 @@ struct ViewAsListMenu: View {
         /// Held until the launch's first frame is on screen; see LaunchReveal.menuRefreshAllowed.
         guard LaunchReveal.shared.menuRefreshAllowed else { return }
         isListView = ViewStateManager.shared.activeState.isListView
+    }
+}
+
+// MARK: - Add New Release Menu
+/// The Film menu's copy of the FilmSheet Releases tab's "Add New Release" menu. It embeds the
+/// shared AddReleaseMenuContent (ReleasesView.swift), so its items are defined once and match
+/// the tab's menu, and it is the host that shows their shortcuts. KeyboardManager handles the
+/// keys themselves, through the same FilmSheet.requestAddRelease.
+///
+/// Available from any tab of the sheet, except "Duplicate This Release", which needs the
+/// Releases tab. A choice switches the sheet to that tab, which carries it out once its
+/// carousel is ready, so the user sees the new card arrive.
+struct AddReleaseMenuBarItem: View {
+    let filmSheet: FilmSheet
+    /// An AlertHostView alert is up over the sheet. MenuBar.isSheetActive cannot say this,
+    /// since the sheet itself makes it true.
+    let isAlertActive: Bool
+
+    /// Mirror of FilmSheet.addReleaseAvailability, refreshed as the menu bar opens.
+    /// NSMenu-backed Commands items do not take part in SwiftUI observation, so values are
+    /// pushed in. See SortByMenu.
+    @State private var availability = AddReleaseAvailability()
+
+    var body: some View {
+        Group {
+            if availability.canAdd && !isAlertActive {
+                Menu("Add New Release") {
+                    AddReleaseMenuContent(canDuplicate: availability.canDuplicate,
+                                          showsShortcuts: true) { request in
+                        filmSheet.requestAddRelease(request)
+                    }
+                }
+            } else {
+                /// A disabled plain item, not a disabled Menu: Commands does not carry
+                /// `.disabled` onto a Menu's own item. See SortByMenu.
+                Button("Add New Release") {}
+                    .disabled(true)
+            }
+        }
+        .onAppear { sync() }
+        /// Only the menu bar's own tracking. The notification is also posted for every pop-up
+        /// button's menu, which includes the many pickers on a release card, and a resync there
+        /// that found a change would rebuild menu-bar items while the picker opens.
+        .onReceive(NotificationCenter.default.publisher(for: NSMenu.didBeginTrackingNotification)) { note in
+            guard let menu = note.object as? NSMenu, menu === NSApp.mainMenu else { return }
+            sync()
+        }
+    }
+
+    @MainActor
+    private func sync() {
+        let current = filmSheet.addReleaseAvailability
+        /// Written only on a change, so an unchanged state does not invalidate the menu.
+        if current != availability { availability = current }
     }
 }
 

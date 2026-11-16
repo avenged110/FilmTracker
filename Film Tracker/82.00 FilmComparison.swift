@@ -459,12 +459,19 @@ final class FilmComparison: Loggable {
             let cleaned = s.trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: " mins", with: "")
                 .replacingOccurrences(of: " min", with: "")
+            /// Overflow-checked: an hours field as long as "999999999999999999" parses as an
+            /// Int but traps on `* 60`. A sum out of range reads as unparseable instead.
+            func hoursAndMinutes(_ h: Int, _ m: Int) -> Int? {
+                let (hours, overflowed) = h.multipliedReportingOverflow(by: 60)
+                let (total, overflowedSum) = hours.addingReportingOverflow(m)
+                return overflowed || overflowedSum ? nil : total
+            }
             /// Handle H:MM:SS or HH:MM
             let parts = cleaned.components(separatedBy: ":")
             if parts.count == 3, let h = Int(parts[0]), let m = Int(parts[1]) {
-                return h * 60 + m
+                return hoursAndMinutes(h, m)
             } else if parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]) {
-                return h * 60 + m
+                return hoursAndMinutes(h, m)
             } else if let value = Double(cleaned), value.isFinite, value > 0 {
                 /// The Film model stores runtimes as milliseconds ("6720000"). Reading those
                 /// as minutes made any difference of even one second exceed the tolerance,

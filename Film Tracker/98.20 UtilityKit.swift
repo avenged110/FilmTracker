@@ -2691,14 +2691,19 @@ class GlyphSymbolView: NSView {
         let rect = NSRect(origin: origin, size: symbol.image.size)
         /// Replace the black with the tint, keeping its coverage, in an image of its own: a .sourceIn fill
         /// on the view's backing, at a rect off the pixel grid, could leave a dark seam in the glyph.
-        let image = symbol.image, tint = tint
-        let tinted = NSImage(size: image.size, flipped: false) { r in
+        Self.tinted(symbol.image, tint).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1,
+                                              respectFlipped: true, hints: nil)
+    }
+
+    /// Nonisolated so the drawing handler is too: NSImage may run it on whatever thread draws the
+    /// image, and a handler inheriting the view's main-actor isolation would trap off the main thread.
+    private nonisolated static func tinted(_ image: NSImage, _ tint: NSColor) -> NSImage {
+        NSImage(size: image.size, flipped: false) { r in
             image.draw(in: r)
             tint.set()
             r.fill(using: .sourceIn)
             return true
         }
-        tinted.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 }
 

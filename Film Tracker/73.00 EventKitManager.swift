@@ -20,12 +20,12 @@ final class EventKitManager: Loggable {
     static let shared = EventKitManager()
 
     /// A store and status built off the main actor by `prewarm()`, taken by `init`.
-    private struct Prepared: @unchecked Sendable {
+    private struct Prepared {
         let store: EKEventStore
         let status: EKAuthorizationStatus
     }
-    /// Lives inside its lock, so there is no way to touch it unlocked.
-    nonisolated private static let prepared = OSAllocatedUnfairLock<Prepared?>(initialState: nil)
+    /// Handed over on the main actor by `prewarm()`, taken by `init`.
+    private static var prepared: Prepared?
 
     /// Builds the event store and reads the authorization status on a background thread,
     /// then creates `shared` with them. Both are slow the first time in a process —
@@ -36,16 +36,19 @@ final class EventKitManager: Loggable {
     nonisolated static func prewarm() {
         Task.detached(priority: .utility) {
             let ready = Prepared(store: EKEventStore(), status: EKEventStore.authorizationStatus(for: .event))
-            prepared.withLock { $0 = ready }
-            await MainActor.run { _ = EventKitManager.shared }
+            Task { @MainActor in
+                prepared = ready
+                _ = EventKitManager.shared
+                /// Already nil if init took it; otherwise a selection won the race and this
+                /// store is unused, so it is released rather than held for the session.
+                prepared = nil
+            }
         }
     }
 
     private init() {
-        let ready = Self.prepared.withLock { slot -> Prepared? in
-            defer { slot = nil }
-            return slot
-        }
+        let ready = Self.prepared
+        Self.prepared = nil
         eventStore = ready?.store ?? EKEventStore()
         log("Initialized\(ready != nil ? " (prewarmed)" : "")")
         /// Start observing authorization changes from system

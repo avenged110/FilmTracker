@@ -681,6 +681,37 @@ private struct SearchFieldModifier: ViewModifier {
                 if !isEmpty { searchController.releaseEmptyFieldMenu() }
             }
             .onAppear { searchController.suggestionSource = dataCoordinator }
+            .background(MainWindowFocusSink(searchController: searchController))
+    }
+}
+
+/// The main window's invisible holder of keyboard focus: where SearchController's focus guard
+/// puts focus that would otherwise fall to the search field unasked. Zero-size, draws nothing,
+/// and passes every key up the responder chain, so holding focus here is the same as no view
+/// holding it, except that AppKit and SwiftUI stop looking for somewhere else to put it.
+private struct MainWindowFocusSink: NSViewRepresentable {
+    let searchController: SearchController
+
+    func makeNSView(context: Context) -> SinkView {
+        let view = SinkView()
+        searchController.focusSink = view
+        /// After the view is in its window, which is not yet the case here.
+        Task { @MainActor [weak view] in
+            guard let view, let window = unsafe view.window else { return }
+            searchController.watchFieldFocus(in: window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: SinkView, context: Context) {}
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: SinkView, context: Context) -> CGSize? {
+        .zero
+    }
+
+    final class SinkView: NSView {
+        override var acceptsFirstResponder: Bool { true }
+        override var focusRingType: NSFocusRingType { get { .none } set {} }
     }
 }
 
@@ -702,8 +733,7 @@ private struct SearchFieldSuggestions: View {
 
     var body: some View {
         let limit = SearchSuggestionLimits.menuRows
-        let fields = searchController.searchText.contains("#")
-            ? Array(searchController.getSuggestedFields().prefix(limit)) : []
+        let fields = Array(searchController.getSuggestedFields().prefix(limit))
         let values = showSearchSuggestions
             ? Array(searchController.valueSuggestions.prefix(limit - fields.count)) : []
         /// Saved searches lead the empty field's menu, above the recent searches. Each
@@ -731,32 +761,32 @@ private struct SearchFieldSuggestions: View {
             }
         }
         if !saved.isEmpty {
-            Text("Saved Searches:")
-                .foregroundStyle(.secondary)
-                .selectionDisabled()
-            ForEach(saved) { search in
-                Button {
-                    SavedSearchActions.openInSearchField(search.id)
-                } label: {
-                    Text(search.name)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            /// A native section: the system's header style, never selectable.
+            Section("Saved Searches") {
+                ForEach(saved) { search in
+                    Button {
+                        SavedSearchActions.openInSearchField(search.id)
+                    } label: {
+                        Text(search.name)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
         if !recents.isEmpty {
-            Text("Recent Searches:")
-                .foregroundStyle(.secondary)
-                .selectionDisabled()
-            ForEach(recents, id: \.self) { recent in
-                Button {
-                    searchController.applyRecentSearch(recent)
-                } label: {
-                    Text(recent.label)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            /// A native section: the system's header style, never selectable.
+            Section("Recent Searches") {
+                ForEach(recents, id: \.self) { recent in
+                    Button {
+                        searchController.applyRecentSearch(recent)
+                    } label: {
+                        Text(recent.label)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
@@ -769,10 +799,9 @@ private struct SearchFieldSuggestions: View {
             && searchController.searchText.isEmpty && searchController.currentTokens.isEmpty
     }
 
-    /// Recent searches fill the drop-down only while the field is focused and entirely empty.
+    /// Recent searches fill the drop-down on the same terms, while they are kept.
     private var recentSearchesShown: Bool {
-        isFieldFocused && !searchController.isEmptyFieldMenuHeld && showSearchSuggestions && showRecentSearches
-            && searchController.searchText.isEmpty && searchController.currentTokens.isEmpty
+        savedSearchesShown && showRecentSearches
     }
 
     @ViewBuilder

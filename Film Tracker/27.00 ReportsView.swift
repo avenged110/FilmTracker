@@ -117,6 +117,12 @@ final class ReportsState {
     /// The category mounted in ReportsContentSwitcher. It trails `selectedCategory` by two run-loop cycles on user-driven switches,
     /// so the heavy swap does not compete with the Picker's fade (see selectCategory). Labels read `selectedCategory` and stay instant.
     private(set) var displayedCategory: ReportsCategory = .primary
+    /// The release rows selected in the release table on screen (Release Wishlist, Purchase
+    /// Tracker, Price Tracker), written by each table's selection handler. SelectionState holds
+    /// only film IDs; the FilmSheet's leave-the-view check needs the rows, since those tables
+    /// drop a selection row by row (DataCoordinator.filmWouldLeaveCurrentView). Not observed:
+    /// nothing draws from it.
+    @ObservationIgnored var selectedReleaseRowIDs: Set<UUID> = []
     var visibleItemCount: Int = 0
     /// The Purchase Tracker's column totals, for the StatusBar's summary row. Rebuilt with the tab's rows in updateData.
     private(set) var purchaseTotals = PurchaseTotals()

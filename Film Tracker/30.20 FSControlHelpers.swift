@@ -2625,8 +2625,8 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
     enum Item: Equatable {
         case option(tag: Value, title: String, isEnabled: Bool = true)
         case separator
-        /// A label for the rows below it, in the style of the app's other menu headers
-        /// ("Sort By:" in SortFilterMenu): secondary color, and never selectable.
+        /// A label for the rows below it: a native menu section header, as the app's other
+        /// menu headers are ("Sort By" in SortFilterMenu). Never selectable.
         case header(String)
         /// The collapsed title shown while `tag` (a value meaning "nothing chosen yet") is
         /// the selection — "Select…". A hidden row: it is never in the open menu, so once
@@ -2739,16 +2739,8 @@ struct SheetPopUpButton<Value: Hashable>: NSViewRepresentable {
                     menu.addItem(.separator())
                     tags.append(nil)
                 case .header(let title):
-                    /// Disabled so it cannot be chosen; the attributed title keeps the
-                    /// secondary color rather than the disabled gray, as SortFilterMenu's
-                    /// SwiftUI headers do.
-                    let menuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-                    menuItem.attributedTitle = NSAttributedString(string: title, attributes: [
-                        .foregroundColor: NSColor.secondaryLabelColor,
-                        .font: button.font ?? NSFont.menuFont(ofSize: 0),
-                    ])
-                    menuItem.isEnabled = false
-                    menu.addItem(menuItem)
+                    /// The system's section header: its own font and color, never selectable.
+                    menu.addItem(.sectionHeader(title: title))
                     tags.append(nil)
                 case .placeholder(let tag, let title):
                     let menuItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -2798,6 +2790,170 @@ struct SheetMenuPicker<Value: Hashable>: View {
         SheetPopUpButton(selection: $selection, items: items)
             .frame(width: width, height: SheetPopUpButton<Value>.layoutHeight,
                    alignment: .leading)
+    }
+}
+
+// MARK: - Pull-down Menu
+///
+/// The sheet's multi-select control: a pull-down `NSPopUpButton` driven directly, in place of a
+/// SwiftUI `Menu` whose rows are `Toggle`s. The release card's five such menus (Misc. Traits,
+/// Artwork, Market Availability, Aspect Ratio, Included Versions; 33.20) are built on it.
+///
+// MARK: Why not the SwiftUI Menu
+///
+/// Measured 2026-11-15 on a copy of the real library (each part swapped for a same-size
+/// placeholder, ten configurations interleaved in one process, two runs): the five SwiftUI menus
+/// together cost about 13 ms of the ~165 ms it takes to mount a five-release carousel, and 13–22 ms
+/// of a carousel step. Removing any one of them saved nothing measurable, so the cost is
+/// SwiftUI's per-card menu machinery, which all five share. What SwiftUI builds is an ordinary
+/// pull-down `NSPopUpButton` (a private subclass) whose rows it builds only while it tracks.
+///
+// MARK: What is kept identical
+///
+/// Read off SwiftUI's control by a harness probe and matched: pull-down, rounded bezel, bordered,
+/// regular control size, 13 pt system font, natural alignment, `arrowAtCenter`, the title taken
+/// from the button rather than a menu row and truncated at the tail, `autoenablesItems` off.
+/// The title is `labelColor`, or `secondaryLabelColor` while it is a "Select…" placeholder; AppKit
+/// draws a disabled button's title in its own disabled color either way. The open menu has the
+/// same rows: a separator as the pull-down's hidden first row, then one plain row per option
+/// with an `on` state when selected and disabled where the option is locked, and separators for
+/// dividers. Laid out at `SheetPopUpButton.layoutHeight` through the call site's frame, exactly
+/// as the SwiftUI menu was (its host measured 180 × 20 with a 187 × 25 bezel).
+///
+// MARK: Rows are built when the menu opens
+///
+/// The rows are plain values, kept by the coordinator and turned into menu items in
+/// `menuNeedsUpdate(_:)`, so an update that changes a selection costs an array assignment and
+/// nothing is built for a menu nobody opens.
+struct SheetPullDownMenu: NSViewRepresentable, Equatable {
+    enum Row: Equatable {
+        /// A checkable option. `id` names it to `onToggle`; `isEnabled` false keeps the row (and
+        /// its check mark) but it cannot be chosen.
+        case toggle(id: String, title: String, isOn: Bool, isEnabled: Bool = true)
+        case separator
+    }
+
+    /// The identity of what `onToggle` writes to (the release card passes its model's id). Part
+    /// of equality: see `==`. A `UUID` rather than `AnyHashable`: `==` is nonisolated, and it
+    /// can read only a `Sendable` property of this main-actor view.
+    let owner: UUID
+    /// The closed button's text.
+    let title: String
+    /// Whether `title` is a "Select…" placeholder, drawn in the secondary color.
+    let isPlaceholder: Bool
+    let rows: [Row]
+    /// A row was chosen: its id and the state it asks for (the opposite of its current one).
+    let onToggle: (_ id: String, _ isOn: Bool) -> Void
+
+    /// Equal when it shows the same thing for the same owner, so a parent re-render that changes
+    /// nothing here skips the update; `onToggle`, a closure, could never compare equal. While
+    /// they are equal SwiftUI keeps the handler from the last update (an environment change,
+    /// such as `.disabled`, still reaches `updateNSView`, but with that kept value), so equality
+    /// has to cover everything the handler depends on:
+    ///   • `owner`. A merged combo pack's variant picker re-points the same card at another
+    ///     release, and two variants can show identical menus. Without it the kept handler
+    ///     would go on writing to the release the card had been showing.
+    ///   • `rows`. Every value the card's handlers capture (a selected kind, a status, a locked
+    ///     row) is shown in them.
+    /// A call site whose handler captures anything else must not rely on this.
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.owner == b.owner && a.title == b.title && a.isPlaceholder == b.isPlaceholder
+            && a.rows == b.rows
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: true)
+        button.bezelStyle = .rounded
+        button.isBordered = true
+        button.imagePosition = .noImage
+        button.alignment = .natural
+        if let cell = button.cell as? NSPopUpButtonCell {
+            cell.usesItemFromMenu = false
+            cell.arrowPosition = .arrowAtCenter
+            cell.lineBreakMode = .byTruncatingTail
+        }
+        /// Sized by the call site's frame, as SheetPopUpButton is.
+        button.setContentHuggingPriority(.defaultHigh, for: .vertical)
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.delegate = context.coordinator
+        button.menu = menu
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.rows = rows
+        coordinator.onToggle = onToggle
+
+        let nsSize = NSControl.ControlSize(context.environment.controlSize)
+        if button.controlSize != nsSize { button.controlSize = nsSize }
+        let fontSize = NSFont.systemFontSize(for: nsSize)
+        if button.font?.pointSize != fontSize { button.font = NSFont.systemFont(ofSize: fontSize) }
+        let enabled = context.environment.isEnabled
+        if button.isEnabled != enabled { button.isEnabled = enabled }
+
+        if coordinator.shownTitle != title || coordinator.shownPlaceholder != isPlaceholder
+            || coordinator.shownFontSize != fontSize {
+            coordinator.shownTitle = title
+            coordinator.shownPlaceholder = isPlaceholder
+            coordinator.shownFontSize = fontSize
+            /// With `usesItemFromMenu` off, the closed button shows the cell's own menu item, not
+            /// a row of the menu and not the button's title.
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = .byTruncatingTail
+            let titleItem = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            titleItem.attributedTitle = NSAttributedString(string: title, attributes: [
+                .foregroundColor: isPlaceholder ? NSColor.secondaryLabelColor : NSColor.labelColor,
+                .font: NSFont.systemFont(ofSize: fontSize),
+                .paragraphStyle: paragraph,
+            ])
+            (button.cell as? NSPopUpButtonCell)?.menuItem = titleItem
+        }
+    }
+
+    /// The size it is offered. The call site's frame fixes both dimensions, so measuring the
+    /// button's intrinsic size (its title, through the cell) would only arrive at the same answer.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSPopUpButton, context: Context) -> CGSize? {
+        guard let width = proposal.width, let height = proposal.height,
+              width.isFinite, height.isFinite else { return nil }
+        return CGSize(width: width, height: height)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSMenuDelegate {
+        var rows: [Row] = []
+        var onToggle: (_ id: String, _ isOn: Bool) -> Void = { _, _ in }
+        var shownTitle: String?
+        var shownPlaceholder = false
+        var shownFontSize: CGFloat = 0
+
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            /// A pull-down's first row is its title and is never shown.
+            menu.addItem(.separator())
+            for row in rows {
+                switch row {
+                case .toggle(let id, let title, let isOn, let isEnabled):
+                    let item = NSMenuItem(title: title, action: #selector(choose(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = id
+                    item.state = isOn ? .on : .off
+                    item.isEnabled = isEnabled
+                    menu.addItem(item)
+                case .separator:
+                    menu.addItem(.separator())
+                }
+            }
+        }
+
+        @objc func choose(_ sender: NSMenuItem) {
+            guard let id = sender.representedObject as? String else { return }
+            onToggle(id, sender.state != .on)
+        }
     }
 }
 

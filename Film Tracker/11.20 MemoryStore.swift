@@ -43,7 +43,12 @@ final class MemoryStore: Loggable {
     nonisolated static let logTag = "[MemoryStore]"
     
     // MARK: - Storage (value types only — no model objects)
-    private var films: [UUID: FilmSnapshot] = [:] { didSet { contentVersion = Self.nextContentVersion() } }
+    private var films: [UUID: FilmSnapshot] = [:] {
+        didSet {
+            contentVersion = Self.nextContentVersion()
+            filmsVersion = contentVersion
+        }
+    }
     private var lists: [UUID: MemoryList] = [:] { didSet { contentVersion = Self.nextContentVersion() } }
     private var filmToLists: [UUID: Set<UUID>] = [:]
     private(set) var hallOfFameFilms: [UUID] = []
@@ -86,6 +91,11 @@ final class MemoryStore: Loggable {
     /// mutation path can miss it. `filmToLists` is not persisted and is excluded. The counter is
     /// shared by all instances, so two stores never share a version once mutated.
     private var contentVersion: UInt64 = 0
+    /// Moves with every write to `films` (not `lists`), drawn from the same counter as
+    /// `contentVersion`, so it is unique across stores. A reader that remembers it can tell
+    /// whether the films changed without holding the dictionary, which would keep a stale
+    /// copy alive and make the next edit copy all of it.
+    private(set) var filmsVersion: UInt64 = 0
     private static var contentVersionCounter: UInt64 = 0
     private static func nextContentVersion() -> UInt64 {
         contentVersionCounter &+= 1
@@ -420,7 +430,7 @@ final class MemoryStore: Loggable {
         guard !allIDs.isEmpty else { return [] }
 
         let sortedIDs = await MetadataCache.shared.sortAsync(allIDs, by: sortOption, direction: direction)
-        var sortedFilms = sortedIDs.compactMap { films[$0] }
+        var sortedFilms = snapshots(for: sortedIDs)
 
         /// Apply saved filters, so the cache matches what loadFilms will request.
         if !filterOptions.isEmpty {
@@ -502,7 +512,7 @@ final class MemoryStore: Loggable {
         }
         
         /// Convert IDs to FilmSnapshot objects
-        var sortedFilms = sortedIDs.compactMap { films[$0] }
+        var sortedFilms = snapshots(for: sortedIDs)
         
         /// Apply filters (search filtering is handled by DataCoordinator)
         if !filterOptions.isEmpty {
@@ -521,6 +531,18 @@ final class MemoryStore: Loggable {
     
     func getFilm(_ id: UUID) -> FilmSnapshot? {
         return films[id]
+    }
+
+    /// The snapshots for `ids`, in order, in a buffer sized up front. The view cache keeps these
+    /// arrays, and a `compactMap` grows by doubling: at 1,400 films it leaves about 150 unused
+    /// snapshot slots (roughly 100 KB) in every cached view.
+    private func snapshots(for ids: [UUID]) -> [FilmSnapshot] {
+        var result: [FilmSnapshot] = []
+        result.reserveCapacity(ids.count)
+        for id in ids {
+            if let film = films[id] { result.append(film) }
+        }
+        return result
     }
     
     func getAllFilms() -> [FilmSnapshot] {

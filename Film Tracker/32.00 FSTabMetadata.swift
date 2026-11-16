@@ -70,9 +70,6 @@ final class FSTabMetadata: FilmSheetTabChangeTracking {
     
     /// Change tracking.
     var hasChanges: Bool = false
-    
-    /// Flag to suppress change tracking during initial data load.
-    private var isLoadingData: Bool = false
 
     /// Whether the iTunes Comments field is shown on this sheet.
     ///
@@ -173,10 +170,6 @@ final class FSTabMetadata: FilmSheetTabChangeTracking {
     private func loadMetadata(for id: UUID) {
         guard let owner = owner else { return }
 
-        /// Set flag to suppress change tracking during load.
-        isLoadingData = true
-        defer { isLoadingData = false }
-
         /// Get film from DataCoordinator's memory store (instant)
         guard let film = owner.coordinator.getFilm(id) else {
             owner.log("ERROR: Film \(id) not found in memory store")
@@ -232,19 +225,10 @@ final class FSTabMetadata: FilmSheetTabChangeTracking {
 
     // MARK: - Change Tracking
     private func checkForChanges() {
-        /// Don't track changes during initial data load.
-        guard !isLoadingData else { return }
-
-        /// In add mode there is no original snapshot and hasChanges is always false.
-        /// Skip the assignment entirely when it would be a no-op to avoid firing
-        /// an observation invalidation on every keystroke for no reason.
-        guard let owner = owner, owner.isEditMode, let orig = original else {
-            /// Only write — and therefore only fire an observation invalidation —
-            /// when the value actually needs to change (defensive; should always
-            /// be false here).
-            if hasChanges { hasChanges = false }
-            return
-        }
+        /// No baseline means nothing to compare: add mode, or the initial load, which
+        /// assigns every field before captureOriginalValues() sets `original`. hasChanges
+        /// is then false, since only the latch below ever sets it.
+        guard let owner, let orig = original else { return }
         
         /// One comparison against the baseline. `FilmMetadataFields` is what a save
         /// actually writes, so any difference here is a real, persistable edit and
@@ -330,6 +314,22 @@ struct FSTabMetadataView: View {
     /// avoids repeated static property dispatch during layout passes.
     private static let labelWidth        = Preferences.filmSheetLabelWidth
     private static let pickerWidth       = Preferences.standardPickerWidth
+
+    /// PROTOTYPE (2026-11-15): the Tags list's suggestions, from the library's saved tags,
+    /// leaving out the ones already in this film's list. See ValueSuggestions.
+    ///
+    /// The source is equal to another only when both read the same view model, so a tab
+    /// re-pointed at another film's model hands the list a new one. The model is held
+    /// strongly so its identifier cannot be reused while this source exists; the source
+    /// lives in the list's environment, which the model does not reference, so no cycle.
+    private var tagSuggestions: StringListSuggestionSource {
+        let viewModel = viewModel
+        return StringListSuggestionSource(id: ObjectIdentifier(viewModel)) { typed in
+            guard let coordinator = viewModel.owner?.coordinator else { return [] }
+            return ValueSuggestions.ranked(.tags, in: coordinator, typed: typed,
+                                           excluding: Set(viewModel.tags.map(SearchText.key)))
+        }
+    }
 
     /// The menu pickers' rows, built once from the option tables in FSTabMetadata. The empty
     /// option is each menu's placeholder row.
@@ -659,6 +659,7 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 3)
+                .environment(\.stringListSuggestions, tagSuggestions)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

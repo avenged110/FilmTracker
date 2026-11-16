@@ -83,6 +83,10 @@ final class FilmSheet: Identifiable, Loggable {
     /// copied whole by that alert's "Copy Error" button.
     var saveErrorDetail: String?
 
+    /// Presents the "Save Changes?" alert: the save would take the film out of the view on
+    /// screen (see requestConfirm).
+    var showingLeaveViewAlert: Bool = false
+
     /// Change tracking for edit mode.
     private(set) var hasChanges: Bool = false
 
@@ -317,6 +321,59 @@ final class FilmSheet: Identifiable, Loggable {
         dismissHandler?()
     }
 
+    /// The Save action (the Save button and a bare Return). Saves at once, unless
+    /// Preferences.confirmChangesBeforeDisappear is on and the save would take the film out
+    /// of the view on screen — then it raises the "Save Changes?" alert, whose "Save Changes
+    /// Anyway" calls confirm(). Only an edit can do that: a new film is in no view yet.
+    func requestConfirm() {
+        guard !isConfirming else { return }
+        /// Land a held list commit first, as confirm() does, so the check reads it.
+        if ListPopoverDismissal.settlePending() { return }
+        if Preferences.confirmChangesBeforeDisappear, isEditMode,
+           let outcome = saveOutcome(), coordinator.filmWouldLeaveCurrentView(outcome) {
+            Self.log("Save would remove film \(filmID) from the current view — asking first")
+            showingLeaveViewAlert = true
+            return
+        }
+        confirm()
+    }
+
+    /// The film as saving now would leave it, for the leave-the-view check: the same
+    /// assembly, three-way merge, release deltas and list deltas confirm() applies, and the
+    /// two changes the save makes on its own (the "just watched" Queue removal and the Hall
+    /// of Fame toggle). Writes nothing to the library. It does settle the Releases tab's
+    /// deferred work, which confirm() also does first and which would finish on its own
+    /// within a fraction of a second. Nil in add mode or if the film is gone.
+    private func saveOutcome() -> FilmSaveOutcome? {
+        guard isEditMode, let current = coordinator.getFilm(filmID) else { return nil }
+        /// Before assembleFilm, as in confirm(): it sums the purchased discs, and a release
+        /// still in its delete fly-up would otherwise count toward the predicted total.
+        releasesTab.settlePendingWork()
+        let lastModified = StorageDateFormatters.timestamp.format(Date())
+        let assembled = assembleFilm(id: filmID, posterUID: current.posterUID,
+                                     existingFilm: current, lastModified: lastModified)
+        var film = mergeWithCurrent(assembled, current: current, lastModified: lastModified).snapshot
+
+        let releaseDeltas = releasesTab.buildReleaseDeltas()
+        film.releases = DataCoordinator.finalReleases(current: current.releases, isNewFilm: false,
+                                                      create: releaseDeltas.create,
+                                                      update: releaseDeltas.update,
+                                                      delete: releaseDeltas.delete)
+
+        let listDeltas = listMembershipDeltas()
+        var listIDs = coordinator.getListIDs(forFilm: filmID)
+            .union(listDeltas.add).subtracting(listDeltas.remove)
+        if listDeltas.add.isDisjoint(with: FilmQueue.allListIDs),
+           DataCoordinator.addsRecentViewing(old: current.calendarTable, new: film.calendarTable) {
+            listIDs.subtract(FilmQueue.allListIDs)
+        }
+
+        let inHallOfFame = hallOfFameAfterSave(currentlyIn: current.hofPosition > 0)
+        film.hofPosition = inHallOfFame ? max(current.hofPosition, 1) : 0
+
+        return FilmSaveOutcome(film: film, listIDs: listIDs, inHallOfFame: inHallOfFame)
+    }
+
     /// Confirms and saves all changes to the film via the Sendable DTO / changeset path.
     ///
     /// Flow:
@@ -448,17 +505,12 @@ final class FilmSheet: Identifiable, Loggable {
                 /// its own dedicated coordinator path rather than through FilmChangeset.
                 /// Called AFTER saveFilmChangeset so the film exists in MemoryStore.
                 ///
-                /// Three-way, like the fields: act only when the user toggled it (the
-                /// toggle differs from what the sheet loaded) AND the film is not already
-                /// there. Comparing against the film at save time instead would read a
-                /// Hall of Fame entry made elsewhere while the sheet was open as the user
-                /// switching it off, and remove it.
-                let loadedInHallOfFame = isEditMode ? ((storedFilm?.hofPosition ?? 0) > 0) : false
+                /// Acts only when the three-way rule (hallOfFameAfterSave) moves the film.
                 let currentInHallOfFame = isEditMode
                     ? ((coordinator.getFilm(id)?.hofPosition ?? 0) > 0) : false
-                if detailsTab.inHallOfFame != loadedInHallOfFame,
-                   detailsTab.inHallOfFame != currentInHallOfFame {
-                    if detailsTab.inHallOfFame {
+                let targetInHallOfFame = hallOfFameAfterSave(currentlyIn: currentInHallOfFame)
+                if targetInHallOfFame != currentInHallOfFame {
+                    if targetInHallOfFame {
                         coordinator.addToHallOfFame(id)
                         Self.log("Added film \(id) to Hall of Fame")
                     } else {
@@ -480,6 +532,17 @@ final class FilmSheet: Identifiable, Loggable {
                 self.showingSaveError = true
             }
         }
+    }
+
+    /// Hall of Fame membership once a save lands, three-way like the fields: the toggle
+    /// wins only when the user changed it from what the sheet loaded; otherwise the film
+    /// keeps `currentlyIn`. Comparing the toggle against the film at save time instead
+    /// would read a Hall of Fame entry made elsewhere while the sheet was open as the user
+    /// switching it off. Shared by confirm() Step 9 and saveOutcome(). In add mode nothing
+    /// was loaded, so the toggle is the answer.
+    private func hallOfFameAfterSave(currentlyIn: Bool) -> Bool {
+        let loaded = (storedFilm?.hofPosition ?? 0) > 0
+        return detailsTab.inHallOfFame != loaded ? detailsTab.inHallOfFame : currentlyIn
     }
 
     // MARK: - Snapshot Assembly

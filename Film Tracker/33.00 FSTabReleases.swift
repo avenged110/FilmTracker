@@ -25,10 +25,13 @@ final class ReleaseCardModel {
 
     var studio: String
 
-    // MARK: - Studio UI state (ephemeral — not in snapshot/contentHash/serialization)
+    // MARK: - Studio UI state (ephemeral — not in snapshot or serialization)
     /// These drive the picker/text-field combo in ReleaseCardView. The canonical persisted value
     /// is always `studio`; these are derived from it at load time via initializeStudioUI() and
     /// kept in sync by ReleaseCardView's onChange handlers.
+    ///
+    /// They ARE in `contentHash`, which only drives ReleaseChangeObserver: a change to either
+    /// has to reach a combo pack's bundled discs even when `studio` itself does not move.
     ///
     /// studioSelection is the selected Picker tag: a known studio name, "" (Select Studio…), or
     /// "Other". studioCustomText is the TextField shown when the selection is "Other".
@@ -443,6 +446,81 @@ final class ReleaseCardModel {
         independence   = defaults.independence
     }
 
+    // MARK: - Duplication
+    /// The fields `duplicate(sortOrder:)` does not copy from a PURCHASED release, named as
+    /// `ReleaseCardState` spells them. They are the rows under the card's divider (Cost /
+    /// Spent, Purchase Date, Condition, Notes) plus `numberOfCopies`, which the card does not
+    /// show: each describes one purchase rather than the disc, so the copy starts with a new
+    /// release's values. FSTabReleases.duplicateRelease checks every copy against this list
+    /// in debug builds.
+    static let purchaseOnlyFields: Set<String> = [
+        "cost", "amountSpent", "purchaseDate", "hasPurchaseDate", "condition", "notes",
+        "numberOfCopies"
+    ]
+
+    /// A new release in the same format, carrying this release's fields, for "Duplicate This
+    /// Release".
+    ///
+    /// Everything is copied except identity, `dateAdded`, `sortOrder` (the caller's), the
+    /// Wishlist position, and, on a purchased release, `purchaseOnlyFields`. The copy is never
+    /// wishlisted: a position names one release, and a copy starts off the Wishlist.
+    ///
+    /// The hierarchy is not copied either. A combo-pack parent's children are duplicated and
+    /// wired by FSTabReleases.duplicateRelease, which owns both sides of that edge.
+    ///
+    /// The studio picker's UI state is copied as it stands rather than re-derived, as
+    /// syncComboChild copies it, so a card mid-way through choosing "Other" duplicates as the
+    /// user sees it.
+    func duplicate(sortOrder: Int) -> ReleaseCardModel {
+        let copy = ReleaseCardModel(format: format, sortOrder: sortOrder,
+                                    filmReleaseYear: filmReleaseYear,
+                                    filmReleaseDay: filmReleaseDay)
+        copy.studio             = studio
+        /// Custom text before selection, the order initializeStudioUI documents.
+        copy.studioCustomText   = studioCustomText
+        copy.studioSelection    = studioSelection
+        copy.releaseYear        = releaseYear
+        copy.hasReleaseYear     = hasReleaseYear
+        /// After hasReleaseYear, whose didSet clears the month and day when it goes false.
+        copy.releaseMonthDay    = releaseMonthDay
+        copy.baseReleaseYear    = baseReleaseYear
+        copy.hasBaseReleaseYear = hasBaseReleaseYear
+        copy.purchased          = purchased
+        copy.includedVersions   = includedVersions
+        copy.independence       = independence
+        copy.videoFormat        = videoFormat
+        copy.releaseAspectRatio = releaseAspectRatio
+        copy.scanningMethod     = scanningMethod
+        copy.audioFormat        = audioFormat
+        copy.audioChannels      = audioChannels
+        copy.hasSubtitles       = hasSubtitles
+        copy.numberOfDiscs      = numberOfDiscs
+        copy.discMultiPack      = discMultiPack
+        copy.hasArtwork         = hasArtwork
+        copy.remastered         = remastered
+        copy.nationalOrigin     = nationalOrigin
+        copy.replicationType    = replicationType
+        copy.discCapacity       = discCapacity
+        copy.hasHDR             = hasHDR
+        copy.masterType         = masterType
+        copy.regionLock         = regionLock
+        copy.regionLockBypass   = regionLockBypass
+        copy.marketAvailability = marketAvailability
+        copy.lowestPrice        = lowestPrice
+        copy.lowestPriceDate    = lowestPriceDate
+        copy.hasLowestPriceDate = hasLowestPriceDate
+        if !purchased {
+            copy.numberOfCopies  = numberOfCopies
+            copy.cost            = cost
+            copy.amountSpent     = amountSpent
+            copy.purchaseDate    = purchaseDate
+            copy.hasPurchaseDate = hasPurchaseDate
+            copy.condition       = condition
+            copy.notes           = notes
+        }
+        return copy
+    }
+
     // MARK: - Snapshot
     /// Produces a value-type ReleaseCardState for diffing and serialization.
     ///
@@ -535,6 +613,8 @@ final class ReleaseCardModel {
     ///     register the read, let alone the value.)
     ///   • The three Doubles are hashed by bit pattern, so a 0.0 → -0.0 write still signals even though
     ///     `==` considers the two equal.
+    ///   • The studio menu's UI state (`studioSelection`, `studioCustomText`) is not saved, so the
+    ///     snapshot leaves it out, but a combo pack's bundled discs mirror it.
     /// The release date as it is saved, or nil while the card has none. Built by
     /// ReleaseDateValue.init(year:monthDay:format:), so what is saved always reads back: a
     /// stored day the current year lacks is clamped, and a full date that would fail this
@@ -565,6 +645,12 @@ final class ReleaseCardModel {
         h.combine(cost.bitPattern)
         h.combine(amountSpent.bitPattern)
         h.combine(lowestPrice.bitPattern)
+        /// The studio menu's UI state, which `snapshot()` leaves out because it is not saved.
+        /// Choosing "Other" over a blank studio, or leaving an empty "Other", writes the
+        /// same `studio` it replaces, so without these the change would never reach
+        /// syncComboChildFields and the bundled discs' menus would show the old choice.
+        h.combine(studioSelection)
+        h.combine(studioCustomText)
         return h.finalize()
     }
 }
@@ -601,6 +687,110 @@ extension ReleaseCardModel {
     static func precedes(_ lhs: ReleaseCardModel, _ rhs: ReleaseCardModel) -> Bool {
         if lhs.sortOrder != rhs.sortOrder { return lhs.sortOrder < rhs.sortOrder }
         return lhs.id.uuidString < rhs.id.uuidString
+    }
+}
+
+// MARK: - Add Release Request
+/// One item of the "Add New Release" menu: a new release in a format, or a copy of the card
+/// on screen. The sheet's menu, the menu bar's copy of it, and the keyboard shortcuts all
+/// describe what they want with this, and FSTabReleases.perform(_:) carries it out.
+enum AddReleaseRequest: Equatable, Sendable {
+    /// A new release with the format's defaults.
+    case format(ReleaseFormat)
+    /// A copy of the card on screen, in the slot to its right.
+    case duplicateCurrent
+
+    // MARK: Keyboard shortcuts
+    /// Each item's key and modifiers, defined once. The menu bar shows them through
+    /// `keyboardShortcut`, and KeyboardManager recognizes them through `matching(key:modifiers:)`,
+    /// so what the menu shows is what the key does.
+    ///
+    /// KeyboardManager handles these keys and consumes them whenever a FilmSheet is open, before AppKit
+    /// matches menu key equivalents. ⌘N and ⌥⌘N are also File menu shortcuts (Create New List…,
+    /// Duplicate List), which a sheet disables, so the shortcuts never reach either menu.
+    private var binding: (key: Character, modifiers: NSEvent.ModifierFlags) {
+        switch self {
+        case .format(.uhd4K):   ("n", [.option, .command])
+        case .format(.bluRay):  ("n", .command)
+        case .format(.dvd):     ("n", [.shift, .option, .command])
+        case .duplicateCurrent: ("d", .command)
+        }
+    }
+
+    /// Every request, in menu order. Built once, for `matching(key:modifiers:)`.
+    private static let all: [AddReleaseRequest] =
+        ReleaseFormat.allCases.map { .format($0) } + [.duplicateCurrent]
+
+    /// The shortcut as the menu bar shows it.
+    var keyboardShortcut: KeyboardShortcut {
+        let binding = binding
+        var modifiers: EventModifiers = []
+        if binding.modifiers.contains(.shift)   { modifiers.insert(.shift) }
+        if binding.modifiers.contains(.option)  { modifiers.insert(.option) }
+        if binding.modifiers.contains(.command) { modifiers.insert(.command) }
+        return KeyboardShortcut(KeyEquivalent(binding.key), modifiers: modifiers)
+    }
+
+    /// The request bound to a key press, or nil. `key` is the lowercased
+    /// charactersIgnoringModifiers and `modifiers` the normalized flags, as KeyboardManager
+    /// compares every shortcut.
+    static func matching(key: Character, modifiers: NSEvent.ModifierFlags) -> AddReleaseRequest? {
+        all.first { $0.binding.key == key && $0.binding.modifiers == modifiers }
+    }
+}
+
+// MARK: - Add Release Availability
+/// Which "Add New Release" items can be used right now. The menu bar's submenu and the keyboard
+/// shortcuts both read this from FilmSheet.addReleaseAvailability, so a shortcut works exactly
+/// when its menu item is enabled.
+struct AddReleaseAvailability: Equatable {
+    /// Any item at all: under the card cap, no card animating, no confirmation alert up, and
+    /// the sheet not saving or showing an alert of its own. Carousel hydration is not part of
+    /// it; a request waits for that (FSTabReleases.pendingAddRequest).
+    var canAdd = false
+    /// "Duplicate This Release" as well: the sheet is on its Releases tab, where "this
+    /// release" is the card on screen, and there is a card to copy.
+    var canDuplicate = false
+
+    func allows(_ request: AddReleaseRequest) -> Bool {
+        switch request {
+        case .format:           canAdd
+        case .duplicateCurrent: canAdd && canDuplicate
+        }
+    }
+}
+
+extension FilmSheet {
+    /// What the menu bar's "Add New Release" submenu and the shortcuts may do. See
+    /// AddReleaseAvailability.
+    var addReleaseAvailability: AddReleaseAvailability {
+        guard let releasesTab, !isConfirming, !showingSaveError, !showingLeaveViewAlert else {
+            return AddReleaseAvailability()
+        }
+        let canAdd = releasesTab.canAddRelease() && !releasesTab.isTransitioning
+            && !releasesTab.isConfirmationPresented
+        return AddReleaseAvailability(
+            canAdd: canAdd,
+            canDuplicate: selectedTab == .releases && releasesTab.canDuplicateCurrentRelease)
+    }
+
+    /// Carries out a choice from the menu bar's "Add New Release" submenu or its shortcut, from
+    /// any tab: switches to the Releases tab and hands the request to it.
+    ///
+    /// The request is left in `pendingAddRequest` and the tab is told to take it. A tab that is
+    /// built takes it on this call, or once its carousel has hydrated. One that is not built
+    /// yet takes it when the switch builds it. See FSTabReleasesView.takePendingAddRequest.
+    ///
+    /// Availability is re-read here, not trusted from the menu, whose mirror dates from when
+    /// the menu bar opened.
+    func requestAddRelease(_ request: AddReleaseRequest) {
+        guard let releasesTab, addReleaseAvailability.allows(request) else { return }
+        releasesTab.pendingAddRequest = request
+        /// Guarded: an equal-value write still notifies observers, and selectedTab's didSet
+        /// rewrites appearedTabs, so writing .releases over .releases would re-render the
+        /// sheet's tab content for nothing.
+        if selectedTab != .releases { selectedTab = .releases }
+        AppEventBus.shared.sendCommand(.performPendingAddRelease)
     }
 }
 
@@ -1426,13 +1616,8 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
         /// scheduleChangeCheck's Task hop, which runs at least one run-loop turn after
         /// loadExistingReleases (synchronous) has already reset the flag to false — see
         /// rebaselineChangeObservers' "Why this exists rather than an isLoadingData check".
-        guard let owner = owner, owner.isEditMode else {
-            /// Only write — and therefore only emit an @Observable invalidation —
-            /// when the value actually needs to change. All tab checkForChanges()
-            /// methods share this pattern.
-            if hasChanges { hasChanges = false }
-            return
-        }
+        /// Add mode has no baseline, so it never reads as changed; hasChanges stays false.
+        guard let owner, owner.isEditMode else { return }
 
         /// Structural change: different count or different IDs.
         let currentIDs = releases.map { $0.id }
@@ -2152,6 +2337,33 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
         max(0, 1 - dimmingPerCardStep * Double(abs(distance)))
     }
 
+    // MARK: - Add New Release requests
+    /// A choice from the menu bar's "Add New Release" submenu or its shortcut, held until the
+    /// carousel can take it. Set only by FilmSheet.requestAddRelease.
+    ///
+    /// Those can be used while the sheet shows another tab. The Releases tab may not even be
+    /// built yet then, and a freshly built carousel is not ready for a structural change until
+    /// it has hydrated, so the request waits here. FSTabReleasesView takes it once the carousel
+    /// is ready and clears it whether or not it can be carried out, so a request that failed a
+    /// gate never fires later.
+    ///
+    /// Not observed: no view reads it in a body. The view is told to look by a bus command,
+    /// by appearing, and by its carousel becoming ready.
+    @ObservationIgnored var pendingAddRequest: AddReleaseRequest? = nil
+
+    /// Whether "Duplicate This Release" has a card to copy. Shared by both menu hosts.
+    var canDuplicateCurrentRelease: Bool { !carouselEntries.isEmpty }
+
+    /// Carries out `request`. The single place both menus, and the keyboard shortcuts' bus
+    /// command, end up; the readiness gates (carousel hydration, transitions, an open
+    /// confirmation) are the caller's.
+    func perform(_ request: AddReleaseRequest) {
+        switch request {
+        case .format(let format):  addRelease(format: format.rawValue)
+        case .duplicateCurrent:    duplicateCurrentRelease()
+        }
+    }
+
     // MARK: - Release Management
     /// Adds a release in `format`, which the caller always supplies — there is no "current"
     /// format to infer when every format shares one stack.
@@ -2178,6 +2390,124 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
 
         newModel.applyNewReleaseDefaults(for: format)
 
+        insertCard(newModel, children: [])
+        owner?.log("Added new release form with format: \(format)")
+    }
+
+    /// Adds a copy of the card the user is looking at, in the slot immediately to its right.
+    /// See ReleaseCardModel.duplicate(sortOrder:) for what is copied.
+    ///
+    /// The whole CARD is duplicated: on a combo pack that is the 4K parent and every bundled
+    /// Blu-ray, whichever segment is showing, and the copy is a combo pack of its own with the
+    /// same number of discs. Each child is copied from its counterpart, and the locked fields
+    /// are then re-synced from the new parent exactly as on any combo pack.
+    ///
+    /// The copy takes the slot after the source by `sortOrder`, which `makeRoom(after:)`
+    /// opens. Its format matches the source's, so the format rank keeps it in the source's run
+    /// and the order within the run puts it next.
+    func duplicateCurrentRelease() {
+        guard canAddRelease() else {
+            owner?.log("Duplicate release rejected: the carousel is at the "
+                       + "\(Self.maxReleases)-release cap")
+            return
+        }
+        guard carouselEntries.indices.contains(currentCardIndex) else {
+            owner?.log("Duplicate release rejected: no card is displayed")
+            return
+        }
+        /// Not while the carousel is moving: mid-step the index can still name the card being
+        /// left, and a queued step names a card not reached yet, so "this release" is not
+        /// settled. An add needs no such guard; it copies nothing from the card on screen.
+        guard !isNavigationLocked, queuedNavigationStep == nil else {
+            owner?.log("Duplicate release rejected: the carousel is moving between cards")
+            return
+        }
+        /// A Type change made a moment ago may not have reached the card's bundled discs yet.
+        /// Finished first, so the copy is of the card the user asked for, with the disc count
+        /// its Type calls for. Read the entry only afterwards, since it can add or remove discs.
+        settleComboWork(for: carouselEntries[currentCardIndex].parent)
+        let entries = carouselEntries
+        let idx = currentCardIndex
+        let source = entries[idx].parent
+        let sourceChildren = entries[idx].children
+
+        let copy = source.duplicate(sortOrder: makeRoom(after: source))
+        /// Read after makeRoom, which may have raised the sortOrder of later releases.
+        let childBase = nextSortOrder
+        let childCopies = sourceChildren.enumerated().map { offset, child in
+            let childCopy = child.duplicate(sortOrder: childBase + offset)
+            childCopy.parentReleaseID = copy.id
+            return childCopy
+        }
+        copy.childReleaseIDs = childCopies.map(\.id)
+        /// Re-asserts the fields a child takes from its parent, before the append, so the
+        /// change observers that the append arms start from the final values. Each child was
+        /// copied from a child already in step with the source, so this changes only what the
+        /// new parent did not copy.
+        for childCopy in childCopies { syncComboChild(childCopy, from: copy) }
+
+        #if DEBUG
+        /// Catches a field added to the model but not to duplicate(sortOrder:).
+        for (original, duplicate) in zip([source] + sourceChildren, [copy] + childCopies) {
+            var allowed: Set<String> = ["sortOrder", "wishlist"]
+            if original.purchased { allowed.formUnion(ReleaseCardModel.purchaseOnlyFields) }
+            let unexpected = duplicate.snapshot().differingFieldNames(from: original.snapshot())
+                .subtracting(allowed)
+            assert(unexpected.isEmpty,
+                   "duplicate(sortOrder:) did not copy: \(unexpected.sorted().joined(separator: ", "))")
+        }
+        #endif
+
+        insertCard(copy, children: childCopies)
+        owner?.log("Duplicated release \(source.id) (\(source.format)) as \(copy.id)"
+                   + (childCopies.isEmpty ? "" : " with \(childCopies.count) combo-pack disc(s)"))
+    }
+
+    /// Completes now the two deferred combo-pack steps that may be pending for `parent`: a
+    /// confirmed Type change not yet written, and the reconciliation of its bundled discs
+    /// (~120 ms after a Type change). The per-parent counterpart of the combo-pack half of
+    /// settlePendingWork(), in the same order: the commit arms a reconciliation, which then
+    /// runs at once. Removing each entry is what makes the deferred task find nothing to do
+    /// (the confirmed write's guard, and a replaced TaskHandle that cancels on release).
+    ///
+    /// Leaves a delete fly-up alone; duplication never runs during one (isTransitioning).
+    private func settleComboWork(for parent: ReleaseCardModel) {
+        /// commitIndependence returns at once for a value already written.
+        if let value = pendingConfirmedIndependence.removeValue(forKey: parent.id) {
+            commitIndependence(value, on: parent)
+        }
+        if comboChildTasks.removeValue(forKey: parent.id) != nil, parent.is4K {
+            reconcileComboChildren(for: parent, targetIndependence: parent.independence)
+        }
+    }
+
+    /// Opens the `sortOrder` slot immediately after `source` and returns it.
+    ///
+    /// Releases that already sit far enough after the source keep their values. Only those the
+    /// new slot would collide with, or now come before, move up, each by as little as keeps
+    /// the film-wide order strict. Every release keeps its place relative to every other, so
+    /// the carousel order and each combo pack's child order are unchanged apart from the
+    /// insertion. Walking in `ReleaseCardModel.precedes` order also separates releases that
+    /// share a `sortOrder` with the source: one that came after it moves after the slot.
+    private func makeRoom(after source: ReleaseCardModel) -> Int {
+        let ordered = releases.sorted(by: ReleaseCardModel.precedes)
+        let slot = source.sortOrder + 1
+        guard let sourceIndex = ordered.firstIndex(where: { $0 === source }) else { return slot }
+        var floor = slot
+        for release in ordered[(sourceIndex + 1)...] {
+            if release.sortOrder <= floor { release.sortOrder = floor + 1 }
+            floor = release.sortOrder
+        }
+        return slot
+    }
+
+    /// Appends a new card's releases in one mutation and runs the carousel's add sequence:
+    /// travel to the card's slot, then fade it in. Shared by `addRelease` and
+    /// `duplicateCurrentRelease`.
+    ///
+    /// The card's position is looked up after the append, so the caller decides where it
+    /// lands only through its format and `sortOrder`.
+    private func insertCard(_ newModel: ReleaseCardModel, children: [ReleaseCardModel]) {
         let newID = newModel.id
 
         /// The card the user is looking at, captured BEFORE the array grows.
@@ -2192,8 +2522,10 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
             return before.indices.contains(idx) ? before[idx].id : nil
         }()
 
-        releases.append(newModel)
-        owner?.log("Added new release form with format: \(format)")
+        /// One mutation for the card and any bundled discs. `releases.didSet` rebuilds the
+        /// carousel, so a parent appended ahead of its children would show a frame in which it
+        /// claims discs that do not exist yet. See createComboChildren.
+        releases.append(contentsOf: [newModel] + children)
         scheduleChangeCheck()
 
         /// The new card's position in the unified stack, which the format-rank ordering may
@@ -3249,9 +3581,16 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
         let survivingIDs = originalIDSet.intersection(currentIDSet)
         let deletedIDs   = Array(originalIDSet.subtracting(currentIDSet))
 
+        /// The save re-sorts the cards (see savedSortOrders), so a release whose only change
+        /// is its place in the carousel is an update too.
+        let savedOrder = savedSortOrders()
+        func snapshot(_ model: ReleaseCardModel) -> ReleaseSnapshot {
+            modelToReleaseSnapshot(model, sortOrder: savedOrder[model.id], dateFormatter: dateFormatter)
+        }
+
         let toCreate = releases
             .filter { addedIDs.contains($0.id) }
-            .map { modelToReleaseSnapshot($0, dateFormatter: dateFormatter) }
+            .map(snapshot)
 
         let toUpdate = releases
             .filter { model in
@@ -3259,9 +3598,11 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
                 /// A load-time repair is already part of the baseline, so the snapshot
                 /// comparison below can never see it. See loadRepairedIDs.
                 if loadRepairedIDs.contains(model.id) { return true }
-                return model.snapshot() != originalReleasesByID[model.id]
+                guard let original = originalReleasesByID[model.id] else { return true }
+                if let order = savedOrder[model.id], order != original.sortOrder { return true }
+                return model.snapshot() != original
             }
-            .map { modelToReleaseSnapshot($0, dateFormatter: dateFormatter) }
+            .map(snapshot)
 
         return (create: toCreate, update: toUpdate, delete: deletedIDs)
     }
@@ -3274,7 +3615,39 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
     /// ReleaseCardState stays: it is the change-detection baseline, a genuinely different job.
     /// The three optional fields are each gated on their has-value flag, so an inactive field
     /// persists as "", never as the placeholder the model carries.
-    private func modelToReleaseSnapshot(_ model: ReleaseCardModel,
+    /// The `sortOrder` every release is saved with: the cards re-sorted by
+    /// ReleaseCarouselOrder, so each format's run in the carousel reads newest first the next
+    /// time the sheet opens.
+    ///
+    /// Applied only to what a save writes, never to the models: the carousel on screen keeps
+    /// the order the user is working in (a new card still lands at the end of its format), and
+    /// nothing moves under the pointer. The sheet closes on save, so the new order is first
+    /// seen on the next open. A pure function of the cards, so the leave-the-view preview
+    /// (FilmSheet.saveOutcome) and the save itself agree.
+    ///
+    /// The keys are read from the same stored forms a save writes (`modelToReleaseSnapshot`),
+    /// so the order matches what the conversion computes from the store. Numbering restarts
+    /// from 0, and `nextSortOrder` (one past the maximum) still places a new card last.
+    private func savedSortOrders() -> [UUID: Int] {
+        let formatter = FSTabReleases.releaseDateFormatter
+        let cards = carouselEntries.map { entry in
+            let parent = entry.parent
+            let key = ReleaseCarouselOrder.Key(
+                id: parent.id, format: parent.format, releaseDate: parent.releaseDateStorageString,
+                purchased: parent.purchased,
+                purchaseDate: parent.hasPurchaseDate ? formatter.string(from: parent.purchaseDate) : "",
+                lowestPriceDate: parent.hasLowestPriceDate ? formatter.string(from: parent.lowestPriceDate) : "",
+                created: parent.dateAdded)
+            return ReleaseCarouselOrder.Card(key: key, releases: [parent.id] + entry.children.map(\.id))
+        }
+        let order = ReleaseCarouselOrder.sortOrders(cards)
+        /// Every release is on exactly one card. Should that ever fail, keep the order as it is
+        /// rather than save a partial renumbering.
+        guard order.count == releases.count, releases.allSatisfy({ order[$0.id] != nil }) else { return [:] }
+        return order
+    }
+
+    private func modelToReleaseSnapshot(_ model: ReleaseCardModel, sortOrder: Int? = nil,
                                         dateFormatter: DateFormatter) -> ReleaseSnapshot {
         ReleaseSnapshot(
             id: model.id,
@@ -3313,7 +3686,7 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
             condition: model.condition,
             notes: model.notes,
             dateAdded: model.dateAdded,
-            sortOrder: model.sortOrder,
+            sortOrder: sortOrder ?? model.sortOrder,
             parentReleaseID: model.parentReleaseID,
             childReleaseIDs: model.childReleaseIDs
         )
@@ -3421,7 +3794,22 @@ struct ReleaseCardState: Equatable, Hashable {
     /// The `String(describing:)` fallback is what keeps a future non-Hashable field from
     /// silently comparing equal to itself and vanishing from the log.
     func differingFields(from other: ReleaseCardState) -> [String] {
-        var fields: [String] = []
+        differences(from: other).map { name, mine, theirs in
+            Self.valueOmittedFields.contains(name) ? name : "\(name) (\(mine) ≠ \(theirs))"
+        }
+    }
+
+    /// The names alone of the fields `differingFields(from:)` reports, for code that compares
+    /// against a list of field names (FSTabReleases.duplicateCurrentRelease's debug check).
+    /// differingFields' entries carry the two values and so never equal a bare name.
+    func differingFieldNames(from other: ReleaseCardState) -> Set<String> {
+        Set(differences(from: other).map(\.name))
+    }
+
+    /// The one walk behind both: every stored field but `id` and `dateAdded` whose values
+    /// differ, with the two values.
+    private func differences(from other: ReleaseCardState) -> [(name: String, mine: Any, theirs: Any)] {
+        var result: [(name: String, mine: Any, theirs: Any)] = []
         for (mine, theirs) in zip(Mirror(reflecting: self).children,
                                   Mirror(reflecting: other).children) {
             guard let name = mine.label, name != "id", name != "dateAdded" else { continue }
@@ -3431,13 +3819,9 @@ struct ReleaseCardState: Equatable, Hashable {
             } else {
                 differs = String(describing: mine.value) != String(describing: theirs.value)
             }
-            if differs {
-                fields.append(Self.valueOmittedFields.contains(name)
-                              ? name
-                              : "\(name) (\(mine.value) ≠ \(theirs.value))")
-            }
+            if differs { result.append((name, mine.value, theirs.value)) }
         }
-        return fields
+        return result
     }
 
     /// Fields named without their values.

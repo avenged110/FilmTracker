@@ -66,6 +66,24 @@ extension ViewIdentifier {
     }
 }
 
+// MARK: - FilmSheet Save Outcome
+
+/// A film as a FilmSheet save would leave it, before the save is made: its fields and
+/// releases, every list it would belong to (user lists and Queue sections), and its Hall of
+/// Fame membership. Built by FilmSheet.saveOutcome() and judged by
+/// DataCoordinator.filmWouldLeaveCurrentView.
+struct FilmSaveOutcome {
+    let film: FilmSnapshot
+    let listIDs: Set<UUID>
+    let inHallOfFame: Bool
+
+    /// The Queue section the film would be in, by the Queue's canonical rule
+    /// (DataCoordinator.filmQueueSection(forFilm:)), or nil when it would be in none.
+    var queueSection: FilmQueueSection? {
+        listIDs.compactMap { FilmQueueSection(listID: $0) }.min { $0.queueOrder < $1.queueOrder }
+    }
+}
+
 // MARK: - Debug Persistence Fault Injection
 
 #if DEBUG
@@ -714,6 +732,8 @@ final class DataCoordinator: Loggable {
             Self.log("Settings synced to database (background)")
         }
 
+        convertReleaseOrderIfNeeded()
+
         /// Memory is already in the current formats (see LegacyReleaseValues); this rewrites
         /// the store to match, and only when MemoryStore's store read saw an old value. Not routed through
         /// trackOperation — it is idempotent and safe to interrupt. Duplicate Release IDs
@@ -729,6 +749,71 @@ final class DataCoordinator: Loggable {
                 Self.log("WARNING: Legacy release value migration failed: \(error)")
             }
         }
+    }
+
+    // MARK: - Release Order Conversion
+
+    /// Puts every film's releases in ReleaseCarouselOrder, once: the order a save of the film
+    /// sheet has written since that rule was introduced, applied to the films saved before it.
+    ///
+    /// Only films whose cards would read in a different order are written, and in them only
+    /// the releases whose number changes. The store is written first and memory follows only
+    /// what was committed, so a failed write leaves memory, and with it the snapshot cache,
+    /// agreeing with the store; the flag stays clear and the next launch tries again. Both
+    /// writes skip a release whose order changed after this read it (a film sheet saved
+    /// meanwhile), so a save the user makes during launch is never undone.
+    private func convertReleaseOrderIfNeeded() {
+        guard !Preferences.releaseOrderConverted else { return }
+        var changes: [UUID: ReleaseOrderChange] = [:]
+        var filmIDs: Set<UUID> = []
+        for film in memoryStore.getAllFilms() where film.releases.count > 1 {
+            let order = ReleaseCarouselOrder.sortOrders(for: film.releases)
+            guard !order.isEmpty else { continue }
+            let current = film.releases.sorted {
+                $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.id.uuidString < $1.id.uuidString
+            }.map(\.id)
+            let converted = film.releases.sorted { order[$0.id]! < order[$1.id]! }.map(\.id)
+            guard current != converted else { continue }
+            filmIDs.insert(film.id)
+            for release in film.releases {
+                if let new = order[release.id], new != release.sortOrder {
+                    changes[release.id] = ReleaseOrderChange(old: release.sortOrder, new: new)
+                }
+            }
+        }
+        guard !changes.isEmpty else {
+            Self.log("Release order conversion: every film is already in order")
+            Preferences.releaseOrderConverted = true
+            return
+        }
+        Self.log("Release order conversion: re-sorting \(filmIDs.count) film(s), \(changes.count) release(s)")
+        let dataManager = self.dataManager
+        trackOperation { [weak self, changes, filmIDs] in
+            let written = try await dataManager.applyReleaseSortOrders(changes)
+            await self?.finishReleaseOrderConversion(changes, written: written, filmIDs: filmIDs)
+        }
+    }
+
+    /// Brings memory into line with what the store committed, then marks the conversion done.
+    private func finishReleaseOrderConversion(_ changes: [UUID: ReleaseOrderChange], written: Set<UUID>,
+                                              filmIDs: Set<UUID>) {
+        let updated = filmIDs.compactMap { id -> FilmSnapshot? in
+            guard var film = memoryStore.getFilm(id) else { return nil }
+            var changed = false
+            film.releases = film.releases.map { release in
+                guard written.contains(release.id), let change = changes[release.id],
+                      release.sortOrder == change.old else { return release }
+                changed = true
+                return release.withSortOrder(change.new)
+            }
+            return changed ? film : nil
+        }
+        if !updated.isEmpty {
+            memoryStore.updateFilms(updated)
+            refreshFilms()
+        }
+        Preferences.releaseOrderConverted = true
+        Self.log("Release order conversion complete: \(updated.count) film(s) updated in memory")
     }
 
     /// Triggers SmartLists calculation as a deferred background task.
@@ -949,17 +1034,12 @@ final class DataCoordinator: Loggable {
             loadedFilms = Self.upcomingReleasesOrder(loadedFilms)
         }
 
-        /// A Recents tab whose direction the user sets (Recent Disc Releases) is put in its category's order,
-        /// newest first, and reversed for Ascending. Done here, on both load paths, because a refresh arrives
-        /// sorted by the tab's placeholder sort option, and the full load's order is always newest first.
-        if case .recents(let category) = currentViewID, category.userSetsSortDirection {
-            if let recentsOrder, !recentsOrder.isEmpty {
-                /// A full load built the films from the category's own order, so only Ascending has work left.
-                if currentDirection == .ascending { loadedFilms.reverse() }
-            } else {
-                loadedFilms = Self.recentsOrder(loadedFilms, by: category.orderedFilmIDs(),
-                                                ascending: currentDirection == .ascending)
-            }
+        /// Recent Disc Releases is ordered by release date, which no sort option expresses, so a refresh (which
+        /// arrives sorted by the tab's placeholder sort option) is put back in the category's order, newest
+        /// first. A full load already built the films from that order.
+        if case .recents(let category) = currentViewID, category == .recentDiscRelease,
+           recentsOrder?.isEmpty ?? true {
+            loadedFilms = Self.recentsOrder(loadedFilms, by: category.orderedFilmIDs(), ascending: false)
         }
 
         /// Apply the Film Queue's single-section display filter, if one is active. The films
@@ -1041,6 +1121,9 @@ final class DataCoordinator: Loggable {
     /// when its storage is shared, so "nothing changed meanwhile" costs nothing to confirm.
     func getAllFilmsMap() -> [UUID: FilmSnapshot] { return memoryStore.getAllFilmsMap() }
 
+    /// Moves whenever the films change (see MemoryStore.filmsVersion).
+    var filmsVersion: UInt64 { memoryStore.filmsVersion }
+
     /// Every list a `#list` token can name — user lists, smart lists and the two ranked
     /// Reports lists — with a way to resolve one name to its films.
     ///
@@ -1049,51 +1132,76 @@ final class DataCoordinator: Loggable {
     /// library which of every smart list it belongs to. Internal Film Queue lists are left out
     /// by getAllLists and added here by ID: the whole Queue and each section. Smart lists are left out
     /// while the feature is off — their sets are not maintained then and none is navigable.
-    func searchListCatalog() -> SearchListCatalog {
-        var entries: [SearchListCatalog.Entry] = getAllLists().map { list in
-            let listID = list.listID
-            return .init(name: list.listName, kind: .user) { [weak self] in
-                self?.memoryStore.getList(listID)?.filmIDs ?? []
+    ///
+    /// With `outcome`, each list answers as it would once that FilmSheet save lands: the
+    /// edited film is put in or taken out of every list whose membership the save decides
+    /// (user lists, the Queue, smart lists, Recents, the two Reports lists). Saved searches
+    /// answer as they stand. For filmWouldLeaveCurrentView, which judges a save beforehand.
+    func searchListCatalog(adjustedFor outcome: FilmSaveOutcome? = nil) -> SearchListCatalog {
+        /// `base` as stored, or with the outcome's film added or removed per `member`.
+        /// The membership test runs only if a token asks for that list, and at most once.
+        func list(_ base: @escaping () -> Set<UUID>,
+                  member: @escaping (FilmSaveOutcome) -> Bool) -> () -> Set<UUID> {
+            guard let outcome else { return base }
+            let filmID = outcome.film.id
+            var isMember: Bool?
+            return {
+                let member = isMember ?? member(outcome)
+                isMember = member
+                var ids = base()
+                if member { ids.insert(filmID) } else { ids.remove(filmID) }
+                return ids
             }
+        }
+        let today = AppCalendar.current.startOfDay(for: Date())
+
+        var entries: [SearchListCatalog.Entry] = getAllLists().map { userList in
+            let listID = userList.listID
+            return .init(name: userList.listName, kind: .user, filmIDs: list({ [weak self] in
+                self?.memoryStore.getList(listID)?.filmIDs ?? []
+            }, member: { $0.listIDs.contains(listID) }))
         }
         if Preferences.smartLists {
             entries += SmartListType.allCases.map { type in
-                .init(name: type.rawValue, kind: .smart) { [weak self] in
+                .init(name: type.rawValue, kind: .smart, filmIDs: list({ [weak self] in
                     self?.smartLists.filmIDs(for: type) ?? []
-                }
+                }, member: { Self.smartListShows(type, membership: SmartLists.membership(of: $0.film, today: today),
+                                                 outcome: $0) }))
             }
         }
         /// The Film Queue, whole and by section, under the names the Queue view shows. Its
         /// internal lists are hidden from getAllLists, so they are added here by ID.
-        entries.append(.init(name: FilmQueue.searchName, kind: .queue, aliases: FilmQueue.searchAliases) { [weak self] in
+        entries.append(.init(name: FilmQueue.searchName, kind: .queue, aliases: FilmQueue.searchAliases,
+                             filmIDs: list({ [weak self] in
             guard let self else { return [] }
             return FilmQueueSection.allCases.reduce(into: Set<UUID>()) {
                 $0.formUnion(self.memoryStore.getList($1.listID)?.filmIDs ?? [])
             }
-        })
+        }, member: { $0.queueSection != nil })))
         entries += FilmQueueSection.allCases.map { section in
-            .init(name: section.displayName, kind: .queue) { [weak self] in
+            .init(name: section.displayName, kind: .queue, filmIDs: list({ [weak self] in
                 self?.memoryStore.getList(section.listID)?.filmIDs ?? []
-            }
+            }, member: { $0.listIDs.contains(section.listID) }))
         }
         /// The Recents tabs, under the names they show, with the same (capped, ordered) film
         /// IDs the tabs load, so a token matches exactly what the tab displays.
         entries += RecentsCategory.sections.map { category in
-            .init(name: category.displayName, kind: .recents, aliases: category.searchAliases) {
-                Set(category.orderedFilmIDs())
-            }
+            .init(name: category.displayName, kind: .recents, aliases: category.searchAliases,
+                  filmIDs: list({ Set(category.orderedFilmIDs()) }, member: {
+                      MetadataCache.shared.recentFilmIDs(for: category, overriding: $0.film).contains($0.film.id)
+                  }))
         }
         /// The two ranked Reports lists, under the names their tabs show, with the same
         /// membership tests the tabs use: a Hall of Fame position, and a top-level release on
         /// the wishlist (getWishlistReleases' filter).
-        entries.append(.init(name: ReportsCategory.hallOfFame.displayName, kind: .report) { [weak self] in
+        entries.append(.init(name: ReportsCategory.hallOfFame.displayName, kind: .report, filmIDs: list({ [weak self] in
             Set(self?.memoryStore.getAllFilms().filter { $0.hofPosition > 0 }.map(\.id) ?? [])
-        })
-        entries.append(.init(name: ReportsCategory.releaseWishlist.displayName, kind: .report) { [weak self] in
+        }, member: { $0.inHallOfFame })))
+        entries.append(.init(name: ReportsCategory.releaseWishlist.displayName, kind: .report, filmIDs: list({ [weak self] in
             Set(self?.memoryStore.getAllFilms()
                 .filter { $0.releases.contains { $0.wishlist > 0 && $0.isTopLevel } }
                 .map(\.id) ?? [])
-        })
+        }, member: { !Self.reportRows(.releaseWishlist, film: $0.film, inHallOfFame: $0.inHallOfFame).isEmpty })))
         /// Saved searches, under their names. Each resolves by running its query — the store's
         /// guard stops a #list loop between them (SavedSearchStore.filmIDs(for:)).
         entries += SavedSearchStore.shared.searches.map { search in
@@ -1101,6 +1209,118 @@ final class DataCoordinator: Loggable {
             return .init(name: search.name, kind: .saved) { SavedSearchStore.shared.filmIDs(for: id) }
         }
         return SearchListCatalog(entries: entries)
+    }
+
+    // MARK: - Leave-the-View Check
+
+    /// Whether saving `outcome` would take its film out of the view on screen, and so clear
+    /// the selection: the film is in the view now, and would not be once the save lands.
+    /// Asked by the FilmSheet before it saves, when Preferences.confirmChangesBeforeDisappear
+    /// is on.
+    ///
+    /// Each view's own rule is applied to the film as the save would leave it, so nothing is
+    /// written to find out: list and Queue membership (with the Queue section the Queue view
+    /// is narrowed to), Unwatched, smart lists (SmartLists.membership), Recents
+    /// (MetadataCache's rules with this film's entry replaced), saved searches and Search
+    /// (against a list catalog adjusted for the save), the Sort & Filter menu's filters, and
+    /// the Reports tables' row rules. Saved searches named inside a query are taken as they
+    /// stand, so a #list token naming a saved search that the edit itself would change is the
+    /// one case judged on the old data.
+    func filmWouldLeaveCurrentView(_ outcome: FilmSaveOutcome) -> Bool {
+        let filmID = outcome.film.id
+        guard let current = memoryStore.getFilm(filmID) else { return false }
+        let view = ViewStateManager.shared.activeView
+        switch view {
+        case .reports:
+            /// The tab on screen: Reports switches its tabs itself (ReportsState), so the
+            /// category activeView was entered with can be stale.
+            let category = ReportsState.shared.displayedCategory
+            let before = Self.reportRows(category, film: current, inHallOfFame: current.hofPosition > 0)
+            guard !before.isEmpty else { return false }
+            let after = Self.reportRows(category, film: outcome.film, inHallOfFame: outcome.inHallOfFame)
+            /// The release tables select rows, one per release, and keep a selection while
+            /// any selected row survives (their reconcileSelection), so the film drops out
+            /// of the selection when every selected row of its own is gone — even if another
+            /// of its releases still has a row. Without a known selected row of this film,
+            /// it is judged as a whole: no rows left.
+            let selected = ReportsState.shared.selectedReleaseRowIDs.intersection(before)
+            return selected.isEmpty ? after.isEmpty : selected.isDisjoint(with: after)
+        case .imports:
+            return false
+        case .allFilms, .list, .filmQueue, .unwatched, .recents, .smartList, .search, .savedSearch:
+            /// Only a film the gallery shows can leave it; a sheet opened on a film from
+            /// elsewhere (the Recents summary's own rows, say) has nothing to lose here.
+            guard loadedViewID == view, films.contains(where: { $0.id == filmID }) else { return false }
+            return !galleryWouldShow(outcome, in: view)
+        }
+    }
+
+    /// Whether the gallery's `view`, with its current filters, Queue section and search,
+    /// would hold the film `outcome` describes.
+    private func galleryWouldShow(_ outcome: FilmSaveOutcome, in view: ViewIdentifier) -> Bool {
+        let film = outcome.film
+        /// Built only for the two views that read lists through tokens.
+        var lists: SearchListCatalog { searchListCatalog(adjustedFor: outcome) }
+        switch view {
+        case .allFilms, .search, .reports, .imports:
+            break
+        case .list(let listID):
+            guard outcome.listIDs.contains(listID) else { return false }
+        case .filmQueue:
+            guard let section = outcome.queueSection else { return false }
+            if let filter = currentFilmQueueSectionFilter, filter != section { return false }
+        case .unwatched(let category):
+            switch category {
+            case .unwatched: guard !film.watched else { return false }
+            case .notRated:  guard film.userRating == 0 else { return false }
+            }
+        case .smartList(let type):
+            guard Preferences.smartLists else { return false }
+            let today = AppCalendar.current.startOfDay(for: Date())
+            guard Self.smartListShows(type, membership: SmartLists.membership(of: film, today: today),
+                                      outcome: outcome) else { return false }
+        case .recents(let category):
+            guard MetadataCache.shared.recentFilmIDs(for: category, overriding: film).contains(film.id) else {
+                return false
+            }
+        case .savedSearch(let id):
+            guard SavedSearchStore.shared.matches(id, film: film, lists: lists) else { return false }
+        }
+        if !currentFilterOptions.isEmpty,
+           memoryStore.applyFilters([film], filterOptions: currentFilterOptions).isEmpty {
+            return false
+        }
+        if view.isSearch, SearchController.shared.hasContent,
+           !SearchController.shared.currentSearchMatches(film, lists: lists) {
+            return false
+        }
+        return true
+    }
+
+    /// Whether smart list `type` shows a film whose rule-based membership is `membership`:
+    /// the rotation lists also hide a queued film while excludeQueuedFromUpForRotation is on
+    /// (SmartLists.filmIDs(for:)).
+    private static func smartListShows(_ type: SmartListType, membership: Set<SmartListType>,
+                                       outcome: FilmSaveOutcome) -> Bool {
+        guard membership.contains(type) else { return false }
+        if type.isRotationVariant, Preferences.excludeQueuedFromUpForRotation, outcome.queueSection != nil {
+            return false
+        }
+        return true
+    }
+
+    /// The row IDs Reports tab `category` has for `film`, by the same rules its table uses:
+    /// the film's own ID in the Hall of Fame, a release ID per row in the three release
+    /// tables, none in Insights.
+    private static func reportRows(_ category: ReportsCategory, film: FilmSnapshot,
+                                   inHallOfFame: Bool) -> Set<UUID> {
+        switch category {
+        case .hallOfFame:         return inHallOfFame ? [film.id] : []
+        case .releaseWishlist:    return Set(wishlistPairs(in: [film]).map(\.release.id))
+        case .costTracker:        return Set(ReleaseData.costTrackerRows(films: [film]).map(\.releaseID))
+        case .priceTracker:       return Set(ReleaseData.priceTrackerRows(films: [film]).map(\.releaseID))
+        case .dataVisualizations: return []
+        }
     }
 
     // MARK: - Saved Searches
@@ -1147,12 +1367,32 @@ final class DataCoordinator: Loggable {
                 .map { .init(name: $0, kind: .filmQueue) }
     }
 
-    /// Whether saved search `id` is the view loaded and its rules matched no films, before any
-    /// filter narrowed them. The gallery's empty state reads it to tell "these rules find
-    /// nothing" from "the filters leave nothing".
-    func savedSearchMatchedNothing(_ id: UUID) -> Bool {
-        guard currentViewID == .savedSearch(id), case .set(let members) = currentMembership else { return false }
-        return members.isEmpty
+    /// Whether `viewID` holds any film before the user's filters narrow it. The gallery's
+    /// empty state reads it to tell "the filters hide this view's films" from "this view
+    /// has no films", so an empty smart list, tab, list or queue section is not blamed on
+    /// filters that would show nothing once cleared, and a filtered-empty one is not
+    /// described as empty.
+    ///
+    /// Resolved live, not from the last load's membership, so the edit that just emptied
+    /// the filtered result (a release added to the last film shown in "No Releases Added")
+    /// is counted. The exception is a saved search, whose query is not re-run here: its
+    /// loaded membership is current for the view on screen, and nothing else asks.
+    func viewHasFilmsBeforeFilters(_ viewID: ViewIdentifier) -> Bool {
+        switch viewID {
+        case .savedSearch:
+            guard currentViewID == viewID, case .set(let members) = currentMembership else { return true }
+            return !members.isEmpty
+        case .list(let listID):
+            return getList(listID)?.filmIDs.isEmpty == false
+        case .filmQueue:
+            let queued = getFilmQueueFilmIDs()
+            guard let section = FilmQueueFilterState.shared.selectedFilter.section else { return !queued.isEmpty }
+            return queued.contains { filmQueueSection(forFilm: $0) == section }
+        case .recents, .smartList, .unwatched, .allFilms, .search, .reports, .imports:
+            guard case .set(let members) = viewID.resolveMembership(memoryStore: memoryStore, smartLists: smartLists)
+            else { return hasDatabaseFilms }
+            return !members.isEmpty
+        }
     }
 
     /// The names (and aliases) of every #list target that is not a saved search.
@@ -1277,15 +1517,7 @@ final class DataCoordinator: Loggable {
     private func removeFromFilmQueueIfRecentlyWatched(
         filmID: UUID, oldCalendarTable: [String], newCalendarTable: [String]
     ) {
-        let addedEntries = Set(newCalendarTable).subtracting(Set(oldCalendarTable))
-        guard !addedEntries.isEmpty else { return }
-
-        let calendar = AppCalendar.current
-        let triggersRemoval = addedEntries.contains { entry in
-            guard let date = parseDate(from: entry) else { return false }
-            return calendar.isDateInToday(date) || calendar.isDateInYesterday(date)
-        }
-        guard triggersRemoval else { return }
+        guard Self.addsRecentViewing(old: oldCalendarTable, new: newCalendarTable) else { return }
 
         let queueListIDs = memoryStore.getListIDs(forFilm: filmID).intersection(FilmQueue.allListIDs)
         guard !queueListIDs.isEmpty else { return }
@@ -1655,6 +1887,33 @@ final class DataCoordinator: Loggable {
     ///
     /// No viewContext operations are performed. DataManager handles all persistence
     /// (Film scalars, releases, and list memberships) atomically in its background context.
+    /// The film's releases once a FilmSheet save's deltas are applied: a new film's are its
+    /// creates; an existing film's are `current` less the deletes, with the updates swapped
+    /// in and the creates appended. Shared with FilmSheet.saveOutcome().
+    static func finalReleases(current: [ReleaseSnapshot], isNewFilm: Bool,
+                              create: [ReleaseSnapshot], update: [ReleaseSnapshot],
+                              delete: [UUID]) -> [ReleaseSnapshot] {
+        guard !isNewFilm else { return create }
+        var releases = current.filter { !delete.contains($0.id) }
+        releases = releases.map { existing in
+            update.first(where: { $0.id == existing.id }) ?? existing
+        }
+        releases.append(contentsOf: create)
+        return releases
+    }
+
+    /// Whether a save that changes the viewing events from `old` to `new` adds one dated
+    /// today or yesterday — the "just watched" that takes a film out of the Queue
+    /// (removeFromFilmQueueIfRecentlyWatched). Shared with FilmSheet.saveOutcome().
+    static func addsRecentViewing(old: [String], new: [String]) -> Bool {
+        let addedEntries = Set(new).subtracting(Set(old))
+        let calendar = AppCalendar.current
+        return addedEntries.contains { entry in
+            guard let date = parseDate(from: entry) else { return false }
+            return calendar.isDateInToday(date) || calendar.isDateInYesterday(date)
+        }
+    }
+
     func saveFilmChangeset(_ changeset: FilmChangeset) {
         let filmID = changeset.filmID
 
@@ -1664,20 +1923,11 @@ final class DataCoordinator: Loggable {
         /// Step 1: Compute the final releases array for MemoryStore.
         /// FilmSheet builds FilmSnapshot via the memberwise initializer (releases defaults to []).
         /// The actual release state is derived from the current MemoryStore snapshot + deltas.
-        let finalReleases: [ReleaseSnapshot]
-        if changeset.isNewFilm {
-            /// New film: all releases come from the create delta.
-            finalReleases = changeset.releasesToCreate
-        } else {
-            /// Existing film: start from current MemoryStore releases, apply deltas.
-            var releases = preFilmSnapshot?.releases ?? []
-            releases = releases.filter { !changeset.releasesToDelete.contains($0.id) }
-            releases = releases.map { existing in
-                changeset.releasesToUpdate.first(where: { $0.id == existing.id }) ?? existing
-            }
-            releases.append(contentsOf: changeset.releasesToCreate)
-            finalReleases = releases
-        }
+        let finalReleases = Self.finalReleases(current: preFilmSnapshot?.releases ?? [],
+                                               isNewFilm: changeset.isNewFilm,
+                                               create: changeset.releasesToCreate,
+                                               update: changeset.releasesToUpdate,
+                                               delete: changeset.releasesToDelete)
 
         /// Step 2: Build the MemoryStore snapshot with the computed releases. The derived
         /// values (lastWatched, viewCount, lastModified, numberOfDiscs) are already final

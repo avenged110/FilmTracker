@@ -23,7 +23,7 @@ enum DVStyle {
     /// For cards with long labels or several fixed columns (ranked tables, source ladders, ten-bar charts). They drop a column sooner than a simple card.
     static let minTextCardWidth: CGFloat = 320
     static let minTileWidth: CGFloat = 144
-    /// For a five-tile row (Library Overview, Purchases and Spending). It is wide enough that the row drops to two rows of three before a tile's title
+    /// For a six-tile row (Library Overview, Purchases and Spending). It is wide enough that the row drops to two rows of three before a tile's title
     /// or footnote truncates, as the six-across Viewing History row does at 144.
     static let minWideTileWidth: CGFloat = 190
     static let minWideCardWidth: CGFloat = 360

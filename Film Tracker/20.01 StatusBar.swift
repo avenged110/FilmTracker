@@ -8,8 +8,8 @@
 /// A view may show either row alone (one row high) or both stacked (two rows high), and the summary row is
 /// always on top. The Reports Purchase Tracker tab shows both.
 ///
-/// Everything about the bar lives in this file: its rows, metrics, chrome (background, top divider, and the
-/// divider between rows), the summary contents and styles, and how much room content leaves for it.
+/// Everything about the bar lives in this file: its rows, metrics, chrome (background and top divider; stacked
+/// rows have no divider between them), the summary contents and styles, and how much room content leaves for it.
 ///
 /// ONE RULE, ONE CALL. `StatusBarLayout.resolve(for:showStatusBar:)` decides, for a sidebar item, whether the bar
 /// shows and which rows it has. Views read it through `@CurrentStatusBar`, which observes the preference and the
@@ -158,8 +158,8 @@ struct StatusBar: View {
     /// The height of one row. StatusBarLayout.height builds the bar's height from it; nothing else should read it.
     nonisolated static let rowHeight: CGFloat = 29
 
-    /// The horizontal inset of the divider between stacked rows.
-    fileprivate static let dividerInset: CGFloat = 20
+    /// A scrolling chips row's inset from the bar's edges once its chips overflow.
+    fileprivate static let chipEdgeInset: CGFloat = 10
     /// The text's distance from the bar's edges.
     fileprivate static let textInset: CGFloat = 8
     /// The text font for every row.
@@ -167,10 +167,8 @@ struct StatusBar: View {
 
     /// `.separated` style: the joiner between items.
     fileprivate static let separator = "  ·  "
-    /// `.chips` style: the gap between chips, the tighter gap used when the full gap does not fit, each chip's padding
-    /// around its text, its corner radius, and its fill.
-    fileprivate static let chipSpacing: CGFloat = 16
-    fileprivate static let compactChipSpacing: CGFloat = 8
+    /// `.chips` style: the gap between chips, each chip's padding around its text, its corner radius, and its fill.
+    fileprivate static let chipSpacing: CGFloat = 10
     fileprivate static let chipPadding = EdgeInsets(top: 2, leading: 8, bottom: 2, trailing: 8)
     fileprivate static let chipRadius: CGFloat = 5
     fileprivate static let chipFill = Color.primary.opacity(0.06)
@@ -183,12 +181,8 @@ struct StatusBar: View {
     /// a data reload redraws the summary row.
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(layout.rows.enumerated()), id: \.element) { index, row in
-                if index > 0 {
-                    Divider()
-                        .padding(.horizontal, Self.dividerInset)
-                }
-                StatusBarRowFrame {
+            ForEach(layout.rows, id: \.self) { row in
+                StatusBarRowFrame(insetsContent: !row.scrollsHorizontally) {
                     switch row {
                     case .classic: StatusBarClassicRow()
                     case .summary(let summary): StatusBarSummaryRow(summary: summary)
@@ -203,17 +197,33 @@ struct StatusBar: View {
         .overlay(alignment: .top) { Divider() } }
 }
 
+private extension StatusBarRow {
+    /// A chips summary row scrolls on overflow and applies its own edge inset (chipEdgeInset) inside its own scroll content, so chips
+    /// scroll out to the bar's edge instead of clipping at the inset.
+    var scrollsHorizontally: Bool {
+        if case .summary(let summary) = self { return summary.style == .chips }
+        return false
+    }
+}
+
 /// One centered row. The rows split the bar's height evenly.
 private struct StatusBarRowFrame<Content: View>: View {
+    /// False for a row that places itself and applies its own edge inset (a scrolling chips row).
+    var insetsContent = true
     @ViewBuilder let content: Content
 
     var body: some View {
-        HStack {
-            Spacer(minLength: 0)
+        if insetsContent {
+            HStack {
+                Spacer(minLength: 0)
+                content
+                Spacer(minLength: 0) }
+            .padding(.horizontal, StatusBar.textInset)
+            .frame(maxHeight: .infinity)
+        } else {
             content
-            Spacer(minLength: 0) }
-        .padding(.horizontal, StatusBar.textInset)
-        .frame(maxHeight: .infinity) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } }
 }
 
 // MARK: - Summary Row
@@ -227,21 +237,97 @@ private struct StatusBarSummaryRow: View {
         case .separated:
             Text(items.map(\.text).joined(separator: StatusBar.separator))
         case .chips:
-            /// The full gap when the row fits, else the tight gap, where the chips truncate if they still do not fit.
-            ViewThatFits(in: .horizontal) {
-                chips(items, spacing: StatusBar.chipSpacing)
-                chips(items, spacing: StatusBar.compactChipSpacing)
-            }
+            /// Centered while the chips fit; past that, a native scroll view (see StatusBarChipScroller).
+            StatusBarChipScroller(items: items)
         }
     }
+}
 
-    private func chips(_ items: [StatusBarItem], spacing: CGFloat) -> some View {
-        HStack(spacing: spacing) {
+// MARK: - Chip Scroller
+/// The chips row's content at its natural width: full-width chips with chipEdgeInset on both ends.
+/// It sets its own font and line limit, since an NSHostingView does not inherit the bar's environment.
+private struct StatusBarChips: View {
+    let items: [StatusBarItem]
+
+    var body: some View {
+        HStack(spacing: StatusBar.chipSpacing) {
             ForEach(items, id: \.label) { item in
                 Text(item.text)
+                    .fixedSize()
                     .padding(StatusBar.chipPadding)
                     .background(StatusBar.chipFill,
                                 in: RoundedRectangle(cornerRadius: StatusBar.chipRadius, style: .continuous))
+            }
+        }
+        .font(StatusBar.font)
+        .lineLimit(1)
+        .padding(.horizontal, StatusBar.chipEdgeInset)
+        .frame(maxHeight: .infinity)
+    }
+}
+
+/// Hosts the chips in a plain horizontal NSScrollView, for native momentum and rubber-band scrolling. A SwiftUI
+/// ScrollView here scrolled with neither. The document is as wide as the chips, or the visible width if that is wider,
+/// and the chips sit centered in it, so they stay centered until they overflow, then start at chipEdgeInset and
+/// scroll. There is no scroller, and while the chips fit the row does not scroll or rubber-band at all.
+private struct StatusBarChipScroller: NSViewRepresentable {
+    let items: [StatusBarItem]
+
+    func makeNSView(context: Context) -> ChipScrollView {
+        ChipScrollView(host: NSHostingView(rootView: StatusBarChips(items: items)))
+    }
+
+    func updateNSView(_ scrollView: ChipScrollView, context: Context) {
+        scrollView.host.rootView = StatusBarChips(items: items)
+        scrollView.sizeDocument()
+    }
+
+    final class ChipScrollView: NSScrollView {
+        let host: NSHostingView<StatusBarChips>
+        /// The scrolled document. The chips are centered in it, so it can be wider than they are.
+        private let document = NSView()
+
+        init(host: NSHostingView<StatusBarChips>) {
+            self.host = host
+            super.init(frame: .zero)
+            /// The chips' natural width (padding included) is read from the intrinsic size; sizeDocument sets every frame.
+            host.sizingOptions = [.intrinsicContentSize]
+            hasHorizontalScroller = false
+            hasVerticalScroller = false
+            borderType = .noBorder
+            drawsBackground = false
+            horizontalScrollElasticity = .allowed
+            verticalScrollElasticity = .none
+            usesPredominantAxisScrolling = true
+            documentView = document
+            document.addSubview(host)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override func tile() {
+            super.tile()
+            sizeDocument()
+        }
+
+        /// Sizes the document to the chips' natural width, or the visible width if that is wider, and centers the
+        /// chips in it. While they fit, scrolling and rubber-banding are off and the row is held at its origin.
+        func sizeDocument() {
+            let visible = contentView.bounds.size
+            let chipsWidth = host.intrinsicContentSize.width.rounded(.up)
+            let fits = chipsWidth <= visible.width
+            let documentFrame = NSRect(x: 0, y: 0, width: max(chipsWidth, visible.width), height: visible.height)
+            let chipsFrame = NSRect(x: ((documentFrame.width - chipsWidth) / 2).rounded(.down), y: 0,
+                                    width: chipsWidth, height: visible.height)
+            if document.frame != documentFrame { document.frame = documentFrame }
+            if host.frame != chipsFrame { host.frame = chipsFrame }
+            let elasticity: NSScrollView.Elasticity = fits ? .none : .allowed
+            if horizontalScrollElasticity != elasticity { horizontalScrollElasticity = elasticity }
+            if fits, contentView.bounds.origin != .zero {
+                contentView.scroll(to: .zero)
+                reflectScrolledClipView(contentView)
             }
         }
     }

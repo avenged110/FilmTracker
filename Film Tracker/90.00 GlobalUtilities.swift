@@ -1963,7 +1963,11 @@ enum ShowInListNavigation: Loggable {
         /// Step 2 — pre-load the destination's films. Any intent left over from an earlier,
         /// abandoned transition is discarded first so it cannot outrank this one.
         GalleryScrollIntent.shared.clear()
+        GalleryFocusIntent.shared.clear()
         preservedFilmID = nil
+        /// Read before the switch: whether the gallery has keyboard focus now, which the sidebar change will take
+        /// from it (GalleryView.resetForReuse).
+        let galleryHadKeyboardFocus = GalleryView.galleryHoldsKeyboardFocus
         ViewStateManager.shared.switchToViewSync(targetViewID)
 
         /// Step 3 — preserve and arm the scroll, but only if the film genuinely survives
@@ -1978,6 +1982,13 @@ enum ShowInListNavigation: Loggable {
             GalleryScrollIntent.shared.set(filmID: filmID,
                                            targetViewID: targetViewID,
                                            consumableOnReuse: !isSidebarChange || landsInSharedGallery)
+            /// Gives keyboard focus back to the gallery, as the search exit does, so the arrow keys move from the
+            /// preserved film. Only when the sidebar change is about to resign a gallery that had focus: a jump
+            /// made from the menu bar while focus is elsewhere (a text field, say) leaves that focus alone, and a
+            /// sub-variant switch keeps the same gallery, which never loses focus.
+            if isSidebarChange && galleryHadKeyboardFocus {
+                GalleryFocusIntent.shared.set(targetViewID: targetViewID)
+            }
             Self.log("Navigating to \(targetViewID) with film \(filmID) preserved and pinned to top")
         } else {
             Self.log("NOTE: film \(filmID) is not present in \(targetViewID) after load — navigating without preservation")
@@ -2131,9 +2142,13 @@ nonisolated enum Fmt {
         denominator > 0 ? Int((Double(numerator) / Double(denominator) * 100).rounded()) : 0
     }
 
-    /// A fraction shown as a whole percentage, rounded: 0.996 → "100%".
+    /// A fraction shown as a whole percentage, rounded: 0.996 → "100%". A ratio of prices
+    /// can be infinite or NaN (an extreme price, typed or restored), which would trap in the
+    /// Int conversion; such a value shows as "—", the status bar's own no-value mark.
     static func percentText(_ fraction: Double) -> String {
-        "\(count(Int((fraction * 100).rounded())))%"
+        let percent = (fraction * 100).rounded()
+        guard percent.isFinite, abs(percent) < 1e15 else { return "—" }
+        return "\(count(Int(percent)))%"
     }
 
     private static let countStyle = IntegerFormatStyle<Int>(locale: Locale(identifier: "en_US"))

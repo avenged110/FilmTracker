@@ -484,7 +484,7 @@ final class ATVQClient: Loggable {
             for endpoint in relays {
                 group.addTask {
                     /// Any framed reply proves receipt (see above).
-                    let attempt = await Self.send(ping, to: endpoint, label: "the relay", timeout: 6)
+                    let attempt = await Self.sendReplacingStall(ping, to: endpoint, label: "the relay", timeout: 6)
                     return attempt.reply != nil
                 }
             }
@@ -599,6 +599,8 @@ final class ATVQClient: Loggable {
         var reply: ATVQReply?
         var problem: String?
         var denied = false
+        /// Still not connected at the connect grace (see sendReplacingStall).
+        var stalled = false
 
         var summary: String {
             if let reply { return reply.ok ? "accepted" : "rejected: \(reply.error ?? "unknown error")" }
@@ -615,6 +617,9 @@ final class ATVQClient: Loggable {
         case timedOut(TimeInterval, connected: Bool)
         case closed
         case unreadable
+        /// Not connected by the connect grace; given up on early so a fresh connection can be
+        /// tried (see sendReplacingStall).
+        case stalled(TimeInterval)
     }
 
     /// How long deliver() waits for each target's reply.
@@ -635,8 +640,8 @@ final class ATVQClient: Loggable {
             collector.arm(continuation)
             for target in targets {
                 Task.detached(priority: .userInitiated) {
-                    let attempt = await send(body, to: target.endpoint, label: target.label,
-                                             timeout: dispatchReplyTimeout)
+                    let attempt = await sendReplacingStall(body, to: target.endpoint, label: target.label,
+                                                           timeout: dispatchReplyTimeout)
                     collector.add(attempt)
                 }
             }
@@ -689,9 +694,29 @@ final class ATVQClient: Loggable {
         }
     }
 
-    /// One framed request and its framed reply.
+    /// How long a connection may stay unconnected before it is replaced (see sendReplacingStall).
+    private nonisolated static let connectGrace: TimeInterval = 3
+
+    /// send(), replacing a connection that has not connected within `connectGrace` with one
+    /// fresh connection, which then has the full `timeout`.
+    ///
+    /// A safeguard for a connection stuck in `.preparing`, which Network.framework can leave
+    /// there indefinitely with no failure; a fresh connection is what a second click makes.
+    /// Added for the "fails first, works second" dispatch. Its cause is not established:
+    /// a stand-alone client (2026-11-15) showed a new executable's first local-network
+    /// connection held about 2.7 s, too short by itself to fail the 6 s limit.
+    private nonisolated static func sendReplacingStall(_ body: Data, to endpoint: NWEndpoint, label: String,
+                                                       timeout: TimeInterval) async -> Attempt {
+        let first = await send(body, to: endpoint, label: label, timeout: timeout, connectGrace: connectGrace)
+        guard first.stalled, !Task.isCancelled else { return first }
+        log("\(label): not connected after \(Int(connectGrace)) s; retrying with a fresh connection")
+        return await send(body, to: endpoint, label: label, timeout: timeout, connectGrace: nil)
+    }
+
+    /// One framed request and its framed reply. With `connectGrace`, gives up early (as
+    /// `.stalled`) if the connection is not ready by then.
     private nonisolated static func send(_ body: Data, to endpoint: NWEndpoint, label: String,
-                                         timeout: TimeInterval) async -> Attempt {
+                                         timeout: TimeInterval, connectGrace: TimeInterval? = nil) async -> Attempt {
         /// IPv4 only: a Bonjour peer also resolves to an IPv6 link-local address, which firewalls
         /// (e.g. Little Snitch's "Local Network") commonly drop silently; a stalled IPv6 attempt
         /// then decides whether a dispatch goes through. Everything here is on one LAN, so IPv4 always works.
@@ -721,6 +746,11 @@ final class ATVQClient: Loggable {
                 }
             }
             queue.asyncAfter(deadline: .now() + timeout) { finisher.finish(.timedOut(timeout, connected: connection.state == .ready)) }
+            if let connectGrace {
+                queue.asyncAfter(deadline: .now() + connectGrace) {
+                    if connection.state != .ready { finisher.finish(.stalled(connectGrace)) }
+                }
+            }
             connection.start(queue: queue)
             connection.send(content: frame, completion: .contentProcessed { error in
                 if let error { finisher.finish(.failed(error)) }
@@ -755,6 +785,9 @@ final class ATVQClient: Loggable {
             attempt.problem = "the connection closed without a reply"
         case .unreadable:
             attempt.problem = "the reply couldn't be read"
+        case .stalled(let seconds):
+            attempt.problem = "couldn't connect within \(Int(seconds)) s" + (lastWaiting.map { " (\($0))" } ?? "")
+            attempt.stalled = true
         }
         return attempt
     }

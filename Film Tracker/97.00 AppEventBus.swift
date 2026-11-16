@@ -170,12 +170,11 @@ enum UICommand: Equatable, Sendable {
     case cycleSettingsSheetTab(forward: Bool)
     
     // MARK: Releases Tab
-    /// Add a new release card in the active FilmSheet when the Releases tab is visible.
-    ///
-    /// The format is part of the command because the carousel presents every format in one
-    /// stack and so cannot infer one: Cmd+N asks for a Blu-ray and Opt+Cmd+N for a 4K UHD,
-    /// and the sender is the only party that knows which was pressed.
-    case addReleaseToActiveSheet(format: String)
+    /// Carry out the active FilmSheet's pending "Add New Release" request
+    /// (FSTabReleases.pendingAddRequest). Sent only by FilmSheet.requestAddRelease, for the
+    /// menu bar's submenu and its keyboard shortcuts; the Releases tab takes the request now if
+    /// its carousel is ready, or once it is.
+    case performPendingAddRelease
     /// Delete the currently visible release card in the active FilmSheet
     case deleteReleaseFromActiveSheet
 

@@ -10,9 +10,9 @@ import Synchronization
 
 /// A decoded poster passed from a background task to the main actor.
 ///
-/// NSImage is not Sendable, so this box carries it across the handoff. `@unchecked` is sound because the
-/// image is never touched again by the thread that created it.
-private struct DecodedPoster: @unchecked Sendable {
+/// NSImage is Sendable, so the compiler checks this handoff. The image is never touched again by the
+/// thread that created it.
+private struct DecodedPoster: Sendable {
     let image: NSImage
 }
 
@@ -70,6 +70,8 @@ final class PosterCache: Loggable {
         /// later navigation to a populated view would pay a blocking decode on the main thread. The library is
         /// already resident by now, so the warm would be a no-op anyway.
         earlyLaunchWarm = nil
+        /// A display order registered after the restore read its hint would otherwise stay for the session.
+        restorePriorityOrder = []
         if !hasPerformedLaunchBlockingWarm {
             hasPerformedLaunchBlockingWarm = true
             log("Launch pre-paint warm retired unconsumed — the launch view held no posters")
@@ -210,31 +212,6 @@ final class PosterCache: Loggable {
         return cache[posterUID]
     }
 
-    /// Returns the cached image, or loads and decodes it from disk on a miss. Returns nil only if the file does not exist.
-    ///
-    /// Used by GalleryItem (via refreshTileContent) and GalleryListView. Disk I/O on the main thread is acceptable
-    /// here, because the background pipeline makes misses rare during normal scrolling.
-    ///
-    /// Loads through `loadDecodedImage(from:)`, not `NSImage(contentsOf:)`. The latter defers JPEG decoding to the
-    /// first draw, which would happen on the main thread mid-scroll.
-    func getImageWithFallback(for posterUID: String) -> NSImage? {
-        guard !posterUID.isEmpty else { return nil }
-        
-        /// Try cache first (fastest path)
-        if let image = cache[posterUID] { return image }
-        
-        /// Cache miss — load and decode from disk
-        guard let folderURL = Preferences.posterImagesFolderURL else { return nil }
-        let imageURL = folderURL.appendingPathComponent("\(posterUID).jpg")
-        guard let image = Self.loadDecodedImage(from: imageURL) else { return nil }
-        
-        /// Store the already-loaded image directly — no second disk read needed
-        cache[posterUID] = image
-        cachedPosterUIDs.insert(posterUID)
-        
-        return image
-    }
-
     /// Cache-only lookup for drag-preview thumbnails. Returns nil for an empty UID or a miss, and never reads from disk.
     ///
     /// It is called inside a mouseDown drag-tracking loop, which runs at elevated QoS. A synchronous disk read there
@@ -367,6 +344,8 @@ final class PosterCache: Loggable {
             }
             uidsToLoad = ordered
         }
+        /// Read once; released so the launch view's full UID list does not live for the session.
+        restorePriorityOrder = []
         let totalCount = uidsToLoad.count
         let headCount = min(Self.restoreHeadCount, totalCount)
 

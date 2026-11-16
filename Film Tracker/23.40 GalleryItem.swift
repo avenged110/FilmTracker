@@ -186,10 +186,9 @@ final class GalleryItem: NSCollectionViewItem, Loggable {
     /// Resolves the poster image and pushes it, with the film ID and subtitle, into the tile content view. It
     /// runs only when configure(with:) detects a real change.
     ///
-    /// CACHE-ONLY. This does not use PosterCache.getImageWithFallback, because its miss path reads and
-    /// decodes from disk on the calling thread. Cells are often reconfigured during mouseDown, which runs at
-    /// User-Interactive QoS. Blocking that thread on a lower-QoS disk read causes a priority inversion, which
-    /// the Thread Performance Checker reports. The drag-preview path avoids disk for the same reason. A miss
+    /// CACHE-ONLY. A miss is never read and decoded from disk on the calling thread. Cells are often
+    /// reconfigured during mouseDown, which runs at User-Interactive QoS. Blocking that thread on a lower-QoS
+    /// disk read causes a priority inversion, which the Thread Performance Checker reports. The drag-preview path avoids disk for the same reason. A miss
     /// here starts an asynchronous load instead, and the tile is filled when it lands.
     private func refreshTileContent() {
         guard let tileContentView, let filmID = currentFilmID else { return }

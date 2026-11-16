@@ -167,7 +167,9 @@ final class SavedSearchStore: Loggable {
             /// Only the order is undone, and only where it is still this write's: a search
             /// created or deleted since keeps that change, and one a later move renumbered
             /// keeps the number that move wrote.
-            let oldOrder = Dictionary(uniqueKeysWithValues: before.map { ($0.id, $0.displayOrder) })
+            /// uniquingKeysWith: a damaged store can hold two searches with one ID, and
+            /// uniqueKeysWithValues traps on a duplicate key.
+            let oldOrder = Dictionary(before.map { ($0.id, $0.displayOrder) }, uniquingKeysWith: { first, _ in first })
             self.searches = self.searches
                 .map { s in
                     guard changed[s.id] == s.displayOrder, let old = oldOrder[s.id] else { return s }
@@ -203,6 +205,15 @@ final class SavedSearchStore: Loggable {
         evaluating.append(id)
         defer { evaluating.removeLast() }
         return hooks.evaluate(search.query)
+    }
+
+    /// Whether saved search `id` would match `film`, judged against `lists`. Answers as
+    /// filmIDs(for:) does for a search awaiting review (no films). For an unsaved edit
+    /// (DataCoordinator.filmWouldLeaveCurrentView).
+    func matches(_ id: UUID, film: FilmSnapshot, lists: SearchListCatalog) -> Bool {
+        guard let search = search(id), !needingReview.contains(id) else { return false }
+        return SearchController.shared.filmIDs(matching: search.query, in: [film], lists: lists)
+            .contains(film.id)
     }
 
     // MARK: Private

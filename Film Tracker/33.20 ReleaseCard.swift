@@ -512,6 +512,7 @@ struct ReleaseCardView: View {
             RowControls {
                 videoControls
                 MultiSelectMenu(selection: $model.releaseAspectRatio,
+                                owner: model.id,
                                 vocabulary: .aspectRatios,
                                 placeholder: "Select Aspect Ratio…")
                     .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
@@ -827,11 +828,11 @@ private struct _StudioRow: View {
             }
             /// Present only while "Other" is selected. The row is the same height without it, so omitting the
             /// field costs no layout, while a field hidden on most cards would still be created and laid out on
-            /// each of them. The field is pinned to the 22 pt header control height, so the roundedBorder
-            /// TextField's internal vertical padding cannot inflate the row when it is present.
+            /// each of them. The field is pinned to the 22 pt header control height, so the rounded-bezel
+            /// field's own height cannot inflate the row when it is present.
             if model.studioSelection == "Other" {
-                TextField("Studio name", text: $model.studioCustomText)
-                    .textFieldStyle(.roundedBorder)
+                CardTextField(text: $model.studioCustomText, placeholder: "Studio name",
+                              suggestions: .releaseStudios)
                     .frame(width: ReleaseCardMetrics.pickerWidth,
                            height: ReleaseCardMetrics.headerControlHeight)
                     /// The field is 22 pt and the menu is 20. The −1 pt vertical padding lets the field overhang
@@ -849,6 +850,133 @@ private struct _StudioRow: View {
                         model.studio = newText
                     }
             }
+        }
+    }
+}
+
+// MARK: - Card Text Field
+
+/// The card's single-line free-text fields — Notes, and the "Other" studio's name — as an AppKit
+/// `NSTextField` drawn as SwiftUI's `.roundedBorder` TextField was (rounded bezel, no fill of its
+/// own, 13 pt system font, clipped and scrolling). Pixel-identical to it in every state a harness
+/// probe captured (dark and light; placeholder, text, overflowing text; editing).
+///
+/// AppKit rather than SwiftUI: measured on a copy of the real library, the Notes TextField was
+/// 3.5–5 ms of a five-release carousel's mount; and for the studio name, SwiftUI's
+/// `.textInputSuggestions` cost about 8 ms more to mount three cards showing the field and about
+/// 5 ms more on the keystroke that opens the drop-down. This field costs neither.
+///
+/// `suggestions` (PROTOTYPE 2026-11-15, see ValueSuggestions) adds the drop-down the FilmSheet's
+/// Tags list offers. Highlighting a row fills the field (and the model, see
+/// ValueSuggestionsDelegate.onTextChange); clicking one fills it and leaves it being edited.
+///
+/// Return is the sheet's: its key monitor ends editing in any field that does not handle Return
+/// itself (FilmSheetView.endsFieldEditOnReturn), as it did for the SwiftUI fields, so with a row
+/// highlighted Return takes it.
+private struct CardTextField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    /// The saved values to suggest, or nil for none.
+    var suggestions: ValueSuggestions.Vocabulary? = nil
+    /// Optional: a card hosted outside a FilmSheet (the card profiler) has no coordinator, and
+    /// offers no suggestions.
+    @Environment(DataCoordinator.self) private var coordinator: DataCoordinator?
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(frame: .zero)
+        /// isBordered and isBezeled are mutually exclusive — setting either clears the other —
+        /// so the plain border is cleared first and the bezel set second.
+        field.isBordered = false
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.drawsBackground = false
+        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.placeholderString = placeholder
+        field.lineBreakMode = .byClipping
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        field.focusRingType = .default
+        /// The frame supplies the width and height; the field must not fight it.
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.stringValue = text
+        field.isEnabled = context.environment.isEnabled
+        field.delegate = context.coordinator
+        context.coordinator.library = coordinator
+        if suggestions != nil { field.suggestionsDelegate = context.coordinator.suggestionsDelegate }
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        /// SwiftUI reuses the coordinator but not this struct: keep the binding current.
+        context.coordinator.parent = self
+        context.coordinator.library = coordinator
+        /// Only a change from elsewhere (a variant swap re-points the card at another model)
+        /// differs here; the field's own edits reached `text` before this pass.
+        if field.stringValue != text { field.stringValue = text }
+        if field.placeholderString != placeholder { field.placeholderString = placeholder }
+        let enabled = context.environment.isEnabled
+        if field.isEnabled != enabled { field.isEnabled = enabled }
+    }
+
+    /// The width it is offered, at the field's own height. The height depends only on the font
+    /// and bezel, so it is measured once per field rather than on every layout pass.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite else { return nil }
+        let height = context.coordinator.height ?? nsView.intrinsicContentSize.height
+        context.coordinator.height = height
+        return CGSize(width: width, height: height)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: CardTextField
+        /// The field's natural height, once measured. See sizeThatFits.
+        var height: CGFloat?
+        /// The environment's coordinator, handed over during make and update: an `@Environment`
+        /// value is only reliable read there, not later from a stored copy of the struct.
+        weak var library: DataCoordinator?
+        /// Made only for a field that offers suggestions; the field holds it weakly.
+        private(set) lazy var suggestionsDelegate = ValueSuggestionsDelegate(
+            rank: { [weak self] typed in
+                guard let self, let library, let vocabulary = parent.suggestions else { return [] }
+                return ValueSuggestions.ranked(vocabulary, in: library, typed: typed)
+            },
+            onSelect: { [weak self] field, value in
+                if let editor = field.currentEditor() as? NSTextView {
+                    editor.string = value
+                    editor.setSelectedRange(NSRange(location: (value as NSString).length, length: 0))
+                } else {
+                    field.stringValue = value
+                }
+                self?.write(value)
+            },
+            onTextChange: { [weak self] value in self?.write(value) })
+
+        init(_ parent: CardTextField) { self.parent = parent }
+
+        private func write(_ value: String) {
+            if parent.text != value { parent.text = value }
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            write(field.stringValue)
+        }
+
+        /// Escape with the drop-down closed, in a field that offers suggestions. (While it is
+        /// open the suggestions controller takes Escape first and closes it, and this is not
+        /// called.) Left to the field editor, Escape runs `complete:`, which with a suggestions
+        /// delegate reopens the drop-down, so Escape would only ever toggle it and never reach
+        /// the sheet. It goes past the field editor instead, up the responder chain from the
+        /// field, where it does what Escape does in any other card field. A field without
+        /// suggestions is left to AppKit, as the SwiftUI field was.
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard parent.suggestions != nil,
+                  commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+            return control.tryToPerform(commandSelector, with: nil)
         }
     }
 }
@@ -1202,6 +1330,7 @@ private struct _TypeVersionsRow: View {
                 /// FSTabReleases.commitIndependence at the write itself, so it does not depend on this row being
                 /// mounted or showing the release.
                 MultiSelectMenu(selection: $model.includedVersions,
+                                owner: model.id,
                                 vocabulary: .includedVersions,
                                 placeholder: "Select Versions…")
                     .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
@@ -1239,14 +1368,15 @@ private struct _PurchaseRows: View {
         .onFieldChange(of: model.purchased, on: model) { _, newValue in
             guard !model.isComboChild else { return }
             if !newValue {
-                // MARK: Artwork is cleared except where it stays valid
+                // MARK: Artwork loses only its purchased-only parts
                 ///
-                /// Steelbook is offered under every purchased state and type (see _ArtworkPicker), so it is kept.
-                /// DigiBook/DigiPack is offered only once purchased, so it is cleared with the rest.
-                /// The independence cascade (FSTabReleases.commitIndependence) follows the same rule through
+                /// The artwork menu is the same in both states (see _ArtworkPicker), except that Missing,
+                /// Incorrect release, and Custom need a purchased release. Only those are retracted. The
+                /// independence cascade (FSTabReleases.commitIndependence) follows the same rule through
                 /// `stayedWithinComboForms`: a value is retracted only when the new vocabulary cannot express it.
-                if model.hasArtwork != ReleaseArtwork.steelbook {
-                    model.hasArtwork    = ""
+                let artwork = ReleaseArtwork.unpurchasedForm(of: model.hasArtwork)
+                if artwork != model.hasArtwork {
+                    model.hasArtwork    = artwork
                 }
                 model.cost              = 0.0
                 model.amountSpent       = 0.0
@@ -1376,8 +1506,7 @@ private struct _NotesRow: View {
             ? "Notes, if different from 4K master release"
             : "Notes"
         return CardRow("Notes:") {
-            TextField(notesPlaceholder, text: $model.notes)
-                .textFieldStyle(.roundedBorder)
+            CardTextField(text: $model.notes, placeholder: notesPlaceholder)
                 .padding(.trailing, 2)
         }
     }
@@ -1570,30 +1699,35 @@ private struct _AudioRow: View {
                     TaggedPicker(selection: $model.audioFormat,
                                  options: Self.hdAudioFormats,
                                  placeholder: "Select Format…")
-                    /// Scoped to this release, see onFieldChange. A merged card's switch to a bundled Blu-ray and
-                    /// back is not an edit of the audio format.
-                    .onFieldChange(of: model.audioFormat, on: model) { oldValue, newValue in
-                        /// Cascade: lock channels to 7.1 for object-based formats.
-                        if Self.isObjectBased(newValue) {
-                            model.audioChannels = ReleaseAudioChannels.surround71
-                        } else if Self.isObjectBased(oldValue),
-                                  model.audioChannels == ReleaseAudioChannels.surround71 {
-                            /// Clear ONLY on the way out of an object-based format, where the
-                            /// 7.1 in the field was placed by the arm above and the picker was
-                            /// disabled — so it is this cascade's own value to retract.
-                            ///
-                            /// Testing the old value is what keeps the retraction safe. Without that test, any
-                            /// move between two non-object formats that both legitimately carry
-                            /// 7.1 — DTS-HD MA to Dolby TrueHD, TrueHD to LPCM — would silently
-                            /// discard a layout the user had selected on an enabled picker.
-                            model.audioChannels = ""
-                        }
-                    }
                 }
                 TaggedPicker(selection: $model.audioChannels,
                              options: Self.channelOptions(isDVD: model.isDVD),
                              placeholder: "Select Channels…")
                 .disabled(channelsLocked)
+            }
+            /// On the whole row, not on the HD branch's picker: a DVD restored or hand-edited
+            /// to hold an object-based format (its own menu offers none) shows a locked 7.1, and
+            /// choosing a DVD format has to retract that 7.1 just as it does on the other formats.
+            /// A DVD's own menu can never select an object-based format, so the locking arm
+            /// never runs there.
+            /// Scoped to this release, see onFieldChange. A merged card's switch to a bundled Blu-ray and
+            /// back is not an edit of the audio format.
+            .onFieldChange(of: model.audioFormat, on: model) { oldValue, newValue in
+                /// Cascade: lock channels to 7.1 for object-based formats.
+                if Self.isObjectBased(newValue) {
+                    model.audioChannels = ReleaseAudioChannels.surround71
+                } else if Self.isObjectBased(oldValue),
+                          model.audioChannels == ReleaseAudioChannels.surround71 {
+                    /// Clear ONLY on the way out of an object-based format, where the
+                    /// 7.1 in the field was placed by the arm above and the picker was
+                    /// disabled — so it is this cascade's own value to retract.
+                    ///
+                    /// Testing the old value is what keeps the retraction safe. Without that test, any
+                    /// move between two non-object formats that both legitimately carry
+                    /// 7.1 — DTS-HD MA to Dolby TrueHD, TrueHD to LPCM — would silently
+                    /// discard a layout the user had selected on an enabled picker.
+                    model.audioChannels = ""
+                }
             }
         }
     }
@@ -1746,21 +1880,23 @@ private struct _TraitsMenu: View {
         switch selected.count {
         case 0:  displayText = "Select Traits…"
         case 1:  displayText = selected[0].title
+        /// Two fit as a pair, truncated by the button with an ellipsis; three or more are "Multiple".
+        case 2:  displayText = selected[0].title + ", " + selected[1].title
         default: displayText = "Multiple"
         }
 
-        return Menu {
-            ForEach(traits) { trait in
-                Toggle(isOn: trait.isOn) { Text(trait.title) }
-                    .disabled(trait.isLocked)
+        return SheetPullDownMenu(
+            owner: model.id,
+            title: displayText,
+            isPlaceholder: selected.isEmpty,
+            rows: traits.map { .toggle(id: $0.id, title: $0.title, isOn: $0.isOn.wrappedValue, isEnabled: !$0.isLocked) },
+            onToggle: { id, isOn in
+                guard let trait = traits.first(where: { $0.id == id }), !trait.isLocked else { return }
+                trait.isOn.wrappedValue = isOn
             }
-        } label: {
-            Text(displayText)
-                .foregroundStyle(selected.isEmpty ? .secondary : .primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(1)
-        }
-        .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
+        )
+        .equatable()
+        .frame(width: ReleaseCardMetrics.pickerWidth, height: SheetPopUpButton<String>.layoutHeight, alignment: .leading)
     }
 }
 
@@ -1822,18 +1958,20 @@ private struct _ConditionPicker: View {
 /// Isolated so hasArtwork/independence/purchased subscriptions register here rather than
 /// on ReleaseCardView.body.
 ///
-/// Unpurchased, the control is a picker offering "Steelbook" alone. Purchased, it is a
+/// The same control whether or not the release is purchased. With no Type yet it is a picker
+/// offering "Steelbook" and "DigiBook/DigiPack". With a Type, it is a
 /// pull-down with two internally exclusive sections, laid out like _MarketAvailabilityPicker:
-/// the kind (Steelbook, the type's present kinds — Standard, Combo-pack, Multi-pack —
+/// the kind (the type's present kinds — Standard, Combo-pack, Multi-pack — then Steelbook,
 /// DigiBook/DigiPack, and Missing)
 /// above the divider and a detail (Reversible, Inner print, Incorrect release, Custom) below it.
 /// The details are enabled only while a present kind is selected, and choosing anything else in
-/// the top section clears the detail. The stored
+/// the top section clears the detail. Missing, Incorrect release, and Custom describe the copy
+/// in hand, so they are disabled until the release is purchased
+/// (`ReleaseArtwork.purchasedOnlyKinds` / `purchasedOnlyDetails`). The stored
 /// value is composed from the two by ReleaseArtwork.composed; see ReleaseArtwork for the format.
 ///
-/// "Steelbook" is offered under every type and purchased state. That is what the purchased
-/// and independence cascades' Steelbook exemptions assert, and it is named through
-/// `ReleaseArtwork.steelbook`, so every reader shares one definition.
+/// "Steelbook" and "DigiBook/DigiPack" are offered under every type and purchased state, which
+/// is what the independence cascade's exemption for them asserts.
 ///
 /// A combo-pack child mirrors its parent's artwork and is disabled. Its menu shows the synced
 /// value as its label whatever it is, so a child of a "Combo-pack (multi-pack)" parent, whose own
@@ -1841,17 +1979,22 @@ private struct _ConditionPicker: View {
 private struct _ArtworkPicker: View {
     @Bindable var model: ReleaseCardModel
 
-    private static let steelbookOnly: [ReleaseOption] = [ReleaseOption(ReleaseArtwork.steelbook)]
+    /// A release with no Type yet: the two case kinds every Type offers
+    /// (`ReleaseArtwork.keptOnTypeChange`), in menu order. Exactly the values a
+    /// later Type choice keeps, so nothing chosen here is retracted by that choice, and a
+    /// DigiBook kept when the Type goes back to "Select Type…" still has its row.
+    private static let untypedOptions: [ReleaseOption] =
+        [ReleaseOption(ReleaseArtwork.steelbook), ReleaseOption(ReleaseArtwork.digiBook)]
 
     var body: some View {
         /// Artwork reset on a type change is handled by FSTabReleases.commitIndependence;
         /// combo-pack children take the parent's value via syncComboChildFields.
         Group {
-            if model.purchased && !model.independence.isEmpty {
+            if !model.independence.isEmpty {
                 splitMenu
             } else {
                 TaggedPicker(selection: $model.hasArtwork,
-                             options: Self.steelbookOnly,
+                             options: Self.untypedOptions,
                              placeholder: "Select Artwork…")
             }
         }
@@ -1870,6 +2013,7 @@ private struct _ArtworkPicker: View {
         let kind = parts?.kind
         let detail = parts?.detail
         let detailLocked = !(kind.map(RA.isPresentKind) ?? false)
+        let purchased = model.purchased
 
         /// One write per selection: the whole value is rebuilt from its components.
         func commit(kind: String?, detail: String?) {
@@ -1877,41 +2021,42 @@ private struct _ArtworkPicker: View {
             if next != model.hasArtwork { model.hasArtwork = next }
         }
 
-        return Menu {
-            ForEach(kinds, id: \.self) { option in
-                Toggle(isOn: Binding(
-                    get: { kind == option },
-                    /// Moving between two present kinds keeps the detail. Anything else clears it.
-                    set: { isOn in
-                        let keepsDetail = isOn && RA.isPresentKind(option)
-                        commit(kind: isOn ? option : nil, detail: keepsDetail ? detail : nil)
-                    }
-                )) { Text(option) }
-            }
-            Divider()
-            ForEach(RA.details, id: \.self) { option in
-                Toggle(isOn: Binding(
-                    get: { detail == option },
-                    set: { isOn in commit(kind: kind, detail: isOn ? option : nil) }
-                )) { Text(option) }
-                .disabled(detailLocked)
-            }
-            /// A value neither section recognizes, kept visible so it can be removed.
-            if let unrecognized {
-                Divider()
-                Toggle(isOn: Binding(
-                    get: { true },
-                    set: { _ in model.hasArtwork = "" }
-                )) { Text(unrecognized) }
-            }
-        } label: {
-            Text(value.isEmpty ? "Select Artwork…" : value)
-                .foregroundStyle(value.isEmpty ? .secondary : .primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        typealias Row = SheetPullDownMenu.Row
+        var rows: [Row] = kinds.map {
+            .toggle(id: "kind:" + $0, title: $0, isOn: kind == $0,
+                    isEnabled: purchased || !RA.purchasedOnlyKinds.contains($0))
         }
-        .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
+        rows.append(.separator)
+        rows += RA.details.map {
+            .toggle(id: "detail:" + $0, title: $0, isOn: detail == $0,
+                    isEnabled: !detailLocked && (purchased || !RA.purchasedOnlyDetails.contains($0)))
+        }
+        /// A value neither section recognizes, kept visible so it can be removed.
+        if let unrecognized {
+            rows += [.separator, .toggle(id: "unrecognized", title: unrecognized, isOn: true)]
+        }
+
+        return SheetPullDownMenu(
+            owner: model.id,
+            title: value.isEmpty ? "Select Artwork…" : value,
+            isPlaceholder: value.isEmpty,
+            rows: rows,
+            onToggle: { id, isOn in
+                if let option = id.dropPrefix("kind:") {
+                    guard purchased || !RA.purchasedOnlyKinds.contains(option) else { return }
+                    /// Moving between two present kinds keeps the detail. Anything else clears it.
+                    let keepsDetail = isOn && RA.isPresentKind(option)
+                    commit(kind: isOn ? option : nil, detail: keepsDetail ? detail : nil)
+                } else if let option = id.dropPrefix("detail:") {
+                    guard !detailLocked, purchased || !RA.purchasedOnlyDetails.contains(option) else { return }
+                    commit(kind: kind, detail: isOn ? option : nil)
+                } else if id == "unrecognized" {
+                    model.hasArtwork = ""
+                }
+            }
+        )
+        .equatable()
+        .frame(width: ReleaseCardMetrics.pickerWidth, height: SheetPopUpButton<String>.layoutHeight, alignment: .leading)
     }
 }
 
@@ -2003,52 +2148,44 @@ private struct _MarketAvailabilityPicker: View {
             ? "Select Availability…"
             : MA.displayText(MA.composed(status: status, price: price, unrecognized: unrecognized))
 
-        return Menu {
-            ForEach(statusOptions, id: \.self) { option in
-                Toggle(isOn: Binding(
-                    get: { status == option },
+        typealias Row = SheetPullDownMenu.Row
+        var rows: [Row] = statusOptions.map { .toggle(id: "status:" + $0, title: $0, isOn: status == $0) }
+        rows.append(.separator)
+        rows += MA.priceTags.map { .toggle(id: "price:" + $0, title: $0, isOn: price == $0, isEnabled: !priceLocked) }
+        /// Values neither section recognizes, kept visible so they can be removed.
+        if !unrecognized.isEmpty {
+            rows.append(.separator)
+            rows += unrecognized.map { .toggle(id: "unrecognized:" + $0, title: $0, isOn: true) }
+        }
+
+        return SheetPullDownMenu(
+            owner: model.id,
+            title: displayText,
+            isPlaceholder: status == nil && price == nil && unrecognized.isEmpty,
+            rows: rows,
+            onToggle: { id, isOn in
+                if let option = id.dropPrefix("status:") {
                     /// `composed` drops the price when the new status cannot carry one, so
                     /// choosing "Unavailable" clears it from the stored value outright.
-                    set: { isOn in commit(status: isOn ? option : nil, price: price) }
-                )) { Text(option) }
-            }
-            Divider()
-            ForEach(MA.priceTags, id: \.self) { option in
-                Toggle(isOn: Binding(
-                    get: { price == option },
-                    set: { isOn in commit(status: status, price: isOn ? option : nil) }
-                )) { Text(option) }
-                .disabled(priceLocked)
-            }
-            /// Values neither section recognizes, kept visible so they can be removed.
-            if !unrecognized.isEmpty {
-                Divider()
-                ForEach(unrecognized, id: \.self) { option in
-                    Toggle(isOn: Binding(
-                        get: { true },
-                        set: { _ in
-                            model.marketAvailability = MA.composed(
-                                status: status, price: price,
-                                unrecognized: unrecognized.filter { $0 != option })
-                        }
-                    )) { Text(option) }
+                    commit(status: isOn ? option : nil, price: price)
+                } else if let option = id.dropPrefix("price:") {
+                    guard !priceLocked else { return }
+                    commit(status: status, price: isOn ? option : nil)
+                } else if let option = id.dropPrefix("unrecognized:") {
+                    model.marketAvailability = MA.composed(
+                        status: status, price: price,
+                        unrecognized: unrecognized.filter { $0 != option })
                 }
             }
-        } label: {
-            Text(displayText)
-                .foregroundStyle(status == nil && price == nil && unrecognized.isEmpty
-                                 ? .secondary : .primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(1)
-                .truncationMode(.tail)
-        }
-        .frame(width: ReleaseCardMetrics.pickerWidth, alignment: .leading)
+        )
+        .equatable()
+        .frame(width: ReleaseCardMetrics.pickerWidth, height: SheetPopUpButton<String>.layoutHeight, alignment: .leading)
     }
 }
 
 // MARK: - Multi-Select Option Vocabulary (Canonical Ordering)
 /// Single source of truth for the two multi-select menus in this file: the same instance
-/// supplies the menu's display order (the `options` array drives the ForEach) and the stored
+/// supplies the menu's display order (the `options` array is the menu's rows) and the stored
 /// array's order (`canonicalized` ranks by position in that same array), so the two cannot
 /// drift apart.
 ///
@@ -2107,15 +2244,17 @@ struct ReleaseOptionVocabulary: Sendable {
 }
 
 // MARK: - Multi-Select Menu
-/// The single Menu implementation behind both multi-select controls on a release card
+/// The single menu implementation behind both multi-select controls on a release card
 /// (Included Versions and Aspect Ratio). It is parameterized by the array it binds to and the vocabulary
 /// it lists.
 ///
-/// Both Toggle arms rebuild the whole array from the resulting Set rather than inserting or
+/// Choosing a row rebuilds the whole array from the resulting Set rather than inserting or
 /// removing in place, so the committed order is a pure function of the selected SET. See
 /// ReleaseOptionVocabulary.
 private struct MultiSelectMenu: View {
     @Binding var selection: [String]
+    /// The release `selection` belongs to. See SheetPullDownMenu.owner.
+    let owner: UUID
     let vocabulary: ReleaseOptionVocabulary
     let placeholder: String
 
@@ -2123,6 +2262,8 @@ private struct MultiSelectMenu: View {
         switch selection.count {
         case 0:  return placeholder
         case 1:  return selection[0]
+        /// Two fit as a pair, truncated by the button with an ellipsis; three or more are "Multiple".
+        case 2:  return selection[0] + ", " + selection[1]
         default: return "Multiple"
         }
     }
@@ -2135,25 +2276,21 @@ private struct MultiSelectMenu: View {
         /// single-select menus. Without a row, an imported or restored unknown value could
         /// never be unchecked, since every toggle rebuilds from the set that still held it.
         let unrecognized = selection.filter { !vocabulary.isKnown($0) }
-        Menu {
-            ForEach(vocabulary.options + unrecognized, id: \.self) { option in
-                Toggle(isOn: Binding(
-                    get: { selected.contains(option) },
-                    set: { isSelected in
-                        var next = Set(selection)
-                        if isSelected { next.insert(option) } else { next.remove(option) }
-                        selection = vocabulary.canonicalized(next)
-                    }
-                )) {
-                    Text(option)
-                }
+        SheetPullDownMenu(
+            owner: owner,
+            title: displayText,
+            isPlaceholder: selection.isEmpty,
+            rows: (vocabulary.options + unrecognized).map {
+                .toggle(id: $0, title: $0, isOn: selected.contains($0))
+            },
+            onToggle: { option, isSelected in
+                var next = Set(selection)
+                if isSelected { next.insert(option) } else { next.remove(option) }
+                selection = vocabulary.canonicalized(next)
             }
-        } label: {
-            Text(displayText)
-                .foregroundStyle(selection.isEmpty ? .secondary : .primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(1)
-        }
+        )
+        .equatable()
+        .frame(width: ReleaseCardMetrics.pickerWidth, height: SheetPopUpButton<String>.layoutHeight, alignment: .leading)
     }
 }
 
@@ -2198,4 +2335,12 @@ enum ReleaseFormatPalette {
     private static let colorBluRay = Color(nsColor: tintBluRay)
     private static let colorDVD    = Color(nsColor: tintDVD)
     private static let colorUnknown = Preferences.darkGray
+}
+
+private extension String {
+    /// The rest of the string after `prefix`, or nil when it does not start with it. Reads a
+    /// pull-down row id back into the section and option it names.
+    func dropPrefix(_ prefix: String) -> String? {
+        hasPrefix(prefix) ? String(dropFirst(prefix.count)) : nil
+    }
 }

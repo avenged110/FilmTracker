@@ -1133,6 +1133,7 @@ private struct EditingTextField: NSViewRepresentable {
         context.coordinator.seedIfNeeded(token: focusToken, seed: seed)
         field.stringValue = seed
         field.focusToken = focusToken
+        context.coordinator.attachSuggestions(context.environment.stringListSuggestions, to: field)
         return field
     }
 
@@ -1146,6 +1147,7 @@ private struct EditingTextField: NSViewRepresentable {
             nsView.stringValue = seed
         }
         nsView.focusToken = focusToken
+        context.coordinator.attachSuggestions(context.environment.stringListSuggestions, to: nsView)
     }
 
     /// Fills the width it is offered and keeps its natural height.
@@ -1176,6 +1178,10 @@ private struct EditingTextField: NSViewRepresentable {
         /// Session the buffer currently holds, so seeding runs once per session
         /// regardless of how many update passes the field receives.
         private var seededToken: Int?
+        /// PROTOTYPE: see StringListSuggestionSource. The delegate is made on first use and
+        /// kept, since the field holds it weakly.
+        var suggestionSource: StringListSuggestionSource?
+        var suggestionsDelegate: ValueSuggestionsDelegate?
 
         init(_ parent: EditingTextField) { self.parent = parent }
 
@@ -1236,6 +1242,276 @@ private struct EditingTextField: NSViewRepresentable {
                 return false
             }
         }
+    }
+}
+
+// MARK: - PROTOTYPE: Value Suggestions
+
+/// PROTOTYPE (2026-11-15): offers the system suggestions drop-down (macOS 15
+/// `NSTextField.suggestionsDelegate`) on an inline list's edit field, to compare it
+/// with the search field's menu. Set on a list through the environment; nil leaves the
+/// field exactly as before.
+struct StringListSuggestionSource: Sendable, Equatable {
+    /// Names the source, so a rebuilt one with the same id is equal and does not
+    /// invalidate the list it is set on. The identity of the object `rank` reads.
+    let id: ObjectIdentifier
+    /// The suggestions for the text typed so far, best first.
+    let rank: @MainActor @Sendable (_ typed: String) -> [String]
+
+    static func == (a: Self, b: Self) -> Bool { a.id == b.id }
+}
+
+extension EnvironmentValues {
+    @Entry var stringListSuggestions: StringListSuggestionSource? = nil
+}
+
+/// PROTOTYPE (2026-11-15): the most-used saved values of a free-text field, for an edit
+/// field's suggestions drop-down. Each vocabulary is counted once per library version and
+/// kept, so a keystroke only filters a list already in order.
+@MainActor
+enum ValueSuggestions {
+    /// The most rows the drop-down shows.
+    static let limit = 8
+
+    enum Vocabulary: Hashable {
+        /// Film tags, counted once per film that carries them.
+        case tags
+        /// Free-text ("Other") release studios, counted once per top-level release.
+        /// Studios the studio menu lists are left out: they are picked there.
+        case releaseStudios
+    }
+
+    private struct Entry {
+        let key: String
+        let display: String
+    }
+
+    private struct Built {
+        /// Weak, so a coordinator that is gone never matches a new one at its address.
+        weak var coordinator: DataCoordinator?
+        let version: UInt64
+        /// Most-used first.
+        let entries: [Entry]
+    }
+
+    private static var built: [Vocabulary: Built] = [:]
+
+    /// Up to `limit` saved values for `typed`, most-used first within each tier: those
+    /// whose start matches what is typed, then those with a word starting with it, then
+    /// those holding it anywhere. Matching is by SearchText.key, as search's is. With
+    /// nothing typed, the most-used values. Values whose key is in `excluding` are left out.
+    static func ranked(_ vocabulary: Vocabulary, in coordinator: DataCoordinator, typed: String,
+                       excluding: Set<String> = []) -> [String] {
+        let typedKey = SearchText.key(typed)
+        var tiers: [[String]] = [[], [], []]
+        for entry in entries(vocabulary, in: coordinator) where !excluding.contains(entry.key) {
+            let tier: Int
+            if typedKey.isEmpty || entry.key.hasPrefix(typedKey) {
+                tier = 0
+            } else if entry.key.contains(" " + typedKey) {
+                tier = 1
+            } else if entry.key.contains(typedKey) {
+                tier = 2
+            } else {
+                continue
+            }
+            guard tiers[tier].count < limit else { continue }
+            tiers[tier].append(entry.display)
+            /// The best tier is full: nothing later can displace it.
+            if tiers[0].count == limit { break }
+        }
+        return Array(tiers.joined().prefix(limit))
+    }
+
+    private static func entries(_ vocabulary: Vocabulary, in coordinator: DataCoordinator) -> [Entry] {
+        let version = coordinator.filmsVersion
+        if let cached = built[vocabulary], cached.coordinator === coordinator, cached.version == version {
+            return cached.entries
+        }
+        /// key → spelling → uses. A value is shown in its most-used spelling.
+        var spellings: [String: [String: Int]] = [:]
+        func count(_ value: String) {
+            let display = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = SearchText.key(display)
+            guard !key.isEmpty else { return }
+            spellings[key, default: [:]][display, default: 0] += 1
+        }
+        for film in coordinator.getAllFilmsMap().values {
+            switch vocabulary {
+            case .tags:
+                /// Once per film, however many spellings of it the film carries.
+                var seen: Set<String> = []
+                for tag in film.tags where seen.insert(SearchText.key(tag)).inserted { count(tag) }
+            case .releaseStudios:
+                /// Combo-pack children mirror their parent's studio, so they would count it twice.
+                for release in film.releases where release.isTopLevel && !ReleaseStudio.isKnown(release.studio) {
+                    count(release.studio)
+                }
+            }
+        }
+        var counted: [(entry: Entry, uses: Int)] = []
+        counted.reserveCapacity(spellings.count)
+        for (key, uses) in spellings {
+            /// The most-used spelling; ties go to the alphabetically first, so the choice is stable.
+            var display = key
+            var best = 0
+            for (spelling, n) in uses where n > best || (n == best && spelling < display) {
+                display = spelling
+                best = n
+            }
+            counted.append((Entry(key: key, display: display), uses.values.reduce(0, +)))
+        }
+        counted.sort { $0.uses != $1.uses ? $0.uses > $1.uses : $0.entry.key < $1.entry.key }
+        let ranked = counted.map(\.entry)
+        built[vocabulary] = Built(coordinator: coordinator, version: version, entries: ranked)
+        return ranked
+    }
+}
+
+/// PROTOTYPE (2026-11-15): an AppKit text field's suggestions drop-down — the system menu
+/// the search field's suggestions use (macOS 15 `NSTextField.suggestionsDelegate`). The field
+/// holds its delegate weakly, so the owner (a representable's coordinator) keeps this alive.
+@MainActor
+final class ValueSuggestionsDelegate: NSObject, NSTextSuggestionsDelegate {
+    typealias SuggestionItemType = String
+
+    /// The rows for the text typed so far, best first. Asked only while the field is being
+    /// edited, as AppKit needs them.
+    var rank: (_ typed: String) -> [String]
+    /// Ranks asynchronously instead, when set: for a vocabulary too large to rank on the main
+    /// actor per keystroke (the search field's, SearchController.rankedValues). A request
+    /// still being ranked when the next arrives is dropped.
+    var asyncRank: (@MainActor (_ typed: String) async -> [String])?
+    private var rankTask: Task<Void, Never>?
+    /// A row was picked (clicked, or Return in a field that leaves Return to AppKit).
+    var onSelect: (_ field: NSTextField, _ value: String) -> Void
+    /// The field's text changed by a route that posts no `controlTextDidChange`: highlighting a
+    /// row fills the field with it (and moving off it restores the typed text) by setting the
+    /// field editor's text directly. Without this the owner's copy would hold the typed text
+    /// while the field showed the row, and whatever ends the edit without Return — a click on
+    /// Update, on another control — would keep the typed text.
+    var onTextChange: (_ value: String) -> Void
+
+    /// The field whose editor is mirrored into `onTextChange`, from the first rows offered until
+    /// editing ends. Weak: the field is owned by its view.
+    private weak var mirroredField: NSTextField?
+    private weak var mirroredEditor: NSTextView?
+    private weak var mirroredStorage: NSTextStorage?
+
+    init(rank: @escaping (_ typed: String) -> [String],
+         onSelect: @escaping (_ field: NSTextField, _ value: String) -> Void,
+         onTextChange: @escaping (_ value: String) -> Void) {
+        self.rank = rank
+        self.asyncRank = nil
+        self.onSelect = onSelect
+        self.onTextChange = onTextChange
+    }
+
+    func textField(_ textField: NSTextField,
+                   provideUpdatedSuggestions responseHandler: @escaping (NSSuggestionItemResponse<String>) -> Void) {
+        /// The field editor holds the live text while editing.
+        let editor = textField.currentEditor() as? NSTextView
+        if let editor { mirror(textField, editor) }
+        let typed = editor?.string ?? textField.stringValue
+        rankTask?.cancel()
+        rankTask = nil
+        /// Every value drop-down follows the search suggestions setting, as the search
+        /// field's own does.
+        guard Preferences.showSearchSuggestions else {
+            responseHandler(NSSuggestionItemResponse(items: []))
+            return
+        }
+        guard let asyncRank else {
+            responseHandler(Self.response(rank(typed)))
+            return
+        }
+        rankTask = Task {
+            let rows = await asyncRank(typed)
+            guard !Task.isCancelled else { return }
+            responseHandler(Self.response(rows))
+        }
+    }
+
+    private static func response(_ rows: [String]) -> NSSuggestionItemResponse<String> {
+        NSSuggestionItemResponse(items: rows.map { NSSuggestionItem(representedValue: $0, title: $0) })
+    }
+
+    /// Highlighting a row fills the field with it, as the search field's menu does.
+    func textField(_ textField: NSTextField, textCompletionFor item: NSSuggestionItem<String>) -> String? {
+        item.representedValue
+    }
+
+    func textField(_ textField: NSTextField, didSelect item: NSSuggestionItem<String>) {
+        onSelect(textField, item.representedValue)
+    }
+
+    // MARK: Mirroring the field editor
+
+    /// Starts reporting every change to `editor`'s text while it edits `field`. The window's
+    /// field editor is shared by every field in it, so each notice is checked against the field
+    /// still being the one it edits; the first that is not ends the mirroring. A selector
+    /// observer is dropped by NotificationCenter when this object goes away.
+    private func mirror(_ field: NSTextField, _ editor: NSTextView) {
+        guard mirroredEditor !== editor || mirroredField !== field,
+              /// `textStorage` is unowned(unsafe) in AppKit; it is read once, here, while the editor
+              /// holds it, and kept weakly. The safe route, `textContentStorage?.textStorage`, is
+              /// TextKit 2 only, and the window's shared field editor drops to TextKit 1 for good the
+              /// first time anything reads its `layoutManager` (CurrencyInputField does), after which
+              /// that route is nil. Measured 2026-11-15.
+              let storage = unsafe editor.textStorage else { return }
+        stopMirroring()
+        mirroredField = field
+        mirroredEditor = editor
+        mirroredStorage = storage
+        NotificationCenter.default.addObserver(self, selector: #selector(storageDidProcessEditing(_:)),
+                                               name: NSTextStorage.didProcessEditingNotification, object: storage)
+    }
+
+    private func stopMirroring() {
+        if let storage = mirroredStorage {
+            NotificationCenter.default.removeObserver(self, name: NSTextStorage.didProcessEditingNotification,
+                                                      object: storage)
+        }
+        mirroredField = nil
+        mirroredEditor = nil
+        mirroredStorage = nil
+    }
+
+    @objc private func storageDidProcessEditing(_ note: Notification) {
+        guard let storage = note.object as? NSTextStorage,
+              let field = mirroredField, let editor = mirroredEditor,
+              field.currentEditor() === editor else {
+            stopMirroring()
+            return
+        }
+        /// Only text changes; attribute-only passes (marked text styling, spell underlines)
+        /// leave the value alone.
+        guard storage.editedMask.contains(.editedCharacters) else { return }
+        onTextChange(storage.string)
+    }
+}
+
+extension EditingTextField.Coordinator {
+    func attachSuggestions(_ source: StringListSuggestionSource?, to field: NSTextField) {
+        suggestionSource = source
+        guard source != nil else {
+            if field.suggestionsDelegate != nil { field.suggestionsDelegate = nil }
+            return
+        }
+        let delegate = suggestionsDelegate ?? ValueSuggestionsDelegate(
+            rank: { [weak self] typed in self?.suggestionSource?.rank(typed) ?? [] },
+            onSelect: { [weak self] field, value in
+                guard let self else { return }
+                /// Picking a suggestion commits it, as Return would.
+                field.stringValue = value
+                parent.buffer.current = value
+                parent.onSubmit()
+            },
+            onTextChange: { [weak self] value in
+                self?.parent.buffer.current = value
+            })
+        suggestionsDelegate = delegate
+        if field.suggestionsDelegate !== delegate { field.suggestionsDelegate = delegate }
     }
 }
 

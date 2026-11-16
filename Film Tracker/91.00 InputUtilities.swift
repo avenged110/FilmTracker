@@ -2232,7 +2232,7 @@ class StringFormatter: Formatter {
 /// intercept `DigitOnlyFormatter` uses — so non-digits are dropped and colons are
 /// inserted before the text ever reaches storage, with no flicker and no
 /// re-entrant edit of the field's own value.
-private final class TimeCodeFormatter: StringFormatter, @unchecked Sendable {
+private final class TimeCodeFormatter: StringFormatter {
     let maxDigits: Int
 
     init(maxDigits: Int) {
@@ -2281,7 +2281,7 @@ private final class TimeCodeFormatter: StringFormatter, @unchecked Sendable {
 /// isPartialStringValid is called by AppKit for every proposed text change (typing,
 /// paste, autocorrect, drag-drop) before it touches storage. Returning false with a
 /// modified partialStringPtr causes AppKit to apply the cleaned value instead.
-private final class DigitOnlyFormatter: StringFormatter, @unchecked Sendable {
+private final class DigitOnlyFormatter: StringFormatter {
     let maxLength: Int
 
     init(maxLength: Int) {

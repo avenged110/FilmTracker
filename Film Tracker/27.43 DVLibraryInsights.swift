@@ -1672,7 +1672,10 @@ enum DVSpendingTrends {
                 + ": " + chain.compactMap { $0.averageCost.map(Fmt.dollars) }.joined(separator: " → ") + "."
         } else {
             let prior = previous.averageCost ?? 0
-            let change = prior > 0 ? Int(((lastAverage - prior) / prior * 100).rounded()) : 0
+            /// Clamped before the Int conversion: an absurd price from a damaged backup can push
+            /// the ratio past Int's range (or to infinity), where the conversion traps.
+            let ratio = ((lastAverage - prior) / prior * 100).rounded()
+            let change = prior > 0 ? Int(max(-1e15, min(1e15, ratio))) : 0
             let movement = change == 0 ? "level with" : "\(change > 0 ? "up" : "down") \(abs(change))% from"
             headline = "Your average purchase price \(span) is \(Fmt.dollars(lastAverage)), \(movement) \(Fmt.dollars(prior)) in \(previous.year)."
         }

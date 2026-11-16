@@ -272,6 +272,7 @@ struct ReleaseWishlistView: View {
     // MARK: - Selection
 
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
+        ReportsState.shared.selectedReleaseRowIDs = newSelection
         /// newSelection contains WishlistRelease.id values (which equal the release UUIDs).
         /// Map back to film IDs for SelectionState so the RightSidebar shows the film.
         if newSelection.isEmpty {

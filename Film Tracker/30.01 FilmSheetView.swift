@@ -224,7 +224,7 @@ private struct FilmSheetButtonBar: View {
             }
 
             Button {
-                owner.confirm()
+                owner.requestConfirm()
             } label: {
                 Text(owner.confirmButtonTitle).sheetButtonLabel()
             }
@@ -241,6 +241,16 @@ private struct FilmSheetButtonBar: View {
         /// With debug logging ON, "check the log" is sound advice and the user — who turned
         /// it on deliberately — knows where to look, so the message stays as it was. With
         /// logging OFF, no log exists to consult, so the fault text travels in the alert.
+        /// Attached to the button strip, so it presents whichever tab is showing. "Save
+        /// Changes Anyway" is declared first and takes the default action, so it sits
+        /// rightmost as the highlighted button (see the Save Error alert's note below).
+        .alert("Save Changes?", isPresented: $owner.showingLeaveViewAlert) {
+            Button("Save Changes Anyway") { owner.confirm() }
+                .keyboardShortcut(.defaultAction)
+            Button("Keep Editing", role: .cancel) { }
+        } message: {
+            Text("Your changes will result in this film being removed from the current view and the selection being cleared. It will remain in your library.")
+        }
         .alert("Save Error", isPresented: $owner.showingSaveError) {
             /// Button order is deliberate and counterintuitive: the alert panel lays
             /// buttons out RIGHT to LEFT in declaration order, so OK is declared first
@@ -458,7 +468,8 @@ protocol FilmSheetReturnHandlingField: NSTextField {}
 ///     would hand focus to a SwiftUI-native control, are skipped: focus given to one is
 ///     immediately taken over by the hosting view, after which nothing in AppKit says which
 ///     control has it. SwiftUI-native controls the user should reach by Tab are therefore
-///     built as AppKit ones (SheetCheckbox, ReleasePopUpButton, ClearableStepperView).
+///     built as AppKit ones (SheetCheckbox, ReleasePopUpButton, SheetPullDownMenu,
+///     ClearableStepperView).
 ///   • ONE STOP PER CONTROL: a candidate nested inside another candidate is that control's
 ///     own machinery and is dropped in favor of its ancestor.
 ///
@@ -554,15 +565,11 @@ final class FilmSheetKeyLoop {
 
     // MARK: Census
 
-    /// True when some ancestor of `view` (or `view` itself) is drawn at zero alpha — the
-    /// hidden-tab test; see WHAT COUNTS AS A CONTROL.
+    /// True when `view` itself is drawn at zero alpha — the hidden-tab test; see WHAT COUNTS
+    /// AS A CONTROL. The census does not descend into such a view, so everything it visits
+    /// has no zero-alpha ancestor below the root.
     private static func isDrawnInvisible(_ view: NSView) -> Bool {
-        var v: NSView? = view
-        while let x = v {
-            if x.alphaValue == 0 || (x.layer?.opacity ?? 1) == 0 { return true }
-            v = unsafe x.superview
-        }
-        return false
+        view.alphaValue == 0 || (view.layer?.opacity ?? 1) == 0
     }
 
     /// The outermost scroll view enclosing `view` below the window's content view, if any:
@@ -593,12 +600,15 @@ final class FilmSheetKeyLoop {
         var found: [(view: NSView, frame: NSRect)] = []
         var stack: [NSView] = [root]
         while let v = stack.popLast() {
+            /// A hidden subtree is skipped whole: nothing in it can be a stop. This is what
+            /// keeps the walk off the other built tabs, each kept alive behind a zero-alpha
+            /// container, and off the carousel's dimmed-out cards.
+            if Self.isDrawnInvisible(v) { continue }
             stack.append(contentsOf: v.subviews)
             guard v !== region, v.canBecomeKeyView, !Self.isContainer(v) else { continue }
             /// The region's own ancestors are containers the tab sits in, not controls on it.
             if region.isDescendant(of: v) { continue }
             if let text = v as? NSTextView, text.isFieldEditor { continue }
-            if Self.isDrawnInvisible(v) { continue }
 
             let frame = v.convert(v.bounds, to: nil)
             guard !frame.isEmpty else { continue }
@@ -623,12 +633,7 @@ final class FilmSheetKeyLoop {
         /// One stop per control — see WHAT COUNTS AS A CONTROL.
         let candidates = found.map(\.view)
         found.removeAll { entry in
-            var ancestor = unsafe entry.view.superview
-            while let a = ancestor {
-                if candidates.contains(where: { $0 === a }) { return true }
-                ancestor = unsafe a.superview
-            }
-            return false
+            candidates.contains { $0 !== entry.view && entry.view.isDescendant(of: $0) }
         }
 
         /// Rows first: sort by descending center y, then walk once assigning a row index
@@ -828,24 +833,14 @@ private struct FilmSheetTabContent: View {
 
     var body: some View {
         let _ = FilmSheetBodyProbe.hit("tab-content")
-        /// Compute the effective "appeared" set once. FilmSheet seeds the set with the
-        /// initial tab and inserts each subsequent selection from selectedTab's didSet,
-        /// so the fast path (identity return, zero allocation) is taken on every render.
-        /// The union branch is a safety net: if selectedTab is ever a value not yet
-        /// recorded, it is included in the set used for this frame so the active tab
-        /// always renders.
-        let appeared = appearedTabs.contains(selectedTab)
-            ? appearedTabs
-            : appearedTabs.union([selectedTab])
-
-        /// Hoist per-tab state into five Bool pairs so each Set.contains runs exactly
-        /// once per tab per body evaluation, instead of being repeated inside tabView.
+        /// `appearedTabs` always holds `selectedTab`: FilmSheet seeds it with the initial tab
+        /// and inserts each later selection from selectedTab's didSet, its only writers.
         let sel = selectedTab
-        let dLoaded = appeared.contains(.details),  dActive = sel == .details
-        let mLoaded = appeared.contains(.metadata), mActive = sel == .metadata
-        let rLoaded = appeared.contains(.releases), rActive = sel == .releases
-        let nLoaded = appeared.contains(.notes),    nActive = sel == .notes
-        let pLoaded = appeared.contains(.poster),   pActive = sel == .poster
+        let dLoaded = appearedTabs.contains(.details),  dActive = sel == .details
+        let mLoaded = appearedTabs.contains(.metadata), mActive = sel == .metadata
+        let rLoaded = appearedTabs.contains(.releases), rActive = sel == .releases
+        let nLoaded = appearedTabs.contains(.notes),    nActive = sel == .notes
+        let pLoaded = appearedTabs.contains(.poster),   pActive = sel == .poster
 
         ZStack {
             tabLayer(.details, loaded: dLoaded, active: dActive) { content(for: .details) }
@@ -933,16 +928,7 @@ private struct FilmSheetTabContent: View {
     private func content(for tab: FilmTab) -> some View {
         switch tab {
         case .details:
-            /// FilmSheetFocusSink must be the first NSView child of this branch so
-            /// AppKit's automatic first-responder assignment lands on the sink rather
-            /// than on the "Name" TextField when the Details tab is first built.
-            /// See MARK: - FilmSheetFocusSink below for the full rationale.
-            /// swallowReturn: false — on Details, Return is forwarded so AppKit's
-            /// responder chain can dispatch it to the window's default-action button.
-            VStack(spacing: 0) {
-                FilmSheetFocusSink(swallowReturn: false, reclaimWhenActive: selectedTab == .details)
-                    .frame(height: 0)
-                    .clipped()
+            withFocusSink(.details) {
                 DetailsScrollTab(viewModel: detailsTab,
                                  scrollProxy: detailsScrollProxy,
                                  activation: detailsActivation)
@@ -954,13 +940,15 @@ private struct FilmSheetTabContent: View {
             /// No scroll proxy and no named coordinate space: this tab publishes no
             /// anchor and targets none. Its lists pull a newly committed row back into
             /// view through ListAddRowRevealer, which finds its own enclosing scroll
-            /// view and needs no cooperation from this call site. See the Notes case.
-            /// swallowReturn: true — an inert Return is consumed; Return saves exactly when
-            /// Update is enabled, on every tab. See MARK: - FilmSheetFocusSink below.
-            VStack(spacing: 0) {
-                FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .metadata)
-                    .frame(height: 0)
-                    .clipped()
+            /// view and needs no cooperation from this call site. Notes is the same.
+            ///
+            /// Details is the sole tab that still needs either: it publishes the
+            /// viewingDatesSection anchor and targets it from the
+            /// .openViewingDatesAddPopover command, so the space is established there,
+            /// outside FSTabDetailsView, where the measured origin includes the
+            /// surrounding padding and aligns with the y values
+            /// NSScrollView.contentView.scroll(to:) expects.
+            withFocusSink(.metadata) {
                 FilmSheetScrollView(activation: metadataActivation) {
                     FSTabMetadataView(viewModel: metadataTab)
                         .padding(Preferences.sheetContentMargin)
@@ -969,18 +957,7 @@ private struct FilmSheetTabContent: View {
             }
             .appKitScrollActivation(metadataActivation, isActive: selectedTab == .metadata)
         case .releases:
-            /// FilmSheetFocusSink mirrors the Details usage. The Releases tab
-            /// is only built the first time the user activates it, but at that moment
-            /// AppKit auto-assigns focus to the first focusable NSView it finds in
-            /// the fresh hierarchy — the "Studio" TextField in ReleaseFormView.
-            /// The sink intercepts that assignment exactly once per session.
-            /// swallowReturn: true — as on Metadata. See MARK: - FilmSheetFocusSink below.
-            VStack(spacing: 0) {
-                /// Re-claims on EVERY activation of this tab, not only its first build — as
-                /// every tab's sink does; see RE-CLAIM ON ACTIVATION on FilmSheetFocusSink.
-                FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .releases)
-                    .frame(height: 0)
-                    .clipped()
+            withFocusSink(.releases) {
                 /// Equatable on the view model's identity, so a tab switch (which re-runs this body)
                 /// does not re-run the Releases tab's body while it is hidden. Unlike the scroll tabs,
                 /// this one is not behind a hosting view's hand-off gate. Its own state and observed
@@ -990,21 +967,7 @@ private struct FilmSheetTabContent: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         case .notes:
-            /// No scroll proxy and no named coordinate space, for the same reason as
-            /// Metadata. Its one programmatic scroll, revealing a freshly added list row, is
-            /// handled by ListAddRowRevealer, which measures against whatever scroll view it sits inside.
-            ///
-            /// Details is the sole tab that still needs either: it publishes the
-            /// viewingDatesSection anchor and targets it from the
-            /// .openViewingDatesAddPopover command, so the space is established there,
-            /// outside FSTabDetailsView, where the measured origin includes the
-            /// surrounding padding and aligns with the y values
-            /// NSScrollView.contentView.scroll(to:) expects.
-            /// swallowReturn: true — as on Metadata/Releases above.
-            VStack(spacing: 0) {
-                FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .notes)
-                    .frame(height: 0)
-                    .clipped()
+            withFocusSink(.notes) {
                 FilmSheetScrollView(activation: notesActivation) {
                     FSTabNotesView(viewModel: notesTab)
                         .padding(Preferences.sheetContentMargin)
@@ -1013,15 +976,26 @@ private struct FilmSheetTabContent: View {
             }
             .appKitScrollActivation(notesActivation, isActive: selectedTab == .notes)
         case .poster:
-            /// swallowReturn: true — same reasoning as Metadata/Releases/Notes above.
-            VStack(spacing: 0) {
-                FilmSheetFocusSink(swallowReturn: true, reclaimWhenActive: selectedTab == .poster)
-                    .frame(height: 0)
-                    .clipped()
+            withFocusSink(.poster) {
                 FSTabPosterView(viewModel: posterTab)
                     .padding(Preferences.sheetContentMargin)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    /// `content` beneath the tab's FilmSheetFocusSink, which must be the first NSView child
+    /// of the tab so AppKit's automatic first-responder assignment lands on it rather than
+    /// on the tab's first field (Name on Details, Studio on Releases) when the tab is built.
+    /// The sink re-claims focus on every activation of its tab, not only the first build.
+    /// Only Details forwards an inert Return (to the window's default button, disabled in
+    /// that state); every other tab swallows it. See MARK: - FilmSheetFocusSink below.
+    private func withFocusSink<C: View>(_ tab: FilmTab, @ViewBuilder content: () -> C) -> some View {
+        VStack(spacing: 0) {
+            FilmSheetFocusSink(swallowReturn: tab != .details, reclaimWhenActive: selectedTab == tab)
+                .frame(height: 0)
+                .clipped()
+            content()
         }
     }
 }
@@ -1141,7 +1115,7 @@ struct TabEventShield: NSViewRepresentable {
 
 // MARK: - FilmSheetFocusSink
 /// An invisible, zero-height focus trap placed as the first child of a tab's VStack in
-/// FilmSheetTabContent.content(for:). One parameterized type backs all five tabs' sinks,
+/// FilmSheetTabContent.withFocusSink(_:content:). One parameterized type backs all five tabs' sinks,
 /// differing only in whether Return is forwarded to AppKit. The MultiFilmSheet's two tabs
 /// use it the same way (MultiFilmTabContent, 52.10), as they do TabEventShield.
 ///

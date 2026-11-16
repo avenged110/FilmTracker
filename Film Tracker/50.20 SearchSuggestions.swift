@@ -66,22 +66,28 @@ nonisolated struct SearchVocabulary: Sendable {
 
     static let empty = SearchVocabulary()
 
+    /// Nothing built yet: the empty vocabulary, before the first build.
+    var isEmpty: Bool { titleKeys.isEmpty && terms.isEmpty }
+
     /// The fields whose values come from the films themselves, so taste and context apply.
     static let libraryFields: Set<SearchField> = [
         .title, .cast, .directors, .producer, .executiveProducer, .screenwriter, .composer,
-        .crew, .studio, .tags, .genre,
+        .crew, .studio, .source, .tags, .genre,
     ]
 
     /// Fixed keyword vocabularies for the fields whose values are not library text.
     private static let keywordTerms: [SearchField: [String]] = [
         .releases: ["upcoming", "purchased", "unpurchased", "wishlist", "4k", "native 4k",
                     "upscaled", "blu-ray", "dvd", "imported", "remastered", "hdr",
-                    "dolby vision", "hdr10", "hdr10+", "combo-pack", "standalone", "multi-pack"],
+                    "dolby vision", "hdr10", "hdr10+", "combo-pack", "standalone", "multi-pack",
+                    "available", "out of print", "temporarily unavailable", "unavailable",
+                    "cheap", "reasonable", "exorbitant"],
         .rotationThreshold: ["default", "override"]
             + Preferences.rotationThresholdOptions.map { "\($0) months" },
         .lastWatched: ["today", "this week", "this month", "this year"],
         .dateAdded: ["today", "this week", "this month", "this year"],
         .flags: FilmFlag.terms.map(\.display),
+        .source: ["none"],
     ]
 
     init() {}
@@ -125,6 +131,7 @@ nonisolated struct SearchVocabulary: Sendable {
             for name in Set(people.flatMap { film[keyPath: $0.1] }) { add(name, to: .crew, film: index) }
             for studio in Set(film.studio) { add(studio, to: .studio, film: index) }
             for tag in Set(film.tags) { add(tag, to: .tags, film: index) }
+            add(film.digitalSource, to: .source, film: index)
             /// Genre is one string that may hold several, comma- or slash-separated.
             for genre in Set(film.genre.split(whereSeparator: { $0 == "," || $0 == "/" })) {
                 add(String(genre), to: .genre, film: index)

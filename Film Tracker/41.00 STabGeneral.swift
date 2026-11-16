@@ -27,6 +27,10 @@ struct GeneralSettingsView: View, Loggable {
         private var confirmReleaseDelete: Bool
     @AppStorage(preference: Preferences.confirmFilmQueueAddKey)
         private var confirmFilmQueueAdd: Bool
+    @AppStorage(preference: Preferences.confirmSpecialSortingAddForQueuedKey)
+        private var confirmSpecialSortingAddForQueued: Bool
+    @AppStorage(preference: Preferences.confirmChangesBeforeDisappearKey)
+        private var confirmChangesBeforeDisappear: Bool
     @AppStorage(preference: Preferences.notifyAboutNewReleasesKey)
         private var notifyAboutNewReleases: Bool
     @AppStorage(preference: Preferences.onlyNotifyForWishlistedKey)
@@ -158,6 +162,14 @@ struct GeneralSettingsView: View, Loggable {
 
                 Toggle(isOn: $confirmFilmQueueAdd) {
                     Text("Adding films with special sorting parameters to the Queue")
+                }
+
+                Toggle(isOn: $confirmSpecialSortingAddForQueued) {
+                    Text("Adding a special sorting parameter to already-enqueued films")
+                }
+
+                Toggle(isOn: $confirmChangesBeforeDisappear) {
+                    Text("Saving changes which will result in the selected film being removed from the current view")
                 }
             }
             .settingsChildRowInset()

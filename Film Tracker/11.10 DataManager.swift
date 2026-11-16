@@ -224,6 +224,26 @@ actor DataManager: Loggable {
         log("Migrated legacy values on \(count) release(s)")
     }
 
+    /// Writes new release sort orders: the one-time carousel order conversion (see
+    /// DataCoordinator.convertReleaseOrderIfNeeded). A release is changed only while it still
+    /// holds the order the conversion read, so a film saved in the meantime keeps its own save.
+    /// Film.lastModified is not touched, so the snapshot-cache fingerprint is unaffected; the
+    /// caller brings memory, and through it the cache, into line. Returns the ids written.
+    func applyReleaseSortOrders(_ changes: [UUID: ReleaseOrderChange]) async throws -> Set<UUID> {
+        guard !changes.isEmpty else { return [] }
+        let releases = try context.fetch(Release.request(.in("id", changes.keys)))
+        var written: Set<UUID> = []
+        for release in releases {
+            guard let change = changes[release.id], release.sortOrder == change.old else { continue }
+            release.sortOrder = change.new
+            written.insert(release.id)
+        }
+        guard !written.isEmpty else { return [] }
+        try commit()
+        log("Release order conversion: wrote \(written.count) release(s)")
+        return written
+    }
+
     /// Removes ListMembership records that are structurally meaningless: those whose
     /// film or list relationship is nil (orphans), and redundant rows for a
     /// (film, list) pair that is already represented (duplicates).
@@ -1359,4 +1379,10 @@ extension DataManager {
         guard let row = rows.first else { throw PersistenceError.savedSearchNotFound(id) }
         return row
     }
+}
+
+/// One release's sort order before and after the carousel order conversion.
+nonisolated struct ReleaseOrderChange: Sendable {
+    let old: Int
+    let new: Int
 }

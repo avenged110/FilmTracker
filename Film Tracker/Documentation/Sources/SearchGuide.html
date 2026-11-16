@@ -217,7 +217,7 @@
     <div class="item"><span class="n">1</span><span class="t">The basics</span><span class="s">Plain-text search, the # key, and how a token is made</span></div>
     <div class="item"><span class="n">2</span><span class="t">Combining tokens</span><span class="s">AND, OR, NOT, and the order in which they apply</span></div>
     <div class="item"><span class="n">3</span><span class="t">Field names and shortcuts</span><span class="s">Every token, with every alias it answers to</span></div>
-    <div class="item"><span class="n">4</span><span class="t">Text tokens</span><span class="s">Title, people, genre, studio, tags, notes, synopsis, lists, and Is</span></div>
+    <div class="item"><span class="n">4</span><span class="t">Text tokens</span><span class="s">Title, people, genre, studio, source, tags, notes, synopsis, lists, and Is</span></div>
     <div class="item"><span class="n">5</span><span class="t">Number tokens</span><span class="s">Year, duration, rating</span></div>
     <div class="item"><span class="n">6</span><span class="t">Date tokens</span><span class="s">Last Watched and Date Added</span></div>
     <div class="item"><span class="n">7</span><span class="t">The Release token</span><span class="s">Formats, ownership, release dates, HDR, region, packaging, and more</span></div>
@@ -260,7 +260,7 @@
 
   <h3>Saved searches</h3>
   <p>A search you use often can be kept. With the search running, click the <strong>Save Search</strong> button (a magnifying glass with a plus) in the title bar, or choose Search &gt; Save Search&hellip; (<code>&#8984;S</code>). A sheet opens with your search as a list of rules, one per pill, and the films it finds listed below them as you work. Name it and click <strong>Save</strong>. It appears in the sidebar under <strong>Saved Searches</strong>, and clicking it shows its films like any list, with its own sort, filters and grid or list style. To build one from scratch, choose File &gt; Create New Saved Search&hellip; (<code>&#8679;&#8984;S</code>) or click the magnifying glass with a plus in the toolbar.</p>
-  <p>In the sheet, each rule is a field, a condition and a value: <em>Year</em> <em>is between</em> 1980 and 1999. Plain text typed beside the pills becomes a <em>Title</em> rule, which always applies, whatever the match setting. A new rule starts with nothing chosen; pick a field, then a condition, then a value. <strong>Match films that meet</strong> chooses whether a film must meet all of the rules or any of them; when a search mixes the two, as <code>#director carpenter #/director cronenberg</code> does, it shows <em>the rules as combined below</em> with an and/or menu on each rule. Rules that exclude films always apply. Genre, Status, List, Release and Rotation Threshold pick their value from a menu, and a list rule&rsquo;s menu includes the Film Queue and its sections. Any field also offers <em>matches</em>, which takes a value exactly as you would type it after the field name in the search field.</p>
+  <p>In the sheet, each rule is a field, a condition and a value: <em>Year</em> <em>is between</em> 1980 and 1999. Plain text typed beside the pills becomes a <em>Title</em> rule, which always applies, whatever the match setting. A new rule starts with nothing chosen; pick a field, then a condition, then a value. <strong>Match films that meet</strong> chooses whether a film must meet all of the rules or any of them; when a search mixes the two, as <code>#director carpenter #/director cronenberg</code> does, it shows <em>the rules as combined below</em> with an and/or menu on each rule. Rules that exclude films always apply. Genre, Status, List, Release and Rotation Threshold pick their value from a menu, and a list rule&rsquo;s menu includes the Film Queue and its sections. Rating picks its value from a menu of 1 to 10, with 10 at the top, and its conditions are <em>is</em>, <em>is not</em>, <em>is at least</em>, <em>is at most</em> and <em>is between</em>. Under <em>is</em> and <em>is not</em> the menu also offers <em>Unrated</em>: <em>is Unrated</em> finds films with no rating, and <em>is not Unrated</em> films with any rating. Last Watched, Date Added and Status also offer <em>matches</em>, which takes a value exactly as you would type it after the field name in the search field: a natural-language date such as &ldquo;last weekend&rdquo;, or several Status terms in one rule. A search whose value the sheet cannot show as a condition opens as <em>matches</em> on any field. While <strong>Show relevant suggestions</strong> is on in Settings, typed values offer the same suggestions the search field does for that field, in a menu below the box.</p>
   <figure class="sheet">
     <img src="Images/saved-search-sheet.png" alt="Editing a saved search">
     <figcaption>Editing a saved search: horror films that carry no special sorting tag and were not watched in the last 13 months. The films it finds are listed below the rules as you work.</figcaption>
@@ -396,6 +396,7 @@
       <tr><td><strong>Composer</strong></td><td><code>composer</code> <code>composers</code> <code>comp</code> <code>music</code></td><td>Text</td><td>4</td></tr>
       <tr><td><strong>Genre</strong></td><td><code>genre</code> <code>genres</code></td><td>Text</td><td>4</td></tr>
       <tr><td><strong>Studio</strong></td><td><code>studio</code> <code>company</code> <code>group</code></td><td>Text</td><td>4</td></tr>
+      <tr><td><strong>Source</strong></td><td><code>source</code> <code>digitalsource</code> <code>rip</code></td><td>Text</td><td>4</td></tr>
       <tr><td><strong>Tags</strong></td><td><code>tag</code> <code>tags</code></td><td>Text</td><td>4</td></tr>
       <tr><td><strong>Notes</strong></td><td><code>note</code> <code>notes</code></td><td>Text</td><td>4</td></tr>
       <tr><td><strong>Synopsis</strong></td><td><code>synopsis</code> <code>plot</code> <code>description</code></td><td>Words, any order</td><td>4</td></tr>
@@ -456,10 +457,11 @@
   </div>
   <div class="tip"><span class="t">Tip</span><p>Searching a surname alone is the safest way to find someone, since spelling of first names and middle initials varies. Use the full name when a surname is common, because the match is on the letters, not on whole words.</p></div>
 
-  <h3>Genre, Studio, Tags</h3>
+  <h3>Genre, Studio, Source, Tags</h3>
   <ul>
     <li><code>#genre</code> matches the film&rsquo;s genre text. <code>#genre sci</code> finds Sci-Fi; <code>#genre drama</code> finds Drama and Crime Drama.</li>
     <li><code>#studio</code> matches the studio or studios credited on the film itself.</li>
+    <li><code>#source</code> matches the film&rsquo;s <strong>Source of Rip</strong> (Metadata tab), such as &ldquo;Blu-ray disc&rdquo;, &ldquo;1080p download&rdquo; or &ldquo;Remastered 1080p download&rdquo;. <code>#source 1080p</code> finds both 1080p sources, remastered or not. <code>#!source blu-ray</code> and <code>#!source 1080p</code> together leave the films with lower-quality sources, plus any film with no source set. <code>#source none</code> finds the films with no source set, and <code>#!source none</code> the films that have one.</li>
     <li><code>#tags</code> matches any of the film&rsquo;s tags. A film matches if <em>any one</em> of its tags contains the text.</li>
   </ul>
 
@@ -867,6 +869,20 @@
     </tbody>
   </table>
 
+  <h3>Availability and price</h3>
+  <p>These read a release&rsquo;s <strong>Market Availability</strong> (Releases tab). The status words cover every spelling of the status, so <code>out of print</code> also finds &ldquo;Import out-of-print&rdquo; and &ldquo;Multi-pack out-of-print&rdquo;.</p>
+  <table>
+    <thead><tr><th style="width:2.3in">Type exactly</th><th>Matches films with&hellip;</th></tr></thead>
+    <tbody>
+      <tr><td><code>available</code> &nbsp; <code>in print</code></td><td>a release marked available</td></tr>
+      <tr><td><code>out of print</code> &nbsp; <code>out-of-print</code> &nbsp; <code>oop</code></td><td>a release marked out of print</td></tr>
+      <tr><td><code>temporarily unavailable</code> &nbsp; <code>temp unavailable</code></td><td>a release marked temporarily unavailable</td></tr>
+      <tr><td><code>unavailable</code></td><td>a release marked unavailable (not the temporary kind)</td></tr>
+      <tr><td><code>cheap</code> &nbsp; <code>reasonable</code> &nbsp; <code>exorbitant</code> &nbsp; <code>expensive</code></td><td>a release with that price (<code>expensive</code> is the same as <code>exorbitant</code>)</td></tr>
+    </tbody>
+  </table>
+  <p>Join keywords with <code>+</code> to make them one term: <code>out of print+exorbitant</code> is a release that is both. A <code>!</code> in front negates the pair as a whole, which separate terms cannot do. <code>#release !out of print+exorbitant</code> finds films with at least one release that is <em>not</em> out of print at an exorbitant price, so it leaves out the films whose only releases are. A <code>+</code> joins only keywords: a studio name with a plus in it, and <code>hdr10+</code>, read as before.</p>
+
   <h3>Origin, remaster, and packaging</h3>
   <table>
     <thead><tr><th style="width:2.3in">Type any of</th><th>Matches films with&hellip;</th></tr></thead>
@@ -1046,7 +1062,7 @@
         <tr><td><code>#/!</code></td><td>NOT (OR is ignored)</td></tr>
       </tbody></table>
       <h4>Text fields (match anywhere, any case)</h4>
-      <p><code>title</code> <code>cast</code> <code>director</code> <code>producer</code> <code>exp</code> <code>writer</code> <code>composer</code> <code>crew</code> <code>genre</code> <code>studio</code> <code>tags</code> <code>notes</code> <code>list</code></p>
+      <p><code>title</code> <code>cast</code> <code>director</code> <code>producer</code> <code>exp</code> <code>writer</code> <code>composer</code> <code>crew</code> <code>genre</code> <code>studio</code> <code>source</code> <code>tags</code> <code>notes</code> <code>list</code></p>
       <h4>Is: <code>is</code> (comma-separated, <code>!</code> negates a term)</h4>
       <p class="small"><code>owned 4k, unsorted, !edited</code> &middot; <code>watched</code> <code>rated</code> <code>complete</code> <code>sorted</code> <code>on hold</code> <code>owned</code> <code>unowned</code> <code>no releases</code> <code>wishlisted</code> <code>upcoming</code> <code>alternate versions</code> <code>hall of fame</code></p>
       <h4>Synopsis: <code>synopsis</code> <code>plot</code> <code>description</code></h4>
@@ -1077,7 +1093,7 @@
         <tr><td colspan="2" class="small">Anything else finds nothing.</td></tr>
       </tbody></table>
       <h4>Release</h4>
-      <p><code>purchased</code> <code>owned</code> <code>unpurchased</code> <code>unowned</code> &middot; <code>wishlist</code> <code>wanted</code> &middot; <code>4k</code> <code>uhd</code> <code>bluray</code> <code>dvd</code> &middot; <code>native 4k</code> <code>upscaled</code> &middot; <code>hdr</code> <code>dolby vision</code> <code>hdr10</code> <code>hdr10+</code> &middot; <code>region a</code> <code>region b</code> <code>region free</code> <code>region 1</code>&ndash;<code>5</code> &middot; <code>imported</code> <code>remastered</code> &middot; <code>combo</code> <code>standalone</code> <code>multi</code> &middot; anything else = distributor name</p>
+      <p><code>purchased</code> <code>owned</code> <code>unpurchased</code> <code>unowned</code> &middot; <code>wishlist</code> <code>wanted</code> &middot; <code>4k</code> <code>uhd</code> <code>bluray</code> <code>dvd</code> &middot; <code>native 4k</code> <code>upscaled</code> &middot; <code>hdr</code> <code>dolby vision</code> <code>hdr10</code> <code>hdr10+</code> &middot; <code>region a</code> <code>region b</code> <code>region free</code> <code>region 1</code>&ndash;<code>5</code> &middot; <code>imported</code> <code>remastered</code> &middot; <code>combo</code> <code>standalone</code> <code>multi</code> &middot; <code>available</code> <code>out of print</code> <code>unavailable</code> &middot; <code>cheap</code> <code>reasonable</code> <code>exorbitant</code> &middot; join with <code>+</code> &middot; anything else = distributor name</p>
       <h4>Rotation Threshold</h4>
       <table><tbody>
         <tr><td><code>24</code> <code>2</code> <code>2 years</code> <code>24 months</code></td><td>effective value (override or default)</td></tr>

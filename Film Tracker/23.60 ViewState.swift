@@ -152,6 +152,12 @@ enum FilterOption: String, CaseIterable, Hashable, Codable, Sendable {
     static let genreNames: [String] = genreOptions.map(\.displayName)
 }
 
+extension Set where Element == FilterOption {
+    /// "filter" or "filters", by how many options are selected in the Filter menu, for copy that names the
+    /// active filters ("No Films Match the Filter"). `.none` is not a filter, so it is not counted.
+    var noun: String { subtracting([.none]).count == 1 ? "filter" : "filters" }
+}
+
 // MARK: - Recents Category
 enum RecentsCategory: String, CaseIterable, Codable, Sendable {
     /// The "Recents" tab (the summary): one horizontally scrolling row per category in `sections`, each with a Show All button
@@ -266,11 +272,6 @@ enum RecentsCategory: String, CaseIterable, Codable, Sendable {
         case .recentDiscRelease: return .discReleaseDate
         }
     }
-
-    /// True for the one tab whose direction is the user's to set: Recent Disc Releases, ordered by release date
-    /// either way. Its sort options stay locked (SortMenuInputs.disabledSortOptions), but the direction pair
-    /// does not, so it is not a fixed-sort view (ViewIdentifier.hasFixedSort). Every other tab is newest first.
-    var userSetsSortDirection: Bool { self == .recentDiscRelease }
 
     /// The pre-sorted, category-ordered film ID list for this category, straight from MetadataCache. This is
     /// the single authoritative dispatch point from a category to its MetadataCache accessor — used by
@@ -440,12 +441,11 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     }
 
     /// True for the views whose order is part of what they are, so their Sort menu's options and direction
-    /// are locked: every Recents tab but Recent Disc Releases (see RecentsCategory.userSetsSortDirection), and
-    /// "Upcoming Releases", which lists the soonest release first
+    /// are locked: every Recents tab, each newest first, and "Upcoming Releases", which lists the soonest release first
     /// (DataCoordinator.performLoad). Filters, style and section dividers stay the user's to set.
     var hasFixedSort: Bool {
         switch self {
-        case .recents(let category): return !category.userSetsSortDirection
+        case .recents: return true
         case .smartList(let type): return type == .upcomingReleases
         default: return false
         }
@@ -984,7 +984,7 @@ final class GalleryScrollIntent {
 /// Records that the next gallery mounted for the addressed view should take keyboard focus — become its
 /// window's first responder — as soon as it is on screen.
 ///
-/// One producer: search exit with a preserved selection (MainView.handleSearchContentChange). Before the
+/// Two producers. The first is search exit with a preserved selection (MainView.handleSearchContentChange). Before the
 /// search the user was navigating the gallery with the keyboard; the search results are a gallery too, and
 /// the film they settled on is carried back into the destination as its selection. To the user the gallery
 /// never lost focus — a film is highlighted in it — yet the switch resigns it (GalleryView.resetForReuse), and
@@ -992,8 +992,11 @@ final class GalleryScrollIntent {
 /// until a Tab press moved focus to where it already appeared to be. This closes that gap: the destination
 /// claims focus itself, so keyboard navigation works without any further ado.
 ///
+/// The second is Show in List (ShowInListNavigation), only when a gallery held focus before the jump, so the
+/// destination gets back exactly the focus the sidebar change took.
+///
 /// Deliberately separate from `GalleryScrollIntent` rather than a flag on it: the scroll intent has producers
-/// that must not move focus (the grid⟷list toggle, Show in List, the Film Queue's post-move scroll), and its
+/// that must not move focus (the grid⟷list toggle, the Film Queue's post-move scroll), and its
 /// reuse path is consumed by an already-mounted gallery's update pass, which must never claim first
 /// responder except through this intent. It is addressed to a ViewIdentifier for the same reason the scroll
 /// intent is: only a pass rendering the destination may claim it.
@@ -1284,11 +1287,12 @@ final class ViewStateManager: Loggable {
     /// intervening reload that resets the viewport is simply re-armed on the next pass rather than silently
     /// losing the restore.
     func pendingScrollOriginRestore(for key: GalleryScrollKey) -> GalleryScrollPosition? {
+        guard let pending = pendingOriginRestore, pending.key == key else { return nil }
         /// Re-checked here, not only at arming time. The gallery styles do not observe the preference
         /// themselves, so without this a restore armed before the user turned the preference off could still
-        /// fire. This costs one UserDefaults read, and only on passes that reload.
+        /// fire. Checked after the pending test, so the list, which asks on every update pass, reads
+        /// UserDefaults only when a restore is actually waiting.
         guard Preferences.maintainScrollPositionOnViewSwitch else { return nil }
-        guard let pending = pendingOriginRestore, pending.key == key else { return nil }
         return pending.position
     }
 
@@ -1827,8 +1831,7 @@ final class ViewStateManager: Loggable {
             }
 
         case .recents(let category):
-            /// Recents views have fixed sorting (per-category sortOption, descending except where the category lets
-            /// the user set the direction; see RecentsCategory.userSetsSortDirection). However, filter
+            /// Recents views have fixed sorting (per-category sortOption, descending). However, filter
             /// selections and the list view style ARE user-configurable and must survive re-launches. Load
             /// persisted options for this category from the consolidated view-sort-states dictionary, but
             /// always enforce the fixed sort option and direction so stored data can never overwrite them.
@@ -1844,7 +1847,6 @@ final class ViewStateManager: Loggable {
                 state.filterOptions = parsed.filterOptions
                 state.isListView = parsed.isListView
                 state.showSectionDividers = parsed.showSectionDividers
-                if category.userSetsSortDirection { state.sortDirection = parsed.sortDirection }
             }
             return state
 

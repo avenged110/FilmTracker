@@ -6,7 +6,6 @@
 
 import SwiftUI
 import AppKit
-import UniformTypeIdentifiers
 import Synchronization
 
 // MARK: - Gallery Collection View (Marquee + Drag Support)
@@ -543,7 +542,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     var hasSubtitles: Bool = false
 
     /// Grid computation constants. The minimum item width and maximum grid width are read in columnMetrics.
-    /// Set by GallerySubview from the largeGalleryGrid preference. The default is 7 columns; true gives 6.
+    /// Set by GallerySubview from the largeGalleryGrid preference. The default is 8 columns (Preferences.galleryMaxColumns); true gives 6.
     var maxColumns: Int = Preferences.galleryMaxColumns
 
     /// Computed layout state — populated during prepare(), readable externally.
@@ -621,8 +620,8 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     /// of O(N), eliminating the dominant main-thread cost that was blocking CoreAnimation's
     /// menu dismissal animation during gallery reloads on large libraries.
     private var itemCount: Int = 0
-    private var colXPx: [Int] = []   /// X origin in backing pixels for each column (max 7)
-    private var colWPx: [Int] = []   /// Width in backing pixels for each column (max 7)
+    private var colXPx: [Int] = []   /// X origin in backing pixels for each column (at most maxColumns)
+    private var colWPx: [Int] = []   /// Width in backing pixels for each column (at most maxColumns)
     private var gridOffsetPx: Int = 0
     private var rowStride: CGFloat = 0
     private var layoutScale: CGFloat = 2.0

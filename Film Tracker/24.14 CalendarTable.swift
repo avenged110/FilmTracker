@@ -96,6 +96,31 @@ struct ViewingHistoryEntry {
     /// Days between this viewing and the next-older one, already pluralized. Empty for
     /// the oldest entry, which has no prior to measure against.
     let daysSincePrior: String
+    /// The same gap on a sliding scale for the sidebar tables: days under a week, weeks under
+    /// a calendar month, then months, years, or years plus months ("2 yr. 6 mo."). Empty for the
+    /// oldest entry. The PDF keeps `daysSincePrior`, since its column is too narrow for this.
+    let sincePriorScaled: String
+}
+
+/// Formats the gap between two viewings on a sliding scale: days under one week, weeks under
+/// one calendar month, then months, years, or years and months.
+///
+/// Units are spelled out whenever they fit the 70 pt "Since Prior" column (12 pt system font).
+/// Every single-unit readout does ("11 months" is 57 pt). No year-and-month pair does ("1 year
+/// 1 month" is 81 pt), so only that form is abbreviated: "10 yr. 11 mo." is 69 pt.
+func formatSincePrior(from older: Date, to newer: Date, calendar: Calendar) -> String {
+    let start = calendar.startOfDay(for: older)
+    let end = calendar.startOfDay(for: newer)
+    let days = abs(calendar.dateComponents([.day], from: start, to: end).day ?? 0)
+    if days < 7 { return Fmt.count(days, "day") }
+    let parts = calendar.dateComponents([.year, .month], from: start, to: end)
+    let totalMonths = abs((parts.year ?? 0) * 12 + (parts.month ?? 0))
+    if totalMonths < 1 { return Fmt.count(days / 7, "week") }
+    let years = totalMonths / 12
+    let months = totalMonths % 12
+    if years == 0 { return Fmt.count(months, "month") }
+    if months == 0 { return Fmt.count(years, "year") }
+    return "\(years) yr. \(months) mo."
 }
 
 /// Resolves a stored `calendarTable` into the ordered, fully derived rows both tables use.
@@ -126,12 +151,16 @@ func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry
 
     return sorted.enumerated().map { index, item in
         let daysSincePrior: String
+        let sincePriorScaled: String
         if index < sorted.count - 1 {
             let days = abs(calendar.dateComponents(
                 [.day], from: sorted[index + 1].date, to: item.date).day ?? 0)
             daysSincePrior = Fmt.count(days, "day")
+            sincePriorScaled = formatSincePrior(
+                from: sorted[index + 1].date, to: item.date, calendar: calendar)
         } else {
             daysSincePrior = ""
+            sincePriorScaled = ""
         }
         return ViewingHistoryEntry(
             id: identities.identity(for: item.original),
@@ -140,7 +169,8 @@ func viewingHistoryEntries(from calendarTable: [String]) -> [ViewingHistoryEntry
             /// Formatted from the parsed Date to avoid a second parse. `formatDateString` does the
             /// same after its own parse, so the output matches.
             formattedDate: formatDate(item.date),
-            daysSincePrior: daysSincePrior)
+            daysSincePrior: daysSincePrior,
+            sincePriorScaled: sincePriorScaled)
     }
 }
 
@@ -157,7 +187,7 @@ struct ViewingHistoryTable: View {
         viewingHistoryEntries(from: calendarTable).map { entry in
             CalendarRow(id: entry.id,
                         date: entry.formattedDate,
-                        daysSince: entry.daysSincePrior)
+                        daysSince: entry.sincePriorScaled)
         }
     }
 
@@ -196,7 +226,7 @@ struct ViewingHistoryDetailedTable: View {
             DetailedCalendarRow(
                 id: entry.id,
                 date: entry.formattedDate,
-                daysSince: entry.daysSincePrior,
+                daysSince: entry.sincePriorScaled,
                 /// "Time from Today" column.
                 timeFromToday: Self.formatTimeFromToday(
                     from: calendar.startOfDay(for: entry.date), to: referenceDay),

@@ -221,7 +221,7 @@ private struct ChangeMarker: View {
                     fill: .accentColor,
                     diameter: 18,
                     glyphSize: 9,
-                    help: "This field will be changed for every film. Click to leave it unchanged.",
+                    help: "Undo this change.",
                     glyphOffset: ListCircleButtonStyle.plusGlyphOffset,
                     action: revert)
                     .focusable(false)
@@ -436,8 +436,8 @@ private struct QueueRow: View {
                     return
                 }
                 if let section, confirmFilmQueueAdd {
-                    let (adding, flagged) = owner.flaggedFilmsNewlyQueued(in: section)
-                    if !flagged.isEmpty {
+                    let (adding, flagged, needsConfirmation) = owner.flaggedFilmsNewlyQueued(in: section)
+                    if needsConfirmation {
                         let message = flagged.count == 1 && adding == 1
                             ? FilmQueue.addConfirmationMessage(flaggedWith: flagged[0])
                             : FilmQueue.addConfirmationMessage(adding: adding, flagged: flagged.count)

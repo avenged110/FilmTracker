@@ -769,11 +769,17 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 /// origin to restore: reloadData() does not reset the list's scroll position, so the viewport
                 /// is still where the user left it. The .ifNeeded resolution tests visibility directly. A film
                 /// still on screen is left alone, and one the edit pushed out of view goes to the top row.
+                ///
+                /// Only when a row moved: a reorder, or a band change that shifted rows. An edit that moved
+                /// nothing leaves the viewport alone, even when the film is off screen (the first film of a
+                /// multi-selection, say). The request is still claimed, so no origin restore resolves later.
                 ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
                 listScrollView.pendingScrollPosition = nil
-                listScrollView.pendingScrollFilmID = filmID
-                listScrollView.pendingScrollBehavior = .ifNeeded
-                listScrollView.applyPendingFilmTargetIfPossible()
+                if idSequenceChanged || rowModelChanged {
+                    listScrollView.pendingScrollFilmID = filmID
+                    listScrollView.pendingScrollBehavior = .ifNeeded
+                    listScrollView.applyPendingFilmTargetIfPossible()
+                }
 
             } else if listScrollView.pendingScrollFilmID == nil,
                let restoredPosition = ViewStateManager.shared
@@ -1971,9 +1977,7 @@ private final class ListRowView: NSView {
         /// table, so this is the window's pixel grid at any scroll position.
         func pixelY(_ v: CGFloat) -> CGFloat { (v * scale + 0.5).rounded(.down) / scale }
         func pixelX(_ v: CGFloat) -> CGFloat { (v * scale + 0.5).rounded(.down) / scale }
-        func textWidth(_ label: NSTextField) -> CGFloat {
-            (label.attributedStringValue.size().width * scale).rounded(.up) / scale
-        }
+        func textWidth(_ label: NSTextField) -> CGFloat { measure(label, scale: scale).width }
         let height = bounds.height
         let inset = GalleryListRow.contentInset
 
@@ -1982,7 +1986,7 @@ private final class ListRowView: NSView {
         func place(_ label: NSTextField, x: CGFloat, top: CGFloat, width: CGFloat, metrics: SwiftUIVerticalMetrics) {
             let baseline = top + metrics.baseline
             label.frame = NSRect(x: x - 2, y: baseline - label.firstBaselineOffsetFromTop,
-                                 width: width + 4, height: label.intrinsicContentSize.height)
+                                 width: width + 4, height: measure(label, scale: scale).height)
         }
 
         /// Poster: 8 pt in, centered.
@@ -2046,13 +2050,42 @@ private final class ListRowView: NSView {
         }
     }
 
+    // MARK: Label measurement
+
+    /// A label's measured size for one string at one scale. The fonts are fixed per label, so these two keys are all
+    /// the measurement depends on.
+    private struct LabelMeasure {
+        let text: String
+        let scale: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+    }
+    /// The last measurement of each label. layout() runs on every frame of a live resize, where the strings never
+    /// change, so it reads these instead of laying the text out again. A changed string or scale re-measures.
+    private var labelMeasures: [ObjectIdentifier: LabelMeasure] = [:]
+
+    private func measure(_ label: NSTextField, scale: CGFloat) -> LabelMeasure {
+        let text = label.stringValue
+        let key = ObjectIdentifier(label)
+        if let cached = labelMeasures[key], cached.scale == scale, cached.text == text { return cached }
+        let measured = LabelMeasure(text: text, scale: scale,
+                                    width: (label.attributedStringValue.size().width * scale).rounded(.up) / scale,
+                                    height: label.intrinsicContentSize.height)
+        labelMeasures[key] = measured
+        return measured
+    }
+
     // MARK: SwiftUI text metrics
 
     private enum TextRole: Hashable { case title, subtitle, duration, year }
-    private static var metricsCache: [String: SwiftUIVerticalMetrics] = [:]
+    private struct MetricsKey: Hashable {
+        let role: TextRole
+        let scale: CGFloat
+    }
+    private static var metricsCache: [MetricsKey: SwiftUIVerticalMetrics] = [:]
 
     private static func metrics(_ role: TextRole, scale: CGFloat) -> SwiftUIVerticalMetrics {
-        let key = "\(role)@\(scale)"
+        let key = MetricsKey(role: role, scale: scale)
         if let cached = metricsCache[key] { return cached }
         let font: Font
         switch role {
@@ -2139,7 +2172,7 @@ private final class ListSymbolView: NSView {
 
 /// The row's 24 x 36 poster: scaled to fill, clipped to a 2 pt continuous corner, the list's edge sheen over it,
 /// and a soft shadow (black 35%, SwiftUI radius 2, 1 pt down). With no poster, a tinted placeholder with a film
-/// glyph. The poster is read from PosterCache when the row is configured, as the SwiftUI row read it in its body.
+/// glyph. The poster is read from PosterCache when the row is configured (see refresh()).
 /// The layers mirror the ones SwiftUI built for the replaced SwiftUI row's poster, so the pixels are the same.
 private final class ListPosterThumbnail: NSView {
     /// Casts the shadow. Its only content is `clip`, so the shadow takes the rounded poster's shape. (A view
@@ -2209,8 +2242,33 @@ private final class ListPosterThumbnail: NSView {
     override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
 
+    /// The load started by the last miss. Any change of poster cancels it.
+    private var posterLoadTask: Task<Void, Never>?
+
+    /// CACHE-ONLY, as GalleryItem.refreshTileContent is, and for the same reason: a disk read and decode on the main
+    /// thread, at the User-Interactive QoS of a mouseDown reconfigure, is a priority inversion and a stall. A miss
+    /// shows the placeholder at once and fills the poster in when the background load lands.
     private func refresh() {
-        let image = posterUID.flatMap { $0.isEmpty ? nil : PosterCache.shared.getImageWithFallback(for: $0) }
+        posterLoadTask?.cancel()
+        posterLoadTask = nil
+        guard let posterUID, !posterUID.isEmpty else {
+            apply(nil)
+            return
+        }
+        if let image = PosterCache.shared.getImageSync(for: posterUID) {
+            apply(image)
+            return
+        }
+        apply(nil)
+        posterLoadTask = Task { @MainActor [weak self] in
+            let image = await PosterCache.shared.getImageAsync(for: posterUID)
+            /// Re-checks the UID, since cancellation alone is not enough: a reused row may show another film by now.
+            guard let self, !Task.isCancelled, let image, self.posterUID == posterUID else { return }
+            self.apply(image)
+        }
+    }
+
+    private func apply(_ image: NSImage?) {
         let cgImage = unsafe image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
         imageLayer.contents = cgImage
         /// Aspect fill, centered, cropped by the clip (`scaledToFill` then `.clipped()`).

@@ -1303,7 +1303,13 @@ final class RSBCardStackView: NSView {
         }
         /// Matches SwiftUI's ForEach, by identity. A card that stays moves to its new place. A card that goes fades out where it was.
         /// A new card fades in where it lands. All of this runs on the filter's spring (`.smooth(duration: 0.3)`).
-        var byID = Dictionary(uniqueKeysWithValues: visible.map { ($0.id, $0.view) })
+        /// Built by insertion: a damaged store can hold two releases with one ID, and
+        /// Dictionary(uniqueKeysWithValues:) traps on the duplicate. A second card under an ID
+        /// already taken is retired at once, not left on screen untracked.
+        var byID: [UUID: RSBCardGroupView] = [:]
+        for entry in visible {
+            if byID[entry.id] == nil { byID[entry.id] = entry.view } else { retire(entry.view) }
+        }
         var next: [(id: UUID, view: RSBCardGroupView, inserted: Bool)] = []
         for group in groups {
             if let view = byID.removeValue(forKey: group.id) {

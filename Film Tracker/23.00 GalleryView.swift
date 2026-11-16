@@ -248,6 +248,7 @@ struct GalleryView: View, Loggable {
     
     @ViewBuilder
     private var placeholderView: some View {
+        let activeView = viewStateManager.activeView
         let hasFilters = !viewStateManager.activeState.filterOptions.isEmpty
         let hasSearchQuery = hasSearchContent
         let isListView = listID != nil
@@ -255,7 +256,7 @@ struct GalleryView: View, Loggable {
         /// A saved search stored with rules this version cannot read shows no films until
         /// it is saved again (SavedSearchStore.needsReview) — this, not a "No Results", is
         /// what says so, whatever filters are on.
-        if case .savedSearch(let id) = viewStateManager.activeView, SavedSearchStore.shared.needsReview(id) {
+        if case .savedSearch(let id) = activeView, SavedSearchStore.shared.needsReview(id) {
             StandardPlaceholder(
                 glyph: "exclamationmark.triangle.fill",
                 title: "Search Configuration Changed",
@@ -263,21 +264,20 @@ struct GalleryView: View, Loggable {
                 actionTitle: "Edit Saved Search\u{2026}",
                 action: { SavedSearchActions.edit(id) }
             )
-        } else if case .savedSearch(let id) = viewStateManager.activeView {
-            savedSearchPlaceholder(for: id, hasFilters: hasFilters)
-        } else if case .recents(let category) = viewStateManager.activeView {
-            /// Filters that hide every film the tab has: clearing them helps, so say that. An empty tab is empty
-            /// whatever the filters.
-            if hasFilters && !category.orderedFilmIDs().isEmpty {
-                filtersPlaceholder
-            } else {
-                recentsCategoryPlaceholder(for: category)
-            }
-        } else if case .unwatched(let category) = viewStateManager.activeView {
+        } else if hasFilters && !hasSearchQuery && dataCoordinator.viewHasFilmsBeforeFilters(activeView) {
+            /// The view has films and the filters hide every one: clearing them helps, so say that. A view
+            /// with no films falls through to its own copy whatever the filters, since clearing them would
+            /// show nothing. A search query explains an empty search first (below).
+            filtersPlaceholder
+        } else if case .savedSearch(let id) = activeView {
+            savedSearchPlaceholder(for: id)
+        } else if case .recents(let category) = activeView {
+            recentsCategoryPlaceholder(for: category)
+        } else if case .unwatched(let category) = activeView {
             unwatchedCategoryPlaceholder(for: category)
-        } else if case .smartList(let type) = viewStateManager.activeView {
+        } else if case .smartList(let type) = activeView {
             smartListPlaceholder(for: type)
-        } else if case .filmQueue = viewStateManager.activeView {
+        } else if case .filmQueue = activeView {
             filmQueuePlaceholder()
         } else if hasSearchQuery {
             StandardPlaceholder(
@@ -287,8 +287,6 @@ struct GalleryView: View, Loggable {
                 actionTitle: "Clear Query",
                 action: clearFiltersAndSearch
             )
-        } else if hasFilters {
-            filtersPlaceholder
         } else if isListView && dataCoordinator.hasDatabaseFilms {
             StandardPlaceholder(
                 glyph: ViewGlyphs.userList.outline,
@@ -300,12 +298,17 @@ struct GalleryView: View, Loggable {
         }
     }
 
+    /// Shown only when the view has films and the filters hide all of them (see placeholderView), so its
+    /// copy can say that rather than suggest the view is empty. "Filter" or "filters" follows how many options
+    /// are selected in the Filter menu.
     private var filtersPlaceholder: some View {
-        StandardPlaceholder(
+        let noun = viewStateManager.activeState.filterOptions.noun
+        let verb = noun == "filter" ? "hides" : "hide"
+        return StandardPlaceholder(
             glyph: ViewGlyphs.activeFilters.filled,
-            title: "No Results",
-            message: "Try adjusting your filters.",
-            actionTitle: "Clear Filters",
+            title: "No Films Match the \(noun.capitalized)",
+            message: "This view has films, but the active \(noun) \(verb) all of them.",
+            actionTitle: "Clear \(noun.capitalized)",
             action: clearFiltersOnly
         )
     }
@@ -318,15 +321,12 @@ struct GalleryView: View, Loggable {
         )
     }
 
-    /// An empty saved search, by cause: an empty library, rules that match no film, or
-    /// filters that leave none of the films the rules match. Rules that match nothing win
-    /// over filters — clearing the filters would not help.
+    /// An empty saved search that the filters do not explain (placeholderView handles those): an empty
+    /// library, or rules that match no film.
     @ViewBuilder
-    private func savedSearchPlaceholder(for id: UUID, hasFilters: Bool) -> some View {
+    private func savedSearchPlaceholder(for id: UUID) -> some View {
         if !dataCoordinator.hasDatabaseFilms {
             emptyLibraryPlaceholder
-        } else if hasFilters && !dataCoordinator.savedSearchMatchedNothing(id) {
-            filtersPlaceholder
         } else {
             StandardPlaceholder(
                 glyph: ViewGlyphs.savedSearch.outline,
@@ -599,10 +599,22 @@ struct GalleryView: View, Loggable {
         /// Looked up by its first responder rather than as NSApp.mainWindow, which is nil while the app is
         /// inactive, as it is when a menu item or a harness run navigates. Sheets are skipped: no navigation
         /// happens while one is up, and none of them hosts this gallery.
-        for window in NSApp.windows where window.sheetParent == nil
-            && (window.firstResponder is GalleryCollectionView || window.firstResponder is DraggableListTableView) {
+        for window in NSApp.windows where Self.isGalleryFocused(in: window) {
             window.makeFirstResponder(nil)
         }
+    }
+
+    /// Whether a window's first responder is a gallery's own grid or table (the Recents summary's rows are grids
+    /// too). Sheets are skipped: none of them hosts a gallery.
+    private static func isGalleryFocused(in window: NSWindow) -> Bool {
+        window.sheetParent == nil
+            && (window.firstResponder is GalleryCollectionView || window.firstResponder is DraggableListTableView)
+    }
+
+    /// Whether any gallery holds keyboard focus, which is exactly what resetForReuse takes away at a sidebar change.
+    /// ShowInListNavigation reads it to decide whether to hand focus to the destination.
+    static var galleryHoldsKeyboardFocus: Bool {
+        NSApp.windows.contains(where: isGalleryFocused(in:))
     }
 
     private func viewIDFromSidebar() -> ViewIdentifier {

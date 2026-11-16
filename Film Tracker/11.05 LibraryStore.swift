@@ -818,9 +818,9 @@ extension NSPersistentContainer {
 /// Runs an actor's jobs on its managed object context's private queue. Because every job runs inside
 /// `perform`, the actor's methods use its context directly, with no `perform` of their own,
 /// and the queue confinement Core Data requires holds by construction.
-final class ContextExecutor: SerialExecutor, @unchecked Sendable {
-    /// @unchecked Sendable: `context` is a let, and it is only ever touched on its own
-    /// queue — by the jobs this executor runs there.
+final class ContextExecutor: SerialExecutor {
+    /// Sendable without `@unchecked`: NSManagedObjectContext is Sendable and this is a let. The
+    /// context is only ever touched on its own queue, by the jobs this executor runs there.
     let context: NSManagedObjectContext
 
     init(context: NSManagedObjectContext) { self.context = context }
@@ -831,7 +831,6 @@ final class ContextExecutor: SerialExecutor, @unchecked Sendable {
         context.perform { unsafe job.runSynchronously(on: executor) }
     }
 
-    func asUnownedSerialExecutor() -> UnownedSerialExecutor { unsafe UnownedSerialExecutor(ordinary: self) }
 }
 
 // MARK: - Model Base Class
@@ -1103,6 +1102,7 @@ final class LibraryModel: @unchecked Sendable {
         ("exportPosterImages", .optionalBool), ("prunePosterImages", .optionalBool), ("exportUserSettings", .optionalBool),
         ("maintainScrollPositionOnViewSwitch", .optionalBool), ("rememberImportsTab", .optionalBool),
         ("lastImportsCategory", .optionalString), ("rememberSortFilterSelections", .optionalBool), ("confirmFilmQueueAdd", .optionalBool),
+        ("confirmSpecialSortingAddForQueued", .optionalBool), ("confirmChangesBeforeDisappear", .optionalBool),
         ("notifyAboutNewReleases", .optionalBool), ("onlyNotifyForWishlisted", .optionalBool), ("queueIsDropTarget", .optionalBool),
         ("queueSectionOnDrop", .optionalInt), ("strictFramesTableChecking", .optionalBool), ("showWatchDetailsAnnotationGlyphs", .optionalBool),
         ("atvq", .optionalBool), ("loggingEnabled", .optionalBool), ("selectedSortOptionsJSON", .optionalString),

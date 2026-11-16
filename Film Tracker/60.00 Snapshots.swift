@@ -275,7 +275,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     let condition: String
     let notes: String
     let dateAdded: Date
-    let sortOrder: Int
+    private(set) var sortOrder: Int
 
     // MARK: - Release Hierarchy
     /// Flat UUID references — avoids circular nesting while keeping the snapshot Sendable/Codable.
@@ -365,6 +365,13 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     func withWishlist(_ position: Int) -> ReleaseSnapshot {
         var copy = self
         copy.wishlist = position
+        return copy
+    }
+
+    /// Returns a copy of this snapshot with `sortOrder` replaced. See ReleaseCarouselOrder.
+    func withSortOrder(_ order: Int) -> ReleaseSnapshot {
+        var copy = self
+        copy.sortOrder = order
         return copy
     }
 
@@ -1012,6 +1019,8 @@ struct SettingsSnapshot: Sendable, Equatable {
     let lastImportsCategory: String?
     let rememberSortFilterSelections: Bool?
     let confirmFilmQueueAdd: Bool?
+    let confirmSpecialSortingAddForQueued: Bool?
+    let confirmChangesBeforeDisappear: Bool?
     let notifyAboutNewReleases: Bool?
     let onlyNotifyForWishlisted: Bool?
     let queueIsDropTarget: Bool?
@@ -1066,6 +1075,8 @@ struct SettingsSnapshot: Sendable, Equatable {
          lastImportsCategory: String? = nil,
          rememberSortFilterSelections: Bool? = nil,
          confirmFilmQueueAdd: Bool? = nil,
+         confirmSpecialSortingAddForQueued: Bool? = nil,
+         confirmChangesBeforeDisappear: Bool? = nil,
          notifyAboutNewReleases: Bool? = nil,
          onlyNotifyForWishlisted: Bool? = nil,
          queueIsDropTarget: Bool? = nil,
@@ -1114,6 +1125,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.lastImportsCategory = lastImportsCategory
         self.rememberSortFilterSelections = rememberSortFilterSelections
         self.confirmFilmQueueAdd = confirmFilmQueueAdd
+        self.confirmSpecialSortingAddForQueued = confirmSpecialSortingAddForQueued
+        self.confirmChangesBeforeDisappear = confirmChangesBeforeDisappear
         self.notifyAboutNewReleases = notifyAboutNewReleases
         self.onlyNotifyForWishlisted = onlyNotifyForWishlisted
         self.queueIsDropTarget = queueIsDropTarget
@@ -1167,6 +1180,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.lastImportsCategory = object.lastImportsCategory
         self.rememberSortFilterSelections = object.rememberSortFilterSelections
         self.confirmFilmQueueAdd = object.confirmFilmQueueAdd
+        self.confirmSpecialSortingAddForQueued = object.confirmSpecialSortingAddForQueued
+        self.confirmChangesBeforeDisappear = object.confirmChangesBeforeDisappear
         self.notifyAboutNewReleases = object.notifyAboutNewReleases
         self.onlyNotifyForWishlisted = object.onlyNotifyForWishlisted
         self.queueIsDropTarget = object.queueIsDropTarget
@@ -1220,6 +1235,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.lastImportsCategory = lastImportsCategory
         object.rememberSortFilterSelections = rememberSortFilterSelections
         object.confirmFilmQueueAdd = confirmFilmQueueAdd
+        object.confirmSpecialSortingAddForQueued = confirmSpecialSortingAddForQueued
+        object.confirmChangesBeforeDisappear = confirmChangesBeforeDisappear
         object.notifyAboutNewReleases = notifyAboutNewReleases
         object.onlyNotifyForWishlisted = onlyNotifyForWishlisted
         object.queueIsDropTarget = queueIsDropTarget

@@ -1185,7 +1185,7 @@ final class DBRestorer: Loggable {
     /// This correctly distinguishes between:
     /// - Field present with empty value (key exists in dict) -> returns true
     /// - Field completely missing from backup (key not in dict) -> returns false
-    private func propertyExists(_ key: String, in properties: [String: Any]) -> Bool {
+    private func propertyExists(_ key: String, in properties: [String: any Sendable]) -> Bool {
         return properties.keys.contains(key)
     }
     
@@ -1201,7 +1201,7 @@ final class DBRestorer: Loggable {
     /// the caller can diff this against the raw properties dictionary to identify
     /// fields present in the backup that the current schema no longer recognizes.
     private struct SafeValueParser {
-        let properties: [String: Any]
+        let properties: [String: any Sendable]
         let entityName: String
         let logMalformed: (String) -> Void
         let recordMissing: (String) -> Void
@@ -1381,8 +1381,13 @@ final class DBRestorer: Loggable {
         mutating func parseDouble(_ fieldName: String, default defaultValue: Double = 0.0) -> Double {
             guard let value = presentValue(fieldName) else { return defaultValue }
             
-            /// Handle double type
+            /// Handle double type. Non-finite values ("inf", "nan", "1e400") are malformed: no
+            /// field holds one legitimately, and one would poison every total it reaches.
             if let d = value as? Double {
+                guard d.isFinite else {
+                    logMalformed("Field '\(fieldName)' in \(entityName) has non-finite value \(d), using default \(defaultValue)")
+                    return defaultValue
+                }
                 return d
             }
             
@@ -1396,10 +1401,10 @@ final class DBRestorer: Loggable {
             
             /// Handle string conversion
             if let s = value as? String {
-                if let d = Double(s) {
+                if let d = Double(s), d.isFinite {
                     return d
                 }
-                /// Invalid string format - log and use default
+                /// Invalid string format (or a non-finite value) - log and use default
                 logMalformed("Field '\(fieldName)' in \(entityName) has invalid double format '\(s)', using default \(defaultValue)")
                 return defaultValue
             }
@@ -1631,7 +1636,7 @@ final class DBRestorer: Loggable {
 
     /// Parses audioChannels, handling the case where DBImporter converts numeric-looking
     /// strings like "5.1" or "7.1" to Double values rather than preserving them as strings.
-    private func parseAudioChannels(_ props: [String: Any]) -> String {
+    private func parseAudioChannels(_ props: [String: any Sendable]) -> String {
         /// Try new audioChannels field first
         /// Note: DBImporter may have converted numeric-looking strings (e.g., "5.1", "7.1")
         /// to Double values, so we need to handle both String and numeric types

@@ -57,6 +57,7 @@
 #if DEBUG
 
 import Foundation
+import Synchronization
 import CoreData
 
 extension DebugHarness {
@@ -558,6 +559,8 @@ extension DebugHarness {
          ("rememberImportsTab", \.rememberImportsTab),
          ("rememberSortFilterSelections", \.rememberSortFilterSelections),
          ("confirmFilmQueueAdd", \.confirmFilmQueueAdd),
+         ("confirmSpecialSortingAddForQueued", \.confirmSpecialSortingAddForQueued),
+         ("confirmChangesBeforeDisappear", \.confirmChangesBeforeDisappear),
          ("notifyAboutNewReleases", \.notifyAboutNewReleases),
          ("onlyNotifyForWishlisted", \.onlyNotifyForWishlisted),
          ("queueIsDropTarget", \.queueIsDropTarget),
@@ -1085,7 +1088,7 @@ extension DebugHarness {
         /// `settings-restore-covers-every-field` in `backup-integrity` for the read side.
         var settingsLosses: [String] = []
         var settingsCompared = 0
-        let fileSettings: [String: Any]
+        let fileSettings: [String: any Sendable]
         do {
             let exported = try await DBImporter().parseBackupFile(
                 at: packageURL.appendingPathComponent("backup.xml"))
@@ -3073,22 +3076,23 @@ extension DebugHarness {
 /// Measures how promptly the main queue responds while other work runs. A timer on a
 /// background queue posts a block to the main queue every 5 ms; each block records how long
 /// after posting it ran. Lateness beyond a few milliseconds means the main thread was busy.
-final class MainThreadLatencyProbe: @unchecked Sendable {
+final class MainThreadLatencyProbe: Sendable {
     struct Stats {
         var samples = 0, over16 = 0, over50 = 0
         var max = 0.0, mean = 0.0, p99 = 0.0
         /// "t+<seconds since start>: <ms late>" for every sample over 16 ms.
         var hitches: [String] = []
     }
+    private struct Samples {
+        var latencies: [Double] = []
+        var offsets: [Double] = []
+    }
     private let queue = DispatchQueue(label: "harness.latency-probe", qos: .userInteractive)
-    private var timer: (any DispatchSourceTimer)?
-    private let lock = NSLock()
-    private var latencies: [Double] = []
-    private var offsets: [Double] = []
-    private var startedAt: UInt64 = 0
+    private let timer = Mutex<(any DispatchSourceTimer)?>(nil)
+    private let samples = Mutex(Samples())
 
     func start() {
-        startedAt = DispatchTime.now().uptimeNanoseconds
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: .milliseconds(5), leeway: .microseconds(500))
         timer.setEventHandler { [self] in
@@ -3096,18 +3100,17 @@ final class MainThreadLatencyProbe: @unchecked Sendable {
             DispatchQueue.main.async { [self] in
                 let late = Double(DispatchTime.now().uptimeNanoseconds - posted) / 1_000_000
                 let offset = Double(posted - startedAt) / 1_000_000_000
-                lock.lock(); latencies.append(late); offsets.append(offset); lock.unlock()
+                samples.withLock { $0.latencies.append(late); $0.offsets.append(offset) }
             }
         }
-        self.timer = timer
         timer.resume()
+        self.timer.withLock { $0 = timer }
     }
 
     @discardableResult
     func stop() -> Stats {
-        timer?.cancel()
-        timer = nil
-        lock.lock(); let values = latencies; let times = offsets; lock.unlock()
+        timer.withLock { $0?.cancel(); $0 = nil }
+        let (values, times) = samples.withLock { ($0.latencies, $0.offsets) }
         var stats = Stats()
         guard !values.isEmpty else { return stats }
         let sorted = values.sorted()
@@ -3118,7 +3121,7 @@ final class MainThreadLatencyProbe: @unchecked Sendable {
         stats.over16 = values.filter { $0 > 16 }.count
         stats.over50 = values.filter { $0 > 50 }.count
         stats.hitches = zip(times, values).filter { $0.1 > 16 }.prefix(40)
-            .map { unsafe String(format: "t+%.2fs: %.0fms", $0.0, $0.1) }
+            .map { "t+\(Fmt.fixed($0.0, 2))s: \(Fmt.fixed($0.1, 0))ms" }
         return stats
     }
 }

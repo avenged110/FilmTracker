@@ -41,9 +41,6 @@ final class FSTabNotes: FilmSheetTabChangeTracking {
     /// writer and reader cannot disagree. Sharing it also keeps DateFormatter setup to one instance app-wide.
     private static let editDateFormatter = StorageDateFormatters.dash
 
-    /// Flag to suppress change tracking during initial data load.
-    private var isLoadingData: Bool = false
-
     // MARK: - Initialization
     init(owner: FilmSheet) {
         self.owner = owner
@@ -57,10 +54,6 @@ final class FSTabNotes: FilmSheetTabChangeTracking {
     // MARK: - Load Notes from Database
     private func loadData(for id: UUID) {
         guard let owner = owner else { return }
-
-        /// Set flag to suppress change tracking during load.
-        isLoadingData = true
-        defer { isLoadingData = false }
 
         /// Get film from DataCoordinator's memory store (instant)
         guard let film = owner.coordinator.getFilm(id) else {
@@ -109,16 +102,10 @@ final class FSTabNotes: FilmSheetTabChangeTracking {
 
     // MARK: - Change Tracking
     private func checkForChanges() {
-        /// Don't track changes during initial data load.
-        guard !isLoadingData else { return }
-        
-        guard let owner = owner, owner.isEditMode, let orig = original else {
-            /// Only write — and therefore only fire an observation invalidation —
-            /// when the value actually needs to change (defensive; should always
-            /// be false here).
-            if hasChanges { hasChanges = false }
-            return
-        }
+        /// No baseline means nothing to compare: add mode, or the initial load, which
+        /// assigns every field before captureOriginalValues() sets `original`. hasChanges
+        /// is then false, since only the latch below ever sets it.
+        guard let owner, let orig = original else { return }
         
         /// One comparison against the baseline. `FilmNotesFields` is what a save
         /// actually writes, so any difference here is a real, persistable edit and

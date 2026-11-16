@@ -567,7 +567,7 @@
   </ul>
   <p><strong>Up Next holds at most eight films.</strong> On the All tab, each empty place in it is shown as a dashed outline. Click one to search for a film to add there, or drag films from Soon or Later onto it to move them up. A choice that would overfill Up Next is unavailable in the menus, and dropping too many films on it in the sidebar offers to put them in Soon instead.</p>
   <p>With <strong>ATVQ integration</strong> turned on in Settings &gt; Advanced, a button in the Queue&rsquo;s title bar sends the films in Up Next to the ATVQ app on your Apple TV.</p>
-  <p>Settings &gt; General can keep queued films out of the Up for Rotation lists (so those lists show only what you have not yet planned), and can warn before you queue a film that carries a Special Sorting tag.</p>
+  <p>Settings &gt; General can keep queued films out of the Up for Rotation lists (so those lists show only what you have not yet planned), and can warn before you queue a film that carries a Special Sorting tag, or before you tag a film that is already queued. Moving a film from one Queue section to another never asks.</p>
 
   <div class="keep">
   <h3>The Unwatched view</h3>
@@ -592,12 +592,15 @@
   <table>
     <thead><tr><th style="width:2.2in">To&hellip;</th><th>Do this</th></tr></thead>
     <tbody>
-      <tr><td>Add a release</td><td>Add New Release, then pick 4K UHD, Blu-ray, or DVD. Or press <code>&#8984;N</code> for a Blu-ray, <code>&#8997;&#8984;N</code> for a 4K UHD.</td></tr>
+      <tr><td>Add a release</td><td>Add New Release, then pick 4K UHD, Blu-ray, or DVD. Or press <code>&#8984;N</code> for a Blu-ray, <code>&#8997;&#8984;N</code> for a 4K UHD, <code>&#8679;&#8997;&#8984;N</code> for a DVD.</td></tr>
+      <tr><td>Copy the card on screen</td><td>Add New Release &gt; Duplicate This Release (<code>&#8984;D</code>). The copy appears to the right with the same details. A combo pack is copied with its bundled discs. A copy of a purchased release leaves out what is under the card&rsquo;s divider (cost, amount spent, purchase date, condition, and notes), and a copy is never on the Wishlist.</td></tr>
       <tr><td>Delete the card on screen</td><td>The Delete button, or <code>&#8984;&#9003;</code>.</td></tr>
       <tr><td>Save</td><td>Update, as for any change in the sheet.</td></tr>
     </tbody>
   </table>
+  <p>While the film sheet is open, the same choices and shortcuts work from any tab, and are also in Film &gt; Add New Release. Adding a release switches the sheet to its Releases tab first. Duplicate This Release works only on the Releases tab, where the card to copy is on screen.</p>
   <p>A film can hold up to ten cards. A combo pack counts as one card, including its bundled discs.</p>
+  <p>The cards are grouped by format: 4K UHD, then Blu-ray, then DVD. While the sheet is open, nothing moves on its own, and a new card goes at the end of its format. When you save, each format&rsquo;s cards are re-sorted so the newest release date comes first. A card with only a year comes after the full dates of that year, and a card with no date comes last. Cards with the same release date are ordered by purchase date (for a purchased release) or lowest-price date, newest first, and then by when they were added, newest first. The new order shows the next time the sheet opens.</p>
 
   <h3>What a release records</h3>
   <table>
@@ -605,7 +608,7 @@
     <tbody>
       <tr><td>Type / Versions</td><td>Standalone, Combo-pack, Combo-pack (Dual BD), Combo-pack (Multi-pack), or Multi-pack; and the film versions on the disc.</td></tr>
       <tr><td>Purchased</td><td>Whether you own it, and the number of discs. Purchased releases count toward spending and the Purchased smart lists. <strong>Upcoming</strong> appears beside the checkbox while the release date is still ahead.</td></tr>
-      <tr><td>Misc. Traits / Art</td><td>Aspect ratio; Recordable (a BD-R or DVD-R), Remastered, Includes Subtitles, Wishlisted; and the artwork. Until the release is purchased, the only artwork choice is Steelbook. Once it is purchased, the artwork menu has two sections, and you pick at most one item from each: the kind of artwork (Steelbook; Standard, or Combo-pack or Multi-pack for a pack; DigiBook/DigiPack; or Missing) and, for Standard, Combo-pack or Multi-pack only, a detail (Reversible, Inner print, Incorrect release, or Custom). They are shown together as, for example, <em>Standard, reversible</em> or <em>Multi-pack, inner print</em>. Choosing Steelbook, DigiBook/DigiPack or Missing clears the detail. In the sidebar, artwork is noted under the release unless it is plain Standard or Combo-pack; <em>Multi-pack, inner print</em> reads <em>Multi-pack artwork with inner print</em>.</td></tr>
+      <tr><td>Misc. Traits / Art</td><td>Aspect ratio; Recordable (a BD-R or DVD-R), Remastered, Includes Subtitles, Wishlisted; and the artwork. Until the release has a Type, the artwork choices are Steelbook and DigiBook/DigiPack. Once it has one, the artwork menu has two sections, and you pick at most one item from each: the kind of artwork (Standard, or Combo-pack or Multi-pack for a pack; Steelbook; DigiBook/DigiPack; or Missing) and, for Standard, Combo-pack or Multi-pack only, a detail (Reversible, Inner print, Incorrect release, or Custom). They are shown together as, for example, <em>Standard, reversible</em> or <em>Multi-pack, inner print</em>. Choosing Steelbook, DigiBook/DigiPack or Missing clears the detail. Missing, Incorrect release and Custom describe the copy you own, so they can be chosen only once the release is purchased; un-ticking Purchased removes just those. In the sidebar, artwork is noted under the release unless it is plain Standard or Combo-pack; <em>Multi-pack, inner print</em> reads <em>Multi-pack artwork with inner print</em>.</td></tr>
       <tr><td>Video</td><td>Codec, HDR format (Dolby Vision, HDR10, HDR10+), whether a 4K disc is upscaled or native, and whether the transfer is interlaced.</td></tr>
       <tr><td>Audio</td><td>Format (Dolby Atmos, TrueHD, DTS-HD MA, LPCM, and others) and channels.</td></tr>
       <tr><td>Studio</td><td>The label or distributor of this disc, which can differ from the film&rsquo;s studio.</td></tr>
@@ -758,7 +761,7 @@
   </div>
   <div class="two">
     <div><ul>
-      <li><strong>Library Overview:</strong> totals, Ownership, Catalog Health, Ratings Breakdown, Collection Growth, and Needs Attention (overdue rotations, missing IDs or posters, and more)</li>
+      <li><strong>Library Overview:</strong> totals (including Purchased Films, the share of the library you own on disc), Ownership, Catalog Health, Ratings Breakdown, Collection Growth, and Needs Attention (overdue rotations, missing IDs or posters, and more)</li>
       <li><strong>Viewing History:</strong> viewings by month, first-time viewings and rewatches, versions watched, seasonality</li>
       <li><strong>Rotation:</strong> what is overdue or coming up next month, and whether your thresholds match your habits</li>
       <li><strong>Purchases and Spending:</strong> formats, 4K and HDR, purchases by year, Spending Trends, Value Realized (cost per viewing), and the Wishlist</li>
@@ -896,14 +899,14 @@
     <tbody>
       <tr><td>System calendar integration</td><td>Lets Add Viewing Event also create an event in your calendar.</td></tr>
       <tr><td>Default viewing rotation threshold</td><td>The rotation period for every film without an override. <strong>Reset All Overrides</strong> clears every override.</td></tr>
-      <tr><td>Show a warning before&hellip;</td><td>Confirmations before deleting films, deleting releases, changing lists (choose lists and their contents, lists only, or contents only), and queuing films that carry Special Sorting tags.</td></tr>
+      <tr><td>Show a warning before&hellip;</td><td>Confirmations before deleting films, deleting releases, changing lists (choose lists and their contents, lists only, or contents only), queuing films that carry Special Sorting tags, adding a Special Sorting tag to a film already in the Queue, and (off by default) saving film sheet changes that would take the selected film out of the current view. Moving a tagged film between Queue sections never asks.</td></tr>
       <tr><td>Notify me about&hellip;</td><td>A notification on the release day of each release cataloged while its date was still ahead, at 9:00&nbsp;AM, whether or not Film Tracker is open. Choose all new releases or wishlisted ones only. Turning it on asks macOS for permission to notify.</td></tr>
       <tr><td>Large poster images</td><td>At most six grid columns instead of eight, for bigger posters on large windows.</td></tr>
       <tr><td>Show the status bar</td><td>The film count along the bottom of the window.</td></tr>
       <tr><td>Show the Smart Lists section</td><td>Shows or hides smart lists. Beneath it: exclude queued films from the Up for Rotation lists.</td></tr>
       <tr><td>When dragging films onto the Queue&hellip;</td><td>Makes the Queue a drop target, and picks the section dropped films join.</td></tr>
       <tr><td>Contextual sidebar</td><td>Show the Web Query button; keep the same tab when the selection changes; expand collapsed tables automatically; show additional Viewing History details; keep the Releases tab&rsquo;s All / Purchased / Unpurchased choice when the selection changes; show a summary table of all releases.</td></tr>
-      <tr><td>Show relevant suggestions when using the search field</td><td>Suggests titles and token values from your library as you type, ranked by what you search for most. Beneath it: list your recent searches from this session when you click the empty field.</td></tr>
+      <tr><td>Show relevant suggestions when using the search field</td><td>Suggests titles and token values from your library as you type, ranked by what you search for most. The same setting covers the value suggestions in the saved-search builder and in the film sheet&rsquo;s Tags and release studio fields. Beneath it: list your recent searches from this session when you click the empty field.</td></tr>
       <tr><td>Persist selection when exiting search results</td><td>Keeps a film selected when you clear a search, if it is also in the view you return to.</td></tr>
       <tr><td>Remember prior scroll positions</td><td>Each view reopens where you left it.</td></tr>
       <tr><td>Remember the last-selected view options</td><td>Each view keeps its own sort, filter, and grid or list style across launches.</td></tr>
@@ -981,7 +984,8 @@
       <table><tbody>
         <tr><td><code>&#8997;1</code>&ndash;<code>5</code></td><td>Details, Metadata, Releases, Notes, Poster</td></tr>
         <tr><td><code>&#8997;A</code></td><td>Add a viewing event (Details tab)</td></tr>
-        <tr><td><code>&#8984;N</code> &middot; <code>&#8997;&#8984;N</code></td><td>Add a Blu-ray &middot; 4K release (Releases tab)</td></tr>
+        <tr><td><code>&#8984;N</code> &middot; <code>&#8997;&#8984;N</code> &middot; <code>&#8679;&#8997;&#8984;N</code></td><td>Add a Blu-ray &middot; 4K UHD &middot; DVD release (from any tab)</td></tr>
+        <tr><td><code>&#8984;D</code></td><td>Duplicate the release card on screen (Releases tab)</td></tr>
         <tr><td><code>&#8984;&#9003;</code></td><td>Delete the release card on screen</td></tr>
       </tbody></table>
     </div>

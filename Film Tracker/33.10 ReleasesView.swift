@@ -484,6 +484,17 @@ struct FSTabReleasesView: View {
                 }
                 return nil
             }
+
+            takePendingAddRequest(carouselReady: carouselReady)
+        }
+        /// The pending "Add New Release" request (FSTabReleases.pendingAddRequest) is taken on
+        /// three triggers, because it can arrive before the carousel is ready or before this tab
+        /// is built: the bus command FilmSheet.requestAddRelease sends (a built tab), the
+        /// carousel becoming ready (a tab still hydrating, or just built), and onAppear above (a
+        /// tab just built with no cards, ready from its first pass, so `carouselReady` never
+        /// changes).
+        .onChange(of: carouselReady) {
+            takePendingAddRequest(carouselReady: carouselReady)
         }
         .onDisappear {
             if let monitor = keyMonitor {
@@ -496,12 +507,15 @@ struct FSTabReleasesView: View {
             }
         }
         .onReceive(AppEventBus.shared.uiCommands) { command in
+            /// Ahead of the confirmation guard below: taking the request is what clears it,
+            /// and a request left behind would fire at the next unrelated readiness change.
+            /// performAddRequest applies the confirmation gate itself.
+            if case .performPendingAddRelease = command {
+                takePendingAddRequest(carouselReady: carouselReady)
+                return
+            }
             guard !viewModel.isConfirmationPresented else { return }
             switch command {
-            case .addReleaseToActiveSheet(let format):
-                guard carouselReady && !viewModel.isTransitioning else { return }
-                guard viewModel.canAddRelease() else { return }
-                viewModel.addRelease(format: format)
             case .deleteReleaseFromActiveSheet:
                 guard carouselReady && !viewModel.isTransitioning else { return }
                 let currentIdx = viewModel.currentCardIndex
@@ -601,15 +615,16 @@ struct FSTabReleasesView: View {
     }
 
     /// The drop-down that replaced the "+" button: one item per format, since a unified
-    /// carousel cannot infer which format a new release should be.
+    /// carousel cannot infer which format a new release should be, then "Duplicate This
+    /// Release". The items are AddReleaseMenuContent, which the menu bar's Film menu shares.
     @ViewBuilder
     private func addReleaseMenu(canAddRelease: Bool, carouselReady: Bool) -> some View {
         let isEnabled = canAddRelease && carouselReady && !viewModel.isTransitioning
         Menu("Add New Release") {
-            ForEach(ReleaseFormat.allCases, id: \.rawValue) { format in
-                Button(format.rawValue) {
-                    viewModel.addRelease(format: format.rawValue)
-                }
+            AddReleaseMenuContent(canDuplicate: viewModel.canDuplicateCurrentRelease,
+                                  showsShortcuts: false) { request in
+                guard carouselReady else { return }
+                performAddRequest(request)
             }
         }
         /// Bordered rather than borderless: this replaced a button, and borderless renders as
@@ -618,6 +633,35 @@ struct FSTabReleasesView: View {
         .frame(width: Self.headerMenuWidth)
         .focusable(false)
         .disabled(!isEnabled)
+    }
+
+    // MARK: - Add Requests
+    /// Carries out an "Add New Release" choice from either source: this tab's menu, or the
+    /// pending request the menu bar and the shortcuts leave. The caller has established that
+    /// the carousel is ready. The other gates are re-checked here, because a pending request
+    /// was judged available a moment earlier and the state may have moved since.
+    ///
+    /// A duplicate needs the sheet on this tab, since "this release" is the card on screen,
+    /// and commits an in-progress field edit first, so an edit the user has not yet left the
+    /// field for is part of what is copied.
+    private func performAddRequest(_ request: AddReleaseRequest) {
+        guard !viewModel.isConfirmationPresented, !viewModel.isTransitioning,
+              viewModel.canAddRelease() else { return }
+        if request == .duplicateCurrent {
+            guard viewModel.owner?.selectedTab == .releases,
+                  viewModel.canDuplicateCurrentRelease else { return }
+            commitPendingFieldEdit()
+        }
+        viewModel.perform(request)
+    }
+
+    /// Takes the pending request once the carousel is ready, and clears it whether or not it
+    /// can be carried out, so a request that failed a gate never fires later. Not ready: the
+    /// request stays for the `carouselReady` change, which follows within the hydration ramp.
+    private func takePendingAddRequest(carouselReady: Bool) {
+        guard carouselReady, let request = viewModel.pendingAddRequest else { return }
+        viewModel.pendingAddRequest = nil
+        performAddRequest(request)
     }
 
     // MARK: - Carousel Area
@@ -1106,6 +1150,39 @@ private struct CarouselCard: View {
         /// neighbor's by geometry alone. Outside `.equatable()` — it is not part of what the
         /// card draws — and keyed to the entry, so a merged pack's variant swap keeps it.
         .background(ReleaseCardFocusRegion(cardID: entry.id))
+    }
+}
+
+// MARK: - Add New Release Menu Content
+/// The items of the "Add New Release" menu, defined once for its two hosts: the Releases
+/// tab's header menu (FSTabReleasesView.addReleaseMenu) and the menu bar's Film menu
+/// (AddReleaseMenuBarItem in MenuBar.swift). Each host decides when the menu as a whole is
+/// available and what a choice does; both end in FSTabReleases.perform(_:).
+///
+/// One item per format, then a divider and "Duplicate This Release", which is disabled when
+/// there is no card to copy or (in the menu bar) the sheet is on another tab.
+///
+/// Only the menu-bar host shows the shortcuts (AddReleaseRequest.keyboardShortcut). A shortcut
+/// on the tab's menu would be registered with the sheet's window for as long as the tab is
+/// built, hidden or not, as a second binding for keys KeyboardManager already handles. The
+/// same rule as AddToListMenuBody's `createShortcut`.
+struct AddReleaseMenuContent: View {
+    let canDuplicate: Bool
+    let showsShortcuts: Bool
+    let onSelect: (AddReleaseRequest) -> Void
+
+    var body: some View {
+        ForEach(ReleaseFormat.allCases, id: \.rawValue) { format in
+            item(format.rawValue, .format(format))
+        }
+        Divider()
+        item("Duplicate This Release", .duplicateCurrent)
+            .disabled(!canDuplicate)
+    }
+
+    private func item(_ title: String, _ request: AddReleaseRequest) -> some View {
+        Button(title) { onSelect(request) }
+            .keyboardShortcut(showsShortcuts ? request.keyboardShortcut : nil)
     }
 }
 

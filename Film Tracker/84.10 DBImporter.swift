@@ -15,13 +15,12 @@ public enum DBImporterError: Error {
 }
 
 /// Intermediate representation of a parsed object from XML.
-/// @unchecked Sendable: properties contains [String: Any] which is not provably Sendable,
-/// but ParsedObject is fully initialized before crossing actor boundaries and is never
-/// mutated after transfer, making this safe.
-public struct ParsedObject: @unchecked Sendable {
+/// Checked Sendable: every property value is `any Sendable` (strings, string arrays, Booleans,
+/// integers, doubles, NSNull), and the struct is immutable once parsed.
+public struct ParsedObject: Sendable {
     public let exportID: String
     public let entityName: String
-    public let properties: [String: Any]
+    public let properties: [String: any Sendable]
     public let relationships: [String: [String]]
 }
 
@@ -60,7 +59,10 @@ public final class DBImporter {
         /// Read file data
         let data: Data
         do {
-            data = try Data(contentsOf: url)
+            /// Mapped, not copied: the parser reads it once, front to back, and a 15 MB backup
+            /// otherwise costs 15 MB of dirty memory for the length of the parse. On a volume where
+            /// mapping is not safe (network, removable) this reads as before.
+            data = try Data(contentsOf: url, options: .mappedIfSafe)
         } catch {
             throw DBImporterError.invalidXML("Could not read file: \(error.localizedDescription)")
         }
@@ -113,7 +115,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     private var objects: [ParsedObject] = []
     private var currentObjectID: String?
     private var currentObjectEntity: String?
-    private var currentProperties: [String: Any] = [:]
+    private var currentProperties: [String: any Sendable] = [:]
     private var currentRelationships: [String: [String]] = [:]
     private var currentPropertyName: String?
     private var currentRelationshipName: String?
@@ -366,7 +368,7 @@ fileprivate class BackupXMLParser: NSObject, XMLParserDelegate, Loggable {
     
     // MARK: - Property Value Parsing
     
-    private func parsePropertyValue(_ string: String) -> Any {
+    private func parsePropertyValue(_ string: String) -> any Sendable {
         /// Handle empty/null
         if string.isEmpty {
             return NSNull()

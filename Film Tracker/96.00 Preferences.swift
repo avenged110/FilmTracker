@@ -56,11 +56,11 @@ struct Preferences: Loggable {
     /// registration.
     private static let registered = RegisteredDefaults(registeredDefaults())
 
-    /// Immutable after init and holding only value types (Bool, Int, String and
-    /// collections of them), which is the whole of what `@unchecked Sendable` asserts.
-    private final class RegisteredDefaults: @unchecked Sendable {
-        let values: [String: Any]
-        init(_ values: [String: Any]) { self.values = values }
+    /// Immutable after init and holding only Sendable values (Bool, Int, String and
+    /// collections of them), so the compiler checks its Sendable conformance.
+    private final class RegisteredDefaults: Sendable {
+        let values: [String: any Sendable]
+        init(_ values: [String: any Sendable]) { self.values = values }
     }
 
     /// The value `key` is registered with — the one place a preference's default is
@@ -221,6 +221,10 @@ struct Preferences: Loggable {
     /// the Settings sheet shows them, tab by tab. A key with no control of its own sits
     /// beside the preference it belongs with.
     private enum Keys {
+        /// Internal: the one-time release carousel order conversion has run. Not a setting,
+        /// so SettingsManager does not sync it and backups do not carry it.
+        static let releaseOrderConverted =
+            "internal.releaseOrderConverted"
         /// Settings: General tab
         static let iCalIntegration =
             "preferences.iCalIntegration"
@@ -236,6 +240,10 @@ struct Preferences: Loggable {
             "preferences.listEditScope"
         static let confirmFilmQueueAdd =
             "preferences.confirmFilmQueueAdd"
+        static let confirmSpecialSortingAddForQueued =
+            "preferences.confirmSpecialSortingAddForQueued"
+        static let confirmChangesBeforeDisappear =
+            "preferences.confirmChangesBeforeDisappear"
         static let notifyAboutNewReleases =
             "preferences.notifyAboutNewReleases"
         static let onlyNotifyForWishlisted =
@@ -351,6 +359,8 @@ struct Preferences: Loggable {
     static let confirmListEditsKey                   = Keys.confirmListEdits
     static let listEditScopeKey                      = Keys.listEditScope
     static let confirmFilmQueueAddKey                = Keys.confirmFilmQueueAdd
+    static let confirmSpecialSortingAddForQueuedKey  = Keys.confirmSpecialSortingAddForQueued
+    static let confirmChangesBeforeDisappearKey      = Keys.confirmChangesBeforeDisappear
     static let notifyAboutNewReleasesKey             = Keys.notifyAboutNewReleases
     static let onlyNotifyForWishlistedKey            = Keys.onlyNotifyForWishlisted
     static let largeGalleryGridKey                   = Keys.largeGalleryGrid
@@ -399,7 +409,7 @@ struct Preferences: Loggable {
     /// registeredDefault(_:orFallback:) by everything else that needs a default. A
     /// function rather than a stored `[String: Any]`, which strict concurrency rejects as
     /// shared mutable state; it is called exactly once, by `registered`.
-    private static func registeredDefaults() -> [String: Any] {
+    private static func registeredDefaults() -> [String: any Sendable] {
         return [
             Keys.iCalIntegration: false,
             Keys.defaultRotationThreshold: 24,
@@ -408,6 +418,8 @@ struct Preferences: Loggable {
             Keys.confirmListEdits: true,
             Keys.listEditScope: ListEditScope.both.rawValue,
             Keys.confirmFilmQueueAdd: true,
+            Keys.confirmSpecialSortingAddForQueued: true,
+            Keys.confirmChangesBeforeDisappear: false,
             Keys.notifyAboutNewReleases: false,
             Keys.onlyNotifyForWishlisted: false,
             Keys.largeGalleryGrid: true,
@@ -440,7 +452,7 @@ struct Preferences: Loggable {
             Keys.exportPosterImages: true,
             Keys.showInfoComplete: false,
             Keys.showWatchDetailsAnnotationGlyphs: false,
-            Keys.ignoredDuplicatePairs: [],
+            Keys.ignoredDuplicatePairs: [String](),
             Keys.overrideDateClamp: false,
             Keys.strictFramesTableChecking: true,
             Keys.prunePosterImages: true,
@@ -454,6 +466,13 @@ struct Preferences: Loggable {
     static func ensureDefaultsRegistered() { _ = defaults }
 
     // MARK: - Toggles
+    /// Whether every film's releases have been put in ReleaseCarouselOrder once. See
+    /// DataCoordinator.convertReleaseOrderIfNeeded.
+    static var releaseOrderConverted: Bool {
+        get { defaults.bool(forKey: Keys.releaseOrderConverted) }
+        set { defaults.set(newValue, forKey: Keys.releaseOrderConverted) }
+    }
+
     static var iCalIntegration: Bool {
         get { return defaults.bool(forKey: Keys.iCalIntegration) }
         set {
@@ -551,6 +570,24 @@ struct Preferences: Loggable {
         set {
             setIfChanged(newValue, forKey: Keys.confirmFilmQueueAdd,
                 logMessage: "confirmFilmQueueAdd set to \(newValue)") } }
+
+    /// Governs whether the user is shown a confirmation alert before giving a special
+    /// sorting parameter to a film that has none and is already in the Queue, via the
+    /// FilmSheet Details tab's Special Sorting menu — the reverse of confirmFilmQueueAdd.
+    /// The alert offers to add the parameter anyway or to take the film out of the Queue.
+    static var confirmSpecialSortingAddForQueued: Bool {
+        get { return defaults.bool(forKey: Keys.confirmSpecialSortingAddForQueued) }
+        set {
+            setIfChanged(newValue, forKey: Keys.confirmSpecialSortingAddForQueued,
+                logMessage: "confirmSpecialSortingAddForQueued set to \(newValue)") } }
+
+    /// Governs whether saving a FilmSheet asks for confirmation first when the save would
+    /// take the film out of the view on screen (and so clear the selection). Opt-in.
+    static var confirmChangesBeforeDisappear: Bool {
+        get { return defaults.bool(forKey: Keys.confirmChangesBeforeDisappear) }
+        set {
+            setIfChanged(newValue, forKey: Keys.confirmChangesBeforeDisappear,
+                logMessage: "confirmChangesBeforeDisappear set to \(newValue)") } }
 
     // MARK: - New-Release Notifications
     /// Whether Film Tracker posts a notification on the release date of each release that was

@@ -931,7 +931,7 @@ enum DVAttentionRows {
         var rows: [Row] = [
             Row(id: "overdue", label: "Overdue for rotation", count: insights.overdue, tint: .systemRed,
                 items: insights.overdueItems),
-            Row(id: "missingExternalIDs", label: "Missing External Identifiers", count: insights.missingExternalIdentifiers, tint: .systemOrange,
+            Row(id: "missingExternalIDs", label: "Missing external identifiers", count: insights.missingExternalIdentifiers, tint: .systemOrange,
                 items: insights.missingExternalIdentifiersItems),
             Row(id: "outOfPrint", label: "Unpurchased and out-of-print", count: insights.unpurchasedOutOfPrint, tint: .systemOrange,
                 items: insights.unpurchasedOutOfPrintItems),
@@ -1043,9 +1043,12 @@ enum DVCanvasSections {
             if let date = insights.backlogClearDate { return "Cleared by \(DVFormat.monthYear.string(from: date)) at the current pace" }
             return insights.unwatchedFilms == 0 ? "Nothing left unwatched" : "No first-time viewings in the last year from which to project"
         }()
-        let tiles = DVFlow(minColumnWidth: DVStyle.minWideTileWidth, spacing: DVStyle.tileGap, maxColumns: 5, [
+        let tiles = DVFlow(minColumnWidth: DVStyle.minWideTileWidth, spacing: DVStyle.tileGap, maxColumns: 6, [
             DVK.statTile(title: "Total Films", value: Fmt.count(stats.totalFilms), color: .systemBlue,
                          footnote: "\(DVFormat.hours(insights.totalRuntimeMinutes)) total runtime"),
+            /// The Ownership card's headline figures, given a tile of their own beside Total Films.
+            DVK.statTile(title: "Purchased Films", value: pct(stats.filmsOnDiscPercent), color: .systemGreen,
+                         trailing: "ownership", footnote: "\(films(stats.filmsOnDisc)) purchased on disc"),
             DVK.statTile(title: "Average Rating", value: stats.averageRating, color: .systemPurple,
                          footnote: "\(Fmt.count(stats.totalFilms - stats.notYetRatedFilms)) rated\n\(Fmt.count(stats.notYetRatedFilms)) not yet rated"),
             DVK.statTile(title: "Watched", value: Fmt.count(insights.watchedFilms), color: .systemPurple,
@@ -1083,8 +1086,8 @@ enum DVCanvasSections {
                         insets: NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8), background: DVK.rowPaint, radius: 4)
         })
         let ownership = DVK.card(title: "Ownership",
-                                 trailing: "\(films(stats.filmsOnDisc)) purchased (\(pct(stats.filmsOnDiscPercent)) ownership)",
-                                 subtitle: "Rows are mutually exclusive and sum to \(films(stats.totalFilms)).",
+                                 trailing: films(stats.totalFilms),
+                                 subtitle: "Rows are mutually exclusive.",
                                  [DVK.stackedBar(segments, height: 24), ownershipRows])
 
         /// Catalog Health
@@ -1099,7 +1102,7 @@ enum DVCanvasSections {
         if m.showInfoComplete { healthRows.append(health("Info complete", stats.infoCompletePercent, .systemGreen, stats.infoComplete)) }
         healthRows += [
             health("Edited films", stats.editedPercent, .systemBlue, stats.editedFilms),
-            health("Alternate versions owned", Fmt.percent(insights.alternateVersionFilms, of: stats.totalFilms), .systemBlue, insights.alternateVersionFilms),
+            health("Alternate version(s) owned", Fmt.percent(insights.alternateVersionFilms, of: stats.totalFilms), .systemBlue, insights.alternateVersionFilms),
             health("Not yet rated", stats.notYetRatedPercent, .systemRed, stats.notYetRatedFilms),
             health("Missing poster", stats.missingArtworkPercent, .systemRed, stats.missingArtwork),
             health("Waiting for edit", Fmt.percent(insights.waitingForEdit, of: stats.totalFilms), .systemOrange, insights.waitingForEdit),

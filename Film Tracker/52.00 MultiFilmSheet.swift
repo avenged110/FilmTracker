@@ -374,17 +374,24 @@ final class MultiFilmSheet: Identifiable, Loggable {
 
     /// Films the queue choice `section` would newly add, as they would be flagged after
     /// this edit: the special-sorting confirmation's subjects (FilmQueue.addNeedsConfirmation,
-    /// which reads the films' stored tags, cannot see the sheet's unsaved ones).
-    func flaggedFilmsNewlyQueued(in section: FilmQueueSection) -> (adding: Int, flagged: [[String]]) {
+    /// which reads the films' stored tags, cannot see the sheet's unsaved ones). `flagged`
+    /// counts every flagged film the choice moves, for the message; `needsConfirmation` is
+    /// true only when one of them is not in the Queue at all, since a film moving from another
+    /// section is never confirmed (see addNeedsConfirmation).
+    func flaggedFilmsNewlyQueued(in section: FilmQueueSection)
+        -> (adding: Int, flagged: [[String]], needsConfirmation: Bool) {
         let edit = edit
         let lists = queueListsByFilm()
         let adding = edit.filmsNewlyQueued(in: section, filmIDs: filmIDs, queueListsByFilm: lists)
+        var needsConfirmation = false
         let flagged = adding.compactMap { id -> [String]? in
             guard let film = coordinator.getFilm(id) else { return nil }
             let tags = edit.resultingSpecialSorting(of: film.specialSorting)
-            return tags.isEmpty ? nil : tags
+            guard !tags.isEmpty else { return nil }
+            if (lists[id] ?? []).isEmpty { needsConfirmation = true }
+            return tags
         }
-        return (adding.count, flagged)
+        return (adding.count, flagged, needsConfirmation)
     }
 
     /// The live "Up Next" overflow of the current queue choice; 0 unless it is "Up Next".
@@ -398,7 +405,8 @@ final class MultiFilmSheet: Identifiable, Loggable {
     var liveFilmIDs: [UUID] { filmIDs.filter { coordinator.getFilm($0) != nil } }
 
     private func queueListsByFilm() -> [UUID: Set<UUID>] {
-        Dictionary(uniqueKeysWithValues: filmIDs.map { ($0, coordinator.filmQueueListIDs(forFilm: $0)) })
+        /// uniquingKeysWith: uniqueKeysWithValues traps if `filmIDs` ever repeats an ID.
+        Dictionary(filmIDs.map { ($0, coordinator.filmQueueListIDs(forFilm: $0)) }, uniquingKeysWith: { first, _ in first })
     }
 
     // MARK: Gutter

@@ -235,6 +235,8 @@ final class SettingsManager: Loggable {
             lastImportsCategory: Preferences.lastImportsCategory,
             rememberSortFilterSelections: Preferences.rememberSortFilterSelections,
             confirmFilmQueueAdd: Preferences.confirmFilmQueueAdd,
+            confirmSpecialSortingAddForQueued: Preferences.confirmSpecialSortingAddForQueued,
+            confirmChangesBeforeDisappear: Preferences.confirmChangesBeforeDisappear,
             notifyAboutNewReleases: Preferences.notifyAboutNewReleases,
             onlyNotifyForWishlisted: Preferences.onlyNotifyForWishlisted,
             queueIsDropTarget: Preferences.queueIsDropTarget,
@@ -345,6 +347,8 @@ final class SettingsManager: Loggable {
         apply(snapshot.rememberSortFilterSelections) { Preferences.rememberSortFilterSelections = $0 }
         
         apply(snapshot.confirmFilmQueueAdd) { Preferences.confirmFilmQueueAdd = $0 }
+        apply(snapshot.confirmSpecialSortingAddForQueued) { Preferences.confirmSpecialSortingAddForQueued = $0 }
+        apply(snapshot.confirmChangesBeforeDisappear) { Preferences.confirmChangesBeforeDisappear = $0 }
         apply(snapshot.notifyAboutNewReleases) { Preferences.notifyAboutNewReleases = $0 }
         apply(snapshot.onlyNotifyForWishlisted) { Preferences.onlyNotifyForWishlisted = $0 }
         

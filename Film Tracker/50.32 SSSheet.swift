@@ -203,25 +203,38 @@ struct SavedSearchSheet: View, Loggable {
     }
 
     /// The rows, scrolling once there are more than fit: about five show at once.
+    private static let rulesEndID = "rulesEnd"
+
     private var rulesList: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                VStack(spacing: 6) {
-                    ForEach($rules.rules) { $rule in
-                        RuleRow(rule: $rule,
-                                showsConjunction: rules.mode == .custom,
-                                listChoices: listChoices,
-                                canRemove: rules.rules.count > 1,
-                                onRemove: { removeRule(rule.id) })
-                            .id(rule.id)
+                VStack(spacing: 0) {
+                    VStack(spacing: 6) {
+                        ForEach($rules.rules) { $rule in
+                            RuleRow(rule: $rule,
+                                    showsConjunction: rules.mode == .custom,
+                                    listChoices: listChoices,
+                                    canRemove: rules.rules.count > 1,
+                                    onRemove: { removeRule(rule.id) })
+                                .id(rule.id)
+                        }
                     }
+                    .padding(8)
+                    /// The very end of the content, below the padding: what "+" scrolls to.
+                    Color.clear
+                        .frame(height: 0)
+                        .id(Self.rulesEndID)
                 }
-                .padding(8)
             }
-            /// A rule added below the fold is brought into view: "+" must show its result.
+            /// A rule added below the fold is brought into view, and the list goes all the way
+            /// to its end, padding included: scrolling to the new row itself stopped with the
+            /// row against the edge and the padding below it hidden. A turn later, so the new
+            /// row has its height when the end is measured.
             .onChange(of: rules.rules.count) { oldCount, newCount in
-                guard newCount > oldCount, let last = rules.rules.last?.id else { return }
-                withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(last, anchor: .bottom) }
+                guard newCount > oldCount else { return }
+                DispatchQueue.main.async {
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.rulesEndID, anchor: .bottom) }
+                }
             }
         }
         .frame(height: 172)
@@ -307,7 +320,9 @@ struct SavedSearchSheet: View, Loggable {
         let candidate = SavedSearch(id: candidateID, name: trimmedName, query: query, displayOrder: 0)
         guard let cycle = SavedSearchReferences.cycle(saving: candidate, among: store.searches,
                                                       otherNames: coordinator.savedSearchOtherListNames()) else { return nil }
-        var names = Dictionary(uniqueKeysWithValues: store.searches.map { ($0.id, $0.name) })
+        /// uniquingKeysWith: a damaged store can hold two searches with one ID, and
+        /// uniqueKeysWithValues traps on a duplicate key.
+        var names = Dictionary(store.searches.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
         names[candidateID] = trimmedName
         return SavedSearchReferences.message(for: cycle, names: names)
     }
@@ -500,11 +515,11 @@ private struct RuleRow: View {
 
     /// The field menu's groups, in the order the Search Guide presents them.
     private static let fieldGroups: [(String, [SearchField])] = [
-        ("Title and Text:", [.title, .genre, .studio, .tags, .notes, .synopsis]),
-        ("People:", [.crew, .cast, .directors, .producer, .executiveProducer, .screenwriter, .composer]),
-        ("Numbers:", [.year, .duration, .rating]),
-        ("Dates:", [.lastWatched, .dateAdded]),
-        ("Library:", [.flags, .list, .releases, .rotationThreshold]),
+        ("Title and Text", [.title, .genre, .studio, .source, .tags, .notes, .synopsis]),
+        ("People", [.crew, .cast, .directors, .producer, .executiveProducer, .screenwriter, .composer]),
+        ("Numbers", [.year, .duration, .rating]),
+        ("Dates", [.lastWatched, .dateAdded]),
+        ("Library", [.flags, .list, .releases, .rotationThreshold]),
     ]
 
     private static let fieldItems: [SheetPopUpButton<SearchField?>.Item] =
@@ -590,11 +605,14 @@ private struct RuleRow: View {
     }
 
     private var operatorItems: [SheetPopUpButton<RuleOperator?>.Item] {
-        let options = RuleOperator.options(for: rule.field)
+        var options = RuleOperator.options(for: rule.field)
+        /// A field that offers no "matches" still shows it on a row opened from a token the
+        /// builder could not read, so the row says what it holds.
+        if rule.isOperatorChosen, !options.contains(rule.op) { options.append(rule.op) }
+        let raw = options.filter { $0.editor == .raw }
         return [.placeholder(tag: nil, title: Self.selectTitle)]
             + options.filter { $0.editor != .raw }.map { .option(tag: $0, title: $0.label) }
-            + [.separator]
-            + options.filter { $0.editor == .raw }.map { .option(tag: $0, title: $0.label) }
+            + (raw.isEmpty ? [] : [.separator] + raw.map { .option(tag: $0, title: $0.label) })
     }
 
     /// Switching to "matches" carries the current value over as typed, so a structured rule
@@ -610,6 +628,11 @@ private struct RuleRow: View {
         /// month" must not become the year 1, nor this year an amount of 2026 months.
         if (op.editor == .year) != (previous.op.editor == .year) {
             (rule.a, rule.b) = QueryRule.defaultNumbers(for: rule.field, op: op)
+        }
+        /// Unrated is a value of "is" and "is not" only; the ranges start from the field's
+        /// default instead.
+        if rule.field == .rating, rule.a == 0, op != .ratingIs, op != .ratingIsNot {
+            rule.a = QueryRule.defaultNumbers(for: .rating).a
         }
         guard previous.isOperatorChosen else { return }
         if op.editor == .raw, previous.op.editor != .raw { rule.text = previous.value }
@@ -633,14 +656,13 @@ private struct RuleRow: View {
     private var valueEditor: some View {
         switch rule.op.editor {
         case .text:
-            TextField(rule.field == .title ? "Title" : "Text", text: $rule.text)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
+            RuleTextField(text: $rule.text, placeholder: rule.field == .title ? "Title" : "Text",
+                          field: rule.field)
                 .centeredWithPopUps()
         case .raw:
-            TextField("As typed after #\(rule.field.aliases.first ?? rule.field.rawValue)", text: $rule.text)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12, design: .monospaced))
+            RuleTextField(text: $rule.text,
+                          placeholder: "As typed after #\(rule.field.aliases.first ?? rule.field.rawValue)",
+                          field: rule.field, monospaced: true)
                 .centeredWithPopUps()
                 .help("Any value the search field accepts for this field. See the Search Guide.")
         case .number:
@@ -653,6 +675,19 @@ private struct RuleRow: View {
                 NumberEntry(value: $rule.a)
                 Text("and").foregroundStyle(.secondary)
                 NumberEntry(value: $rule.b)
+                unitLabel
+            }
+        case .rating:
+            HStack(spacing: 4) {
+                ratingMenu($rule.a, offersUnrated: rule.op == .ratingIs || rule.op == .ratingIsNot)
+                /// "Unrated out of 10" would not read.
+                if rule.a != 0 { unitLabel }
+            }
+        case .ratingRange:
+            HStack(spacing: 4) {
+                ratingMenu($rule.a)
+                Text("and").foregroundStyle(.secondary)
+                ratingMenu($rule.b)
                 unitLabel
             }
         case .year:
@@ -684,7 +719,7 @@ private struct RuleRow: View {
                       items: FilmFlag.terms.map { .option(tag: $0.display, title: $0.display) })
         case .listName:
             choiceWithOther(selection: $rule.text,
-                            groups: listChoices.map { ($0.title + ":", $0.names) },
+                            groups: listChoices.map { ($0.title, $0.names) },
                             placeholder: "Part of a list name")
         case .releaseKeyword:
             choiceWithOther(selection: $rule.text,
@@ -701,11 +736,27 @@ private struct RuleRow: View {
     private static let releaseGroups: [(String, [String])] = {
         var groups: [(String, [String])] = []
         for item in RuleValues.releaseKeywords {
-            if groups.last?.0 == item.group + ":" { groups[groups.count - 1].1.append(item.keyword) }
-            else { groups.append((item.group + ":", [item.keyword])) }
+            if groups.last?.0 == item.group { groups[groups.count - 1].1.append(item.keyword) }
+            else { groups.append((item.group, [item.keyword])) }
         }
         return groups
     }()
+
+    /// The ten ratings, 10 first: the end of the scale most searches ask about sits nearest
+    /// the button. Under "is" and "is not", Unrated (0) follows, below a separator: "is
+    /// Unrated" is a film with no rating, "is not Unrated" one with any rating. The ranges
+    /// leave it out — "at least Unrated" is every film, "at most Unrated" none. A value
+    /// outside the menu (from a typed token) is kept, listed first.
+    private func ratingMenu(_ value: Binding<Int>, offersUnrated: Bool = false) -> some View {
+        let ratings = Array((1...10).reversed())
+        var items: [SheetPopUpButton<Int>.Item] = ratings.map { .option(tag: $0, title: "\($0)") }
+        if offersUnrated { items += [.separator, .option(tag: 0, title: "Unrated")] }
+        let current = value.wrappedValue
+        if !ratings.contains(current), !(offersUnrated && current == 0) {
+            items.insert(.option(tag: current, title: "\(current)"), at: 0)
+        }
+        return SheetMenuPicker(selection: value, items: items, width: offersUnrated ? 92 : 56)
+    }
 
     @ViewBuilder
     private var unitLabel: some View {
@@ -749,11 +800,141 @@ private struct RuleRow: View {
                 }),
                       items: items, maxWidth: isOther ? 90 : .infinity)
             if isOther {
-                TextField(placeholder, text: selection)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12))
+                RuleTextField(text: selection, placeholder: placeholder, field: rule.field)
                     .centeredWithPopUps()
             }
+        }
+    }
+}
+
+// MARK: - Rule Text
+
+/// A rule's typed text, in an AppKit field that offers the search field's value suggestions
+/// for the rule's field (SearchController.rankedValues) in the system drop-down the FilmSheet's
+/// Tags and Other-studio fields use (ValueSuggestionsDelegate). Like those, it follows the
+/// search suggestions setting. Drawn as the SwiftUI `.roundedBorder` TextField it replaces
+/// was: rounded bezel, no fill of its own, clipped and scrolling, at the row's control size.
+///
+/// An Is or Release value is several comma-separated terms, so, as in the search field, only
+/// the term after the last comma is completed; each row is the whole value with that term
+/// finished.
+private struct RuleTextField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    /// The field whose values are suggested.
+    let field: SearchField
+    var monospaced = false
+
+    private static let fontSize: CGFloat = 12
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let view = NSTextField(frame: .zero)
+        /// isBordered and isBezeled are mutually exclusive — setting either clears the other —
+        /// so the plain border is cleared first and the bezel set second.
+        view.isBordered = false
+        view.isBezeled = true
+        view.bezelStyle = .roundedBezel
+        view.drawsBackground = false
+        view.controlSize = Self.controlSize(context.environment.controlSize)
+        view.font = font
+        view.placeholderString = placeholder
+        view.lineBreakMode = .byClipping
+        view.cell?.wraps = false
+        view.cell?.isScrollable = true
+        view.focusRingType = .default
+        /// The frame supplies the width; the field must not fight it.
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.stringValue = text
+        view.isEnabled = context.environment.isEnabled
+        view.delegate = context.coordinator
+        view.suggestionsDelegate = context.coordinator.suggestions
+        return view
+    }
+
+    func updateNSView(_ view: NSTextField, context: Context) {
+        /// SwiftUI reuses the coordinator but not this struct: keep the binding and field current.
+        context.coordinator.parent = self
+        if view.stringValue != text { view.stringValue = text }
+        if view.placeholderString != placeholder { view.placeholderString = placeholder }
+        if view.font != font { view.font = font }
+        let enabled = context.environment.isEnabled
+        if view.isEnabled != enabled { view.isEnabled = enabled }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite else { return nil }
+        return CGSize(width: width, height: nsView.intrinsicContentSize.height)
+    }
+
+    private var font: NSFont {
+        monospaced ? .monospacedSystemFont(ofSize: Self.fontSize, weight: .regular)
+                   : .systemFont(ofSize: Self.fontSize)
+    }
+
+    private static func controlSize(_ size: ControlSize) -> NSControl.ControlSize {
+        switch size {
+        case .mini: return .mini
+        case .small: return .small
+        case .large, .extraLarge: return .large
+        default: return .regular
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: RuleTextField
+
+        /// The field holds its suggestions delegate weakly; this keeps it.
+        private(set) lazy var suggestions: ValueSuggestionsDelegate = {
+            let delegate = ValueSuggestionsDelegate(
+                rank: { _ in [] },
+                onSelect: { [weak self] field, value in
+                    /// Picking a row fills the field and leaves it being edited, caret at the end.
+                    if let editor = field.currentEditor() as? NSTextView {
+                        editor.string = value
+                        editor.setSelectedRange(NSRange(location: (value as NSString).length, length: 0))
+                    } else {
+                        field.stringValue = value
+                    }
+                    self?.write(value)
+                },
+                onTextChange: { [weak self] value in self?.write(value) })
+            delegate.asyncRank = { [weak self] typed in
+                guard let field = self?.parent.field else { return [] }
+                guard field == .flags || field == .releases else {
+                    return await SearchController.shared.rankedValues(for: field, typed: typed,
+                                                                      limit: ValueSuggestions.limit)
+                }
+                let (head, negation, term) = FilmFlag.splitLast(typed)
+                let terms = await SearchController.shared.rankedValues(for: field, typed: term,
+                                                                       limit: ValueSuggestions.limit)
+                return terms.map { head + negation + $0 }
+            }
+            return delegate
+        }()
+
+        init(_ parent: RuleTextField) { self.parent = parent }
+
+        private func write(_ value: String) {
+            if parent.text != value { parent.text = value }
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            write(field.stringValue)
+        }
+
+        /// Escape with the drop-down closed. Left to the field editor, Escape runs `complete:`,
+        /// which with a suggestions delegate reopens the drop-down, so Escape would only toggle
+        /// it and never reach the sheet. It goes up the responder chain from the field instead,
+        /// as it does from any other field in the sheet. (While the drop-down is open, it takes
+        /// Escape first and closes.) See CardTextField in 33.20 ReleaseCard.swift.
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+            return control.tryToPerform(commandSelector, with: nil)
         }
     }
 }

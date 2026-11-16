@@ -65,7 +65,7 @@ extension DebugHarness {
     }()
 
     /// One captured frame: milliseconds since the first removal was triggered, and the pixels.
-    struct RemovalFrame: @unchecked Sendable {
+    struct RemovalFrame: Sendable {
         let milliseconds: Double
         let image: CGImage
     }

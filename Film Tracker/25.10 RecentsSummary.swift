@@ -831,7 +831,8 @@ private final class SummaryRow: NSObject, NSCollectionViewDataSource, NSCollecti
     func setFilms(_ newFilms: [FilmSnapshot], categoryIsEmpty: Bool) -> Bool {
         header.setShowAllEnabled(!categoryIsEmpty)
         if newFilms.isEmpty {
-            let text = categoryIsEmpty ? category.summaryEmptyText : category.summaryFilteredText
+            let text = categoryIsEmpty ? category.summaryEmptyText
+                : category.summaryFilteredText(noun: ViewStateManager.shared.activeState.filterOptions.noun)
             if emptyLabel.stringValue != text { emptyLabel.stringValue = text }
         }
 
@@ -1245,16 +1246,17 @@ private extension RecentsCategory {
         }
     }
 
-    /// The line for a section whose films are all hidden by the active filters.
-    var summaryFilteredText: String {
+    /// The line for a section whose films are all hidden by the active filters. `noun` is "filter" or "filters",
+    /// by how many are selected (Set<FilterOption>.noun).
+    func summaryFilteredText(noun: String) -> String {
         switch self {
         case .summary: return ""
-        case .recentlyViewed: return "No recently viewed films match the filters."
-        case .recentlyRotated: return "No films that recently came up for rotation match the filters."
-        case .recentlyAdded: return "No recently added films match the filters."
-        case .recentlyUpdated: return "No recently updated films match the filters."
-        case .recentlyPurchased: return "No recently purchased films match the filters."
-        case .recentDiscRelease: return "No films with a recent disc release match the filters."
+        case .recentlyViewed: return "No recently viewed films match the \(noun)."
+        case .recentlyRotated: return "No films that recently came up for rotation match the \(noun)."
+        case .recentlyAdded: return "No recently added films match the \(noun)."
+        case .recentlyUpdated: return "No recently updated films match the \(noun)."
+        case .recentlyPurchased: return "No recently purchased films match the \(noun)."
+        case .recentDiscRelease: return "No films with a recent disc release match the \(noun)."
         }
     }
 }

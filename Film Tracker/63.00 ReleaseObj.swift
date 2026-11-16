@@ -250,11 +250,11 @@ enum ReleaseStudio {
 ///
 /// # Two components
 ///
-/// A purchased release's value is a KIND and an optional DETAIL, mirroring the card's
-/// two-section menu:
+/// A release's value is a KIND and an optional DETAIL, mirroring the card's two-section
+/// menu:
 ///
-///     kind     Steelbook · Standard · Combo-pack · Multi-pack · DigiBook/DigiPack · Missing
-///              (the pack kinds per type)
+///     kind     Standard · Combo-pack · Multi-pack · Steelbook · DigiBook/DigiPack · Missing
+///              (the type's own kinds first)
 ///     detail   Reversible · Inner print · Incorrect release · Custom  (only beside a present kind)
 ///
 /// The value is the kind alone, or the kind and the lowercased detail joined by ", ":
@@ -269,21 +269,23 @@ enum ReleaseStudio {
 /// rewrites those to the current form. It is called only by LegacyReleaseValues, so nothing
 /// else needs to know the old spellings.
 ///
-/// `steelbook` carries a rule the others do not: it is the sole kind offered under EVERY
-/// combination of purchased state and independence type, which makes it the one value the
-/// card's cascades have to reason about. Two cascades once did so against two separate
+/// `steelbook` and `digiBook`, the two packaging kinds, are offered under every
+/// independence type, so a type change never retracts them; `keptOnTypeChange` names them
+/// for that cascade. Two cascades once reasoned about Steelbook against two separate
 /// literals — and they disagreed, so a type change discarded a steelbook the purchase
 /// cascade had been written to preserve.
 ///
-/// `digiBook` is the other packaging kind: offered under every type, but only once the
-/// release is purchased, so the independence cascade keeps it and the purchase cascade
-/// does not. `keptOnTypeChange` names the two for that cascade.
+/// # Purchased state
+///
+/// The menu is the same whether or not the release is purchased. What describes the copy in
+/// hand (the Missing kind, and the Incorrect release and Custom details) is enabled only once
+/// it is purchased, and un-ticking Purchased removes just those parts (`unpurchasedForm`).
 enum ReleaseArtwork {
     /// A steelbook case. Offered regardless of purchased state and independence type, so
     /// no cascade may retract it on the grounds that a vocabulary changed underneath it.
     static let steelbook = "Steelbook"
-    /// A book- or card-style case. Offered under every type once the release is purchased.
-    /// Like Steelbook it describes the case, so it takes no detail.
+    /// A book- or card-style case. Offered, like Steelbook, under every type and purchased
+    /// state. It describes the case, so it takes no detail.
     static let digiBook  = "DigiBook/DigiPack"
 
     // MARK: Kinds
@@ -321,14 +323,35 @@ enum ReleaseArtwork {
         }
     }
 
-    /// The menu's top section for a purchased release of `independence`, in order.
+    /// The menu's top section for a release of `independence`, in order: the type's own
+    /// artwork first (Standard, or the pack kinds), then the two case kinds, then Missing.
     static func kinds(forIndependence independence: String) -> [String] {
-        [steelbook] + presentKinds(forIndependence: independence) + [digiBook, missing]
+        presentKinds(forIndependence: independence) + [steelbook, digiBook, missing]
     }
 
     /// The kinds every type's purchased menu offers, which a type change therefore never
     /// makes invalid. Read by the independence cascade (FSTabReleases.commitIndependence).
     static let keptOnTypeChange: Set<String> = [steelbook, digiBook]
+
+    // MARK: Purchased-only parts
+
+    /// Kinds and details that describe the copy in hand. The menu shows them whatever the
+    /// purchased state, enabled only once the release is purchased.
+    static let purchasedOnlyKinds: Set<String> = [missing]
+    static let purchasedOnlyDetails: Set<String> = [incorrectRelease, custom]
+
+    /// `value` without what an unpurchased release cannot hold, for the purchase cascade: a
+    /// purchased-only detail is dropped and its kind kept ("Standard, custom" → "Standard"), and
+    /// a purchased-only kind clears the value. A value outside the vocabulary is kept as it is;
+    /// the menu shows it in its own row, where it can be removed.
+    static func unpurchasedForm(of value: String) -> String {
+        guard let parts = parse(value) else { return value }
+        if purchasedOnlyKinds.contains(parts.kind) { return "" }
+        if let detail = parts.detail, purchasedOnlyDetails.contains(detail) {
+            return composed(kind: parts.kind, detail: nil)
+        }
+        return value
+    }
 
     // MARK: Composing and reading
 
@@ -368,7 +391,7 @@ enum ReleaseArtwork {
         return Parts(kind: pieces[0], detail: detail)
     }
 
-    /// True when the menu for a purchased release of `independence` can show `value`: unset,
+    /// True when the menu for a release of `independence` can show `value`: unset,
     /// or composed from a kind that independence offers. Read by the independence cascade,
     /// which retracts a value only when the new type cannot express it.
     static func isExpressible(_ value: String, forIndependence independence: String) -> Bool {
@@ -781,6 +804,12 @@ enum ReleaseMarketAvailability {
     static func isImport(_ tags: [String]) -> Bool {
         guard let s = status(tags) else { return false }
         return importSpellings.contains(s)
+    }
+
+    /// True when the release is available, in any spelling.
+    static func isAvailable(_ tags: [String]) -> Bool {
+        guard let s = status(tags) else { return false }
+        return availableSpellings.contains(s)
     }
 
     /// True when the release is out of print, in any spelling.
@@ -1370,6 +1399,115 @@ enum ReleaseLabel {
 // MARK: - Release Date Value
 /// A month and day within a release date. Not validated on its own: ReleaseDateValue checks
 /// or clamps one against its month and year before anything is read or saved.
+// MARK: - Release Carousel Order
+
+/// The order a film's release cards are saved in: each format's cards newest first. One rule
+/// for its two users, which must agree exactly: the film sheet's save
+/// (FSTabReleases.savedSortOrders) and the one-time conversion that put every film's releases
+/// in this order (DataCoordinator.convertReleaseOrderIfNeeded).
+///
+/// Cards stay grouped by format, in `ReleaseFormat.displayRank` order. Within a format, newest
+/// first by:
+///   1. Release date. A date known only by its year sorts after the full dates of that year;
+///      a card with no date sorts after every card with one.
+///   2. Then, between equal release dates, the purchase date of a purchased release, or else
+///      the lowest-price date; a card with either sorts ahead of one with neither.
+///   3. Then the date the release was created, then id, for a total order.
+/// A combo-pack card numbers its parent and then its bundled discs consecutively, in the order
+/// given, so the discs keep their order among themselves. Numbering restarts from 0.
+///
+/// Every key is read in its stored form (the release date and the two other dates as the
+/// strings a save writes), so the sheet, which holds parsed values, and the conversion, which
+/// reads the stored ones, cannot round a date differently.
+enum ReleaseCarouselOrder {
+    struct Key {
+        let formatRank: Int
+        /// Year, month, day; month and day are 0 for a date known only by its year.
+        let releaseDate: [Int]?
+        /// "yyyy.MM.dd", so the strings compare in date order.
+        let secondaryDate: String?
+        let created: Date
+        let id: UUID
+
+        /// - Parameters:
+        ///   - releaseDate, purchaseDate, lowestPriceDate: the stored strings, "" when unset.
+        init(id: UUID, format: String, releaseDate: String, purchased: Bool, purchaseDate: String,
+             lowestPriceDate: String, created: Date) {
+            self.id = id
+            formatRank = ReleaseFormat.displayRank(for: format)
+            self.releaseDate = ReleaseDateValue(releaseDate, format: format)
+                .map { [$0.year, $0.monthDay?.month ?? 0, $0.monthDay?.day ?? 0] }
+            secondaryDate = purchased && !purchaseDate.isEmpty ? purchaseDate
+                : !lowestPriceDate.isEmpty ? lowestPriceDate : nil
+            self.created = created
+        }
+
+        init(_ release: ReleaseSnapshot) {
+            self.init(id: release.id, format: release.format, releaseDate: release.releaseDate,
+                      purchased: release.purchased, purchaseDate: release.purchaseDate,
+                      lowestPriceDate: release.lowestPriceDate, created: release.dateAdded)
+        }
+    }
+
+    /// One card: the release it shows first, and every release it numbers, that one first.
+    struct Card {
+        let key: Key
+        let releases: [UUID]
+    }
+
+    static func precedes(_ lhs: Key, _ rhs: Key) -> Bool {
+        if lhs.formatRank != rhs.formatRank { return lhs.formatRank < rhs.formatRank }
+        if let answer = newer(lhs.releaseDate, rhs.releaseDate, isLater: { $1.lexicographicallyPrecedes($0) }) {
+            return answer
+        }
+        if let answer = newer(lhs.secondaryDate, rhs.secondaryDate, isLater: { $0 > $1 }) { return answer }
+        if lhs.created != rhs.created { return lhs.created > rhs.created }
+        return lhs.id.uuidString < rhs.id.uuidString
+    }
+
+    /// True when `lhs` is the newer, nil when the two are equal. A value beats none.
+    private static func newer<T: Equatable>(_ lhs: T?, _ rhs: T?, isLater: (T, T) -> Bool) -> Bool? {
+        switch (lhs, rhs) {
+        case let (l?, r?): return l == r ? nil : isLater(l, r)
+        case (.some, nil): return true
+        case (nil, .some): return false
+        case (nil, nil): return nil
+        }
+    }
+
+    /// The sortOrder of every release on `cards`.
+    static func sortOrders(_ cards: [Card]) -> [UUID: Int] {
+        var order: [UUID: Int] = [:]
+        for card in cards.sorted(by: { precedes($0.key, $1.key) }) {
+            for id in card.releases where order[id] == nil { order[id] = order.count }
+        }
+        return order
+    }
+
+    /// The sortOrder of every release of a film, from its stored releases. A release with a
+    /// parent among them is numbered on its parent's card, after the parent, in the existing
+    /// order of the parent's discs; any other release is a card of its own.
+    static func sortOrders(for releases: [ReleaseSnapshot]) -> [UUID: Int] {
+        let ids = Set(releases.map(\.id))
+        var children: [UUID: [ReleaseSnapshot]] = [:]
+        for release in releases {
+            if let parent = release.parentReleaseID, ids.contains(parent), parent != release.id {
+                children[parent, default: []].append(release)
+            }
+        }
+        let cards = releases.compactMap { release -> Card? in
+            if let parent = release.parentReleaseID, ids.contains(parent), parent != release.id { return nil }
+            let discs = (children[release.id] ?? []).sorted {
+                $0.sortOrder != $1.sortOrder ? $0.sortOrder < $1.sortOrder : $0.id.uuidString < $1.id.uuidString
+            }
+            return Card(key: Key(release), releases: [release.id] + discs.map(\.id))
+        }
+        let order = sortOrders(cards)
+        /// A child whose parent is itself a child is on no card; leave the film as it is.
+        return order.count == releases.count ? order : [:]
+    }
+}
+
 struct ReleaseMonthDay: Hashable, Sendable {
     let month: Int
     let day: Int

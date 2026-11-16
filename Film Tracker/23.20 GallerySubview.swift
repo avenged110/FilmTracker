@@ -6,7 +6,6 @@
 
 import SwiftUI
 import Combine
-import UniformTypeIdentifiers
 import QuartzCore
 
 #if DEBUG
@@ -236,7 +235,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
-    /// Observes the large grid preference, for the column maximum: false is 7 columns, true is 6.
+    /// Observes the large grid preference, for the column maximum: false is 8 columns, true is 6.
     @AppStorage(preference: Preferences.largeGalleryGridKey) private var largeGalleryGrid: Bool
     /// maintainScrollPositionOnViewSwitch is not read here. ViewStateManager.prepareScrollHandoff checks the preference
     /// and arms nothing when it is off. Keeping a second reader here could let the two disagree.
@@ -811,18 +810,6 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                 Self.log("Scroll handoff applied in place for film \(handoffFilmID) (view: \(coordinator.currentViewID))")
             }
 
-            /// The post-edit reposition, minus the origin restore the reload branch needs:
-            /// nothing reloaded, so the viewport is still where the user left it. A film
-            /// still on screen is left alone; one that is not is brought to the top row.
-            if let filmID = scrollToFilmID, let index = coordinator.filmIndexMap[filmID] {
-                ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
-                let indexPath = IndexPath(item: index, section: 0)
-                if !coordinator.isFilmVisible(at: indexPath) {
-                    coordinator.scrollToTopRow(at: indexPath)
-                    Self.log("Film not visible after in-place update — scrolled to index \(index)")
-                }
-            }
-
             /// No reload was judged necessary by the heuristics above, but the section-divider
             /// breaks must still be reconciled against the CURRENT view, filter, and sort state
             /// on every pass — not just when a reload happens to fire. This is also the only
@@ -834,11 +821,29 @@ struct GallerySubview: NSViewRepresentable, Loggable {
             /// fresh GalleryView's first body evaluation and its onAppear-triggered view-switch
             /// Recomputes the breaks for the new view. Stale breaks would otherwise persist if a later reload did not detect the change.
             /// The call invalidates the layout only when the breaks differ. It does nothing where no bands apply.
-            coordinator.updateSectionDividers()
+            let bandsMoved = coordinator.updateSectionDividers()
+
+            /// The post-edit reposition, minus the origin restore the reload branch needs: nothing
+            /// reloaded, so the viewport is still where the user left it. It runs only when a tile
+            /// moved, which on this path means the divider bands changed (the film order did not).
+            /// An edit that moved nothing leaves the viewport alone, even when the target film is
+            /// off screen (the first film of a multi-selection, say). Placed after the divider
+            /// update, so the visibility test measures the new layout.
+            if bandsMoved, let filmID = scrollToFilmID, let index = coordinator.filmIndexMap[filmID] {
+                ViewStateManager.shared.finishScrollOriginRestore(for: coordinator.displayedScrollKey)
+                let indexPath = IndexPath(item: index, section: 0)
+                collectionView.layoutSubtreeIfNeeded()
+                if !coordinator.isFilmVisible(at: indexPath) {
+                    coordinator.scrollToTopRow(at: indexPath)
+                    Self.log("Film not visible after in-place update — scrolled to index \(index)")
+                }
+            }
 
             /// The subtitle KIND changed but the film heuristics found no reason to reload. Every configured cell still shows text from
-            /// the previous provider. That happens when two views share a film set the heuristics cannot tell apart, such as two Recents
-            /// categories with the same films in the same order.
+            /// the previous provider. A Recents category switch is not this case, since it changes the view identity and reloads.
+            /// This guards the provider's two inputs changing at different moments: GalleryView derives it from the sidebar item as
+            /// well as the active view, and AppState.navigate(to:) switches the view before it flips the sidebar item. A pass drawn
+            /// between the two would consume the view switch, and the provider would change on the next pass with no reload.
             ///
             /// Reconfiguring is deliberate. The films, order, scroll, and selection stay the same, and reloadData() would reset them.
             /// GalleryItem.configure compares the resolved text, so unchanged cells do no work. visibleItems() limits the cost to cells
@@ -1468,23 +1473,29 @@ struct GallerySubview: NSViewRepresentable, Loggable {
 
             /// Untracked, because this also runs inside updateNSView. See untrackedSelectedFilmIDs.
             let selectedIDs = selectionState.untrackedSelectedFilmIDs
+            /// The anchor is cleared with the cursor. An anchor left behind by a selection cleared from outside the grid (a
+            /// sub-tab or Queue tab switch, a removal) would make the next Shift-click select a range from that stale index,
+            /// which may not even exist in the new film set, instead of only the clicked film.
             guard !selectedIDs.isEmpty else {
                 collectionView.selectionIndexPaths = []
                 cursorIndexPath = nil
+                anchorIndexPath = nil
                 return
             }
 
             /// Uses the cached index map, which is rebuilt when the films change, for fast lookups.
             let validIDs = selectedIDs.filter { filmIndexMap[$0] != nil }
 
-            /// Prunes invalid selections. selectImmediate is safe here, because this runs from the main-actor observation task rather
-            /// than a view update. A deferred select() would land after isUpdatingSelection resets and make the loop re-run this.
+            /// Prunes invalid selections with selectImmediate. A deferred select() would land after isUpdatingSelection resets and
+            /// make the loop re-run this. Note that this also runs from updateNSView, so the write can happen inside a view update;
+            /// the list does the same, and the Recents summary defers its prune instead (syncSelectionFromState).
             if validIDs.count != selectedIDs.count {
                 if validIDs.isEmpty {
                     Self.log("No selected films in current view - clearing selection")
                     selectionState.selectImmediate(Set<UUID>())
                     collectionView.selectionIndexPaths = []
                     cursorIndexPath = nil
+                    anchorIndexPath = nil
                     /// Every previously selected film left the view, such as a removal from the list being viewed. The flag stops a later
                     /// becomeFirstResponder, typically after a FilmSheet closes, from reseeding item 0 over the deliberate clear.
                     selectionClearedByPrune = true
@@ -1691,8 +1702,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         /// The sweep is skipped on every other pass.
         fileprivate var dividerBandsNeedRefresh = true
 
-        func updateSectionDividers() {
-            guard let layout = collectionView?.collectionViewLayout as? SmoothResizingGridLayout else { return }
+        /// Returns whether the breaks changed, which moves tiles even when the film order did not.
+        @discardableResult
+        func updateSectionDividers() -> Bool {
+            guard let layout = collectionView?.collectionViewLayout as? SmoothResizingGridLayout else { return false }
             /// This runs on every update pass, and computing the breaks scans every film when bands apply. It is skipped when no input
             /// has changed. films compares in O(1) when it is the same buffer. The Film Queue's "All" tab also depends on queue
             /// membership, which no FilmSnapshot field reflects, so that membership is an input too.
@@ -1702,7 +1715,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                                             sortOption: dataCoordinator?.loadedSortOption,
                                             recentsCategory: dataCoordinator?.loadedRecentsCategory,
                                             queueMembership: dataCoordinator.flatMap(GallerySectioning.filmQueueMembership))
-            if inputs == lastSectionBreakInputs { return }
+            if inputs == lastSectionBreakInputs { return false }
             lastSectionBreakInputs = inputs
             /// All the gates live in GallerySectioning.displayedSectionBreaks, which the list style and the Sort menu also call, so
             /// every consumer gets the same answer. Its DataCoordinator inputs (loadedFilmQueueFilter and loadedSortOption) are written
@@ -1723,11 +1736,12 @@ struct GallerySubview: NSViewRepresentable, Loggable {
                     itemIndex: $0.afterIndex, firstNumber: $0.firstNumber, count: $0.count,
                     leadingSection: $0.needsOwnBand ? FilmQueueSection.upNext.gallerySection : nil)
             }
-            guard breaks != layout.sectionBreaks || slotRun != layout.slotRun else { return }
+            guard breaks != layout.sectionBreaks || slotRun != layout.slotRun else { return false }
             layout.sectionBreaks = breaks
             layout.slotRun = slotRun
             layout.invalidateLayout()
             dividerBandsNeedRefresh = true
+            return true
         }
 
         /// Declares that the user has taken over the viewport, so nothing armed earlier may still move it.

@@ -1116,9 +1116,7 @@ enum LaunchTimeline: Loggable {
     }
 
     private nonisolated static func wallMilliseconds() -> Double {
-        var ts = timespec()
-        unsafe clock_gettime(CLOCK_REALTIME, &ts)
-        return Double(ts.tv_sec) * 1000 + Double(ts.tv_nsec) / 1_000_000
+        Double(clock_gettime_nsec_np(CLOCK_REALTIME)) / 1_000_000
     }
 
     /// The kernel's start time for this process, from `sysctl(KERN_PROC_PID)`.

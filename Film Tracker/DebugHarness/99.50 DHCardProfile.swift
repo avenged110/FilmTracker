@@ -17,7 +17,7 @@ extension DebugHarness {
 
     /// Scenario names owned by this file that `all` runs.
     static var cardScenarios: [String] {
-        ["card-focus", "segmented-equivalence", "currency-placeholder", "releases-settle",
+        ["card-focus", "segmented-equivalence", "currency-placeholder", "releases-settle", "release-duplicate",
          "filmsheet-save", "return-key-policy", "queue-add-confirm", "alert-host", "alert-collision", "tab-cycle",
          "report-gutter-deselect", "placeholder-anchor", "import-details-segments",
          "sidebar-disclosure"]
@@ -32,6 +32,7 @@ extension DebugHarness {
         case "reports-hitch": return await reportsHitchScenario(coordinator: coordinator)
         case "reports-table-behavior": return await reportsTableBehaviorScenario(coordinator: coordinator)
         case "releases-settle": return await releasesSettleScenario(coordinator: coordinator)
+        case "release-duplicate": return await releaseDuplicateScenario(coordinator: coordinator)
         case "filmsheet-save": return await filmSheetSaveScenario(coordinator: coordinator)
         case "return-key-policy": return await returnKeyPolicyScenario(coordinator: coordinator)
         case "queue-add-confirm": return await queueAddConfirmScenario(coordinator: coordinator)
@@ -1443,9 +1444,13 @@ extension DebugHarness {
             pristineChildSnapshot(id: repChild, parent: rep, sortOrder: 1),
             /// Case C: base year after the release year.
             ReleaseSnapshot(id: inverted, releaseDate: "2010", baseReleaseYear: "2012", format: bd,
-                            independence: ReleaseIndependence.standalone, sortOrder: 2),
+                            independence: ReleaseIndependence.standalone,
+                            dateAdded: Date(timeIntervalSinceReferenceDate: 0), sortOrder: 3),
+            /// Already where a save's re-sort puts it (same release date, created later, so
+            /// ahead of `inverted`), so nothing about it changes. See savedSortOrders.
             ReleaseSnapshot(id: clean, releaseDate: "2010", format: bd,
-                            independence: ReleaseIndependence.standalone, sortOrder: 3)])
+                            independence: ReleaseIndependence.standalone,
+                            dateAdded: Date(timeIntervalSinceReferenceDate: 1000), sortOrder: 2)])
 
         let fixtures = [fDelete, fCombo, fOrphan, fRepair]
         coordinator.importFilms(fixtures)

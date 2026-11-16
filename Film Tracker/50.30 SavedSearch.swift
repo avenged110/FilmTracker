@@ -232,7 +232,7 @@ enum SearchListMatcher {
         let q = SearchText.key(value)
         let exact = keys.indices.filter { keys[$0] == q }
         if !exact.isEmpty { return exact }
-        /// fuzzyMatchCore's rule: an empty query is contained in everything.
+        /// SearchText.contains' rule: an empty query is contained in everything.
         return keys.indices.filter { q.isEmpty || keys[$0].contains(q) }
     }
 }

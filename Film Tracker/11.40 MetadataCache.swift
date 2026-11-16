@@ -16,15 +16,11 @@ struct FilmMetadata: Codable {
     let titleKey: String
     let titleStartsWithNumber: Bool
     let year: String
-    let duration: String
     /// The duration the duration sort reads: editedDuration when set, otherwise `duration`. Raw milliseconds.
     let effectiveDuration: String
-    let dateAddedRaw: String
-    let lastWatchedRaw: String
     let rating: Int
     /// Number of recorded viewings (calendarTable entries). Backs the .viewCount sort.
     let viewCount: Int
-    let lastModifiedRaw: String
     /// Parsed releaseDate, a secondary key for the .year sort. Nil when absent or not a well-formed "YYYY-MM-DD" prefix.
     let releaseDateParsed: Date?
     
@@ -80,14 +76,10 @@ struct FilmMetadata: Codable {
         self.titleStartsWithNumber = stripped.first?.isNumber ?? false
         
         self.year = snapshot.releaseYear
-        self.duration = snapshot.duration
         /// The effective sort duration — see FilmSnapshot.effectiveDuration.
         self.effectiveDuration = snapshot.effectiveDuration
-        self.dateAddedRaw = snapshot.dateAdded
-        self.lastWatchedRaw = snapshot.lastWatched
         self.rating = snapshot.userRating
         self.viewCount = snapshot.calendarTable.count
-        self.lastModifiedRaw = snapshot.lastModified
         
         /// Parse releaseDate for the .year sort's secondary key.
         self.releaseDateParsed = Self.parseReleaseDate(snapshot.releaseDate)
@@ -269,11 +261,11 @@ extension FilmMetadata {
         "mostRecentPurchaseDateByFormat", "purchasedFormats",
     ]
 
-    /// Every other stored field: display strings, raw inputs and dates no comparator reads.
+    /// Every other stored field: display strings, search keys and dates no comparator reads.
     /// The harness checks that the two sets together name every stored property exactly
     /// once, so a field added to the struct must be classified before that check passes.
     static let nonSortFieldNames: Set<String> = [
-        "duration", "dateAddedRaw", "lastWatchedRaw", "lastModifiedRaw", "rotationDate",
+        "rotationDate",
         "dateAddedFormatted", "lastWatchedFormatted", "lastModifiedFormatted",
         "rotationDateFormatted", "purchaseDateFormatted", "discReleaseDays", "discReleaseDaysFormatted",
         "nameSearchKey",
@@ -320,7 +312,9 @@ struct FilmMetadataCacheFile: Codable {
     /// articles case-insensitively. v6 adds `mostRecentPurchaseDateByFormat` and `purchasedFormats`. v7: search keys
     /// use `SearchText.key` forms. v8 adds `synopsisSearchKey`. v9: `rotationDate` is computed in the Gregorian calendar,
     /// and the file gains `libraryOrders`. v10 adds `textSearchKeys`.
-    /// v11 adds `discReleaseDays` and `discReleaseDaysFormatted`.
+    /// v11 adds `discReleaseDays` and `discReleaseDaysFormatted`. Later v11 builds drop four fields nothing read
+    /// (`duration` and the three raw date strings) without a bump: decoding ignores keys a type no longer has, so
+    /// older v11 files still load, and the next save writes them without those keys.
     static let currentSchemaVersion = 11
 
     let schemaVersion: Int
@@ -1345,7 +1339,31 @@ final class MetadataCache: Loggable {
     func recentFilmIDs(for category: RecentsCategory) -> [UUID] {
         if let cached = cachedRecents(category) { return cached }
         let start = Date()
+        let result = recents(category, section: { self.recentFilmIDs(for: $0) })
+        recentsCategoryCache[category] = result
+        let duration = Date().timeIntervalSince(start)
+        Self.log("Recents \(category.rawValue): \(result.count) films in \(Fmt.fixed(duration * 1000, 1))ms")
+        return result
+    }
+
+    /// The films `category` would show if `film` were saved as given: the same rules over the
+    /// cached metadata with that one film's entry replaced. Neither reads nor writes the
+    /// per-category cache. For the FilmSheet's leave-the-view check, which must judge a save
+    /// before it happens (DataCoordinator.filmWouldLeaveCurrentView).
+    func recentFilmIDs(for category: RecentsCategory, overriding film: FilmSnapshot) -> [UUID] {
+        let override = FilmMetadata(from: film)
+        func section(_ sub: RecentsCategory) -> [UUID] { recents(sub, overriding: override, section: section) }
+        return recents(category, overriding: override, section: section)
+    }
+
+    /// The Recents rules, over the cached metadata with `override` (when given) standing in
+    /// for its film's entry. `section` supplies the summary tab's rows.
+    private func recents(_ category: RecentsCategory, overriding override: FilmMetadata? = nil,
+                         section: (RecentsCategory) -> [UUID]) -> [UUID] {
         let now = Date()
+        let newestFirst = { (date: (FilmMetadata) -> Date?) in
+            self.newestFirst(overriding: override, date)
+        }
 
         let result: [UUID]
         switch category {
@@ -1355,7 +1373,7 @@ final class MetadataCache: Loggable {
             /// The rows take their own order from each category (see RecentsSummaryView).
             var seen = Set<UUID>()
             result = RecentsCategory.sections
-                .flatMap { recentFilmIDs(for: $0).prefix(RecentsCategory.summaryRowLimit) }
+                .flatMap { section($0).prefix(RecentsCategory.summaryRowLimit) }
                 .filter { seen.insert($0).inserted }
 
         case .recentlyAdded:
@@ -1366,12 +1384,13 @@ final class MetadataCache: Loggable {
 
         case .recentlyViewed:
             /// Same-day viewings fall back to the most recent edit before the title.
-            result = newestFirst({ $0.lastWatchedParsed > .distantPast ? $0.lastWatchedParsed : nil },
-                                 tiebreak: {
-                                     $0.lastModifiedParsed != $1.lastModifiedParsed
-                                         ? $0.lastModifiedParsed > $1.lastModifiedParsed
-                                         : Self.compareTitles($0, $1)
-                                 })
+            result = self.newestFirst(overriding: override,
+                                      { $0.lastWatchedParsed > .distantPast ? $0.lastWatchedParsed : nil },
+                                      tiebreak: {
+                                          $0.lastModifiedParsed != $1.lastModifiedParsed
+                                              ? $0.lastModifiedParsed > $1.lastModifiedParsed
+                                              : Self.compareTitles($0, $1)
+                                      })
 
         case .recentlyRotated:
             guard let cutoff = AppCalendar.current.date(byAdding: .day,
@@ -1402,20 +1421,24 @@ final class MetadataCache: Loggable {
                 data.latestDiscRelease(onOrBefore: now).flatMap { $0 >= cutoff ? $0 : nil }
             }
         }
-
-        recentsCategoryCache[category] = result
-        let duration = Date().timeIntervalSince(start)
-        Self.log("Recents \(category.rawValue): \(result.count) films in \(Fmt.fixed(duration * 1000, 1))ms")
         return result
     }
 
     /// Every film `date` returns a value for, ordered by that value newest first (then by
     /// `tiebreak`, which defaults to the title order), capped at `maxFilmsPerSection`.
+    ///
+    /// `override` replaces the cached entry of its film (or joins them, for a film not cached)
+    /// without copying the cache: only the leave-the-view check passes one.
     private func newestFirst(
+        overriding override: FilmMetadata? = nil,
         _ date: (FilmMetadata) -> Date?,
         tiebreak: (FilmMetadata, FilmMetadata) -> Bool = MetadataCache.compareTitles
     ) -> [UUID] {
-        let dated = metadata.values.compactMap { data in date(data).map { (data, $0) } }
+        var dated = metadata.values.compactMap { data -> (FilmMetadata, Date)? in
+            if let override, data.id == override.id { return nil }
+            return date(data).map { (data, $0) }
+        }
+        if let override, let value = date(override) { dated.append((override, value)) }
         return Array(dated
             .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : tiebreak($0.0, $1.0) }
             .prefix(maxFilmsPerSection)

@@ -290,7 +290,9 @@ enum ExternalIDSite {
 ///
 /// Scrollability gating: ConditionalScrollView.isScrollingEnabled is toggled by the
 /// Coordinator after every text change by comparing content height to frame height.
-/// Scroll-wheel events forward to the next responder while scrolling is disabled.
+/// While scrolling is disabled, a local event monitor routes gestures that start over the
+/// field to the enclosing scroll view (no scrollWheel(with:) override, which would turn
+/// off responsive scrolling).
 ///
 /// Return / Option-Return: Return never inserts a paragraph break. Inside a popover that
 /// installs a FieldSubmitAction (via .fieldSubmitAction(_:)) Return runs that popover's
@@ -641,9 +643,9 @@ private final class InnerTextView: NSTextView {
 /// first-responder document view and (b) gates scrolling until content overflows.
 /// It is otherwise fully transparent — the fill and border are SwiftUI chrome.
 ///
-/// Scroll gating: when isScrollingEnabled is false, scroll-wheel events (including
-/// trackpad momentum) are passed to the next responder rather than handled, so the
-/// view feels non-scrollable until content actually overflows the fixed frame.
+/// Scroll gating: when isScrollingEnabled is false, scroll gestures (including trackpad
+/// momentum) that start over the field are routed to the enclosing scroll view rather
+/// than handled, so the view feels non-scrollable until content overflows the fixed frame.
 private final class ConditionalScrollView: NSScrollView {
 
     private let cornerRadius: CGFloat = 6
@@ -772,12 +774,63 @@ private final class ConditionalScrollView: NSScrollView {
         }
     }
 
-    override func scrollWheel(with event: NSEvent) {
-        if isScrollingEnabled {
-            super.scrollWheel(with: event)
-        } else {
-            unsafe nextResponder?.scrollWheel(with: event)
+    // MARK: Scroll routing
+    ///
+    /// While the content fits, a gesture that starts over this field goes to the scroll view around it
+    /// (the sheet's page), momentum included, so the page keeps moving instead of the field catching the
+    /// gesture. Done with a local event monitor rather than a scrollWheel(with:) override, which would turn
+    /// off responsive scrolling for this scroll view. With no scroll view around it (a popover), the
+    /// gesture is dropped, as it was when the override handed it up the responder chain. The decision is
+    /// made once per gesture, at its start; a mouse wheel has no phases, so each click is decided alone.
+    ///
+    /// The monitor is removed when the field leaves its window. A window that closes does not tell
+    /// its views, so the monitor also removes itself once the field is gone: it holds its token in
+    /// a slot of its own, and removes it on the next turn rather than from inside its own callback.
+    @MainActor private final class MonitorSlot { var token: Any? }
+    private let monitorSlot = MonitorSlot()
+    private var routesGesture = false
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        let slot = monitorSlot
+        if let token = slot.token { NSEvent.removeMonitor(token) }
+        slot.token = nil
+        guard unsafe window != nil else { return }
+        slot.token = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self else {
+                DispatchQueue.main.async {
+                    if let token = slot.token { NSEvent.removeMonitor(token) }
+                    slot.token = nil
+                }
+                return event
+            }
+            return self.route(event)
         }
+    }
+
+    private func route(_ event: NSEvent) -> NSEvent? {
+        if event.phase.isEmpty && event.momentumPhase.isEmpty {
+            guard !isScrollingEnabled, isUnderPointer(event) else { return event }
+            enclosingScrollView?.scrollWheel(with: event)
+            return nil
+        }
+        if event.phase.contains(.mayBegin) || event.phase.contains(.began) {
+            routesGesture = !isScrollingEnabled && isUnderPointer(event)
+        }
+        guard routesGesture else { return event }
+        enclosingScrollView?.scrollWheel(with: event)
+        if event.momentumPhase.contains(.ended) || event.momentumPhase.contains(.cancelled) {
+            routesGesture = false
+        }
+        return nil
+    }
+
+    /// True when the pointer is over this field and nothing covers it. The visibleRect check is a cheap
+    /// filter that skips the hit test for the other fields on the sheet.
+    private func isUnderPointer(_ event: NSEvent) -> Bool {
+        guard visibleRect.contains(convert(event.locationInWindow, from: nil)),
+              let hit = event.window?.contentView?.hitTest(event.locationInWindow) else { return false }
+        return hit.isDescendant(of: self)
     }
 
     // MARK: Focus ring.

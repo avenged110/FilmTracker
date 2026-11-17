@@ -1968,8 +1968,17 @@ enum DebugHarness: Loggable {
             try? FileManager.default.createDirectory(at: reports, withIntermediateDirectories: true)
             let stamp = ISO8601DateFormatter().string(from: report.startedAt)
                 .replacingOccurrences(of: ":", with: "-")
-            try? data.write(to: reports.appendingPathComponent("\(report.suite)-\(stamp).json"),
-                            options: .atomic)
+            /// A comma list names its scenarios, and a long one overflows the 255-byte file
+            /// name limit, which made the write fail silently. Such a run is named by its
+            /// first scenario and count; the full list stays in the report's `suite` field.
+            let names = report.suite.split(separator: ",")
+            let label = names.count > 1 ? "\(names[0])-and-\(names.count - 1)-more" : report.suite
+            let url = reports.appendingPathComponent("\(label)-\(stamp).json")
+            do {
+                try data.write(to: url, options: .atomic)
+            } catch {
+                printToStandardError("[DebugHarness] ERROR: could not write \(url.lastPathComponent): \(error.localizedDescription)\n")
+            }
         }
 
         /// Per-failure lines first: the exit code says whether to look, these say where.

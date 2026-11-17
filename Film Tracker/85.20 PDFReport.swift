@@ -159,30 +159,30 @@ enum LibraryPDFReport {
 
     // MARK: Film ordering
 
-    /// The order EVERY per-film section of the library PDF lists films in: the way the
-    /// gallery orders them by name — sort name when the film carries one, otherwise its
-    /// title.
+    /// The order EVERY per-film section of the library PDF lists films in: the gallery's
+    /// Title sort, through `GalleryTitleKey` — the sort name (or title) with leading
+    /// punctuation and article stripped, letter-led titles before number-led ones, numbers
+    /// compared as numbers ("9" before "28"), then release year, then film id. The id makes
+    /// the order total, so two PDFs of an unchanged library list films identically.
     ///
     /// Shared rather than restated because the document has three per-film sections
     /// (this table, Viewing History, and Disc-based Releases) and their whole point is that
-    /// a reader can carry a film's position from one to the next. A second copy of these
-    /// four lines is all it would take for two of them to disagree.
+    /// a reader can carry a film's position from one to the next.
     static func ordered(_ films: [FilmSnapshot]) -> [FilmSnapshot] {
-        films.sorted { lhs, rhs in
-            let left = lhs.sortName.isEmpty ? lhs.name : lhs.sortName
-            let right = rhs.sortName.isEmpty ? rhs.name : rhs.sortName
-            let comparison = left.englishCaseInsensitiveCompare(right)
-            if comparison != .orderedSame { return comparison == .orderedAscending }
-            /// Total order: two films sharing a sort name would otherwise be free to swap
-            /// between exports, which makes two PDFs of an unchanged library differ.
-            return lhs.id.uuidString < rhs.id.uuidString
+        /// Keyed once per film: building a key strips the title, and a sort compares each
+        /// film many times.
+        films.map { film in
+            (film, GalleryTitleKey(name: film.name, sortName: film.sortName,
+                                   year: Int(film.releaseYear) ?? 0, filmID: film.id))
         }
+        .sorted { $0.1 < $1.1 }
+        .map(\.0)
     }
 
     // MARK: Section
 
-    /// Builds the complete-library section: one row per film, ordered the way the gallery
-    /// orders films by name (sort name when the film carries one, otherwise its title).
+    /// Builds the complete-library section: one row per film, in the gallery's Title sort
+    /// (see `ordered`).
     static func section(films: [FilmSnapshot],
                         layout: LibraryTableLayout = .standard) -> PDFTableSection {
         let ordered = Self.ordered(films)

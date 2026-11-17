@@ -179,9 +179,12 @@ struct ReportTableColumn<Row> {
         /// A single truncating line built from runs that may each carry their own font; a
         /// run without one uses the column's.
         case runs((Row) -> [ReportTextRun])
-        /// The Wishlist's format badge: lettering on a rounded, colored plate.
-        case badge((Row) -> ReportBadge)
-        /// The Hall of Fame's rating: a star and the number, or nothing for 0.
+        /// A secondary SF Symbol and text after it, both in the column's muted style, or nothing for nil (the Hall of Fame's
+        /// rotation column).
+        case symbolText(symbol: String, (Row) -> String?)
+        /// A format badge (Wishlist, Hall of Fame): lettering on a rounded, colored plate, or nothing for nil.
+        case badge((Row) -> ReportBadge?)
+        /// The Hall of Fame's rating: a star in its tier's tint (RatingStarTint) and the number, or nothing for 0.
         case rating((Row) -> Int)
     }
 
@@ -206,11 +209,26 @@ struct ReportTextRun {
     var font: NSFont? = nil
 }
 
-/// A `ReportTableColumn.Content.badge` cell: its text and the plate and lettering colors.
+/// A `ReportTableColumn.Content.badge` cell: its text and plate color. The lettering is the cell's secondary text color.
 struct ReportBadge {
     let text: String
     let fill: NSColor
-    let ink: NSColor
+
+    /// A format's badge: the stored format string verbatim on its ReleaseCard band tint.
+    static func format(_ format: String) -> ReportBadge {
+        ReportBadge(text: format, fill: ReleaseFormatPalette.tint(for: format))
+    }
+}
+
+/// The rating star's color: a muted yellow that steps down a ladder from 10, one rung per rating, so the bands read apart at a glance.
+/// Each rung below 10 turns a little toward amber and fades a little. The Hall of Fame's rating column and its status bar chips share it.
+enum RatingStarTint {
+    /// The tint for a rating from 1 to 10; anything outside is clamped.
+    static func color(for rating: Int) -> NSColor {
+        let rung = CGFloat(10 - min(max(rating, 1), 10))
+        return NSColor(hue: 0.135 - 0.008 * rung, saturation: 0.62, brightness: 1,
+                       alpha: max(0.3, 0.8 - 0.06 * rung))
+    }
 }
 
 struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row.ID == UUID {
@@ -565,7 +583,7 @@ final class ReportDropIndicatorView: NSView {
 /// A report table cell. It draws its own text, badge, or rating, rather than hosting an NSTextField. A Reports tab switch builds every visible
 /// cell at once, and per-cell text fields cost a large share of that (measured with a profiler). Cells never edit or take focus, and the text is exposed as a static text element.
 final class ReportTableCellView: NSTableCellView {
-    private enum Drawn { case text(String), runs([ReportTextRun]), badge(ReportBadge), rating(Int) }
+    private enum Drawn { case text(String), runs([ReportTextRun]), symbolText(symbol: String, String), badge(ReportBadge), rating(Int) }
     private var drawn: Drawn = .text("")
     private var font: NSFont = .systemFont(ofSize: 12)
     private var alignment: NSTextAlignment = .left
@@ -578,6 +596,8 @@ final class ReportTableCellView: NSTableCellView {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
                 .applying(.init(paletteColors: [color])))
     }
+    /// The badge plate's and shadow's opacity: enough to keep each format's color, muted like the other detail columns.
+    private static let badgePlateOpacity: CGFloat = 0.6
     /// Room left of the plate for the shadow's blur.
     private static let badgeOutsideAllowance: CGFloat = 3
     /// The badge's drop shadow, heavier than the release cards' badge shadow (RSBCardChrome), since this plate has no outline. NSShadow
@@ -589,8 +609,21 @@ final class ReportTableCellView: NSTableCellView {
         shadow.shadowOffset = NSSize(width: 0, height: -1)
         return shadow
     }()
-    private static let secondaryStar = star(.secondaryLabelColor)
+    /// One tinted star per rating, index 0 unused.
+    private static let ratingStars: [NSImage?] = (0...10).map { star(RatingStarTint.color(for: $0)) }
     private static let emphasizedStar = star(.alternateSelectedControlTextColor)
+    /// A `symbolText` cell's glyph at the star's 10 pt, keyed by symbol name and whether the row is selected.
+    private static var symbols: [String: NSImage] = [:]
+    private static func symbol(_ name: String, emphasized: Bool) -> NSImage? {
+        let key = "\(name)|\(emphasized)"
+        if let cached = symbols[key] { return cached }
+        let color: NSColor = emphasized ? .alternateSelectedControlTextColor : .secondaryLabelColor
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
+                .applying(.init(paletteColors: [color]))) else { return nil }
+        symbols[key] = image
+        return image
+    }
 
     private static let paragraphStyles: [NSTextAlignment: NSParagraphStyle] = {
         var styles: [NSTextAlignment: NSParagraphStyle] = [:]
@@ -628,10 +661,22 @@ final class ReportTableCellView: NSTableCellView {
             let value = runs(row)
             drawn = .runs(value)
             setAccessibilityValue(value.map(\.text).joined())
+        case .symbolText(let symbol, let text):
+            if let value = text(row) {
+                drawn = .symbolText(symbol: symbol, value)
+                setAccessibilityValue(value)
+            } else {
+                drawn = .text("")
+                setAccessibilityValue("")
+            }
         case .badge(let badge):
-            let value = badge(row)
-            drawn = .badge(value)
-            setAccessibilityValue(value.text)
+            if let value = badge(row) {
+                drawn = .badge(value)
+                setAccessibilityValue(value.text)
+            } else {
+                drawn = .text("")
+                setAccessibilityValue("")
+            }
         case .rating(let value):
             let rating = value(row)
             drawn = .rating(rating)
@@ -671,11 +716,25 @@ final class ReportTableCellView: NSTableCellView {
             text.addAttribute(.paragraphStyle, value: Self.paragraphStyles[alignment] ?? NSParagraphStyle.default, range: whole)
             text.draw(with: NSRect(x: 0, y: floor((bounds.height - height) / 2), width: width, height: height),
                       options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+        case .symbolText(let symbol, let text):
+            /// Laid out as the rating is: the glyph, 2 pt, then the text, both secondary.
+            var x: CGFloat = 0
+            if let glyph = Self.symbol(symbol, emphasized: backgroundStyle == .emphasized) {
+                let size = glyph.size
+                glyph.draw(in: NSRect(x: 0, y: floor((bounds.height - size.height) / 2), width: size.width, height: size.height))
+                x = size.width + 2
+            }
+            let color = backgroundStyle == .emphasized ? NSColor.alternateSelectedControlTextColor : .secondaryLabelColor
+            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+            let size = (text as NSString).size(withAttributes: attributes)
+            (text as NSString).draw(at: NSPoint(x: x, y: floor((bounds.height - size.height) / 2)), withAttributes: attributes)
         case .badge(let badge):
             /// 10 pt heavy, centered on a 4 pt-radius continuous-corner plate, 1 pt taller than the text above and below (the SwiftUI row's
-            /// `.padding(.vertical, 1)`). The plate and lettering colors are fixed, so they read the same on a selected row.
+            /// `.padding(.vertical, 1)`). Muted like the row's other detail columns: secondary lettering (selected-row text on a selected
+            /// row), and the plate drawn at `badgePlateOpacity`, so each format keeps its color but sits behind the title.
             let badgeFont = NSFont.systemFont(ofSize: 10, weight: .heavy)
-            let attributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: badge.ink]
+            let ink = backgroundStyle == .emphasized ? NSColor.alternateSelectedControlTextColor : .secondaryLabelColor
+            let attributes: [NSAttributedString.Key: Any] = [.font: badgeFont, .foregroundColor: ink]
             let text = badge.text as NSString
             let size = text.size(withAttributes: attributes)
             /// The plate starts `badgeOutsideAllowance` in from the leading edge, so the cell does not clip its shadow. The trailing side spills
@@ -683,17 +742,24 @@ final class ReportTableCellView: NSTableCellView {
             let plateHeight = ceil(size.height) + 2
             let plate = NSRect(x: Self.badgeOutsideAllowance, y: floor((bounds.height - plateHeight) / 2),
                                width: width, height: plateHeight)
+            /// Plate and shadow fade together in one transparency layer: a translucent fill drawn straight over its own shadow would
+            /// show the shadow through it.
             NSGraphicsContext.saveGraphicsState()
+            let context = NSGraphicsContext.current?.cgContext
+            context?.setAlpha(Self.badgePlateOpacity)
+            context?.beginTransparencyLayer(auxiliaryInfo: nil)
             Self.badgeShadow.set()
             badge.fill.setFill()
             NSBezierPath(cgPath: CGPath.continuousRoundedRect(plate, cornerRadius: 4)).fill()
+            context?.endTransparencyLayer()
             NSGraphicsContext.restoreGraphicsState()
             text.draw(at: NSPoint(x: plate.midX - size.width / 2, y: plate.minY + 1), withAttributes: attributes)
         case .rating(let rating):
             guard rating > 0 else { return }
             let color = backgroundStyle == .emphasized ? NSColor.alternateSelectedControlTextColor : .secondaryLabelColor
             var x: CGFloat = 0
-            if let tinted = backgroundStyle == .emphasized ? Self.emphasizedStar : Self.secondaryStar {
+            let star = backgroundStyle == .emphasized ? Self.emphasizedStar : Self.ratingStars[min(rating, 10)]
+            if let tinted = star {
                 let size = tinted.size
                 tinted.draw(in: NSRect(x: 0, y: floor((bounds.height - size.height) / 2), width: size.width, height: size.height))
                 x = size.width + 2

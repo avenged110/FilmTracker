@@ -134,14 +134,24 @@ enum GallerySectioning: Loggable {
     /// reflects these (see filmQueueSectionBreaks, which resolves each film's section through
     /// list membership). Both gallery styles fold this into the inputs that gate their banding
     /// rebuild, so the "All" tab skips the O(films) rescan when membership is unchanged. nil
-    /// outside "All".
+    /// outside "All" and "Up Next".
     ///
     /// Moving a film between sections changes these sets even when the films array is
     /// unchanged (for example, the first "Soon" film promoted to "Up Next" keeps its place).
     /// Unchanged sets compare in O(1) when they share storage.
+    ///
+    /// The "Up Next" tab gets "Up Next"'s own membership: it has no queue bands, but its empty
+    /// slots (UpNextSlots.plan) count vacancies from it, and a filter can hide the film whose
+    /// add or removal changes them.
     static func filmQueueMembership(for coordinator: DataCoordinator) -> [Set<UUID>]? {
-        guard coordinator.loadedFilmQueueFilter == .all else { return nil }
-        return FilmQueueSection.allCases.map { coordinator.getList($0.listID)?.filmIDs ?? [] }
+        switch coordinator.loadedFilmQueueFilter {
+        case .all:
+            return FilmQueueSection.allCases.map { coordinator.getList($0.listID)?.filmIDs ?? [] }
+        case .upNext:
+            return [FilmQueue.upNextFilmIDs(coordinator: coordinator)]
+        default:
+            return nil
+        }
     }
 
     /// What the coordinator's loaded film set is ordered by, or nil before any load completes.

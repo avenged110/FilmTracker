@@ -49,6 +49,13 @@ struct GeneralSettingsView: View, Loggable {
         private var manualExtQuery: Bool
     @AppStorage(preference: Preferences.smartListsKey)
         private var smartLists: Bool
+    @AppStorage(preference: Preferences.showTagsInSidebarKey)
+        private var showTagsInSidebarRaw: Int
+    /// The count the tags picker shows. Kept apart from the preference, whose 0 means
+    /// hidden, so the picker holds its choice while the checkbox is off.
+    @State private var sidebarTagCount = Preferences.showTagsInSidebar == .hidden
+        ? Preferences.SidebarTagCount.ten.rawValue
+        : Preferences.showTagsInSidebar.rawValue
     @AppStorage(preference: Preferences.excludeQueuedFromUpForRotationKey)
         private var excludeQueuedFromUpForRotation: Bool
     @AppStorage(preference: Preferences.showStatusBarKey)
@@ -245,6 +252,38 @@ struct GeneralSettingsView: View, Loggable {
                 Preferences.excludeQueuedFromUpForRotation = newValue
                 AppEventBus.shared.send(.view(.preferencesChanged)) }
 
+
+            /// The sidebar's Tags section: the checkbox shows or hides it, and the Picker,
+            /// disabled while it is off, sets how many tags it lists. Both write the one
+            /// preference, Preferences.showTagsInSidebar (0 for hidden, else the count).
+            Toggle(isOn: Binding(
+                get: { showTagsInSidebarRaw != Preferences.SidebarTagCount.hidden.rawValue },
+                set: { showTagsInSidebarRaw = $0 ? sidebarTagCount : Preferences.SidebarTagCount.hidden.rawValue })) {
+                HStack(spacing: 4) {
+                    Text("Show the")
+                    Picker("", selection: Binding(
+                        get: { sidebarTagCount },
+                        set: { count in
+                            sidebarTagCount = count
+                            if showTagsInSidebarRaw != Preferences.SidebarTagCount.hidden.rawValue {
+                                showTagsInSidebarRaw = count
+                            }
+                        })) {
+                        ForEach(Preferences.SidebarTagCount.shownCases, id: \.self) { count in
+                            Text("\(count.rawValue)").tag(count.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 60)
+                    .disabled(showTagsInSidebarRaw == Preferences.SidebarTagCount.hidden.rawValue)
+                    Text("most-used tags in the sidebar")
+                }
+                .padding(.vertical, -2)
+            }
+            /// @AppStorage writes directly to UserDefaults, bypassing Preferences' setter and
+            /// its preferencesChanged post, which SettingsObject (backups) listens for.
+            .onChange(of: showTagsInSidebarRaw) { _, _ in
+                AppEventBus.shared.send(.view(.preferencesChanged)) }
 
             /// Governs whether the sidebar's "Film Queue" item accepts dragged films
             /// and, if so, which of the three internal Film Queue lists receives them.

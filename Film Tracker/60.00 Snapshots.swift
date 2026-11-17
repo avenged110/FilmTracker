@@ -992,6 +992,7 @@ struct SettingsSnapshot: Sendable, Equatable {
     let iCalIntegration: Bool?
     let manualExtQuery: Bool?
     let smartLists: Bool?
+    let showTagsInSidebar: Int?
     let excludeQueuedFromUpForRotation: Bool?
     let maintainSelectionOnSearchExit: Bool?
     let showSearchSuggestions: Bool?
@@ -1054,6 +1055,7 @@ struct SettingsSnapshot: Sendable, Equatable {
          iCalIntegration: Bool? = nil,
          manualExtQuery: Bool? = nil,
          smartLists: Bool? = nil,
+         showTagsInSidebar: Int? = nil,
          excludeQueuedFromUpForRotation: Bool? = nil,
          maintainSelectionOnSearchExit: Bool? = nil,
          showSearchSuggestions: Bool? = nil,
@@ -1104,6 +1106,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.iCalIntegration = iCalIntegration
         self.manualExtQuery = manualExtQuery
         self.smartLists = smartLists
+        self.showTagsInSidebar = showTagsInSidebar
         self.excludeQueuedFromUpForRotation = excludeQueuedFromUpForRotation
         self.maintainSelectionOnSearchExit = maintainSelectionOnSearchExit
         self.showSearchSuggestions = showSearchSuggestions
@@ -1159,6 +1162,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.iCalIntegration = object.iCalIntegration
         self.manualExtQuery = object.manualExtQuery
         self.smartLists = object.smartLists
+        self.showTagsInSidebar = object.showTagsInSidebar
         self.excludeQueuedFromUpForRotation = object.excludeQueuedFromUpForRotation
         self.maintainSelectionOnSearchExit = object.maintainSelectionOnSearchExit
         self.showSearchSuggestions = object.showSearchSuggestions
@@ -1214,6 +1218,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.iCalIntegration = iCalIntegration
         object.manualExtQuery = manualExtQuery
         object.smartLists = smartLists
+        object.showTagsInSidebar = showTagsInSidebar
         object.excludeQueuedFromUpForRotation = excludeQueuedFromUpForRotation
         object.maintainSelectionOnSearchExit = maintainSelectionOnSearchExit
         object.showSearchSuggestions = showSearchSuggestions

@@ -60,6 +60,10 @@ extension ViewIdentifier {
             /// out afresh on every load — the query may name dates relative to today.
             return .set(SavedSearchStore.shared.filmIDs(for: id))
 
+        case .tag(let tag):
+            /// The films carrying the tag, worked out afresh on every load, as a saved search's are.
+            return .set(SidebarTags.filmIDs(taggedWith: tag, in: memoryStore.getAllFilms()))
+
         case .allFilms, .list, .filmQueue, .reports, .imports, .search:
             return .unrestricted
         }
@@ -1247,7 +1251,7 @@ final class DataCoordinator: Loggable {
             return selected.isEmpty ? after.isEmpty : selected.isDisjoint(with: after)
         case .imports:
             return false
-        case .allFilms, .list, .filmQueue, .unwatched, .recents, .smartList, .search, .savedSearch:
+        case .allFilms, .list, .filmQueue, .unwatched, .recents, .smartList, .search, .savedSearch, .tag:
             /// Only a film the gallery shows can leave it; a sheet opened on a film from
             /// elsewhere (the Recents summary's own rows, say) has nothing to lose here.
             guard loadedViewID == view, films.contains(where: { $0.id == filmID }) else { return false }
@@ -1285,6 +1289,8 @@ final class DataCoordinator: Loggable {
             }
         case .savedSearch(let id):
             guard SavedSearchStore.shared.matches(id, film: film, lists: lists) else { return false }
+        case .tag(let tag):
+            guard SidebarTags.film(film, carries: tag) else { return false }
         }
         if !currentFilterOptions.isEmpty,
            memoryStore.applyFilters([film], filterOptions: currentFilterOptions).isEmpty {
@@ -1388,7 +1394,7 @@ final class DataCoordinator: Loggable {
             let queued = getFilmQueueFilmIDs()
             guard let section = FilmQueueFilterState.shared.selectedFilter.section else { return !queued.isEmpty }
             return queued.contains { filmQueueSection(forFilm: $0) == section }
-        case .recents, .smartList, .unwatched, .allFilms, .search, .reports, .imports:
+        case .recents, .smartList, .unwatched, .tag, .allFilms, .search, .reports, .imports:
             guard case .set(let members) = viewID.resolveMembership(memoryStore: memoryStore, smartLists: smartLists)
             else { return hasDatabaseFilms }
             return !members.isEmpty
@@ -3159,7 +3165,12 @@ final class DataCoordinator: Loggable {
         /// `wishlist` is locked to its parent's (FSTabReleases.syncComboChildFields), and the rows
         /// arriving here are top-level only (getWishlistReleases). Renumbering the parent
         /// alone left every child at its old position in memory and in the store.
+        ///
+        /// The films are written as one batch, so the view caches are repaired once, not once per film. Their
+        /// MetadataCache entries are rebuilt later in the background (see MemoryStore.updateFilmsDeferringMetadata).
         let grouped = Dictionary(grouping: orderedPairs.enumerated()) { $0.element.filmID }
+        var renumbered: [FilmSnapshot] = []
+        renumbered.reserveCapacity(grouped.count)
         for (filmID, indexedPairs) in grouped {
             guard var filmSnapshot = memoryStore.getFilm(filmID) else { continue }
             for (index, pair) in indexedPairs {
@@ -3171,8 +3182,9 @@ final class DataCoordinator: Loggable {
                     filmSnapshot.releases[releaseIndex] = release.withWishlist(newPosition)
                 }
             }
-            memoryStore.updateFilm(filmSnapshot)
+            renumbered.append(filmSnapshot)
         }
+        memoryStore.updateFilmsDeferringMetadata(renumbered)
 
         /// Fire .releaseChanged events only for releases whose position actually changed.
         var changedFilmIDs = Set<UUID>()

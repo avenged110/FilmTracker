@@ -881,6 +881,8 @@ enum SidebarItem: Hashable {
     case smartList(SmartListType)
     case list(UUID)
     case savedSearch(UUID)
+    /// A row of the sidebar's Tags section: the films carrying this tag (SidebarTags).
+    case tag(SidebarTag)
 }
 
 // MARK: - App State

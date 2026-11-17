@@ -12,7 +12,11 @@ struct HallOfFameView: View {
     @State private var films: [HallOfFameFilm] = []
     /// Bumped by every load and drag-reorder. The mount path's off-main reconcile applies its rows only if neither has happened since.
     @State private var loadGeneration = 0
+    /// Set while a film-event reload waits for the next run-loop turn (see scheduleReload).
+    @State private var isReloadScheduled = false
     @State private var selection: Set<UUID> = []
+    /// The rotation column follows the default rotation threshold, so a change to it in Settings rebuilds the rows.
+    @AppStorage(preference: Preferences.defaultRotationThresholdKey) private var rotationMonths: Int
 
     private static let emptyStateConfig = EmptyStateConfig(
         glyph: ReportsCategory.hallOfFame.glyph,
@@ -20,8 +24,16 @@ struct HallOfFameView: View {
         noDataMessage: "Set Hall of Fame positions for films to create your personal ranking."
     )
 
-    /// Rating, then release year. The rating is 30 pt, plus 20 pt trailing padding. The year is 60 pt, monospaced.
+    /// Rotation, best format owned, rating, then release year, with the same visible gap, about 34 pt, between each column's widest
+    /// usual content and the next column's content (the table adds 12 pt between columns). Measured: the rating's star and "10" are
+    /// 28 pt of its 50, leaving 34 before the year. The clock and "2+" are 29 pt of the rotation column's 48, and the badge plate
+    /// starts 3 pt into its column (ReportTableCellView's badgeOutsideAllowance), so 34 again; the 18-month "1.5+" (37 pt) leaves 26.
+    /// The 52 pt plate (the Wishlist's, for "4K UHD") ends 55 pt into the badge column's 77, so 34 once more. The year is 60 pt, monospaced.
     private static let trailingColumns: [ReportTableColumn<HallOfFameFilm>] = [
+        ReportTableColumn(id: "rotation", width: 48, trailingPad: 20,
+                          content: .symbolText(symbol: "clock.fill") { $0.rotationLabel }),
+        /// The plate is the column's width less its trailing pad: 77 − 25 = 52.
+        ReportTableColumn(id: "format", width: 77, trailingPad: 25, content: .badge { $0.purchase.ownedBadge }),
         ReportTableColumn(id: "rating", width: 50, trailingPad: 20, content: .rating { $0.userRating }),
         ReportTableColumn(id: "year", width: 60, font: .monospacedSystemFont(ofSize: 12, weight: .regular),
                           isSecondary: true, content: .text { $0.releaseYear })
@@ -62,20 +74,26 @@ struct HallOfFameView: View {
                 loadHallOfFameFilms()
             }
         }
-        /// Refresh on film updates, such as films added to or removed from the Hall of Fame in FilmSheet.
+        .onChange(of: rotationMonths) { loadHallOfFameFilms() }
+        /// A rotation mark comes due at midnight on the 1st of a month (rotationEligibilityDate). The reload's change guard makes this a no-op
+        /// on days that change no row.
+        .onReceive(CurrentDay.shared.dayChanged) { _ in loadHallOfFameFilms() }
+        /// Refresh on film updates, such as films added to or removed from the Hall of Fame in FilmSheet. Every case reloads through
+        /// scheduleReload, so the guard on isReloadScheduled skips the membership scans once a reload is already on its way.
         .onFilmEvent { event in
+            guard !isReloadScheduled else { return }
             switch event {
             case .updated(let filmID):
                 /// Use dataCoordinator.hallOfFameFilms, the canonical UUID list. dataCoordinator.films is the active view's filtered array,
                 /// which may not contain the film in Reports. Selection cleanup rides on the reload (see pruneSelectionToLiveRows).
                 if films.contains(where: { $0.id == filmID })
                     || dataCoordinator.hallOfFameFilms.contains(filmID) {
-                    loadHallOfFameFilms()
+                    scheduleReload()
                 }
             case .deleted(let filmIDs):
                 /// Reload if a deleted film was in the Hall of Fame. The reload prunes it from the selection.
                 if films.contains(where: { filmIDs.contains($0.id) }) {
-                    loadHallOfFameFilms()
+                    scheduleReload()
                 }
             case .added(let filmID):
                 /// A save never adds a film with a position: a new film the sheet puts in
@@ -84,32 +102,50 @@ struct HallOfFameView: View {
                 /// (its save failed): its position is restored before .added is posted,
                 /// and .deleted already dropped its row here, so reload for it.
                 if dataCoordinator.hallOfFameFilms.contains(filmID) {
-                    loadHallOfFameFilms()
+                    scheduleReload()
                 }
-            case .releaseChanged:
-                /// No on-screen column reads releases. The purchase standing does, but only the PDF prints it, and the export rebuilds its rows.
-                break
+            case .releaseChanged(let filmID):
+                /// The format column shows the purchase standing, which reads the film's releases.
+                if dataCoordinator.hallOfFameFilms.contains(filmID) {
+                    scheduleReload()
+                }
             }
         }
     }
 
-    /// The mount path's reconciling load, with the row build off the main actor. Event-driven reloads stay synchronous, since a drag-reorder's
-    /// reloads run inside the table's move callback and must land in the same pass.
+    /// Film events arrive synchronously, often in bursts: a drag-reorder posts one .film(.updated) per shifted member, and a bulk edit, a
+    /// batch add or removal, or a rollback posts one per film. Each rebuilt every row, so a burst over K films cost K full rebuilds. The burst
+    /// now collapses into one reload on the next run-loop turn, after the sender has finished its work, as the gallery title bar's and the
+    /// sort menu's film-event refreshes do. A drag-reorder does not wait on it: handleMove has already applied the new order to `films`,
+    /// and the reload confirms it against the store.
+    private func scheduleReload() {
+        guard !isReloadScheduled else { return }
+        isReloadScheduled = true
+        DispatchQueue.main.async {
+            isReloadScheduled = false
+            loadHallOfFameFilms()
+        }
+    }
+
+    /// The mount path's reconciling load, with the row build off the main actor.
     private func reconcileHallOfFameFilms() {
         loadGeneration += 1
         let generation = loadGeneration
-        let filmsMap = dataCoordinator.getAllFilmsMap()
-        let ranking = dataCoordinator.hallOfFameFilms
+        /// Only the ranked films are copied out, not the films map. Holding the map across the build would make the next library edit copy
+        /// all of it (see MemoryStore.filmsVersion), and comparing it afterward walked every film whenever anything had changed.
+        let ranked = dataCoordinator.getHallOfFameFilms()
+        let version = dataCoordinator.filmsVersion
+        let months = Preferences.defaultRotationThreshold
         Task {
             let rebuilt = await Task.detached(priority: .userInitiated) {
-                /// Built the same way getHallOfFameFilms() builds them.
-                HallOfFameFilm.rows(films: ranking.compactMap { filmsMap[$0] })
+                HallOfFameFilm.rows(films: ranked, rotationMonths: months)
             }.value
             guard generation == loadGeneration else { return }
-            /// Rows from a library or ranking that has since changed would be stale, and the change may not have triggered a reload.
-            /// Fall back to the synchronous load, which reads both as they are now.
-            guard dataCoordinator.hallOfFameFilms == ranking,
-                  dataCoordinator.getAllFilmsMap() == filmsMap else {
+            /// Rows from a library that has since changed would be stale, and the change may not have triggered a reload. filmsVersion
+            /// moves with every write to the films, which covers the ranking too: every rank change is a write to a film's hofPosition.
+            /// Fall back to the synchronous load, which reads the library as it is now.
+            guard dataCoordinator.filmsVersion == version,
+                  Preferences.defaultRotationThreshold == months else {
                 loadHallOfFameFilms()
                 return
             }
@@ -120,13 +156,14 @@ struct HallOfFameView: View {
     private func loadHallOfFameFilms() {
         loadGeneration += 1
         /// Built by HallOfFameFilm.rows, which the PDF export also uses. The ranking, purchase standing, and upgrade note are derived once.
-        applyHallOfFameFilms(HallOfFameFilm.rows(films: dataCoordinator.getHallOfFameFilms()))
+        applyHallOfFameFilms(HallOfFameFilm.rows(films: dataCoordinator.getHallOfFameFilms(),
+                                                 rotationMonths: Preferences.defaultRotationThreshold))
     }
 
     private func applyHallOfFameFilms(_ rebuilt: [HallOfFameFilm]) {
-        /// Assign only on an actual change. A drag-reorder emits one .film(.updated) per shifted member, and each one reloads synchronously.
-        /// Reassigning on each would rebuild the List mid-drag, even though handleMove already applied the same order. @State does not compare
-        /// on assignment, so the guard is explicit.
+        /// Assign only on an actual change. The reload after a drag-reorder (see scheduleReload) usually finds the order handleMove already
+        /// applied, and reassigning would only push the same rows back through the table. @State does not compare on assignment, so the
+        /// guard is explicit.
         if rebuilt != films {
             films = rebuilt
         }
@@ -225,8 +262,17 @@ enum HallOfFamePurchase: Equatable, Sendable {
         }
     }
 
+    /// The best format owned, for the format column; nil when nothing is owned.
+    var ownedFormat: ReleaseFormat? {
+        if case let .purchased(format) = self { return format }
+        return nil
+    }
+
+    /// The format column's badge: the best format owned, or none.
+    var ownedBadge: ReportBadge? { ownedFormat.map { ReportBadge.format($0.rawValue) } }
+
     /// The highest-ranked recognized format present, or nil if none is. An unrecognized format string is skipped, since this value names a format in the report.
-    static func best(in releases: [ReleaseSnapshot]) -> ReleaseFormat? {
+    private static func best(in releases: [ReleaseSnapshot]) -> ReleaseFormat? {
         releases
             .compactMap { ReleaseFormat(rawValue: $0.format) }
             .min { $0.displayRank < $1.displayRank }
@@ -240,7 +286,7 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
     let name: String
     let releaseYear: String
     let userRating: Int
-    /// What the user owns of this film. Consumed by the PDF export's "Purchased" column.
+    /// What the user owns of this film. Shown by the format column and the status bar's summary, and printed in the PDF export's "Purchased" column.
     let purchase: HallOfFamePurchase
     /// The best format available but not owned, if any. The PDF export's Notes column
     /// reports it as "<format> available".
@@ -249,13 +295,23 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
     /// ("Director's Cut"), not the stored two-letter code. Empty for an unset version and
     /// for a plain theatrical cut, neither of which is worth a line in a report.
     let version: String
+    /// The rotation column's text ("2+") when the film has not been viewed within the default rotation threshold, else nil.
+    let rotationLabel: String?
 
     /// The Hall of Fame's rows, in ranking order. This is the one definition of a row. The view and the PDF export both use it.
     ///
     /// `position` is the 1-based index in the given order, not the stored `hofPosition`. The store has already reconciled the ranking, so a
     /// stored gap or duplicate cannot give two rows the same number.
-    static func rows(films: [FilmSnapshot]) -> [HallOfFameFilm] {
-        films.enumerated().map { index, film in
+    ///
+    /// `rotationMonths` is the default rotation threshold (Preferences.defaultRotationThreshold), passed in so the rows can be built off
+    /// the main actor. A film is marked once its last viewing plus the threshold has arrived, by the app's one rotation rule
+    /// (`rotationEligibilityDate`, which rounds up to the 1st of the next month), so the mark agrees with the "Up for Rotation" smart
+    /// lists' timing. Only viewing recency counts: a film's own threshold override and its special sorting are not consulted. A film
+    /// with no viewing is not marked. Nil leaves the column empty (the PDF export does not print it). `now` is read when the rows are
+    /// built. The tab reloads when the day changes, so a mark that comes due while it stays open appears then.
+    static func rows(films: [FilmSnapshot], rotationMonths: Int? = nil, now: Date = Date()) -> [HallOfFameFilm] {
+        let label = rotationMonths.map { "\(Preferences.rotationThresholdYearsText($0))+" }
+        return films.enumerated().map { index, film in
             let purchase = HallOfFamePurchase.forReleases(film.releases)
             return HallOfFameFilm(
                 id: film.id,
@@ -265,9 +321,50 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
                 userRating: film.userRating,
                 purchase: purchase,
                 upgrade: HallOfFamePurchase.upgrade(for: purchase, releases: film.releases),
-                version: ViewingVersion.reportableName(forStoredCode: film.digitalVersion)
+                version: ViewingVersion.reportableName(forStoredCode: film.digitalVersion),
+                rotationLabel: label.flatMap { label in
+                    guard let months = rotationMonths,
+                          let watched = parseDate(from: film.lastWatched),
+                          let due = rotationEligibilityDate(from: watched, months: months),
+                          due <= now else { return nil }
+                    return label
+                }
             )
         }
+    }
+}
+
+// MARK: - Status Bar Totals
+
+/// The Hall of Fame's status bar summary: how many films are owned in each best format, how many are not owned, and how many carry each
+/// rating. Rebuilt with the rows in ReportsState.updateHallOfFameData, change-guarded, so a drag-reorder does not redraw the bar.
+struct HallOfFameTotals: Equatable {
+    var total = 0
+    /// Films by best format owned, in ladder order (4K UHD, Blu-ray, DVD); formats nobody's best is are left out.
+    var owned: [(format: ReleaseFormat, count: Int)] = []
+    var notOwned = 0
+    /// Films per rating present, highest first. Unrated films (0) are left out.
+    var ratings: [(rating: Int, count: Int)] = []
+
+    init() {}
+
+    init(rows: [HallOfFameFilm]) {
+        total = rows.count
+        var byFormat: [ReleaseFormat: Int] = [:]
+        var byRating: [Int: Int] = [:]
+        for row in rows {
+            if let format = row.purchase.ownedFormat { byFormat[format, default: 0] += 1 } else { notOwned += 1 }
+            if row.userRating > 0 { byRating[row.userRating, default: 0] += 1 }
+        }
+        owned = ReleaseFormat.allCases.sorted { $0.displayRank < $1.displayRank }
+            .compactMap { format in byFormat[format].map { (format, $0) } }
+        ratings = byRating.sorted { $0.key > $1.key }.map { ($0.key, $0.value) }
+    }
+
+    static func == (a: HallOfFameTotals, b: HallOfFameTotals) -> Bool {
+        a.total == b.total && a.notOwned == b.notOwned
+            && a.owned.elementsEqual(b.owned) { $0.format == $1.format && $0.count == $1.count }
+            && a.ratings.elementsEqual(b.ratings) { $0.rating == $1.rating && $0.count == $1.count }
     }
 }
 

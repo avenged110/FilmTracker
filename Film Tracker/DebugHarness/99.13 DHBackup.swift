@@ -573,7 +573,8 @@ extension DebugHarness {
     static var settingsIntFields: [(String, ReferenceWritableKeyPath<SettingsObject, Int?>)] {
         [("listEditScope", \.listEditScope),
          ("defaultRotationThreshold", \.defaultRotationThreshold),
-         ("queueSectionOnDrop", \.queueSectionOnDrop)]
+         ("queueSectionOnDrop", \.queueSectionOnDrop),
+         ("showTagsInSidebar", \.showTagsInSidebar)]
     }
 
     static var settingsStringFields: [(String, ReferenceWritableKeyPath<SettingsObject, String?>)] {

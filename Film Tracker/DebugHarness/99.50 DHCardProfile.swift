@@ -31,6 +31,7 @@ extension DebugHarness {
         case "currency-placeholder": return await currencyPlaceholderScenario(coordinator: coordinator)
         case "reports-hitch": return await reportsHitchScenario(coordinator: coordinator)
         case "reports-table-behavior": return await reportsTableBehaviorScenario(coordinator: coordinator)
+        case "report-lists-cost": return await reportListsCostScenario(coordinator: coordinator)
         case "releases-settle": return await releasesSettleScenario(coordinator: coordinator)
         case "release-duplicate": return await releaseDuplicateScenario(coordinator: coordinator)
         case "filmsheet-save": return await filmSheetSaveScenario(coordinator: coordinator)
@@ -1367,6 +1368,232 @@ extension DebugHarness {
         let wish = reportTable(WishlistRelease.self)
         r.check("wishlist-row-count", wish?.0.numberOfRows == wishRows.count,
                 "\(String(describing: wish?.0.numberOfRows)) vs \(wishRows.count)")
+        return r
+    }
+}
+
+// MARK: - report-lists-cost
+///
+/// `report-lists-cost` (opt-in, real window, run on a library copy): what the Hall of Fame and Release
+/// Wishlist tabs cost the main thread, to judge which of their loads are worth running off it.
+///   • The pieces of one reload, timed on the main thread (median of 30): the ranked fetch and row
+///     build, the library scan and row build, and the change-guard compares.
+///   • Revisits of each tab (busy time over 800 ms), with the mount reconcile off the main thread as
+///     shipped, beside what the same reconcile costs when run on it.
+///   • A drag through each table's drop path: the synchronous cost of the drop (which posts one film
+///     event per moved film), the busy time after it, and that the rows slid rather than reloaded and
+///     ended in the store's order. The old per-event reload is priced as events × one reload.
+extension DebugHarness {
+    static func reportListsCostScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "report-lists-cost")
+        guard let appState = AppDelegate.appState,
+              let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) })
+        else { r.check("setup", false, "no real window"); return r }
+        func settle(_ ms: Int = 300) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        func tables(in view: NSView) -> [NSTableView] {
+            (view as? NSTableView).map { [$0] } ?? view.subviews.flatMap(tables(in:))
+        }
+        func reportTable<Row>(_: Row.Type) -> (NSTableView, ReportTable<Row>.Coordinator)? {
+            for t in tables(in: window.contentView!) {
+                if let c = t.dataSource as? ReportTable<Row>.Coordinator { return (t, c) }
+            }
+            return nil
+        }
+        func time(_ runs: Int = 30, _ body: () -> Void) -> Double {
+            var samples: [Double] = []
+            for _ in 0..<runs {
+                let t0 = CACurrentMediaTime()
+                body()
+                samples.append((CACurrentMediaTime() - t0) * 1000)
+            }
+            return stats(samples).median
+        }
+
+        let months = Preferences.defaultRotationThreshold
+        let hofRows = HallOfFameFilm.rows(films: coordinator.getHallOfFameFilms(), rotationMonths: months)
+        let wishRows = WishlistRelease.rows(pairs: coordinator.getWishlistReleases())
+        r.metric("films", Double(coordinator.getAllFilms().count), "n")
+        r.metric("hof-rows", Double(hofRows.count), "n")
+        r.metric("wish-rows", Double(wishRows.count), "n")
+
+        // MARK: Pieces of one reload
+        var sink = 0
+        let hofFetch = time { sink &+= coordinator.getHallOfFameFilms().count }
+        let ranked = coordinator.getHallOfFameFilms()
+        let hofBuild = time { sink &+= HallOfFameFilm.rows(films: ranked, rotationMonths: months).count }
+        let hofCopy = hofRows.map { $0 }
+        let hofCompare = time { sink &+= (hofCopy == hofRows) ? 1 : 0 }
+        let hofTotals = time { sink &+= HallOfFameTotals(rows: hofRows).total }
+        let wishScan = time { sink &+= coordinator.getWishlistReleases().count }
+        let pairs = coordinator.getWishlistReleases()
+        let wishBuild = time { sink &+= WishlistRelease.rows(pairs: pairs).count }
+        let wishCopy = wishRows.map { $0 }
+        let wishCompare = time { sink &+= (wishCopy == wishRows) ? 1 : 0 }
+        let mapCapture = time { sink &+= coordinator.getAllFilmsMap().count }
+        /// Where the time goes inside each build.
+        r.metric("split-hof-build-no-rotation-ms",
+                 time { sink &+= HallOfFameFilm.rows(films: ranked, rotationMonths: nil).count }, "ms")
+        let watched = ranked.map(\.lastWatched)
+        r.metric("split-hof-parse-dates-ms", time { sink &+= watched.compactMap { parseDate(from: $0) }.count }, "ms")
+        let dates = watched.compactMap { parseDate(from: $0) }
+        r.metric("split-hof-eligibility-ms",
+                 time { sink &+= dates.compactMap { rotationEligibilityDate(from: $0, months: months) }.count }, "ms")
+        r.metric("split-hof-purchase-ms",
+                 time { sink &+= ranked.map { HallOfFamePurchase.forReleases($0.releases) }.count }, "ms")
+        r.metric("split-wish-copy-values-ms", time { sink &+= coordinator.getAllFilms().count }, "ms")
+        let allFilms = coordinator.getAllFilms()
+        r.metric("split-wish-filter-ms", time { sink &+= DataCoordinator.wishlistPairs(in: allFilms).count }, "ms")
+        let filmsMap = coordinator.getAllFilmsMap()
+        r.metric("split-wish-map-scan-ms", time {
+            var n = 0
+            for film in filmsMap.values where film.releases.contains(where: { $0.wishlist > 0 && $0.isTopLevel }) { n += 1 }
+            sink &+= n
+        }, "ms")
+        let hofReload = hofFetch + hofBuild + hofCompare * 2 + hofTotals
+        let wishReload = wishScan + wishBuild + wishCompare * 2
+        r.metric("hof-fetch-ms", hofFetch, "ms")
+        r.metric("hof-build-ms", hofBuild, "ms")
+        r.metric("hof-compare-ms", hofCompare, "ms")
+        r.metric("hof-totals-ms", hofTotals, "ms")
+        r.metric("hof-one-reload-ms", hofReload, "ms")
+        r.metric("wish-scan-ms", wishScan, "ms")
+        r.metric("wish-build-ms", wishBuild, "ms")
+        r.metric("wish-compare-ms", wishCompare, "ms")
+        r.metric("wish-one-reload-ms", wishReload, "ms")
+        /// What the reconciles do on the main thread before handing off: HoF copies the ranked films, the Wishlist retains the map.
+        r.metric("reconcile-main-capture-hof-ms", hofFetch, "ms")
+        r.metric("reconcile-main-capture-wish-ms", mapCapture, "ms")
+        r.metric("reconcile-if-on-main-hof-ms", hofFetch + hofBuild + hofCompare, "ms")
+        r.metric("reconcile-if-on-main-wish-ms", wishScan + wishBuild + wishCompare, "ms")
+
+        // MARK: Revisits
+        let recorder = RunLoopBusyRecorder()
+        recorder.start()
+        defer { recorder.stop() }
+        let reports = ReportsState.shared
+        appState.navigate(to: .libraryItem(.reports))
+        reports.selectCategory(.costTracker, immediate: true)
+        await settle(1500)
+        reports.selectCategory(.hallOfFame, immediate: true)
+        await settle(800)
+        reports.selectCategory(.releaseWishlist, immediate: true)
+        await settle(800)
+        var revisits: [String: [RunLoopBusyRecorder.Reading]] = [:]
+        for _ in 0..<5 {
+            for (name, category) in [("hof", ReportsCategory.hallOfFame), ("wish", .releaseWishlist), ("cost", .costTracker)] {
+                await settle(500)
+                recorder.reset()
+                let t0 = CACurrentMediaTime() * 1000
+                reports.selectCategory(category, immediate: true)
+                await settle(800)
+                revisits[name, default: []].append(recorder.reading(from: t0, window: 800))
+            }
+        }
+        for (name, readings) in revisits.sorted(by: { $0.key < $1.key }) {
+            r.metric("revisit-\(name)-busy-median", stats(readings.map(\.busy)).median, "ms")
+            r.metric("revisit-\(name)-first-median", stats(readings.map(\.first)).median, "ms")
+            r.metric("revisit-\(name)-longest-median", stats(readings.map(\.longest)).median, "ms")
+        }
+
+        // MARK: Drags
+        func drag<Row: Identifiable & Equatable>(_ label: String, _: Row.Type, category: ReportsCategory,
+                                                 storeOrder: () -> [UUID], moves: [(IndexSet, Int)]) async where Row.ID == UUID {
+            reports.selectCategory(category, immediate: true)
+            await settle(1000)
+            guard let (table, tableCoordinator) = reportTable(Row.self), table.numberOfRows > 2 else {
+                r.skip("\(label)-drag", "table missing or under three rows")
+                return
+            }
+            var syncMs: [Double] = []
+            var busy: [Double] = []
+            var events: [Int] = []
+            for (source, destination) in moves {
+                let reloadsBefore = (table as? ReportNSTableView)?.fullReloadCount
+                var expected = tableCoordinator.rowIDs
+                expected.move(fromOffsets: source, toOffset: destination)
+                var posted = 0
+                let counter = AppEventBus.shared.filmEvents.sink { _ in posted += 1 }
+                await settle(300)
+                recorder.reset()
+                let t0 = CACurrentMediaTime()
+                let moved = tableCoordinator.move(source, to: destination)
+                let sync = (CACurrentMediaTime() - t0) * 1000
+                let shownAtOnce = tableCoordinator.rowIDs == expected
+                await settle(800)
+                counter.cancel()
+                syncMs.append(sync)
+                busy.append(recorder.reading(from: t0 * 1000, window: 800).busy)
+                events.append(posted)
+                let reloadsAfter = (table as? ReportNSTableView)?.fullReloadCount
+                r.check("\(label)-drag-accepted", moved, "")
+                r.check("\(label)-drag-shown-immediately", shownAtOnce, "")
+                r.check("\(label)-drag-no-full-reload", reloadsBefore != nil && reloadsBefore == reloadsAfter,
+                        "full reloads \(String(describing: reloadsBefore)) → \(String(describing: reloadsAfter))")
+                r.check("\(label)-drag-table-matches-store", tableCoordinator.rowIDs == storeOrder(), "")
+            }
+            r.metric("\(label)-drag-events-median", stats(events.map(Double.init)).median, "n")
+            r.metric("\(label)-drag-sync-median", stats(syncMs).median, "ms")
+            r.metric("\(label)-drag-sync-max", stats(syncMs).max, "ms")
+            r.metric("\(label)-drag-busy-median", stats(busy).median, "ms")
+        }
+        let hofCount = coordinator.hallOfFameFilms.count
+        await drag("hof", HallOfFameFilm.self, category: .hallOfFame,
+                   storeOrder: { coordinator.hallOfFameFilms },
+                   moves: [([0], hofCount), ([hofCount - 1], 0), ([0], hofCount), ([hofCount - 1], 0),
+                           ([0], 5), ([4], 0)])
+        let wishCount = coordinator.getWishlistReleases().count
+        await drag("wish", WishlistRelease.self, category: .releaseWishlist,
+                   storeOrder: { WishlistRelease.rows(pairs: coordinator.getWishlistReleases()).map(\.id) },
+                   moves: [([0], wishCount), ([wishCount - 1], 0), ([0], wishCount), ([wishCount - 1], 0),
+                           ([0], 3), ([2], 0)])
+        /// The drop's synchronous part, split: delivering one film event to every subscriber in the app (HoF tab mounted),
+        /// and the coordinator's reorder (store write plus those events) without the table.
+        reports.selectCategory(.hallOfFame, immediate: true)
+        await settle(1000)
+        let members = coordinator.hallOfFameFilms
+        var fanOut: [Double] = []
+        var reorderOnly: [Double] = []
+        for _ in 0..<5 {
+            await settle(300)
+            let t0 = CACurrentMediaTime()
+            for id in members { AppEventBus.shared.send(.film(.updated(filmID: id))) }
+            fanOut.append((CACurrentMediaTime() - t0) * 1000 / Double(max(members.count, 1)))
+            await settle(300)
+            var rotated = coordinator.hallOfFameFilms
+            rotated.append(rotated.removeFirst())
+            let t1 = CACurrentMediaTime()
+            coordinator.reorderHallOfFame(rotated)
+            reorderOnly.append((CACurrentMediaTime() - t1) * 1000)
+        }
+        let isolated = MemoryStore.isolatedForTesting(films: coordinator.getAllFilms(), lists: [])
+        var storeOnly: [Double] = []
+        for _ in 0..<5 {
+            var rotated = isolated.hallOfFameFilms
+            rotated.append(rotated.removeFirst())
+            let t = CACurrentMediaTime()
+            _ = isolated.reorderHallOfFame(rotated)
+            storeOnly.append((CACurrentMediaTime() - t) * 1000)
+        }
+        r.metric("split-drop-store-reorder-ms", stats(storeOnly).median, "ms")
+        r.metric("split-drop-baseline-reads-ms", time(5) {
+            for id in members { sink &+= coordinator.getFilm(id)?.hofPosition ?? 0 }
+        }, "ms")
+        r.metric("split-drop-event-fanout-per-event-ms", stats(fanOut).median, "ms")
+        r.metric("split-drop-reorder-198-ms", stats(reorderOnly).median, "ms")
+        var wishReorder: [Double] = []
+        for _ in 0..<5 {
+            await settle(300)
+            var rotated = WishlistRelease.rows(pairs: coordinator.getWishlistReleases()).map { (filmID: $0.filmID, releaseID: $0.releaseID) }
+            guard rotated.count > 1 else { break }
+            rotated.append(rotated.removeFirst())
+            let t = CACurrentMediaTime()
+            coordinator.reorderWishlist(rotated)
+            wishReorder.append((CACurrentMediaTime() - t) * 1000)
+        }
+        r.metric("split-drop-wish-reorder-ms", stats(wishReorder).median, "ms")
+        r.metric("old-hof-drag-reload-estimate-ms", hofReload * Double(hofCount), "ms")
+        r.metric("old-wish-drag-reload-estimate-ms", wishReload * Double(wishCount), "ms")
+        r.metric("sink", Double(sink & 1), "n")
         return r
     }
 }

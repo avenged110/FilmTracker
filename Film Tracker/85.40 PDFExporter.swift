@@ -1,8 +1,8 @@
 // MARK: - PDFExporter.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// Assembles the whole-library PDF: the complete-library table, followed by one sheet per
-/// ReportsView tab, in a single document.
+/// Assembles the whole-library PDF: a cover page with a linked table of contents, then the
+/// complete-library table, followed by one sheet per ReportsView tab, in a single document.
 ///
 /// The document is built entirely from the shared PDF stack (PDFCore 85.00 / PDFTableRenderer
 /// 85.10 / PDFReport 85.20). The report sheets are the ones `ReportsPDFExporter`
@@ -166,7 +166,11 @@ enum LibraryPDFExporter: Loggable {
         /// declares its own — but every page in this document is the library table's size,
         /// so the default and the per-page boxes agree.
         var mediaBox = CGRect(origin: .zero, size: layout.geometry.pageSize)
-        guard let context = unsafe CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+        /// The document's own title and creator, which Preview's inspector and Spotlight show
+        /// and which otherwise fall back to the filename.
+        let info = [kCGPDFContextTitle as String: Self.coverTitle,
+                    kCGPDFContextCreator as String: Self.versionNote] as CFDictionary
+        guard let context = unsafe CGContext(consumer: consumer, mediaBox: &mediaBox, info) else {
             throw PDFExportError.pdfCreationFailed
         }
 
@@ -174,6 +178,12 @@ enum LibraryPDFExporter: Loggable {
         /// which is not knowable until every section has been measured — so the builder
         /// measures them all, then draws. It closes the context on finish().
         let builder = PDFDocumentBuilder(context: context)
+        /// The opening page: the icon and title, and a table of contents linking every section
+        /// below (see PDFDocumentBuilder.setCover).
+        builder.setCover(PDFCoverSheet(title: Self.coverTitle,
+                                       details: [Fmt.count(films.count, "film")],
+                                       footnote: Self.versionNote),
+                         geometry: layout.geometry)
 
         /// The build loop is budgeted 0…`buildShare`, and finish(), which measures and draws every collected sheet
         /// and suspends between pages, takes the rest. The split follows wall time: building the sections is a small
@@ -187,16 +197,17 @@ enum LibraryPDFExporter: Loggable {
             /// document with it.
             switch section {
             case .completeLibrary:
+                /// Listed under the heading its pages print, which the layout names.
                 builder.add(LibraryPDFReport.section(films: films, layout: layout),
-                            geometry: layout.geometry)
+                            geometry: layout.geometry, contentsTitle: layout.sectionTitle)
                 added += 1
             case .viewingHistory:
                 builder.add(ViewingHistoryPDFReport.section(films: films),
-                            geometry: layout.geometry)
+                            geometry: layout.geometry, contentsTitle: section.displayName)
                 added += 1
             case .discReleases:
                 builder.add(DiscReleasesPDFReport.section(films: films),
-                            geometry: layout.geometry)
+                            geometry: layout.geometry, contentsTitle: section.displayName)
                 added += 1
             default:
                 /// Every remaining case names a ReportsView tab, handled in one arm because the category is derived from
@@ -212,7 +223,7 @@ enum LibraryPDFExporter: Loggable {
                     /// type size. They are geometry-independent, since column widths are weights. The geometry comes
                     /// from the caller's `layout` rather than `.standard`, so the appended sheets always match the table
                     /// and the context's media box.
-                    builder.add(sheet, geometry: layout.geometry)
+                    builder.add(sheet, geometry: layout.geometry, contentsTitle: section.displayName)
                     added += 1
                 }
             }
@@ -238,6 +249,17 @@ enum LibraryPDFExporter: Loggable {
     /// The share of the progress bar the section-building loop occupies; `finish` has the
     /// rest. See the note above the loop.
     private static let buildShare = 0.15
+
+    /// The cover page's title, under the app icon.
+    static let coverTitle = "Film Tracker Library"
+
+    /// The cover's small print: "Film Tracker 1.1.0 (126)".
+    private static var versionNote: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        return "\(PDFBrandMark.wordmark) \(version) (\(build))"
+    }
 
     // MARK: - Report Sheets
 

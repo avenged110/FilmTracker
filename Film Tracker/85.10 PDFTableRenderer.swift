@@ -1224,7 +1224,16 @@ enum PDFTableRenderer {
 final class PDFDocumentBuilder {
     private let context: CGContext
     private let producedOn: String
-    private var pending: [(sheet: PDFSheet, geometry: PDFPageGeometry)] = []
+    /// One sheet waiting to be measured and drawn. `contentsTitle` names it in the cover's
+    /// table of contents and the document outline; nil leaves it out of both.
+    private struct Entry {
+        var sheet: PDFSheet
+        var geometry: PDFPageGeometry
+        var contentsTitle: String?
+    }
+    private var pending: [Entry] = []
+    /// The opening page, when the document has one (see `setCover`).
+    private var cover: (sheet: PDFCoverSheet, geometry: PDFPageGeometry)?
 
     /// - Parameter producedAt: the moment the document is stamped with. Taken once and
     ///   reused on every page, so a long render cannot leave two pages claiming to have
@@ -1240,14 +1249,26 @@ final class PDFDocumentBuilder {
         "Report produced on \(formatTimestamp(date))"
     }
 
-    func add(_ section: PDFTableSection, geometry: PDFPageGeometry) {
-        pending.append((.table(section), geometry))
+    func add(_ section: PDFTableSection, geometry: PDFPageGeometry, contentsTitle: String? = nil) {
+        pending.append(Entry(sheet: .table(section), geometry: geometry, contentsTitle: contentsTitle))
     }
 
     /// Adds an already-resolved sheet, whichever shape it turned out to be.
-    func add(_ sheet: PDFSheet, geometry: PDFPageGeometry) {
-        pending.append((sheet, geometry))
+    func add(_ sheet: PDFSheet, geometry: PDFPageGeometry, contentsTitle: String? = nil) {
+        pending.append(Entry(sheet: sheet, geometry: geometry, contentsTitle: contentsTitle))
     }
+
+    /// Opens the document with a cover page: the app icon, a title, and a table of contents
+    /// listing every sheet added with a `contentsTitle`, each line a link to that sheet's
+    /// first page. The cover is document page 1, so every footer and contents page number
+    /// counts it, and the numbers match the page numbers a PDF viewer shows. The document
+    /// also gets an outline (Preview's Table of Contents sidebar) with the same entries.
+    func setCover(_ cover: PDFCoverSheet, geometry: PDFPageGeometry) {
+        self.cover = (cover, geometry)
+    }
+
+    /// The named destination at the top of the first page of `pending[index]`.
+    private static func destinationName(_ index: Int) -> String { "section-\(index + 1)" }
 
     /// How many rows a table is measured between suspensions. Two hundred rows is a few
     /// thousand `boundingRect`s, short enough that the run loop is never starved and long
@@ -1287,16 +1308,47 @@ final class PDFDocumentBuilder {
             layouts.append(try await entry.sheet.layout(geometry: entry.geometry))
             progress?(Self.progressShare.measuring * Double(index + 1) / Double(max(1, pending.count)))
         }
-        let documentTotal = max(1, layouts.reduce(0) { $0 + $1.pageCount })
+        let coverPages = cover == nil ? 0 : 1
+        let documentTotal = max(1, coverPages + layouts.reduce(0) { $0 + $1.pageCount })
 
-        var pagesSoFar = 0
-        for (entry, layout) in zip(pending, layouts) {
+        /// Where each sheet starts, as a 1-based document page, now that every sheet is measured.
+        var firstPages: [Int] = []
+        var nextPage = coverPages + 1
+        for layout in layouts {
+            firstPages.append(nextPage)
+            nextPage += layout.pageCount
+        }
+
+        if let cover {
+            let contents = pending.indices.compactMap { index -> PDFContentsEntry? in
+                guard let title = pending[index].contentsTitle else { return nil }
+                return PDFContentsEntry(title: title, destination: Self.destinationName(index),
+                                        page: firstPages[index])
+            }
+            PDFTableRenderer.renderCover(cover.sheet, contents: contents, producedOn: producedOn,
+                                         documentTotal: documentTotal,
+                                         into: context, geometry: cover.geometry)
+            PDFTableRenderer.setOutline(contents, coverTitle: cover.sheet.contentsHeading, context: context)
+            try Task.checkCancellation()
+            await Task.yield()
+        }
+
+        var pagesSoFar = coverPages
+        for (index, (entry, layout)) in zip(pending, layouts).enumerated() {
             let base = pagesSoFar
+            /// The contents links jump to the top of each sheet's first page. A destination is
+            /// added to the page being drawn, so it is set here: the footer is asked for while
+            /// its page is still open, exactly once per page, for tables and stacks alike.
+            let destination = cover != nil && entry.contentsTitle != nil ? Self.destinationName(index) : nil
+            let pageTop = CGPoint(x: 0, y: entry.geometry.pageSize.height)
             try await entry.sheet.render(into: context, geometry: entry.geometry, layout: layout) {
                 sectionPage, sectionTotal in
-                .sectioned(sectionPage: sectionPage, sectionTotal: sectionTotal,
-                           documentPage: base + sectionPage, documentTotal: documentTotal,
-                           producedOn: self.producedOn)
+                if sectionPage == 1, let destination {
+                    self.context.addDestination(destination as CFString, at: pageTop)
+                }
+                return .sectioned(sectionPage: sectionPage, sectionTotal: sectionTotal,
+                                  documentPage: base + sectionPage, documentTotal: documentTotal,
+                                  producedOn: self.producedOn)
             } afterPage: { sectionPage, _ in
                 progress?(Self.progressShare.measuring
                           + (1 - Self.progressShare.measuring)
@@ -1313,6 +1365,176 @@ final class PDFDocumentBuilder {
     /// How `finish` divides its progress between its two passes, weighted to the work each
     /// does: measuring is the smaller share, and drawing the larger.
     static let progressShare = (measuring: 0.2, drawing: 0.8)
+}
+
+// MARK: - Cover
+
+/// The library PDF's opening page, drawn by `PDFTableRenderer.renderCover`: the app icon,
+/// large and centered, the title under it, a line or two about the document, then the table of
+/// contents. The builder adds the page count and the production stamp it puts in every footer.
+struct PDFCoverSheet {
+    var title: String
+    /// Facts about the document, joined on one line under the title ("1,408 films"). The
+    /// builder appends the page count.
+    var details: [String]
+    /// Small print at the foot of the page (the app's name and version).
+    var footnote: String?
+    /// The table of contents' heading, and the cover's own entry in the document outline.
+    var contentsHeading = "Contents"
+}
+
+/// One line of the cover's table of contents.
+struct PDFContentsEntry {
+    var title: String
+    /// The named destination at the top of the sheet's first page.
+    var destination: String
+    /// The sheet's first page, counted from 1 across the whole document.
+    var page: Int
+}
+
+extension PDFTableRenderer {
+    // MARK: Cover rendering
+
+    /// Draws the cover as its own page. The page carries no heading banner (the large icon and
+    /// title replace it) and no footer: it states the production stamp in its body, and the
+    /// first page of a document needs no page number.
+    ///
+    /// Each contents line is a link (`setDestination(_:for:)`) to the named destination the
+    /// builder sets at the top of that sheet's first page. Named, so the link does not depend on
+    /// page objects that do not exist yet when the cover is drawn.
+    static func renderCover(
+        _ cover: PDFCoverSheet,
+        contents: [PDFContentsEntry],
+        producedOn: String,
+        documentTotal: Int,
+        into context: CGContext,
+        geometry: PDFPageGeometry
+    ) {
+        let priorContext = NSGraphicsContext.current
+        defer { NSGraphicsContext.current = priorContext }
+        beginPage(context, geometry: geometry)
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+
+        let page = geometry.pageSize
+        let titleFont = PDFFonts.font(size: 30, weight: .bold)
+        let detailFont = PDFFonts.font(size: 12, weight: .regular)
+        let headingFont = PDFFonts.font(size: 14, weight: .semibold)
+        let entryFont = PDFFonts.font(size: 13, weight: .regular)
+        let numberFont = PDFFonts.monospacedFont(size: 13, weight: .regular)
+        let hintFont = PDFFonts.font(size: 9, weight: .regular)
+        let footnoteFont = PDFFonts.font(size: 8, weight: .regular)
+
+        let iconSize: CGFloat = 150
+        let detailLine = (cover.details + [Fmt.count(documentTotal, "page")]).joined(separator: "  \u{00B7}  ")
+        let contentsWidth: CGFloat = 400
+        let entryHeight: CGFloat = 22
+        let hint = "Click a section to go to it."
+
+        /// The block's height, top to bottom, so it can sit centered on the page.
+        let titleHeight = ceil(titleFont.ascender - titleFont.descender)
+        let detailHeight = ceil(detailFont.ascender - detailFont.descender) + 3
+        let headingHeight = ceil(headingFont.ascender - headingFont.descender)
+        let hintHeight = ceil(hintFont.ascender - hintFont.descender)
+        let blockHeight = iconSize + 14 + titleHeight + 8 + detailHeight * 2 + 30
+            + headingHeight + 8 + entryHeight * CGFloat(contents.count) + 8 + hintHeight
+        let usableTop = page.height - geometry.margin
+        let usableBottom = geometry.margin + geometry.footerReserve
+        var top = min(usableTop, (usableTop + usableBottom + blockHeight) / 2)
+
+        /// One line of text whose top edge is at `top`, centered unless `x` is given.
+        func line(_ text: String, font: NSFont, color: NSColor, top: CGFloat, x: CGFloat? = nil) -> CGRect {
+            let attributed = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
+            let size = attributed.size()
+            let rect = CGRect(x: x ?? (page.width - size.width) / 2, y: top - size.height,
+                              width: ceil(size.width) + 1, height: size.height)
+            context.saveGState()
+            attributed.draw(in: rect)
+            context.restoreGState()
+            return rect
+        }
+
+        if let icon = PDFBrandMark.image {
+            PDFDrawing.drawImage(icon, in: CGRect(x: (page.width - iconSize) / 2, y: top - iconSize,
+                                                  width: iconSize, height: iconSize), context: context)
+        }
+        top -= iconSize + 14
+        top = line(cover.title, font: titleFont, color: PDFPalette.text, top: top).minY - 8
+        top = line(detailLine, font: detailFont, color: PDFPalette.secondaryText, top: top).minY - 3
+        top = line(producedOn, font: detailFont, color: PDFPalette.secondaryText, top: top).minY - 30
+
+        let left = (page.width - contentsWidth) / 2
+        let right = left + contentsWidth
+        top = line(cover.contentsHeading, font: headingFont, color: PDFPalette.text, top: top, x: left).minY - 4
+        context.saveGState()
+        context.setStrokeColor(PDFPalette.border.cgColor)
+        context.setLineWidth(0.75)
+        context.move(to: CGPoint(x: left, y: top))
+        context.addLine(to: CGPoint(x: right, y: top))
+        context.strokePath()
+        context.restoreGState()
+        top -= 4
+
+        for entry in contents {
+            let row = CGRect(x: left, y: top - entryHeight, width: contentsWidth, height: entryHeight)
+            let number = NSAttributedString(string: "\(entry.page)",
+                                            attributes: [.font: numberFont, .foregroundColor: PDFPalette.text])
+            let numberWidth = ceil(number.size().width)
+            /// The title is clipped short of the leader and the number, so a long one cannot run under them.
+            let titleText = NSAttributedString(string: entry.title,
+                                               attributes: [.font: entryFont, .foregroundColor: PDFPalette.text,
+                                                            .paragraphStyle: PDFParagraphStyles.style(
+                                                                alignment: .left, lineSpacing: 0, lineBreak: .byTruncatingTail)])
+            let textHeight = titleText.size().height
+            let textY = row.midY - textHeight / 2
+            let titleWidth = min(ceil(titleText.size().width) + 1, contentsWidth - numberWidth - 24)
+            context.saveGState()
+            titleText.draw(in: CGRect(x: left, y: textY, width: titleWidth, height: textHeight))
+            number.draw(in: CGRect(x: right - numberWidth, y: textY, width: numberWidth + 1, height: textHeight))
+            /// A dotted leader from the title to its page number, on the text's baseline. Drawn as
+            /// filled dots, ending flush with the number: a zero-length round-capped dash pattern,
+            /// the usual shortcut, is dropped from the PDF.
+            let baseline = textY - entryFont.descender
+            let leaderEnd = right - numberWidth - 6
+            let pitch: CGFloat = 4
+            var x = leaderEnd
+            context.setFillColor(PDFPalette.secondaryText.cgColor)
+            while x >= left + titleWidth + 6 {
+                context.addEllipse(in: CGRect(x: x - 0.6, y: baseline + 0.4, width: 1.2, height: 1.2))
+                x -= pitch
+            }
+            context.fillPath()
+            context.restoreGState()
+            context.setDestination(entry.destination as CFString, for: row)
+            top -= entryHeight
+        }
+
+        if !contents.isEmpty {
+            _ = line(hint, font: hintFont, color: PDFPalette.secondaryText, top: top - 8, x: left)
+        }
+
+        if let footnote = cover.footnote {
+            let attributed = NSAttributedString(string: footnote,
+                                                attributes: [.font: footnoteFont, .foregroundColor: PDFPalette.footerText])
+            let size = attributed.size()
+            context.saveGState()
+            attributed.draw(in: CGRect(x: (page.width - size.width) / 2, y: geometry.margin - 20,
+                                       width: ceil(size.width) + 1, height: size.height))
+            context.restoreGState()
+        }
+
+        context.endPDFPage()
+    }
+
+    /// The document outline, Preview's Table of Contents sidebar: the cover, then every
+    /// contents entry, each opening its page. Pages are counted from 1, as the outline expects.
+    static func setOutline(_ contents: [PDFContentsEntry], coverTitle: String, context: CGContext) {
+        let cover: [String: Any] = [kCGPDFOutlineTitle as String: coverTitle,
+                                    kCGPDFOutlineDestination as String: 1]
+        let children = [cover] + contents.map {
+            [kCGPDFOutlineTitle as String: $0.title, kCGPDFOutlineDestination as String: $0.page] as [String: Any]
+        }
+        CGPDFContextSetOutline(context, [kCGPDFOutlineChildren as String: children] as CFDictionary)
+    }
 }
 
 // MARK: - Sheet

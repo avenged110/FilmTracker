@@ -6,7 +6,7 @@
 ///  • SUMMARY: a row of labeled figures a view supplies (StatusBarSummary), in a style it picks
 ///    (StatusBarSummaryStyle).
 /// A view may show either row alone (one row high) or both stacked (two rows high), and the summary row is
-/// always on top. The Reports Purchase Tracker tab shows both.
+/// always on top. The Reports Purchase Tracker and Hall of Fame tabs show both.
 ///
 /// Everything about the bar lives in this file: its rows, metrics, chrome (background and top divider; stacked
 /// rows have no divider between them), the summary contents and styles, and how much room content leaves for it.
@@ -111,11 +111,13 @@ struct CurrentStatusBar: DynamicProperty {
 enum StatusBarSummary: Hashable, Sendable {
     /// The Purchase Tracker's Cost and Spent totals, spent-to-cost percentage, and average cost.
     case purchaseTotals
+    /// The Hall of Fame's films by best format owned, then by rating, each with its share of the whole list.
+    case hallOfFameTotals
 
     /// How the row sets its items apart.
     var style: StatusBarSummaryStyle {
         switch self {
-        case .purchaseTotals: return .chips
+        case .purchaseTotals, .hallOfFameTotals: return .chips
         }
     }
 
@@ -132,16 +134,47 @@ enum StatusBarSummary: Hashable, Sendable {
                     StatusBarItem(label: "Total Spent", value: Fmt.dollars(totals.totalSpent)),
                     StatusBarItem(label: "Percentage Spent", value: percent),
                     StatusBarItem(label: "Average Cost", value: average)]
+        case .hallOfFameTotals:
+            let totals = reportsState.hallOfFameTotals
+            /// "57 (23%)": a count and its share of the whole Hall of Fame. A format chip shows only when a film's best owned format is that one.
+            func share(_ count: Int) -> String {
+                let percent = totals.total > 0 ? Fmt.percentText(Double(count) / Double(totals.total)) : "—"
+                return "\(Fmt.count(count)) (\(percent))"
+            }
+            var items = totals.owned.map {
+                StatusBarItem(id: "format-\($0.format.rawValue)", text: "\($0.format.rawValue): \(share($0.count))")
+            }
+            if totals.notOwned > 0 {
+                items.append(StatusBarItem(id: "not-owned", text: "Unpurchased: \(share(totals.notOwned))"))
+            }
+            items += totals.ratings.map {
+                StatusBarItem(id: "rating-\($0.rating)", text: "\($0.rating): \(share($0.count))",
+                              symbol: "star.fill", symbolColor: Color(nsColor: RatingStarTint.color(for: $0.rating)))
+            }
+            return items
         }
     }
 }
 
-/// One labeled figure in a summary row, shown as "Label: value".
+/// One figure in a summary row: its text, after an optional leading SF Symbol in its own color.
 struct StatusBarItem: Hashable {
-    let label: String
-    let value: String
+    /// Unique within its row.
+    let id: String
+    let text: String
+    var symbol: String? = nil
+    var symbolColor: Color? = nil
 
-    var text: String { "\(label): \(value)" }
+    /// A labeled figure, shown as "Label: value".
+    init(label: String, value: String) {
+        self.init(id: label, text: "\(label): \(value)")
+    }
+
+    init(id: String, text: String, symbol: String? = nil, symbolColor: Color? = nil) {
+        self.id = id
+        self.text = text
+        self.symbol = symbol
+        self.symbolColor = symbolColor
+    }
 }
 
 /// How a summary row sets its items apart. Each summary picks one (StatusBarSummary.style).
@@ -251,8 +284,15 @@ private struct StatusBarChips: View {
 
     var body: some View {
         HStack(spacing: StatusBar.chipSpacing) {
-            ForEach(items, id: \.label) { item in
-                Text(item.text)
+            ForEach(items, id: \.id) { item in
+                HStack(spacing: 2) {
+                    if let symbol = item.symbol {
+                        Image(systemName: symbol)
+                            .imageScale(.small)
+                            .foregroundStyle(item.symbolColor ?? .secondary)
+                    }
+                    Text(item.text)
+                }
                     .fixedSize()
                     .padding(StatusBar.chipPadding)
                     .background(StatusBar.chipFill,

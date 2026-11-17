@@ -215,6 +215,15 @@ final class MemoryStore: Loggable {
     func validateCacheAndFinalize() async {
         guard !isInitialized else { return }
         guard !films.isEmpty else {
+            /// The cache file can still describe a library that is gone: one replaced by a new
+            /// empty library, an empty restore, or a delete-all that crashed before the save.
+            /// Left loaded, its entries would put films that do not exist into Recents for the
+            /// whole session, and the shutdown save would write them back.
+            if !MetadataCache.shared.metadata.isEmpty {
+                Self.log("Library is empty — clearing \(MetadataCache.shared.metadata.count) stale MetadataCache entries")
+                await MetadataCache.shared.rebuild(from: [:])
+                scheduleThrottledSave()
+            }
             isInitialized = true
             Self.log("Phase 2 complete (no films)")
             return
@@ -248,29 +257,17 @@ final class MemoryStore: Loggable {
             let rebuildDuration = Date().timeIntervalSince(rebuildStart)
             Self.log("Full rebuild in \(Fmt.fixed(rebuildDuration * 1000, 1))ms")
             scheduleThrottledSave()
-        } else if cacheCount != films.count {
-            Self.log("Cache count mismatch (cache: \(cacheCount), films: \(films.count)) — incremental update...")
-            await MetadataCache.shared.incrementalUpdate(from: films)
+        } else if let mismatch = metadataMismatch(cacheCount: cacheCount) {
+            /// The metadata file was not saved with this snapshot, so any entry may describe an
+            /// older version of its film, not only the missing or extra ones. A full rebuild is the
+            /// only repair that covers that (about 50 ms off the main actor at 1,400 films).
+            Self.log("MetadataCache does not match the snapshot cache (\(mismatch)) — performing full rebuild...")
+            let rebuildStart = Date()
+            await MetadataCache.shared.rebuild(from: films)
+            Self.log("Full rebuild in \(Fmt.fixed(Date().timeIntervalSince(rebuildStart) * 1000, 1))ms")
             scheduleThrottledSave()
         } else {
-            /// Cache hit with matching counts. Both caches are written in the same throttled save, so
-            /// they agree. A spot check catches a cache file with the right count but different keys.
-            let filmIDs = Array(films.keys.prefix(5))
-            var needsRebuild = false
-            for id in filmIDs {
-                if MetadataCache.shared.metadata[id] == nil {
-                    needsRebuild = true
-                    break
-                }
-            }
-
-            if needsRebuild {
-                Self.log("Cache spot check failed — incremental update...")
-                await MetadataCache.shared.incrementalUpdate(from: films)
-                scheduleThrottledSave()
-            } else {
-                Self.log("Cache validated — no rebuild needed")
-            }
+            Self.log("Cache validated — no rebuild needed")
         }
 
         isInitialized = true
@@ -279,6 +276,30 @@ final class MemoryStore: Loggable {
         Self.log("Phase 2 complete in \(Fmt.fixed(totalDuration, 2))s - memory store ready")
     }
     
+    /// Why the loaded MetadataCache cannot be trusted beside the snapshot cache hit, or nil when
+    /// it can. The deciding test is the pairing ID (StoredFingerprintFile): the snapshot cache
+    /// records the ID of the metadata file saved with it. The count and a spot check of a few
+    /// keys remain as cheap backstops.
+    private func metadataMismatch(cacheCount: Int) -> String? {
+        let loadedID = MetadataCache.shared.loadedFileID
+        let pairedID = MemoryStoreCache.shared.loadedMetadataFileID
+        if loadedID == nil || loadedID != pairedID {
+            return "file \(loadedID?.uuidString ?? "unrecorded"), snapshot paired with \(pairedID?.uuidString ?? "none")"
+        }
+        if cacheCount != films.count {
+            return "count \(cacheCount) ≠ \(films.count) films"
+        }
+        /// load() checked the file's threshold; this covers a default changed since, which
+        /// DataCoordinator leaves to startup (handleDefaultRotationThresholdChangeIfNeeded).
+        if !MetadataCache.shared.entriesFollowRotationThreshold(Preferences.defaultRotationThreshold) {
+            return "entries follow another default rotation threshold"
+        }
+        if films.keys.prefix(5).contains(where: { MetadataCache.shared.metadata[$0] == nil }) {
+            return "spot check found a film with no entry"
+        }
+        return nil
+    }
+
     // MARK: - Data Loading
     
     /// Loads all Films and Lists from the store, converting each model object to a snapshot as
@@ -375,8 +396,7 @@ final class MemoryStore: Loggable {
     /// Writes both derived caches from this store's current state. The files are independent, so
     /// the writes run concurrently. Callers must check `cachePersistenceSuspended` first.
     private func flushCaches() async {
-        /// Read into locals on MainActor, not inside the `async let` initializers: those run in a
-        /// child task without this actor's isolation. The locals keep a reference during the write,
+        /// Read into locals on MainActor, in one synchronous step. The locals keep a reference during the write,
         /// so a mutation mid-encode pays one copy-on-write copy. `filmToLists` is not captured, since
         /// it is not persisted (the cache rebuilds it from `lists` on load).
         let filmsPayload = films
@@ -384,11 +404,14 @@ final class MemoryStore: Loggable {
         /// Read in the same synchronous step as the payload it names (see contentVersion).
         let payloadVersion = contentVersion
 
-        async let metadataSave: Void = MetadataCache.shared.save()
-        async let snapshotSave: Void = MemoryStoreCache.shared.save(
-            films: filmsPayload, lists: listsPayload, contentVersion: payloadVersion)
-        await metadataSave
-        await snapshotSave
+        /// The snapshot save records the ID of the metadata file this save leaves on disk
+        /// (StoredFingerprintFile). It encodes and writes its payload while the metadata save runs,
+        /// and waits for that ID only to write its small fingerprint file.
+        let metadataSave = Task { await MetadataCache.shared.save() }
+        await MemoryStoreCache.shared.save(
+            films: filmsPayload, lists: listsPayload, contentVersion: payloadVersion,
+            metadataFileID: metadataSave)
+        _ = await metadataSave.value
     }
 
     /// Immediate save, for shutdown. Cancels the pending throttled task first, so it cannot wake
@@ -411,6 +434,7 @@ final class MemoryStore: Loggable {
             return
         }
 
+        flushDeferredMetadata()
         await flushCaches()
     }
     
@@ -469,7 +493,7 @@ final class MemoryStore: Loggable {
         /// one release format sorts Date Last Purchased by that format's purchases only, so it keeps its own.
         let cacheViewID: ViewIdentifier
         switch viewID {
-        case .savedSearch, .smartList, .unwatched, .recents, .reports, .search:
+        case .savedSearch, .tag, .smartList, .unwatched, .recents, .reports, .search:
             cacheViewID = viewID.purchaseFormatScope == nil ? .allFilms : viewID
         case .allFilms, .list, .filmQueue, .imports:
             cacheViewID = viewID
@@ -495,7 +519,7 @@ final class MemoryStore: Loggable {
             /// The Film Queue orders films by section (Up Next → Soon → Later) via the
             /// grouped path below, not by a flat union sort; Imports shows no films.
             baseFilmIDs = []
-        case .allFilms, .smartList, .unwatched, .recents, .reports, .search, .savedSearch:
+        case .allFilms, .smartList, .unwatched, .recents, .reports, .search, .savedSearch, .tag:
             baseFilmIDs = Array(films.keys)
         }
         
@@ -667,13 +691,21 @@ final class MemoryStore: Loggable {
     /// The entries are built on a utility-priority task, keeping the main actor free. A film
     /// edited during the build keeps the entry its edit produced, and a canceled caller applies nothing.
     func refreshRotationDerivedMetadata() async {
+        let threshold = Preferences.defaultRotationThreshold
         let affected = films.values.filter { $0.rotationThresholdOverride == nil }
-        guard !affected.isEmpty else { return }
+        guard !affected.isEmpty else {
+            /// No entry follows the default, so every one already agrees with it.
+            MetadataCache.shared.markRotationThreshold(threshold)
+            scheduleThrottledSave()
+            return
+        }
         let built = await Task.detached(priority: .utility) {
             affected.map { ($0, FilmMetadata(from: $0)) }
         }.value
         guard !Task.isCancelled else { return }
         MetadataCache.shared.setEntries(built.compactMap { films[$0.0.id] == $0.0 ? $0.1 : nil })
+        /// A film edited during the build kept the entry its edit built, under the same default.
+        MetadataCache.shared.markRotationThreshold(threshold)
         scheduleThrottledSave()
     }
 
@@ -733,6 +765,88 @@ final class MemoryStore: Loggable {
         if ranksMoved { rebuildHallOfFame() }
         scheduleThrottledSave()
         Self.log("Updated \(stored.count) film(s)")
+    }
+
+    // MARK: - Deferred Metadata
+
+    /// Why this exists (2026-11-16): a wishlist drag renumbers every film on the wishlist, and
+    /// rebuilding their MetadataCache entries was most of the drop's remaining main-thread cost.
+    /// No FilmMetadata field reads `wishlist`, so the rebuild changed nothing. Skipping it outright
+    /// would be correct today but would silently go stale if a field ever did read it, so the
+    /// rebuild runs here instead: deferred, off the main actor, and applied only where an entry
+    /// actually differs. Today it applies nothing and leaves the metadata file unwritten.
+    ///
+    /// Films whose entries still need a deferred rebuild, and the task that will do it.
+    private var deferredMetadataIDs: Set<UUID> = []
+    private var deferredMetadataTask: Task<Void, Never>?
+
+    /// updateFilms(_:) for edits that cannot change a film's FilmMetadata (wishlist renumbering):
+    /// the snapshots, view caches and save are handled now; the metadata entries one quiet second
+    /// later, in the background (refreshDeferredMetadata). A rank change must not come through
+    /// here, since this skips the Hall of Fame rebuild.
+    func updateFilmsDeferringMetadata(_ snapshots: [FilmSnapshot]) {
+        var listsToInvalidate: Set<UUID> = []
+        var count = 0
+        for snapshot in snapshots {
+            guard let existing = films[snapshot.id] else {
+                Self.log("WARNING: Tried to update non-existent film: \(snapshot.id)")
+                continue
+            }
+            assert(snapshot.hofPosition == existing.hofPosition, "Rank changes need updateFilms(_:)")
+            films[snapshot.id] = snapshot
+            deferredMetadataIDs.insert(snapshot.id)
+            if let listIDs = filmToLists[snapshot.id] { listsToInvalidate.formUnion(listIDs) }
+            count += 1
+        }
+        guard count > 0 else { return }
+        invalidateCacheForAllFilms()
+        for listID in listsToInvalidate { invalidateCacheForList(listID) }
+        scheduleThrottledSave()
+
+        /// Restarted on every call, so a run of drags rebuilds once, after the last.
+        deferredMetadataTask?.cancel()
+        deferredMetadataTask = Task(priority: .utility) { [weak self] in
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            await self?.refreshDeferredMetadata()
+        }
+        Self.log("Updated \(count) film(s), metadata deferred")
+    }
+
+    /// Builds the deferred entries on a utility task and stores only those that differ from the
+    /// cached ones. An ID leaves the pending set only once its result is known to describe the
+    /// film's current snapshot; a film edited during the build stays pending (a later deferred
+    /// write reschedules it, and the shutdown flush catches the rest).
+    private func refreshDeferredMetadata() async {
+        let work: [(snapshot: FilmSnapshot, cached: FilmMetadata?)] = deferredMetadataIDs.compactMap { id in
+            films[id].map { ($0, MetadataCache.shared.metadata[id]) }
+        }
+        guard !work.isEmpty else { deferredMetadataIDs = []; return }
+        let results = await Task.detached(priority: .utility) {
+            work.map { item -> (snapshot: FilmSnapshot, entry: FilmMetadata?) in
+                let entry = FilmMetadata(from: item.snapshot)
+                return (item.snapshot, entry == item.cached ? nil : entry)
+            }
+        }.value
+        var changed: [FilmMetadata] = []
+        for result in results where films[result.snapshot.id] == result.snapshot {
+            deferredMetadataIDs.remove(result.snapshot.id)
+            if let entry = result.entry { changed.append(entry) }
+        }
+        guard !changed.isEmpty else { return }
+        MetadataCache.shared.setEntries(changed)
+        scheduleThrottledSave()
+        Self.log("Deferred metadata refresh stored \(changed.count) changed entr\(changed.count == 1 ? "y" : "ies")")
+    }
+
+    /// Runs any pending deferred rebuild synchronously, for the shutdown save.
+    private func flushDeferredMetadata() {
+        deferredMetadataTask?.cancel()
+        deferredMetadataTask = nil
+        guard !deferredMetadataIDs.isEmpty else { return }
+        let changed = deferredMetadataIDs.compactMap { films[$0].map(FilmMetadata.init(from:)) }
+            .filter { $0 != MetadataCache.shared.metadata[$0.id] }
+        deferredMetadataIDs = []
+        if !changed.isEmpty { MetadataCache.shared.setEntries(changed) }
     }
 
     /// Deletes films from the store, pruning their list memberships and — when any of them
@@ -939,8 +1053,8 @@ final class MemoryStore: Loggable {
         let keysToRemove = cachedViews.keys.filter { key in
             switch key.viewID {
             case .allFilms, .smartList, .unwatched, .recents, .reports, .imports, .search, .filmQueue,
-                 .savedSearch:
-                /// (.savedSearch never keys a cache entry; getFilms maps it to .allFilms.)
+                 .savedSearch, .tag:
+                /// (.savedSearch and .tag never key a cache entry; getFilms maps them to .allFilms.)
                 /// .filmQueue and .unwatched are whole-library views: a film's sort keys, watched
                 /// flag, or rating can change without any list mutation.
                 return true
@@ -1315,14 +1429,19 @@ final class MemoryStore: Loggable {
         /// The `id` tiebreak makes the order total. Sorting on `hofPosition` alone is not
         /// deterministic when positions collide, and Swift's sort is not stable.
         /// compactHallOfFamePositions() then resolves collisions.
-        let hofFilms = films.values
-            .filter { $0.hofPosition > 0 }
+        ///
+        /// Sorts (position, id) pairs, not snapshots: every comparison copied two whole FilmSnapshots, which made this sort most of a
+        /// Hall of Fame drag's cost (about 20 ms of a 23 ms drop for 198 members, Debug build).
+        let ranked: [(position: Int, id: UUID)] = films.values.compactMap { film in
+            film.hofPosition > 0 ? (film.hofPosition, film.id) : nil
+        }
+        hallOfFameFilms = ranked
             .sorted {
-                $0.hofPosition == $1.hofPosition
+                $0.position == $1.position
                     ? $0.id.uuidString < $1.id.uuidString
-                    : $0.hofPosition < $1.hofPosition
+                    : $0.position < $1.position
             }
-        hallOfFameFilms = hofFilms.map { $0.id }
+            .map(\.id)
         Self.log("Rebuilt hall of fame: \(hallOfFameFilms.count) films")
     }
 }

@@ -49,6 +49,7 @@ extension DebugHarness {
         case "gallery-edit-refresh": return await galleryEditRefreshScenario(coordinator: coordinator)
         case "gallery-reload-economy": return await galleryReloadEconomyScenario(coordinator: coordinator)
         case "appkit-scroll-settle": return await appKitScrollSettleScenario()
+        case "sidebar-tags":        return await sidebarTagsScenario(coordinator: coordinator)
         default:                    return nil
         }
     }
@@ -1420,6 +1421,207 @@ extension DebugHarness {
         }
     }
 
+    // MARK: - Scenario: Sidebar Tags
+
+    /// The sidebar's Tags section on the sandbox library, in the real main window. Not in any
+    /// suite; run by name.
+    ///
+    /// - Every tag's films (SidebarTags.filmIDs, read from MetadataCache's stored keys) and the
+    ///   ranking (SidebarTags.mostUsed) equal a naive recount that folds every tag afresh.
+    /// - A tag's view shows exactly its films.
+    /// - Respelling a tag on every film that carries it (a case-only change) while its view is
+    ///   open keeps the view, its sidebar highlight and its films; navigating to the new
+    ///   spelling is no transition (SidebarTag compares by key).
+    /// - A film that loses the tag leaves the open view; hiding the section returns to All Films.
+    /// - Metrics: the cached-key and naive costs of a membership and a ranking, on this library.
+    static func sidebarTagsScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+        var r = HarnessScenarioResult(scenario: "sidebar-tags")
+        guard let appState = AppDelegate.appState,
+              let window = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.styleMask.contains(.titled) })
+        else {
+            r.check("real-window", false, "no app state or main window")
+            return r
+        }
+        func settle(_ ms: Int) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        func ms(_ body: () -> Void) -> Double {
+            let start = ContinuousClock.now
+            body()
+            return milliseconds(ContinuousClock.now - start)
+        }
+        func median(_ runs: Int, _ body: () -> Void) -> Double {
+            (0..<runs).map { _ in ms(body) }.sorted()[runs / 2]
+        }
+        let countBefore = Preferences.showTagsInSidebar
+        Preferences.showTagsInSidebar = .ten
+        defer { Preferences.showTagsInSidebar = countBefore }
+        await settle(600)
+
+        /// The rule, folded afresh: a film carries a tag when one of its tags has its key.
+        func naiveIDs(_ key: String, _ films: [FilmSnapshot]) -> Set<UUID> {
+            Set(films.filter { $0.tags.contains { SearchText.key($0) == key } }.map(\.id))
+        }
+        func naiveRanking(_ films: [FilmSnapshot]) -> [String] {
+            var spellings: [String: [String: Int]] = [:]
+            for film in films {
+                var seen: Set<String> = []
+                for tag in film.tags {
+                    let key = SearchText.key(tag)
+                    guard !key.isEmpty, seen.insert(key).inserted else { continue }
+                    spellings[key, default: [:]][tag.trimmingCharacters(in: .whitespacesAndNewlines), default: 0] += 1
+                }
+            }
+            var counted: [(key: String, display: String, uses: Int)] = []
+            for (key, uses) in spellings {
+                let best = uses.min { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+                counted.append((key, best?.key ?? key, uses.values.reduce(0, +)))
+            }
+            counted.sort { $0.uses != $1.uses ? $0.uses > $1.uses : $0.key < $1.key }
+            return counted.map(\.display)
+        }
+
+        // Correctness on the whole library.
+        let films = coordinator.getAllFilms()
+        let tagged = films.filter { !$0.tags.isEmpty }
+        let uncached = tagged.filter { film in
+            guard let keys = MetadataCache.shared.getTextSearchKeys(for: film.id)?.tags else { return true }
+            return keys.split(separator: "\n", omittingEmptySubsequences: false).count != film.tags.count
+        }
+        r.check("library/has-tags", !tagged.isEmpty, "\(films.count) films, \(tagged.count) tagged")
+        r.check("library/cache-covers-tagged-films", uncached.isEmpty,
+                "\(uncached.count) tagged film(s) fall back to folding")
+        let ranking = SidebarTags.mostUsed(Int.max, in: coordinator)
+        r.check("ranking/equals-naive", ranking == naiveRanking(films), "\(ranking.count) tags")
+        var mismatched: [String] = []
+        for name in ranking {
+            let tag = SidebarTag(name)
+            if SidebarTags.filmIDs(taggedWith: tag, in: films) != naiveIDs(tag.key, films) { mismatched.append(name) }
+        }
+        r.check("membership/every-tag-equals-naive", mismatched.isEmpty,
+                mismatched.isEmpty ? "\(ranking.count) tags" : mismatched.prefix(5).joined(separator: ", "))
+        r.check("identity/persistence-key-shared",
+                ViewIdentifier.tag(SidebarTag("Film Noir")).persistenceKey == ViewIdentifier.tag(SidebarTag(" FILM  noir ")).persistenceKey
+                    && SidebarItem.tag(SidebarTag("Noir")) == SidebarItem.tag(SidebarTag("NOIR")))
+
+        // Costs.
+        if let top = ranking.first {
+            let tag = SidebarTag(top)
+            r.metric("membership/cached-keys", median(7) { _ = SidebarTags.filmIDs(taggedWith: tag, in: films) }, "ms")
+            r.metric("membership/naive-fold", median(7) { _ = naiveIDs(tag.key, films) }, "ms")
+            r.metric("membership/resolve-full", median(7) { _ = coordinator.viewHasFilmsBeforeFilters(.tag(tag)) }, "ms")
+        }
+        r.metric("ranking/naive-fold", median(5) { _ = naiveRanking(films) }, "ms")
+        r.metric("ranking/cached-hit", median(7) { _ = SidebarTags.mostUsed(10, in: coordinator) }, "ms")
+
+        // The drift subject: a top-ten tag in one spelling on few enough films to respell quickly.
+        let top10 = Array(ranking.prefix(10))
+        func carriers(_ key: String) -> [FilmSnapshot] {
+            coordinator.getAllFilms().filter { $0.tags.contains { SearchText.key($0) == key } }
+        }
+        guard let subject = top10.reversed().first(where: { name in
+                  let list = carriers(SidebarTag(name).key)
+                  return list.count <= 80 && list.count >= 2
+                      && name.uppercased() != name
+                      && list.allSatisfy { $0.tags.contains(name) }
+              })
+        else {
+            r.skip("drift", "no top-ten tag in one spelling on 2–80 films")
+            return r
+        }
+        let tag = SidebarTag(subject)
+        let respelled = subject.uppercased()
+        r.metric("drift/subject-films", Double(carriers(tag.key).count), "films")
+
+        // Open the tag's view.
+        appState.navigate(to: .tag(tag))
+        await settle(1200)
+        let expected = SidebarTags.filmIDs(taggedWith: tag, in: coordinator.getAllFilms())
+        r.check("view/opened", ViewStateManager.shared.activeView == .tag(tag), "\(ViewStateManager.shared.activeView)")
+        r.check("view/shows-its-films", Set(coordinator.films.map(\.id)) == expected,
+                "shown \(coordinator.films.count), expected \(expected.count)")
+        let outline = findView(NSOutlineView.self, in: window.contentView)
+        /// The row the sidebar should highlight for `name`: the Tags section is last, its rows in
+        /// mostUsed order. The rows are scrolled into view first, since a lazy List row that has
+        /// never been drawn cannot take a programmatic selection (seen for every section).
+        func tagRowCheck(_ label: String, _ name: String) async {
+            guard let outline else { r.check(label, false, "no sidebar outline"); return }
+            outline.scrollRowToVisible(outline.numberOfRows - 1)
+            await settle(400)
+            let shown = SidebarTags.mostUsed(10, in: coordinator)
+            guard let index = shown.firstIndex(of: name) else { r.check(label, false, "\(name) not listed"); return }
+            let expectedRow = outline.numberOfRows - shown.count + index
+            r.check(label, outline.selectedRow == expectedRow,
+                    "highlight \(outline.selectedRow), expected \(expectedRow) of \(outline.numberOfRows)")
+        }
+        /// Control: programmatic navigation to the lowest row above the Tags section (a saved
+        /// search or user list) from the top, to tell a tag-only highlight problem from a List one.
+        if let outline {
+            let lowItem: SidebarItem? = SavedSearchStore.shared.searches.last.map { .savedSearch($0.id) }
+                ?? coordinator.cachedLists.last.map { .list($0.listID) }
+            if let lowItem {
+                appState.navigate(to: .libraryItem(.allFilms))
+                outline.scrollRowToVisible(0)
+                await settle(900)
+                appState.navigate(to: lowItem)
+                await settle(1200)
+                r.check("control/low-row-programmatic", true,
+                        "\(lowItem) → highlight \(outline.selectedRow) of \(outline.numberOfRows)")
+            }
+            /// Then open the tag as a user does: a click on its row.
+            appState.navigate(to: .libraryItem(.allFilms))
+            await settle(900)
+            outline.scrollRowToVisible(outline.numberOfRows - 1)
+            await settle(400)
+            let shown = SidebarTags.mostUsed(10, in: coordinator)
+            if let index = shown.firstIndex(of: subject) {
+                outline.selectRowIndexes([outline.numberOfRows - shown.count + index], byExtendingSelection: false)
+            }
+            await settle(1200)
+        }
+        r.check("click/opens-tag", appState.selectedSidebarItem == .tag(tag), "\(appState.selectedSidebarItem)")
+        await tagRowCheck("sidebar/row-highlighted", subject)
+
+        // Respell it on every film carrying it.
+        for var film in carriers(tag.key) {
+            film.tags = film.tags.map { SearchText.key($0) == tag.key ? respelled : $0 }
+            await coordinator.updateFilm(film)
+        }
+        await settle(1500)
+        let afterRanking = SidebarTags.mostUsed(10, in: coordinator)
+        r.check("drift/row-respelled", afterRanking.contains(respelled) && !afterRanking.contains(subject),
+                afterRanking.joined(separator: ", "))
+        if case .tag(let open) = appState.selectedSidebarItem {
+            r.check("drift/view-kept", open.name == subject && ViewStateManager.shared.activeView == .tag(tag),
+                    "open \(open.name), active \(ViewStateManager.shared.activeView)")
+        } else {
+            r.check("drift/view-kept", false, "left for \(appState.selectedSidebarItem)")
+        }
+        r.check("drift/films-kept", Set(coordinator.films.map(\.id)) == expected,
+                "shown \(coordinator.films.count), expected \(expected.count)")
+        await tagRowCheck("drift/row-still-highlighted", respelled)
+        appState.navigate(to: .tag(SidebarTag(respelled)))
+        await settle(600)
+        if case .tag(let open) = appState.selectedSidebarItem {
+            r.check("drift/new-spelling-is-same-view", open.name == subject, "open \(open.name)")
+        }
+
+        // A film that loses the tag leaves the open view.
+        if var leaver = carriers(tag.key).first {
+            leaver.tags.removeAll { SearchText.key($0) == tag.key }
+            await coordinator.updateFilm(leaver)
+            await settle(900)
+            r.check("edit/film-leaves-view", !coordinator.films.contains { $0.id == leaver.id }
+                        && coordinator.films.count == expected.count - 1,
+                    "shown \(coordinator.films.count), expected \(expected.count - 1)")
+        }
+
+        // Hiding the section leaves the tag for All Films.
+        Preferences.showTagsInSidebar = .hidden
+        await settle(900)
+        r.check("hide/returns-to-all-films", appState.selectedSidebarItem == .libraryItem(.allFilms),
+                "\(appState.selectedSidebarItem)")
+        return r
+    }
+
     /// The first view of `type` under `view`, depth first, that satisfies `test`.
     static func findView<T: NSView>(_ type: T.Type, in view: NSView?,
                                     where test: (T) -> Bool = { _ in true }) -> T? {
@@ -2400,7 +2602,7 @@ extension DebugHarness {
 // MARK: - Up Next Slots
 ///
 /// `upnext-slots` (opt-in, real main window): the "Up Next" cap and its empty slots
-/// (UpNextSlots.swift). The Queue's "All" tab draws one slot per vacancy after the "Up Next"
+/// (UpNextSlots.swift). The Queue's "All" and "Up Next" tabs draw one slot per vacancy after the "Up Next"
 /// films, in both gallery styles, numbered from the first vacancy; a row of nothing but slots
 /// is skipped by Up/Down; a full "Up Next" draws none; an empty one draws its own band and
 /// all eight. Adds past the cap are refused with an alert. The slot sheet searches with its
@@ -2513,7 +2715,32 @@ extension DebugHarness {
         let bands = allViews(window.contentView!).compactMap { $0 as? SectionDividerDecorationView }
         r.check("empty/own-band", bands.count >= 2, "\(bands.count) bands")
         snapshot("grid-empty-up-next")
-        _ = coordinator.addFilmsToList(filmIDs: upNext, listID: upNextID); await settle(900)
+
+        /// ---- The "Up Next" tab draws the same slots: all eight while it is empty (the gallery
+        /// mounts for them alone, in place of the empty-section placeholder), then the open ones
+        /// after its films, in both styles.
+        FilmQueueFilterState.shared.selectFilter(.upNext); await settle(1000)
+        slots = slotViews()
+        r.check("tab/empty-all-eight", slots.map(\.slotNumber) == Array(1...8), "\(slots.map(\.slotNumber))")
+        snapshot("tab-grid-empty")
+        _ = coordinator.addFilmsToList(filmIDs: upNext, listID: upNextID); await settle(1000)
+        slots = slotViews()
+        r.check("tab/grid-slots", slots.map(\.slotNumber) == [4, 5, 6, 7, 8], "\(slots.map(\.slotNumber))")
+        if let grid = allViews(window.contentView!).compactMap({ $0 as? GalleryCollectionView }).first,
+           let layout = grid.collectionViewLayout as? SmoothResizingGridLayout,
+           let last = layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 0))?.frame,
+           let slot4 = slots.first {
+            r.check("tab/slots-follow-films", slot4.frame.minY >= last.minY - 1, "slot 4 at \(slot4.frame.minY), film 3 at \(last.minY)")
+        }
+        snapshot("tab-grid-3-films")
+        manager.updateListViewStyle(true); await settle(1000)
+        if let table = allViews(window.contentView!).compactMap({ $0 as? DraggableListTableView }).first {
+            let cells = (0..<table.numberOfRows).compactMap { table.view(atColumn: 0, row: $0, makeIfNecessary: true) as? UpNextSlotListCell }
+            r.check("tab/list-slot-rows", cells.map(\.slotNumber) == [4, 5, 6, 7, 8], "\(cells.map(\.slotNumber))")
+        } else { r.check("tab/list-table", false, "no table") }
+        snapshot("tab-list-3-films")
+        manager.updateListViewStyle(false); await settle(900)
+        FilmQueueFilterState.shared.selectFilter(.all); await settle(900)
 
         /// ---- The slot sheet: its own search, leaving the gallery's alone.
         AppEventBus.shared.sendCommand(.openUpNextSlot); await settle(1200)

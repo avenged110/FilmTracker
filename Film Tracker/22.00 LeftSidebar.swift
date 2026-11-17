@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /// Navigation sidebar showing Library sections and user-created Lists.
 ///
-/// The sidebar lists the library's smart lists, Film Queue, Reports, Imports, and user lists.
-/// Its selection drives the gallery, and it also accepts drops onto lists and the Queue.
+/// The sidebar lists the Library sections, the smart lists, user lists, saved searches, and the
+/// most-used tags. Its selection drives the gallery, and it also accepts drops onto lists and the Queue.
 
 import SwiftUI
 import AppKit
@@ -16,17 +16,23 @@ struct LeftSidebar: View, Loggable {
     @Environment(AppState.self) private var appState
     @Environment(DataCoordinator.self) private var dataCoordinator
 
-    @State private var importsGlyphState: ImportsGlyphState = .normal
-    
     /// Local selection state - isolates the List binding from AppState
     @State private var localSelection: SidebarRow = .item(.libraryItem(.allFilms))
     
     /// Monitor Preferences.smartLists for real-time updates
     @AppStorage(preference: Preferences.smartListsKey) private var smartListsEnabled: Bool
+    /// The Tags section's length, 0 when hidden (Preferences.showTagsInSidebar).
+    @AppStorage(preference: Preferences.showTagsInSidebarKey) private var sidebarTagCount: Int
+
+    /// Read through the enum, as Preferences.showTagsInSidebar reads it, so a stored value it
+    /// does not name falls back to the default rather than listing that many tags.
+    private var tagCount: Preferences.SidebarTagCount {
+        Preferences.SidebarTagCount(rawValue: sidebarTagCount) ?? .ten
+    }
 
     var body: some View {
         List(selection: $localSelection) {
-            LibrarySection(importsGlyphState: importsGlyphState)
+            LibrarySection()
             
             if smartListsEnabled {
                 SmartListsSection()
@@ -42,6 +48,12 @@ struct LeftSidebar: View, Loggable {
             /// Shown once there is something in it.
             if !SavedSearchStore.shared.searches.isEmpty {
                 SavedSearchesSection()
+            }
+
+            /// Shown once there is something in it, as Saved Searches is. SidebarTagRecount, below,
+            /// keeps the rows; hidden, it keeps none.
+            if SidebarTagRows.shared.hasTags {
+                TagsSection()
             }
         }
         .listStyle(.sidebar)
@@ -67,7 +79,6 @@ struct LeftSidebar: View, Loggable {
                         primary.open(appState: appState, immediate: true)
                     } else {
                         appState.navigate(to: item)
-                        handleSelectionChange(newValue: item)
                     }
                 case .tab(let tab):
                     /// Selected exactly as its title-bar picker selects it. From another view the tab
@@ -82,13 +93,26 @@ struct LeftSidebar: View, Loggable {
                 appState.navigate(to: .libraryItem(.allFilms))
             }
         }
-        .onAppear {
-            ListRowActivityStore.shared.attach(appState)
+        .onChange(of: sidebarTagCount) { _, count in
+            /// Hiding the Tags section while a tag is on screen returns to All Films, as for smart lists.
+            if count == 0, case .tag = appState.selectedSidebarItem {
+                appState.navigate(to: .libraryItem(.allFilms))
+            }
         }
+        /// The tag rows are recounted out here, on the List, which is always on screen. A modifier of
+        /// its own, as SidebarSelectionSync is, so the film counts it reads invalidate only it.
+        .modifier(SidebarTagRecount(limit: tagCount.rawValue))
         /// No initialization task is needed. cachedLists is filled synchronously in
         /// finalizeInitialization(), so the rows appear in the same frame as the grid.
-        .setupEvents(appState: appState,
-            importsGlyphState: $importsGlyphState)
+        .onReceive(AppEventBus.shared.listEvents) { event in
+            /// Rows track cachedLists through syncListsCache() at each mutation, and per-row feedback comes
+            /// from ListRowActivityStore. The one event handled here is the deletion of the list on screen,
+            /// which moves the selection off it.
+            if case .deleted(let deletedListID) = event,
+               appState.selectedSidebarItem == .list(deletedListID) {
+                appState.navigate(to: .libraryItem(.allFilms))
+            }
+        }
     }
 
     // MARK: - Smart List Rows
@@ -119,24 +143,6 @@ struct LeftSidebar: View, Loggable {
     }
 
     // MARK: - Actions
-
-    /// Side effects of a user-driven selection change. The .onChange handler above already logs
-    /// the transition, so only the cases that need action appear here.
-    private func handleSelectionChange(newValue: SidebarItem) {
-        switch newValue {
-        case .libraryItem(.imports):
-            /// Clear the imports glyph state when navigating to Imports.
-            if importsGlyphState.isFinished {
-                importsGlyphState = .normal
-            }
-        case .list(let id):
-            if !ListManager.listExists(id, coordinator: dataCoordinator) {
-                log("WARNING: Selected list \(id) does not exist")
-            }
-        default:
-            break
-        }
-    }
 
     /// Single entry point for every ListRow contextual-menu action.
     private func performListAction(_ action: ListRowAction, _ listID: UUID) {
@@ -471,22 +477,6 @@ private struct ListRowKey: Equatable {
     }
 }
 
-// MARK: - Imports Glyph State
-private enum ImportsGlyphState {
-    case normal
-    case importing
-    case completed
-    /// Finished, but at least one item failed. Held exactly as long as `completed`
-    /// is — the durable record of the failure lives on the session card itself, so
-    /// the sidebar badge is only ever the pointer that sends the user there.
-    case completedWithErrors
-
-    /// True for both finished states. Every place that treats "the import is over"
-    /// as one condition uses this rather than enumerating the two cases, so adding
-    /// a third finished state later can't silently miss a call site.
-    var isFinished: Bool { self == .completed || self == .completedWithErrors }
-}
-
 // MARK: - List Row Action
 /// The set of contextual-menu actions a list row can raise. Collapsing these into one
 /// enum keeps ListsSection and ListRow to a single `onAction` closure each, instead of
@@ -497,26 +487,6 @@ private enum ListRowAction {
     case clearContents
     case deleteContents
     case delete
-}
-
-// MARK: - Momentary Glyph Helper
-/// Shows a transient confirmation glyph for a fixed interval, then hides it. The "Queue" row and
-/// every ListRow use it. A second completion restarts the full interval, and the stored handle
-/// lets onDisappear cancel a pending hide.
-private enum MomentaryGlyph {
-    /// Immutable and Sendable, so it needs no actor isolation of its own.
-    static let duration: Duration = .seconds(2)
-
-    @MainActor
-    static func show(_ isVisible: Binding<Bool>, task: Binding<Task<Void, Never>?>) {
-        task.wrappedValue?.cancel()
-        isVisible.wrappedValue = true
-        task.wrappedValue = Task {
-            try? await Task.sleep(for: duration)
-            guard !Task.isCancelled else { return }
-            isVisible.wrappedValue = false
-        }
-    }
 }
 
 // MARK: - List Row Drop Highlight
@@ -562,20 +532,26 @@ private struct ListRowDropHighlight: ViewModifier {
 // MARK: - Library Section Component
 private struct LibrarySection: View {
     var importProgress = ImportProgress.shared
-    let importsGlyphState: ImportsGlyphState
 
     /// The Imports row's icon: its own glyph normally, a checkmark once an import
     /// finishes cleanly, a warning triangle once one finishes with failures.
+    ///
+    /// Read straight from ImportProgress.completionStatus, which clears it however the user
+    /// reaches the Imports view (ImportProgress.viewingImportsDidChange), and a moment after an
+    /// import finishes while that view is showing. A new import resets it. The failure's durable
+    /// record is on the session card; the badge only points the user there.
     private var importsGlyph: String {
-        switch importsGlyphState {
-        case .completed:           return ViewGlyphs.importsCompletion.outline
-        case .completedWithErrors: return ViewGlyphs.importsFailure.outline
-        case .normal, .importing:  return ViewGlyphs.imports.outline
+        switch importProgress.completionStatus {
+        case .success:           return ViewGlyphs.importsCompletion.outline
+        case .successWithErrors: return ViewGlyphs.importsFailure.outline
+        case .none:              return ViewGlyphs.imports.outline
         }
     }
 
+    /// The Queue row's momentary completion glyph (ListRowActivityStore.queueActivity).
+    private var queueActivity: ListRowActivity { ListRowActivityStore.shared.queueActivity }
+
     @Environment(DataCoordinator.self) private var dataCoordinator
-    @Environment(AppState.self) private var appState
 
     /// Mirrors the two Preferences keys governing the "Film Queue" sidebar row's
     /// drop-target behavior. @AppStorage keeps these reactive to changes made in
@@ -589,11 +565,6 @@ private struct LibrarySection: View {
     /// here but ListRowDropTarget requires it.
     @State private var isQueueDropTargeted = false
     @State private var isQueueHovered = false
-
-    /// Momentary completion glyph, as in ListRow. Driven by .queueAdditionCompleted, which fires
-    /// only when a film is added to an internal Film Queue list, never on removals.
-    @State private var showQueueCompletionGlyph = false
-    @State private var queueCompletionTask: Task<Void, Never>?
 
     /// Resolves the currently-selected Film Queue section from the raw preference
     /// value, falling back to "Up Next" for any unrecognized/corrupt stored value.
@@ -640,7 +611,7 @@ private struct LibrarySection: View {
                 Label {
                     Text(SidebarLibraryFamily.queue.title)
                 } icon: {
-                    Image(systemName: showQueueCompletionGlyph
+                    Image(systemName: queueActivity.showCompletionGlyph
                         ? ViewGlyphs.rowCompletion.outline
                         : ViewGlyphs.filmQueue.outline)
                         .contentTransition(.symbolEffect(.replace))
@@ -657,19 +628,6 @@ private struct LibrarySection: View {
                         isDropTargeted: $isQueueDropTargeted,
                         isHovered: $isQueueHovered
                     ))
-                    .onReceive(AppEventBus.shared.listEvents) { event in
-                        guard case .queueAdditionCompleted = event else { return }
-
-                        /// Only show the completion glyph when the user is NOT currently
-                        /// viewing the Film Queue — if they are, the change is self-evident.
-                        /// Mirrors ListRowActivityStore's identical guard.
-                        guard appState.selectedSidebarItem != .libraryItem(.filmQueue) else { return }
-
-                        MomentaryGlyph.show($showQueueCompletionGlyph, task: $queueCompletionTask)
-                    }
-                    .onDisappear {
-                        queueCompletionTask?.cancel()
-                    }
             }
         }
     }
@@ -934,6 +892,103 @@ private struct SavedSearchesSection: View {
     }
 }
 
+// MARK: - Tags Section Component
+/// The library's most-used tags (SidebarTags.mostUsed), `count` of them, most-used first. A row
+/// opens the gallery of the films carrying its tag (ViewIdentifier.tag), as a smart list row
+/// opens its own. Not a drop target, and no menu.
+///
+/// The rows come from SidebarTagRows, so the sidebar's own body does not read the library.
+private struct TagsSection: View {
+    var body: some View {
+        Section("Tags") {
+            ForEach(SidebarTagRows.shared.tags, id: \.self) { tag in
+                Label {
+                    Text(tag)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } icon: {
+                    Image(systemName: ViewGlyphs.tag.outline)
+                }
+                .tag(SidebarRow.item(.tag(SidebarTag(tag))))
+            }
+        }
+    }
+}
+
+// MARK: - Tag Rows
+/// The Tags section's rows: the `limit` most-used tags (SidebarTags.mostUsed), none while the
+/// section is hidden (limit 0). Held here rather than in TagsSection so the sidebar can leave the
+/// section out while it is empty, and so the recount triggers (SidebarTagRecount) sit on the List,
+/// which is always on screen, not on rows that may not be.
+@MainActor
+@Observable
+private final class SidebarTagRows {
+    static let shared = SidebarTagRows()
+
+    private(set) var tags: [String] = []
+    /// Whether there are any rows, read by LeftSidebar's body on its own, so a change of tags that
+    /// leaves some invalidates only TagsSection.
+    private(set) var hasTags = false
+
+    @ObservationIgnored private var limit = 0
+    @ObservationIgnored private var recountPending = false
+
+    private init() {}
+
+    func recount(limit: Int, in coordinator: DataCoordinator) {
+        self.limit = limit
+        let ranked = limit > 0 ? SidebarTags.mostUsed(limit, in: coordinator) : []
+        guard ranked != tags else { return }
+        /// The first fill, as the sidebar appears, lands at once; later changes animate.
+        if tags.isEmpty {
+            apply(ranked)
+        } else {
+            withAnimation(.default) { apply(ranked) }
+        }
+    }
+
+    /// Film events arrive one per film from an import or bulk edit; a burst is recounted once, a
+    /// turn after the first, at the limit current then.
+    func scheduleRecount(in coordinator: DataCoordinator) {
+        guard limit > 0, !recountPending else { return }
+        recountPending = true
+        DispatchQueue.main.async {
+            self.recountPending = false
+            self.recount(limit: self.limit, in: coordinator)
+        }
+    }
+
+    private func apply(_ ranked: [String]) {
+        tags = ranked
+        hasTags = !ranked.isEmpty
+    }
+}
+
+/// Keeps SidebarTagRows current: on appearing, when the section's length changes, and when the
+/// films change. A modifier of its own so that the film counts it reads invalidate only this.
+private struct SidebarTagRecount: ViewModifier {
+    /// The section's length, 0 while it is hidden.
+    let limit: Int
+
+    @Environment(DataCoordinator.self) private var dataCoordinator
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { recount() }
+            .onChange(of: limit) { recount() }
+            .onChange(of: dataCoordinator.isInitialized) { recount() }
+            .onChange(of: dataCoordinator.totalFilmCount) { recount() }
+            .onFilmEvent { event in
+                if case .releaseChanged = event { return }
+                SidebarTagRows.shared.scheduleRecount(in: dataCoordinator)
+            }
+    }
+
+    private func recount() {
+        SidebarTagRows.shared.recount(limit: limit, in: dataCoordinator)
+    }
+}
+
 // MARK: - Saved Search Row Component
 private struct SavedSearchRow: View {
     let search: SavedSearch
@@ -1020,12 +1075,15 @@ private final class ListRowActivity {
             }
         }
 
-        guard showGlyph else { return }
-        /// Same discipline as MomentaryGlyph: a second completion restarts the interval.
+        if showGlyph { flashCompletionGlyph() }
+    }
+
+    /// Shows the completion glyph for two seconds. A second completion restarts the interval.
+    func flashCompletionGlyph() {
         completionTask?.cancel()
         showCompletionGlyph = true
         completionTask = Task { [weak self] in
-            try? await Task.sleep(for: MomentaryGlyph.duration)
+            try? await Task.sleep(for: .seconds(2))
             guard let self, !Task.isCancelled else { return }
             self.showCompletionGlyph = false
         }
@@ -1044,7 +1102,9 @@ private final class ListRowActivityStore {
     static let shared = ListRowActivityStore()
 
     private var activities: [UUID: ListRowActivity] = [:]
-    private weak var appState: AppState?
+    /// The Queue row's: only its completion glyph, for an addition to any of the Queue's sections
+    /// (.queueAdditionCompleted, never a removal).
+    let queueActivity = ListRowActivity()
     private var cancellable: AnyCancellable?
 
     private init() {
@@ -1052,11 +1112,6 @@ private final class ListRowActivityStore {
         cancellable = AppEventBus.shared.listEvents.sink { [weak self] event in
             MainActor.assumeIsolated { self?.handle(event) }
         }
-    }
-
-    /// Supplies the AppState the completion glyph's "not viewing this list" check reads.
-    func attach(_ appState: AppState) {
-        self.appState = appState
     }
 
     func activity(for listID: UUID) -> ListRowActivity {
@@ -1073,8 +1128,13 @@ private final class ListRowActivityStore {
         case .operationCompleted(let listID):
             /// Only show the completion glyph when the user is NOT currently viewing this
             /// list — if they are, the change is self-evident.
-            let isViewing = appState?.selectedSidebarItem == .list(listID)
+            let isViewing = AppDelegate.appState?.selectedSidebarItem == .list(listID)
             activity(for: listID).operationCompleted(showGlyph: !isViewing)
+        case .queueAdditionCompleted:
+            /// Likewise not while the Queue is on screen.
+            if AppDelegate.appState?.selectedSidebarItem != .libraryItem(.filmQueue) {
+                queueActivity.flashCompletionGlyph()
+            }
         case .deleted(let listID):
             activities.removeValue(forKey: listID)?.cancel()
         default:
@@ -1244,10 +1304,6 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
         var onTargetChanged: ((Bool) -> Void)?
         var onHoverChanged: ((Bool) -> Void)?
 
-        /// The single tracking area covering the proxy's entire bounds. Rebuilt
-        /// whenever the bounds change so it always matches the full NSTableRowView.
-        private var hoverTrackingArea: NSTrackingArea?
-
         /// The anchor whose row this proxy currently serves; nil while the row view sits
         /// unused in the outline view's reuse pool.
         private(set) weak var owner: DropTargetAnchorView?
@@ -1288,33 +1344,24 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             /// No layer, no drawing — fully transparent. Exists only for drag protocol
             /// and hover tracking.
             registerForDraggedTypes([.filmIDs])
+            /// One tracking area for the proxy's life. `.inVisibleRect` keeps it matched to the visible
+            /// bounds, so it is never replaced while the cursor is inside. Replacing it would drop the
+            /// mouseExited for the old area and leave the row's hover state stuck.
+            addTrackingArea(NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+                owner: self,
+                userInfo: nil))
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) not used") }
 
-        /// Keep frame = superview.bounds through every AppKit layout cycle, then
-        /// rebuild the tracking area so it stays in sync with the new bounds.
+        /// Keep frame = superview.bounds through every AppKit layout cycle.
         override func layout() {
             super.layout()
             if let sv = unsafe superview, frame != sv.bounds {
                 frame = sv.bounds
             }
-            rebuildTrackingArea()
-        }
-
-        /// The tracking area is installed once. `.inVisibleRect` lets AppKit keep it matched to the
-        /// visible bounds, so it is never replaced while the cursor is inside. Replacing it would drop
-        /// the mouseExited for the old area and leave the row's hover state stuck.
-        private func rebuildTrackingArea() {
-            guard hoverTrackingArea == nil else { return }
-            let area = NSTrackingArea(
-                rect: .zero,
-                options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-                owner: self,
-                userInfo: nil
-            )
-            addTrackingArea(area)
-            hoverTrackingArea = area
         }
 
         // MARK: Hover reconciliation
@@ -1419,12 +1466,8 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             super.viewDidMoveToWindow()
             Self.installObserversIfNeeded()
             if let scrollView = enclosingScrollView { Self.sidebarScrollView = scrollView }
+            /// The proxy is never removed from its row view; it leaves the window with it.
             if unsafe window == nil { setHovered(false) }
-        }
-
-        override func removeFromSuperview() {
-            setHovered(false)
-            super.removeFromSuperview()
         }
 
         override func mouseEntered(with event: NSEvent) {
@@ -1543,54 +1586,5 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             /// observes this notification and calls dismissFlybackImmediately().
             NotificationCenter.default.post(name: .dismissDragPreviewImmediately, object: nil)
         }
-    }
-}
-
-// MARK: - Event Setup Extension
-/// LeftSidebar's event and import-progress handlers.
-@MainActor
-private extension View {
-    func setupEvents(appState: AppState,
-        importsGlyphState: Binding<ImportsGlyphState>) -> some View {
-        self
-            .onReceive(AppEventBus.shared.listEvents) { event in
-                /// Rows track cachedLists through syncListsCache() at each mutation, with the List's @Observable
-                /// subscription and .animation driving the updates. Per-row feedback comes from ListRow. The one
-                /// event needing explicit handling is deletion of the list being viewed, which moves the selection off it.
-                if case .deleted(let deletedListID) = event,
-                    case .list(let selectedListID) = appState.selectedSidebarItem,
-                    selectedListID == deletedListID {
-                    appState.navigate(to: .libraryItem(.allFilms))
-                }
-            }
-            /// ImportProgress is @Observable, so .onChange(of:) delivers its changes.
-            .onChange(of: ImportProgress.shared.isImporting) { _, isImporting in
-                /// Only the rising edge matters. It clears a lingering .completed checkmark so a new import is not
-                /// masked. The falling edge is ignored, because the completionStatus handler below sets .completed
-                /// at the same moment and must win.
-                if isImporting {
-                    importsGlyphState.wrappedValue = .importing
-                }
-            }
-            .onChange(of: ImportProgress.shared.completionStatus) { _, status in
-                guard status == .success || status == .successWithErrors else { return }
-
-                /// Sets the matching completed state. `.successWithErrors` shows the warning glyph, since some
-                /// items failed. The session card holds the details.
-                importsGlyphState.wrappedValue =
-                    status == .successWithErrors ? .completedWithErrors : .completed
-
-                /// If already on Imports view, auto-clear after 2 seconds
-                if case .libraryItem(.imports) = appState.selectedSidebarItem {
-                    Task {
-                        try? await Task.sleep(for: .seconds(2))
-                        /// Re-reads wrappedValue after the delay, since a new import may have started and set .importing.
-                        /// If so, do not revert to .normal.
-                        if importsGlyphState.wrappedValue.isFinished {
-                            importsGlyphState.wrappedValue = .normal
-                        }
-                    }
-                }
-            }
     }
 }

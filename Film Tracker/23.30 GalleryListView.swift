@@ -660,7 +660,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         /// Its bands come from each film's membership in Up Next, Soon, or Later, which is list membership in
         /// MemoryStore. No FilmSnapshot field carries it. Promoting the first Soon film to Up Next can leave
         /// every snapshot identical and the order the same, while still changing the bands. So the memberships
-        /// are part of sectionInputs (see GallerySectioning.filmQueueMembership).
+        /// are part of sectionInputs (see GallerySectioning.filmQueueMembership). The "Up Next" tab includes
+        /// its own membership too: its slot rows count vacancies from it.
         ///
         /// Every other view's bands derive from MetadataCache values, and those derive from FilmSnapshot
         /// fields. A change to any of those fields moves the snapshot, so filmsChanged sees it. The skip is
@@ -2530,7 +2531,9 @@ struct UpNextResultsTable: NSViewRepresentable {
         coordinator.isSyncing = true
         defer { coordinator.isSyncing = false }
 
-        if coordinator.films.map(\.id) != films.map(\.id) {
+        /// Compared in place: two ID arrays were built on every update, and the Saved Search sheet updates
+        /// this table on each keystroke.
+        if !coordinator.films.elementsEqual(films, by: { $0.id == $1.id }) {
             coordinator.films = films
             tableView.reloadData()
             tableView.scrollRowToVisible(0)

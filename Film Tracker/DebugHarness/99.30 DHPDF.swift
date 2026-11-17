@@ -300,6 +300,17 @@ extension DebugHarness {
             r.check("export-staging-cleared", stagingLeft.isEmpty,
                     stagingLeft.isEmpty ? "" : "still staged: \(stagingLeft)")
 
+            /// The per-film sections list the library in the gallery's own Title sort, asked of
+            /// the gallery's sorter rather than restated, so number-led titles, articles and
+            /// same-name films fall where the gallery puts them.
+            let library = coordinator.getAllFilms()
+            let pdfOrder = LibraryPDFReport.ordered(library).map(\.id)
+            let galleryOrder = MetadataCache.shared.sort(library.map(\.id), by: .title, direction: .ascending)
+            let firstDifference = zip(pdfOrder, galleryOrder).enumerated().first { $0.element.0 != $0.element.1 }?.offset
+            r.check("export-film-order-matches-gallery", pdfOrder == galleryOrder,
+                    firstDifference.map { "the orders first differ at position \($0 + 1)" }
+                        ?? "\(pdfOrder.count) films against \(galleryOrder.count) in the gallery's order")
+
             if let assembled = PDFDocument(url: exported) {
                 r.check("export-page-count", assembled.pageCount > document.pageCount - 1,
                         "assembled document is \(assembled.pageCount) pages against "
@@ -342,10 +353,68 @@ extension DebugHarness {
                         "the document's section list is "
                             + "\(LibraryPDFSection.allCases.map(\.rawValue))")
 
-                /// Every page of an assembled document carries BOTH counts, and the
+                // MARK: Cover and contents
+                /// Page 1 is the cover: the title and a contents line per section, each a link to
+                /// the top of its section's first page, which opens with that section's heading.
+                let coverText = assembled.page(at: 0)?.string ?? ""
+                r.check("export-cover-title", coverText.contains(LibraryPDFExporter.coverTitle),
+                        "the cover does not carry the document title")
+                let sectionTitles = LibraryPDFSection.allCases.map(\.displayName)
+                let missingFromContents = sectionTitles.filter { !coverText.contains($0) }
+                r.check("export-cover-contents", missingFromContents.isEmpty,
+                        missingFromContents.isEmpty ? "" : "not listed on the cover: \(missingFromContents)")
+                let links = (assembled.page(at: 0)?.annotations ?? []).filter { $0.type == "Link" }
+                r.check("export-cover-link-count", links.count == sectionTitles.count,
+                        "\(links.count) links on the cover for \(sectionTitles.count) sections")
+                var linkFailures: [String] = []
+                for link in links {
+                    guard let target = link.destination?.page ?? (link.action as? PDFActionGoTo)?.destination.page else {
+                        linkFailures.append("a link with no destination page"); continue
+                    }
+                    let index = assembled.index(for: target)
+                    let heading = target.string?.split(separator: "\n").first.map(String.init) ?? ""
+                    /// The line the link covers names the section the target page opens.
+                    let label = assembled.page(at: 0)?.selection(for: link.bounds)?.string ?? ""
+                    let named = sectionTitles.first { label.contains($0) } ?? "?"
+                    let opensThere = index > 0 && (heading.hasPrefix(named)
+                        || (named == LibraryPDFSection.completeLibrary.displayName
+                            && heading.hasPrefix(LibraryTableLayout.standard.sectionTitle)))
+                    /// The page number printed at the line's end, whatever whitespace extraction put before it.
+                    let printedPage = Int(String(label.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .reversed().prefix { $0.isNumber }.reversed()))
+                    if !opensThere || printedPage != index + 1 {
+                        linkFailures.append("'\(label)' → page \(index + 1) ('\(heading)')")
+                    }
+                }
+                r.check("export-cover-links-land", linkFailures.isEmpty,
+                        linkFailures.isEmpty ? "every contents line opens its section" : "\(linkFailures)")
+                let outline = assembled.outlineRoot
+                r.check("export-outline", (outline?.numberOfChildren ?? 0) == sectionTitles.count + 1,
+                        "the outline has \(outline?.numberOfChildren ?? 0) entries for the cover and "
+                            + "\(sectionTitles.count) sections")
+                /// The first entry opens the cover; every other opens the page that starts with
+                /// the heading it names.
+                var outlineFailures: [String] = []
+                for index in 0..<(outline?.numberOfChildren ?? 0) {
+                    guard let entry = outline?.child(at: index), let label = entry.label,
+                          let page = entry.destination?.page else {
+                        outlineFailures.append("entry \(index + 1) has no destination page"); continue
+                    }
+                    let pageIndex = assembled.index(for: page)
+                    let heading = page.string?.split(separator: "\n").first.map(String.init) ?? ""
+                    let lands = index == 0 ? pageIndex == 0 : pageIndex > 0 && heading.hasPrefix(label)
+                    if !lands { outlineFailures.append("'\(label)' → page \(pageIndex + 1) ('\(heading)')") }
+                }
+                r.check("export-outline-lands", outlineFailures.isEmpty,
+                        outlineFailures.isEmpty ? "every outline entry opens its page" : "\(outlineFailures)")
+                let documentTitle = assembled.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String
+                r.check("export-document-title", documentTitle == LibraryPDFExporter.coverTitle,
+                        "the document's title is '\(documentTitle ?? "none")'")
+
+                /// Every page after the cover carries BOTH counts, and the
                 /// document count must run to the real page total — the reason the builder
-                /// measures every section before drawing any of them.
-                let footersComplete = (0..<assembled.pageCount).allSatisfy { index in
+                /// measures every section before drawing any of them. The cover has no footer.
+                let footersComplete = (1..<assembled.pageCount).allSatisfy { index in
                     guard let page = assembled.page(at: index)?.string else { return false }
                     return page.contains("Section page") && page.contains("Document page")
                 }
@@ -402,7 +471,7 @@ extension DebugHarness {
                    rating: Int = 5) -> HallOfFameFilm {
             HallOfFameFilm(id: UUID(), position: position, name: "HOF \(position)",
                            releaseYear: "1999", userRating: rating, purchase: purchase,
-                           upgrade: upgrade, version: version)
+                           upgrade: upgrade, version: version, rotationLabel: nil)
         }
 
         let films = [

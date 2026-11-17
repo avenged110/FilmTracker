@@ -573,7 +573,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
 
     // MARK: - "Up Next" Slots
     ///
-    /// The Film Queue's "All" tab follows the "Up Next" films with empty placeholder slots,
+    /// The Film Queue's "All" and "Up Next" tabs follow the "Up Next" films with empty placeholder slots,
     /// one per vacancy up to FilmQueue.upNextCapacity (UpNextSlots.swift). They are laid
     /// out exactly like cells, continuing the "Up Next" run's rows, but are decoration views
     /// rather than items: the film index space, selection, marquee, drag and Left/Right
@@ -672,7 +672,8 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         }
 
         let count = cv.numberOfItems(inSection: 0)
-        guard count > 0 else {
+        /// An empty "Up Next" tab still lays out its slots (UpNextSlots.showsSlotsWithoutFilms).
+        guard count > 0 || slotRun != nil else {
             resetToEmpty()
             return
         }
@@ -932,7 +933,9 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
         }
 
         let lastLen = count - currentItemStart
-        let lastSlots = lastLen > 0 ? takeSlots(endingAt: count) : (count: 0, first: 0)
+        /// takeSlots is a no-op unless the run ends here. lastLen is 0 only with no items at all, where the "Up Next"
+        /// tab's slots (itemIndex 0, no band of their own) still belong in this segment.
+        let lastSlots = takeSlots(endingAt: count)
         let lastRows = columnsPerRow > 0 ? rows(items: lastLen, slots: lastSlots.count) : 0
         let lastY = advanceForRows(lastRows)
         segments.append(Segment(itemStart: currentItemStart, itemEnd: count,
@@ -989,7 +992,7 @@ final class SmoothResizingGridLayout: NSCollectionViewLayout {
     }
 
     override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
-        guard itemCount > 0, columnsPerRow > 0, rowStride > 0 else { return [] }
+        guard itemCount > 0 || slotRun != nil, columnsPerRow > 0, rowStride > 0 else { return [] }
 
         var result: [NSCollectionViewLayoutAttributes] = []
 

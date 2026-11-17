@@ -254,6 +254,8 @@ struct Preferences: Loggable {
             "preferences.showStatusBar"
         static let smartLists =
             "preferences.smartLists"
+        static let showTagsInSidebar =
+            "preferences.showTagsInSidebar"
         static let excludeQueuedFromUpForRotation =
             "preferences.excludeQueuedFromUpForRotation"
         /// Internal state, not a user-facing preference. See the accessor below.
@@ -366,6 +368,7 @@ struct Preferences: Loggable {
     static let largeGalleryGridKey                   = Keys.largeGalleryGrid
     static let showStatusBarKey                      = Keys.showStatusBar
     static let smartListsKey                         = Keys.smartLists
+    static let showTagsInSidebarKey                  = Keys.showTagsInSidebar
     static let excludeQueuedFromUpForRotationKey     = Keys.excludeQueuedFromUpForRotation
     static let queueIsDropTargetKey                  = Keys.queueIsDropTarget
     static let queueSectionOnDropKey                 = Keys.queueSectionOnDrop
@@ -425,6 +428,7 @@ struct Preferences: Loggable {
             Keys.largeGalleryGrid: true,
             Keys.showStatusBar: true,
             Keys.smartLists: true,
+            Keys.showTagsInSidebar: SidebarTagCount.ten.rawValue,
             Keys.excludeQueuedFromUpForRotation: true,
             Keys.queueIsDropTarget: true,
             Keys.queueSectionOnDrop: QueueDropSection.upNext.rawValue,
@@ -482,6 +486,11 @@ struct Preferences: Loggable {
     // MARK: - Rotation Threshold
     /// All valid rotation threshold options in months.
     static let rotationThresholdOptions: [Int] = [12, 18, 24, 36, 48, 60]
+
+    /// A threshold in years, for display: "2" for 24 months, "1.5" for 18.
+    static func rotationThresholdYearsText(_ months: Int) -> String {
+        months % 12 == 0 ? "\(months / 12)" : "\(Double(months) / 12)"
+    }
 
     /// The registered threshold. Its fallback — the first option — is reached only if the
     /// master list lost the key, which DEBUG stops on.
@@ -632,6 +641,29 @@ struct Preferences: Loggable {
         set {
             setIfChanged(newValue, forKey: Keys.smartLists,
                 logMessage: "smartLists set to \(newValue)") } }
+
+    // MARK: - Tags In Sidebar
+    /// The sidebar's Tags section: hidden, or showing the 5, 10, or 20 most-used tags. One
+    /// key holds both the section's visibility and its length; the raw value is the count,
+    /// with 0 for hidden.
+    enum SidebarTagCount: Int, CaseIterable {
+        case hidden = 0
+        case five   = 5
+        case ten    = 10
+        case twenty = 20
+
+        /// The counts the Settings picker offers, in order.
+        static let shownCases: [SidebarTagCount] = [.five, .ten, .twenty]
+    }
+
+    static var showTagsInSidebar: SidebarTagCount {
+        get {
+            let raw = defaults.integer(forKey: Keys.showTagsInSidebar)
+            return SidebarTagCount(rawValue: raw) ?? registeredCase(Keys.showTagsInSidebar)
+        }
+        set {
+            setIfChanged(newValue.rawValue, forKey: Keys.showTagsInSidebar,
+                logMessage: "showTagsInSidebar set to \(newValue.rawValue)") } }
 
     /// Governs whether films that are already present on any of the three internal Film
     /// Queue lists (Up Next, Soon, Later) are hidden from the "Up for Rotation" smart list.

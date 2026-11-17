@@ -464,6 +464,28 @@ extension DebugHarness {
         r.check("wishlist-reorder/child-mirrors-parent-persisted", childStored == 2,
                 "store holds child position \(childStored), expected 2")
 
+        /// --- Wishlist renumbering defers its MetadataCache rebuild -------------------------------
+        /// (MemoryStore.updateFilmsDeferringMetadata.) No FilmMetadata field reads `wishlist`, so
+        /// the renumbered pack's entry must already equal one built from its current snapshot.
+        let packEntryCurrent = store.getFilm(pack.id).map {
+            MetadataCache.shared.metadata[pack.id] == FilmMetadata(from: $0)
+        } ?? false
+        r.check("deferred-metadata/wishlist-entry-current", packEntryCurrent,
+                "the pack's entry differs from one built from its renumbered snapshot")
+        /// The machinery itself: a deferred write that does change an entry is stored after
+        /// the quiet second, not before. Memory only; the store never sees the rename.
+        if let original = store.getFilm(solo.id) {
+            var renamed = original
+            renamed.name = "Audit Solo Renamed"
+            store.updateFilmsDeferringMetadata([renamed])
+            let deferred = MetadataCache.shared.metadata[solo.id] == FilmMetadata(from: original)
+            try? await Task.sleep(for: .milliseconds(1400))
+            let stored = MetadataCache.shared.metadata[solo.id] == FilmMetadata(from: renamed)
+            r.check("deferred-metadata/stored-after-quiet-second", deferred && stored,
+                    "entry unchanged at once: \(deferred); rebuilt after 1.4 s: \(stored)")
+            store.updateFilm(original)
+        }
+
         /// --- The export flush commits a pending Hall of Fame reorder ---------------------------
         for film in [viewer, pack, solo] where store.hallOfFameFilms.count < 2 {
             coordinator.addToHallOfFame(film.id)
@@ -2378,6 +2400,7 @@ extension DebugHarness {
 ///   • card/*        — the card model's release-date range, its picker bridges, and the
 ///                     ordering rule under a release year past the current year.
 ///   • notify/*      — ReleaseNotifications.plan: what is scheduled, for whom, and when.
+///   • digest/*      — one request per day: a day of several releases is one digest.
 extension DebugHarness {
     @MainActor
     static func releaseDateRulesScenario() -> HarnessScenarioResult {
@@ -2496,8 +2519,7 @@ extension DebugHarness {
         u.hasReleaseYear = false
         r.check("card/no-date-not-upcoming", !u.isUpcomingRelease(today: realToday))
 
-        /// notify/*
-        let prefix = ReleaseNotifications.identifierPrefix
+        /// notify/* — one request per release day; a day of several releases is one digest.
         let parent = UUID()
         let rTomorrow = ReleaseSnapshot(studio: "Criterion", releaseDate: "2026.10.18", format: "4K UHD")
         let rWished = ReleaseSnapshot(releaseDate: "2026.10.20", wishlist: 3, format: "Blu-ray")
@@ -2509,49 +2531,80 @@ extension DebugHarness {
         let rNextYear = ReleaseSnapshot(releaseDate: "2027.01.01", format: "Blu-ray")
         let film = makeSnapshot(name: "Notify Film", releases: [
             rTomorrow, rWished, rChild, rTodayNew, rTodayPending, rYearOnly, rPast, rNextYear])
-        func id(_ release: ReleaseSnapshot) -> String { prefix + release.id.uuidString }
+        func key(_ release: ReleaseSnapshot) -> String { ReleaseNotifications.releaseKey(release) }
+        func dayID(_ y: Int, _ m: Int, _ d: Int) -> String { ReleaseNotifications.dayRequestID(year: y, month: m, day: d) }
         let early = today.addingTimeInterval(3600)   /// 01:00 local-ish, before delivery
-        let all = ReleaseNotifications.plan(films: [film], pendingIDs: [id(rTodayPending)],
+        let all = ReleaseNotifications.plan(films: [film], eligibleIDs: [key(rTodayPending)],
                                             today: today, now: early, wishlistedOnly: false)
-        r.check("notify/upcoming-scheduled", all[id(rTomorrow)] != nil)
-        r.check("notify/wishlisted-scheduled", all[id(rWished)] != nil)
-        r.check("notify/child-skipped", all[id(rChild)] == nil)
-        r.check("notify/cataloged-today-skipped", all[id(rTodayNew)] == nil)
-        r.check("notify/pending-today-kept", all[id(rTodayPending)] != nil)
-        r.check("notify/year-only-skipped", all[id(rYearOnly)] == nil)
-        r.check("notify/past-skipped", all[id(rPast)] == nil)
-        r.check("notify/next-year-scheduled", all[id(rNextYear)] != nil)
+        let plannedKeys = Set(all.values.flatMap { $0.releaseKeys })
+        r.check("notify/upcoming-scheduled", all[dayID(2026, 10, 18)]?.releaseKeys == [key(rTomorrow)])
+        r.check("notify/wishlisted-scheduled", all[dayID(2026, 10, 20)]?.releaseKeys == [key(rWished)])
+        r.check("notify/child-skipped", !plannedKeys.contains(key(rChild)))
+        r.check("notify/cataloged-today-skipped", !plannedKeys.contains(key(rTodayNew)))
+        r.check("notify/planned-today-kept", all[dayID(2026, 10, 17)]?.releaseKeys == [key(rTodayPending)])
+        r.check("notify/year-only-skipped", !plannedKeys.contains(key(rYearOnly)))
+        r.check("notify/past-skipped", !plannedKeys.contains(key(rPast)))
+        r.check("notify/next-year-scheduled", all[dayID(2027, 1, 1)] != nil)
         r.check("notify/count", all.count == 4, "\(all.count)")
-        if let planned = all[id(rTomorrow)] {
+        if let planned = all[dayID(2026, 10, 18)] {
             r.check("notify/title", planned.title == "Notify Film")
             r.check("notify/body", planned.body == "The 4K UHD release from Criterion is out today.", planned.body)
             r.check("notify/trigger", planned.trigger.year == 2026 && planned.trigger.month == 10
                     && planned.trigger.day == 18 && planned.trigger.hour == ReleaseNotifications.deliveryHour)
         }
-        if let planned = all[id(rWished)] {
+        if let planned = all[dayID(2026, 10, 20)] {
             r.check("notify/body-wishlisted", planned.body.hasSuffix("It's on your wishlist."), planned.body)
         }
-        let wished = ReleaseNotifications.plan(films: [film], pendingIDs: [id(rTodayPending)],
+        let wished = ReleaseNotifications.plan(films: [film], eligibleIDs: [key(rTodayPending)],
                                                today: today, now: early, wishlistedOnly: true)
-        r.check("notify/wishlisted-only", Set(wished.keys) == [id(rWished)], "\(wished.keys)")
+        r.check("notify/wishlisted-only", Set(wished.keys) == [dayID(2026, 10, 20)], "\(wished.keys)")
         /// After the delivery hour on the release day, today's request is no longer wanted.
         var local = Calendar(identifier: .gregorian)
         local.timeZone = .current
         let late = local.date(from: DateComponents(year: 2026, month: 10, day: 17, hour: 23))!
-        let after = ReleaseNotifications.plan(films: [film], pendingIDs: [id(rTodayPending)],
+        let after = ReleaseNotifications.plan(films: [film], eligibleIDs: [key(rTodayPending)],
                                               today: today, now: late, wishlistedOnly: false)
-        r.check("notify/today-after-delivery-dropped", after[id(rTodayPending)] == nil)
+        r.check("notify/today-after-delivery-dropped", after[dayID(2026, 10, 17)] == nil)
 
-        /// The cap keeps the soonest.
+        /// digest/* — releases on one day, across films, make one request.
+        let d1 = ReleaseSnapshot(releaseDate: "2026.10.19", wishlist: 1, format: "4K UHD")
+        let d2 = ReleaseSnapshot(releaseDate: "2026.10.19", format: "Blu-ray")
+        let d3 = ReleaseSnapshot(releaseDate: "2026.10.19", format: "DVD")
+        let d4 = ReleaseSnapshot(releaseDate: "2026.10.19", format: "Blu-ray")
+        let alien = makeSnapshot(name: "Alien", releases: [d1, d2])
+        let heat = makeSnapshot(name: "Heat", releases: [d3])
+        let thing = makeSnapshot(name: "The Thing", releases: [d4])
+        let pair = ReleaseNotifications.plan(films: [heat, alien], eligibleIDs: [], today: today,
+                                             now: early, wishlistedOnly: false)
+        r.check("digest/one-request", pair.count == 1, "\(pair.count)")
+        if let digest = pair[dayID(2026, 10, 19)] {
+            r.check("digest/keys", Set(digest.releaseKeys) == [key(d1), key(d2), key(d3)])
+            r.check("digest/title", digest.title == "3 New Releases Today", digest.title)
+            r.check("digest/body", digest.body == "Out today: Alien (4K UHD), Alien (Blu-ray), and Heat (DVD). 1 is on your wishlist.",
+                    digest.body)
+        } else { r.check("digest/planned", false) }
+        let reordered = ReleaseNotifications.plan(films: [alien, heat], eligibleIDs: [], today: today,
+                                                  now: early, wishlistedOnly: false)
+        r.check("digest/order-independent", reordered == pair)
+        let four = ReleaseNotifications.plan(films: [heat, alien, thing], eligibleIDs: [], today: today,
+                                             now: early, wishlistedOnly: false)
+        r.check("digest/and-more", four[dayID(2026, 10, 19)]?.body
+                == "Out today: Alien (4K UHD), Alien (Blu-ray), and 2 more. 1 is on your wishlist.",
+                four[dayID(2026, 10, 19)]?.body ?? "nil")
+        let two = ReleaseNotifications.content(for: [("Heat", d3), ("The Thing", d4)])
+        r.check("digest/two", two.body == "Out today: Heat (DVD) and The Thing (Blu-ray).", two.body)
+
+        /// The cap keeps the soonest days.
         let many = (1...75).map { i in
             ReleaseSnapshot(releaseDate: StorageDateFormatters.dot.string(
                 from: cal.date(byAdding: .day, value: i, to: today)!), format: "Blu-ray")
         }
         let capped = ReleaseNotifications.plan(films: [makeSnapshot(name: "Many", releases: many)],
-                                               pendingIDs: [], today: today, now: early,
+                                               eligibleIDs: [], today: today, now: early,
                                                wishlistedOnly: false)
+        let cappedKeys = Set(capped.values.flatMap { $0.releaseKeys })
         r.check("notify/capped", capped.count == ReleaseNotifications.maxScheduled, "\(capped.count)")
-        r.check("notify/soonest-kept", capped[id(many[0])] != nil && capped[id(many[74])] == nil)
+        r.check("notify/soonest-kept", cappedKeys.contains(key(many[0])) && !cappedKeys.contains(key(many[74])))
 
         /// short/* — the wishlist report's form.
         r.check("short/full", value("2027.01.15")?.shortDisplayText == "Jan 15, 2027")

@@ -2,8 +2,8 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 /// The "Up Next" Queue's empty slots. "Up Next" holds at most FilmQueue.upNextCapacity
-/// films; on the Film Queue's "All" tab, every vacancy is drawn after the "Up Next" films as
-/// a dashed placeholder the size of a gallery cell (grid) or row (list). Slots are
+/// films; on the Film Queue's "All" and "Up Next" tabs, every vacancy is drawn after the
+/// "Up Next" films as a dashed placeholder the size of a gallery cell (grid) or row (list). Slots are
 /// interchangeable: "Up Next" is ordered by the gallery's sort, so a film added from any
 /// slot simply takes its sorted place and the placeholders fill from the top down. A slot is not a
 /// film: it lives outside the gallery's film index space, so selection, marquee, drag and
@@ -42,22 +42,43 @@ enum UpNextSlots: Loggable {
     }
 
     /// The slot plan for a gallery showing `filmCount` films with these section breaks, or
-    /// nil anywhere but the Film Queue's "All" tab, or when "Up Next" is full.
+    /// nil anywhere but the Film Queue's "All" and "Up Next" tabs, or when "Up Next" is full.
+    ///
+    /// Both tabs draw the same slots, numbered the same way, from this one plan: on "All"
+    /// they follow the "Up Next" band's films; on "Up Next" every displayed film is an
+    /// "Up Next" film, so they follow the last one (inside the last sort band when the tab
+    /// shows sort dividers), and no band of their own is needed.
     ///
     /// Vacancies come from "Up Next"'s real membership, not from what is displayed, so a
     /// filter hiding some of its films never offers more slots than actually exist.
     static func plan(breaks: [(index: Int, section: GallerySection)], filmCount: Int,
                      coordinator: DataCoordinator) -> Plan? {
-        guard coordinator.loadedFilmQueueFilter == .all else { return nil }
+        guard let filter = coordinator.loadedFilmQueueFilter,
+              filter == .all || filter == .upNext else { return nil }
         let vacancies = FilmQueue.upNextVacancies(coordinator: coordinator)
         guard vacancies > 0 else { return nil }
+        let firstNumber = FilmQueue.upNextCapacity - vacancies + 1
+        if filter == .upNext {
+            return Plan(afterIndex: filmCount, firstNumber: firstNumber, count: vacancies,
+                        needsOwnBand: false)
+        }
         let upNext = FilmQueueSection.upNext.gallerySection
         let showsUpNext = breaks.first?.section == upNext
         let end = showsUpNext ? (breaks.count > 1 ? breaks[1].index : filmCount) : 0
-        return Plan(afterIndex: end,
-                    firstNumber: FilmQueue.upNextCapacity - vacancies + 1,
-                    count: vacancies,
+        return Plan(afterIndex: end, firstNumber: firstNumber, count: vacancies,
                     needsOwnBand: !showsUpNext)
+    }
+
+    /// True when the "Up Next" tab has no film to show but should still draw its slots, so
+    /// the gallery mounts for the slots alone instead of giving way to the empty-section
+    /// placeholder. This is the "All" tab's rule for an empty "Up Next": its band and all
+    /// eight slots show whenever the Queue has films somewhere. An empty Queue keeps its
+    /// "Your Queue Is Empty" placeholder on both tabs, and a search or filter that narrows
+    /// the tab to nothing keeps the no-match placeholder that explains it.
+    static func showsSlotsWithoutFilms(coordinator: DataCoordinator, isNarrowed: Bool) -> Bool {
+        coordinator.loadedFilmQueueFilter == .upNext && coordinator.films.isEmpty && !isNarrowed
+            && !coordinator.getFilmQueueFilmIDs().isEmpty
+            && FilmQueue.upNextVacancies(coordinator: coordinator) > 0
     }
 
     /// A section divider's trailing count, shared by both gallery styles. "Up Next" states

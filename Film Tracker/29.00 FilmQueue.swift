@@ -155,7 +155,7 @@ enum FilmQueue {
 // MARK: - Up Next Capacity
 
 /// "Up Next" holds at most eight films — the number of slots ATVQ shows, and the number of
-/// placeholder slots the Queue's "All" tab draws (UpNextSlots.swift). Every path that can
+/// placeholder slots the Queue's "All" and "Up Next" tabs draw (UpNextSlots.swift). Every path that can
 /// add a film to "Up Next" asks `upNextOverflow` first and, when the add would not fit,
 /// refuses it whole (never a partial add) with `upNextFullNotice`:
 ///   • the LeftSidebar Queue row drop (LeftSidebar.RowDragProxyView), whose alert also

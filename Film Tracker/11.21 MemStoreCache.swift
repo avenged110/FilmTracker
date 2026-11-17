@@ -153,6 +153,32 @@ struct StoreFingerprint: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Fingerprint File
+
+/// What the fingerprint file holds: the fingerprint, and the ID of the MetadataCache file saved
+/// with this snapshot (`FilmMetadataCacheFile.fileID`).
+///
+/// The two caches are separate files written side by side. If one lands and the other does not
+/// (a failed write, or the process ending between them), a later launch could pair this
+/// snapshot with metadata entries derived from an older one, and the entry count alone does
+/// not tell. MemoryStore.validateCacheAndFinalize compares the two IDs and rebuilds the metadata
+/// when they differ. Kept out of `StoreFingerprint`, which is compared with the live store as a
+/// whole.
+///
+/// Files written before the ID existed hold a bare `StoreFingerprint`. They still read, with no
+/// ID, which never matches: the metadata is rebuilt once, and the snapshot is still used.
+private struct StoredFingerprintFile: Codable {
+    let fingerprint: StoreFingerprint
+    let metadataFileID: UUID?
+
+    static func decode(_ data: Data) -> StoredFingerprintFile? {
+        let decoder = PropertyListDecoder()
+        if let file = try? decoder.decode(StoredFingerprintFile.self, from: data) { return file }
+        return (try? decoder.decode(StoreFingerprint.self, from: data))
+            .map { StoredFingerprintFile(fingerprint: $0, metadataFileID: nil) }
+    }
+}
+
 // MARK: - Cache Result
 
 enum MemoryStoreCacheResult {
@@ -194,7 +220,12 @@ final class MemoryStoreCache: Loggable {
     ///
     /// Saves run one at a time, in call order, so overlapping writes cannot land out of order. A save still
     /// queued when `invalidateOnDisk()` runs is dropped, because it targets files being invalidated.
-    func save(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], contentVersion: UInt64) async {
+    ///
+    /// `metadataFileID` is the MetadataCache save running beside this one. It yields the ID of the
+    /// metadata file on disk once that save ends, or nil if it failed. The payload is encoded and
+    /// written while it runs, and only the fingerprint file waits for it (see StoredFingerprintFile).
+    func save(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], contentVersion: UInt64,
+              metadataFileID: Task<UUID?, Never>) async {
         let previous = saveInFlight
         let requestedEpoch = invalidationEpoch
         let current = Task {
@@ -203,7 +234,8 @@ final class MemoryStoreCache: Loggable {
                 Self.log("Save dropped: snapshot cache invalidated after it was requested")
                 return
             }
-            await self.write(films: films, lists: lists, contentVersion: contentVersion)
+            await self.write(films: films, lists: lists, contentVersion: contentVersion,
+                             metadataFileID: metadataFileID)
         }
         saveInFlight = current
         await current.value
@@ -215,6 +247,14 @@ final class MemoryStoreCache: Loggable {
         onDiskContentVersion = contentVersion
     }
 
+    /// The MetadataCache file ID recorded in the fingerprint file this launch's cache hit read,
+    /// or nil after a miss or for a file written before the ID existed.
+    private(set) var loadedMetadataFileID: UUID?
+
+    /// The MetadataCache file ID the fingerprint file on disk records. Meaningful only while
+    /// `onDiskContentVersion` is known.
+    private var onDiskMetadataFileID: UUID?
+
     /// The MemoryStore content version the files on disk hold, or nil when that is not
     /// known (nothing loaded or saved yet, a save failed or is under way, the files were
     /// invalidated).
@@ -223,7 +263,8 @@ final class MemoryStoreCache: Loggable {
     /// Moved by every `invalidateOnDisk()`.
     private var invalidationEpoch = 0
 
-    private func write(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], contentVersion: UInt64) async {
+    private func write(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], contentVersion: UInt64,
+                       metadataFileID: Task<UUID?, Never>) async {
         guard let payloadURL = payloadURL,
               let fingerprintURL = fingerprintURL else {
             Self.log("Save skipped: URL unavailable")
@@ -234,15 +275,30 @@ final class MemoryStoreCache: Loggable {
 
         /// Both files must still be there: the version only says what was written, not that
         /// nothing has removed it since.
-        if contentVersion == onDiskContentVersion,
-           FileManager.default.fileExists(atPath: payloadURL.path(percentEncoded: false)),
-           FileManager.default.fileExists(atPath: fingerprintURL.path(percentEncoded: false)) {
-            Self.log("Save skipped: snapshot cache on disk is current (\(filmCount) films)")
-            return
+        let payloadIsCurrent = contentVersion == onDiskContentVersion
+            && FileManager.default.fileExists(atPath: payloadURL.path(percentEncoded: false))
+            && FileManager.default.fileExists(atPath: fingerprintURL.path(percentEncoded: false))
+        /// A current payload still needs its fingerprint file rewritten when the metadata file
+        /// beside it changed, so the two stay paired. That is the only wait on the metadata save
+        /// here; a payload that must be written waits for it only after encoding.
+        if payloadIsCurrent {
+            let epochBeforeWait = invalidationEpoch
+            let fileID = await metadataFileID.value
+            /// An invalidation during the wait deleted the files; writing either back would undo it.
+            guard epochBeforeWait == invalidationEpoch else {
+                Self.log("Save dropped: snapshot cache invalidated while it waited for the metadata save")
+                return
+            }
+            if let fileID, fileID == onDiskMetadataFileID {
+                Self.log("Save skipped: snapshot cache on disk is current (\(filmCount) films)")
+                return
+            }
         }
+        let writesPayload = !payloadIsCurrent
         /// Unknown from here until this write succeeds: a failure partway leaves the files in
         /// a state no version describes.
         onDiskContentVersion = nil
+        onDiskMetadataFileID = nil
         let fingerprint = buildFingerprint(films: films, lists: lists)
         /// An invalidation that lands while the detached write below is running cannot stop
         /// it, and the write would put the old library's files back after the invalidation
@@ -251,8 +307,13 @@ final class MemoryStoreCache: Loggable {
 
         /// Timed inside the detached task, so the figures are the work and not the wait for it.
         let saved = await Task.detached(priority: .utility) {
-            () -> (encode: Duration, write: Duration, bytes: Int)? in
+            () -> (encode: Duration, write: Duration, bytes: Int, metadataFileID: UUID?)? in
             do {
+                guard writesPayload else {
+                    let fileID = await metadataFileID.value
+                    try Self.writeFingerprintFile(fingerprint, metadataFileID: fileID, to: fingerprintURL)
+                    return (.zero, .zero, 0, fileID)
+                }
                 let encodeStart = ContinuousClock.now
 
                 /// Array construction happens here rather than on MainActor: `Array(_.values)`
@@ -266,18 +327,19 @@ final class MemoryStoreCache: Loggable {
 
                 let payloadData = try MemoryStoreCacheCoding.encoder().encode(payload)
                 let encodeElapsed = ContinuousClock.now - encodeStart
-                let writeStart = ContinuousClock.now
-                try payloadData.write(to: payloadURL, options: .atomic)
+
+                /// The fingerprint names the metadata file saved beside this payload, so it waits for that save.
+                /// The wait comes after the encode, which overlaps the metadata save, and before the payload
+                /// write, so the two file writes stay back to back as they were.
+                let fileID = await metadataFileID.value
 
                 /// Payload first, fingerprint second, both atomic. A crash between the writes must never leave a
                 /// fingerprint that claims validity for an unwritten payload. load() reads them in the mirror order.
+                let writeStart = ContinuousClock.now
+                try payloadData.write(to: payloadURL, options: .atomic)
+                try Self.writeFingerprintFile(fingerprint, metadataFileID: fileID, to: fingerprintURL)
 
-                let fingerprintEncoder = PropertyListEncoder()
-                fingerprintEncoder.outputFormat = .binary
-                let fpData = try fingerprintEncoder.encode(fingerprint)
-                try fpData.write(to: fingerprintURL, options: .atomic)
-
-                return (encodeElapsed, ContinuousClock.now - writeStart, payloadData.count)
+                return (encodeElapsed, ContinuousClock.now - writeStart, payloadData.count, fileID)
             } catch {
                 return nil
             }
@@ -286,8 +348,13 @@ final class MemoryStoreCache: Loggable {
         if startEpoch != invalidationEpoch {
             Self.log("Snapshot cache invalidated during a save — deleting the files it wrote")
             removeFilesFromDisk()
+        } else if let saved, !writesPayload {
+            onDiskContentVersion = contentVersion
+            onDiskMetadataFileID = saved.metadataFileID
+            Self.log("Rewrote the snapshot fingerprint to pair it with the new metadata cache file (\(filmCount) films)")
         } else if let saved {
             onDiskContentVersion = contentVersion
+            onDiskMetadataFileID = saved.metadataFileID
             Self.log("""
                 Saved snapshot cache: \(filmCount) films (format v\(currentCacheFormatVersion)) — \
                 encode: \(saved.encode.formattedMilliseconds) | write: \(saved.write.formattedMilliseconds) | \
@@ -296,6 +363,15 @@ final class MemoryStoreCache: Loggable {
         } else {
             Self.log("ERROR: Failed to save snapshot cache")
         }
+    }
+
+    /// Writes the fingerprint file, atomically.
+    private nonisolated static func writeFingerprintFile(_ fingerprint: StoreFingerprint, metadataFileID: UUID?,
+                                                         to url: URL) throws {
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        let data = try encoder.encode(StoredFingerprintFile(fingerprint: fingerprint, metadataFileID: metadataFileID))
+        try data.write(to: url, options: .atomic)
     }
 
     // MARK: - Invalidate
@@ -307,6 +383,7 @@ final class MemoryStoreCache: Loggable {
     /// The fingerprint is deleted first, so a failed payload deletion still forces the slow path.
     func invalidateOnDisk() {
         onDiskContentVersion = nil
+        onDiskMetadataFileID = nil
         invalidationEpoch += 1
         removeFilesFromDisk()
         Self.log("Snapshot cache invalidated on disk")
@@ -363,6 +440,7 @@ final class MemoryStoreCache: Loggable {
         }
 
         let storedFP: StoreFingerprint
+        let storedMetadataFileID: UUID?
         let fingerprintReadElapsed: Duration
         let liveFPResult: StoreFingerprint?
         let payloadTask: Task<SpeculativePayloadLoad, Never>
@@ -381,7 +459,8 @@ final class MemoryStoreCache: Loggable {
             return .miss
 
         case .ready(let stored, let readElapsed, let live, let task, let startedAt, let fingerprintsAt):
-            storedFP = stored
+            storedFP = stored.fingerprint
+            storedMetadataFileID = stored.metadataFileID
             fingerprintReadElapsed = readElapsed
             liveFPResult = live
             payloadTask = task
@@ -517,6 +596,8 @@ final class MemoryStoreCache: Loggable {
                 """)
         }
 
+        loadedMetadataFileID = storedMetadataFileID
+        onDiskMetadataFileID = storedMetadataFileID
         return .hit(films: decoded.films, lists: decoded.lists, filmToLists: decoded.filmToLists)
     }
 
@@ -527,7 +608,7 @@ final class MemoryStoreCache: Loggable {
     private enum CachePipeline: Sendable {
         case noCacheFiles
         case storedFingerprintUnreadable(elapsed: Duration)
-        case ready(stored: StoreFingerprint, readElapsed: Duration,
+        case ready(stored: StoredFingerprintFile, readElapsed: Duration,
                    live: StoreFingerprint?, payload: Task<SpeculativePayloadLoad, Never>,
                    startedAt: Double, fingerprintsAt: Double)
     }
@@ -563,12 +644,12 @@ final class MemoryStoreCache: Loggable {
 
         /// Step 1: the stored fingerprint read and the live fingerprint computation run concurrently,
         /// leaving MainActor free.
-        async let storedFPLoad: (fingerprint: StoreFingerprint?, elapsed: Duration)
+        async let storedFPLoad: (fingerprint: StoredFingerprintFile?, elapsed: Duration)
             = Task.detached(priority: .userInitiated) {
-                () -> (fingerprint: StoreFingerprint?, elapsed: Duration) in
+                () -> (fingerprint: StoredFingerprintFile?, elapsed: Duration) in
                 let segmentStart = ContinuousClock.now
                 guard let data = try? Data(contentsOf: fingerprintURL),
-                      let fp = try? PropertyListDecoder().decode(StoreFingerprint.self, from: data) else {
+                      let fp = StoredFingerprintFile.decode(data) else {
                     return (nil, ContinuousClock.now - segmentStart)
                 }
                 return (fp, ContinuousClock.now - segmentStart)
@@ -650,7 +731,7 @@ final class MemoryStoreCache: Loggable {
         }
 
         let liveFP = await liveFPLoad
-        LaunchReveal.recordSnapshotPrediction(hit: liveFP == storedFP)
+        LaunchReveal.recordSnapshotPrediction(hit: liveFP == storedFP.fingerprint)
         return .ready(stored: storedFP, readElapsed: storedFPResult.elapsed,
                       live: liveFP, payload: payloadTask,
                       startedAt: pipelineStart, fingerprintsAt: LaunchTimeline.now())

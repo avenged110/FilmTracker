@@ -503,8 +503,10 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         }
         if !newFilms.isEmpty { LaunchReveal.shared.galleryWillAppear(scrollView) }
 
-        /// Exits early if both are empty.
+        /// Exits early if both are empty. An empty "Up Next" tab still draws its slots, so the slot run is brought up to
+        /// date first (a no-op when its inputs are unchanged, and nil everywhere else).
         guard !newFilms.isEmpty || !coordinator.films.isEmpty else {
+            coordinator.updateSectionDividers()
             coordinator.syncSelectionToView()
             return
         }

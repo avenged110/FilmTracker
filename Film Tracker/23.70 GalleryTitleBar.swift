@@ -81,7 +81,7 @@ struct GalleryTitleBar: View {
 
         /// A saved search's Edit and Remove controls live in the sidebar menu and the menu bar. Search's Save
         /// Search button leads the row instead.
-        case .allFilms, .list, .reports, .imports, .search, .savedSearch:
+        case .allFilms, .list, .reports, .imports, .search, .savedSearch, .tag:
             EmptyView()
         }
     }

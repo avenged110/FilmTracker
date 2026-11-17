@@ -1179,3 +1179,93 @@ final class SmartLists: Loggable {
         return stored.subtracting(coordinator.getFilmQueueFilmIDs())
     }
 }
+
+// MARK: - Sidebar Tags
+/// One tag of the sidebar's Tags section, as SidebarItem.tag and ViewIdentifier.tag carry it.
+///
+/// Its identity is its `SearchText.key`, so every spelling of a tag is the same tag: the row
+/// stays selected, and its view keeps one state, when the tag's most-used spelling changes
+/// while it is open (a bulk edit that fixes its case, say). `name` is the spelling it was
+/// opened with, for the window title and the empty view's message.
+nonisolated struct SidebarTag: Hashable, Sendable, CustomStringConvertible {
+    let name: String
+    let key: String
+
+    init(_ name: String) {
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        key = SearchText.key(self.name)
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
+    func hash(into hasher: inout Hasher) { hasher.combine(key) }
+    var description: String { name }
+}
+
+/// The sidebar's Tags section (Preferences.showTagsInSidebar): the library's most-used tags,
+/// each a gallery of the films carrying it (SidebarItem.tag / ViewIdentifier.tag).
+///
+/// Tags compare by `SearchText.key`, so "Noir", "noir" and " noir " are one tag, shown in its
+/// most-used spelling. A film carries a tag when one of its own tags is that tag exactly. It
+/// is not a `#tags` search, which also matches inside longer tags ("neo-noir").
+@MainActor
+enum SidebarTags {
+    /// The ranked tags, kept until the films change (DataCoordinator.filmsVersion).
+    private static var ranked: (version: UInt64, tags: [String])?
+
+    /// The `limit` most-used tags, most-used first; ties go alphabetically.
+    static func mostUsed(_ limit: Int, in coordinator: DataCoordinator) -> [String] {
+        let version = coordinator.filmsVersion
+        if let ranked, ranked.version == version { return Array(ranked.tags.prefix(limit)) }
+        /// key → spelling → films using it.
+        var spellings: [Substring: [String: Int]] = [:]
+        for film in coordinator.getAllFilmsMap().values where !film.tags.isEmpty {
+            /// Once per film, however many spellings of a tag it carries.
+            var seen: Set<Substring> = []
+            for (tag, key) in zip(film.tags, keys(of: film)) {
+                guard !key.isEmpty, seen.insert(key).inserted else { continue }
+                spellings[key, default: [:]][tag.trimmingCharacters(in: .whitespacesAndNewlines), default: 0] += 1
+            }
+        }
+        let counted: [(key: Substring, display: String, uses: Int)] = spellings.map { key, uses in
+            /// The most-used spelling; ties go to the alphabetically first, so the choice is stable.
+            let display = uses.min { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }?.key
+                ?? String(key)
+            return (key, display, uses.values.reduce(0, +))
+        }
+        let tags = counted
+            .sorted { $0.uses != $1.uses ? $0.uses > $1.uses : $0.key < $1.key }
+            .map(\.display)
+        ranked = (version, tags)
+        return Array(tags.prefix(limit))
+    }
+
+    /// Whether `film` carries `tag`. Keyed from the film's own tags, not MetadataCache: the
+    /// film may be a save not yet made (DataCoordinator.galleryWouldShow).
+    nonisolated static func film(_ film: FilmSnapshot, carries tag: SidebarTag) -> Bool {
+        film.tags.contains { SearchText.key($0) == tag.key }
+    }
+
+    /// The films among `films`, all in the library, that carry `tag`.
+    static func filmIDs(taggedWith tag: SidebarTag, in films: [FilmSnapshot]) -> Set<UUID> {
+        var ids = Set<UUID>()
+        for film in films where !film.tags.isEmpty && keys(of: film).contains(where: { $0 == tag.key }) {
+            ids.insert(film.id)
+        }
+        return ids
+    }
+
+    /// A library film's tags in `SearchText.key` form, in order. Read from MetadataCache, which
+    /// keys them as search does (FilmTextSearchKeys.tags, one per tag, joined by "\n", which no
+    /// key holds) and is updated with every film write, so a load or recount does not fold
+    /// every tag in the library again. Worked out here for a film the cache does not hold.
+    ///
+    /// `SearchText.key` drops surrounding whitespace itself, so the stored keys of untrimmed
+    /// tags equal the keys of the trimmed ones.
+    private static func keys(of film: FilmSnapshot) -> [Substring] {
+        if let joined = MetadataCache.shared.getTextSearchKeys(for: film.id)?.tags {
+            let keys = joined.split(separator: "\n", omittingEmptySubsequences: false)
+            if keys.count == film.tags.count { return keys }
+        }
+        return film.tags.map { Substring(SearchText.key($0)) }
+    }
+}

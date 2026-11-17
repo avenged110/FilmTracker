@@ -126,6 +126,8 @@ final class ReportsState {
     var visibleItemCount: Int = 0
     /// The Purchase Tracker's column totals, for the StatusBar's summary row. Rebuilt with the tab's rows in updateData.
     private(set) var purchaseTotals = PurchaseTotals()
+    /// The Hall of Fame's format and rating counts, for the StatusBar's summary row. Rebuilt with the tab's rows in updateHallOfFameData.
+    private(set) var hallOfFameTotals = HallOfFameTotals()
     
     /// Export data storage per category
     private var costTrackerData: [ReleaseData] = []
@@ -297,8 +299,8 @@ final class ReportsState {
     
     /// Update hall of fame data
     ///
-    /// Both properties are observed, so every assignment notifies, even when the value is unchanged. HallOfFameView reloads once per shifted
-    /// member during a drag-reorder, so both writes are change-guarded. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
+    /// Both properties are observed, so every assignment notifies, even when the value is unchanged. A drag-reorder sends the same rows
+    /// twice, from HallOfFameView.handleMove and then from the reload that confirms the order, so both writes are change-guarded. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
     func updateHallOfFameData(_ data: [HallOfFameFilm]) {
         let wasLoaded = loadedCategories.contains(.hallOfFame)
         if !wasLoaded {
@@ -308,6 +310,8 @@ final class ReportsState {
         /// The `!wasLoaded` term makes the first call always assign, so an empty first load still fills the cache.
         if !wasLoaded || hallOfFameData != data {
             hallOfFameData = data
+            let totals = HallOfFameTotals(rows: data)
+            if hallOfFameTotals != totals { hallOfFameTotals = totals }
         }
         
         /// Update visible count if hall of fame is the currently displayed category
@@ -318,8 +322,8 @@ final class ReportsState {
     
     /// Update wishlist data
     ///
-    /// Change-guarded for the same reason as updateHallOfFameData. A wishlist drag-reorder sends one .film(.releaseChanged) per moved film,
-    /// each triggering a full reload. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
+    /// Change-guarded for the same reason as updateHallOfFameData: a drag-reorder sends the same rows twice, from ReleaseWishlistView.handleMove
+    /// and then from the reload that confirms the order. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
     func updateWishlistData(_ data: [WishlistRelease]) {
         let wasLoaded = loadedCategories.contains(.releaseWishlist)
         if !wasLoaded {

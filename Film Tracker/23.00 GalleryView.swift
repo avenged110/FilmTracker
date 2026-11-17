@@ -48,7 +48,7 @@ enum GalleryReuse {
     static func isSharedHostItem(_ item: SidebarItem) -> Bool {
         switch item {
         case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
-             .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch:
+             .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch, .tag:
             return true
         case .libraryItem(.reports), .libraryItem(.imports):
             return false
@@ -94,7 +94,7 @@ struct GalleryView: View, Loggable {
                 /// ViewStateManager.displayedGalleryState).
                 let shown = viewStateManager.displayedGalleryState(
                     loadedQueueFilter: dataCoordinator.loadedFilmQueueFilter)
-                if !isOutgoing && !dataCoordinator.films.isEmpty && PosterCache.shared.isReady && !shouldShowLoading {
+                if !isOutgoing && hasGalleryContent && PosterCache.shared.isReady && !shouldShowLoading {
                     /// showSectionDividers is read here, from `shown`, so the style and the dividers always come from
                     /// the same tab. Passing it down makes a change an ordinary value change on the representable.
                     ///
@@ -196,8 +196,15 @@ struct GalleryView: View, Loggable {
         }
     }
     
+    /// True when the gallery has something to draw: films, or the empty "Up Next" tab's slots, which take the place of
+    /// its empty-section placeholder exactly as an empty "Up Next" band does on the "All" tab.
+    private var hasGalleryContent: Bool {
+        !dataCoordinator.films.isEmpty
+            || UpNextSlots.showsSlotsWithoutFilms(coordinator: dataCoordinator, isNarrowed: isNarrowed)
+    }
+
     private var shouldShowPlaceholder: Bool {
-        guard dataCoordinator.isInitialized, PosterCache.shared.isReady, dataCoordinator.films.isEmpty else { return false }
+        guard dataCoordinator.isInitialized, PosterCache.shared.isReady, !hasGalleryContent else { return false }
 
         /// The spinner and the placeholder are mutually exclusive. While films are still loading, only the
         /// spinner shows. Otherwise an empty user list would show "List is Empty" under it.
@@ -279,6 +286,13 @@ struct GalleryView: View, Loggable {
             smartListPlaceholder(for: type)
         } else if case .filmQueue = activeView {
             filmQueuePlaceholder()
+        } else if case .tag(let tag) = activeView, dataCoordinator.hasDatabaseFilms {
+            /// The last film carrying the tag lost it; the row leaves the sidebar with it.
+            StandardPlaceholder(
+                glyph: ViewGlyphs.tag.outline,
+                title: "No Films Tagged",
+                message: "No films in your library carry the \u{201C}\(tag.name)\u{201D} tag."
+            )
         } else if hasSearchQuery {
             StandardPlaceholder(
                 glyph: ViewGlyphs.search.outline,

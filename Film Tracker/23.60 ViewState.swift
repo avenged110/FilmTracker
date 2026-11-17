@@ -421,6 +421,8 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     case smartList(SmartListType)
     case search
     case savedSearch(UUID)
+    /// The films carrying one tag, from the sidebar's Tags section (SidebarTags).
+    case tag(SidebarTag)
 
     /// There is no `listID` accessor. Consumers that need a list ID already match `case .list(let id)` in a
     /// switch, so an accessor would add nothing.
@@ -470,6 +472,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .list: return ViewGlyphs.userList.outline
         case .search: return ViewGlyphs.search.outline
         case .savedSearch: return ViewGlyphs.savedSearch.outline
+        case .tag: return ViewGlyphs.tag.outline
         case .recents(let category): return category.glyph
         /// The Queue's tabs share this one identifier; GalleryTitleBar swaps in the selected tab's glyph.
         case .filmQueue: return ViewGlyphs.filmQueue.filled
@@ -495,6 +498,12 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .smartList(let type): return "smartList.\(type.rawValue)"
         case .filmQueue: return "filmQueue"
         case .savedSearch(let id): return "savedSearch.\(id.uuidString)"
+        /// One state per tag, as each smart list and saved search has its own, under the tag's
+        /// SearchText key (its identity, SidebarTag) so every spelling of it shares one.
+        /// ViewStateManager caches state per ViewIdentifier in memory, so a key shared by all tags
+        /// would let each tag's cached state overwrite the others' on disk. A tag that leaves the
+        /// library leaves its small entry behind.
+        case .tag(let tag): return "tag.\(tag.key)"
         case .list, .reports, .imports, .search: return nil
         }
     }
@@ -511,7 +520,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     /// is added.
     var treatsEmptyAsValidState: Bool {
         switch self {
-        case .recents, .smartList, .filmQueue, .unwatched, .savedSearch:
+        case .recents, .smartList, .filmQueue, .unwatched, .savedSearch, .tag:
             return true
         case .allFilms, .list, .reports, .imports, .search:
             return false
@@ -530,6 +539,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .smartList(let type): return "SmartList(\(type.rawValue))"
         case .search: return "Search"
         case .savedSearch(let id): return "SavedSearch(\(id.uuidString.prefix(8)))"
+        case .tag(let tag): return "Tag(\(tag.name))"
         }
     }
 
@@ -553,6 +563,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .libraryItem(.filmQueue): return .filmQueue
         case .list(let id):             return .list(id)
         case .savedSearch(let id):      return .savedSearch(id)
+        case .tag(let tag):             return .tag(tag)
         case .smartList(let type):
             /// The sidebar row names the family; its state names the variant on screen. A type with no
             /// variants of its own is its own family, so this resolves to the type itself — which is what the
@@ -683,7 +694,7 @@ extension SidebarItem {
         case .libraryItem(.search):
             return ViewCapabilities(isValidSearchExitDestination: false)
 
-        case .savedSearch:
+        case .savedSearch, .tag:
             return ViewCapabilities()
 
         case .libraryItem(.unwatched):
@@ -698,8 +709,13 @@ extension SidebarItem {
         case .libraryItem(.reports):
             return ViewCapabilities(
                 showsGalleryChrome: ReportsState.shared.displayedCategory != .dataVisualizations,
-                statusBar: ReportsState.shared.displayedCategory == .costTracker
-                    ? .summaryAndClassic(.purchaseTotals) : .classic,
+                statusBar: {
+                    switch ReportsState.shared.displayedCategory {
+                    case .costTracker: return .summaryAndClassic(.purchaseTotals)
+                    case .hallOfFame: return .summaryAndClassic(.hallOfFameTotals)
+                    default: return .classic
+                    }
+                }(),
                 isValidSearchExitDestination: false,
                 supportsListGridToggle: false,
                 sortMenuFullyDisabled: true,
@@ -1869,7 +1885,7 @@ final class ViewStateManager: Loggable {
             /// allowed but never persisted).
             return ViewState()
 
-        case .allFilms, .unwatched, .smartList, .filmQueue, .savedSearch:
+        case .allFilms, .unwatched, .smartList, .filmQueue, .savedSearch, .tag:
             /// Persisted per-view (allFilms), per-tab (unwatched, filmQueue), or per-type (smartList) in the
             /// consolidated view-sort-states dictionary, via the shared ViewStateKey.persistenceKey.
             /// Membership for unwatched/smartList is always computed at runtime, and the Film Queue's section
@@ -1931,7 +1947,7 @@ final class ViewStateManager: Loggable {
             /// Search state is always transient and is never persisted.
             Self.log("Skipping save for search view (transient state)")
 
-        case .allFilms, .unwatched, .recents, .smartList, .filmQueue, .savedSearch:
+        case .allFilms, .unwatched, .recents, .smartList, .filmQueue, .savedSearch, .tag:
             /// All five view kinds persist to the consolidated view-sort-states dictionary via the shared
             /// persistenceKey, governed uniformly by rememberSortFilterSelections. (Recents only has filter
             /// options and list-view style genuinely at stake — sort/direction are fixed by category and are

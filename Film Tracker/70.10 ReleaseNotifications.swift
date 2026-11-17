@@ -6,6 +6,13 @@
 /// cataloged while that date was still ahead — or, with `Preferences.onlyNotifyForWishlisted`,
 /// of every such release that is also wishlisted.
 ///
+// MARK: At most one notification a day
+///
+/// A day's releases share one notification: a single release is named outright ("Heat", "The
+/// 4K UHD release from Criterion is out today."), two or more become a digest ("3 New Releases
+/// Today", "Out today: Alien (4K UHD), Heat (Blu-ray), and 1 more."). So the requests are per
+/// day, not per release, and a day's request is replaced whenever its set of releases changes.
+///
 // MARK: Scheduled with the system, not fired by the app
 ///
 /// Each notification is a pending UNNotificationRequest with a calendar trigger at
@@ -17,11 +24,18 @@
 // MARK: "Cataloged with a date still ahead"
 ///
 /// A release is scheduled only while its date lies after today. On the release day itself it
-/// is no longer upcoming, so a sync that day keeps a request only if one is ALREADY pending for
-/// it — and one can be pending only because it was scheduled while the date was still ahead.
-/// That is what keeps a release cataloged on the day it comes out from being announced, while
-/// a sync on the morning of a release day (a relaunch, an unrelated edit) does not cancel the
-/// notification it is about to deliver.
+/// is no longer upcoming, so a sync that day keeps a request only if an earlier sync planned it
+/// — and one did only while the date was still ahead. That is what keeps a release cataloged on
+/// the day it comes out from being announced, while a sync on the morning of a release day (a
+/// relaunch, an unrelated edit, the midnight sync) does not cancel the notification it is about
+/// to deliver.
+///
+/// What earlier syncs planned is recorded here (`plannedIDsKey`), not read back from the
+/// system's pending list. macOS can hold fewer requests than were added — it has kept a single
+/// one for this app, dropping each earlier request as the next arrived ("Too many requests" in
+/// usernoted's log) — and a rule that trusted the pending list then dropped every release on its
+/// own day at the midnight sync. The record is this Mac's, like the pending requests themselves,
+/// so it lives in UserDefaults and not in Preferences, which a backup carries to other Macs.
 ///
 // MARK: What is left out
 ///
@@ -34,7 +48,9 @@
 ///
 /// macOS keeps a limited number of pending requests per app, so at most `maxScheduled` are
 /// kept — the soonest. Later ones are added as earlier ones are delivered, by the sync that
-/// runs when the day changes.
+/// runs when the day changes. Requests are added latest first, so if macOS keeps fewer than
+/// that, what it keeps are the soonest; a sync that finds fewer pending than it added says so
+/// in the log.
 
 import Foundation
 import Combine
@@ -51,6 +67,17 @@ final class ReleaseNotifications: Loggable {
     nonisolated static let maxScheduled = 60
     /// The local hour the notification is delivered on the release day.
     nonisolated static let deliveryHour = 9
+    /// UserDefaults key: the releases (`releaseKey`s) the last sync planned, across every day's
+    /// request (see "Cataloged with a date still ahead").
+    private static let plannedIDsKey = "releaseNotifications.plannedIDs"
+
+    private static var storedPlannedIDs: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: plannedIDsKey) ?? []) }
+        set {
+            guard newValue != storedPlannedIDs else { return }
+            UserDefaults.standard.set(newValue.sorted(), forKey: plannedIDsKey)
+        }
+    }
 
     private weak var coordinator: DataCoordinator?
     private var cancellables = Set<AnyCancellable>()
@@ -66,10 +93,13 @@ final class ReleaseNotifications: Loggable {
     /// Held strongly: the notification center keeps its delegate weakly.
     private let presenter = Presenter()
 
-    /// One request as this type would schedule it.
+    /// One request as this type would schedule it: one day's notification.
     struct Planned: Equatable {
         let trigger: DateComponents
         let fireDate: Date
+        /// The day's releases, as `releaseKey`s, sorted: what the record of planned releases
+        /// keeps (see "Cataloged with a date still ahead").
+        let releaseKeys: [String]
         let title: String
         let body: String
     }
@@ -165,11 +195,7 @@ final class ReleaseNotifications: Loggable {
         guard let coordinator, !coordinator.isLibraryStateUnreliable else { return }
         let center = UNUserNotificationCenter.current()
 
-        /// The pending list is read from the system on the first sync, and again whenever
-        /// what is due depends on it (see "Cataloged with a date still ahead").
-        let pendingIDs = Set(await center.pendingNotificationRequests()
-            .map(\.identifier)
-            .filter { $0.hasPrefix(Self.identifierPrefix) })
+        let pendingIDs = await Self.pendingIDs(center)
         guard !Task.isCancelled else { return }
 
         let wanted: [String: Planned]
@@ -189,8 +215,11 @@ final class ReleaseNotifications: Loggable {
             let films = coordinator.getAllFilms()
             let today = CurrentDay.shared.today
             let wishlistedOnly = Preferences.onlyNotifyForWishlisted
+            /// The pending requests count too, for per-release requests scheduled before the
+            /// record was kept (their identifiers are release keys).
+            let eligibleIDs = Self.storedPlannedIDs.union(pendingIDs)
             wanted = await Task.detached(priority: .utility) {
-                Self.plan(films: films, pendingIDs: pendingIDs, today: today, now: Date(),
+                Self.plan(films: films, eligibleIDs: eligibleIDs, today: today, now: Date(),
                           wishlistedOnly: wishlistedOnly)
             }.value
             guard !Task.isCancelled else { return }
@@ -202,9 +231,17 @@ final class ReleaseNotifications: Loggable {
         if !stale.isEmpty {
             center.removePendingNotificationRequests(withIdentifiers: Array(stale))
         }
+        /// Recorded whether or not each add succeeds: a release planned while its date was ahead
+        /// stays eligible on its day even if macOS did not keep, or refused, its request.
+        Self.storedPlannedIDs = Set(wanted.values.flatMap(\.releaseKeys))
         var added = 0
         var nowApplied = wanted
-        for (id, planned) in wanted where !pendingIDs.contains(id) || applied?[id] != planned {
+        /// Latest first: if macOS keeps fewer requests than are added, each add dropping an
+        /// earlier one, the ones it keeps are the soonest.
+        let toAdd = wanted
+            .filter { id, planned in !pendingIDs.contains(id) || applied?[id] != planned }
+            .sorted { $0.value.fireDate > $1.value.fireDate }
+        for (id, planned) in toAdd {
             /// A newer sync is waiting with newer data; it will finish the job.
             if Task.isCancelled { nowApplied[id] = nil; continue }
             let content = UNMutableNotificationContent()
@@ -226,12 +263,45 @@ final class ReleaseNotifications: Loggable {
         if added > 0 || !stale.isEmpty {
             log("Scheduled \(added), removed \(stale.count); \(wanted.count) pending")
         }
+        guard added > 0, !Task.isCancelled else { return }
+        /// Read back once, so a system that keeps fewer than were added is caught in the log
+        /// rather than discovered on a release day with no notification. Anything it dropped
+        /// is no longer pending, so the next sync adds it again (soonest last, as above).
+        let kept = await Self.pendingIDs(center).intersection(wanted.keys).count
+        if kept < wanted.count {
+            log("WARNING: macOS kept \(kept) of \(wanted.count) release-day notifications; "
+                + "the rest were dropped (see usernoted's \"Too many requests\" in the system log)")
+        }
     }
 
-    /// The requests due for `films` on `today` (its start) at the moment `now`, soonest
-    /// first, at most `maxScheduled`. `pendingIDs` are this type's requests the system holds.
-    /// Pure, so the harness can drive it (99.12 `release-day-notifications`).
-    nonisolated static func plan(films: [FilmSnapshot], pendingIDs: Set<String>, today: Date,
+    /// The identifiers of this type's requests the system holds.
+    private static func pendingIDs(_ center: UNUserNotificationCenter) async -> Set<String> {
+        Set(await center.pendingNotificationRequests()
+            .map(\.identifier)
+            .filter { $0.hasPrefix(identifierPrefix) })
+    }
+
+    /// A release's key in the record of planned releases ("release-day.<release UUID>") — the
+    /// identifier its request had when there was one request per release.
+    nonisolated static func releaseKey(_ release: ReleaseSnapshot) -> String {
+        identifierPrefix + release.id.uuidString
+    }
+
+    /// The identifier of a day's request ("release-day.day.2026-11-20"). It shares the prefix,
+    /// so a sync removes this type's requests of either form, and never parses as a release key.
+    nonisolated static func dayRequestID(year: Int, month: Int, day: Int) -> String {
+        func padded(_ n: Int, _ width: Int) -> String {
+            let digits = String(n)
+            return String(repeating: "0", count: max(0, width - digits.count)) + digits
+        }
+        return identifierPrefix + "day." + "\(padded(year, 4))-\(padded(month, 2))-\(padded(day, 2))"
+    }
+
+    /// The requests due for `films` on `today` (its start) at the moment `now`, one per
+    /// release day, soonest first, at most `maxScheduled` days. `eligibleIDs` are the release
+    /// keys an earlier sync planned, which a release on `today` needs to be kept. Pure, so the
+    /// harness can drive it (99.12 `release-date-rules`).
+    nonisolated static func plan(films: [FilmSnapshot], eligibleIDs: Set<String>, today: Date,
                                  now: Date, wishlistedOnly: Bool) -> [String: Planned] {
         let todayComps = StorageDateFormatters.calendar.dateComponents([.year, .month, .day], from: today)
         let todayKey = (todayComps.year ?? 0) * 10_000 + (todayComps.month ?? 0) * 100 + (todayComps.day ?? 0)
@@ -239,37 +309,76 @@ final class ReleaseNotifications: Loggable {
         var local = Calendar(identifier: .gregorian)
         local.timeZone = .current
 
-        var due: [(id: String, planned: Planned)] = []
+        struct Item { let key: String; let filmName: String; let release: ReleaseSnapshot }
+        var days: [String: (trigger: DateComponents, fireDate: Date, items: [Item])] = [:]
         for film in films {
             for release in film.releases where !release.isChild {
                 if wishlistedOnly && release.wishlist < 1 { continue }
                 guard let date = ReleaseDateValue(release.releaseDate, format: release.format),
                       let monthDay = date.monthDay else { continue }
-                let id = Self.identifierPrefix + release.id.uuidString
-                /// Ahead of today, or today with a request already waiting (see the header).
+                let key = releaseKey(release)
+                /// Ahead of today, or today and planned while it was ahead (see the header).
                 guard date.isUpcoming(today: today)
-                        || (date.sortKey == todayKey && pendingIDs.contains(id)) else { continue }
+                        || (date.sortKey == todayKey && eligibleIDs.contains(key)) else { continue }
+                let id = dayRequestID(year: date.year, month: monthDay.month, day: monthDay.day)
+                let item = Item(key: key, filmName: film.name, release: release)
+                if days[id] != nil { days[id]!.items.append(item); continue }
                 var trigger = DateComponents(year: date.year, month: monthDay.month,
-                                             day: monthDay.day, hour: Self.deliveryHour)
+                                             day: monthDay.day, hour: deliveryHour)
                 trigger.calendar = local
                 trigger.timeZone = local.timeZone
                 guard let fireDate = local.date(from: trigger), fireDate > now else { continue }
-                due.append((id, Planned(trigger: trigger, fireDate: fireDate,
-                                        title: film.name,
-                                        body: Self.body(for: release))))
+                days[id] = (trigger, fireDate, [item])
             }
         }
-        due.sort { $0.planned.fireDate < $1.planned.fireDate }
-        return Dictionary(due.prefix(Self.maxScheduled).map { ($0.id, $0.planned) },
-                          uniquingKeysWith: { first, _ in first })
+
+        let soonest = days.sorted { $0.value.fireDate < $1.value.fireDate }.prefix(maxScheduled)
+        var result: [String: Planned] = [:]
+        for (id, day) in soonest {
+            /// Film name, then format, then ID: the same text whatever order the films came in,
+            /// so an unchanged day compares equal and is not re-added.
+            let items = day.items.sorted {
+                ($0.filmName, $0.release.format, $0.key) < ($1.filmName, $1.release.format, $1.key)
+            }
+            let (title, body) = content(for: items.map { ($0.filmName, $0.release) })
+            result[id] = Planned(trigger: day.trigger, fireDate: day.fireDate,
+                                 releaseKeys: items.map(\.key), title: title, body: body)
+        }
+        return result
     }
 
-    /// "The 4K UHD release from Criterion is out today."
-    nonisolated private static func body(for release: ReleaseSnapshot) -> String {
-        let studio = release.studio.trimmingCharacters(in: .whitespacesAndNewlines)
-        let from = studio.isEmpty ? "" : " from \(studio)"
-        let wishlisted = release.wishlist >= 1 ? " It's on your wishlist." : ""
-        return "The \(release.format) release\(from) is out today.\(wishlisted)"
+    /// Releases a digest names before "and N more": a banner shows about two lines.
+    nonisolated static let digestNamedLimit = 3
+
+    /// One release: its film, and "The 4K UHD release from Criterion is out today." Two or
+    /// more: "3 New Releases Today", and "Out today: Alien (4K UHD), Heat (Blu-ray), and 1
+    /// more." Either way the wishlisted ones are counted last.
+    nonisolated static func content(for releases: [(filmName: String, release: ReleaseSnapshot)])
+        -> (title: String, body: String) {
+        let wished = releases.filter { $0.release.wishlist >= 1 }.count
+        if releases.count == 1, let only = releases.first {
+            let studio = only.release.studio.trimmingCharacters(in: .whitespacesAndNewlines)
+            let from = studio.isEmpty ? "" : " from \(studio)"
+            let wishlisted = wished > 0 ? " It's on your wishlist." : ""
+            return (only.filmName, "The \(only.release.format) release\(from) is out today.\(wishlisted)")
+        }
+        let names = releases.map { "\($0.filmName) (\($0.release.format))" }
+        let listed: String
+        if names.count <= digestNamedLimit {
+            listed = names.dropLast().joined(separator: ", ")
+                + (names.count > 2 ? "," : "") + " and " + names[names.count - 1]
+        } else {
+            let shown = digestNamedLimit - 1
+            listed = names.prefix(shown).joined(separator: ", ") + ", and \(names.count - shown) more"
+        }
+        let wishlisted: String
+        switch wished {
+        case 0: wishlisted = ""
+        case releases.count: wishlisted = releases.count == 2 ? " Both are on your wishlist." : " All are on your wishlist."
+        case 1: wishlisted = " 1 is on your wishlist."
+        default: wishlisted = " \(wished) are on your wishlist."
+        }
+        return ("\(releases.count) New Releases Today", "Out today: \(listed).\(wishlisted)")
     }
 
     // MARK: - Presentation

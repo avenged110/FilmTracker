@@ -296,7 +296,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
         let upNext = FilmQueue.upNextFilmIDs(coordinator: coordinator)
         upNextIncoming = Set(self.filmIDs).subtracting(upNext).count
         upNextVacancies = FilmQueue.upNextVacancies(coordinator: coordinator)
-        let hallOfFameCount = coordinator.getHallOfFameFilms().count
+        let hallOfFameCount = coordinator.hallOfFameFilms.count
         hallOfFameIncoming = films.filter { $0.hofPosition == 0 }.count
         hallOfFameVacancies = max(0, BulkFilmEdit.hallOfFameCapacity - hallOfFameCount)
         blacklistedCount = films.filter { $0.specialSorting.contains(FilmSpecialSorting.blacklisted) }.count
@@ -458,7 +458,7 @@ final class MultiFilmSheet: Identifiable, Loggable {
             return
         }
         if case .set(true) = inHallOfFame {
-            let members = coordinator.getHallOfFameFilms().count
+            let members = coordinator.hallOfFameFilms.count
             let incoming = filmIDs.compactMap { coordinator.getFilm($0) }.filter { $0.hofPosition == 0 }.count
             if BulkFilmEdit.hallOfFameOverflow(adding: incoming, memberCount: members) > 0 {
                 pendingAlert = .hallOfFameFull(message: Self.hallOfFameFullMessage(

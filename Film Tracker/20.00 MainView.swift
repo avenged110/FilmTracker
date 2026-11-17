@@ -306,6 +306,9 @@ struct MainView: View, Loggable {
         case .smartList where !Preferences.smartLists:
             /// Smart lists were turned off while the search was open.
             return .libraryItem(.allFilms)
+        case .tag where Preferences.showTagsInSidebar == .hidden:
+            /// The Tags section was hidden while the search was open.
+            return .libraryItem(.allFilms)
         default:
             return previousSidebarItem
         }
@@ -552,8 +555,8 @@ private struct MainContentSwitcher: View {
             ImportsView()
                 .id("imports")
         case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
-             .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch:
-            /// One GalleryView for all eight. A move between them is an in-place view switch, the same path a
+             .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch, .tag:
+            /// One GalleryView for all of them. A move between them is an in-place view switch, the same path a
             /// Recents tab or smart-list variant takes. See GalleryReuse.
             GalleryView(sidebarItem: item, statusBarHeight: statusBarHeight)
                 .modifier(SearchTokenEntryCover(item: item))
@@ -613,6 +616,8 @@ private struct NavigationTitleModifier: ViewModifier {
             return dataCoordinator.cachedLists.first { $0.listID == uuid }?.listName ?? "List"
         case .savedSearch(let id):
             return SavedSearchStore.shared.search(id)?.name ?? "Saved Search"
+        case .tag(let tag):
+            return tag.name
         }
     }
 }

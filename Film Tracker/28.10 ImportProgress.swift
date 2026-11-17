@@ -102,33 +102,24 @@ final class ImportProgress: Loggable {
     /// auto-clear behavior below has a single source of truth to consult.
     private var isViewingImports: Bool { ImportsState.shared.isViewingImports }
 
-    /// Called by ImportsView after it has updated ImportsState.isViewingImports.
+    /// Called by ImportsView after it has updated ImportsState.isViewingImports. Arriving at the
+    /// Imports view, by any path, clears the completion status, which is the LeftSidebar Imports
+    /// row's badge: the user is now where it points.
     func viewingImportsDidChange(_ isViewing: Bool) {
-        if isViewing {
-            /// Clear completion status immediately when user views the Imports page.
-            if completionStatus != .none {
-                clearCompletionStatus()
-            }
-            /// Start auto-clear timer if glyph is showing.
-            scheduleGlyphAutoClear()
-        } else {
-            /// Cancel auto-clear if navigating away.
-            glyphClearTask?.cancel()
-            glyphClearTask = nil
+        if isViewing, completionStatus != .none {
+            clearCompletionStatus()
         }
     }
-    
+
+    /// An import that finishes while the Imports view is showing has nothing to point to, so its badge
+    /// clears after two seconds, whether or not the user has moved on by then.
     private func scheduleGlyphAutoClear() {
-        /// Cancel any existing timer.
         glyphClearTask?.cancel()
-        
-        /// Only schedule if we have a completion status to clear.
-        guard completionStatus != .none, isViewingImports else { return }
-        
+        guard completionStatus != .none else { return }
         glyphClearTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled, isViewingImports, !isImporting else { return }
-            Self.log("Auto-clearing completion status after 5 seconds")
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled, !isImporting else { return }
+            Self.log("Auto-clearing completion status after 2 seconds")
             completionStatus = .none
         }
     }

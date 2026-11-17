@@ -335,7 +335,7 @@ nonisolated enum FilmFlag {
 /// exactly when it matches one of the values. The one difference is an empty query (a
 /// value of only punctuation), which matches any value at all: a joined string cannot say
 /// whether the array had one, so the matcher asks the snapshot instead.
-nonisolated struct FilmTextSearchKeys: Codable, Sendable {
+nonisolated struct FilmTextSearchKeys: Codable, Sendable, Equatable {
     let cast: String
     let directors: String
     let producers: String

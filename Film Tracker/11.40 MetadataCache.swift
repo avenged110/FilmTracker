@@ -9,7 +9,7 @@ import Foundation
 import os
 
 // MARK: - Film Metadata Structure
-struct FilmMetadata: Codable {
+struct FilmMetadata: Codable, Equatable {
     let id: UUID
     
     /// Sorting Data
@@ -314,7 +314,9 @@ struct FilmMetadataCacheFile: Codable {
     /// and the file gains `libraryOrders`. v10 adds `textSearchKeys`.
     /// v11 adds `discReleaseDays` and `discReleaseDaysFormatted`. Later v11 builds drop four fields nothing read
     /// (`duration` and the three raw date strings) without a bump: decoding ignores keys a type no longer has, so
-    /// older v11 files still load, and the next save writes them without those keys.
+    /// older v11 files still load, and the next save writes them without those keys. Later v11 builds also add
+    /// the derivation context and `fileID` below, again without a bump: a file without them loads but is
+    /// discarded as out of context, so it is rebuilt once.
     static let currentSchemaVersion = 11
 
     let schemaVersion: Int
@@ -322,6 +324,24 @@ struct FilmMetadataCacheFile: Codable {
     /// Saved library orders for `entries`, keyed by `LibraryOrderKey.storageName`. They are never trusted as read:
     /// `MetadataCache.validatedOrders` keeps only those that match a fresh build. Optional, so older files still load.
     var libraryOrders: [String: Data]? = nil
+
+    // MARK: Derivation Context
+    ///
+    /// Inputs to the entries that live outside the snapshot. A file whose context differs from this launch's is
+    /// discarded and rebuilt, like a schema mismatch. A missing value (an older file) counts as different, so
+    /// the first launch of a build that adds these rebuilds once.
+
+    /// The time zone the stored days (last watched, rotation, purchase and disc-release dates) were read in:
+    /// `StorageDateFormatters.calendar`, fixed for a launch. Those dates are local midnights, so entries from
+    /// another zone name different instants than this launch would parse, and `#watched` day searches, month
+    /// bands and the Recents windows would be off by the difference.
+    var timeZoneIdentifier: String? = nil
+    /// The default rotation threshold every entry without an override was built with. Nil when that is not
+    /// one known value (see `MetadataCache.entriesRotationThreshold`).
+    var defaultRotationThreshold: Int? = nil
+    /// A new ID for every write. The snapshot cache records the ID of the file saved beside it, and
+    /// MemoryStore rebuilds the entries when the two disagree (see StoredFingerprintFile).
+    var fileID: UUID? = nil
 }
 
 // MARK: - Metadata Cache
@@ -497,7 +517,10 @@ final class MetadataCache: Loggable {
             let validated = validatedOrders(file.libraryOrders ?? [:], for: file.entries)
             return CacheFileRead(entries: file.entries, orders: validated.orders,
                                  rejectedOrders: validated.rejected,
-                                 validation: ContinuousClock.now - validationStart)
+                                 validation: ContinuousClock.now - validationStart,
+                                 timeZoneIdentifier: file.timeZoneIdentifier,
+                                 defaultRotationThreshold: file.defaultRotationThreshold,
+                                 fileID: file.fileID)
         } catch {
             return CacheFileRead(error: error.localizedDescription)
         }
@@ -510,6 +533,9 @@ final class MetadataCache: Loggable {
         var orders: [LibraryOrderKey: [UUID]] = [:]
         var rejectedOrders = 0
         var validation: Duration = .zero
+        var timeZoneIdentifier: String?
+        var defaultRotationThreshold: Int?
+        var fileID: UUID?
         var error: String?
     }
 
@@ -597,8 +623,25 @@ final class MetadataCache: Loggable {
             LaunchTimeline.mark("metadataReadDone", at: stamps.end)
         }
         
-        if let loaded {
+        /// Entries derived under another time zone or default rotation threshold are not used.
+        /// Leaving `metadata` empty routes Phase 2 to its full rebuild.
+        let threshold = Preferences.defaultRotationThreshold
+        var contextMismatch: String?
+        if loaded != nil {
+            if result.timeZoneIdentifier != Self.timeZoneIdentifier {
+                contextMismatch = "time zone \(result.timeZoneIdentifier ?? "unrecorded") ≠ \(Self.timeZoneIdentifier)"
+            } else if result.defaultRotationThreshold != threshold {
+                contextMismatch = "default rotation threshold \(result.defaultRotationThreshold.map(String.init) ?? "unrecorded") ≠ \(threshold)"
+            }
+        }
+
+        if let contextMismatch {
+            Self.log("Cache discarded for rebuild: \(contextMismatch)")
+        } else if let loaded {
             self.metadata = loaded
+            entriesRotationThreshold = threshold
+            loadedFileID = result.fileID
+            onDiskFileID = result.fileID
             onDiskGeneration = metadataGeneration
             onDiskOrderKeys = Set(result.orders.keys)
             /// Assigning `metadata` wholesale needs the same Recents invalidation as rebuild(from:). Without it, a Recents
@@ -616,24 +659,50 @@ final class MetadataCache: Loggable {
     /// Writes `metadata` to disk, unless the file already holds this generation. A quit with no edits writes nothing.
     ///
     /// Saves run one at a time, in call order, so an older write cannot land after a newer one.
-    func save() async {
+    ///
+    /// Returns the `fileID` of the file on disk once this save ends (the new one, or the current
+    /// one when nothing needed writing), or nil when the write failed. The snapshot cache records it.
+    @discardableResult
+    func save() async -> UUID? {
         let previous = saveInFlight
         let current = Task {
-            await previous?.value
-            await self.write()
+            _ = await previous?.value
+            return await self.write()
         }
         saveInFlight = current
-        await current.value
+        return await current.value
     }
 
     /// The `metadataGeneration` the file on disk holds, or nil when that is not known
     /// (nothing loaded or saved yet, or a save failed or is under way).
     private var onDiskGeneration: UInt64?
+    /// The `fileID` of the file on disk, known exactly when `onDiskGeneration` is.
+    private var onDiskFileID: UUID?
+    /// The `fileID` of the file this launch loaded, or nil when nothing was loaded. MemoryStore
+    /// compares it with the ID the snapshot cache recorded (validateCacheAndFinalize).
+    private(set) var loadedFileID: UUID?
+
+    /// The default rotation threshold every entry without an override was built with, or nil
+    /// when that is not one known value: entries built under different defaults, or a default
+    /// changed during a build. Written to the file as `defaultRotationThreshold`, so nil makes
+    /// the next launch rebuild. Set by load, rebuild and `markRotationThreshold(_:)`; any store
+    /// built under another default clears it.
+    private var entriesRotationThreshold: Int? {
+        didSet {
+            /// The file's stamp no longer matches, even if no entry changed.
+            if entriesRotationThreshold != oldValue { onDiskGeneration = nil }
+        }
+    }
+
+    /// This launch's zone for stored days. Fixed for the launch (StorageDateFormatters).
+    private nonisolated static var timeZoneIdentifier: String {
+        StorageDateFormatters.calendar.timeZone.identifier
+    }
     /// The library orders the file holds for `onDiskGeneration` (valid ones, as read).
     private var onDiskOrderKeys: Set<LibraryOrderKey> = []
-    private var saveInFlight: Task<Void, Never>?
+    private var saveInFlight: Task<UUID?, Never>?
 
-    private func write() async {
+    private func write() async -> UUID? {
         let start = Date()
 
         /// Captured together, on MainActor: the generation names exactly these entries, and
@@ -643,12 +712,17 @@ final class MetadataCache: Loggable {
         let orderKeys = Set(orders.keys)
         let url = cacheURL
         /// The file must still exist. Orders built since the last save are also changes.
-        if generation == onDiskGeneration, orderKeys.isSubset(of: onDiskOrderKeys),
+        if generation == onDiskGeneration, orderKeys.isSubset(of: onDiskOrderKeys), let onDiskFileID,
            FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
             Self.log("Save skipped: cache on disk is current (\(metadata.count) entries)")
-            return
+            return onDiskFileID
         }
         onDiskGeneration = nil
+        onDiskFileID = nil
+        let fileID = UUID()
+        /// An empty cache holds no entry a threshold could be wrong for.
+        let threshold = metadata.isEmpty ? Preferences.defaultRotationThreshold : entriesRotationThreshold
+        let zone = Self.timeZoneIdentifier
 
         /// Capture value-type copies before leaving MainActor so the detached
         /// task has no shared-mutable-state access to self.
@@ -662,7 +736,10 @@ final class MetadataCache: Loggable {
                 let file = FilmMetadataCacheFile(
                     schemaVersion: FilmMetadataCacheFile.currentSchemaVersion,
                     entries: snapshot,
-                    libraryOrders: Dictionary(orders.map { ($0.key.storageName, Self.packedIDs($0.value)) }, uniquingKeysWith: { first, _ in first })
+                    libraryOrders: Dictionary(orders.map { ($0.key.storageName, Self.packedIDs($0.value)) }, uniquingKeysWith: { first, _ in first }),
+                    timeZoneIdentifier: zone,
+                    defaultRotationThreshold: threshold,
+                    fileID: fileID
                 )
                 let data = try encoder.encode(file)
                 try data.write(to: url, options: .atomic)
@@ -674,11 +751,18 @@ final class MetadataCache: Loggable {
 
         let duration = Date().timeIntervalSince(start)
         if saveSuccess {
-            onDiskGeneration = generation
-            onDiskOrderKeys = orderKeys
+            /// A stamp change during the write (markRotationThreshold) leaves the file stale: it
+            /// cleared onDiskGeneration, which must stay cleared so the next save writes again.
+            if threshold == entriesRotationThreshold || snapshot.isEmpty {
+                onDiskGeneration = generation
+                onDiskOrderKeys = orderKeys
+                onDiskFileID = fileID
+            }
             Self.log("Saved cache with \(snapshot.count) entries and \(orders.count) library order(s) in \(Fmt.fixed(duration * 1000, 1))ms")
+            return fileID
         } else {
             Self.log("ERROR: Failed to save cache — \(saveError ?? "unknown error")")
+            return nil
         }
     }
     
@@ -692,11 +776,14 @@ final class MetadataCache: Loggable {
     /// built off the main actor, and only the final assignment runs on it.
     func rebuild(from snapshots: [UUID: FilmSnapshot]) async {
         let start = Date()
+        let threshold = Preferences.defaultRotationThreshold
 
         /// Built off MainActor, across the cores (see buildEntries).
         let newCache = await Self.buildEntries(snapshots)
 
         self.metadata = newCache
+        /// A default changed during the build may have reached only some entries.
+        entriesRotationThreshold = Preferences.defaultRotationThreshold == threshold ? threshold : nil
         invalidateRecentsCache()
         dropLibraryOrders(reason: "cache rebuilt")
 
@@ -742,48 +829,6 @@ final class MetadataCache: Loggable {
         return chunks.withLock { $0.flatMap { $0 } }
     }
 
-    /// Adds entries for new films and removes entries for deleted ones. New entries are built off the main actor.
-    func incrementalUpdate(from snapshots: [UUID: FilmSnapshot]) async {
-        let start = Date()
-
-        let existingKeys = Set(metadata.keys)
-        let snapshotKeys = Set(snapshots.keys)
-
-        /// Remove entries for deleted films (cheap dictionary mutation, stays on MainActor).
-        let toRemove = existingKeys.subtracting(snapshotKeys)
-        for id in toRemove {
-            metadata.removeValue(forKey: id)
-        }
-
-        /// Build new entries for films that have no existing metadata entry.
-        let toAddIDs = snapshotKeys.subtracting(existingKeys)
-        if !toAddIDs.isEmpty {
-            /// Pass only the snapshots that need new entries, to avoid copying the rest across the actor boundary.
-            var toAddSnapshots: [UUID: FilmSnapshot] = [:]
-            toAddSnapshots.reserveCapacity(toAddIDs.count)
-            for id in toAddIDs {
-                if let snapshot = snapshots[id] {
-                    toAddSnapshots[id] = snapshot
-                }
-            }
-
-            let newEntries = await Self.buildEntries(toAddSnapshots)
-
-            /// Merge the newly-built entries back into the actor-isolated dictionary.
-            for (id, entry) in newEntries {
-                metadata[id] = entry
-            }
-        }
-
-        if !toRemove.isEmpty || !toAddIDs.isEmpty {
-            invalidateRecentsCache()
-            dropLibraryOrders(reason: "incremental update")
-        }
-
-        let duration = Date().timeIntervalSince(start)
-        Self.log("Incremental update: +\(toAddIDs.count) -\(toRemove.count) in \(Fmt.fixed(duration * 1000, 1))ms (total: \(metadata.count))")
-    }
-    
     // MARK: - Recents Cache Invalidation
     
     /// Clears all cached recents category results. Must be called after any metadata mutation
@@ -825,6 +870,19 @@ final class MetadataCache: Loggable {
         store(entries)
     }
 
+    /// Records that every entry without a rotation override now follows `threshold`, after
+    /// MemoryStore.refreshRotationDerivedMetadata rebuilt them. Ignored once the default has
+    /// moved on: another refresh is then on its way.
+    /// Whether every entry without a rotation override follows `threshold`. An empty cache does.
+    func entriesFollowRotationThreshold(_ threshold: Int) -> Bool {
+        metadata.isEmpty || entriesRotationThreshold == threshold
+    }
+
+    func markRotationThreshold(_ threshold: Int) {
+        guard Preferences.defaultRotationThreshold == threshold else { return }
+        entriesRotationThreshold = threshold
+    }
+
     func removeFilms(_ ids: Set<UUID>) {
         let ordersWereCurrent = libraryOrdersAreCurrent
         var changes: [LibraryOrderChange] = []
@@ -839,6 +897,14 @@ final class MetadataCache: Loggable {
 
     /// Writes `entries` and repairs the library orders for them.
     private func store(_ entries: [FilmMetadata]) {
+        /// Entries are built under the current default; under another one, the stamp no longer covers them all.
+        /// Entries added to an empty cache are all built under it, so they set it.
+        let currentThreshold = Preferences.defaultRotationThreshold
+        if metadata.isEmpty {
+            entriesRotationThreshold = currentThreshold
+        } else if entriesRotationThreshold != currentThreshold {
+            entriesRotationThreshold = nil
+        }
         let ordersWereCurrent = libraryOrdersAreCurrent
         var changes: [LibraryOrderChange] = []
         changes.reserveCapacity(entries.count)
@@ -1429,20 +1495,32 @@ final class MetadataCache: Loggable {
     ///
     /// `override` replaces the cached entry of its film (or joins them, for a film not cached)
     /// without copying the cache: only the leave-the-view check passes one.
+    ///
+    /// The sort moves (ID, date) pairs, and looks an entry up only to break a tie. Sorting
+    /// (FilmMetadata, Date) pairs moved the whole entry, some thirty reference-counted fields,
+    /// on every swap. That took about 10 of the 11 ms per tab at 1,400 films, even for Date
+    /// Added, which has no ties (measured 2026-11-16: 10.4 ms → 1.25 ms, same order).
     private func newestFirst(
         overriding override: FilmMetadata? = nil,
         _ date: (FilmMetadata) -> Date?,
         tiebreak: (FilmMetadata, FilmMetadata) -> Bool = MetadataCache.compareTitles
     ) -> [UUID] {
-        var dated = metadata.values.compactMap { data -> (FilmMetadata, Date)? in
-            if let override, data.id == override.id { return nil }
-            return date(data).map { (data, $0) }
+        var dated: [(id: UUID, date: Date)] = []
+        dated.reserveCapacity(metadata.count + 1)
+        for (id, data) in metadata where id != override?.id {
+            if let value = date(data) { dated.append((id, value)) }
         }
-        if let override, let value = date(override) { dated.append((override, value)) }
-        return Array(dated
-            .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : tiebreak($0.0, $1.0) }
-            .prefix(maxFilmsPerSection)
-            .map { $0.0.id })
+        if let override, let value = date(override) { dated.append((override.id, value)) }
+
+        let metadata = self.metadata
+        func entry(_ id: UUID) -> FilmMetadata? { id == override?.id ? override : metadata[id] }
+        dated.sort { lhs, rhs in
+            if lhs.date != rhs.date { return lhs.date > rhs.date }
+            /// Every ID collected above has an entry, so the fallback is never reached.
+            guard let a = entry(lhs.id), let b = entry(rhs.id) else { return lhs.id.uuidString < rhs.id.uuidString }
+            return tiebreak(a, b)
+        }
+        return dated.prefix(maxFilmsPerSection).map(\.id)
     }
 
     // MARK: - Formatted Date Access

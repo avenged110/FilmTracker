@@ -40,6 +40,8 @@ struct ReleaseWishlistView: View {
     /// Bumped by every load and every drag-reorder. The mount path's off-main reconcile
     /// applies its rows only if neither has happened since it started.
     @State private var loadGeneration = 0
+    /// Set while a film-event reload waits for the next run-loop turn (see scheduleReload).
+    @State private var isReloadScheduled = false
 
     private static let emptyStateConfig = EmptyStateConfig(
         glyph: ReportsCategory.releaseWishlist.glyph,
@@ -58,10 +60,8 @@ struct ReleaseWishlistView: View {
         return [
             ReportTableColumn(id: "format", width: WishlistColW.format + detailPad, trailingPad: detailPad,
                               content: .badge { row in
-                                  /// The ReleaseCard header's band tint, with near-white lettering on every format's tint, including DVD gray.
-                                  ReportBadge(text: row.formatBadge,
-                                              fill: ReleaseFormatPalette.tint(for: row.format),
-                                              ink: ReleaseFormatPalette.lightInk)
+                                  /// The ReleaseCard header's band tint, muted by the cell (ReportTableCellView's badge case).
+                                  ReportBadge.format(row.formatBadge)
                               }),
             /// The one trailing column that resizes. It shrinks with the title, down to half its width, and never grows past its normal width.
             ReportTableColumn(id: "studio", width: WishlistColW.studio + detailPad,
@@ -130,8 +130,10 @@ struct ReleaseWishlistView: View {
         .onReceive(CurrentDay.shared.dayChanged) { _ in
             loadWishlistReleases()
         }
-        /// Listen for film and release changes to keep the list current in real-time.
+        /// Listen for film and release changes to keep the list current in real-time. Every case reloads through scheduleReload, so the guard
+        /// on isReloadScheduled skips the membership tests once a reload is already on its way.
         .onFilmEvent { event in
+            guard !isReloadScheduled else { return }
             switch event {
             case .updated(let filmID):
                 /// Reload if this film is in the list, or if it now has wishlist releases. The "belongs here" test reads this one film's releases,
@@ -142,12 +144,12 @@ struct ReleaseWishlistView: View {
                     .contains(where: { $0.wishlist > 0 && $0.isTopLevel }) ?? false
                 if wasInList || hasWishlistNow {
                     /// loadWishlistReleases prunes row-level selection against the rows that survived the reload.
-                    loadWishlistReleases()
+                    scheduleReload()
                 }
             case .deleted(let filmIDs):
                 /// Reload if a deleted film had wishlist releases in the list. Selection cleanup rides on the reload.
                 if releases.contains(where: { filmIDs.contains($0.filmID) }) {
-                    loadWishlistReleases()
+                    scheduleReload()
                 }
             case .added(let filmID):
                 /// A new film saved with releases also posts .releaseChanged, which is
@@ -160,19 +162,19 @@ struct ReleaseWishlistView: View {
                 let hasWishlistNow = dataCoordinator.getFilm(filmID)?.releases
                     .contains(where: { $0.wishlist > 0 && $0.isTopLevel }) ?? false
                 if hasWishlistNow {
-                    loadWishlistReleases()
+                    scheduleReload()
                 }
             case .releaseChanged(let filmID):
                 /// Same two-part test as .updated, for the same reason. Only the named film's releases can have changed, so a film that is neither
                 /// in the list nor wishlisted cannot affect it, and a reload would only rebuild the list already on screen.
                 ///
                 /// The gate does not narrow drag-reorder. reorderWishlist emits one event per moved film, and each film is already in the list, so the
-                /// gate passes. The change guard in loadWishlistReleases absorbs those reloads. The gate removes unrelated edits, which would otherwise rescan the library.
+                /// gate passes; scheduleReload collapses those events into one reload. The gate removes unrelated edits, which would otherwise rescan the library.
                 let wasInList = releases.contains(where: { $0.filmID == filmID })
                 let hasWishlistNow = dataCoordinator.getFilm(filmID)?.releases
                     .contains(where: { $0.wishlist > 0 && $0.isTopLevel }) ?? false
                 if wasInList || hasWishlistNow {
-                    loadWishlistReleases()
+                    scheduleReload()
                 }
             }
         }
@@ -180,24 +182,38 @@ struct ReleaseWishlistView: View {
 
     // MARK: - Data Loading
 
-    /// The mount path's reconciling load, with the library scan and row build off the main actor. Event-driven reloads stay synchronous,
-    /// since a drag-reorder's reloads run inside the table's move callback and must land in the same pass.
+    /// Film events arrive synchronously, often in bursts: a drag-reorder posts one .film(.releaseChanged) per moved film, and a bulk edit or a
+    /// rollback posts one per film. Each reload scans every release of every film, so a burst over K films cost K library scans. The burst
+    /// now collapses into one reload on the next run-loop turn, after the sender has finished, as HallOfFameView's does. A drag-reorder does
+    /// not wait on it: handleMove has already applied the new order to `releases`, and the reload confirms it against the store.
+    private func scheduleReload() {
+        guard !isReloadScheduled else { return }
+        isReloadScheduled = true
+        DispatchQueue.main.async {
+            isReloadScheduled = false
+            loadWishlistReleases()
+        }
+    }
+
+    /// The mount path's reconciling load, with the library scan and row build off the main actor.
     private func reconcileWishlistReleases() {
         loadGeneration += 1
         let generation = loadGeneration
-        let filmsMap = dataCoordinator.getAllFilmsMap()
+        let version = dataCoordinator.filmsVersion
         let today = CurrentDay.shared.today
+        /// The detached task alone holds the films map, and only while it builds: holding it longer would make the next library edit copy
+        /// all of it (see MemoryStore.filmsVersion). The task that awaits the rows captures just the task, not the map.
+        let build = Task.detached(priority: .userInitiated) { [filmsMap = dataCoordinator.getAllFilmsMap()] in
+            /// Array(values) matches what getAllFilms() returns for this dictionary.
+            WishlistRelease.rows(pairs: DataCoordinator.wishlistPairs(in: Array(filmsMap.values)), today: today)
+        }
         Task {
-            let rebuilt = await Task.detached(priority: .userInitiated) {
-                /// Array(values) matches what getAllFilms() returns for this dictionary.
-                WishlistRelease.rows(pairs: DataCoordinator.wishlistPairs(in: Array(filmsMap.values)),
-                                     today: today)
-            }.value
+            let rebuilt = await build.value
             guard generation == loadGeneration else { return }
-            /// Rows from a library (or a day) that has since changed would be stale, and the change may not have triggered a reload.
-            /// Fall back to the synchronous load, which reads both as they are now.
-            guard CurrentDay.shared.today == today,
-                  dataCoordinator.getAllFilmsMap() == filmsMap else {
+            /// Rows from a library (or a day) that has since changed would be stale, and the change may not have triggered a reload. filmsVersion
+            /// moves with every write to the films, release edits and wishlist positions included. Fall back to the synchronous load, which
+            /// reads both as they are now.
+            guard CurrentDay.shared.today == today, dataCoordinator.filmsVersion == version else {
                 loadWishlistReleases()
                 return
             }
@@ -213,9 +229,8 @@ struct ReleaseWishlistView: View {
 
     private func applyWishlistReleases(_ rebuilt: [WishlistRelease]) {
 
-        /// Assign only on an actual change, as in HallOfFameView, but more important here. A drag-reorder emits one .film(.releaseChanged) per moved film.
-        /// AppEventBus delivers those synchronously inside the List's onMove callback, so each triggers a full-library scan. Without this guard, each
-        /// would also reassign the @State array, which does not compare on assignment, and rebuild the List mid-drag.
+        /// Assign only on an actual change, as in HallOfFameView. The reload after a drag-reorder (see scheduleReload) usually finds the order
+        /// handleMove already applied, and reassigning would only push the same rows back through the table. @State does not compare on assignment.
         if rebuilt != releases {
             releases = rebuilt
         }

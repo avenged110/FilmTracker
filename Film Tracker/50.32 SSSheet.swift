@@ -48,6 +48,9 @@ struct SavedSearchSheet: View, Loggable {
     /// The sheet's window while the alert closes, so the button leaves only once AppKit
     /// reports the alert gone from it (didEndSheetNotification).
     @State private var droppedRulesAlertWindow: ObjectIdentifier?
+    /// Bumped by "+" alone: the cue to scroll the new row into view. Not the rule count,
+    /// which also grows when an existing search's rules load as the sheet opens.
+    @State private var addedRuleTick = 0
 
     private static let previewDelay: Duration = .milliseconds(150)
 
@@ -146,7 +149,10 @@ struct SavedSearchSheet: View, Loggable {
         }
         .task(id: PreviewKey(query: rules.query, isComplete: rules.problem == nil)) { await refreshResults() }
         .onChange(of: rules) { _, _ in
-            if !nameEdited, case .create = mode { name = suggestedName }
+            /// Only once the rules are complete again: an unfinished row (one "+" just added,
+            /// or a field just changed) has no suggestion, and following it blanked the name.
+            guard !nameEdited, case .create = mode, rules.problem == nil else { return }
+            name = suggestedName
         }
     }
 
@@ -226,12 +232,12 @@ struct SavedSearchSheet: View, Loggable {
                         .id(Self.rulesEndID)
                 }
             }
-            /// A rule added below the fold is brought into view, and the list goes all the way
-            /// to its end, padding included: scrolling to the new row itself stopped with the
-            /// row against the edge and the padding below it hidden. A turn later, so the new
-            /// row has its height when the end is measured.
-            .onChange(of: rules.rules.count) { oldCount, newCount in
-                guard newCount > oldCount else { return }
+            /// A rule added with "+" below the fold is brought into view, and the list goes all
+            /// the way to its end, padding included: scrolling to the new row itself stopped
+            /// with the row against the edge and the padding below it hidden. A turn later, so
+            /// the new row has its height when the end is measured. Opening the sheet leaves
+            /// the list at its top.
+            .onChange(of: addedRuleTick) {
                 DispatchQueue.main.async {
                     withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(Self.rulesEndID, anchor: .bottom) }
                 }
@@ -281,6 +287,10 @@ struct SavedSearchSheet: View, Loggable {
 
     /// Runs the rules once they hold still, in title order — the same engine the saved
     /// search's own view uses, so the preview is exactly what saving will show.
+    ///
+    /// The first run after the placeholder (the sheet opening, or the last unfinished rule
+    /// being completed) is immediate: there are no results on screen to keep meanwhile, so
+    /// waiting only showed an empty table for the delay before the rows arrived.
     private func refreshResults() async {
         let query = rules.query
         guard !query.isEmpty, rules.problem == nil else {
@@ -291,8 +301,10 @@ struct SavedSearchSheet: View, Loggable {
             resultsReady = false
             return
         }
-        try? await Task.sleep(for: Self.previewDelay)
-        guard !Task.isCancelled else { return }
+        if resultsReady {
+            try? await Task.sleep(for: Self.previewDelay)
+            guard !Task.isCancelled else { return }
+        }
         let ids = coordinator.filmIDs(matching: query)
         let ordered = MetadataCache.shared.sort(Array(ids), by: .title, direction: .ascending)
         results = ordered.compactMap { coordinator.getFilm($0) }
@@ -433,6 +445,7 @@ struct SavedSearchSheet: View, Loggable {
     /// Appends a row with nothing chosen, keeping the last row's and/or.
     private func addRule() {
         rules.rules.append(.blank(conjunction: rules.rules.last?.conjunction ?? .and))
+        addedRuleTick += 1
     }
 
     private func removeRule(_ id: UUID) {
@@ -482,10 +495,9 @@ struct SavedSearchSheet: View, Loggable {
 
 /// The #list targets a List rule's menu offers, grouped as the search suggestions group
 /// them, the search being edited left out (a search cannot include itself).
-struct ListChoiceGroup: Identifiable, Hashable {
+struct ListChoiceGroup {
     let title: String
     let names: [String]
-    var id: String { title }
 
     static func groups(_ catalog: SearchListCatalog, excluding excluded: String?) -> [ListChoiceGroup] {
         let order: [(SearchListCatalog.Kind, String)] = [

@@ -594,10 +594,11 @@ extension ReleaseData {
         /// No active sort: keep the input order. Unreachable in practice, since both tabs open with a non-empty default.
         guard !order.isEmpty else { return items }
 
+        let comparisons = order.map(directComparison)
         return items.sorted { lhs, rhs in
             /// Apply each comparator in priority order; the first non-equal result wins.
-            for comparator in order {
-                switch comparator.compare(lhs, rhs) {
+            for compare in comparisons {
+                switch compare(lhs, rhs) {
                 case .orderedAscending:  return true
                 case .orderedDescending: return false
                 case .orderedSame:       continue
@@ -605,8 +606,42 @@ extension ReleaseData {
             }
             /// All comparators tied. Use the gallery's title order (which ends on the film id), then the release id. Two copies of one film tie
             /// on everything else, and the input order changes each launch, so without the release id their rows could swap.
-            if lhs.titleSort != rhs.titleSort { return lhs.titleSort < rhs.titleSort }
+            /// `<` both ways rather than `!=` then `<`: GalleryTitleKey's `==` is itself two `<` calls, each a collation.
+            if lhs.titleSort < rhs.titleSort { return true }
+            if rhs.titleSort < lhs.titleSort { return false }
             return lhs.releaseID.uuidString < rhs.releaseID.uuidString
         }
+    }
+
+    /// `comparator` as a direct comparison: the same comparison it makes, without its key-path
+    /// dispatch. A KeyPathComparator reads each value through a type-erased key path and
+    /// comparator on every call, and that dispatch, not the collation, was most of a sort's
+    /// cost. Measured 2026-11-16 on the 1,085-row Purchase Tracker (-O): the default order went
+    /// from 13.3 ms to 8.1 ms and the Title column from 14.3 ms to 5.9 ms, with identical rows.
+    /// A key path not listed below keeps the comparator itself.
+    private static func directComparison(
+        _ comparator: KeyPathComparator<ReleaseData>
+    ) -> (ReleaseData, ReleaseData) -> ComparisonResult {
+        let forward: (ReleaseData, ReleaseData) -> ComparisonResult
+        func text(_ value: @escaping (ReleaseData) -> String) -> (ReleaseData, ReleaseData) -> ComparisonResult {
+            let standard = EnglishText.standardComparator
+            return { standard.compare(value($0), value($1)) }
+        }
+        switch comparator.keyPath {
+        case \ReleaseData.titleSort:
+            /// As a Comparable value's comparator decides it: before, after, or neither.
+            forward = { $0.titleSort < $1.titleSort ? .orderedAscending
+                : $1.titleSort < $0.titleSort ? .orderedDescending : .orderedSame }
+        /// The String columns, each under the comparator `comparator(forKey:)` gives it.
+        case \ReleaseData.purchaseDate:    forward = text(\.purchaseDate)
+        case \ReleaseData.lowestPriceDate: forward = text(\.lowestPriceDate)
+        case \ReleaseData.studio:          forward = text(\.studio)
+        case \ReleaseData.condition:       forward = text(\.condition)
+        case \ReleaseData.notes:           forward = text(\.notes)
+        default:
+            return { comparator.compare($0, $1) }
+        }
+        if comparator.order == .forward { return forward }
+        return { forward($1, $0) }
     }
 }

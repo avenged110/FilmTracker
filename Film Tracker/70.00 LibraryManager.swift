@@ -495,13 +495,6 @@ final class ListManager: Loggable {
         log("Removed \(filmIDs.count) film(s) from \(affectedListIDs.count) list(s)")
     }
 
-    // MARK: - Validation Helpers
-    
-    /// Checks if a list exists and is valid.
-    static func listExists(_ listID: UUID, coordinator: DataCoordinator) -> Bool {
-        return coordinator.getList(listID) != nil
-    }
-
     // MARK: - Private Helpers
     
     private static func generateUniqueName(baseName: String,

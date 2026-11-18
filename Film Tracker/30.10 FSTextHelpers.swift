@@ -1062,3 +1062,143 @@ struct FixedHeightScrollingTextView: View {
         .fieldEdgeChrome(fill: Color(NSColor.textBackgroundColor), insetsInterior: true)
     }
 }
+
+// MARK: - Rounded Text Field
+
+/// A single-line free-text field as an AppKit `NSTextField` drawn as SwiftUI's `.roundedBorder`
+/// TextField is (rounded bezel, no fill of its own, 13 pt system font, clipped and scrolling).
+/// Used by the release card's Notes and "Other" studio name, and the Notes tab's Release Used.
+///
+/// Pixel-identical to the SwiftUI field in every state a harness probe captured on the card
+/// (dark and light; placeholder, text, overflowing text; editing), and, measured 2026-11-18
+/// in the Release Used row's layout, in light and dark with placeholder, text and overflowing
+/// text: same frame (22 pt), baseline, fitting size and pixels. The two also agree on every
+/// field and field-editor property that bears on behavior (spelling, substitutions,
+/// completion, undo, first mouse, the context menu's items, and no key command handled by
+/// the field), and on the accessibility placeholder, set below because the SwiftUI field
+/// sets it. The one difference is that SwiftUI gives each field a private field editor
+/// where this uses the window's shared one, as every other AppKit field on the sheet does.
+///
+/// AppKit rather than SwiftUI: measured on a copy of the real library, the Notes TextField was
+/// 3.5–5 ms of a five-release carousel's mount; and for the studio name, SwiftUI's
+/// `.textInputSuggestions` cost about 8 ms more to mount three cards showing the field and about
+/// 5 ms more on the keystroke that opens the drop-down. This field costs neither.
+///
+/// `suggestions` (PROTOTYPE 2026-11-15, see ValueSuggestions) adds the drop-down the FilmSheet's
+/// Tags list offers. Highlighting a row fills the field (and the model, see
+/// ValueSuggestionsDelegate.onTextChange); clicking one fills it and leaves it being edited.
+///
+/// Return is the sheet's: its key monitor ends editing in any field that does not handle Return
+/// itself (FilmSheetView.endsFieldEditOnReturn), as it did for the SwiftUI fields, so with a row
+/// highlighted Return takes it.
+struct RoundedTextField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    /// The saved values to suggest, or nil for none.
+    var suggestions: ValueSuggestions.Vocabulary? = nil
+    /// Optional: a field hosted outside a FilmSheet (the card profiler) has no coordinator, and
+    /// offers no suggestions.
+    @Environment(DataCoordinator.self) private var coordinator: DataCoordinator?
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(frame: .zero)
+        /// isBordered and isBezeled are mutually exclusive — setting either clears the other —
+        /// so the plain border is cleared first and the bezel set second.
+        field.isBordered = false
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.drawsBackground = false
+        field.font = .systemFont(ofSize: NSFont.systemFontSize)
+        field.placeholderString = placeholder
+        field.setAccessibilityPlaceholderValue(placeholder)
+        field.lineBreakMode = .byClipping
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        field.focusRingType = .default
+        /// The frame supplies the width and height; the field must not fight it.
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.stringValue = text
+        field.isEnabled = context.environment.isEnabled
+        field.delegate = context.coordinator
+        context.coordinator.library = coordinator
+        if suggestions != nil { field.suggestionsDelegate = context.coordinator.suggestionsDelegate }
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        /// SwiftUI reuses the coordinator but not this struct: keep the binding current.
+        context.coordinator.parent = self
+        context.coordinator.library = coordinator
+        /// Only a change from elsewhere (a variant swap re-points a card at another model, a
+        /// sheet loads another film) differs here; the field's own edits reached `text` before this pass.
+        if field.stringValue != text { field.stringValue = text }
+        if field.placeholderString != placeholder {
+            field.placeholderString = placeholder
+            field.setAccessibilityPlaceholderValue(placeholder)
+        }
+        let enabled = context.environment.isEnabled
+        if field.isEnabled != enabled { field.isEnabled = enabled }
+    }
+
+    /// The width it is offered, at the field's own height. The height depends only on the font
+    /// and bezel, so it is measured once per field rather than on every layout pass.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite else { return nil }
+        let height = context.coordinator.height ?? nsView.intrinsicContentSize.height
+        context.coordinator.height = height
+        return CGSize(width: width, height: height)
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: RoundedTextField
+        /// The field's natural height, once measured. See sizeThatFits.
+        var height: CGFloat?
+        /// The environment's coordinator, handed over during make and update: an `@Environment`
+        /// value is only reliable read there, not later from a stored copy of the struct.
+        weak var library: DataCoordinator?
+        /// Made only for a field that offers suggestions; the field holds it weakly.
+        private(set) lazy var suggestionsDelegate = ValueSuggestionsDelegate(
+            rank: { [weak self] typed in
+                guard let self, let library, let vocabulary = parent.suggestions else { return [] }
+                return ValueSuggestions.ranked(vocabulary, in: library, typed: typed)
+            },
+            onSelect: { [weak self] field, value in
+                if let editor = field.currentEditor() as? NSTextView {
+                    editor.string = value
+                    editor.setSelectedRange(NSRange(location: (value as NSString).length, length: 0))
+                } else {
+                    field.stringValue = value
+                }
+                self?.write(value)
+            },
+            onTextChange: { [weak self] value in self?.write(value) })
+
+        init(_ parent: RoundedTextField) { self.parent = parent }
+
+        private func write(_ value: String) {
+            if parent.text != value { parent.text = value }
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            write(field.stringValue)
+        }
+
+        /// Escape with the drop-down closed, in a field that offers suggestions. (While it is
+        /// open the suggestions controller takes Escape first and closes it, and this is not
+        /// called.) Left to the field editor, Escape runs `complete:`, which with a suggestions
+        /// delegate reopens the drop-down, so Escape would only ever toggle it and never reach
+        /// the sheet. It goes past the field editor instead, up the responder chain from the
+        /// field, where it does what Escape does in any other card field. A field without
+        /// suggestions is left to AppKit, as the SwiftUI field was.
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard parent.suggestions != nil,
+                  commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+            return control.tryToPerform(commandSelector, with: nil)
+        }
+    }
+}

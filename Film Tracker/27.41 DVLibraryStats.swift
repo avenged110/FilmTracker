@@ -167,10 +167,6 @@ struct LibraryStatistics {
         var audioTaggedReleaseCount = 0
         var audioTaggedReleaseCountAll = 0
 
-        /// Films with at least one purchased top-level release. `missingReleaseArtworkCount` counts films, so this is its denominator, not `totalPurchasedReleases`,
-        /// which counts releases.
-        var filmsWithPurchasedReleasesCount = 0
-
         /// 4K statistics — accumulated in the main loop to avoid extra array passes.
         var fourKFilmCount = 0
         var nativeFourKFilmCount = 0
@@ -296,12 +292,8 @@ struct LibraryStatistics {
             
             /// Collect purchased top-level releases for the purchased-release total, average cost, and new/used tallies. A combo child mirrors its
             /// parent's purchase, cost, and condition, so counting it would double those figures.
-            let purchasedCountBefore = purchasedReleases.count
             for release in film.releases where release.purchased && release.isTopLevel {
                 purchasedReleases.append(release)
-            }
-            if purchasedReleases.count > purchasedCountBefore {
-                filmsWithPurchasedReleasesCount += 1
             }
             
             /// Not available on Blu-ray - films without any Blu-ray or 4K UHD release

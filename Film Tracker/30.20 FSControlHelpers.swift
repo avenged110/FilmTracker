@@ -736,11 +736,11 @@ enum ListAddRowCopy {
 
 // MARK: - Duplicate Entry Confirmation
 
-/// Whether a value the user is about to commit already exists verbatim in the
-/// table.
+/// Whether a value the user is about to commit already exists in the table.
 ///
-/// Deliberately an exact comparison of the finished value, not a normalized or
-/// case-insensitive one. Two crew members can share a name and two frame marks
+/// An exact comparison of the finished value by default, not a normalized or
+/// case-insensitive one; the Tags lists alone compare folded (`ListDuplicateMatch`).
+/// Two crew members can share a name and two frame marks
 /// can legitimately repeat, so this is a nudge against an accidental
 /// double-entry rather than a rule the model enforces — which is also why the
 /// prompt it drives offers to proceed rather than refusing.
@@ -756,14 +756,44 @@ enum ListDuplicateCheck {
     ///   - excluding: The row being edited, whose own value must not be read as
     ///     a duplicate of itself. `nil` for an append, where there is no such
     ///     row.
+    ///   - match: How two values are compared. `.exact` everywhere but Tags.
     static func isDuplicate(_ candidate: String,
                             in items: [String],
-                            excluding index: Int? = nil) -> Bool {
+                            excluding index: Int? = nil,
+                            match: ListDuplicateMatch = .exact) -> Bool {
+        let wanted = match.form(of: candidate)
         for (position, existing) in items.enumerated() {
             if position == index { continue }
-            if existing == candidate { return true }
+            if match.form(of: existing) == wanted { return true }
         }
         return false
+    }
+}
+
+/// How a table decides two of its values are the same.
+enum ListDuplicateMatch {
+    /// Verbatim: the rule for crew, notes and the other free lists, where two values that
+    /// differ only in case are rare and may both be meant.
+    case exact
+    /// By `SearchText.key`: case, accents and punctuation ignored. The Tags lists use it,
+    /// because everything else treats such tags as one (SidebarTags, ValueSuggestions,
+    /// search, BulkFilmEdit.appendedTags).
+    case folded
+
+    func form(of value: String) -> String {
+        switch self {
+        case .exact: value
+        case .folded: SearchText.key(value)
+        }
+    }
+
+    /// `incoming` without the entries `existing` already holds, or that repeat an earlier
+    /// entry of `incoming`: what a bulk import appends. Only `.folded` filters; an `.exact`
+    /// table takes a pasted list as it is (ListImportPopover.parseItems).
+    func newEntries(_ incoming: [String], notIn existing: [String]) -> [String] {
+        guard self == .folded else { return incoming }
+        var seen = Set(existing.map(form(of:)))
+        return incoming.filter { seen.insert(form(of: $0)).inserted }
     }
 }
 
@@ -802,7 +832,8 @@ extension View {
     /// Canceling clears the prompt and does nothing else, which leaves the
     /// array exactly as it was — the same outcome as clicking away from the
     /// entry — because nothing has been written at the point the alert appears.
-    func listDuplicateAlert(_ prompt: Binding<ListDuplicatePrompt?>) -> some View {
+    func listDuplicateAlert(_ prompt: Binding<ListDuplicatePrompt?>,
+                            match: ListDuplicateMatch = .exact) -> some View {
         alert(
             "Add Duplicate?",
             isPresented: Binding(
@@ -821,7 +852,12 @@ extension View {
                 pending.confirm()
             }
         } message: { _ in
-            Text("This exact item already exists in the table and will be added again.")
+            switch match {
+            case .exact:
+                Text("This exact item already exists in the table and will be added again.")
+            case .folded:
+                Text("This item already exists in the table, possibly with different capitalization or punctuation, and will be added again.")
+            }
         }
     }
 }
@@ -1814,8 +1850,15 @@ struct ListImportPopover: View {
 }
 
 // MARK: - Standard Stepper Component
-/// The plain clamped Stepper, for callers with no Delete (ReleaseCard's discs count and
-/// DHCardProfile's preview). RatingStepper below is the ClearableStepperView counterpart.
+/// The plain clamped Stepper, for callers with no Delete (ReleaseCard's discs count).
+/// RatingStepper below is the ClearableStepperView counterpart.
+///
+/// Built as SwiftUI's `Stepper(value:in:) { label }` lays itself out — the label, an 8 pt gap,
+/// then the arrows — with an AppKit `SheetStepper` for the arrows. Measured 2026-11-17, the
+/// SwiftUI Stepper mounted about 0.7 ms slower, paid on every release card mount. A probe
+/// compared the two in the card's own context: the same frames, pixel-identical in light and
+/// dark (at 1, 2 and 10, and focused), the same accessibility tree, and the same results for
+/// arrow keys, clicks and both bounds.
 struct StandardStepper: View {
     @Binding var value: Int
     let range: ClosedRange<Int>
@@ -1826,7 +1869,7 @@ struct StandardStepper: View {
     }
 
     var body: some View {
-        Stepper(value: $value, in: range) {
+        HStack(spacing: 8) {
             Text("\(value)")
                 .frame(width: 41, alignment: .trailing)
                 .foregroundStyle(.primary)
@@ -1836,12 +1879,85 @@ struct StandardStepper: View {
                 /// transaction is in flight — .contentTransition(.identity) opts this
                 /// text out of content-driven animation, keeping it visually static.
                 .contentTransition(.identity)
+            SheetStepper(value: $value, range: range)
         }
         /// 1 pt tighter than padding(4), as every Stepper widget in the family is.
         .padding(3)
         /// A windowBackgroundColor fill (slightly darker than the controlBackgroundColor of
         /// the surrounding ReleaseCard) so the Stepper reads as an interactive control.
         .stepperChrome(filled: true)
+    }
+}
+
+// MARK: - Sheet Stepper
+/// The arrows of `StandardStepper`: an `NSStepper` configured as SwiftUI's own `Stepper`
+/// configures the one it hosts (read off it by a probe, 2026-11-17).
+///
+///   • The control's number is a direction, not the value. It is parked at 0 inside a range
+///     no click can reach, and each action is read as one step up or down. SwiftUI's stepper
+///     does the same, which is why VoiceOver hears 0 from either.
+///   • The value is clamped to `range` here, never wrapped: at a bound a click or arrow key
+///     does nothing, as on SwiftUI's.
+///   • `autorepeat` and `isContinuous` are both on, so a held arrow steps repeatedly with an
+///     action per step. (ClearableStepperView turns `isContinuous` off; it is not this.)
+///   • Hugging is `.defaultHigh` both ways, so the arrows size to their own frame.
+///
+/// The enabled state is mirrored from the environment with `refusesFirstResponder`, as the
+/// sheet's other AppKit controls do, so a disabled stepper is not a Tab stop.
+struct SheetStepper: NSViewRepresentable {
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+
+    func makeCoordinator() -> Coordinator { Coordinator(value: $value, range: range) }
+
+    func makeNSView(context: Context) -> NSStepper {
+        let stepper = NSStepper()
+        stepper.minValue = -1_000_000
+        stepper.maxValue = 1_000_000
+        stepper.doubleValue = 0
+        stepper.increment = 1
+        stepper.valueWraps = false
+        stepper.autorepeat = true
+        stepper.isContinuous = true
+        stepper.target = context.coordinator
+        stepper.action = #selector(Coordinator.stepped(_:))
+        stepper.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        stepper.setContentHuggingPriority(.defaultHigh, for: .vertical)
+        return stepper
+    }
+
+    func updateNSView(_ stepper: NSStepper, context: Context) {
+        /// Re-pointed on every update, as ClearableStepperView's coordinator is: a merged combo
+        /// pack re-points the release card at another release without rebuilding it.
+        context.coordinator.value = $value
+        context.coordinator.range = range
+        let nsSize = NSControl.ControlSize(context.environment.controlSize)
+        if stepper.controlSize != nsSize { stepper.controlSize = nsSize }
+        let enabled = context.environment.isEnabled
+        if stepper.isEnabled != enabled { stepper.isEnabled = enabled }
+        if stepper.refusesFirstResponder == enabled { stepper.refusesFirstResponder = !enabled }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var value: Binding<Int>
+        var range: ClosedRange<Int>
+
+        init(value: Binding<Int>, range: ClosedRange<Int>) {
+            self.value = value
+            self.range = range
+        }
+
+        @objc func stepped(_ sender: NSStepper) {
+            let delta = sender.doubleValue
+            /// Re-parked at once: an autorepeat burst can deliver several actions before
+            /// SwiftUI updates again, and each must read as one step from zero.
+            sender.doubleValue = 0
+            guard delta != 0 else { return }
+            let current = value.wrappedValue
+            let next = min(max(current + (delta > 0 ? 1 : -1), range.lowerBound), range.upperBound)
+            if next != current { value.wrappedValue = next }
+        }
     }
 }
 

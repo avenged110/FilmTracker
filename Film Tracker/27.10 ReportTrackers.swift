@@ -210,6 +210,9 @@ struct ReportsReleaseTableView: View, Loggable {
     /// A computed property would re-sort on every body pass, such as selection changes, and each sort would reload the table.
     @State private var sortedReleases: [ReleaseData] = []
 
+    /// True while a coalesced film-event reload is waiting for the next run-loop turn (see `scheduleDataChange`).
+    @State private var isReloadScheduled = false
+
     /// No row windowing. ReportTable builds only the rows on screen, so the full sorted set costs about what the first screen does.
 
     init(
@@ -240,7 +243,8 @@ struct ReportsReleaseTableView: View, Loggable {
             ReportTable(rows: sortedReleases, columns: columns, selection: $selection,
                         rowHeight: 24,
                         sort: ReleaseData.headerSort(for: sortOrder),
-                        onSort: { sortOrder = ReleaseData.comparators(forHeaderSort: $0) })
+                        onSort: { sortOrder = ReleaseData.comparators(forHeaderSort: $0) },
+                        menuFilmID: { $0.filmID })
                 .frame(maxHeight: .infinity)
             .onChange(of: selection) { _, newSelection in
                 handleSelectionChange(newSelection)
@@ -280,26 +284,42 @@ struct ReportsReleaseTableView: View, Loggable {
         /// Refresh on film events, such as releases added, removed, or edited in FilmSheet. Each case reloads when the event could affect this table.
         /// Selection cleanup is in `reconcileSelection(against:)`, called from `.onChange(of: releases)` with the fresh rows. It runs a run-loop pass
         /// later, so NSTableView does not re-sync a stale selection back into the binding.
+        /// A reload already on its way covers any later event, so the guard also skips the row scans.
         .onFilmEvent { event in
+            guard !isReloadScheduled else { return }
             switch event {
             case .updated(let filmID):
                 /// Only matters if the film is shown, such as a title change. Release changes arrive as `.releaseChanged`.
                 guard releases.contains(where: { $0.filmID == filmID }) else { break }
-                onDataChange()
+                scheduleDataChange()
 
             case .deleted(let filmIDs):
                 /// Reload only if a deleted film had releases in this table.
                 guard releases.contains(where: { filmIDs.contains($0.filmID) }) else { break }
-                onDataChange()
+                scheduleDataChange()
 
             case .releaseChanged:
                 /// Always reload. A release change can add a film (marking it purchased or adding price data) or remove one.
-                onDataChange()
+                scheduleDataChange()
 
             case .added:
                 /// A new film may have qualifying release data.
-                onDataChange()
+                scheduleDataChange()
             }
+        }
+    }
+
+    /// Collapses a burst of film events into one reload on the next run-loop turn, after the sender has finished its work.
+    ///
+    /// Each reload rebuilds the table's rows from every film in the library. A single FilmSheet save sends `.updated` and then
+    /// `.releaseChanged` for the same film, and a bulk edit or an import sends one event per film, so reloading per event rebuilt
+    /// the rows once for each. Hall of Fame and the Wishlist coalesce their reloads the same way (see HallOfFameView.scheduleReload).
+    private func scheduleDataChange() {
+        guard !isReloadScheduled else { return }
+        isReloadScheduled = true
+        DispatchQueue.main.async {
+            isReloadScheduled = false
+            onDataChange()
         }
     }
 

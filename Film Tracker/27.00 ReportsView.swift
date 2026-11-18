@@ -281,7 +281,8 @@ final class ReportsState {
         case .costTracker:
             costTrackerData = data
             loadedCategories.insert(.costTracker)
-            /// Change-guarded: updateData runs more than once per load (see CostTrackerView.applyPurchasedReleases), and each write would redraw the bar.
+            /// updateData runs more than once per load (see CostTrackerView.applyPurchasedReleases). PurchaseTotals is Equatable, so Observation
+            /// already drops an equal assignment and the status bar is not redrawn; the explicit guard only makes that visible here.
             let totals = PurchaseTotals(rows: data)
             if purchaseTotals != totals { purchaseTotals = totals }
         case .priceTracker:
@@ -299,8 +300,9 @@ final class ReportsState {
     
     /// Update hall of fame data
     ///
-    /// Both properties are observed, so every assignment notifies, even when the value is unchanged. A drag-reorder sends the same rows
-    /// twice, from HallOfFameView.handleMove and then from the reload that confirms the order, so both writes are change-guarded. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
+    /// A drag-reorder sends the same rows twice, from HallOfFameView.handleMove and then from the reload that confirms the order. Both
+    /// properties are Equatable, so Observation already drops an equal assignment; the guard on the rows is what skips rebuilding the totals,
+    /// and the guard on the totals only makes the change check explicit. (`loadedCategories` is @ObservationIgnored and read only for the first-load check.)
     func updateHallOfFameData(_ data: [HallOfFameFilm]) {
         let wasLoaded = loadedCategories.contains(.hallOfFame)
         if !wasLoaded {

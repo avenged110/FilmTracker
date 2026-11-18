@@ -161,6 +161,12 @@ struct Preferences: Loggable {
     /// turned off. Implemented in 24.12 WatchDetails.swift (`sourceValueGlyph`).
     static let purchasedDiscGlyphVisibilityOverride = true
 
+    /// TRIAL SWITCH. Draws the gallery list view's rating star in the Hall of Fame's per-rating tint
+    /// (RatingStarTint), which steps from yellow at 10 toward a fainter amber. `false` restores the
+    /// monochrome secondary star. A selected row's star keeps the list's selected-row tint either way.
+    /// Implemented in 23.30 GalleryListView.swift (ListRowView.configure).
+    static let tintGalleryListRatingStars = true
+
     /// Verbose per-film logging during a ratings import. Enabling it measurably slows the
     /// import. Implemented in 81.00 RatingsImporter.swift.
     static let importRatingsDebugLogging = false

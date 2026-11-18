@@ -786,9 +786,10 @@ extension FilmSheet {
     func requestAddRelease(_ request: AddReleaseRequest) {
         guard let releasesTab, addReleaseAvailability.allows(request) else { return }
         releasesTab.pendingAddRequest = request
-        /// Guarded: an equal-value write still notifies observers, and selectedTab's didSet
-        /// rewrites appearedTabs, so writing .releases over .releases would re-render the
-        /// sheet's tab content for nothing.
+        /// Guarded. Observation would drop the equal assignment itself, but selectedTab's didSet
+        /// still runs on one, and its `appearedTabs.insert` is an in-place mutation, which
+        /// notifies even when the tab is already in the set. Writing .releases over .releases
+        /// would re-render the sheet's tab content for nothing.
         if selectedTab != .releases { selectedTab = .releases }
         AppEventBus.shared.sendCommand(.performPendingAddRelease)
     }
@@ -873,11 +874,10 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
     weak var owner: FilmSheet?
 
     /// Not cached at launch, so release year defaults and purchase year ranges stay accurate if
-    /// the app is left running across a calendar year boundary. That guarantee comes from the
-    /// shared CurrentYear cache (90.00), which keeps it while removing the Calendar lookup from
-    /// the per-access cost — this is read on every _ReleaseYearRow evaluation and again inside
-    /// every enforceReleaseYearOrder pass.
-    static var currentYear: Int { CurrentYear.value }
+    /// the app is left running across a calendar year boundary. `CurrentDay.year` (90.00) turns
+    /// over with the day and is a stored read — this is read on every _ReleaseYearRow evaluation
+    /// and again inside every enforceReleaseYearOrder pass.
+    static var currentYear: Int { CurrentDay.shared.year }
 
     /// Live card models. Each element is a reference type — field mutations on a
     /// model do NOT mutate this array, so @Observable never marks 'releases' dirty
@@ -3391,11 +3391,12 @@ final class FSTabReleases: FilmSheetTabChangeTracking {
         /// baseReleaseYear is NOT locked — the child may be a reprint of an earlier release.
         ///
         // MARK: Condition-gated writes
-        /// Every assignment is guarded by an inequality check. That is a performance measure, not a behavioral
-        /// one: @Observable notifies on every write, including equal-value ones, and this runs on every keystroke
-        /// on a 4K parent card. Unconditional writes would notify observers on each keystroke even when no locked
-        /// field changed. The end state is identical, and the card's cascades key off .onChange(of:), which never
-        /// fired on equal-value writes anyway.
+        /// Every assignment is guarded by an inequality check. That is not a behavioral measure: the end state is
+        /// identical, and the card's cascades key off .onChange(of:), which never fires on equal-value writes. It is
+        /// not needed for performance either. This runs on every keystroke on a 4K parent card, but every locked
+        /// field is Equatable, and Observation drops an equal plain assignment without notifying anyone. The guards
+        /// also keep a didSet from running on an equal write (it still would without them): only hasReleaseYear's has
+        /// one, and it writes only when the month and day are stale.
         if child.purchased          != parent.purchased          { child.purchased          = parent.purchased }
         if child.wishlist           != parent.wishlist           { child.wishlist           = parent.wishlist }
         if child.studio             != parent.studio             { child.studio             = parent.studio }
@@ -3979,8 +3980,10 @@ final class ReleaseConfirmationController: Loggable {
 ///     next main-actor turn to read it. That hop also coalesces a multi-field cascade into a
 ///     single notification.
 ///
-/// It also signals on equal-value writes, which `.onChange(of:)` filtered out; `lastHash`
-/// restores that filter. `lastHash` has a second duty: writes made while loading a film's
+/// It also signals some writes that leave the value as it was, which `.onChange(of:)` filtered out:
+/// Observation drops a plain assignment of an equal value, but an in-place mutation (`append`,
+/// `insert`, a subscript write) always notifies, and so does a field changed and changed back before
+/// the hop reads it. `lastHash`, which compares end states, restores that filter. `lastHash` has a second duty: writes made while loading a film's
 /// releases would otherwise read as user edits — see rebaselineChangeObservers().
 @MainActor
 final class ReleaseChangeObserver {
@@ -3988,8 +3991,8 @@ final class ReleaseChangeObserver {
     /// Weak: FSTabReleases owns this object, so a strong reference would be a cycle.
     private weak var viewModel: FSTabReleases?
 
-    /// Last hash acted upon. Guards against the equal-value writes that Observation
-    /// reports and `.onChange(of:)` did not.
+    /// Last hash acted upon. Filters out the unchanged end states that Observation reports
+    /// (in-place mutations, changes undone before the hop) and `.onChange(of:)` did not.
     private var lastHash: Int
 
     /// Set when the model leaves the session. A pending hop may already be queued at that
@@ -4053,7 +4056,8 @@ final class ReleaseChangeObserver {
         /// and yields the post-write hash in the same traversal. See armAndRead.
         let newHash = armAndRead()
 
-        /// Observation signals equal-value writes too, so this comparison is the filter. It is also what makes
+        /// Observation can signal a write that leaves the content as it was (see the type's note), so this
+        /// comparison is the filter. It is also what makes
         /// rebaseline() work: once
         /// FSTabReleases has advanced the baselines past the load, every reaction already
         /// queued from the load lands here and returns.

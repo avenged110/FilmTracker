@@ -157,8 +157,8 @@ extension DebugHarness {
                 "\(insights.watchedFilms) + \(insights.unwatchedFilms) ≠ \(films.count)")
         r.check("unwatched-runtime", insights.unwatchedRuntimeMinutes == 90 + 110,
                 "\(insights.unwatchedRuntimeMinutes), expected 200 (Never Viewed 90 + Unobtainable 110)")
-        r.check("hof-count", insights.hallOfFameFilms == 1 && insights.hallOfFameAverageRating == "10.0",
-                "\(insights.hallOfFameFilms) / \(insights.hallOfFameAverageRating)")
+        r.check("hof-count", insights.hallOfFame.hof.films == 1 && insights.hallOfFame.hof.averageRating == 10,
+                "\(insights.hallOfFame.hof.films) / \(insights.hallOfFame.hof.averageRating.map { String($0) } ?? "nil")")
         r.check("edited-trimmed", insights.editedTrimmedMinutes == 10, "\(insights.editedTrimmedMinutes), expected 10")
         r.check("waiting-for-edit-items-match-count", insights.waitingForEditItems.count == insights.waitingForEdit,
                 "\(insights.waitingForEditItems.count) items, expected \(insights.waitingForEdit)")
@@ -970,7 +970,12 @@ extension DebugHarness {
             DataVisualizationsView.applications = 0
             host = await mount()
             if let scrollView = findScrollView(host), let page = scrollView.documentView as? DVCanvasPageView {
-                scrollView.contentView.scroll(to: NSPoint(x: 0, y: 2600))
+                /// 20 pt into the third section's band. The resize keeps the item at the viewport's top in place, plus the same share of its
+                /// height the viewport was into it (DVCanvasScrollNSView.sizePage), so the section's top holds exactly only when that item
+                /// keeps its height. A band is the same height at every width; a fixed scroll offset could land in a card that reflows, and
+                /// whether it did changed with every layout edit above it.
+                let tops = page.sectionTops(width: page.bounds.width)
+                scrollView.contentView.scroll(to: NSPoint(x: 0, y: (tops.count > 2 ? tops[2] : 2600) + 20))
                 scrollView.reflectScrolledClipView(scrollView.contentView)
                 for _ in 0..<3 { host.layoutSubtreeIfNeeded(); await oneTurn() }
                 let before = page.sectionTops(width: page.bounds.width)

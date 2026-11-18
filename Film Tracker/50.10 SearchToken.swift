@@ -323,6 +323,24 @@ nonisolated enum FilmFlag {
         }
         return (head, negation, term)
     }
+
+    /// The Is or Release value `typed` with its last term replaced by `picked`, a suggestion
+    /// for that term: the finished terms kept, and the "!" typed ahead of the term too —
+    /// unless `picked` carries its own (a learned "!criterion"), where both would cancel out.
+    /// The one rule for the search field's drop-down and the saved-search sheet's.
+    static func completing(_ typed: String, with picked: String) -> String {
+        let (head, negation, _) = splitLast(typed)
+        return head + (picked.hasPrefix("!") ? "" : negation) + picked
+    }
+
+    /// An Is or Release value with its empty terms dropped and one comma and a space between
+    /// the rest ("owned,, 4k," → "owned, 4k"): the same terms, read the same way. A value
+    /// with no terms at all is returned as it is, so what it matches does not change.
+    static func normalizedTerms(_ value: String) -> String {
+        let terms = value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        return terms.isEmpty ? value : terms.joined(separator: ", ")
+    }
 }
 
 // MARK: - Film Text Search Keys

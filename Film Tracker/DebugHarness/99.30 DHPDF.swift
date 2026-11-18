@@ -471,7 +471,7 @@ extension DebugHarness {
                    rating: Int = 5) -> HallOfFameFilm {
             HallOfFameFilm(id: UUID(), position: position, name: "HOF \(position)",
                            releaseYear: "1999", userRating: rating, purchase: purchase,
-                           upgrade: upgrade, version: version, rotationLabel: nil)
+                           upgrade: upgrade, version: version, rotationLabel: nil, isQueued: false)
         }
 
         let films = [

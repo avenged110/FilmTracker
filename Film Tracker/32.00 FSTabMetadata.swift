@@ -315,20 +315,16 @@ struct FSTabMetadataView: View {
     private static let labelWidth        = Preferences.filmSheetLabelWidth
     private static let pickerWidth       = Preferences.standardPickerWidth
 
-    /// PROTOTYPE (2026-11-15): the Tags list's suggestions, from the library's saved tags,
-    /// leaving out the ones already in this film's list. See ValueSuggestions.
-    ///
-    /// The source is equal to another only when both read the same view model, so a tab
-    /// re-pointed at another film's model hands the list a new one. The model is held
-    /// strongly so its identifier cannot be reused while this source exists; the source
-    /// lives in the list's environment, which the model does not reference, so no cycle.
+    /// PROTOTYPE (2026-11-15): the Tags list's suggestions, shared with the multi-film sheet's
+    /// Tags (StringListSuggestionSource.values), leaving out the ones already in this film's list.
     private var tagSuggestions: StringListSuggestionSource {
-        let viewModel = viewModel
-        return StringListSuggestionSource(id: ObjectIdentifier(viewModel)) { typed in
-            guard let coordinator = viewModel.owner?.coordinator else { return [] }
-            return ValueSuggestions.ranked(.tags, in: coordinator, typed: typed,
-                                           excluding: Set(viewModel.tags.map(SearchText.key)))
-        }
+        .values(.tags, of: viewModel, coordinator: { $0.owner?.coordinator }, current: { $0.tags })
+    }
+
+    /// The Studio list's suggestions: the library's film-level studios, in their most-used
+    /// spelling, leaving out the ones already in this film's list.
+    private var studioSuggestions: StringListSuggestionSource {
+        .values(.filmStudios, of: viewModel, coordinator: { $0.owner?.coordinator }, current: { $0.studio })
     }
 
     /// The menu pickers' rows, built once from the option tables in FSTabMetadata. The empty
@@ -599,6 +595,7 @@ struct FSTabMetadataView: View {
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
                                    renderWave: 1)
+                .environment(\.stringListSuggestions, studioSuggestions)
 
             Divider()
                 .padding(.vertical, 6)
@@ -658,7 +655,8 @@ struct FSTabMetadataView: View {
                                    itemLabel: "Tag",
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing,
-                                   renderWave: 3)
+                                   renderWave: 3,
+                                   duplicateMatch: .folded)
                 .environment(\.stringListSuggestions, tagSuggestions)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -135,6 +135,15 @@ final class SearchController: Loggable {
         isActive ? (currentTokens, getCleanSearchText()) : (lastConfirmedTokens, lastConfirmedText)
     }
 
+    /// The first token is being typed into a field that held nothing else: "#" typed with no
+    /// pill and no text (or only punctuation, which narrows nothing) before it. The paused
+    /// results are then the whole library, so the gallery is covered by the "Enter Search
+    /// Token" placeholder. Once a pill or text has narrowed the results, token entry keeps
+    /// showing them instead. Read through the paused search, which is what the gallery shows.
+    var isEnteringFirstToken: Bool {
+        isEnteringToken && lastConfirmedTokens.isEmpty && SearchText.key(lastConfirmedText).isEmpty
+    }
+
     /// Whether the results on screen depend on list membership: the search filtering them
     /// has a #list token. A #list token can name a user list, a smart list, the Film Queue,
     /// a report or a saved search, so a membership change made beside the results can add
@@ -225,7 +234,7 @@ final class SearchController: Loggable {
         let isInverted: Bool
         /// The field-name text typed after the prefixes, whitespace-trimmed.
         let partial: String
-        /// A space follows the "#" fragment — the user has moved on to entering a value.
+        /// A space follows the field name — the user has moved on to entering a value.
         let hasValue: Bool
 
         /// The fragment rewritten to name `field` by its first alias, with the typed OR and
@@ -240,20 +249,21 @@ final class SearchController: Loggable {
     private var hashFragment: HashFragment? {
         guard let hashIndex = searchText.lastIndex(of: "#") else { return nil }
         let beforeHash = String(searchText[..<hashIndex])
-        let afterHash = String(searchText[searchText.index(after: hashIndex)...])
-        
-        var partial = afterHash.trimmingCharacters(in: .whitespaces)
-        let isOr = partial.hasPrefix("/")
-        if isOr { partial = String(partial.dropFirst()) }
-        let isInverted = partial.hasPrefix("!")
-        if isInverted { partial = String(partial.dropFirst()) }
-        
+        /// Spaces before the field name, or after either prefix, are skipped: only a space
+        /// after the name starts the value. Counting the stray one in "# " or "#/ dir" as
+        /// that space hid the field suggestions and left Return nothing to commit.
+        var rest = searchText[searchText.index(after: hashIndex)...].drop(while: \.isWhitespace)
+        let isOr = rest.first == "/"
+        if isOr { rest = rest.dropFirst().drop(while: \.isWhitespace) }
+        let isInverted = rest.first == "!"
+        if isInverted { rest = rest.dropFirst().drop(while: \.isWhitespace) }
+
         return HashFragment(
             beforeHash: beforeHash,
             isOr: isOr,
             isInverted: isInverted,
-            partial: partial,
-            hasValue: afterHash.contains(" ")
+            partial: rest.trimmingCharacters(in: .whitespaces),
+            hasValue: rest.contains(" ")
         )
     }
     
@@ -330,7 +340,11 @@ final class SearchController: Loggable {
         /// value are resolved as the value suggestions resolve them, so Return commits the
         /// field the suggestions were offered for. The OR ("/") and inversion ("!")
         /// prefixes are hashFragment's, the same parse insertField reads.
-        guard let (field, value) = tokenValueInput(), !value.isEmpty else { return }
+        guard let (field, typed) = tokenValueInput(), !typed.isEmpty else { return }
+        /// An Is or Release token stays open for a comma and the next term, so it is often
+        /// committed with a comma left over ("owned,"). The pill shows the terms as they are
+        /// read: empty ones dropped, one comma and a space between the rest.
+        let value = field == .flags || field == .releases ? FilmFlag.normalizedTerms(typed) : typed
         let isOr = fragment.isOr
         let isInverted = fragment.isInverted
 
@@ -596,7 +610,7 @@ final class SearchController: Loggable {
         updateVocabulary(from: source)
         /// The first request can come before anything has been built: wait for it, rather
         /// than answer the first keystroke with nothing.
-        if isVocabularyBuilding, vocabularyFilmsVersion != nil, vocabulary.isEmpty {
+        if isVocabularyBuilding, vocabulary.isEmpty {
             await withCheckedContinuation { vocabularyWaiters.append($0) }
         }
         guard !Task.isCancelled else { return [] }
@@ -652,8 +666,7 @@ final class SearchController: Loggable {
         /// carries its own (a learned "!4k"), which would otherwise cancel it out.
         var value = suggestion.value
         if field == .flags || field == .releases, let (_, typed) = tokenValueInput() {
-            let (head, negation, _) = FilmFlag.splitLast(typed)
-            value = head + (value.hasPrefix("!") ? "" : negation) + value
+            value = FilmFlag.completing(typed, with: value)
         }
         /// An Is term is one test of the film, so the token stays open for a comma and the
         /// next; Return commits it. Anything else, a Release value included (its terms all

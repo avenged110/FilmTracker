@@ -154,12 +154,14 @@ struct BulkFilmEdit: Sendable, Equatable {
 
     var isEmpty: Bool { changeCount == 0 }
 
-    /// `tagsToAppend` trimmed, without empties or repeats, in order.
+    /// `tagsToAppend` trimmed, without empties or repeats, in order. Repeats are judged by
+    /// `SearchText.key`, as every other tag rule is (SidebarTags, ValueSuggestions, search):
+    /// "Noir" and "noir" are one tag, and the first spelling typed is the one kept.
     var appendedTags: [String] {
         var seen: Set<String> = []
         return tagsToAppend
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
+            .filter { !$0.isEmpty && seen.insert(SearchText.key($0)).inserted }
     }
 
     // MARK: Scalar fields
@@ -173,13 +175,18 @@ struct BulkFilmEdit: Sendable, Equatable {
         return FilmSpecialSorting.canonicalOrder.filter { tags.contains($0) }
     }
 
-    /// `existing` with the edit's tags appended: each one the film does not already hold
-    /// (an exact match, as the Tags list's own duplicate check compares), up to `tagLimit`.
-    /// `dropped` counts the new tags that did not fit.
+    /// `existing` with the edit's tags appended: each one the film does not already hold, in
+    /// any spelling (`SearchText.key`, as the Tags list's own duplicate check compares), up to
+    /// `tagLimit`. A tag the film holds keeps the film's spelling. `dropped` counts the new
+    /// tags that did not fit.
     func tags(appendedTo existing: [String]) -> (tags: [String], dropped: Int) {
+        let appended = appendedTags
+        guard !appended.isEmpty else { return (existing, 0) }
         var result = existing
+        /// `appended` is already one entry per key, so only the film's own tags need holding.
+        let held = Set(existing.map(SearchText.key))
         var dropped = 0
-        for tag in appendedTags where !result.contains(tag) {
+        for tag in appended where !held.contains(SearchText.key(tag)) {
             if result.count < Self.tagLimit {
                 result.append(tag)
             } else {

@@ -609,13 +609,13 @@ extension ReleaseCardView: Equatable {
 
 // MARK: - Card Help Button (Navigation-Dismissing)
 /// Wraps HelpPopoverButton and sources its dismissToken from the carousel's current card index.
-/// Reading that inside THIS dedicated view's body isolates the @Observable subscription to
-/// viewModel.currentIndex to a small wrapper.
 ///
-/// Without the isolation, the read would register currentIndex as a dependency of the entire card body,
-/// so every carousel navigation would re-evaluate every visible card's full body, rebuilding both
-/// CustomDateSteppers and all pickers exactly when the container's spring needs the main thread.
-/// Dismiss-on-navigation behavior is unchanged: the token still changes every navigation.
+/// The token is a closure, which HelpPopoverButton calls only while its popover is open, so
+/// the subscription to viewModel.currentIndex exists only then. A closed help button (nearly
+/// always) does not re-run on a carousel step; the step's first pass is the one that starts
+/// the spring. Kept as its own view so the read can never land on the card's body, which
+/// would re-evaluate both CustomDateSteppers and every picker on each step.
+/// Dismiss-on-navigation behavior is unchanged: an open popover still closes on every step.
 ///
 /// The RAW `currentIndex` is read, deliberately, not the clamped `currentCardIndex`. The clamped
 /// accessor also reads `carouselEntries`, which would subscribe this wrapper to every structural
@@ -632,7 +632,7 @@ private struct CardHelpButton: View {
         HelpPopoverButton(
             helpText: helpText,
             autoDismissDuration: autoDismissDuration,
-            dismissToken: AnyHashable(viewModel.currentIndex)
+            dismissToken: { [viewModel] in AnyHashable(viewModel.currentIndex) }
         )
     }
 }
@@ -831,7 +831,7 @@ private struct _StudioRow: View {
             /// each of them. The field is pinned to the 22 pt header control height, so the rounded-bezel
             /// field's own height cannot inflate the row when it is present.
             if model.studioSelection == "Other" {
-                CardTextField(text: $model.studioCustomText, placeholder: "Studio name",
+                RoundedTextField(text: $model.studioCustomText, placeholder: "Studio name",
                               suggestions: .releaseStudios)
                     .frame(width: ReleaseCardMetrics.pickerWidth,
                            height: ReleaseCardMetrics.headerControlHeight)
@@ -850,133 +850,6 @@ private struct _StudioRow: View {
                         model.studio = newText
                     }
             }
-        }
-    }
-}
-
-// MARK: - Card Text Field
-
-/// The card's single-line free-text fields — Notes, and the "Other" studio's name — as an AppKit
-/// `NSTextField` drawn as SwiftUI's `.roundedBorder` TextField was (rounded bezel, no fill of its
-/// own, 13 pt system font, clipped and scrolling). Pixel-identical to it in every state a harness
-/// probe captured (dark and light; placeholder, text, overflowing text; editing).
-///
-/// AppKit rather than SwiftUI: measured on a copy of the real library, the Notes TextField was
-/// 3.5–5 ms of a five-release carousel's mount; and for the studio name, SwiftUI's
-/// `.textInputSuggestions` cost about 8 ms more to mount three cards showing the field and about
-/// 5 ms more on the keystroke that opens the drop-down. This field costs neither.
-///
-/// `suggestions` (PROTOTYPE 2026-11-15, see ValueSuggestions) adds the drop-down the FilmSheet's
-/// Tags list offers. Highlighting a row fills the field (and the model, see
-/// ValueSuggestionsDelegate.onTextChange); clicking one fills it and leaves it being edited.
-///
-/// Return is the sheet's: its key monitor ends editing in any field that does not handle Return
-/// itself (FilmSheetView.endsFieldEditOnReturn), as it did for the SwiftUI fields, so with a row
-/// highlighted Return takes it.
-private struct CardTextField: NSViewRepresentable {
-    @Binding var text: String
-    let placeholder: String
-    /// The saved values to suggest, or nil for none.
-    var suggestions: ValueSuggestions.Vocabulary? = nil
-    /// Optional: a card hosted outside a FilmSheet (the card profiler) has no coordinator, and
-    /// offers no suggestions.
-    @Environment(DataCoordinator.self) private var coordinator: DataCoordinator?
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(frame: .zero)
-        /// isBordered and isBezeled are mutually exclusive — setting either clears the other —
-        /// so the plain border is cleared first and the bezel set second.
-        field.isBordered = false
-        field.isBezeled = true
-        field.bezelStyle = .roundedBezel
-        field.drawsBackground = false
-        field.font = .systemFont(ofSize: NSFont.systemFontSize)
-        field.placeholderString = placeholder
-        field.lineBreakMode = .byClipping
-        field.cell?.wraps = false
-        field.cell?.isScrollable = true
-        field.focusRingType = .default
-        /// The frame supplies the width and height; the field must not fight it.
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        field.stringValue = text
-        field.isEnabled = context.environment.isEnabled
-        field.delegate = context.coordinator
-        context.coordinator.library = coordinator
-        if suggestions != nil { field.suggestionsDelegate = context.coordinator.suggestionsDelegate }
-        return field
-    }
-
-    func updateNSView(_ field: NSTextField, context: Context) {
-        /// SwiftUI reuses the coordinator but not this struct: keep the binding current.
-        context.coordinator.parent = self
-        context.coordinator.library = coordinator
-        /// Only a change from elsewhere (a variant swap re-points the card at another model)
-        /// differs here; the field's own edits reached `text` before this pass.
-        if field.stringValue != text { field.stringValue = text }
-        if field.placeholderString != placeholder { field.placeholderString = placeholder }
-        let enabled = context.environment.isEnabled
-        if field.isEnabled != enabled { field.isEnabled = enabled }
-    }
-
-    /// The width it is offered, at the field's own height. The height depends only on the font
-    /// and bezel, so it is measured once per field rather than on every layout pass.
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextField, context: Context) -> CGSize? {
-        guard let width = proposal.width, width.isFinite else { return nil }
-        let height = context.coordinator.height ?? nsView.intrinsicContentSize.height
-        context.coordinator.height = height
-        return CGSize(width: width, height: height)
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        var parent: CardTextField
-        /// The field's natural height, once measured. See sizeThatFits.
-        var height: CGFloat?
-        /// The environment's coordinator, handed over during make and update: an `@Environment`
-        /// value is only reliable read there, not later from a stored copy of the struct.
-        weak var library: DataCoordinator?
-        /// Made only for a field that offers suggestions; the field holds it weakly.
-        private(set) lazy var suggestionsDelegate = ValueSuggestionsDelegate(
-            rank: { [weak self] typed in
-                guard let self, let library, let vocabulary = parent.suggestions else { return [] }
-                return ValueSuggestions.ranked(vocabulary, in: library, typed: typed)
-            },
-            onSelect: { [weak self] field, value in
-                if let editor = field.currentEditor() as? NSTextView {
-                    editor.string = value
-                    editor.setSelectedRange(NSRange(location: (value as NSString).length, length: 0))
-                } else {
-                    field.stringValue = value
-                }
-                self?.write(value)
-            },
-            onTextChange: { [weak self] value in self?.write(value) })
-
-        init(_ parent: CardTextField) { self.parent = parent }
-
-        private func write(_ value: String) {
-            if parent.text != value { parent.text = value }
-        }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSTextField else { return }
-            write(field.stringValue)
-        }
-
-        /// Escape with the drop-down closed, in a field that offers suggestions. (While it is
-        /// open the suggestions controller takes Escape first and closes it, and this is not
-        /// called.) Left to the field editor, Escape runs `complete:`, which with a suggestions
-        /// delegate reopens the drop-down, so Escape would only ever toggle it and never reach
-        /// the sheet. It goes past the field editor instead, up the responder chain from the
-        /// field, where it does what Escape does in any other card field. A field without
-        /// suggestions is left to AppKit, as the SwiftUI field was.
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard parent.suggestions != nil,
-                  commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
-            return control.tryToPerform(commandSelector, with: nil)
         }
     }
 }
@@ -1162,8 +1035,9 @@ private struct _ReleaseYearRow: View {
                     /// HelpPopoverButton handles vertical-scroll dismissal separately via its own
                     /// minY observer; this token covers the horizontal case that minY cannot
                     /// detect, since a carousel slide moves the card in x only. The
-                    /// raw currentIndex read is deliberately inside CardHelpButton's own body so
-                    /// navigation does not invalidate this row — see CardHelpButton.
+                    /// currentIndex read happens inside HelpPopoverButton, and only while its
+                    /// popover is open, so navigation does not invalidate this row — see
+                    /// CardHelpButton.
                     CardHelpButton(
                         helpText: "Some releases are reissues of prior ones with slight variations, yet retain the same on-disc film version/mastering. The first field refers to this specific release, while the optional second field pertains to the earliest permutation of this release.",
                         autoDismissDuration: 30,
@@ -1506,7 +1380,7 @@ private struct _NotesRow: View {
             ? "Notes, if different from 4K master release"
             : "Notes"
         return CardRow("Notes:") {
-            CardTextField(text: $model.notes, placeholder: notesPlaceholder)
+            RoundedTextField(text: $model.notes, placeholder: notesPlaceholder)
                 .padding(.trailing, 2)
         }
     }

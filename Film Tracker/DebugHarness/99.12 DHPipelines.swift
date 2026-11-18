@@ -932,10 +932,10 @@ extension DebugHarness {
         r.metric("injected-failures", Double(DebugPersistenceFault.injectedCount), "count")
 
         /// --- The other failure shape: the write COMMITTED and still reported failure ---------
-        /// Every rollback closure above is written for "nothing was persisted". Several
-        /// DataManager methods commit in batches (batchAddFilmsToLists,
-        /// batchRemoveFilmsFromLists and batchInsertFilms all call save() per batch), so a
-        /// failure or cancellation partway through leaves earlier batches committed while the rollback restores ALL of memory.
+        /// Every rollback closure above is written for "nothing was persisted". Every
+        /// DataManager write commits once, so a failed write leaves nothing behind; what remains
+        /// is a failure reported after the commit (an operation whose second write fails, as in
+        /// deleteFilms' Hall of Fame compaction), which leaves the database ahead of memory.
         /// This case does not assert that the outcome is correct — it cannot be, by
         /// construction — it pins the fact that the rollback runs identically in both cases,
         /// which is what makes the divergence silent.
@@ -950,7 +950,7 @@ extension DebugHarness {
                 storeDigest(store) == preAfterWork,
                 "memory is restored even though the write had already committed — the "
                     + "rollback cannot distinguish the two cases, so a partially-committed "
-                    + "batch write leaves the database ahead of memory with nothing to detect it")
+                    + "operation leaves the database ahead of memory with nothing to detect it")
 
         DebugPersistenceFault.reset()
 

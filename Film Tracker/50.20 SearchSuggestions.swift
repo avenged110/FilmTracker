@@ -82,8 +82,7 @@ nonisolated struct SearchVocabulary: Sendable {
                     "dolby vision", "hdr10", "hdr10+", "combo-pack", "standalone", "multi-pack",
                     "available", "out of print", "temporarily unavailable", "unavailable",
                     "cheap", "reasonable", "exorbitant"],
-        .rotationThreshold: ["default", "override"]
-            + Preferences.rotationThresholdOptions.map { "\($0) months" },
+        .rotationThreshold: RuleValues.rotationValues,
         .lastWatched: ["today", "this week", "this month", "this year"],
         .dateAdded: ["today", "this week", "this month", "this year"],
         .flags: FilmFlag.terms.map(\.display),
@@ -93,18 +92,59 @@ nonisolated struct SearchVocabulary: Sendable {
     init() {}
 
     init(films: [UUID: FilmSnapshot], queued: Set<UUID>, today: Date) {
+        /// One value's films and spellings. A film is counted once however many spellings of the
+        /// value it carries, and the value is shown in its most-used spelling (ties go to the
+        /// alphabetically first), as the sidebar's Tags and ValueSuggestions show theirs: the
+        /// first spelling met depended on the films dictionary's order, which varies by launch.
         struct Accumulator {
-            var display: String
+            /// The first spelling met, and the films it was met on.
+            let first: String
+            var firstUses = 0
+            /// Every other spelling's films; nil until a second spelling appears, which is rare.
+            var others: [String: Int]?
+            let key: String
             var films: [Int32] = []
+
+            init(display: String, key: String) {
+                first = display
+                self.key = key
+            }
+
+            mutating func add(_ spelling: String, film: Int32?) {
+                guard let film else { return }
+                /// A film's values are all added before the next film's, so a repeat is the last.
+                guard films.last != film else { return }
+                films.append(film)
+                if spelling == first {
+                    firstUses += 1
+                } else {
+                    if others == nil { others = [:] }
+                    others?[spelling, default: 0] += 1
+                }
+            }
+
+            var display: String {
+                guard let others else { return first }
+                var best = first, bestUses = firstUses
+                for (spelling, uses) in others where uses > bestUses || (uses == bestUses && spelling < best) {
+                    best = spelling
+                    bestUses = uses
+                }
+                return best
+            }
         }
+        /// Field → slot → value. A library value's slot is its key, so spellings that
+        /// normalize alike ("Amélie", "amelie") are one value. A keyword's slot is its own
+        /// spelling: two keywords can share a key and still mean different things ("hdr10"
+        /// takes HDR10+ too, "hdr10+" only it), and one slot would keep only the first.
         var byField: [SearchField: [String: Accumulator]] = [:]
-        func add(_ value: String, to field: SearchField, film: Int32?) {
+        func add(_ value: String, to field: SearchField, film: Int32?, keyword: Bool = false) {
             let display = value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !display.isEmpty else { return }
             let key = SearchText.key(display)
             guard !key.isEmpty else { return }
-            byField[field, default: [:]][key, default: Accumulator(display: display)]
-                .films.append(contentsOf: film.map { [$0] } ?? [])
+            byField[field, default: [:]][keyword ? display : key, default: Accumulator(display: display, key: key)]
+                .add(display, film: film)
         }
         let people: [(SearchField, KeyPath<FilmSnapshot, [String]>)] = [
             (.cast, \.cast), (.directors, \.directors), (.producer, \.producers),
@@ -138,14 +178,14 @@ nonisolated struct SearchVocabulary: Sendable {
             }
         }
         for (field, words) in Self.keywordTerms {
-            for word in words { add(word, to: field, film: nil) }
+            for word in words { add(word, to: field, film: nil, keyword: true) }
         }
-        for (field, byKey) in byField {
-            var built: [Term] = byKey.map { key, acc in
+        for (field, bySlot) in byField {
+            var built: [Term] = bySlot.values.map { acc in
                 /// Damped by √count: see the type's doc comment.
                 let sum = acc.films.reduce(0.0) { $0 + affinity[Int($1)] }
                 let taste = acc.films.isEmpty ? 0 : sum / Double(acc.films.count).squareRoot()
-                return Term(display: acc.display, key: key, initials: Self.initials(of: key),
+                return Term(display: acc.display, key: acc.key, initials: Self.initials(of: acc.key),
                             count: acc.films.count, taste: taste, films: acc.films)
             }
             let maxTaste = built.map(\.taste).max() ?? 0
@@ -156,7 +196,9 @@ nonisolated struct SearchVocabulary: Sendable {
                 }
             }
             terms[field] = built
-            termIndex[field] = Dictionary(uniqueKeysWithValues: built.enumerated().map { ($1.key, $0) })
+            /// Two keywords can share a key (see `byField`); either resolves a context value,
+            /// since keywords carry no films.
+            termIndex[field] = Dictionary(built.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { first, _ in first })
         }
         self.affinity = affinity
         self.titleKeys = titleKeys
@@ -478,12 +520,14 @@ nonisolated enum SearchSuggestionRanker {
                                          taste: 0, films: [], group: 0, prefix: "")) else { return [] }
             }
         }
-        /// Keys are unique within a request, so this is a total order and the rows below are
-        /// the same however the leading entries are found.
+        /// Each key and spelling is one candidate (keys repeat only between keywords such as
+        /// "hdr10" and "hdr10+"), so this is a total order and the rows below are the same
+        /// however the leading entries are found.
         func precedes(_ a: (candidate: Candidate, score: Double), _ b: (candidate: Candidate, score: Double)) -> Bool {
             if a.candidate.group != b.candidate.group { return a.candidate.group < b.candidate.group }
             if a.score != b.score { return a.score > b.score }
-            return a.candidate.key < b.candidate.key
+            if a.candidate.key != b.candidate.key { return a.candidate.key < b.candidate.key }
+            return a.candidate.display < b.candidate.display
         }
         scored = leading(scored, distinctBy: \.candidate.display, count: limit, by: precedes)
         /// Two films can share a title, and a value can be learned under a spelling the

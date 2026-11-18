@@ -470,17 +470,6 @@ final class DVCanvasPageView: NSView {
         return shown
     }
 
-    /// Opens the first popover hotspot and leaves it open (harness): its window, and the
-    /// rect it points at in screen space.
-    func debugShowFirstPopover() -> (NSWindow, CGRect)? {
-        guard let spot = hotspots.first(where: { if case .popover = $0.action { return true }; return false }),
-              case .popover(let id) = spot.action, let host = unsafe window else { return nil }
-        let anchor = spot.anchor ?? spot.rect
-        showAttentionPopover(id, from: anchor)
-        guard let w = unsafe popover?.contentViewController?.view.window else { return nil }
-        return (w, host.convertToScreen(convert(anchor, to: nil)))
-    }
-
     /// Each section's height at `width` (harness).
     func debugSectionHeights(width: CGFloat) -> [CGFloat] {
         guard let stack = root as? DVVStack else { return [] }
@@ -1043,7 +1032,9 @@ enum DVCanvasSections {
             if let date = insights.backlogClearDate { return "Cleared by \(DVFormat.monthYear.string(from: date)) at the current pace" }
             return insights.unwatchedFilms == 0 ? "Nothing left unwatched" : "No first-time viewings in the last year from which to project"
         }()
-        let tiles = DVFlow(minColumnWidth: DVStyle.minWideTileWidth, spacing: DVStyle.tileGap, maxColumns: 6, [
+        /// Always two rows (three, then two sharing the full width) over Ownership, beside Ratings Breakdown: no minimum width, so the tiles
+        /// compress rather than wrap to a third row. The Hall of Fame has its own card (hallOfFameCard).
+        let tiles = DVFlow(minColumnWidth: 0, spacing: DVStyle.tileGap, maxColumns: 3, fillsLastRow: true, [
             DVK.statTile(title: "Total Films", value: Fmt.count(stats.totalFilms), color: .systemBlue,
                          footnote: "\(DVFormat.hours(insights.totalRuntimeMinutes)) total runtime"),
             /// The Ownership card's headline figures, given a tile of their own beside Total Films.
@@ -1056,12 +1047,6 @@ enum DVCanvasSections {
             DVK.statTile(title: "Unwatched Backlog", value: Fmt.count(insights.unwatchedFilms), color: .systemRed,
                          trailing: "\(pct(Fmt.percent(insights.unwatchedFilms, of: stats.totalFilms))) (\(DVFormat.hours(insights.unwatchedRuntimeMinutes)))",
                          footnote: backlogFootnote, action: m.navigation.unwatched(.unwatched)),
-            DVK.statTile(title: "Hall of Fame", value: Fmt.count(insights.hallOfFameFilms), color: .systemYellow,
-                         trailing: insights.hallOfFameFilms > 0 ? "avg. rating: \(insights.hallOfFameAverageRating)" : nil,
-                         footnote: insights.hallOfFameFilms > 0
-                             ? "\(insights.hallOfFameNotOnDisc) unpurchased\n\(insights.hallOfFameUnwatchedOverYear) unwatched in over a year"
-                             : "No positions set",
-                         action: m.navigation.hallOfFame),
         ])
 
         /// Ownership
@@ -1094,20 +1079,44 @@ enum DVCanvasSections {
         let healthSubtitle = insights.emptiestField.map { e -> String in
             e.blank > 0 ? "Emptiest metadata field: \(e.name) (\(Fmt.count(e.blank)) blank)" : "Every metadata field is filled on every film"
         } ?? "Every metadata field is filled on every film"
+        /// DVK.barRow's parts with their own gaps: 6 pt from the label to the bar (the labels are short), 8 pt to the count, and 8 pt from
+        /// the count to the percent, which narrows to 4 pt once the bar would drop under 60 pt. Narrower still, the percent clips at the card's
+        /// edge as before.
         func health(_ label: String, _ percent: Int, _ color: NSColor, _ count: Int) -> any DVNode {
-            DVK.barRow(label: label, fraction: Double(percent) / 100, color: color, count: Fmt.count(count),
-                       percent: pct(percent), labelWidth: 150, barHeight: 12)
+            let labelWidth: CGFloat = 81, countWidth: CGFloat = 40, percentWidth: CGFloat = 36
+            func gap(_ w: CGFloat) -> any DVNode { DVBox(width: w, height: 1) { _, _ in } }
+            func row(countToPercent: CGFloat) -> any DVNode {
+                DVHStack(spacing: 0, [
+                    DVFrame(child: DVText(label, .system(11), .secondary), width: labelWidth, hAlign: .leading), gap(6),
+                    DVK.fillBar(Double(percent) / 100, color, height: 12, minWidth: 24), gap(8),
+                    DVFrame(child: DVText(Fmt.count(count), .mono(11), .primary), width: countWidth, hAlign: .trailing), gap(countToPercent),
+                    DVFrame(child: DVText(pct(percent), .system(10), .secondary), width: percentWidth, hAlign: .trailing),
+                ])
+            }
+            return DVFirstFit([(labelWidth + 6 + 60 + 8 + countWidth + 8 + percentWidth, row(countToPercent: 8)),
+                               (0, row(countToPercent: 4))])
         }
         var healthRows: [any DVNode] = []
         if m.showInfoComplete { healthRows.append(health("Info complete", stats.infoCompletePercent, .systemGreen, stats.infoComplete)) }
         healthRows += [
             health("Edited films", stats.editedPercent, .systemBlue, stats.editedFilms),
-            health("Alternate version(s) owned", Fmt.percent(insights.alternateVersionFilms, of: stats.totalFilms), .systemBlue, insights.alternateVersionFilms),
+            health("Alt. ver. owned", Fmt.percent(insights.alternateVersionFilms, of: stats.totalFilms), .systemBlue, insights.alternateVersionFilms),
             health("Not yet rated", stats.notYetRatedPercent, .systemRed, stats.notYetRatedFilms),
             health("Missing poster", stats.missingArtworkPercent, .systemRed, stats.missingArtwork),
             health("Waiting for edit", Fmt.percent(insights.waitingForEdit, of: stats.totalFilms), .systemOrange, insights.waitingForEdit),
+            /// Data gaps that quietly thin out other cards: viewing figures, spending averages, and the Tags card.
+            health("No view dates", Fmt.percent(insights.watchedWithoutDates, of: stats.totalFilms), .systemRed, insights.watchedWithoutDates),
+            health("Unpriced", Fmt.percent(insights.purchasedWithoutPrice, of: stats.totalFilms), .systemOrange, insights.purchasedWithoutPrice),
+            health("Untagged", Fmt.percent(insights.untaggedFilms, of: stats.totalFilms), .systemOrange, insights.untaggedFilms),
         ]
-        let catalog = DVK.card(title: "Catalog Health", subtitle: healthSubtitle, [DVVStack(spacing: 6, healthRows)])
+        /// 81 pt holds the longest label, "Waiting for edit" (80.1 pt in 11 pt). The rows sit at least 12 pt apart and spread evenly to fill
+        /// the card when the Hall of Fame beside it is taller: each gap is a flexible frame, and the stack shares the spare height among them.
+        var spreadRows: [any DVNode] = []
+        for (i, row) in healthRows.enumerated() {
+            if i > 0 { spreadRows.append(DVFrame(child: DVSpacer(), minHeight: 12)) }
+            spreadRows.append(row)
+        }
+        let catalog = DVK.card(title: "Catalog Health", subtitle: healthSubtitle, [DVVStack(spacing: 0, spreadRows)])
 
         /// Ratings
         let rated = stats.totalFilms - stats.notYetRatedFilms
@@ -1121,10 +1130,13 @@ enum DVCanvasSections {
                                subtitle: rated > 0 ? "\(pct(Fmt.percent(eightPlus, of: rated))) of rated films have been given an 8 or higher" : "No ratings yet",
                                bottomAligned: true, [DVK.verticalBars(bars, height: 300, spacing: 6)])
 
+        /// The tiles and Ownership beside Ratings Breakdown (2:1). Catalog Health beside the Hall of Fame (1:2) closes the section, after
+        /// Collection Growth and Needs Attention.
         let cards = DVFlow(minColumnWidth: DVStyle.minWideCardWidth, weights: [2, 1], [
-            DVVStack(spacing: DVStyle.gap, [ownership, catalog]),
+            DVVStack(spacing: DVStyle.gap, [tiles, ownership]),
             ratings,
         ])
+        let hallOfFameRow = DVFlow(minColumnWidth: DVStyle.minWideCardWidth, weights: [1, 2], [catalog, hallOfFameCard(m)])
 
         /// Collection Growth
         let legend = DVK.legend(DVGrowthCard.legend.map { DVKSegment(label: $0.label, count: 0, color: $0.color) }, showCounts: false)
@@ -1148,7 +1160,151 @@ enum DVCanvasSections {
         let growthRows: [any DVNode] = b.isPrint
             ? [growthCards[0], DVFlow(minColumnWidth: DVStyle.minWideCardWidth, weights: [2, 1], [growthCards[1], attentionCard])]
             : [DVFlow(minColumnWidth: DVStyle.minWideCardWidth, weights: [2, 1], [growthCards[0], attentionCard])]
-        return Section(title: "Library Overview", rows: [tiles, cards] + growthRows)
+        return Section(title: "Library Overview", rows: [cards] + growthRows + [hallOfFameRow])
+    }
+
+    // MARK: Hall of Fame card
+
+    static let hofUnpurchasedPopoverID = "hof.unpurchased"
+    static let hofStalePopoverID = "hof.stale"
+    static let hofUpgradePopoverID = "hof.upgrade"
+
+    private static let hofColor = NSColor.systemYellow
+    private static let restColor = NSColor.systemGray
+
+    /// The Hall of Fame set against the rest of the library, beside Catalog Health, in two untitled columns that stack as the page narrows:
+    /// the figures the old tile showed and the popover rows, set apart by rules, then the best format owned on each side; and the
+    /// paired-bar comparison. The card opens the Hall of Fame report, as the tile did.
+    static func hallOfFameCard(_ m: DVCanvasModel) -> any DVNode {
+        let p = m.insights.hallOfFame, hof = p.hof, rest = p.rest
+        guard hof.films > 0 else {
+            return DVK.card(title: "Hall of Fame", trailing: "No positions set", action: m.navigation.hallOfFame,
+                            [DVK.footnote("Rank films in the Hall of Fame to see how they compare with the rest of the library.")])
+        }
+        let total = hof.films + rest.films
+
+        /// One sentence: the list's share of the library against its share of the viewings, then how often a ranked film is viewed.
+        var summary = "Films in the list make up \(pct(Fmt.percent(hof.films, of: total))) of the library and "
+            + "\(pct(Fmt.percent(hof.viewings, of: p.libraryViewings))) of all recorded viewings."
+        if let h = hof.viewingsPerFilm, let r = rest.viewingsPerFilm, r > 0 {
+            summary += " Each has been viewed \(Fmt.fixed(h, 1)) times on average, \(Fmt.fixed(h / r, 1))× the rest of the library."
+        }
+
+        /// At a Glance
+        func figure(_ label: String, _ value: String, _ color: NSColor) -> any DVNode {
+            DVDecorated(child: DVFrame(child: DVVStack(spacing: 2, [
+                DVText(label, .system(10), .secondary),
+                DVText(value, .system(20, .semibold), DVPaint(color: color), minimumScale: 0.7),
+            ]), maxInfinity: true, hAlign: .leading),
+                        insets: NSEdgeInsets(top: 6, left: 8, bottom: 6, right: 8), background: DVK.rowPaint, radius: 4)
+        }
+        func listRow(_ label: String, _ items: [DVNamedFilm], _ id: String) -> any DVNode {
+            DVK.factRow(label: label, value: Fmt.count(items.count), popoverID: items.isEmpty ? nil : id, reserveInfoSpace: true)
+        }
+        let divider: any DVNode = DVBox(height: 1) { g, r in g.fill(g.snap(r), DVK.separator) }
+        /// The best format owned on each side, colored as the Ownership card colors it.
+        func formatSegments(_ g: DVHallOfFameProfile.Group) -> [DVKSegment] {
+            [DVKSegment(label: "4K UHD", count: g.bestOwned[.uhd4K] ?? 0, color: .systemIndigo),
+             DVKSegment(label: "Blu-ray", count: g.bestOwned[.bluRay] ?? 0, color: .systemCyan),
+             DVKSegment(label: "DVD", count: g.bestOwned[.dvd] ?? 0, color: .systemGreen),
+             DVKSegment(label: "Not purchased", count: g.films - g.onDisc, color: .secondaryLabelColor, fillOpacity: 0.25)]
+        }
+        func formatBar(_ label: String, _ g: DVHallOfFameProfile.Group) -> any DVNode {
+            DVHStack(spacing: 8, [
+                DVFrame(child: DVText(label, .system(11), .secondary), width: 92, hAlign: .leading),
+                DVK.stackedBar(formatSegments(g), height: 14),
+                DVFrame(child: DVText(pct(Fmt.percent(g.bestOwned[.uhd4K] ?? 0, of: g.films)) + " 4K", .system(10), .secondary),
+                        width: 44, hAlign: .trailing),
+            ])
+        }
+
+        /// Left column: the figures the old tile showed, a rule, the popover rows, a rule, then the best format owned on each side and its
+        /// legend. It stretches to the comparison column's height, and every gap stays the same visible size: each is a fixed part that
+        /// tops up the invisible insets around it (the figures draw 6 pt inside their boxes, the rows 4 pt) to 6 pt, plus a flexible part of
+        /// at least 6 pt. The flexible parts take equal shares of the spare height, so the gaps grow together from 12 pt.
+        /// The two parts are siblings in the stack, so only the flexible parts, all with the same minimum, share the spare height.
+        func gap(_ fixed: CGFloat) -> [any DVNode] {
+            [DVBox(height: fixed) { _, _ in }, DVFrame(child: DVSpacer(), minHeight: 6)]
+        }
+        let figures = DVFlow(minColumnWidth: 80, spacing: 8, maxColumns: 2, [
+            figure("Films", Fmt.count(hof.films), hofColor),
+            figure("Average Rating", hof.averageRating.map { Fmt.fixed($0, 1) } ?? "—", .systemPurple),
+        ])
+        let popoverRows = DVVStack(spacing: 4, [
+            listRow("Unpurchased", p.unpurchasedItems, hofUnpurchasedPopoverID),
+            listRow("Unwatched in over a year", p.staleItems, hofStalePopoverID),
+            listRow("Better format available", p.upgradeItems, hofUpgradePopoverID),
+        ])
+        var glanceParts: [any DVNode] = [figures]
+        glanceParts += gap(0); glanceParts.append(divider); glanceParts += gap(2)
+        glanceParts.append(popoverRows)
+        glanceParts += gap(2); glanceParts.append(divider); glanceParts += gap(6)
+        glanceParts.append(formatBar("Hall of Fame", hof))
+        glanceParts += gap(6)
+        glanceParts.append(formatBar("Rest of library", rest))
+        glanceParts += gap(6)
+        glanceParts.append(DVK.legend(formatSegments(hof), showCounts: false))
+        let glance = DVVStack(spacing: 0, glanceParts)
+
+        /// The comparison with the rest of the library: one pair of bars per measure, Hall of Fame on top. A share is drawn against 100%, a
+        /// rating against 10, and anything else against the larger of the two.
+        /// The label column is exactly as wide as the longest label (rounded up to the point), so that label ends `gap` from the bars. Every
+        /// row's bars then stretch to its values, and the values end at the column's right edge.
+        func share(_ value: Double) -> String { pct(Int((value * 100).rounded())) }
+        typealias Measure = (label: String, hof: Double?, rest: Double?, scale: Double?, text: (Double) -> String)
+        let measures: [Measure] = [
+            ("Viewings per film", hof.viewingsPerFilm, rest.viewingsPerFilm, nil, { Fmt.fixed($0, 1) }),
+            ("Rewatched (2+ viewings)", hof.share(hof.rewatched), rest.share(rest.rewatched), 1, share),
+            ("Viewed in the last 12 mo.", hof.share(hof.viewedLastYear), rest.share(rest.viewedLastYear), 1, share),
+            ("Average rating", hof.averageRating, rest.averageRating, 10, { Fmt.fixed($0, 1) }),
+            ("Purchased on disc", hof.share(hof.onDisc), rest.share(rest.onDisc), 1, share),
+            ("Owned in 2+ formats", hof.share(hof.multiFormat), rest.share(rest.multiFormat), 1, share),
+            ("Spent per film", hof.spentPerOwnedFilm, rest.spentPerOwnedFilm, nil, Fmt.wholeDollars),
+        ]
+        let longestLabel = measures.map { DVText($0.label, .system(11)).idealWidth }.max() ?? 0
+        let labelColumn = longestLabel.rounded(.up)
+        func compare(_ label: String, _ a: Double?, _ b: Double?, scale: Double? = nil, _ text: @escaping (Double) -> String) -> any DVNode {
+            let top = scale ?? max(a ?? 0, b ?? 0)
+            /// 10 pt values, so the two bars of a pair sit with no added space between them. Both values of a pair share a right-aligned box
+            /// as wide as the wider of them, so the pair's bars end together and take every point the values leave.
+            let texts = [a, b].map { $0.map(text) ?? "—" }
+            let valueWidth = texts.map { DVText($0, .mono(10)).idealWidth }.max()?.rounded(.up) ?? 0
+            func bar(_ value: String, _ fraction: Double, _ color: NSColor, _ paint: DVPaint, gap: CGFloat) -> any DVNode {
+                DVHStack(spacing: gap, [
+                    DVK.fillBar(fraction, color, height: 7, minWidth: 24),
+                    DVFrame(child: DVText(value, .mono(10), paint), width: valueWidth, hAlign: .trailing),
+                ])
+            }
+            func fraction(_ v: Double?) -> Double { top > 0 ? (v ?? 0) / top : 0 }
+            /// The label-to-bar gap is 8 pt from a 260 pt row up and closes evenly to 6 pt at 184 pt, the row's narrowest with the card's
+            /// columns side by side. The bar-to-value gap matches what the longest label shows before its bar: the gap plus the label
+            /// column's rounding. Once the bars would drop under 40 pt, the label narrows to 96 pt and may wrap to two lines, and both
+            /// gaps are the plain gap.
+            return DVAdaptive { width in
+                let gap = 6 + 2 * min(1, max(0, (width - 184) / (260 - 184)))
+                let wideValueGap = gap + (labelColumn - longestLabel)
+                let wide = width >= labelColumn + gap + 40 + wideValueGap + valueWidth
+                let valueGap = wide ? wideValueGap : gap
+                return DVHStack(spacing: gap, [
+                    DVFrame(child: DVText(label, .system(11), .secondary, lineLimit: wide ? 1 : 2), width: wide ? labelColumn : 96,
+                            hAlign: .leading),
+                    DVVStack(spacing: 0, [bar(texts[0], fraction(a), hofColor, .primary, gap: valueGap),
+                                          bar(texts[1], fraction(b), restColor, .secondary, gap: valueGap)]),
+                ])
+            }
+        }
+        /// Right column: the legend, then the comparison.
+        let comparison = DVVStack(spacing: 8, [
+            DVK.legend([DVKSegment(label: "Hall of Fame", count: 0, color: hofColor),
+                        DVKSegment(label: "Rest of library (\(films(rest.films)))", count: 0, color: restColor)], showCounts: false),
+            DVVStack(spacing: 7, measures.map { compare($0.label, $0.hof, $0.rest, scale: $0.scale, $0.text) }),
+        ])
+
+        return DVK.card(title: "Hall of Fame", trailing: films(hof.films), subtitle: summary, action: m.navigation.hallOfFame, [
+            /// The two columns stay side by side down to a 384 pt card interior (the card's narrowest beside Catalog Health is 456). The left
+            /// column needs about 208 pt for "Unwatched in over a year" unclipped, so it gets slightly under half.
+            DVFlow(minColumnWidth: 180, spacing: DVStyle.gap + 8, weights: [1, 1.05], [glance, comparison]),
+        ])
     }
 
     /// The Needs Attention card's rows (DVAttentionRows); popovers look them up by id.
@@ -1174,6 +1330,9 @@ enum DVCanvasSections {
         case autoAddPopoverID: return ("Auto-add to Queue Enabled", m.insights.autoAddToQueueItems)
         case staleYearPopoverID: return ("Last Viewed Over One Year Ago", m.insights.viewedOverOneYearAgoItems)
         case neverViewedPopoverID: return ("Unwatched", m.insights.neverViewedItems)
+        case hofUnpurchasedPopoverID: return ("Hall of Fame, Unpurchased", m.insights.hallOfFame.unpurchasedItems)
+        case hofStalePopoverID: return ("Hall of Fame, Unwatched in Over a Year", m.insights.hallOfFame.staleItems)
+        case hofUpgradePopoverID: return ("Hall of Fame, Better Format Available", m.insights.hallOfFame.upgradeItems)
         default: return attentionRows(m).first(where: { $0.id == id }).map { ($0.label, $0.items) }
         }
     }
@@ -1254,11 +1413,8 @@ enum DVCanvasSections {
         /// Detail cards.
         let bands = insights.rewatchesByRatingBand
         var rewatchesFootnote = "Average viewings per film by your rating."
-        if bands.count == 5 {
-            let high = Double(bands[3].count + bands[4].count) / 2 / 100, mid = Double(bands[1].count) / 100
-            if mid > 0, high > 0 {
-                rewatchesFootnote = "Average viewings per film by your rating. Films rated 9–10 are rewatched \(Fmt.fixed(high / mid, 1))× as often as 6–7."
-            }
+        if let ratio = insights.topToMidViewingRatio {
+            rewatchesFootnote = "Average viewings per film by your rating. Films rated 9–10 are rewatched \(Fmt.fixed(ratio, 1))× as often as 6–7."
         }
         let veryShort = AppCalendar.current.veryShortMonthSymbols
         let peak = insights.seasonality.max() ?? 0

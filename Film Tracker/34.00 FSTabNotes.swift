@@ -179,6 +179,12 @@ struct FSTabNotesView: View {
     /// them from per-instance allocation and eliminates implicit self captures in
     /// every closure inside body that would otherwise reference them.
     private static let labelWidth: CGFloat = Preferences.filmSheetLabelWidth
+
+    /// The Software Tools list's suggestions: the library's saved tools, in their most-used
+    /// spelling, leaving out the ones already in this film's list (StringListSuggestionSource).
+    private var toolSuggestions: StringListSuggestionSource {
+        .values(.softwareTools, of: viewModel, coordinator: { $0.owner?.coordinator }, current: { $0.tools })
+    }
     /// Vertical offset that lines a topLeading label up with the first line of
     /// the content beside it. Only the Legend row still uses it — every list row
     /// on this tab is now drawn by a child view that applies
@@ -311,8 +317,9 @@ struct FSTabNotesView: View {
                     /// single-line field, and a top padding would push the label's glyphs below the field's centerline.
                     /// Every other single-line field row on this sheet uses `label`.
                     label("Release:")
-                    TextField("Release Used", text: $viewModel.releaseUsed)
-                        .textFieldStyle(.roundedBorder)
+                    /// AppKit, drawn and behaving as the SwiftUI `.roundedBorder` TextField it
+                    /// replaced (RoundedTextField, 30.10, which records the parity checks).
+                    RoundedTextField(text: $viewModel.releaseUsed, placeholder: "Release Used")
                 }
             }
             /// Software Tools, top-aligned. Built through the shared row so this body never reads `tools`; see
@@ -324,6 +331,7 @@ struct FSTabNotesView: View {
                                    itemLabel: "Software Tool",
                                    labelWidth: Self.labelWidth,
                                    columnSpacing: colSpacing)
+                .environment(\.stringListSuggestions, toolSuggestions)
             /// HandBrake RF Value
             ObservationBoundary {
                 HStack(alignment: .center, spacing: colSpacing) {

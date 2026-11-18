@@ -1118,6 +1118,28 @@ struct DVFirstFit: DVNode {
     func controls(_ rect: CGRect, into: inout [(any DVControl, CGRect)]) { pick(rect.width).controls(rect, into: &into) }
 }
 
+/// A node rebuilt for the width it is laid out at, for a measure that changes continuously with width (a gap that closes as a card narrows),
+/// where DVFirstFit's fixed variants would step. The build for the last width is kept, since a layout pass asks for one width several times.
+struct DVAdaptive: DVNode {
+    let minWidth: CGFloat
+    let build: (CGFloat) -> any DVNode
+    private let memo = DVMemo<any DVNode>()
+
+    init(minWidth: CGFloat = 0, _ build: @escaping (CGFloat) -> any DVNode) {
+        self.minWidth = minWidth
+        self.build = build
+    }
+
+    private func node(_ width: CGFloat) -> any DVNode { memo.get(width) { build(width) } }
+    var sizing: DVSizing { DVSizing(min: minWidth, max: .infinity) }
+    func height(_ width: CGFloat) -> CGFloat { node(width).height(width) }
+    func firstBaseline(_ width: CGFloat) -> CGFloat? { node(width).firstBaseline(width) }
+    func lastBaseline(_ width: CGFloat) -> CGFloat? { node(width).lastBaseline(width) }
+    func draw(_ g: DVGraphics, _ rect: CGRect) { node(rect.width).draw(g, rect) }
+    func hotspots(_ rect: CGRect, into: inout [DVHotspot]) { node(rect.width).hotspots(rect, into: &into) }
+    func controls(_ rect: CGRect, into: inout [(any DVControl, CGRect)]) { node(rect.width).controls(rect, into: &into) }
+}
+
 /// An embedded AppKit control as a layout node.
 @MainActor
 struct DVControlNode: DVNode {
@@ -1840,15 +1862,18 @@ struct DVFlow: DVNode {
     var spacing: CGFloat = DVStyle.gap
     var maxColumns: Int = 8
     var weights: [CGFloat]? = nil
+    /// A last row with fewer children than columns shares the full width among them, instead of leaving the missing columns empty.
+    var fillsLastRow = false
     let children: [any DVNode]
     private let memo = DVMemo<(frames: [CGRect], height: CGFloat)>()
 
     init(minColumnWidth: CGFloat, spacing: CGFloat = DVStyle.gap, maxColumns: Int = 8,
-         weights: [CGFloat]? = nil, _ children: [any DVNode]) {
+         weights: [CGFloat]? = nil, fillsLastRow: Bool = false, _ children: [any DVNode]) {
         self.minColumnWidth = minColumnWidth
         self.spacing = spacing
         self.maxColumns = maxColumns
         self.weights = weights
+        self.fillsLastRow = fillsLastRow
         self.children = children
     }
 
@@ -1861,9 +1886,9 @@ struct DVFlow: DVNode {
         return max(1, Int((Double(count) / Double(rows)).rounded(.up)))
     }
 
-    private func columnWidths(_ width: CGFloat, _ columns: Int) -> [CGFloat] {
+    private func columnWidths(_ width: CGFloat, _ columns: Int, weighted: Bool = true) -> [CGFloat] {
         let available = width - spacing * CGFloat(columns - 1)
-        if let weights, columns == children.count, weights.count == children.count {
+        if weighted, let weights, columns == children.count, weights.count == children.count {
             let sum = weights.reduce(0, +)
             return weights.map { available * $0 / max(sum, 0.0001) }
         }
@@ -1883,11 +1908,12 @@ struct DVFlow: DVNode {
         var index = 0
         while index < children.count {
             let rowRange = index..<min(index + columns, children.count)
-            let heights = rowRange.map { children[$0].height(widths[$0 - index]) }
+            let rowWidths = fillsLastRow && rowRange.count < columns ? columnWidths(width, rowRange.count, weighted: false) : widths
+            let heights = rowRange.map { children[$0].height(rowWidths[$0 - index]) }
             let rowHeight = heights.max() ?? 0
             var x: CGFloat = 0
             for i in rowRange {
-                let w = widths[i - index]
+                let w = rowWidths[i - index]
                 let h = children[i].fillsHeight ? rowHeight : heights[i - index]
                 frames.append(CGRect(x: x, y: y, width: w, height: h))
                 x += w + spacing

@@ -24,19 +24,23 @@ struct HallOfFameView: View {
         noDataMessage: "Set Hall of Fame positions for films to create your personal ranking."
     )
 
-    /// Rotation, best format owned, rating, then release year, with the same visible gap, about 34 pt, between each column's widest
-    /// usual content and the next column's content (the table adds 12 pt between columns). Measured: the rating's star and "10" are
-    /// 28 pt of its 50, leaving 34 before the year. The clock and "2+" are 29 pt of the rotation column's 48, and the badge plate
-    /// starts 3 pt into its column (ReportTableCellView's badgeOutsideAllowance), so 34 again; the 18-month "1.5+" (37 pt) leaves 26.
-    /// The 52 pt plate (the Wishlist's, for "4K UHD") ends 55 pt into the badge column's 77, so 34 once more. The year is 60 pt, monospaced.
+    /// Queue, rotation, best format owned, rating, then release year, with the gallery list view's 16 pt gap (ListRowView.columnGap)
+    /// between each column's widest usual content and the next column's content. The table adds 12 pt between columns, so each
+    /// column is its content plus 4 pt. Measured: the Queue glyph is 14 pt, so 18. The rating's star and "10" are 28 pt, so 32.
+    /// The clock and "2+" are 29 pt, and the badge plate starts 3 pt into its column (ReportTableCellView's badgeOutsideAllowance),
+    /// so 30; the 18-month "1.5+" (37 pt) runs 7 pt past it and leaves 9. The 52 pt plate (the Wishlist's, for "4K UHD") ends 55 pt
+    /// into the badge column, so 59. The year ends as the list's does, 8 pt (GalleryListRow.contentInset) before the cell's trailing edge:
+    /// right-aligned in a 30 pt box (the list's yearColumnWidth) with an 8 pt trailing pad, so 38. "1999" in 12 pt monospaced is 29.7 pt.
     private static let trailingColumns: [ReportTableColumn<HallOfFameFilm>] = [
-        ReportTableColumn(id: "rotation", width: 48, trailingPad: 20,
+        ReportTableColumn(id: "queue", width: 18,
+                          content: .symbol("text.line.last.and.arrowtriangle.forward", label: "In Queue") { $0.isQueued }),
+        ReportTableColumn(id: "rotation", width: 30,
                           content: .symbolText(symbol: "clock.fill") { $0.rotationLabel }),
-        /// The plate is the column's width less its trailing pad: 77 − 25 = 52.
-        ReportTableColumn(id: "format", width: 77, trailingPad: 25, content: .badge { $0.purchase.ownedBadge }),
-        ReportTableColumn(id: "rating", width: 50, trailingPad: 20, content: .rating { $0.userRating }),
-        ReportTableColumn(id: "year", width: 60, font: .monospacedSystemFont(ofSize: 12, weight: .regular),
-                          isSecondary: true, content: .text { $0.releaseYear })
+        /// The plate is the column's width less its trailing pad: 59 − 7 = 52.
+        ReportTableColumn(id: "format", width: 59, trailingPad: 7, content: .badge { $0.purchase.ownedBadge }),
+        ReportTableColumn(id: "rating", width: 32, content: .rating { $0.userRating }),
+        ReportTableColumn(id: "year", width: 38, alignment: .right, font: .monospacedSystemFont(ofSize: 12, weight: .regular),
+                          isSecondary: true, trailingPad: 8, content: .text { $0.releaseYear })
     ]
 
     var body: some View {
@@ -53,13 +57,13 @@ struct HallOfFameView: View {
                     handleMove(from: source, to: destination)
                 },
                 primaryLabel: { $0.name },
-                trailingColumns: Self.trailingColumns
+                trailingColumns: Self.trailingColumns,
+                menuFilmID: { $0.id }
             )
         }
-        /// Expose selection to the MenuBar so that Film menu items (e.g. "Delete from Library")
-        /// reflect the current HoF selection and can be enabled/disabled correctly.
-        .focusedSceneValue(\.selectedFilmIDs, selectionState.selectedFilmIDs)
-        .focusedSceneValue(\.selectedFilmID, selectionState.selectedFilmID)
+        /// No .focusedSceneValue for the selection here: FilmTrackerApp publishes it at the scene root (SelectionFocusedValues),
+        /// and handleSelectionChange writes this table's selection into SelectionState. Reading the selection in this body
+        /// would re-evaluate the whole tab on every selection change.
         .onAppear {
             /// Mount path. Seed from the cache so the list renders at once, then reconcile with a fresh load two run-loop cycles later,
             /// after the Picker's fade (see ReportsState.selectCategory). The first visit loads synchronously, to avoid a placeholder flash.
@@ -78,6 +82,11 @@ struct HallOfFameView: View {
         /// A rotation mark comes due at midnight on the 1st of a month (rotationEligibilityDate). The reload's change guard makes this a no-op
         /// on days that change no row.
         .onReceive(CurrentDay.shared.dayChanged) { _ in loadHallOfFameFilms() }
+        /// The Queue column reads list membership, which a film's snapshot does not carry, so a Queue change posts no film event.
+        .onReceive(AppEventBus.shared.listEvents) { event in
+            guard case .membershipChanged(let listID) = event, FilmQueue.isInternalList(listID) else { return }
+            scheduleReload()
+        }
         /// Refresh on film updates, such as films added to or removed from the Hall of Fame in FilmSheet. Every case reloads through
         /// scheduleReload, so the guard on isReloadScheduled skips the membership scans once a reload is already on its way.
         .onFilmEvent { event in
@@ -136,16 +145,19 @@ struct HallOfFameView: View {
         let ranked = dataCoordinator.getHallOfFameFilms()
         let version = dataCoordinator.filmsVersion
         let months = Preferences.defaultRotationThreshold
+        let queued = dataCoordinator.getFilmQueueFilmIDs()
         Task {
             let rebuilt = await Task.detached(priority: .userInitiated) {
-                HallOfFameFilm.rows(films: ranked, rotationMonths: months)
+                HallOfFameFilm.rows(films: ranked, rotationMonths: months, queuedFilmIDs: queued)
             }.value
             guard generation == loadGeneration else { return }
             /// Rows from a library that has since changed would be stale, and the change may not have triggered a reload. filmsVersion
             /// moves with every write to the films, which covers the ranking too: every rank change is a write to a film's hofPosition.
-            /// Fall back to the synchronous load, which reads the library as it is now.
+            /// Queue membership is not a film write, so it is compared on its own. Fall back to the synchronous load, which reads the
+            /// library as it is now.
             guard dataCoordinator.filmsVersion == version,
-                  Preferences.defaultRotationThreshold == months else {
+                  Preferences.defaultRotationThreshold == months,
+                  dataCoordinator.getFilmQueueFilmIDs() == queued else {
                 loadHallOfFameFilms()
                 return
             }
@@ -157,13 +169,14 @@ struct HallOfFameView: View {
         loadGeneration += 1
         /// Built by HallOfFameFilm.rows, which the PDF export also uses. The ranking, purchase standing, and upgrade note are derived once.
         applyHallOfFameFilms(HallOfFameFilm.rows(films: dataCoordinator.getHallOfFameFilms(),
-                                                 rotationMonths: Preferences.defaultRotationThreshold))
+                                                 rotationMonths: Preferences.defaultRotationThreshold,
+                                                 queuedFilmIDs: dataCoordinator.getFilmQueueFilmIDs()))
     }
 
     private func applyHallOfFameFilms(_ rebuilt: [HallOfFameFilm]) {
         /// Assign only on an actual change. The reload after a drag-reorder (see scheduleReload) usually finds the order handleMove already
-        /// applied, and reassigning would only push the same rows back through the table. @State does not compare on assignment, so the
-        /// guard is explicit.
+        /// applied, and reassigning would only push the same rows back through the table. SwiftUI compares a `@State` array by its storage,
+        /// not its contents, so a freshly built but equal array would still invalidate the view; the guard compares the contents.
         if rebuilt != films {
             films = rebuilt
         }
@@ -297,6 +310,8 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
     let version: String
     /// The rotation column's text ("2+") when the film has not been viewed within the default rotation threshold, else nil.
     let rotationLabel: String?
+    /// Whether the film is in any Film Queue section (Up Next, Soon, or Later). Shown by the Queue column; the PDF export does not print it.
+    let isQueued: Bool
 
     /// The Hall of Fame's rows, in ranking order. This is the one definition of a row. The view and the PDF export both use it.
     ///
@@ -309,7 +324,8 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
     /// lists' timing. Only viewing recency counts: a film's own threshold override and its special sorting are not consulted. A film
     /// with no viewing is not marked. Nil leaves the column empty (the PDF export does not print it). `now` is read when the rows are
     /// built. The tab reloads when the day changes, so a mark that comes due while it stays open appears then.
-    static func rows(films: [FilmSnapshot], rotationMonths: Int? = nil, now: Date = Date()) -> [HallOfFameFilm] {
+    static func rows(films: [FilmSnapshot], rotationMonths: Int? = nil, queuedFilmIDs: Set<UUID> = [],
+                     now: Date = Date()) -> [HallOfFameFilm] {
         let label = rotationMonths.map { "\(Preferences.rotationThresholdYearsText($0))+" }
         return films.enumerated().map { index, film in
             let purchase = HallOfFamePurchase.forReleases(film.releases)
@@ -328,7 +344,8 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
                           let due = rotationEligibilityDate(from: watched, months: months),
                           due <= now else { return nil }
                     return label
-                }
+                },
+                isQueued: queuedFilmIDs.contains(film.id)
             )
         }
     }

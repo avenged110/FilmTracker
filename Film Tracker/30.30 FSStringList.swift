@@ -422,6 +422,9 @@ struct ReorderableStringList: View {
     /// produces "Import Cast Members". Defaults to a neutral term.
     var itemLabel: String = "Item"
 
+    /// How a new or edited entry is checked against the others. `.folded` for Tags.
+    var duplicateMatch: ListDuplicateMatch = .exact
+
     /// No scroll bridge. The add control is the table's last row, so it can be clicked only when it is
     /// already on screen, and the row it turns into is that same row. Nothing needs to scroll to an anchor.
 
@@ -560,7 +563,7 @@ struct ReorderableStringList: View {
         /// Raised by `commitAdd` and `commitEdit` when the finished value already
         /// exists verbatim. Attached to the component rather than to the row, so
         /// it survives the row being rebuilt as the edit resolves.
-        .listDuplicateAlert($duplicatePrompt)
+        .listDuplicateAlert($duplicatePrompt, match: duplicateMatch)
     }
 
     // MARK: - List
@@ -716,7 +719,7 @@ struct ReorderableStringList: View {
         /// Re-checked rather than trusted from the button's enablement: the cap
         /// is a limit on the model, not merely a UI rule.
         guard !trimmed.isEmpty, items.count < Self.maxItems else { return }
-        /// An exact duplicate is confirmed rather than refused — see
+        /// A duplicate (by `duplicateMatch`) is confirmed rather than refused — see
         /// `ListDuplicateCheck`. The append is deferred whole, so the confirmed
         /// path and the immediate one are the same code and the cap is re-checked
         /// either way.
@@ -756,7 +759,7 @@ struct ReorderableStringList: View {
     private func confirmingDuplicate(_ candidate: String,
                                      excluding index: Int? = nil,
                                      prompt: ListDuplicatePrompt) {
-        if ListDuplicateCheck.isDuplicate(candidate, in: items, excluding: index) {
+        if ListDuplicateCheck.isDuplicate(candidate, in: items, excluding: index, match: duplicateMatch) {
             duplicatePrompt = prompt
             ListPopoverDismissal.noteDeferredPrompt()
         } else {
@@ -881,6 +884,9 @@ struct ReorderableStringList: View {
     /// `endEditing` is ordered after the resolve so a rejected import does not
     /// close an open field the user is still working in.
     private func commitImport(_ parsed: [String]) {
+        /// A `.folded` table (Tags) leaves out what it already holds, in any spelling, and a
+        /// pasted repeat. Replace mode measures against nothing, as the batch replaces it all.
+        let parsed = duplicateMatch.newEntries(parsed, notIn: importReplaces ? [] : items)
         guard let updated = ListImportCommit.resolved(parsed,
                                                       into: items,
                                                       replacing: importReplaces,
@@ -983,6 +989,9 @@ struct FilmSheetListRow<Model: AnyObject & Observable>: View {
     /// never flips and the list's identity is stable.
     var editor: FilmSheetListEditor = .inline
 
+    /// How the inline list checks for duplicates (ReorderableStringList.duplicateMatch).
+    var duplicateMatch: ListDuplicateMatch = .exact
+
     var body: some View {
         let count = model[keyPath: keyPath].count
 
@@ -1006,7 +1015,8 @@ struct FilmSheetListRow<Model: AnyObject & Observable>: View {
                 switch editor {
                 case .inline:
                     ReorderableStringList(items: $model[dynamicMember: keyPath],
-                                          itemLabel: itemLabel)
+                                          itemLabel: itemLabel,
+                                          duplicateMatch: duplicateMatch)
                 case .popover:
                     ReorderableTextList(items: $model[dynamicMember: keyPath],
                                         itemLabel: itemLabel)
@@ -1252,13 +1262,38 @@ private struct EditingTextField: NSViewRepresentable {
 /// with the search field's menu. Set on a list through the environment; nil leaves the
 /// field exactly as before.
 struct StringListSuggestionSource: Sendable, Equatable {
-    /// Names the source, so a rebuilt one with the same id is equal and does not
-    /// invalidate the list it is set on. The identity of the object `rank` reads.
+    /// Names the source, so a rebuilt one with the same id and vocabulary is equal and does
+    /// not invalidate the list it is set on. The identity of the object `rank` reads.
     let id: ObjectIdentifier
+    /// The saved values offered.
+    let vocabulary: ValueSuggestions.Vocabulary
     /// The suggestions for the text typed so far, best first.
     let rank: @MainActor @Sendable (_ typed: String) -> [String]
 
-    static func == (a: Self, b: Self) -> Bool { a.id == b.id }
+    static func == (a: Self, b: Self) -> Bool { a.id == b.id && a.vocabulary == b.vocabulary }
+
+    /// A list's suggestions: the library's saved values of `vocabulary`, leaving out the ones
+    /// the list already holds. Every list of one kind uses this one source — the Tags of the
+    /// FilmSheet's Metadata tab and of the multi-film sheet, the film Studio list, the Notes
+    /// tab's Software Tools — so lists of a kind offer the same rows.
+    ///
+    /// Equal to another only when both read the same model, so a row re-pointed at another
+    /// model is handed a new one. The model is held strongly so its identifier cannot be
+    /// reused while this source exists; the source lives in the list's environment, which
+    /// the model does not reference, so no cycle.
+    @MainActor
+    static func values<Model: AnyObject & Sendable>(
+        _ vocabulary: ValueSuggestions.Vocabulary,
+        of model: Model,
+        coordinator: @escaping @MainActor @Sendable (Model) -> DataCoordinator?,
+        current: @escaping @MainActor @Sendable (Model) -> [String]
+    ) -> Self {
+        StringListSuggestionSource(id: ObjectIdentifier(model), vocabulary: vocabulary) { typed in
+            guard let coordinator = coordinator(model) else { return [] }
+            return ValueSuggestions.ranked(vocabulary, in: coordinator, typed: typed,
+                                           excluding: Set(current(model).map(SearchText.key)))
+        }
+    }
 }
 
 extension EnvironmentValues {
@@ -1273,9 +1308,13 @@ enum ValueSuggestions {
     /// The most rows the drop-down shows.
     static let limit = 8
 
-    enum Vocabulary: Hashable {
+    enum Vocabulary: Hashable, Sendable {
         /// Film tags, counted once per film that carries them.
         case tags
+        /// Film-level studios (the Metadata tab's Studio list), counted once per film.
+        case filmStudios
+        /// The Notes tab's Software Tools, counted once per film.
+        case softwareTools
         /// Free-text ("Other") release studios, counted once per top-level release.
         /// Studios the studio menu lists are left out: they are picked there.
         case releaseStudios
@@ -1337,11 +1376,19 @@ enum ValueSuggestions {
             spellings[key, default: [:]][display, default: 0] += 1
         }
         for film in coordinator.getAllFilmsMap().values {
+            /// Once per film, however many spellings of a value the film carries.
+            func countOnce(_ values: [String]) {
+                guard !values.isEmpty else { return }
+                var seen: Set<String> = []
+                for value in values where seen.insert(SearchText.key(value)).inserted { count(value) }
+            }
             switch vocabulary {
             case .tags:
-                /// Once per film, however many spellings of it the film carries.
-                var seen: Set<String> = []
-                for tag in film.tags where seen.insert(SearchText.key(tag)).inserted { count(tag) }
+                countOnce(film.tags)
+            case .filmStudios:
+                countOnce(film.studio)
+            case .softwareTools:
+                countOnce(film.tools)
             case .releaseStudios:
                 /// Combo-pack children mirror their parent's studio, so they would count it twice.
                 for release in film.releases where release.isTopLevel && !ReleaseStudio.isKnown(release.studio) {

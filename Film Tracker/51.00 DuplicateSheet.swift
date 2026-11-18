@@ -203,7 +203,7 @@ struct DuplicateSheet: View {
             /// Full-width card container (viewport).
             GeometryReader { geometry in
                 ZStack {
-                    ForEach(Array(viewModel.duplicates.enumerated()), id: \.element.id) { index, duplicate in
+                    ForEach(mountedDuplicates, id: \.element.id) { index, duplicate in
                         DuplicateCardView(
                             duplicate: duplicate,
                             dataCoordinator: dataCoordinator,
@@ -235,7 +235,25 @@ struct DuplicateSheet: View {
         }
         .padding(.vertical, 20)
     }
-    
+
+    /// How far from the current card the carousel mounts cards. Distance 1 shows at half opacity, and distance 2 is
+    /// mounted at opacity 0 so that a step slides it in from off-screen rather than fading it in at its resting place.
+    /// A card at distance 3 or more can never be seen, so it is not mounted.
+    private static let mountRadius = 2
+
+    /// The cards within `mountRadius` of the current one, with their indexes in `viewModel.duplicates`.
+    ///
+    /// Mounting every pair laid out and updated a full card (posters, the differences scroll view, a shadowed plate) for
+    /// each one, so a scan with many findings paid for all of them on every step, selection click and dismissal. The
+    /// Releases carousel bounds its mounted cards the same way (see ReleasesView's MountWindow).
+    private var mountedDuplicates: [(offset: Int, element: FilmComparison.DuplicatePair)] {
+        let duplicates = viewModel.duplicates
+        let lower = max(0, viewModel.currentIndex - Self.mountRadius)
+        let upper = min(duplicates.count - 1, viewModel.currentIndex + Self.mountRadius)
+        guard lower <= upper else { return [] }
+        return (lower...upper).map { (offset: $0, element: duplicates[$0]) }
+    }
+
     /// Calculate horizontal offset for each card based on current index.
     private func cardOffset(for index: Int, in geometry: GeometryProxy) -> CGFloat {
         let cardWidth: CGFloat = 462

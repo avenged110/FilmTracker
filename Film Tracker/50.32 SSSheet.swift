@@ -920,10 +920,9 @@ private struct RuleTextField: NSViewRepresentable {
                     return await SearchController.shared.rankedValues(for: field, typed: typed,
                                                                       limit: ValueSuggestions.limit)
                 }
-                let (head, negation, term) = FilmFlag.splitLast(typed)
-                let terms = await SearchController.shared.rankedValues(for: field, typed: term,
+                let terms = await SearchController.shared.rankedValues(for: field, typed: FilmFlag.splitLast(typed).term,
                                                                        limit: ValueSuggestions.limit)
-                return terms.map { head + negation + $0 }
+                return terms.map { FilmFlag.completing(typed, with: $0) }
             }
             return delegate
         }()
@@ -943,7 +942,7 @@ private struct RuleTextField: NSViewRepresentable {
         /// which with a suggestions delegate reopens the drop-down, so Escape would only toggle
         /// it and never reach the sheet. It goes up the responder chain from the field instead,
         /// as it does from any other field in the sheet. (While the drop-down is open, it takes
-        /// Escape first and closes.) See CardTextField in 33.20 ReleaseCard.swift.
+        /// Escape first and closes.) See RoundedTextField in 30.10 FSTextHelpers.swift.
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
             return control.tryToPerform(commandSelector, with: nil)

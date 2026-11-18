@@ -35,9 +35,6 @@ actor DataManager: Loggable {
             case .listNotFound(let id): return "List not found: \(id)"
             case .savedSearchNotFound(let id): return "Saved search not found: \(id)" } } }
 
-    // MARK: - State
-    private let batchSize = 100
-
     // MARK: - Commit
 
     /// Saves the actor's context, discarding every staged change if the save fails.
@@ -50,8 +47,11 @@ actor DataManager: Loggable {
     /// is safe at every call site: each method saves before it suspends, so the context
     /// never holds another operation's unrelated pending changes when this runs.
     ///
-    /// `batchAddFilmsToLists` and `batchRemoveFilmsFromLists` commit in batches, so a rollback
-    /// here discards only the batch that failed; earlier batches stay committed.
+    /// Every write method commits once, so a failure leaves the store exactly as it was —
+    /// which is what DataCoordinator's rollbacks restore memory to. (The film-insert and
+    /// membership methods used to commit in chunks of 100; a failure partway left the earlier
+    /// chunks committed behind a rollback that undid all of memory, and those films or
+    /// memberships came back on the next launch.)
     private func commit() throws {
         try context.commit()
     }
@@ -391,6 +391,9 @@ actor DataManager: Loggable {
     }
 
     // MARK: - Film Operations
+
+    /// Inserts an import's films in one transaction, so a failure leaves none of them behind
+    /// the rollback that takes all of them out of memory (see commit()).
     func batchInsertFilms(_ snapshots: [FilmSnapshot]) async throws {
         #if DEBUG
         let threadProbe = DataManagerThreadProbe.begin("batchInsertFilms")
@@ -398,12 +401,10 @@ actor DataManager: Loggable {
         #endif
 
         guard !snapshots.isEmpty else { return }
+        try Task.checkCancellation()
 
-        for batch in snapshots.chunked(into: batchSize) {
-            try Task.checkCancellation()
-
-            for snapshot in batch { context.insert(snapshot.toFilm()) }
-            try commit() } }
+        for snapshot in snapshots { context.insert(snapshot.toFilm()) }
+        try commit() }
 
     func updateFilm(_ snapshot: FilmSnapshot) async throws {
         #if DEBUG
@@ -794,9 +795,12 @@ actor DataManager: Loggable {
         try commit()
     }
 
-    // MARK: - Individual Release Operations (Right Sidebar)
+    // MARK: - Release Operations (Wishlist Reorder)
 
     /// Atomically applies property changes for multiple releases in a single transaction.
+    ///
+    /// Writes only the releases: the film's own fields, numberOfDiscs included, are left as
+    /// the last film save wrote them, which is what memory holds too.
     ///
     /// Used by the wishlist reorder persistence path, where every reordered release must be
     /// committed together. Releases are grouped by film so each Film is fetched exactly once,
@@ -837,22 +841,13 @@ actor DataManager: Loggable {
             var releaseByID = [UUID: Release](minimumCapacity: film.releases.count)
             for release in film.releases { releaseByID[release.id] = release }
 
-            var filmTouched = false
             for snapshot in releaseSnapshots {
                 guard let release = releaseByID[snapshot.id] else {
                     log("WARNING: updateReleases — release \(snapshot.id) not found on film \(filmID); skipping")
                     continue
                 }
                 snapshot.apply(to: release)
-                filmTouched = true
                 appliedCount += 1
-            }
-
-            /// Recalculate numberOfDiscs only when a release on this film actually changed,
-            /// mirroring the per-film recompute the singular update path performed.
-            if filmTouched {
-                let totalDiscs = film.releases.filter { $0.purchased }.reduce(0) { $0 + $1.numberOfDiscs }
-                film.numberOfDiscs = "\(totalDiscs)"
             }
         }
 
@@ -862,7 +857,7 @@ actor DataManager: Loggable {
     }
 
     // MARK: - List Membership Operations
-    /// Batch add films to lists with existence validation.
+    /// Batch add films to lists with existence validation, in one transaction (see commit()).
     /// Before creating any ListMembership, we verify the Film still exists
     /// in the database. This prevents creating orphaned memberships if a
     /// film was deleted between when the operation was scheduled and when
@@ -912,7 +907,7 @@ actor DataManager: Loggable {
             return }
 
         var currentMaxSorts = listDict.mapValues { $0.maxSort }
-        var operationCount = 0
+        var inserted = 0
 
         /// Existing memberships come from the ListObjects already fetched above, not from a
         /// full-table ListMembership.request(). `ListObject.memberships` is the
@@ -956,18 +951,12 @@ actor DataManager: Loggable {
                 let membership = ListMembership(film: film, list: listInfo.object,
                     dateAdded: currentDate, sortOrder: currentMaxSorts[listID]!)
                 context.insert(membership)
+                inserted += 1 } }
 
-                operationCount += 1
-
-                if operationCount >= batchSize {
-                    try commit()
-                    operationCount = 0
-                    try? await Task.sleep(for: .milliseconds(10))
-                    try Task.checkCancellation() } } }
-
-        if operationCount > 0 { try commit() }
+        if inserted > 0 { try commit() }
     }
 
+    /// Batch remove films from lists, in one transaction (see commit()).
     func batchRemoveFilmsFromLists(filmIDs: Set<UUID>, listIDs: Set<UUID>) async throws {
         #if DEBUG
         let threadProbe = DataManagerThreadProbe.begin("batchRemoveFilmsFromLists")
@@ -975,8 +964,6 @@ actor DataManager: Loggable {
         #endif
 
         guard !filmIDs.isEmpty && !listIDs.isEmpty else { return }
-
-        var operationCount = 0
 
         /// Targeted rather than a full-table ListMembership.request() scan: fetch
         /// only the named lists, then walk their `memberships` inverse arrays. The rows this
@@ -996,17 +983,9 @@ actor DataManager: Loggable {
             }
         }
 
-        for membership in toDelete {
-            context.delete(membership)
-            operationCount += 1
-
-            if operationCount >= batchSize {
-                try commit()
-                operationCount = 0
-                try? await Task.sleep(for: .milliseconds(10))
-                try Task.checkCancellation() } }
-
-        if operationCount > 0 { try commit() } }
+        guard !toDelete.isEmpty else { return }
+        for membership in toDelete { context.delete(membership) }
+        try commit() }
 
     /// Applies a Film Queue section move as ONE transaction: every membership row named by
     /// (`removalFilmIDs` × `removalListIDs`) is deleted, every film in `filmIDs` that is not
@@ -1023,11 +1002,8 @@ actor DataManager: Loggable {
     /// launch. Staging both halves against the same context and saving once removes that
     /// window entirely: either the whole move is durable or none of it is.
     ///
-    /// This does NOT replace the two batch methods. They carry bulk work (imports,
-    /// multi-list adds) and commit incrementally in `batchSize` chunks to keep memory
-    /// pressure bounded, which is incompatible with all-or-nothing by construction. A move
-    /// is bounded by the films the user selected and touches at most three lists, so there
-    /// is no batch here worth splitting and atomicity costs nothing.
+    /// Each batch method is a transaction of its own, so the move needs one method that
+    /// stages both halves before its single commit.
     ///
     /// Ordering is deliberate: the target list and every film are resolved BEFORE anything
     /// is staged, so a missing target or a fully-deleted film set returns having changed

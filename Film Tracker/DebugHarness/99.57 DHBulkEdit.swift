@@ -89,7 +89,9 @@ extension DebugHarness {
             s.rotationThresholdOverride = .set(24)
             s.autoAddToQueueOnRotation = .set(2)
             s.notes = "Bulk check notes"
-            s.tags = ["BulkCheckTag", " BulkCheckTag ", "Second"]
+            /// "bulkchecktag" and "EXISTING" repeat a tag in another spelling: skipped (BulkFilmEdit.appendedTags,
+            /// tags(appendedTo:)), so a film already holding "Existing" keeps its one spelling.
+            s.tags = ["BulkCheckTag", " BulkCheckTag ", "bulkchecktag", "Second", "EXISTING"]
         }
         check(edit1, "edit 1 saved and dismissed")
         for id in ids {
@@ -104,7 +106,8 @@ extension DebugHarness {
             check(film.rotationThresholdOverride == 24, "\(name): threshold 2 years")
             check(film.autoAddToQueueOnRotation == 2, "\(name): auto-add to Later")
             check(film.notes == "Bulk check notes", "\(name): notes replaced")
-            let expectedTags = original.tags + ["BulkCheckTag", "Second"].filter { !original.tags.contains($0) }
+            let held = Set(original.tags.map(SearchText.key))
+            let expectedTags = original.tags + ["BulkCheckTag", "Second", "EXISTING"].filter { !held.contains(SearchText.key($0)) }
             check(film.tags == Array(expectedTags.prefix(BulkFilmEdit.tagLimit)), "\(name): tags appended once, in order")
             check(film.lastModified != original.lastModified, "\(name): stamped modified")
             let lists = coordinator.getListIDs(forFilm: id)

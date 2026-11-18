@@ -120,6 +120,8 @@ struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID =
     let trailingColumns: [ReportTableColumn<Item>]
     /// The narrowest the name column may get before the trailing columns give way.
     var primaryMinWidth: CGFloat = 80
+    /// The film each row stands for, for the gallery contextual menu (ReportTable.menuFilmID).
+    let menuFilmID: (Item) -> UUID
 
     /// Row pitch of the SwiftUI `List(.inset)` this replaced (12 pt text, 2 pt vertical padding).
     static var rowHeight: CGFloat { 27 }
@@ -136,7 +138,8 @@ struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID =
 
     var body: some View {
         ReportTable(rows: items, columns: columns, selection: $selection,
-                    showsHeader: false, rowHeight: Self.rowHeight, onMove: onMove, topInset: 5)
+                    showsHeader: false, rowHeight: Self.rowHeight, onMove: onMove, topInset: 5,
+                    menuFilmID: menuFilmID)
             .statusBarInset()
             .onChange(of: selection) { _, newSelection in
                 onSelectionChange(newSelection)
@@ -182,6 +185,9 @@ struct ReportTableColumn<Row> {
         /// A secondary SF Symbol and text after it, both in the column's muted style, or nothing for nil (the Hall of Fame's
         /// rotation column).
         case symbolText(symbol: String, (Row) -> String?)
+        /// A lone secondary SF Symbol, drawn like `symbolText`'s glyph, or nothing for false. `label` is its accessibility value
+        /// (the Hall of Fame's Queue column).
+        case symbol(String, label: String, (Row) -> Bool)
         /// A format badge (Wishlist, Hall of Fame): lettering on a rounded, colored plate, or nothing for nil.
         case badge((Row) -> ReportBadge?)
         /// The Hall of Fame's rating: a star in its tier's tint (RatingStarTint) and the number, or nothing for 0.
@@ -245,6 +251,9 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
     var onMove: ((IndexSet, Int) -> Void)? = nil
     /// Space above the first row. The headerless ranked lists use 5, which matches SwiftUI's `List(.inset)`.
     var topInset: CGFloat = 0
+    /// Non-nil enables the gallery contextual menu (GalleryContextMenu). It maps a row to the film the menu acts on:
+    /// the row's own ID for a film row, the release's film for a release row.
+    var menuFilmID: ((Row) -> UUID)? = nil
 
     static var rowDragType: NSPasteboard.PasteboardType { .init("app.FilmTracker.reportTableRow") }
 
@@ -289,6 +298,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         coordinator.table = table
         table.dataSource = coordinator
         table.delegate = coordinator
+        table.getContextMenu = { [weak coordinator] in coordinator?.contextMenu(forRow: $0) }
         if onMove != nil {
             table.registerForDraggedTypes([Self.rowDragType])
             /// `.none`: the table draws no drop feedback. ReportNSTableView draws the sidebar-style indicator instead, since the built-in styles
@@ -408,6 +418,33 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             guard !isApplying, let table, let parent else { return }
             let ids = Set(table.selectedRowIndexes.compactMap { rows.indices.contains($0) ? rows[$0].id : nil })
             if ids != parent.selection { parent.selection = ids }
+        }
+
+        // MARK: Contextual Menu
+
+        /// The gallery contextual menu for a secondary click on `row`, or nil when the table has no `menuFilmID`.
+        /// ReportNSTableView.menu(for:) has already confirmed the click landed on a row's cells.
+        ///
+        /// Selection rules match the gallery (DraggableListView.Coordinator.contextMenu(forRow:)). A click on a
+        /// selected row leaves the selection alone and the menu acts on the group. A click on an unselected row
+        /// selects it first. Several selected releases of one film count as that one film.
+        ///
+        /// The tab maps the binding into SelectionState through an onChange, which runs after the menu opens.
+        /// Edit Metadata… and Edit Releases… read SelectionState, so it is written here at once. The tab's later
+        /// `select` of the same films is then a no-op.
+        func contextMenu(forRow row: Int) -> NSMenu? {
+            guard let table, let menuFilmID = parent?.menuFilmID, rows.indices.contains(row) else { return nil }
+
+            var targetRows = table.selectedRowIndexes
+            if !targetRows.contains(row) {
+                targetRows = IndexSet(integer: row)
+                /// Not isApplying: tableViewSelectionDidChange forwards the change to the binding as a click would.
+                table.selectRowIndexes(targetRows, byExtendingSelection: false)
+            }
+
+            let filmIDs = Set(targetRows.compactMap { rows.indices.contains($0) ? menuFilmID(rows[$0]) : nil })
+            SelectionState.shared.selectImmediate(filmIDs, inputKind: .fromCurrentAppKitEvent())
+            return GalleryContextMenu.makeMenu(for: filmIDs)
         }
 
         // MARK: Reordering
@@ -543,6 +580,18 @@ final class ReportNSTableView: NSTableView {
     }
     #endif
 
+    /// Supplies the contextual menu for a row. Wired to ReportTable.Coordinator.contextMenu(forRow:).
+    var getContextMenu: ((Int) -> NSMenu?)?
+
+    /// The hit test matches mouseDown: a row and a column. The inset margins beside a row belong to no column, and a
+    /// click there counts as clicking nothing. It does not call super, so no menu appears away from a row.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        let clickedRow = row(at: point)
+        guard clickedRow >= 0, column(at: point) >= 0 else { return nil }
+        return getContextMenu?(clickedRow)
+    }
+
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if row(at: point) >= 0, column(at: point) < 0 {
@@ -583,7 +632,9 @@ final class ReportDropIndicatorView: NSView {
 /// A report table cell. It draws its own text, badge, or rating, rather than hosting an NSTextField. A Reports tab switch builds every visible
 /// cell at once, and per-cell text fields cost a large share of that (measured with a profiler). Cells never edit or take focus, and the text is exposed as a static text element.
 final class ReportTableCellView: NSTableCellView {
-    private enum Drawn { case text(String), runs([ReportTextRun]), symbolText(symbol: String, String), badge(ReportBadge), rating(Int) }
+    private enum Drawn {
+        case text(String), runs([ReportTextRun]), symbolText(symbol: String, String), symbol(String), badge(ReportBadge), rating(Int)
+    }
     private var drawn: Drawn = .text("")
     private var font: NSFont = .systemFont(ofSize: 12)
     private var alignment: NSTextAlignment = .left
@@ -669,6 +720,14 @@ final class ReportTableCellView: NSTableCellView {
                 drawn = .text("")
                 setAccessibilityValue("")
             }
+        case .symbol(let name, let label, let isShown):
+            if isShown(row) {
+                drawn = .symbol(name)
+                setAccessibilityValue(label)
+            } else {
+                drawn = .text("")
+                setAccessibilityValue("")
+            }
         case .badge(let badge):
             if let value = badge(row) {
                 drawn = .badge(value)
@@ -728,6 +787,12 @@ final class ReportTableCellView: NSTableCellView {
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
             let size = (text as NSString).size(withAttributes: attributes)
             (text as NSString).draw(at: NSPoint(x: x, y: floor((bounds.height - size.height) / 2)), withAttributes: attributes)
+        case .symbol(let name):
+            /// At the leading edge, vertically centered, as `symbolText` places its glyph.
+            if let glyph = Self.symbol(name, emphasized: backgroundStyle == .emphasized) {
+                let size = glyph.size
+                glyph.draw(in: NSRect(x: 0, y: floor((bounds.height - size.height) / 2), width: size.width, height: size.height))
+            }
         case .badge(let badge):
             /// 10 pt heavy, centered on a 4 pt-radius continuous-corner plate, 1 pt taller than the text above and below (the SwiftUI row's
             /// `.padding(.vertical, 1)`). Muted like the row's other detail columns: secondary lettering (selected-row text on a selected

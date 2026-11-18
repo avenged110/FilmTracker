@@ -368,13 +368,17 @@ struct RSBHelpers {
     /// and weight baked in, because the `.font` the gutter applies does not reach an
     /// NSImage; `PrivateSymbol` hands it back as a template, so `foregroundStyle` tints it.
     nonisolated static func glyphImage(_ name: String) -> Image {
-        guard privateGlyphNames.contains(name),
-              let base = PrivateSymbol.nsImage(named: name)
-        else { return Image(systemName: name) }
+        privateGlyphImages[name] ?? Image(systemName: name)
+    }
+
+    /// Each private glyph that resolves on this system, sized and weighted for the gutter. Built once:
+    /// building one costs about 30 µs, and the gutter draws it on every render of its row.
+    private static let privateGlyphImages: [String: Image] = privateGlyphNames.reduce(into: [:]) { images, name in
+        guard let base = PrivateSymbol.nsImage(named: name) else { return }
         let config = NSImage.SymbolConfiguration(
             pointSize: glyphPointSize(for: name),
             weight: glyphWeight(for: name) == .semibold ? .semibold : .regular)
-        return Image(nsImage: base.withSymbolConfiguration(config) ?? base)
+        images[name] = Image(nsImage: base.withSymbolConfiguration(config) ?? base)
     }
 
     /// The stroke weight a given symbol is drawn at; `.regular` for anything unlisted.
@@ -1937,7 +1941,7 @@ enum SidebarTextAbbreviation {
     // MARK: Time Units
 
     /// Shortens the unit words inside a value's TRAILING PARENTHETICAL — the relative-time
-    /// clause produced by `timeAgo(from:)` and `timeDistanceFromNow(to:)` — leaving the
+    /// clause produced by `timeAgo(since:)` and `timeDistanceFromNow(to:)` — leaving the
     /// date that precedes it untouched:
     ///
     ///     "November 04, 2025 (4 years 4 months ago)"

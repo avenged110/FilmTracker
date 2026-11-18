@@ -636,7 +636,11 @@ private struct TagsRow: View {
                          pluralLabel: "Tags:",
                          itemLabel: "Tag",
                          labelWidth: MultiFilmSheetView.labelWidth,
-                         columnSpacing: MultiFilmSheetView.colSpacing)
+                         columnSpacing: MultiFilmSheetView.colSpacing,
+                         duplicateMatch: .folded)
+            /// The FilmSheet's Tags suggestions, leaving out the tags already queued to append.
+            .environment(\.stringListSuggestions,
+                         .values(.tags, of: owner, coordinator: { $0.coordinator }, current: { $0.tags }))
             .changeMarker(owner.appendsTags,
                           top: markerTop(centeredOn: 15, at: ReorderableStringList.labelTopOffset)) {
                 owner.tags = []

@@ -1177,9 +1177,9 @@ struct RightSidebar: View, Loggable {
         }
     }
     
-    /// Writes the two selection flags, skipping any that already hold the value. SwiftUI
-    /// does not dedupe a `@State` write against its current value (see
-    /// `resetTableExpansionStates`), and the resolution paths write these on every step.
+    /// Writes the two selection flags, skipping any that already hold the value. The resolution
+    /// paths write these on every step. SwiftUI already skips a `@State` write of an equal Bool
+    /// (see `resetTableExpansionStates`), so the guards only make that explicit.
     private func setSelectionFlags(hasSelection has: Bool, isMultiSelection multi: Bool) {
         if hasSelection != has { hasSelection = has }
         if isMultiSelection != multi { isMultiSelection = multi }
@@ -1187,9 +1187,10 @@ struct RightSidebar: View, Loggable {
 
     /// Resets all table expansion states.
     private func resetTableExpansionStates() {
-        /// Guarded: SwiftUI does not dedupe a `@State` write, so assigning `false` to a flag already `false`
-        /// still invalidates the view. Most selections start with these flags false, so unguarded writes
-        /// would cost three needless invalidations per step.
+        /// Most selections start with these flags false. SwiftUI already skips a `@State` write that leaves
+        /// a Bool as it was, so assigning `false` over `false` would not invalidate the view; the guards only
+        /// make that explicit. (Measured 2026-11-17: SwiftUI compares a `@State` value's own bits, and it
+        /// compares a collection by its storage, not its contents.)
         if calendarTableExpanded { calendarTableExpanded = false }
         if listTableExpanded { listTableExpanded = false }
         if releasesSummaryExpanded { releasesSummaryExpanded = false }

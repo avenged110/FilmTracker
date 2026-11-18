@@ -721,7 +721,8 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 #if DEBUG
                 GalleryRefreshProbe.listRowsRefreshed += 1
                 #endif
-                cell.update(film: film, subtitle: coordinator.subtitleProvider?.subtitle(film.id))
+                cell.update(film: film, subtitle: coordinator.subtitleProvider?.subtitle(film.id),
+                            isQueued: coordinator.isQueued(film.id))
             }
         }
 
@@ -869,6 +870,9 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
         /// makeNSView and updateNSView before any `films` write. It mirrors
         /// GallerySubview.Coordinator.dataCoordinator.
         weak var dataCoordinator: DataCoordinator?
+
+        /// Whether a film row shows the Queue glyph.
+        func isQueued(_ filmID: UUID) -> Bool { dataCoordinator?.isFilmQueued(filmID) ?? false }
         /// Mirror of the active view's ViewState.showSectionDividers, pushed by makeNSView and updateNSView
         /// before any `films` assignment. The didSet of `films` rebuilds the row model, and
         /// computeSectionBreaks() reads this value.
@@ -1286,6 +1290,24 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                     }
                 }
                 .store(in: &cancellables)
+
+            /// The Queue glyph reads list membership, which no FilmSnapshot field carries, so a Queue change outside
+            /// the Film Queue view leaves `films` unchanged and updateNSView refreshes nothing. Refresh the rows here,
+            /// in place, as the filmsChanged path does: `update` compares what the row shows, so only rows whose
+            /// glyph changed redraw. In the Film Queue view the same change also reloads the table, which is harmless.
+            AppEventBus.shared.listEvents
+                .receive(on: RunLoop.main)
+                .sink { [weak self] event in
+                    guard let self, case .membershipChanged(let listID) = event, FilmQueue.isInternalList(listID),
+                          let tableView = self.tableView else { return }
+                    tableView.enumerateAvailableRowViews { rowView, row in
+                        guard let cell = rowView.view(atColumn: 0) as? ListRowHostCell,
+                              let film = self.film(forRow: row) else { return }
+                        cell.update(film: film, subtitle: self.subtitleProvider?.subtitle(film.id),
+                                    isQueued: self.isQueued(film.id))
+                    }
+                }
+                .store(in: &cancellables)
         }
 
         // MARK: - Scroll-Origin Persistence
@@ -1577,14 +1599,16 @@ private struct DraggableListView: NSViewRepresentable, Loggable {
                 let id = NSUserInterfaceItemIdentifier("ListRow")
                 let subtitle = subtitleProvider?.subtitle(film.id)
 
+                let isQueued = isQueued(film.id)
+
                 if let cell = tableView.makeView(withIdentifier: id, owner: nil) as? ListRowHostCell {
-                    cell.update(film: film, subtitle: subtitle)
+                    cell.update(film: film, subtitle: subtitle, isQueued: isQueued)
                     return cell
                 }
 
                 let cell = ListRowHostCell()
                 cell.identifier = id
-                cell.update(film: film, subtitle: subtitle)
+                cell.update(film: film, subtitle: subtitle, isQueued: isQueued)
                 return cell
 
             case .slot(let number):
@@ -1784,8 +1808,8 @@ private final class ListRowHostCell: NSTableCellView {
 
     private var rowView: ListRowView?
 
-    /// Change tracking covers every field the row renders: posterUID (poster), name, hasPurchased (disc
-    /// badge), durationParts, userRating, releaseYear, and subtitle (Recents only). Tracking all of them keeps
+    /// Change tracking covers every field the row renders: posterUID (poster), name, isQueued (Queue glyph),
+    /// hasPurchased (disc badge), durationParts, userRating, releaseYear, and subtitle (Recents only). Tracking all of them keeps
     /// in-place edits visible even when the film's sort position and the table's count and endpoints have not
     /// changed.
     ///
@@ -1796,6 +1820,7 @@ private final class ListRowHostCell: NSTableCellView {
     private var currentPosterUID: String?
     private var currentName: String?
     private var currentHasPurchased: Bool?
+    private var currentIsQueued: Bool?
     private var currentDurationParts: DurationParts?
     private(set) var currentUserRating: Int?
     private var currentReleaseYear: String?
@@ -1818,7 +1843,7 @@ private final class ListRowHostCell: NSTableCellView {
         didSet { rowView?.isEmphasized = backgroundStyle == .emphasized }
     }
 
-    func update(film: FilmSnapshot, subtitle: String?) {
+    func update(film: FilmSnapshot, subtitle: String?, isQueued: Bool) {
         /// Derived once, up front: used for both the change comparison and the render.
         let hasPurchased = GalleryListRow.hasPurchasedRelease(film)
         let durationParts = GalleryListRow.durationParts(film)
@@ -1827,6 +1852,7 @@ private final class ListRowHostCell: NSTableCellView {
                           currentPosterUID    != film.posterUID   ||
                           currentName         != film.name        ||
                           currentHasPurchased != hasPurchased     ||
+                          currentIsQueued     != isQueued         ||
                           currentDurationParts != durationParts   ||
                           currentUserRating   != film.userRating  ||
                           currentReleaseYear  != film.releaseYear ||
@@ -1838,6 +1864,7 @@ private final class ListRowHostCell: NSTableCellView {
         currentPosterUID     = film.posterUID
         currentName          = film.name
         currentHasPurchased  = hasPurchased
+        currentIsQueued      = isQueued
         currentDurationParts = durationParts
         currentUserRating    = film.userRating
         currentReleaseYear   = film.releaseYear
@@ -1849,7 +1876,7 @@ private final class ListRowHostCell: NSTableCellView {
             #if DEBUG
             GalleryRefreshProbe.listRowRootViewAssignments += 1
             #endif
-            rowView.configure(film: film, hasPurchased: hasPurchased, durationParts: durationParts, subtitle: subtitle)
+            rowView.configure(film: film, isQueued: isQueued, hasPurchased: hasPurchased, durationParts: durationParts, subtitle: subtitle)
         } else {
             let row = ListRowView(frame: bounds)
             row.autoresizingMask = [.width, .height]
@@ -1863,7 +1890,7 @@ private final class ListRowHostCell: NSTableCellView {
             addSubview(anchor)
             unsafe textField = anchor
             addSubview(row)
-            row.configure(film: film, hasPurchased: hasPurchased, durationParts: durationParts, subtitle: subtitle)
+            row.configure(film: film, isQueued: isQueued, hasPurchased: hasPurchased, durationParts: durationParts, subtitle: subtitle)
             rowView = row
         }
     }
@@ -1871,13 +1898,16 @@ private final class ListRowHostCell: NSTableCellView {
 
 // MARK: - ListRowView
 
-/// A film row in AppKit: poster thumbnail, title (and Recents by-line), then four fixed-width trailing columns
-/// (purchased badge, duration, rating, year). Each part sits exactly where SwiftUI placed it in the SwiftUI row this replaced:
+/// A film row in AppKit: poster thumbnail, title (and Recents by-line), then five fixed-width trailing columns
+/// (Queue glyph, purchased badge, duration, rating, year). The Queue column came later than the SwiftUI row: it is a
+/// fixed box the width of its glyph, `columnGap` before the purchased badge. Each part sits exactly where SwiftUI placed it in the SwiftUI row this replaced:
 /// an HStack (spacing 10) of the 8 pt-inset poster, the text, a Spacer (min 8) and the fixed columns, every
 /// child centered vertically in the 44 pt row, origins rounded to the device pixel, half up. Text heights and
 /// baselines are SwiftUI's own, measured once per font and display scale (SwiftUIVerticalMetrics).
 private final class ListRowView: NSView {
     private static let columnGap: CGFloat = 16
+    /// The Queue glyph's box: SwiftUI's 21 pt layout width for the glyph at the disc's 15 pt (its alignment rectangle is 20.5).
+    private static let queueColumnWidth: CGFloat = 21
     private static let discToDurationGap: CGFloat = 8
     private static let discColumnWidth: CGFloat = 18
     private static let hoursBoxWidth: CGFloat = 30
@@ -1887,7 +1917,8 @@ private final class ListRowView: NSView {
     private static let yearColumnWidth: CGFloat = 30
     private static let thumbnail = CGSize(width: 24, height: 36)
     /// The trailing block: the columns, their gaps, and the trailing inset.
-    private static let trailingWidth: CGFloat = discColumnWidth + discToDurationGap + hoursBoxWidth
+    private static let trailingWidth: CGFloat = queueColumnWidth + columnGap
+        + discColumnWidth + discToDurationGap + hoursBoxWidth
         + durationInnerGap + minutesBoxWidth + columnGap + ratingColumnWidth + columnGap + yearColumnWidth
         + GalleryListRow.contentInset
 
@@ -1905,6 +1936,8 @@ private final class ListRowView: NSView {
     private let year = ListRowView.makeLabel(yearFont, .secondaryLabelColor)
     private let disc = ListSymbolView(symbol: ContentGlyphs.disc, pointSize: 15)
     private let star = ListSymbolView(symbol: "star.fill", pointSize: 10)
+    /// Shown for a film in any Film Queue section (Up Next, Soon, or Later).
+    private let queue = ListSymbolView(symbol: "text.line.last.and.arrowtriangle.forward", pointSize: 15)
 
     override var isFlipped: Bool { true }
 
@@ -1913,17 +1946,19 @@ private final class ListRowView: NSView {
         didSet {
             disc.isEmphasized = isEmphasized
             star.isEmphasized = isEmphasized
+            queue.isEmphasized = isEmphasized
         }
     }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        for view in [poster, title, subtitle, hours, minutes, rating, year, disc, star] as [NSView] {
+        for view in [poster, title, subtitle, hours, minutes, rating, year, queue, disc, star] as [NSView] {
             addSubview(view)
         }
         title.lineBreakMode = .byTruncatingTail
         subtitle.lineBreakMode = .byTruncatingTail
         disc.setAccessibilityLabel("Purchased")
+        queue.setAccessibilityLabel("In Queue")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -1938,17 +1973,21 @@ private final class ListRowView: NSView {
         return label
     }
 
-    func configure(film: FilmSnapshot, hasPurchased: Bool, durationParts: DurationParts, subtitle sub: String?) {
+    func configure(film: FilmSnapshot, isQueued: Bool, hasPurchased: Bool, durationParts: DurationParts, subtitle sub: String?) {
         poster.posterUID = film.posterUID
         title.stringValue = film.name
         subtitle.stringValue = sub ?? ""
         subtitle.isHidden = sub == nil
         hours.stringValue = durationParts.hours
         minutes.stringValue = durationParts.minutes
+        queue.isHidden = !isQueued
+        queue.setAccessibilityElement(isQueued)
         disc.isHidden = !hasPurchased
         disc.setAccessibilityElement(hasPurchased)
         let rated = film.userRating > 0
         star.isHidden = !rated
+        /// The Hall of Fame's per-rating tint, behind a trial switch; nil is the monochrome secondary star.
+        star.tint = rated && Preferences.tintGalleryListRatingStars ? RatingStarTint.color(for: film.userRating) : nil
         rating.isHidden = !rated
         rating.stringValue = rated ? "\(film.userRating)" : ""
         year.stringValue = film.releaseYear
@@ -1997,6 +2036,8 @@ private final class ListRowView: NSView {
         /// Trailing block, right-anchored.
         let blockX = bounds.width - Self.trailingWidth
         var x = blockX
+        queue.frame = NSRect(x: x, y: 0, width: Self.queueColumnWidth, height: height)
+        x += Self.queueColumnWidth + Self.columnGap
         let discFrame = NSRect(x: x, y: 0, width: Self.discColumnWidth, height: height)
         x += Self.discColumnWidth + Self.discToDurationGap
         let hoursBox = x
@@ -2159,13 +2200,15 @@ private final class ListSymbolView: NSView {
         let rect = NSRect(x: pixel((bounds.width - align.width) / 2) - align.minX, y: pixel(top),
                           width: size.width, height: size.height)
         image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
-        (isEmphasized ? Self.emphasizedTint : NSColor.secondaryLabelColor).set()
+        (isEmphasized ? Self.emphasizedTint : tint ?? NSColor.secondaryLabelColor).set()
         rect.fill(using: .sourceIn)
     }
 
     /// True on a selected row of a key table, where SwiftUI's `.secondary` draws a light tint over the accent
     /// selection. The color is SwiftUI's, read off light and dark captures of the SwiftUI row this replaced.
     var isEmphasized = false { didSet { if isEmphasized != oldValue { needsDisplay = true } } }
+    /// The glyph's color on an unselected row; nil is secondary. The rating star's tier tint (see ListRowView.configure).
+    var tint: NSColor? { didSet { if tint != oldValue { needsDisplay = true } } }
     private static let emphasizedTint = NSColor(srgbRed: 238 / 255, green: 250 / 255, blue: 1, alpha: 0.72)
 }
 
@@ -2567,7 +2610,8 @@ struct UpNextResultsTable: NSViewRepresentable {
             let id = NSUserInterfaceItemIdentifier("ListRow")
             let cell = tableView.makeView(withIdentifier: id, owner: nil) as? ListRowHostCell
                 ?? { let fresh = ListRowHostCell(); fresh.identifier = id; return fresh }()
-            cell.update(film: films[row], subtitle: nil)
+            cell.update(film: films[row], subtitle: nil,
+                        isQueued: AppDelegate.dataCoordinator?.isFilmQueued(films[row].id) ?? false)
             return cell
         }
 

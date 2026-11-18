@@ -691,13 +691,11 @@ struct CustomDateStepper: View {
         "July", "August", "September", "October", "November", "December"
     ]
 
-    /// Delegates to the shared cache rather than querying Calendar itself.
-    ///
-    /// The new-year-boundary guarantee this accessor was written for is unchanged — see
-    /// CurrentYear (90.00 GlobalUtilities), and the query is not paid per access.
-    /// That matters most for the `year` @State default below, which Swift evaluates on
-    /// EVERY construction of this view, including the year-only init that overwrites it.
-    private static var currentYear: Int { CurrentYear.value }
+    /// Reads `CurrentDay.year` (90.00 GlobalUtilities) rather than querying Calendar itself:
+    /// it turns over with the day, and is a stored read. That matters most for the `year`
+    /// @State default above, which Swift evaluates on EVERY construction of this view,
+    /// including the year-only init that overwrites it.
+    private static var currentYear: Int { CurrentDay.shared.year }
 
     /// The years a year Stepper steps through when its caller gives no range. Also the
     /// range the saved-search builder clamps a typed year to (SavedSearchSheet), so a

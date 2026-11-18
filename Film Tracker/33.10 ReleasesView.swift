@@ -887,7 +887,13 @@ struct FSTabReleasesView: View {
                 /// 0, and Color.clear draws nothing at any opacity.
                 .opacity(fixedOpacity
                          ?? FSTabReleases.cardOpacity(distanceInSteps: CGFloat(index - idx)))
-                .zIndex(index == idx ? 1 : 0)
+                // MARK: No .zIndex
+                ///
+                /// Slots never overlap: `cardStep` is wider than `cardWidth`, and add, delete and
+                /// jump all move the cards as one rigid strip, so stacking order draws nothing
+                /// differently. A `.zIndex(index == idx ? 1 : 0)` here re-sorted the stack on
+                /// every index change, the pass that starts the spring, for about 0.4 ms
+                /// (measured 2026-11-17, four mounted cards).
                 // MARK: .allowsHitTesting and NOT .disabled
                 ///
                 /// `.disabled` renders every control in its disabled style, so a card

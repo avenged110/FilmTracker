@@ -105,13 +105,13 @@ struct ReleaseWishlistView: View {
                 },
                 primaryLabel: { $0.filmName },
                 trailingColumns: Self.trailingColumns,
-                primaryMinWidth: WishlistColW.titleMin
+                primaryMinWidth: WishlistColW.titleMin,
+                menuFilmID: { $0.filmID }
             )
         }
-        /// Expose selection to the MenuBar so that Film menu items (e.g. "Delete from Library")
-        /// reflect the current wishlist selection and can be enabled/disabled correctly.
-        .focusedSceneValue(\.selectedFilmIDs, selectionState.selectedFilmIDs)
-        .focusedSceneValue(\.selectedFilmID, selectionState.selectedFilmID)
+        /// No .focusedSceneValue for the selection here: FilmTrackerApp publishes it at the scene root (SelectionFocusedValues),
+        /// and handleSelectionChange writes this table's selection into SelectionState. Reading the selection in this body
+        /// would re-evaluate the whole tab on every selection change.
         .onAppear {
             /// Mount path: cache-seeded, with a deferred reconciling load. This keeps the full-library scan (getWishlistReleases walks every
             /// release of every film) out of the mount frame on revisits. See HallOfFameView.onAppear.
@@ -230,7 +230,8 @@ struct ReleaseWishlistView: View {
     private func applyWishlistReleases(_ rebuilt: [WishlistRelease]) {
 
         /// Assign only on an actual change, as in HallOfFameView. The reload after a drag-reorder (see scheduleReload) usually finds the order
-        /// handleMove already applied, and reassigning would only push the same rows back through the table. @State does not compare on assignment.
+        /// handleMove already applied, and reassigning would only push the same rows back through the table. SwiftUI compares a `@State`
+        /// array by its storage, not its contents, so a freshly built but equal array would still invalidate the view.
         if rebuilt != releases {
             releases = rebuilt
         }

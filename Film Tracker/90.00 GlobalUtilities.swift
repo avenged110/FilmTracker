@@ -7,6 +7,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import Combine
+import Synchronization
 
 // MARK: - Stepper Enabled Fill
 
@@ -178,52 +179,6 @@ enum ViewingVersion: String, CaseIterable, Hashable {
     }
 }
 
-// MARK: - Current Year
-///
-/// The single, cheap source for "what year is it", behind a short-lived cache.
-///
-// MARK: Why a cache at all
-///
-/// `Calendar.current.component(.year, from: Date())` is not a field read — it resolves the
-/// user's current calendar and performs a full date decomposition. Two types (FSTabReleases
-/// and CustomDateStepper) read it on genuinely hot paths: the release card's purchase-year range is read per row
-/// evaluation and again inside every ordering-rule enforcement pass, and CustomDateStepper's
-/// `@State private var year` default expression is evaluated on EVERY construction of that
-/// view — SwiftUI re-runs a View's init on each parent body pass, and Swift evaluates a
-/// stored property's default expression even in an initializer that immediately overwrites
-/// it (verified, and true at -O). Three CustomDateSteppers are constructed per release card.
-///
-// MARK: Why a time window rather than a launch-time constant
-///
-/// The year is derived rather than stored, so an app session left running across midnight on
-/// December 31 does not keep reporting last year. The value may be at most `maxAge` old, so
-/// the boundary is crossed within a minute of the actual rollover. Nothing in this app
-/// distinguishes those two, and every consumer (year ranges, new-release defaults) is a
-/// bound or a seed, not a timestamp.
-///
-/// A negative age is treated as stale, so a clock moved backwards re-derives rather than
-/// serving a value from a future that no longer applies.
-@MainActor
-enum CurrentYear {
-    /// How long a derived year may be reused before it is re-derived.
-    private static let maxAge: TimeInterval = 60
-
-    private static var cached: (year: Int, derivedAt: Date)?
-
-    static var value: Int {
-        let now = Date()
-        if let cached {
-            let age = now.timeIntervalSince(cached.derivedAt)
-            if age >= 0 && age < maxAge { return cached.year }
-        }
-        /// The pinned Gregorian calendar, not Calendar.current: every consumer bounds or seeds
-        /// a stored Gregorian year (see CustomDateStepper.calendar).
-        let year = StorageDateFormatters.calendar.component(.year, from: now)
-        cached = (year, now)
-        return year
-    }
-}
-
 // MARK: - Current Day
 ///
 /// The current calendar day as an observable value, for content that has to change when the
@@ -251,6 +206,21 @@ final class CurrentDay {
     /// The start of today. Changes only when the calendar day does.
     private(set) var today: Date
 
+    /// The year of `today`, in the same pinned Gregorian calendar — "what year is it" for year
+    /// ranges and new-release defaults, so they turn over with the day itself.
+    ///
+    /// A stored read because two readers are hot: the release card's purchase-year range is
+    /// read per row evaluation and inside every ordering-rule pass, and CustomDateStepper's
+    /// `@State year` default expression runs on EVERY construction of that view (SwiftUI
+    /// re-runs a View's init on each parent body pass, and Swift evaluates a stored property's
+    /// default even in an initializer that overwrites it), three per release card. A calendar
+    /// lookup there costs about 0.5 µs each time.
+    ///
+    /// Not observed: those readers are initializers and range bounds, which did not re-render
+    /// on a year change before this either, and an observed read would subscribe the parent
+    /// body that constructs each stepper.
+    @ObservationIgnored private(set) var year: Int
+
     /// Fires with the new `today` after each change, for non-view observers.
     @ObservationIgnored let dayChanged = PassthroughSubject<Date, Never>()
 
@@ -258,7 +228,9 @@ final class CurrentDay {
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
 
     private init() {
-        today = Self.startOfToday()
+        let day = Self.startOfToday()
+        today = day
+        year = Self.year(of: day)
         let center = NotificationCenter.default
         for name in [Notification.Name.NSCalendarDayChanged, .NSSystemClockDidChange,
                      .NSSystemTimeZoneDidChange] {
@@ -277,11 +249,16 @@ final class CurrentDay {
         StorageDateFormatters.calendar.startOfDay(for: Date())
     }
 
+    private static func year(of day: Date) -> Int {
+        StorageDateFormatters.calendar.component(.year, from: day)
+    }
+
     /// Re-reads the day and publishes it if it changed. Safe to call at any time.
     func refresh() {
         let day = Self.startOfToday()
         if day != today {
             today = day
+            year = Self.year(of: day)
             dayChanged.send(day)
         }
         scheduleMidnightRefresh()
@@ -421,21 +398,22 @@ nonisolated enum AppCalendar {
 func canonicalStoredDay(_ text: Substring, separator: Character,
                         calendar: Calendar = StorageDateFormatters.calendar) -> Date? {
     let u = text.utf8
-    guard u.count == 10 else { return nil }
-    var digits = [Int](repeating: 0, count: 8)
-    var n = 0
+    guard u.count == 10, let separatorByte = separator.asciiValue else { return nil }
+    /// The three fields accumulate as they are read: no digit buffer to allocate.
+    var year = 0, month = 0, day = 0
     for (i, byte) in u.enumerated() {
         if i == 4 || i == 7 {
-            guard byte == separator.asciiValue else { return nil }
-        } else {
-            guard byte >= 48, byte <= 57 else { return nil }
-            digits[n] = Int(byte) - 48
-            n += 1
+            guard byte == separatorByte else { return nil }
+            continue
+        }
+        guard byte >= 48, byte <= 57 else { return nil }
+        let digit = Int(byte) - 48
+        switch i {
+        case 0..<4: year = year * 10 + digit
+        case 5, 6: month = month * 10 + digit
+        default: day = day * 10 + digit
         }
     }
-    let year = digits[0] * 1000 + digits[1] * 100 + digits[2] * 10 + digits[3]
-    let month = digits[4] * 10 + digits[5]
-    let day = digits[6] * 10 + digits[7]
     guard year >= 1000, (1...12).contains(month), day >= 1, day <= gregorianDaysInMonth(month, year: year) else { return nil }
     guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else { return nil }
     /// The calendar resolves a missing or skipped midnight by rolling forward; the
@@ -502,6 +480,63 @@ func gregorianDaysInMonth(_ month: Int, year: Int) -> Int {
     case 2: return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 ? 29 : 28
     case 4, 6, 9, 11: return 30
     default: return 31
+    }
+}
+
+/// A Gregorian calendar day as its three numbers, for counting whole days, months and years
+/// between two dates with integers instead of `Calendar.dateComponents(_:from:to:)`.
+///
+/// That Calendar call costs 8–70 µs and grows with the span: about 8 µs across a week,
+/// 24 µs across a year, 72 µs across thirty (measured 2026-11-17). Reading one date's year,
+/// month and day costs about 0.6 µs. `timeAgo`, `timeDistanceFromNow` and
+/// `rotationEligibilityDate` read each end once and count from there.
+///
+/// The counts are Calendar's own, rules included: a day the target month does not have
+/// becomes that month's last day (Jan 31 + 1 month is Feb 28), and a span is counted in
+/// whole years first, then in whole months from the day those years reach. Feb 29, 2024 to
+/// Mar 28, 2025 is therefore 1 year 1 month: a year reaches Feb 28, 2025, and a month more
+/// reaches Mar 28. Checked against the Calendar-based functions they replace on about
+/// 500,000 date pairs each (every day across nine years either side of 304 "now"s that
+/// include every month's first, last and leap days), with no difference.
+private struct CalendarDay {
+    let year: Int
+    let month: Int
+    let day: Int
+
+    /// The day `date` falls on in `calendar`, which must be Gregorian: `AppCalendar.current`,
+    /// or a calendar built from it.
+    init?(_ date: Date, in calendar: Calendar) {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = parts.year, let month = parts.month, let day = parts.day else { return nil }
+        self.year = year
+        self.month = month
+        self.day = day
+    }
+
+    /// `month` may run past 12 into later years. A `day` past the month's end becomes its last day.
+    init(year: Int, month: Int, clampingDay day: Int) {
+        let monthIndex = year * 12 + (month - 1)
+        self.year = monthIndex / 12
+        self.month = monthIndex % 12 + 1
+        self.day = min(day, gregorianDaysInMonth(self.month, year: self.year))
+    }
+
+    /// Days since 1970-01-01, so a difference of two is a whole-day count.
+    var dayNumber: Int { daysSinceEpoch(year: year, month: month, day: day) }
+
+    /// Whole years, then whole months, then the days left, from this day to `later`, the way
+    /// `Calendar.dateComponents([.year, .month, .day], from:to:)` counts them. `later` must
+    /// not be earlier.
+    func span(to later: CalendarDay) -> (years: Int, months: Int, days: Int) {
+        var years = later.year - year
+        if CalendarDay(year: year + years, month: month, clampingDay: day).dayNumber > later.dayNumber { years -= 1 }
+        let afterYears = CalendarDay(year: year + years, month: month, clampingDay: day)
+        var months = (later.year - afterYears.year) * 12 + (later.month - afterYears.month)
+        func advanced(by months: Int) -> CalendarDay {
+            CalendarDay(year: afterYears.year, month: afterYears.month + months, clampingDay: afterYears.day)
+        }
+        if advanced(by: months).dayNumber > later.dayNumber { months -= 1 }
+        return (years, months, later.dayNumber - advanced(by: months).dayNumber)
     }
 }
 
@@ -638,7 +673,10 @@ func extractVersionCode(from dateString: String?) -> ViewingVersion {
 /// - Returns: Date object if parsing succeeds, 'nil' otherwise.
 func parseDate(from dateString: String?) -> Date? {
     guard let dateString = dateString, !dateString.isEmpty else { return nil }
-    
+
+    /// The stored shapes as they are written, before anything is extracted.
+    if let date = storedShapeDate(dateString) { return date }
+
     /// Extract just the date portion (strips version codes and trailing dots)
     let datePortion = extractDatePortion(from: dateString) ?? dateString
 
@@ -650,6 +688,39 @@ func parseDate(from dateString: String?) -> Date? {
         return date
     }
     return parseDateWithFormatters(datePortion: datePortion, dateString: dateString)
+}
+
+/// The date of a string written exactly as the database writes it — `yyyy.MM.dd`,
+/// `yyyy-MM-dd`, `yyyy.MM.dd.XX` with a two-letter-or-digit version code, or a
+/// `StorageDateFormatters.timestamp` — or nil for anything else.
+///
+/// `parseDate(from:)` asks this first so the common case skips `extractDatePortion`, whose
+/// split and rejoin cost 0.3–1.1 µs, half or more of a whole parse (measured 2026-11-17).
+/// Wherever this answers, the full path gives the same date: each of these shapes passes
+/// through `extractDatePortion` unchanged or as its first ten characters, and then reaches
+/// the same fast parser. Anything else returns nil and takes the full path.
+private func storedShapeDate(_ text: String) -> Date? {
+    let utf8 = text.utf8
+    switch utf8.count {
+    case 10:
+        /// The fifth byte says which of the two day shapes this can be; the other would decline it there.
+        let isDash = utf8[utf8.index(utf8.startIndex, offsetBy: 4)] == UInt8(ascii: "-")
+        return canonicalStoredDay(text[...], separator: isDash ? "-" : ".")
+    case 13:
+        /// Two ASCII letters or digits are two Characters, which is what `extractDatePortion` needs to see a code.
+        func isCodeByte(_ byte: UInt8) -> Bool {
+            (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
+        }
+        let dot = utf8.index(utf8.startIndex, offsetBy: 10)
+        let first = utf8.index(after: dot)
+        guard utf8[dot] == UInt8(ascii: "."), isCodeByte(utf8[first]),
+              isCodeByte(utf8[utf8.index(after: first)]) else { return nil }
+        return canonicalStoredDay(text[..<dot], separator: ".")
+    case 24:
+        return canonicalStoredTimestamp(text[...])
+    default:
+        return nil
+    }
 }
 
 /// The formatter chain `parseDate(from:)` ran before `canonicalStoredDay` was put in
@@ -700,25 +771,22 @@ func formatDate(_ date: Date) -> String {
     displayDateStyle.format(date)
 }
 
-/// Calculates the time elapsed from a date string to now, formatted
-/// with granular recent time labels or "x year/s x month/s ago" for longer periods.
-/// Handles version codes by stripping them before parsing.
-/// - Parameter dateString: String in format "YYYY.MM.DD" or "YYYY.MM.DD.XX".
+/// Calculates the time elapsed from a date to now, formatted with granular recent time
+/// labels or "x year/s x month/s ago" for longer periods.
+///
+/// Whole days and months between the two calendar days, counted by `CalendarDay` (Calendar's
+/// own rules, without its 8–70 µs difference computation).
 /// - Returns: Human-readable time difference (e.g., "Today", "Yesterday", "Last week",
 ///            "2 weeks ago", "3 weeks ago", "Less than a month ago", "3 months ago", "1 year 1 month ago").
-func timeAgo(from dateString: String?) -> String {
-    guard let date = parseDate(from: dateString) else { return "Unknown" }
-
+private func timeAgo(since date: Date) -> String {
     let calendar = AppCalendar.current
-    let now = Date()
-    
-    /// Calculate day difference first for recent dates
-    let dayComponents = calendar.dateComponents([.day], from: date, to: now)
-    guard let dayDiff = dayComponents.day else { return "Unknown" }
-    
+    guard let then = CalendarDay(date, in: calendar),
+          let today = CalendarDay(Date(), in: calendar) else { return "Unknown" }
+    let dayDiff = today.dayNumber - then.dayNumber
+
     /// Guard against future dates — dayDiff is negative when date is ahead of now
     if dayDiff < 0 { return "In the future" }
-    
+
     /// Handle granular recent cases
     switch dayDiff {
     case 0:
@@ -736,36 +804,25 @@ func timeAgo(from dateString: String?) -> String {
     default:
         break
     }
-    
-    /// For dates 30+ days ago, use month/year formatting
-    let components = calendar.dateComponents([.year, .month], from: date, to: now)
-    guard let years = components.year, let months = components.month else {
-        return "Unknown"
-    }
 
+    /// For dates 30+ days ago, use month/year formatting
+    let elapsed = then.span(to: today)
     var parts: [String] = []
-    if years > 0 { parts.append(Fmt.count(years, "year")) }
-    if months > 0 { parts.append(Fmt.count(months, "month")) }
+    if elapsed.years > 0 { parts.append(Fmt.count(elapsed.years, "year")) }
+    if elapsed.months > 0 { parts.append(Fmt.count(elapsed.months, "month")) }
     if parts.isEmpty { return "Less than a month ago" }
 
     return parts.joined(separator: " ") + " ago"
 }
 
-/// Combines formatted date with time ago in parentheses.
-/// Only appends timeAgo if the date is valid (not "Unknown date").
-/// Handles version codes by stripping them before formatting.
+/// Combines formatted date with time ago in parentheses, or "Unknown date" when the
+/// string does not parse. Handles version codes by stripping them before formatting.
 /// - Parameter dateString: String in format "YYYY.MM.DD" or "YYYY.MM.DD.XX".
-/// - Returns: Combined string like "November 04, 2025 (3 months ago)" or just "Unknown date".
+/// - Returns: Combined string like "November 4, 2025 (3 months ago)" or just "Unknown date".
 func formatDateWithTimeAgo(_ dateString: String?) -> String {
-    let formattedDate = formatDateString(dateString)
-    
-    /// Only append timeAgo if we have a valid date
-    if formattedDate != "Unknown date" {
-        let timeAgoText = timeAgo(from: dateString)
-        return "\(formattedDate) (\(timeAgoText))"
-    }
-    
-    return formattedDate
+    /// Parsed once for both halves.
+    guard let date = parseDate(from: dateString) else { return "Unknown date" }
+    return "\(formatDate(date)) (\(timeAgo(since: date)))"
 }
 
 // MARK: - Rotation Eligibility Dates
@@ -804,32 +861,34 @@ func formatDateWithTimeAgo(_ dateString: String?) -> String {
 /// - Parameters:
 ///   - lastWatchedDate: The parsed `lastWatched` date.
 ///   - months: The film's effective rotation threshold, in months.
-///   - calendar: The calendar to compute against. Defaults to `.current`.
+///   - calendar: The calendar to compute against, which must be Gregorian. Defaults to
+///     `AppCalendar.current`.
 /// - Returns: Midnight on the 1st of the eligibility month, or `nil` if the
 ///   calendar arithmetic fails (which in practice it does not).
 func rotationEligibilityDate(from lastWatchedDate: Date, months: Int, calendar: Calendar = AppCalendar.current) -> Date? {
-    guard let anniversary = calendar.date(
-        byAdding: .month, value: months, to: lastWatchedDate
-    ) else { return nil }
+    /// Counted on the calendar day rather than with Calendar month arithmetic (see CalendarDay):
+    /// 0.85 µs rather than 8 µs, for a function the smart lists, MetadataCache, Insights and
+    /// the Hall of Fame each call once or twice per film.
+    guard let watched = CalendarDay(lastWatchedDate, in: calendar) else { return nil }
 
-    /// Normalized to a day boundary first, so that an anniversary carrying a time
-    /// component on the 1st (e.g. 2026-09-01 14:00) is recognized as already being
-    /// on the boundary rather than being pushed a full month forward. Parsed
-    /// `lastWatched` dates are already midnight, but this function does not
-    /// require its caller to guarantee that.
-    let dayStart = calendar.startOfDay(for: anniversary)
+    /// The anniversary's day is only ever needed to ask whether it is the 1st, and clamping
+    /// (Aug 31 + 6 months → Feb 28/29) never moves a day onto the 1st, so the anniversary
+    /// falls on the 1st exactly when the viewing did. A time of day is ignored the same way:
+    /// an anniversary at 2026-09-01 14:00 is on the boundary, not pushed a month forward.
+    ///
+    /// The anniversary IS the 1st — the film's whole eligibility month is still ahead of it,
+    /// so there is nothing to round up to. Advancing here would cost the user an entire month
+    /// for the one calendar day per month that happens to land exactly on the boundary.
+    let monthsAhead = watched.day == 1 ? months : months + 1
+    let eligible = CalendarDay(year: watched.year, month: watched.month + monthsAhead, clampingDay: 1)
 
-    guard let monthStart = calendar.dateInterval(of: .month, for: dayStart)?.start else {
-        return nil
-    }
-
-    /// The anniversary IS the 1st — the film's whole eligibility month is still
-    /// ahead of it, so there is nothing to round up to. Advancing here would cost
-    /// the user an entire month for the one calendar day per month that happens to
-    /// land exactly on the boundary.
-    if monthStart == dayStart { return dayStart }
-
-    return calendar.date(byAdding: .month, value: 1, to: monthStart)
+    /// The day's first moment, which is midnight wherever the day has one. The Calendar
+    /// arithmetic this replaces could carry a missing midnight forward: in zones whose DST
+    /// changes fall at 00:00 (Asunción, Beirut, Cairo, Damascus, Havana and others), some
+    /// months' results read 01:00 on a 1st that has a midnight, and the smart lists, which
+    /// compare against the start of today, admitted the film a day late. Everywhere else
+    /// the two agree exactly (checked 1960–2100 in 20 zones, 2026-11-17).
+    return calendar.date(from: DateComponents(year: eligible.year, month: eligible.month, day: 1))
 }
 
 /// Formats a date as "Month Year" (e.g. "November 2026") for rotation display.
@@ -879,11 +938,10 @@ func formatTimestamp(_ date: Date) -> String {
 /// granularity: "x year/s away", "x year/s y month/s away", "x month/s away",
 /// "x week/s away" (for < 1 month), or "x day/s away" (for < 1 week).
 ///
-/// Measurement basis: both endpoints are snapped to the start of their calendar
-/// day first, so every tier is computed from an exact whole-day span. See the
-/// note in the body for why — in short, `Calendar.dateComponents` truncates
-/// toward zero, and against a midnight target that silently discarded the
-/// remainder of the current day from every tier.
+/// Measurement basis: both endpoints are taken as calendar days, so every tier is
+/// computed from an exact whole-day span. See the note in the body for why — in short,
+/// a measurement from "now" to a midnight target would discard the remainder of the
+/// current day from every tier.
 ///
 /// Rounding policy: round-half-up toward the nearest whole unit so the label
 /// lands "closer to the middle" rather than at either extreme.
@@ -893,7 +951,8 @@ func formatTimestamp(_ date: Date) -> String {
 ///       Formula: `(dayDiff + 3) / 7`
 ///       e.g.  7 days = 1 wk,  10 days = 1 wk,  11 days = 2 wks,  25 days = 4 wks.
 ///   • Months (≥ 28) — uses `Calendar`'s real (variable-length) year/month
-///       decomposition rather than a fixed 28-day approximation, matching the
+///       decomposition (counted by `CalendarDay`, which gives the same answer at a
+///       fraction of the cost) rather than a fixed 28-day approximation, matching the
 ///       methodology already used for "ago" calculations elsewhere in this file.
 ///       A fixed 28-day month is ~2.4 days shorter than a real calendar month
 ///       on average, and that shortfall compounds over multi-month/-year spans
@@ -908,26 +967,23 @@ func formatTimestamp(_ date: Date) -> String {
 func timeDistanceFromNow(to futureDate: Date) -> String {
     let calendar = AppCalendar.current
 
-    /// Both endpoints are normalized to the start of their calendar day before
-    /// anything is measured, and every tier below is computed from these two
-    /// values rather than from the raw `Date()`.
+    /// Both endpoints are read as calendar days before anything is measured, and every
+    /// tier below is computed from these two values rather than from the raw `Date()`.
     ///
     /// The target is a parsed date, always midnight; "now" is whatever time of day it
-    /// is. `Calendar.dateComponents` truncates toward zero, so from 2026-08-05 at 2:00 PM
-    /// to 2026-08-06 at midnight it returns 0 whole days. Without normalization, the
-    /// final day of every waiting period would read "0 days away" for a date a full day
-    /// ahead. The same truncation would shave up to a day off the week and month tiers.
+    /// is. Measured from the moment, 2026-08-05 at 2:00 PM to 2026-08-06 at midnight is
+    /// 0 whole days, so the final day of every waiting period would read "0 days away"
+    /// for a date a full day ahead, and the same truncation would shave up to a day off
+    /// the week and month tiers.
     ///
     /// Comparing whole days is also the right unit for this field on its own
     /// terms: the value it describes is a calendar date with no time component,
     /// and the user reads it as "how many more days until this comes up".
-    let now = calendar.startOfDay(for: Date())
-    let target = calendar.startOfDay(for: futureDate)
+    guard let now = CalendarDay(Date(), in: calendar),
+          let target = CalendarDay(futureDate, in: calendar) else { return "Unknown" }
 
-    /// Compute the total elapsed days from today to the future date. With both
-    /// endpoints on day boundaries this is an exact whole-day count.
-    let dayComponents = calendar.dateComponents([.day], from: now, to: target)
-    guard let dayDiff = dayComponents.day else { return "Unknown" }
+    /// The total days from today to the future date: an exact whole-day count.
+    let dayDiff = target.dayNumber - now.dayNumber
 
     /// Guard against non-future dates. Reached only if a caller passes today or
     /// earlier; `WatchDetails` never does, because a rotation date at or before
@@ -952,21 +1008,18 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
 
     /// ── Tier 3: Months (≥ 28) — real calendar year/month decomposition, ─────
     /// rounded half-up against the true length of the trailing partial month.
-    /// Measured between the same two day-normalized endpoints as the tiers above,
-    /// so a single set of values drives all three and they cannot disagree about
-    /// where a tier boundary falls.
-    let monthComponents = calendar.dateComponents([.year, .month, .day], from: now, to: target)
-    guard var years = monthComponents.year,
-          var months = monthComponents.month,
-          let trailingDays = monthComponents.day else { return "Unknown" }
+    /// Measured between the same two calendar days as the tiers above, so a single
+    /// set of values drives all three and they cannot disagree about where a tier
+    /// boundary falls.
+    let remaining = now.span(to: target)
+    var years = remaining.years, months = remaining.months
 
-    /// Anchor the start of the trailing partial month (i.e. "now" advanced by
-    /// the whole years/months already counted) so the remainder is measured
-    /// against that specific month's real length, not an assumed constant.
-    if let partialMonthStart = calendar.date(
-        byAdding: DateComponents(year: years, month: months), to: now),
-       let daysInPartialMonth = calendar.range(of: .day, in: .month, for: partialMonthStart)?.count,
-       trailingDays >= (daysInPartialMonth + 1) / 2 {
+    /// The trailing partial month — "now" advanced by the whole years and months already
+    /// counted — so the remainder is measured against that specific month's real length,
+    /// not an assumed constant.
+    let partialMonth = CalendarDay(year: now.year + years, month: now.month + months, clampingDay: 1)
+    let daysInPartialMonth = gregorianDaysInMonth(partialMonth.month, year: partialMonth.year)
+    if remaining.days >= (daysInPartialMonth + 1) / 2 {
         months += 1
         if months == 12 {
             months = 0
@@ -978,8 +1031,8 @@ func timeDistanceFromNow(to futureDate: Date) -> String {
     if years  > 0 { parts.append(Fmt.count(years, "year")) }
     if months > 0 { parts.append(Fmt.count(months, "month")) }
 
-    /// dayDiff >= 28 should always yield at least one whole month once rounded;
-    /// this fallback only guards a theoretical Calendar edge case.
+    /// dayDiff >= 28 always yields at least one whole month once rounded (28 days is at
+    /// least half of any month); this fallback only guards that invariant.
     if parts.isEmpty { return "1 month away" }
 
     return parts.joined(separator: " ") + " away"
@@ -1039,14 +1092,22 @@ func truncateListName(_ listName: String, maxLength: Int = menuTitleMaxLength) -
 
 /// The one place that knows where Apple's private SF Symbols live (CoreGlyphsPrivate).
 /// Access only — callers that need a size, weight or tint apply it themselves.
-struct PrivateSymbol {
+///
+/// Looking a symbol up builds a new NSImage from the bundle's asset catalog, about 29 µs
+/// (measured 2026-11-17), and the callers ask on every render of a right-sidebar view. So
+/// `exists` and `image(named:)` resolve each name once and keep the answer. `nsImage(named:)`
+/// stays uncached: it hands back a fresh image for the caller to configure.
+nonisolated struct PrivateSymbol {
     /// Resolved once; nil on a system where the path has moved, which makes every lookup
     /// below fail cleanly rather than crash.
-    nonisolated private static let bundle: Bundle? = Bundle(
+    private static let bundle: Bundle? = Bundle(
         path: "/System/Library/PrivateFrameworks/SFSymbols.framework/Versions/A/Resources/CoreGlyphsPrivate.bundle")
 
+    /// Each name looked up so far, with its Image, or nil when it does not resolve.
+    private static let resolved = Mutex<[String: Image?]>([:])
+
     /// The private symbol as a template NSImage, or nil when it does not resolve.
-    nonisolated static func nsImage(named name: String) -> NSImage? {
+    static func nsImage(named name: String) -> NSImage? {
         guard let bundle,
               let image = NSImage(symbolName: name, bundle: bundle, variableValue: 0)
         else { return nil }
@@ -1055,16 +1116,26 @@ struct PrivateSymbol {
     }
 
     /// Whether the private symbol resolves on this system.
-    nonisolated static func exists(_ name: String) -> Bool {
-        nsImage(named: name) != nil
+    static func exists(_ name: String) -> Bool {
+        resolvedImage(name) != nil
     }
 
     /// The private symbol as an Image, or `questionmark.square.dashed` when it does not
     /// resolve, so a missing symbol is visibly missing rather than silently blank.
     static func image(named name: String) -> Image {
-        guard let image = nsImage(named: name) else {
-            return Image(systemName: "questionmark.square.dashed") }
-        return Image(nsImage: image) }
+        resolvedImage(name) ?? Image(systemName: "questionmark.square.dashed")
+    }
+
+    /// The cached lookup behind `exists` and `image(named:)`. Two threads asking for a new
+    /// name at once may both build it; they store the same answer.
+    private static func resolvedImage(_ name: String) -> Image? {
+        if let known = resolved.withLock({ $0[name] }) { return known }
+        let image = nsImage(named: name).map { Image(nsImage: $0) }
+        /// `updateValue`, not a subscript assignment, so a symbol that does not resolve is
+        /// stored as nil rather than removing the key.
+        resolved.withLock { _ = $0.updateValue(image, forKey: name) }
+        return image
+    }
 }
 
 // MARK: - Subcategory Picker
@@ -1185,15 +1256,15 @@ struct GenericTitleBar<LeadingContent: View, TrailingButtons: View>: View {
 /// Usage:
 ///     HelpPopoverButton(helpText: "This list contains films which…")
 ///     HelpPopoverButton(helpText: "Long explanation…", autoDismissDuration: 60)
-///     HelpPopoverButton(helpText: "…", dismissToken: AnyHashable(someIndex))
+///     HelpPopoverButton(helpText: "…", dismissToken: { AnyHashable(someIndex) })
 ///
 /// The button renders at a fixed 22×22 pt frame to match the intrinsic size of
 /// NSButton with `.helpButton` bezel style and should be placed inline with other
 /// toolbar controls. Callers are responsible for showing or hiding the button
 /// entirely via conditional logic in their own view if context-sensitivity is required.
 ///
-/// `dismissToken`: an optional opaque identity value supplied by the caller. When the
-/// token changes (as detected by `.onChange`), any open popover is immediately dismissed.
+/// `dismissToken`: an optional closure returning an opaque identity value. When the
+/// token changes while the popover is open, the popover is immediately dismissed.
 /// This allows context-sensitive dismissal — e.g., closing the popover when the user
 /// navigates to a different card in a carousel — without requiring the caller to manage
 /// the `isShowingPopover` state directly. Defaults to `nil`; existing call sites that
@@ -1209,10 +1280,12 @@ struct HelpPopoverButton: View {
     /// text aloud, and that does not always land on a whole second. Integer literals at the
     /// existing call sites are unaffected.
     var autoDismissDuration: Double = 10
-    /// Optional dismiss token. When this value changes, any open popover is immediately
-    /// closed. Pass `AnyHashable(someEquatableValue)` to enable carousel-style dismissal.
-    /// Defaults to `nil`; omitting it leaves the popover's behavior unchanged.
-    var dismissToken: AnyHashable? = nil
+    /// Optional dismiss token. When the value it returns changes while the popover is open,
+    /// the popover closes. Pass `{ AnyHashable(someEquatableValue) }` to enable
+    /// carousel-style dismissal. A closure rather than a value so it is read only while the
+    /// popover is open (see `liveDismissToken`). Defaults to `nil`; omitting it leaves the
+    /// popover's behavior unchanged.
+    var dismissToken: (@MainActor () -> AnyHashable)? = nil
 
     @State private var isShowingPopover = false
     @State private var autoDismissTask: Task<Void, Never>?
@@ -1261,17 +1334,27 @@ struct HelpPopoverButton: View {
                     cancelAutoDismiss()
                 }
             }
-            /// Dismiss the popover whenever the caller-supplied dismiss token changes.
-            /// The guard on dismissToken != nil ensures this handler is a no-op for
-            /// every call site that omits the parameter (the default nil never changes,
-            /// so onChange never fires). Using AnyHashable lets callers pass any
-            /// Hashable value — Int carousel indices, UUIDs, enum cases — without
-            /// requiring a generic parameter on the struct.
-            .onChange(of: dismissToken) { _, _ in
-                if isShowingPopover {
-                    isShowingPopover = false
-                }
+            /// Dismiss the popover whenever the caller-supplied dismiss token changes while
+            /// it is open. `liveDismissToken` is nil while the popover is closed, so the
+            /// two transitions that only open or close it (nil → token, token → nil) are
+            /// not changes of the token and are ignored. A call site that omits the
+            /// parameter always reads nil, so this never fires for it.
+            .onChange(of: liveDismissToken) { oldToken, newToken in
+                guard oldToken != nil, newToken != nil, isShowingPopover else { return }
+                isShowingPopover = false
             }
+    }
+
+    /// The dismiss token, read only while the popover is open.
+    ///
+    /// Reading it is what subscribes this view to whatever the token is derived from. A
+    /// closed popover has nothing to dismiss, so it does not read it: a release card's help
+    /// button then does not re-run on every carousel step, which it did when the token was
+    /// a plain value (about 0.05 ms per mounted card per step, measured 2026-11-17). Opening
+    /// the popover re-runs the body, which reads the token and subscribes from then on.
+    private var liveDismissToken: AnyHashable? {
+        guard isShowingPopover, let dismissToken else { return nil }
+        return dismissToken()
     }
 
     private func scheduleAutoDismiss() {
@@ -1639,7 +1722,7 @@ extension CGPath {
 }
 
 // MARK: - Array Chunking
-/// Unified chunked(into:) extension used by DataManager, PosterCache, and DBReader
+/// Unified chunked(into:) extension used by PosterCache and DBReader
 /// for batch processing of large collections. Internal access allows all files in the
 /// module to use it without isolation concerns (Array is a value type).
 extension Array {

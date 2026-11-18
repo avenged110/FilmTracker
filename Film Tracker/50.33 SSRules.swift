@@ -509,9 +509,10 @@ enum RuleValues {
     /// The app's fixed genres, in the FilmSheet genre menu's order.
     static var genres: [String] { FilterOption.genreNames }
 
-    /// Rotation threshold values: the two override keywords, then the six real thresholds.
-    static let rotationValues = ["default", "override", "12 months", "18 months", "24 months",
-                                 "36 months", "48 months", "60 months"]
+    /// Rotation threshold values: the two override keywords, then the real thresholds. The
+    /// search field's suggestions offer the same list (SearchVocabulary).
+    static let rotationValues = ["default", "override"]
+        + Preferences.rotationThresholdOptions.map { "\($0) months" }
 }
 
 // MARK: - Rule Set

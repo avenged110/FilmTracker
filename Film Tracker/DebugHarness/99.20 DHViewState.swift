@@ -1274,7 +1274,7 @@ extension DebugHarness {
         let tokenBefore = galleryID()
         search.searchText = "#ti"
         await settle(600)
-        let entering = search.isEnteringToken && search.currentTokens.isEmpty
+        let entering = search.isEnteringFirstToken
         r.check("token-entry", inSearch && entering && galleryID() != nil && galleryID() == tokenBefore,
                 "entering \(entering), gallery \(galleryID() != nil), kept \(galleryID() == tokenBefore)")
         /// The hidden gallery must take no clicks or scrolls: a hit test at its center lands outside it.
@@ -1305,6 +1305,16 @@ extension DebugHarness {
         r.check("token-entry-predicate-off", !stillHidden, "hidden after the token entry ended: \(stillHidden)")
         r.check("token-entry-back", inSearch && gridFilmIDs() == coordinator.films.map(\.id),
                 "grid \(gridFilmIDs()?.count ?? -1), results \(coordinator.films.count)")
+        /// Text before the "#" has already narrowed the results: token entry keeps them in view, uncovered.
+        let narrowed = coordinator.films.map(\.id)
+        search.searchText = "e #ti"
+        await settle(600)
+        let coveredAfterText = GalleryReuse.hidesForTokenEntry(.libraryItem(.search))
+        r.check("token-entry-after-text-shown", search.isEnteringToken && !coveredAfterText
+                    && gridFilmIDs() == narrowed,
+                "entering \(search.isEnteringToken), covered \(coveredAfterText), grid \(gridFilmIDs()?.count ?? -1), held \(narrowed.count)")
+        search.searchText = "e"
+        await settle(600)
         await exit()
 
         // MARK: Show in List from search

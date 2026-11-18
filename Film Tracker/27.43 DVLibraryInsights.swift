@@ -163,11 +163,6 @@ struct DVGrowth: Equatable {
         let marks = films.indices.compactMap { i in (firstMonth + i) % 12 == 0 ? (index: i, year: (firstMonth + i) / 12) : nil }
         return marks.isEmpty && !films.isEmpty ? [(index: 0, year: firstMonth / 12)] : marks
     }
-
-    static func == (a: DVGrowth, b: DVGrowth) -> Bool {
-        a.firstMonth == b.firstMonth && a.films == b.films && a.purchases == b.purchases
-            && a.undatedFilms == b.undatedFilms && a.undatedPurchases == b.undatedPurchases
-    }
 }
 
 /// One calendar year of dated top-level purchases, for the Spending Trends card.
@@ -329,8 +324,11 @@ struct DVDataset: Sendable {
         }
     }
 
+    /// `calendar` defaults to `AppCalendar.current`, as `compute` passes: the figures are Gregorian whatever calendar the Mac is
+    /// set to. The tab's first pass and the PDF export take the default, so a system-calendar default here gave those two
+    /// Hebrew or Buddhist years under such a calendar while the background passes gave Gregorian ones.
     init(films: [FilmSnapshot], previousRecords: [DVFilmViewings], showInfoComplete: Bool,
-         today: Date = Date(), calendar: Calendar = .current) {
+         today: Date = Date(), calendar: Calendar = AppCalendar.current) {
         inputs = Inputs(films: films, showInfoComplete: showInfoComplete, today: today, calendar: calendar)
         let previous = Dictionary(previousRecords.map { ($0.filmID, $0) }, uniquingKeysWith: { first, _ in first })
         let records = films.map { DVFilmViewings($0, calendar: calendar, reusing: previous[$0.id]) }
@@ -355,6 +353,89 @@ struct DVDataset: Sendable {
     }
 }
 
+// MARK: - Hall of Fame Profile
+
+/// The Library Overview's Hall of Fame card: the ranked films set against the rest of the library, by how they are watched, rated, owned on
+/// disc, and paid for, with the ranked films behind the card's popovers. "Rest" is every film without a Hall of Fame position.
+struct DVHallOfFameProfile {
+    /// One side of the comparison. Every share is of the side's own film count.
+    struct Group {
+        var films = 0
+        var rated = 0, ratingSum = 0
+        var viewings = 0
+        /// Films with at least one recorded viewing, and with two or more.
+        var viewed = 0, rewatched = 0
+        /// Films whose last viewing falls in the trailing 12 months.
+        var viewedLastYear = 0
+        /// Films with a purchased release (LibraryStatistics' "on disc" rule), and of those, by best purchased format.
+        var onDisc = 0
+        var bestOwned: [ReleaseFormat: Int] = [:]
+        /// Films owned in more than one format (top-level purchases), as LibraryInsights.multiFormatFilms counts them.
+        var multiFormat = 0
+        /// What was paid for purchased top-level releases: the amount spent, or the cost where none is recorded.
+        var spent = 0.0
+
+        var averageRating: Double? { rated > 0 ? Double(ratingSum) / Double(rated) : nil }
+        var viewingsPerFilm: Double? { films > 0 ? Double(viewings) / Double(films) : nil }
+        var spentPerOwnedFilm: Double? { onDisc > 0 ? spent / Double(onDisc) : nil }
+        func share(_ count: Int) -> Double? { films > 0 ? Double(count) / Double(films) : nil }
+    }
+
+    let hof: Group
+    let rest: Group
+    /// The library's viewing total, for the Hall of Fame's share of it.
+    let libraryViewings: Int
+    /// Hall of Fame films with no purchased release; with no viewing in over a year (viewed films only); and owned, with a
+    /// better format than the best owned entered but not bought (HallOfFamePurchase.upgrade).
+    let unpurchasedItems: [DVNamedFilm]
+    let staleItems: [DVNamedFilm]
+    let upgradeItems: [DVNamedFilm]
+
+    init(films: [FilmSnapshot], viewing: (FilmSnapshot) -> DVFilmViewings, oneYearAgo: Date) {
+        var hof = Group(), rest = Group()
+        var libraryViewings = 0
+        var unpurchased: [DVNamedFilm] = [], stale: [DVNamedFilm] = [], upgrades: [DVNamedFilm] = []
+
+        for film in films {
+            let v = viewing(film)
+            let inHoF = film.hofPosition > 0
+            var g = inHoF ? hof : rest
+            g.films += 1
+            if film.userRating > 0 { g.rated += 1; g.ratingSum += film.userRating }
+            g.viewings += v.dates.count
+            libraryViewings += v.dates.count
+            if !v.dates.isEmpty { g.viewed += 1 }
+            if v.dates.count >= 2 { g.rewatched += 1 }
+            if let last = v.last, last >= oneYearAgo { g.viewedLastYear += 1 }
+
+            let purchase = HallOfFamePurchase.forReleases(film.releases)
+            if let owned = purchase.ownedFormat { g.bestOwned[owned, default: 0] += 1 }
+            let purchased = film.releases.contains { $0.purchased }
+            if purchased { g.onDisc += 1 }
+            let topLevel = film.releases.filter { $0.purchased && $0.isTopLevel }
+            if Set(topLevel.map(\.format)).count > 1 { g.multiFormat += 1 }
+            for r in topLevel { g.spent += r.amountSpent > 0 ? r.amountSpent : r.cost }
+
+            if inHoF {
+                hof = g
+                if !purchased { unpurchased.append(DVNamedFilm(film)) }
+                if let last = v.last, last < oneYearAgo { stale.append(DVNamedFilm(film)) }
+                if purchase.ownedFormat != nil, HallOfFamePurchase.upgrade(for: purchase, releases: film.releases) != nil {
+                    upgrades.append(DVNamedFilm(film))
+                }
+            } else {
+                rest = g
+            }
+        }
+        self.hof = hof
+        self.rest = rest
+        self.libraryViewings = libraryViewings
+        unpurchasedItems = unpurchased
+        staleItems = stale
+        upgradeItems = upgrades
+    }
+}
+
 // MARK: - Library Insights (all-time)
 
 struct LibraryInsights {
@@ -368,10 +449,14 @@ struct LibraryInsights {
     /// When the unwatched backlog would be cleared at the trailing-12-month first-time-
     /// watch pace; nil when there is no pace to project from.
     let backlogClearDate: Date?
-    let hallOfFameFilms: Int
-    let hallOfFameAverageRating: String
-    let hallOfFameNotOnDisc: Int
-    let hallOfFameUnwatchedOverYear: Int
+    /// Catalog Health's data-gap rows: films marked watched with no parseable viewing date (absent from every viewing chart, and never
+    /// viewed as far as rotation knows); films with a purchased top-level release carrying neither a cost nor an amount spent (left out of
+    /// every spending average); and films with no tags.
+    let watchedWithoutDates: Int
+    let purchasedWithoutPrice: Int
+    let untaggedFilms: Int
+    /// The Hall of Fame card's comparison with the rest of the library.
+    let hallOfFame: DVHallOfFameProfile
     let alternateVersionFilms: Int
     let waitingForEdit: Int
     /// Films behind `waitingForEdit`, for the Needs Attention card's popover.
@@ -547,6 +632,9 @@ struct LibraryInsights {
     // MARK: All-time viewing
     let mostRewatchedAllTime: [DVRank]
     let rewatchesByRatingBand: [DVTally]
+    /// Average viewings per film rated 9–10 over that of films rated 6–7, each over the films in its whole range; nil when either range is
+    /// empty or unviewed. Averaging the 9 and 10 bands' own averages would weight a handful of 10s like hundreds of 9s.
+    let topToMidViewingRatio: Double?
     /// Average viewings per calendar month across every recorded year, Jan…Dec, ×100.
     let seasonality: [Double]
     let seasonalityLeader: String?
@@ -559,7 +647,7 @@ struct LibraryInsights {
 
     /// - Parameter viewings: The parsed viewing histories, one per film. The caller passes them when it already has them, since the tab keeps them
     ///   for the period section. Otherwise they are parsed here. Parsing is the costly part of this initializer.
-    init(films: [FilmSnapshot], viewings: [DVFilmViewings]? = nil, today: Date = Date(), calendar: Calendar = .current) {
+    init(films: [FilmSnapshot], viewings: [DVFilmViewings]? = nil, today: Date = Date(), calendar: Calendar = AppCalendar.current) {
         let currentYear = calendar.component(.year, from: today)
         let todayStart = calendar.startOfDay(for: today)
         let viewings = viewings ?? films.map { DVFilmViewings($0, calendar: calendar) }
@@ -571,8 +659,8 @@ struct LibraryInsights {
         var runtimeTotal = 0, unwatchedRuntime = 0, unwatched = 0, watched = 0
         var viewingCount = 0
         var firstYear: Int?
-        var hof = 0, hofRatingSum = 0, hofRated = 0, hofNotOnDisc = 0, hofStale = 0
         var altVersions = 0, waitingForEdit = 0, missingExtIDs = 0
+        var watchedNoDates = 0, unpriced = 0, untagged = 0
         var waitingForEditItems: [DVNamedFilm] = []
         var missingExtIDsItems: [DVNamedFilm] = []
         var blanks: [String: Int] = [:]
@@ -590,13 +678,10 @@ struct LibraryInsights {
                 let y = calendar.component(.year, from: first)
                 firstYear = min(firstYear ?? y, y)
             }
-            if film.hofPosition > 0 {
-                hof += 1
-                if film.userRating > 0 { hofRatingSum += film.userRating; hofRated += 1 }
-                if !film.releases.contains(where: { $0.purchased }) { hofNotOnDisc += 1 }
-                if let last = v.last, last < oneYearAgo { hofStale += 1 }
-            }
             if SmartLists.hasAlternateVersions(film) { altVersions += 1 }
+            if film.watched && v.dates.isEmpty { watchedNoDates += 1 }
+            if film.releases.contains(where: { $0.purchased && $0.isTopLevel && $0.cost <= 0 && $0.amountSpent <= 0 }) { unpriced += 1 }
+            if film.tags.isEmpty { untagged += 1 }
             if film.specialSorting.contains(FilmSpecialSorting.waitingForEdit) {
                 waitingForEdit += 1
                 waitingForEditItems.append(DVNamedFilm(film))
@@ -628,10 +713,12 @@ struct LibraryInsights {
         firstViewingYear = firstYear
         unwatchedFilms = unwatched
         unwatchedRuntimeMinutes = unwatchedRuntime
-        hallOfFameFilms = hof
-        hallOfFameAverageRating = hofRated > 0 ? Fmt.fixed(Double(hofRatingSum) / Double(hofRated), 1) : "—"
-        hallOfFameNotOnDisc = hofNotOnDisc
-        hallOfFameUnwatchedOverYear = hofStale
+        watchedWithoutDates = watchedNoDates
+        purchasedWithoutPrice = unpriced
+        untaggedFilms = untagged
+        hallOfFame = DVHallOfFameProfile(films: films,
+                                         viewing: { viewingsByID[$0.id] ?? DVFilmViewings($0, calendar: calendar) },
+                                         oneYearAgo: oneYearAgo)
         alternateVersionFilms = altVersions
         self.waitingForEdit = waitingForEdit
         self.waitingForEditItems = waitingForEditItems
@@ -796,7 +883,10 @@ struct LibraryInsights {
         var rfAll: [String: Int] = [:]
         var genreStats: [String: (n: Int, ratingSum: Int, rated: Int)] = [:]
         var contentRatings: [String: Int] = [:]
-        var tagCounts: [String: Int] = [:]
+        /// Tag key → spelling → films using it. Tags compare by `SearchText.key`, as the sidebar's
+        /// Tags section counts them (SidebarTags.mostUsed): once per film, shown in the most-used
+        /// spelling, so the card and the sidebar agree.
+        var tagSpellings: [String: [String: Int]] = [:]
         var directorStats: [String: (n: Int, ratingSum: Int, rated: Int, views: Int)] = [:]
         var castStats = directorStats, composerStats = directorStats, writerStats = directorStats
 
@@ -1074,7 +1164,14 @@ struct LibraryInsights {
                 genreStats[film.genre] = g
             }
             if !film.rating.isEmpty { contentRatings[film.rating, default: 0] += 1 }
-            for tag in film.tags where !tag.isEmpty { tagCounts[tag, default: 0] += 1 }
+            if !film.tags.isEmpty {
+                var seen: Set<String> = []
+                for tag in film.tags {
+                    let key = SearchText.key(tag)
+                    guard !key.isEmpty, seen.insert(key).inserted else { continue }
+                    tagSpellings[key, default: [:]][tag.trimmingCharacters(in: .whitespacesAndNewlines), default: 0] += 1
+                }
+            }
             func tally(_ names: [String], into stats: inout [String: (n: Int, ratingSum: Int, rated: Int, views: Int)]) {
                 for name in names where !name.isEmpty {
                     var s = stats[name] ?? (0, 0, 0, 0)
@@ -1247,8 +1344,19 @@ struct LibraryInsights {
         let ratingTotal = contentRatings.values.reduce(0, +)
         self.contentRatings = Self.orderedContentRatings(contentRatings).map { DVTally($0.0, $0.1, of: ratingTotal) }
         /// The MPAA Ratings and Tags card shows nine.
-        tags = tagCounts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
-            .prefix(9).map { DVTally($0.key, $0.value) }
+        var rankedTags: [(key: String, display: String, films: Int)] = []
+        rankedTags.reserveCapacity(tagSpellings.count)
+        for (key, uses) in tagSpellings {
+            /// The most-used spelling; ties go to the alphabetically first, so the choice is stable.
+            var display = key, best = 0, films = 0
+            for (spelling, n) in uses {
+                films += n
+                if n > best || (n == best && spelling < display) { display = spelling; best = n }
+            }
+            rankedTags.append((key, display, films))
+        }
+        rankedTags.sort { $0.films != $1.films ? $0.films > $1.films : $0.key < $1.key }
+        tags = rankedTags.prefix(9).map { DVTally($0.display, $0.films) }
 
         filmsOnBDOr4K = onBD
         let codecTotal = codecs.values.reduce(0, +)
@@ -1278,10 +1386,15 @@ struct LibraryInsights {
             .prefix(10)
             .map { DVRank(name: $0.name, value: "×\($0.dates.count)", year: $0.releaseYear) }
         let bands: [(String, ClosedRange<Int>)] = [("≤5", 1...5), ("6–7", 6...7), ("8", 8...8), ("9", 9...9), ("10", 10...10)]
-        rewatchesByRatingBand = bands.map { band in
-            let inBand = viewings.filter { band.1.contains($0.rating) }
-            let avg = inBand.isEmpty ? 0.0 : Double(inBand.reduce(0) { $0 + $1.dates.count }) / Double(inBand.count)
-            return DVTally(band.0, Int((avg * 100).rounded()))
+        func averageViewings(_ ratings: ClosedRange<Int>) -> Double? {
+            let inRange = viewings.filter { ratings.contains($0.rating) }
+            return inRange.isEmpty ? nil : Double(inRange.reduce(0) { $0 + $1.dates.count }) / Double(inRange.count)
+        }
+        rewatchesByRatingBand = bands.map { DVTally($0.0, Int(((averageViewings($0.1) ?? 0) * 100).rounded())) }
+        if let top = averageViewings(9...10), let mid = averageViewings(6...7), top > 0, mid > 0 {
+            topToMidViewingRatio = top / mid
+        } else {
+            topToMidViewingRatio = nil
         }
         var monthTotals = [Int](repeating: 0, count: 12)
         var yearSet = Set<Int>()

@@ -28,12 +28,13 @@ import os
 /// destination will be this same instance (see ShowInListNavigation.navigate).
 enum GalleryReuse {
     /// Whether the shared gallery is on screen but hidden under search's token-entry placeholder: the first token
-    /// is being typed, so there are no results to show. Anything that finds the gallery by walking the window
-    /// (KeyboardManager's Tab route) must treat it as absent.
+    /// is being typed into an otherwise empty field, so there are no results to show
+    /// (SearchController.isEnteringFirstToken). Text or a pill before the "#" has already narrowed the results,
+    /// and they stay in view. Anything that finds the gallery by walking the window (KeyboardManager's Tab route)
+    /// must treat it as absent.
     @MainActor
     static func hidesForTokenEntry(_ item: SidebarItem) -> Bool {
-        let search = SearchController.shared
-        return item == .libraryItem(.search) && search.isEnteringToken && search.currentTokens.isEmpty
+        item == .libraryItem(.search) && SearchController.shared.isEnteringFirstToken
     }
 
     /// hidesForTokenEntry for the sidebar item on screen. The hidden gallery stays mounted and holds the

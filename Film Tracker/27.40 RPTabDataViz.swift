@@ -241,7 +241,7 @@ struct DataVisualizationsView: View {
         pageRevision += 1
         let rebuilt = ViewingPeriodStatistics(viewings: dataset?.viewingRecords ?? [], year: selectedYear,
                                               yearToDate: yearToDate, compareYear: compareYear,
-                                              today: today, calendar: .current)
+                                              today: today, calendar: AppCalendar.current)
         period = rebuilt
         if let key { ReportsState.shared.updatePeriod(rebuilt, for: key) }
     }

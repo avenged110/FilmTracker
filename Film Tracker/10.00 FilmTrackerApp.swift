@@ -87,8 +87,7 @@ struct FilmTrackerApp: App, Loggable {
                     .environment(selectionState)
                     .environment(appState)
                     .environment(dataCoordinator)
-                    .focusedSceneValue(\.selectedFilmIDs, selectionState.selectedFilmIDs)
-                    .focusedSceneValue(\.selectedFilmID, selectionState.selectedFilmID)
+                    .modifier(SelectionFocusedValues(selectionState: selectionState))
                     .task(priority: .userInitiated) { await initializeApp() }
 
                 AlertHostView()
@@ -411,6 +410,22 @@ struct FilmTrackerApp: App, Loggable {
         /// The task handle is stored on AppState so AppDelegate can cancel it at shutdown,
         /// preventing the poster pruner from running file-system deletions mid-process-exit.
         appState.startDeferredMaintenance(coordinator: coordinator)
+    }
+}
+
+// MARK: - Selection Focused Values
+/// Publishes the selection to MenuBar's `@FocusedValue`s from the scene root, which keeps them current in every view.
+///
+/// Read here rather than in `FilmTrackerApp.body`: an observed property read in the scene body made every selection change
+/// re-evaluate the whole scene, rebuilding the window's root content and the `.commands` declaration. In a modifier, a
+/// selection change re-evaluates only this body.
+private struct SelectionFocusedValues: ViewModifier {
+    let selectionState: SelectionState
+
+    func body(content: Content) -> some View {
+        content
+            .focusedSceneValue(\.selectedFilmIDs, selectionState.selectedFilmIDs)
+            .focusedSceneValue(\.selectedFilmID, selectionState.selectedFilmID)
     }
 }
 
